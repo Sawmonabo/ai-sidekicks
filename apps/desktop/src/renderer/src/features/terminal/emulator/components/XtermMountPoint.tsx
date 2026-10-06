@@ -1,15 +1,19 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
-// The emulator's code arrives a commit after the mount (`emulator-loader.ts`), so the box reads
-// `Loading the terminal…` until it lands, or `Could not load the terminal` with `Retry`. This component names the region and leaves the live text
-// to xterm's own `aria-live` region, since announcing the grid again would read every cell twice.
+// The emulator's code arrives a commit after the mount (`loader.ts`), so the box reads
+// `Loading the terminal…` until it lands, or `Could not load the terminal` with `Retry`. This
+// component names the region and leaves the live text to xterm's own `aria-live` region, since
+// announcing the grid again would read every cell twice.
+
+import "./XtermMountPoint.css";
 
 import { useEffect, useRef, useState } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator-loader.js";
-import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
-import type { TerminalRendererMode } from "../xterm-adapter.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../loader.js";
+import type { TerminalRendererMode } from "../xterm/addons.js";
 
 /** Props for the emulator's box: which terminal, the write gate, and the callbacks to forward. */
 export interface XtermMountPointProps {
@@ -35,7 +39,10 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
   const mountElementRef = useRef<HTMLDivElement | null>(null);
   const adapterRef = useRef<XtermTerminalAdapterInstance | undefined>(undefined);
   const [rendererMode, setRendererMode] = useState<TerminalRendererMode | undefined>(undefined);
-  const emulator = useTerminalEmulator(terminalEmulatorLoader);
+  const { state: emulator, retry: retryEmulator } = useChunkLoad(
+    terminalEmulatorLoader,
+    "terminal-emulator-chunk",
+  );
 
   const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
   const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
@@ -120,7 +127,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
           aria-label={isWritable ? props.label : `${props.label}, read-only`}
         />
       ) : (
-        renderEmulatorAbsence(emulator)
+        renderEmulatorAbsence(emulator, retryEmulator)
       )}
     </div>
   );
@@ -134,7 +141,8 @@ type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTe
  * flight, and one line naming the pane with `Retry` when it failed.
  */
 function renderEmulatorAbsence(
-  emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
+  emulator: Exclude<ChunkLoadState<TerminalEmulatorModule>, { status: "loaded" }>,
+  retry: () => void,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
     <Nothing kind="not-loaded" placement="block" title="Loading the terminal…" />
@@ -143,15 +151,7 @@ function renderEmulatorAbsence(
       kind="error"
       placement="block"
       title="Could not load the terminal"
-      action={
-        <button
-          type="button"
-          className="meridian-action-button meridian-action-button--small meridian-action-button--outline"
-          onClick={emulator.retry}
-        >
-          Retry
-        </button>
-      }
+      action={<TryAgainButton word="Retry" onPress={retry} />}
     />
   );
 }

@@ -1,0 +1,18 @@
+/*
+ * The run page's eyebrows: the small capital word over what a line says. The header's two
+ * opening lines carry `What happened` and `What it needs`; a box waiting on a person carries its
+ * eyebrow in amber, the one hue for a person being needed.
+ */
+
+.meridian-workflow-run__eyebrow {
+  display: block;
+  font-size: var(--meridian-text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--meridian-tracking-label);
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-workflow-run__eyebrow--attention {
+  color: var(--meridian-amber-text);
+}

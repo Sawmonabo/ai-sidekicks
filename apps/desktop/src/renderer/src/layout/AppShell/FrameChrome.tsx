@@ -8,13 +8,13 @@
 // This is separate from `AppFrame.tsx` because the announcement hook below must run under the
 // announcer provider that `AppFrame` mounts.
 
-import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
-import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
-import { type WindowBanner } from "@renderer/store/window/window-store.js";
+import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { type WindowBanner } from "#renderer/store/window/store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
-import { formatRoute, type AppRoute } from "@renderer/routing/routes.js";
-import { type RailDestination } from "@renderer/routing/route-readers.js";
+import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
+import { type RailDestination } from "#renderer/routing/readers.js";
 
 /** What a caller hands the frame chrome. */
 export interface FrameChromeProps {
@@ -30,6 +30,8 @@ export interface FrameChromeProps {
   readonly overlays?: React.ReactNode;
   /** True while a modal overlay owns focus; the frame's background is `inert` meanwhile. */
   readonly modalOverlayOpen?: boolean;
+  /** One line about the window itself, drawn above the banners. */
+  readonly notice?: React.ReactNode;
 }
 
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
@@ -44,6 +46,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           onSelect={props.onSelectDestination}
         />
         <div className="meridian-frame__column">
+          {props.notice}
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
               {props.banners.map((banner) => (

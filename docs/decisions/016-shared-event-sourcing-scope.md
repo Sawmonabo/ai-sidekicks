@@ -11,7 +11,7 @@
 
 ## Context
 
-AI Sidekicks is an agentic coding runtime for one user and their agents. Per [ADR-014](./014-v1-feature-scope-definition.md), V1 ships its features on a single codebase, and the relay is the person's own, in either deployment [ADR-019](./019-v1-deployment-model-and-oss-license.md) describes. Session activity is modeled as events for replay, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
+AI Sidekicks is an agentic coding runtime for one user and their agents. Per [ADR-014](./014-v1-feature-scope-definition.md), V1 ships its features on a single codebase, and the relay is the person's own, in either deployment [ADR-019](./019-v1-deployment-model-and-oss-license.md) describes. Session activity is modeled as events for rebuild, auditability, and determinism; [vision.md §5. Session Engine](../vision.md) names the product an "event-sourced engine where everything important is an event."
 
 The system already has a two-store split per [ADR-004: SQLite Local State and Postgres Control Plane](./004-sqlite-local-state-and-postgres-control-plane.md):
 
@@ -28,7 +28,7 @@ Should V1 ship with a shared server-side event log where the person's daemons ap
 
 ### Trigger
 
-vision.md §5. Session Engine promises event-sourcing semantics without scoping the event log's location. Downstream schema ownership, the replay spec (Spec-013) and the audit-log spec (Spec-005) all depend on this scope being fixed before Plan-001 Session Core is built.
+vision.md §5. Session Engine promises event-sourcing semantics without scoping the event log's location. Downstream schema ownership, the persistence and recovery spec (Spec-013) and the audit-log spec (Spec-005) all depend on this scope being fixed before Plan-001 Session Core is built.
 
 ## Decision
 
@@ -40,9 +40,9 @@ Option A is rejected. The relay never holds a byte of a session, so there is no 
 
 Two consequences follow from a daemon owning its own log.
 
-**On resume, the local log wins.** When a provider's reported session position diverges from the daemon's recorded position, the per-daemon `session_events` table with its monotonic per-session sequence is the source of truth. Divergence halts for a human rather than silently re-emitting or silently discarding events; the reconciliation semantics are in [Spec-013](../specs/013-persistence-recovery-and-replay.md) §Fallback.
+**On resume, the local log wins.** When a provider's reported session position diverges from the daemon's recorded position, the per-daemon `session_events` table with its monotonic per-session sequence is the source of truth. Divergence halts for a human rather than silently re-emitting or silently discarding events; the reconciliation semantics are in [Spec-013](../specs/013-persistence-and-recovery.md) §Fallback.
 
-**The log never truncates and never rewrites.** Undo (V1 feature 16 per [ADR-014](./014-v1-feature-scope-definition.md)) is recorded **forward**: every undo appends one `session.restore_finished` event carrying what applied and the cause of what did not, and a conversation cut also appends `run.rolled_back`, registered in the `run_lifecycle` category as **non-terminal** by [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md). The undo itself is [Spec-003](../specs/003-queue-steer-pause-resume.md)'s. The provider's conversation cut — Claude Code's `rewind_conversation`, Codex's `thread/revert`, and, before Claude Code's last compaction, the provider's own copy of the conversation resumed in place — is an execution detail beneath the log. The files go back through the daemon's own checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior)), never through the git snapshot. Turns after an undo point stay queryable history, marked superseded by projection when the conversation went back.
+**The log never truncates and never rewrites.** Undo (V1 feature 16 per [ADR-014](./014-v1-feature-scope-definition.md)) is recorded **forward**: every undo appends one `session.restore_finished` event carrying what applied and the cause of what did not, and a conversation cut also appends `run.rolled_back`, registered in the `run_lifecycle` category as **non-terminal** by [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md). The undo itself is [Spec-003](../specs/003-queue-steer-pause-resume.md)'s. The provider's conversation cut — Claude Code's `rewind_conversation`, Codex's `thread/revert`, and, before Claude Code's last compaction, the provider's own copy of the conversation resumed in place — is an execution detail beneath the log. The files go back through the daemon's own checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-and-recovery.md#required-behavior)), never through the git snapshot. Turns after an undo point stay queryable history, marked superseded by projection when the conversation went back.
 
 ### Machine Identity And Reachability
 
@@ -50,7 +50,7 @@ A machine's identity is its service's Ed25519 key, minted at the service's first
 
 A machine's health is its reachability and its version, and nothing else. A machine keeps one outbound connection to the relay while its service runs: it is reachable while that connection is up, and after 45 seconds without a frame it is not reachable, read from the relay connection itself with no heartbeat table. The version decides whether a device may only read.
 
-**None of this is a session event.** Nothing about a machine is recorded on a session's log: there are no `runtime_node.*` session events — no `registered`, `online`, `offline`, `degraded` or `revoked`, and no capability declarations. A machine's driver capabilities are current state, held in the daemon's capability tables and rebuilt from them at start, never replayed from events. So no party has to author a machine's lifecycle on a session's log, and none does.
+**None of this is a session event.** Nothing about a machine is recorded on a session's log: there are no `runtime_node.*` session events — no `registered`, `online`, `offline`, `degraded` or `revoked`, and no capability declarations. A machine's driver capabilities are current state, held in the daemon's capability tables and rebuilt from them at start, never from events. So no party has to author a machine's lifecycle on a session's log, and none does.
 
 **Where a machine's changes are seen.** Control-plane events carry the changes to the person's machines, devices and passkeys: one for each statement in the account's chain, carrying its kind as its name (`device.linked`, `device.renamed`, `device.revoked`, `passkey.added`, `passkey.removed`, `runtimenode.added`, `runtimenode.renamed` and `runtimenode.removed`), beside `device.forgotten` and `runtimenode.registered`. The control plane's `device.list` live read delivers them to every linked device as they happen, with no polling ([Spec-027](../specs/027-remote-control.md)); none of them is written on a session's log.
 
@@ -88,7 +88,7 @@ The Linear pattern stays on record as the counterexample for a server that may r
 ### Option B: Per-machine local event logs (Chosen)
 
 - **What:** Each machine's daemon owns a `session_events` table in its Local SQLite (already declared in [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md), owned by Plan-001), holding the sessions that machine runs. Every event of a session is appended there, with `UNIQUE(session_id, sequence)` monotonic per session. Other devices read a session over their own channel to its owning machine (ADR-010); no other daemon appends a copy.
-- **Steel man:** Cryptographically coherent with the zero-knowledge relay. Matches the ecosystem norm for replicated-log and collaborative-editor systems (Kleppmann, Automerge, Zed, Replicache). Each daemon is authoritative for its own view and can replay offline. No trust is placed in the relay beyond message routing. Schema already de facto implements this.
+- **Steel man:** Cryptographically coherent with the zero-knowledge relay. Matches the ecosystem norm for replicated-log and collaborative-editor systems (Kleppmann, Automerge, Zed, Replicache). Each daemon is authoritative for its own view and can rebuild offline. No trust is placed in the relay beyond message routing. Schema already de facto implements this.
 - **Weaknesses:** No single query spans all of the person's machines: each machine answers for the sessions it runs, and an audit or export covering several machines reads each one.
 
 ### Option A: Shared Postgres event log (Rejected)
@@ -100,7 +100,7 @@ The Linear pattern stays on record as the counterexample for a server that may r
 ## Reversibility Assessment
 
 - **Reversal cost:** A `session_events_shared` table would be an additive table, but filling it means the relay or the control plane holding session content, which [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md)'s channel rules out; a reversal therefore starts with a change to that channel, not to this schema.
-- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (audit semantics across machines), [Spec-013](../specs/013-persistence-recovery-and-replay.md) (a shared log as a replay source), ADR-010 and [Spec-027](../specs/027-remote-control.md) (what the relay may carry). No local schema churn.
+- **Blast radius:** `shared-postgres-schema.md` (one new table), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (audit semantics across machines), [Spec-013](../specs/013-persistence-and-recovery.md) (a shared log as a rebuild source), ADR-010 and [Spec-027](../specs/027-remote-control.md) (what the relay may carry). No local schema churn.
 - **Migration path:** None planned. The local logs stay authoritative whatever is added beside them.
 - **Point of no return:** None. The local logs remain the record under any later addition.
 
@@ -111,7 +111,7 @@ The Linear pattern stays on record as the counterexample for a server that may r
 - A session's content never leaves its owning machine except over a device's own sealed channel.
 - Cryptographically coherent with the zero-knowledge relay: the relay sees ciphertext and routes it; it does not own any log.
 - Matches replicated-log ecosystem precedent (Kleppmann, Automerge, Zed, Replicache).
-- Each daemon is authoritative for its own view and can replay offline.
+- Each daemon is authoritative for its own view and can rebuild offline.
 - Reduces the shared-Postgres write path from per-event to per-coordination-record, lowering the load on the person's own relay.
 
 ### Negative (accepted trade-offs)
@@ -145,6 +145,6 @@ The Linear pattern stays on record as the counterexample for a server that may r
 ### Related Specs And Docs
 
 - [Spec-005 — Session Event Taxonomy and Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md) — event taxonomy the per-daemon logs carry.
-- [Spec-013 — Persistence, Recovery, and Replay](../specs/013-persistence-recovery-and-replay.md) — replay semantics over per-daemon logs.
+- [Spec-013 — Persistence And Recovery](../specs/013-persistence-and-recovery.md) — rebuild semantics over per-daemon logs.
 - [Data Architecture §Event-Sourcing Scope](../architecture/data-architecture.md#event-sourcing-scope) — aligned with this ADR.
 - [vision.md §5. Session Engine](../vision.md) — aligned with this ADR.

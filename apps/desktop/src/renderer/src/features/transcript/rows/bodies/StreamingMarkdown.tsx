@@ -1,21 +1,27 @@
 // Mounts the markdown pipeline for one body: the block segmenter, two-pass footnote resolution
-// and footnote registration. Block boundaries and settling are decided in `markdown/`.
+// and footnote registration. Block boundaries and settling are decided in the shared renderer,
+// `components/Markdown/`.
 // The published text arrives as a prop rather than a reveal-engine subscription, so a settled
 // message, which has no reveal stream, renders through the same path.
 
 import type { RootContent } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 
-import { collectFootnoteDefinitions } from "../markdown/footnotes/footnote-collection.js";
-import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
-import { MarkdownNodes, type MarkdownRenderContext } from "../markdown/nodes/MarkdownNodes.js";
+import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
+import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
+import {
+  MarkdownNodes,
+  type MarkdownRenderContext,
+} from "#renderer/components/Markdown/MarkdownNodes.js";
 import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
 import {
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
-} from "../markdown/parse/markdown-parse.js";
+} from "#renderer/components/Markdown/parse.js";
+import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { SettledBlock } from "./SettledBlock.js";
+import { renderCodeBlockCopy } from "./CodeBlockCopy.js";
 
 /**
  * The empty node list, once: a fresh `[]` per render would give a body with no tail a new prop
@@ -43,6 +49,8 @@ export interface StreamingMarkdownProps {
    * character can change what it means.
    */
   readonly isComplete: boolean;
+  /** Whether each code block carries its own Copy: an agent's reply does, a person's does not. */
+  readonly offersCodeCopy: boolean;
 }
 
 /** Renders a markdown body incrementally: settled blocks memoized, the tail re-parsed. */
@@ -93,13 +101,20 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     [segmentation.volatileTail, definitionPreamble, declaredVolatileNodes],
   );
 
+  const codeSpanReader = useCodeSpanReader();
+  const renderCodeCopy = props.offersCodeCopy ? renderCodeBlockCopy : undefined;
   const settledContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: true, definedFootnoteIdentifiers }),
-    [definedFootnoteIdentifiers],
+    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy }),
+    [definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
   );
   const volatileContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: props.isComplete, definedFootnoteIdentifiers }),
-    [props.isComplete, definedFootnoteIdentifiers],
+    () => ({
+      isSettled: props.isComplete,
+      definedFootnoteIdentifiers,
+      codeSpanReader,
+      renderCodeCopy,
+    }),
+    [props.isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
   );
 
   // An effect, not a render, so no render mutates a registry that two cards share.

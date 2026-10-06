@@ -3,18 +3,19 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import {
   RetainingRowBody,
   SHORT_LOG_EVENT_COUNT,
   renderFeed,
 } from "./TranscriptFeed.test-support.js";
-import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
+import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   SESSION_ID,
   transcriptFixtureEventId,
+  transcriptFixtureStreamCursor,
   openSessionStoreWithGeneralLog,
-} from "../../transcript-logs.test-support.js";
+} from "../../logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -28,6 +29,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
         id: transcriptFixtureEventId(sequence),
         sessionId: SESSION_ID,
         sequence,
+        cursor: transcriptFixtureStreamCursor(sequence),
         kind: "user.message",
         occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 1, sequence)).toISOString(),
         payload: {},

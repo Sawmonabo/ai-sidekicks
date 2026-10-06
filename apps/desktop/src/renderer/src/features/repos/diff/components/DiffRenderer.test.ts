@@ -1,27 +1,27 @@
 // The renderer's claims: the mounted row count is bounded by the window, not the diff; the window
 // sits at the heights rows were measured at, not estimated; and the rows say what a patch holds.
-// happy-dom has no layout engine, so `tests/helpers/diff-layout-fixture.ts` supplies heights at
-// the seam the library reads them from, and every case installs it.
+// happy-dom has no layout engine, so `tests/helpers/diff/layout-fixture.ts` supplies heights
+// at the seam the library reads them from, and every case installs it.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../diff-measures.js";
-import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
+import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../measures.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
   TERMINAL_NEWLINE_FIXTURE_FILE,
-} from "@test/helpers/diff-fixture-shapes.js";
+} from "#test/helpers/diff/fixture/shapes.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
-} from "@test/helpers/diff-layout-fixture.js";
+} from "#test/helpers/diff/layout-fixture.js";
 import { SMALL_DIFF, renderDiff, reportedRowCount } from "./DiffRenderer.test-support.js";
-import { expandGap } from "../diff-row-model.js";
+import { expandGap } from "../rows/model.js";
 
 /** The rendered-row ceiling one window may reach: viewport rows, overscan, and a boundary row. */
 const MAXIMUM_WINDOW_ROW_COUNT =
@@ -188,14 +188,18 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
     });
   });
 
-  it("holds the scroller open at the height the rows measured, not the height they were estimated at", () => {
-    // One row three lines tall makes the diff that much taller; a window multiplying a row
-    // count by a constant would report the estimate and scroll past the end of the content.
-    const container = renderDiff({ model: bigDiff });
-    expect(contentHeightPx(container)).toBe(
-      reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
-    );
-  });
+  it(
+    "holds the scroller open at the height the rows measured, not " +
+      "the height they were estimated at",
+    () => {
+      // One row three lines tall makes the diff that much taller; a window multiplying a row
+      // count by a constant would report the estimate and scroll past the end of the content.
+      const container = renderDiff({ model: bigDiff });
+      expect(contentHeightPx(container)).toBe(
+        reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
+      );
+    },
+  );
 
   it("places the window below a wrapped row at the offset that row was measured at", () => {
     // Every row above the first rendered one is one row tall except the grown one, so the

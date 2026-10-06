@@ -7,10 +7,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
-import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
+import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
 
 /** Props for {@link SettingsPageContent}. */
 export interface SettingsPageContentProps {

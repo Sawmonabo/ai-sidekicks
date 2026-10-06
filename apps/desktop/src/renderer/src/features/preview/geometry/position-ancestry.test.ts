@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { POSITION_SIBLING_OBSERVER_CAP } from "../preview-caps.js";
+import { POSITION_SIBLING_OBSERVER_CAP } from "../caps.js";
 import { detachAttachedRoots, trackAttachedRoot } from "./element-motion.test-support.js";
 import { readAncestrySiblings, readPositionAncestry } from "./position-ancestry.js";
 

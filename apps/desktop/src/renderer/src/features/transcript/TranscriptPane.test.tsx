@@ -3,10 +3,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { registerTranscriptRowRenderer } from "./transcript-row-renderer.js";
+import { registerTranscriptRowRenderer } from "./rows/renderer.js";
 // The shared stub: `happy-dom` reports zero for both box readings, and a viewport with no
 // box holds no rows.
-import { withLaidOutViewport } from "./viewport/viewport-controller.test-support.js";
+import { withLaidOutViewport } from "./viewport/controller.test-support.js";
 import {
   openSessionStoreWithPaneLog,
   renderTranscriptPane as renderPane,

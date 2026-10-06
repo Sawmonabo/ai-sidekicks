@@ -28,9 +28,9 @@
 //     because the `usage_telemetry` payload has no per-cache-axis member.
 
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import { type DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 
 // --------------------------------------------------------------------------
 // Axes and readings.
@@ -222,7 +222,8 @@ export class UsageDeltaAccountant {
           kind: "usage_delta_floor_hit",
           rawWireType: null,
           dispositionReason:
-            "declared-cumulative token axis decreased; emission floored at zero and the base register re-set to the observed reading",
+            "declared-cumulative token axis decreased; emission floored at zero and the base " +
+            "register re-set to the observed reading",
           details: {
             threadId: reading.threadId,
             axis,
@@ -269,8 +270,10 @@ export class UsageDeltaAccountant {
         rawWireType: null,
         dispositionReason:
           rejectedEntry.reason === "unknown-axis"
-            ? "cumulative reading carried a key outside the closed axis list; refused before it reached a base register"
-            : "cumulative reading carried a non-finite value; refused before it reached a base register, which the zero-floor arm cannot undo",
+            ? "cumulative reading carried a key outside the closed axis list; refused before " +
+              "it reached a base register"
+            : "cumulative reading carried a non-finite value; refused before it reached a base " +
+              "register, which the zero-floor arm cannot undo",
         details: { threadId, axisKey: rejectedEntry.key, reason: rejectedEntry.reason, stage },
       });
     }
@@ -296,7 +299,8 @@ export class UsageDeltaAccountant {
           kind: "usage_cross_check_mismatch",
           rawWireType: null,
           dispositionReason:
-            "wire-declared per-turn figure disagrees with the derived interval; recorded as a cross-check and never substituted for it",
+            "wire-declared per-turn figure disagrees with the derived interval; recorded as " +
+            "a cross-check and never substituted for it",
           details: {
             threadId: reading.threadId,
             namedTurnId: reading.namedTurnId,
@@ -351,7 +355,8 @@ export class UsageDeltaAccountant {
         kind: "usage_containment_identity_unconfirmed",
         rawWireType: null,
         dispositionReason:
-          "token breakdown satisfies no containment identity; input emitted unsubtracted (a conservative overstatement surfaced for repair, never a silent understatement)",
+          "token breakdown satisfies no containment identity; input emitted unsubtracted (a " +
+          "conservative overstatement surfaced for repair, never a silent understatement)",
         details: {
           threadId: reading.threadId,
           namedTurnId: reading.namedTurnId,
@@ -398,12 +403,10 @@ export type CostUpdateResolution =
   | { readonly resolution: "held-until-priced" };
 
 /**
- * Resolve one `usage.cost_update`'s provenance ladder: (a) a sanity-bounded provider-reported
- * cost (finite, non-negative, below the absurdity ceiling) is `provider_reported`, and gross
- * divergence from a derivable estimate is a diagnostic, never a halt; (b) else a cost derived
- * from the provider's full breakdown and the price list's entry for the model is `derived_exact`;
- * (c) else the request is held until the price list prices it. This never halts and never
- * branches on `costSource`.
+ * Resolve one `usage.cost_update`'s provenance ladder: (a) a finite, non-negative provider-reported
+ * cost is `provider_reported`; (b) else a cost derived from the provider's full breakdown and the
+ * price list's entry for the model is `derived_exact`; (c) else the request is held until the
+ * price list prices it. This never halts and never branches on `costSource`.
  */
 export function resolveCostUpdateProvenance(options: {
   readonly provider: ProviderName;
@@ -411,58 +414,31 @@ export function resolveCostUpdateProvenance(options: {
   readonly providerReportedCostUsdMicros: number | null;
   /** The pricing-table derivation, or null for an unpriceable model. */
   readonly derivedQuote: DerivedCostQuote | null;
-  readonly absurdityCeilingUsdMicros: number;
-  /** Reported-vs-derived ratio beyond which divergence is diagnosed. */
-  readonly grossDivergenceFactor: number;
   readonly diagnostics: DriverDiagnosticsEmitter;
 }): CostUpdateResolution {
   const reportedUsdMicros = options.providerReportedCostUsdMicros;
   if (reportedUsdMicros !== null) {
-    if (
-      Number.isFinite(reportedUsdMicros) &&
-      reportedUsdMicros >= 0 &&
-      reportedUsdMicros < options.absurdityCeilingUsdMicros
-    ) {
-      const derivedUsdMicros = options.derivedQuote?.costUsdMicros ?? null;
-      if (
-        derivedUsdMicros !== null &&
-        derivedUsdMicros > 0 &&
-        (reportedUsdMicros > derivedUsdMicros * options.grossDivergenceFactor ||
-          reportedUsdMicros * options.grossDivergenceFactor < derivedUsdMicros)
-      ) {
-        options.diagnostics.emit({
-          provider: options.provider,
-          kind: "usage_cross_check_mismatch",
-          rawWireType: null,
-          dispositionReason:
-            "provider-reported cost grossly diverges from the derivable estimate; the reported provenance is kept and the divergence surfaced",
-          details: {
-            providerReportedCostUsdMicros: reportedUsdMicros,
-            derivedEstimateUsdMicros: derivedUsdMicros,
-            grossDivergenceFactor: options.grossDivergenceFactor,
-          },
-        });
-      }
+    if (Number.isFinite(reportedUsdMicros) && reportedUsdMicros >= 0) {
       return {
         resolution: "cost-update",
         costSource: "provider_reported",
         costUsdMicros: reportedUsdMicros,
       };
     }
-    // The sanity bound refused the wire's cost. Falling through silently would substitute a
-    // daemon estimate for a provider figure with no record that they disagreed.
+    // A non-finite or negative provider cost is refused. Falling through silently would put a
+    // daemon estimate where the provider's figure was, with no record that it was refused.
     options.diagnostics.emit({
       provider: options.provider,
       kind: "usage_cross_check_mismatch",
       rawWireType: null,
       dispositionReason:
-        "provider-reported cost failed the sanity bound (non-finite, negative, or at/above the absurdity ceiling); discarded in favor of the derivation ladder and surfaced rather than dropped",
+        "provider-reported cost was non-finite or negative; discarded in favor of the " +
+        "derivation ladder and surfaced rather than dropped",
       details: {
         providerReportedCostUsdMicros: Number.isFinite(reportedUsdMicros)
           ? reportedUsdMicros
           : null,
         reportedCostIsFinite: Number.isFinite(reportedUsdMicros),
-        absurdityCeilingUsdMicros: options.absurdityCeilingUsdMicros,
       },
     });
   }

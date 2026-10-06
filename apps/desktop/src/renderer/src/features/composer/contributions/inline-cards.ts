@@ -2,7 +2,7 @@
 
 import { createElement } from "react";
 
-import type { InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import type { InlineCardRegistry } from "#renderer/registries/inline-cards/registry.js";
 import { InlineAttachmentCard } from "../attachments/components/InlineAttachmentCard.js";
 
 const COMPOSER_INLINE_CARD_OWNER = "composer";

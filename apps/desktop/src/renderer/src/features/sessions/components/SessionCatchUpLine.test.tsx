@@ -6,15 +6,15 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { OpenSessionEntry } from "@renderer/store/session/open-session-entry.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { failingRepoMountsReader } from "@test/helpers/failing-repo-mounts-reader.js";
-import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { OpenSessionEntry } from "#renderer/store/session/open/entry.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { failingRepoMountsReader } from "#test/helpers/failing-repo-mounts-reader.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
 
@@ -88,7 +88,7 @@ describe("SessionCatchUpLine", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("says it couldn't catch up while the mounts read fails, past a good session read", async () => {
+  it("says it couldn't catch up if the mounts read fails after a good session read", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry("session-mounts-failed", {
       read: () => Promise.resolve({ cursor: 0, entities: [] }),

@@ -5,8 +5,8 @@
 // the terminal it left is closed.
 
 import { useEffect } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** An output stream the daemon served; closing it releases the subscription. */
 export interface TerminalOutputStream {

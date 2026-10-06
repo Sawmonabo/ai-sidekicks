@@ -6,7 +6,7 @@
 
 import { parseArgs } from "node:util";
 
-import type { FixtureLaunch } from "@shared/fixture-launch.js";
+import type { FixtureLaunch } from "#shared/fixture-launch.js";
 
 const LAUNCH_OPTIONS = {
   fixture: { type: "string" },
@@ -58,12 +58,13 @@ export function parseFixtureLaunch(argv: readonly string[]): FixtureLaunch | und
  * scenario does not hold.
  */
 export async function checkFixtureLaunchAgainstCatalog(launch: FixtureLaunch): Promise<void> {
-  const { findScenario } = await import("../../fixtures/index.js");
+  const { findScenario } = await import("#fixtures/index.js");
   // Throws, naming every scenario the catalog holds, for an unknown one.
   const scenario = findScenario(launch.scenarioId);
   if (launch.sessionId !== undefined && launch.sessionId !== scenario.sessionId) {
     throw new Error(
-      `the scenario "${scenario.id}" holds the session "${scenario.sessionId}", not "${launch.sessionId}"`,
+      `the scenario "${scenario.id}" holds the session ` +
+        `"${scenario.sessionId}", not "${launch.sessionId}"`,
     );
   }
 }

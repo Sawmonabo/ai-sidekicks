@@ -1,0 +1,40 @@
+/* The workflow command's candidate list: the saved workflows a typed name matches. */
+
+.meridian-workflow-start__candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding-top: var(--meridian-space-2);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-workflow-start__candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  max-height: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.meridian-workflow-start__candidate {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-workflow-start__candidate-name {
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text);
+  background: none;
+  border: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-workflow-start__candidate-name:hover {
+  background: var(--meridian-surface-sunken);
+}

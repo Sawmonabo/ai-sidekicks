@@ -5,17 +5,17 @@
 // body are `unknown`, and a hand-shaped read would take a number or an empty string as a binding.
 
 import { z } from "zod";
-import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run-queued";
-import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session-created";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
+import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session/events";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import {
   type StoredEntity,
   type ProjectedSessionEvent,
-} from "@renderer/store/session/entities/entities.js";
-import { RUN_QUEUED_EVENT_KIND } from "@renderer/store/session-events/run-state-kinds.js";
+} from "#renderer/store/session/entities/vocabulary.js";
+import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
 
 /**
  * The event kind of the session's birth, which brings the lead into the session; a run's creation

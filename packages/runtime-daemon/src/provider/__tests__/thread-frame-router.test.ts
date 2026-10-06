@@ -48,20 +48,24 @@ describe("ThreadFrameRouter", () => {
     expect(diagnostics.emittedRecordCount()).toBe(0);
   });
 
-  it("an unknown family quarantines even when a thread id is present — never presumed connection-scoped", () => {
-    const { router, diagnostics } = makeRouter();
-    router.registerSessionThread("session-thread");
-    const route = router.routeFrame(
-      {
-        rawWireType: "novel/unlisted-shape",
-        familyClass: { scope: "unknown" },
-        threadId: "session-thread",
-      },
-      0,
-    );
-    expect(route.decision).toBe("quarantined");
-    expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(1);
-  });
+  it(
+    "an unknown family quarantines even when a thread id is present — never presumed " +
+      "connection-scoped",
+    () => {
+      const { router, diagnostics } = makeRouter();
+      router.registerSessionThread("session-thread");
+      const route = router.routeFrame(
+        {
+          rawWireType: "novel/unlisted-shape",
+          familyClass: { scope: "unknown" },
+          threadId: "session-thread",
+        },
+        0,
+      );
+      expect(route.decision).toBe("quarantined");
+      expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(1);
+    },
+  );
 
   it("a thread-scoped frame with no thread identity quarantines fail-closed", () => {
     const { router, diagnostics } = makeRouter();
@@ -83,128 +87,148 @@ describe("ThreadFrameRouter", () => {
     );
   });
 
-  it("child usage carves out under the subagent, or under the parent run for a provider-internal child", () => {
-    const { router } = makeRouter();
-    router.registerSessionThread("session-thread");
-    const registration = router.registerChildThread({
-      childThreadId: "child-thread",
-      declaredParentThreadId: "session-thread",
-      subagentId: "child-thread",
-    });
-    expect(registration.registered).toBe(true);
-    expect(router.routeFrame(usageFrame("child-thread"), 0)).toEqual({
-      decision: "carve-out-usage",
-      childThreadId: "child-thread",
-      attribution: { kind: "subagent", subagentId: "child-thread" },
-    });
-    // A compaction thread has no subagent id: its spend is the parent run's.
-    router.registerChildThread({
-      childThreadId: "compaction-thread",
-      declaredParentThreadId: "session-thread",
-      subagentId: null,
-    });
-    expect(router.routeFrame(usageFrame("compaction-thread"), 0)).toEqual({
-      decision: "carve-out-usage",
-      childThreadId: "compaction-thread",
-      attribution: { kind: "parent-run" },
-    });
-  });
+  it(
+    "child usage carves out under the subagent, or under the parent run for a " +
+      "provider-internal child",
+    () => {
+      const { router } = makeRouter();
+      router.registerSessionThread("session-thread");
+      const registration = router.registerChildThread({
+        childThreadId: "child-thread",
+        declaredParentThreadId: "session-thread",
+        subagentId: "child-thread",
+      });
+      expect(registration.registered).toBe(true);
+      expect(router.routeFrame(usageFrame("child-thread"), 0)).toEqual({
+        decision: "carve-out-usage",
+        childThreadId: "child-thread",
+        attribution: { kind: "subagent", subagentId: "child-thread" },
+      });
+      // A compaction thread has no subagent id: its spend is the parent run's.
+      router.registerChildThread({
+        childThreadId: "compaction-thread",
+        declaredParentThreadId: "session-thread",
+        subagentId: null,
+      });
+      expect(router.routeFrame(usageFrame("compaction-thread"), 0)).toEqual({
+        decision: "carve-out-usage",
+        childThreadId: "compaction-thread",
+        attribution: { kind: "parent-run" },
+      });
+    },
+  );
 
-  it("a child-raised interactive request carves through to the approval pipeline on the child's own correlation", () => {
-    const { router } = makeRouter();
-    router.registerSessionThread("session-thread");
-    router.registerChildThread({
-      childThreadId: "child-thread",
-      declaredParentThreadId: "session-thread",
-      subagentId: "child-thread",
-    });
-    const route = router.routeFrame(
-      {
-        rawWireType: "item/commandExecution/requestApproval",
-        familyClass: { scope: "thread", capability: "interactive-request" },
-        threadId: "child-thread",
-      },
-      0,
-    );
-    expect(route).toEqual({
-      decision: "carve-out-interactive-request",
-      childThreadId: "child-thread",
-    });
-  });
-
-  it("a registered child's content and lifecycle frames are transcript-suppressed, diagnosed once per child", () => {
-    const { router, diagnostics } = makeRouter();
-    router.registerSessionThread("session-thread");
-    router.registerChildThread({
-      childThreadId: "child-thread",
-      declaredParentThreadId: "session-thread",
-      subagentId: "child-thread",
-    });
-    for (let deltaSequence = 0; deltaSequence < 3; deltaSequence += 1) {
+  it(
+    "a child-raised interactive request carves through to the approval pipeline on the child's " +
+      "own correlation",
+    () => {
+      const { router } = makeRouter();
+      router.registerSessionThread("session-thread");
+      router.registerChildThread({
+        childThreadId: "child-thread",
+        declaredParentThreadId: "session-thread",
+        subagentId: "child-thread",
+      });
       const route = router.routeFrame(
         {
-          rawWireType: "item/agentMessage/delta",
-          familyClass: { scope: "thread", capability: "content" },
+          rawWireType: "item/commandExecution/requestApproval",
+          familyClass: { scope: "thread", capability: "interactive-request" },
           threadId: "child-thread",
         },
-        deltaSequence,
+        0,
       );
       expect(route).toEqual({
-        decision: "suppress-child-transcript",
+        decision: "carve-out-interactive-request",
         childThreadId: "child-thread",
       });
-    }
-    // Once per child thread: content deltas must not flood the channel.
-    expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(1);
-  });
+    },
+  );
 
-  it("a present-but-unregistered identity is held, then released in arrival order on registration", () => {
-    const { router } = makeRouter();
-    router.registerSessionThread("session-thread");
-    const earlyUsageFrame = usageFrame("racing-child", "early-usage");
-    const earlyContentFrame: RoutableProviderFrame = {
-      rawWireType: "early-content",
-      familyClass: { scope: "thread", capability: "content" },
-      threadId: "racing-child",
-    };
-    expect(router.routeFrame(earlyUsageFrame, 0)).toEqual({
-      decision: "held-pending-registration",
-    });
-    expect(router.routeFrame(earlyContentFrame, 1)).toEqual({
-      decision: "held-pending-registration",
-    });
-    expect(router.pendingHeldFrameCount()).toBe(2);
+  it(
+    "a registered child's content and lifecycle frames are transcript-suppressed, diagnosed " +
+      "once per child",
+    () => {
+      const { router, diagnostics } = makeRouter();
+      router.registerSessionThread("session-thread");
+      router.registerChildThread({
+        childThreadId: "child-thread",
+        declaredParentThreadId: "session-thread",
+        subagentId: "child-thread",
+      });
+      for (let deltaSequence = 0; deltaSequence < 3; deltaSequence += 1) {
+        const route = router.routeFrame(
+          {
+            rawWireType: "item/agentMessage/delta",
+            familyClass: { scope: "thread", capability: "content" },
+            threadId: "child-thread",
+          },
+          deltaSequence,
+        );
+        expect(route).toEqual({
+          decision: "suppress-child-transcript",
+          childThreadId: "child-thread",
+        });
+      }
+      // Once per child thread: content deltas must not flood the channel.
+      expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(1);
+    },
+  );
 
-    const registration = router.registerChildThread({
-      childThreadId: "racing-child",
-      declaredParentThreadId: "session-thread",
-      subagentId: "racing-child",
-    });
-    expect(registration.registered).toBe(true);
-    if (registration.registered) {
-      expect(registration.releasedFrames.map((frame) => frame.rawWireType)).toEqual([
-        "early-usage",
-        "early-content",
-      ]);
-    }
-    expect(router.pendingHeldFrameCount()).toBe(0);
-    // Released frames re-route ordinarily now that the child is registered.
-    expect(router.routeFrame(earlyUsageFrame, 2).decision).toBe("carve-out-usage");
-  });
+  it(
+    "a present-but-unregistered identity is held, " +
+      "then released in arrival order on registration",
+    () => {
+      const { router } = makeRouter();
+      router.registerSessionThread("session-thread");
+      const earlyUsageFrame = usageFrame("racing-child", "early-usage");
+      const earlyContentFrame: RoutableProviderFrame = {
+        rawWireType: "early-content",
+        familyClass: { scope: "thread", capability: "content" },
+        threadId: "racing-child",
+      };
+      expect(router.routeFrame(earlyUsageFrame, 0)).toEqual({
+        decision: "held-pending-registration",
+      });
+      expect(router.routeFrame(earlyContentFrame, 1)).toEqual({
+        decision: "held-pending-registration",
+      });
+      expect(router.pendingHeldFrameCount()).toBe(2);
 
-  it("a pending hold that outlives its timeout is shed with a diagnostic — distinct from quarantine", () => {
-    const { router, diagnostics } = makeRouter({ pendingRegistrationTimeoutMs: 500 });
-    router.registerSessionThread("session-thread");
-    router.routeFrame(usageFrame("never-announced"), 0);
-    expect(router.pendingHeldFrameCount()).toBe(1);
-    router.expirePendingHolds(500);
-    expect(router.pendingHeldFrameCount()).toBe(0);
-    expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
-    // A shed hold is not a quarantine entry: the two buffers stay distinct.
-    expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(0);
-  });
+      const registration = router.registerChildThread({
+        childThreadId: "racing-child",
+        declaredParentThreadId: "session-thread",
+        subagentId: "racing-child",
+      });
+      expect(registration.registered).toBe(true);
+      if (registration.registered) {
+        expect(registration.releasedFrames.map((frame) => frame.rawWireType)).toEqual([
+          "early-usage",
+          "early-content",
+        ]);
+      }
+      expect(router.pendingHeldFrameCount()).toBe(0);
+      // Released frames re-route ordinarily now that the child is registered.
+      expect(router.routeFrame(earlyUsageFrame, 2).decision).toBe("carve-out-usage");
+    },
+  );
 
-  it("the pending-hold buffer is bounded: exceeding the cap sheds the oldest with a diagnostic", () => {
+  it(
+    "a pending hold that outlives its timeout is shed with a diagnostic — distinct from " +
+      "quarantine",
+    () => {
+      const { router, diagnostics } = makeRouter({ pendingRegistrationTimeoutMs: 500 });
+      router.registerSessionThread("session-thread");
+      router.routeFrame(usageFrame("never-announced"), 0);
+      expect(router.pendingHeldFrameCount()).toBe(1);
+      router.expirePendingHolds(500);
+      expect(router.pendingHeldFrameCount()).toBe(0);
+      expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
+      // A shed hold is not a quarantine entry: the two buffers stay distinct.
+      expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(0);
+    },
+  );
+
+  it("the pending-hold buffer is capped: overflow sheds the oldest with a diagnostic", () => {
     const { router, diagnostics } = makeRouter({ maxPendingHoldFrames: 2 });
     router.registerSessionThread("session-thread");
     router.routeFrame(usageFrame("racing-child", "held-0"), 0);
@@ -216,23 +240,27 @@ describe("ThreadFrameRouter", () => {
     expect(shedRecords[0]?.rawWireType).toBe("held-0");
   });
 
-  it("registration derives from declared lineage: an unrecognized parent refuses with a diagnostic", () => {
-    const { router, diagnostics } = makeRouter();
-    router.registerSessionThread("session-thread");
-    for (const declaredParentThreadId of [null, "some-foreign-thread"]) {
-      const registration = router.registerChildThread({
-        childThreadId: "orphan-child",
-        declaredParentThreadId,
-        subagentId: "orphan-child",
+  it(
+    "registration derives from declared lineage: an " +
+      "unrecognized parent refuses with a diagnostic",
+    () => {
+      const { router, diagnostics } = makeRouter();
+      router.registerSessionThread("session-thread");
+      for (const declaredParentThreadId of [null, "some-foreign-thread"]) {
+        const registration = router.registerChildThread({
+          childThreadId: "orphan-child",
+          declaredParentThreadId,
+          subagentId: "orphan-child",
+        });
+        expect(registration.registered).toBe(false);
+      }
+      expect(diagnostics.recentRecordsOfKind("thread_registration_refused")).toHaveLength(2);
+      // The refused child never routes as registered.
+      expect(router.routeFrame(usageFrame("orphan-child"), 0)).toEqual({
+        decision: "held-pending-registration",
       });
-      expect(registration.registered).toBe(false);
-    }
-    expect(diagnostics.recentRecordsOfKind("thread_registration_refused")).toHaveLength(2);
-    // The refused child never routes as registered.
-    expect(router.routeFrame(usageFrame("orphan-child"), 0)).toEqual({
-      decision: "held-pending-registration",
-    });
-  });
+    },
+  );
 
   it("a grandchild registers under an already-registered child's lineage", () => {
     const { router } = makeRouter();

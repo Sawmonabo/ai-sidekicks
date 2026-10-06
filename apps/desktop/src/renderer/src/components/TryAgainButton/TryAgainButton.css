@@ -1,0 +1,13 @@
+/* A faint word in the line's own type: no box, border or icon, underlined under the pointer. */
+.meridian-try-again {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-faint);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-try-again:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,39 @@
+/*
+ * The filled-accent treatment, the one face of a filled primary action: the whole face is the
+ * accent and the label is `accent-ink`. `accent-text` on `accent` is 1.53:1 in light and 1.48:1
+ * in dark against the 4.5:1 text floor; `styles/contrast.test.ts` measures the ink pair. It
+ * carries the fill, edge, corner, ink and pointer response but no size, which comes from
+ * `action-buttons.css`; a card or pane carries one control wearing it. The border matches the
+ * fill so the edge stays definite on `surface-raised` and a swap from a bordered button changes
+ * no geometry. A global sheet, loaded through `global-sheets.ts`.
+ */
+.meridian-accent-fill {
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-accent);
+  color: var(--meridian-accent-ink);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    border-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    filter var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+/*
+ * Hover brightens the face with a filter: the ink is dark in both schemes, so this moves the
+ * pair apart (4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark).
+ */
+.meridian-accent-fill:hover {
+  filter: brightness(1.06);
+}
+
+/*
+ * Press uses a token, not a filter: scaling both colors does not preserve their ratio, and
+ * `brightness(0.94)` would take the light ink-on-fill pair from 4.73:1 to 4.27:1, under the
+ * 4.5:1 text floor. The border takes the ink because the light face has only about 6% of
+ * luminance to spend on the press, too little to see alone.
+ */
+.meridian-accent-fill:active {
+  border-color: var(--meridian-accent-ink);
+  background: var(--meridian-accent-pressed);
+}

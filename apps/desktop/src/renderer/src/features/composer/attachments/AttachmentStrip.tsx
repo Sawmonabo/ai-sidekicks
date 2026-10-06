@@ -2,12 +2,12 @@
 // The staging bounds are the daemon's and the provider's, read at acceptance and never written
 // here, so the strip draws no count against them.
 
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
-import { composerAttachmentChip } from "./composer-attachment-chip.js";
-import { composeSendAttachmentReference } from "./send-attachment-reference.js";
+import { composerAttachmentChip } from "./chip.js";
+import { composeSendAttachmentReference } from "./send-reference.js";
 
 import "./AttachmentStrip.css";
 

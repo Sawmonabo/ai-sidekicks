@@ -1,11 +1,12 @@
 /*
- * The workflows screen's own composition: the runs column and the open pane that replaces it.
- * Values come from the generated token sheet; nothing animates.
+ * The workflows screen: the tab row, the Runs tab's strip, the runs list with its attention
+ * section and filters, and one run's page with its header, graph and step panel. Every value is a
+ * Meridian token; amber marks only what waits on a person, red only what failed.
  */
 
 /*
- * The scroll lives on this element, not an inner wrapper: the element that scrolls must
- * contain the focusable controls, or axe reports `scrollable-region-focusable`.
+ * The scroll lives on this element, not an inner wrapper: the element that scrolls must contain
+ * the focusable controls, or axe reports `scrollable-region-focusable`.
  */
 .meridian-workflows-destination {
   display: flex;
@@ -13,39 +14,572 @@
   gap: var(--meridian-space-3);
   block-size: 100%;
   min-block-size: 0;
+  padding: var(--meridian-space-5);
   overflow-y: auto;
 }
 
-/* Inset by the same gutter as `.meridian-workflow__strip` so the two columns line up. */
+/* --- the tab row and the strip ---------------------------------------------- */
+
+.meridian-workflows-tabs {
+  display: flex;
+  gap: var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-workflows-tabs__tab {
+  display: inline-flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  padding-block: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+  text-decoration: none;
+  border-block-end: 2px solid var(--meridian-accent);
+}
+
+.meridian-workflows-tabs__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflows-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: center;
+}
+
+/* While new runs are held: what the hold does, quiet beside the switch. */
+.meridian-workflows-strip__hold-note {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The switch stands at the strip's end, whatever is drawn before it. */
+.meridian-workflows-strip__pause {
+  display: inline-flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin-inline-start: auto;
+}
+
+/* --- the runs list ------------------------------------------------------------ */
+
 .meridian-workflows-runs {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-3);
-  padding-inline: var(--meridian-space-5);
-  padding-block-end: var(--meridian-space-5);
+  gap: var(--meridian-space-4);
 }
 
-.meridian-workflows-runs__heading {
+.meridian-workflows-runs__missing {
   margin: 0;
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-md);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflows-attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-workflows-attention__nothing {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflows-attention__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-workflows-attention__entry {
+  font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
 }
 
+.meridian-workflows-attention__cause {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-workflows-runs__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.meridian-workflows-runs__toolbar-end {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: center;
+}
+
+/* The list moves as its runs do while the one workflow subscription is open. */
+.meridian-workflows-runs__live-note {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflows-runs__live-note-dot {
+  inline-size: var(--meridian-space-2);
+  block-size: var(--meridian-space-2);
+  background: var(--meridian-accent);
+  border-radius: 50%;
+}
+
+/* A run parked on a spent account: when it resumes itself, on its own line under its status. */
+.meridian-workflows-runs__park {
+  flex-basis: 100%;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflows-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-workflows-filters__filter {
+  display: inline-flex;
+}
+
+.meridian-workflows-delete-older {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* The table and its `Load older runs` button below it. */
+.meridian-workflows-runs__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+}
+
+.meridian-workflows-runs__table {
+  inline-size: 100%;
+  font-size: var(--meridian-text-sm);
+  border-collapse: collapse;
+}
+
+.meridian-workflows-runs__table th,
+.meridian-workflows-runs__table td {
+  padding: var(--meridian-space-2);
+  text-align: start;
+  vertical-align: top;
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-workflows-runs__table thead th {
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflows-runs__table td {
+  font-variant-numeric: tabular-nums;
+  color: var(--meridian-text);
+}
+
+.meridian-workflows-runs__status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: center;
+}
+
 /*
- * On a bare route there is no pane layout, so the opened pane takes the destination's place
- * under one control back.
+ * The live dot on a going run's row, in the running accent. It breathes only while on screen
+ * (`data-in-view`, written by `useInViewMarks`); reduced motion collapses it with every animation.
  */
-.meridian-workflows-open-pane {
+.meridian-workflows-runs__live-dot {
+  inline-size: var(--meridian-space-2);
+  block-size: var(--meridian-space-2);
+  background: var(--meridian-accent);
+  border-radius: 50%;
+  animation: meridian-workflows-runs-live var(--meridian-motion-breath) var(--meridian-ease-settle)
+    infinite alternate;
+}
+
+.meridian-workflows-runs__live-dot[data-in-view="false"] {
+  animation-play-state: paused;
+}
+
+@keyframes meridian-workflows-runs-live {
+  from {
+    opacity: 0.25;
+  }
+}
+
+.meridian-workflows-runs__confirm,
+.meridian-workflows-runs__no-match {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-workflows-runs__no-match p {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* --- one run's page ----------------------------------------------------------- */
+
+.meridian-workflow-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-block-size: 0;
+}
+
+/* The page holds focus only so Escape keeps reaching it once the step panel closes. */
+.meridian-workflow-run:focus {
+  outline: none;
+}
+
+.meridian-workflow-run__header {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
-  min-height: 0;
 }
 
-/* Shares `.meridian-workflow__action`'s look; this rule only adds where the button sits. */
-.meridian-workflows-open-pane__back {
-  align-self: flex-start;
+.meridian-workflow-run__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-workflow-run__happened {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-run__needs {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-run__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2) var(--meridian-space-5);
+  margin: 0;
+}
+
+.meridian-workflow-run__fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-workflow-run__fact dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-run__fact dd {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-run__links,
+.meridian-workflow-run__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: flex-start;
+}
+
+.meridian-workflow-run__link {
+  padding: 0;
+  font: inherit;
+  color: var(--meridian-accent-text);
+  text-align: start;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.meridian-workflow-run__link:hover {
+  text-decoration: underline;
+}
+
+/* A run control and, after a refused press, the daemon's words beside it on the same line. */
+.meridian-workflow-run__control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-workflow-run__keep {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* The chain's question on its first run's page, between the header and the graph. */
+.meridian-workflow-run__chain-question {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2) var(--meridian-space-3);
+  align-items: center;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-workflow-run__chain-sentence,
+.meridian-workflow-run__chain-receipt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-run__chain-answers {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-workflow-run__live {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding-block-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--meridian-text-muted);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-workflow-run__live-part + .meridian-workflow-run__live-part::before {
+  margin-inline-end: var(--meridian-space-2);
+  content: "·";
+}
+
+.meridian-workflow-run__live-part--attention {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-workflow-run__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--meridian-space-4);
+  min-block-size: 0;
+}
+
+.meridian-workflow-run__graph {
+  display: flex;
+  flex-direction: column;
+  min-block-size: calc(var(--meridian-space-8) * 8);
+}
+
+/* --- the step panel ------------------------------------------------------------ */
+
+.meridian-workflow-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  inline-size: min(40ch, 40vw);
+  padding: var(--meridian-space-3);
+  overflow: auto;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-workflow-step__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-workflow-step__name {
+  flex: 1;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-step__execution {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-step__attempt,
+.meridian-workflow-step__note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-step__receipt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-step__answer,
+.meridian-workflow-step__acts,
+.meridian-workflow-step__views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+}
+
+.meridian-workflow-step__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-workflow-step__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* A reply row: the question over its one free-text row, with `Answer` beside the row. */
+.meridian-workflow-step__reply {
+  align-items: center;
+}
+
+.meridian-workflow-step__question {
+  flex-basis: 100%;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-step__reply-field {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* An approval's two answers with `Open in Review` beside them, all three on one row. */
+.meridian-workflow-step__approval {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+}
+
+.meridian-workflow-step__tabs {
+  display: flex;
+  gap: var(--meridian-space-1);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-workflow-step__tab,
+.meridian-workflow-step__view {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-block-end: 2px solid transparent;
+}
+
+.meridian-workflow-step__tab[aria-selected="true"],
+.meridian-workflow-step__view[aria-pressed="true"] {
+  color: var(--meridian-text);
+  border-block-end-color: var(--meridian-accent);
+}
+
+.meridian-workflow-step__tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-workflow-step__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding-inline-start: var(--meridian-space-2);
+  border-inline-start: 2px solid var(--meridian-red-mark);
+}
+
+.meridian-workflow-step__error-label {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-red-text);
+}
+
+.meridian-workflow-step__error-item {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--meridian-text);
+}
+
+.meridian-workflow-step__error-message {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* The last lines of the step's own log, as it printed them. */
+.meridian-workflow-step__log-tail {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--meridian-surface-sunken);
+}
+
+/* The hints a step attached above its output: quiet, never an error. */
+.meridian-workflow-step__advisories {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  list-style: none;
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
 }

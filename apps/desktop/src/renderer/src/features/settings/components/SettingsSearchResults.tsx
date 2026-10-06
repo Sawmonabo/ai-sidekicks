@@ -1,7 +1,7 @@
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { type SettingsPageMatch } from "../settings-pages.js";
-import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { type SettingsPageMatch } from "../pages/registry.js";
+import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
 
 /** Props for {@link SettingsSearchResults}. */
 export interface SettingsSearchResultsProps {

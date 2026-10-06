@@ -7,8 +7,8 @@
 // not coming. Past it the oldest is dropped; the drain re-derives what the drop cost, as an
 // ordinary gap between the base state cursor and the oldest survivor.
 
-import { PRE_INITIALIZATION_BUFFER_CAP } from "./session-store-caps.js";
-import type { ProjectedSessionEvent } from "./entities/entities.js";
+import { PRE_INITIALIZATION_BUFFER_CAP } from "./caps.js";
+import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
 
 /** Events held for a base state, oldest first, never more than the cap. */
 export class PreInitializationBuffer {

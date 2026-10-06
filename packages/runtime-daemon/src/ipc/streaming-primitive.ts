@@ -1,30 +1,41 @@
 // Streaming primitive: the server side of `LocalSubscriptionProducer<T>`, emitting
-// `$/subscription/notify` frames and handling `$/subscription/cancel`.
+// `$/subscription/notify` frames, the `$/subscription/end` frame of a stream the daemon ends, and
+// handling `$/subscription/cancel`.
 //
 // - Every emitted value is validated against the subscription's `valueSchema` before the frame is
 //   sent; a failure throws `StreamingValidationError`.
 // - The wire schemas, the branded `SubscriptionId` and the producer interface live in
 //   `@ai-sidekicks/contracts` because this package does not depend on `zod`.
-// - The gateway's own send path only accepts response envelopes, so notifications go to a `send`
-//   callback the caller connects to the per-transport write path.
+// - Notifications go to a `send` callback, which the daemon connects to the gateway's `notify`, so
+//   this module holds no socket.
 // - A subscription id is a `crypto.randomUUID()` string, which satisfies `SubscriptionIdSchema`.
 
-import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcError, JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   LocalSubscriptionProducer,
   SubscriptionCancelParams,
   SubscriptionCancelResult,
+  SubscriptionEndParams,
   SubscriptionId,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
   SubscriptionCancelParamsSchema,
   SubscriptionCancelResultSchema,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+
+import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
+
+// What a server cancel that names no error tells the client.
+const STREAM_ENDED_ERROR: JsonRpcError = {
+  code: JsonRpcErrorCode.InternalError,
+  message: "The service ended this stream.",
+};
 
 /**
  * Thrown synchronously from `next(value)` when the value fails the subscription's `valueSchema`: a
@@ -52,7 +63,7 @@ interface SubscriptionEntry {
   readonly valueSchema: ZodType<unknown>;
   /** Moves only `active` -> `complete` or `canceled`; later teardown calls are no-ops. */
   state: SubscriptionState;
-  /** Emptied after firing, so a handler registered after cancel is not replayed. */
+  /** Emptied after firing, so a handler registered after cancel is not called. */
   readonly onCancelHandlers: Array<() => void>;
 }
 
@@ -75,8 +86,9 @@ function fireCancelHandlers(handlers: Array<() => void>): void {
 
 /**
  * Cancels `producer` after a failure no caller will receive (a source callback or a deferred
- * replay) and logs it with any cancel-handler failure. Nothing escapes: an uncaught throw there
- * would stop the daemon.
+ * catch-up flush), ending the client's stream with that failure's sanitized wire error, and logs
+ * it with any cancel-handler failure. Nothing escapes: an uncaught throw there would stop the
+ * daemon.
  */
 export function cancelAfterDetachedFailure(
   producer: Pick<LocalSubscriptionProducer<unknown>, "cancel">,
@@ -84,7 +96,7 @@ export function cancelAfterDetachedFailure(
   failure: unknown,
 ): void {
   try {
-    producer.cancel();
+    producer.cancel(mapJsonRpcError(failure, null).error);
   } catch (cancelFailure) {
     console.error(message, failure, cancelFailure);
     return;
@@ -150,6 +162,14 @@ export class StreamingPrimitive {
 
     const send = this.#send;
     const subscriptions = this.#subscriptions;
+    const sendEnd = (params: SubscriptionEndParams): void => {
+      const frame: JsonRpcNotification<SubscriptionEndParams> = {
+        jsonrpc: JSONRPC_VERSION,
+        method: SUBSCRIPTION_END_METHOD,
+        params,
+      };
+      send(entry.transportId, frame);
+    };
     const removeFromTransport = (id: SubscriptionId): void => {
       const e = subscriptions.get(id);
       if (e === undefined) {
@@ -175,7 +195,10 @@ export class StreamingPrimitive {
         if (!parsed.success) {
           throw new StreamingValidationError(
             subscriptionId,
-            `LocalSubscriptionProducer.next: value validation failed for subscriptionId ${JSON.stringify(subscriptionId)} (programmer error — the producer returned a value that does not match the registered valueSchema; daemon refuses to emit malformed data on the wire)`,
+            `LocalSubscriptionProducer.next: value validation failed for subscriptionId ` +
+              `${JSON.stringify(subscriptionId)} (programmer error — the producer returned a ` +
+              `value that does not match the registered valueSchema; daemon refuses to emit ` +
+              `malformed data on the wire)`,
             parsed.error.issues,
           );
         }
@@ -191,23 +214,25 @@ export class StreamingPrimitive {
         send(entry.transportId, frame);
       },
       complete(): void {
-        // State only: no frame is sent and `onCancel` handlers do not fire.
+        // Tells the client the stream finished; `onCancel` handlers do not fire.
         if (entry.state !== "active") {
           return;
         }
         entry.state = "complete";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
+        sendEnd({ subscriptionId, reason: "completed" });
       },
-      cancel(): void {
-        // Server-initiated: sends no frame but fires `onCancel` handlers. Leaves the maps first so
-        // a re-entrant handler sees the post-cancel state.
+      cancel(error?: JsonRpcError): void {
+        // Server-initiated: tells the client why, then fires `onCancel` handlers. Leaves the maps
+        // first so a re-entrant handler sees the post-cancel state.
         if (entry.state !== "active") {
           return;
         }
         entry.state = "canceled";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
+        sendEnd({ subscriptionId, reason: "refused", error: error ?? STREAM_ENDED_ERROR });
         fireCancelHandlers(entry.onCancelHandlers);
       },
       onCancel(fn: () => void): void {
@@ -253,7 +278,8 @@ export class StreamingPrimitive {
       } catch (error) {
         // The connection is gone, so no caller is left to receive it; the siblings still release.
         console.error(
-          `[streaming] cancel handlers failed for subscriptionId=${subscriptionId} on a closed transport`,
+          `[streaming] cancel handlers failed for subscriptionId=${subscriptionId} on a ` +
+            `closed transport`,
           error,
         );
       }
@@ -261,9 +287,10 @@ export class StreamingPrimitive {
   }
 
   /**
-   * Cancels a subscription by id, firing its `onCancel` handlers, and returns whether it existed.
-   * Transport ownership is checked by the registered cancel handler, not here. Throws one
-   * `AggregateError` when a handler failed, after every handler ran.
+   * Cancels a subscription by id, firing its `onCancel` handlers but sending no end frame, and
+   * returns whether it existed: for a client's own cancel, and a subscribe that fails before its
+   * id reaches the client. Transport ownership is checked by the registered cancel handler, not
+   * here. Throws one `AggregateError` when a handler failed, after every handler ran.
    */
   cancelSubscription(subscriptionId: SubscriptionId): boolean {
     const entry = this.#subscriptions.get(subscriptionId);

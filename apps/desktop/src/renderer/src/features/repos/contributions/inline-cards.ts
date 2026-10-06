@@ -2,7 +2,7 @@
 
 import { createElement } from "react";
 
-import { type InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
+import { type InlineCardRegistry } from "#renderer/registries/inline-cards/registry.js";
 import { InlineDiffCard } from "../diff/components/InlineDiffCard.js";
 import { REPOS_FEATURE_OWNER } from "./owner.js";
 

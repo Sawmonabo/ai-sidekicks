@@ -1,15 +1,19 @@
-// The composer host: the region, and the draft line, the command list and the toolbar it mounts
-// in that order. It owns the provider-command enumeration holder and hands it to the command
-// list, whose enumeration is read live and never cached.
+// The composer host: the region, and the palette's replace question, the draft line, the command
+// list and the toolbar it mounts in that order. It owns the provider-command enumeration holder
+// and hands it to the command list, whose enumeration is read live and never cached.
 
 import { useRef } from "react";
 
-import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type ComposerProps } from "#renderer/registries/composer/registry.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
 import { CommandList } from "./command-list/components/CommandList.js";
-import { ProviderCommandEnumeration } from "./command-list/provider-command-enumeration.js";
+import { ProviderCommandEnumeration } from "./command-list/provider/enumeration.js";
+import { WorkflowStartPrefillQuestion } from "./command-list/workflow/components/WorkflowStartPrefillQuestion.js";
+import { useWorkflowStartPrefill } from "./command-list/workflow/hooks/useWorkflowStartPrefill.js";
+import { composerDraftKey } from "./draft-line/draft-key.js";
+import { useComposerAddress } from "./hooks/useComposerAddress.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
 import "./Composer.css";
 
@@ -43,8 +47,13 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
     openEnumeration,
     enumerationDisposal,
   );
+  // The palette entry that types the command word onto this composer's line, and the question
+  // it asks above the draft before replacing unsent words.
+  const draftKey = composerDraftKey(useComposerAddress(props.sessionStore, props.focusedPane));
+  const prefillPrompt = useWorkflowStartPrefill({ draftStore: props.draftStore, draftKey });
   return (
     <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>
+      <WorkflowStartPrefillQuestion prompt={prefillPrompt} />
       <DraftLine {...props} />
       <CommandList {...props} region={regionRef} commandEnumeration={commandEnumeration} />
       <ComposerToolbar {...props} />

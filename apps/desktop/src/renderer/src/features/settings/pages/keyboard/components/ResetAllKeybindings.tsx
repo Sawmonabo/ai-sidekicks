@@ -8,9 +8,9 @@
 
 import type { ReactNode } from "react";
 
-import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 
@@ -34,12 +34,12 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
     );
   }
   return (
-    <div className="meridian-keymap__reset-all-block">
-      <ul className="meridian-keymap__reset-all-list">
+    <div>
+      <ul>
         {props.changedRows.map((row) => (
-          <li key={row.commandId} className="meridian-keymap__reset-all-entry">
-            <span className="meridian-keymap__reset-all-title">{row.title}</span>
-            <span className="meridian-keymap__reset-all-target">
+          <li key={row.commandId}>
+            <span>{row.title}</span>
+            <span>
               {row.shippedChord === undefined ? (
                 "back to no chord"
               ) : (
@@ -53,10 +53,15 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
       </ul>
       <button
         type="button"
-        className="meridian-keymap__reset-all meridian-action-button"
-        aria-label={`Reset ${formatCount(props.changedRows.length)} changed chords to the ones the app ships: ${props.changedRows
-          .map((row) => `${row.title} to ${describeShippedChord(row.shippedChord)}`)
-          .join("; ")}`}
+        className={
+          "meridian-keymap__reset-all meridian-action-button meridian-action-button--compact"
+        }
+        aria-label={
+          `Reset ${formatCount(props.changedRows.length)} changed chords to the ones the app ` +
+          `ships: ${props.changedRows
+            .map((row) => `${row.title} to ${describeShippedChord(row.shippedChord)}`)
+            .join("; ")}`
+        }
         onClick={props.onResetAll}
       >
         Reset all {formatCount(props.changedRows.length)} changed{" "}

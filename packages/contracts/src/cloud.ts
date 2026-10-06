@@ -5,23 +5,19 @@
 // and stays `submitted` (Claude Code's). The shape is split by kind so neither carries the
 // other's states.
 //
-// Nothing imported here may reach `./event.js`, which imports the task update payload from
-// this module: a cycle among eager module-scope schemas throws at load.
+// Nothing imported here may reach `./event/session.js`, which imports the task update payload
+// from this module: a cycle among eager module-scope schemas throws at load.
 import { z } from "zod";
 
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
-import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "./session.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The longest cloud task id the daemon accepts. */
 export const CLOUD_TASK_ID_MAX_LEN = 256;
@@ -75,7 +71,8 @@ export type CloudUnavailableReason = (typeof CLOUD_UNAVAILABLE_REASON_VALUES)[nu
 /**
  * Every {@link CloudUnavailableReason}.
  *
- * @consumedBy the session menu's `Send to the cloud…` row, which shows why a session cannot use it
+ * @consumedBy the session menu's `Send to the cloud…` row, which shows why a session
+ * cannot use it
  */
 export const CLOUD_UNAVAILABLE_REASONS: readonly CloudUnavailableReason[] =
   CLOUD_UNAVAILABLE_REASON_VALUES;

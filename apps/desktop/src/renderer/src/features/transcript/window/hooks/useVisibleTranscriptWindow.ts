@@ -6,7 +6,7 @@ import { useMemo } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
 import { type TranscriptWindowModel } from "../transcript-window.js";
 
 /** The window the viewport is showing, and what fell outside it. */
@@ -14,8 +14,9 @@ export interface VisibleTranscriptWindow {
   /** The projected rows the viewport holds, in log order. */
   readonly rows: readonly TranscriptEventRow[];
   /**
-   * Rows the log has and this window does not — what the cap took. They exist, which says
-   * nothing about whether earlier rows can be fetched; that is `earlier-history-reader.ts`.
+   * Rows the log has and this window does not — what the cap took. They exist, which says nothing
+   * about whether earlier rows can be fetched; that is
+   * `features/transcript/history/earlier-reader.ts`.
    */
   readonly prunedAwayRows: readonly TranscriptEventRow[];
 }

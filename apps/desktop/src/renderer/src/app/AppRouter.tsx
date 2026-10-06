@@ -1,27 +1,26 @@
 // Route in, screen out, and the two ways of having nothing to show: a not-found address, and a
 // session still opening, which shows nothing at first and `Loading…` only once the read has run
-// past a short delay, so a quick open never flashes a loading line.
+// past the short loading delay, so a quick open never flashes a loading line.
 //
 // Resolution happens during render, since the registry is composed at module scope and an
 // effect would let the first paint say the screen does not exist. A route whose screen has no
 // registration is a composition defect and throws; the exception is the pane harness, which only
 // a fixture launch registers, so elsewhere its address renders as not-found.
 //
-// The mounted screen is keyed on `formatRoute(route)`: two routes can resolve to one screen name
-// (a second session, a second pane kind in the harness), and without the key React would hand the
-// first route's state to the second.
+// The mounted screen is keyed on what it is about, not on the whole address: a second session or
+// a second pane kind in the harness gets a fresh screen, so React never hands one subject's state
+// to another, while a move inside one destination (a run's page on the workflows screen, a
+// settings page, a message in the same session) keeps the screen and what it holds.
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js";
-import { formatRoute } from "@renderer/routing/routes.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import {
-  screenRegistry,
-  findScreenNameForRoute,
-} from "@renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { ScreenNotice } from "#renderer/components/ScreenNotice/ScreenNotice.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { screenRegistry, findScreenNameForRoute } from "#renderer/registries/screens/registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/context.js";
 
 /** The screen context the router resolves the current route against. */
 export interface AppRouterProps {
@@ -56,32 +55,34 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
     }
     throw new Error(`no screen is registered for the ${route.kind} route`);
   }
-  // Keyed so a different address unmounts the previous screen's state.
-  return <Fragment key={formatRoute(route)}>{descriptor.render(context)}</Fragment>;
+  // Keyed so a different subject unmounts the previous screen's state.
+  return <Fragment key={screenSubjectKey(route)}>{descriptor.render(context)}</Fragment>;
 }
 
-/** How long an opening session shows nothing before `Loading…`: the first row's launch budget. */
-const SESSION_OPENING_LOADING_DELAY_MS = 800;
-
-function SessionOpeningNotice(): React.JSX.Element | null {
+function SessionOpeningNotice(): React.JSX.Element {
   const clock = useClock();
-  const [isPastDelay, setIsPastDelay] = useState(false);
-  useEffect(() => {
-    const handle = clock.scheduleTimeout(() => {
-      setIsPastDelay(true);
-    }, SESSION_OPENING_LOADING_DELAY_MS);
-    return () => {
-      clock.cancel(handle);
-    };
-  }, [clock]);
-  if (!isPastDelay) {
-    return null;
-  }
   return (
     <ScreenNotice>
-      <Nothing kind="not-loaded" title="Loading…" />
+      <LoadingNotice clock={clock} title="Loading…" />
     </ScreenNotice>
   );
+}
+
+/**
+ * What the mounted screen is about: the session for a session, the pane kind and session for the
+ * harness, and the destination alone for the rest, whose screens follow their own address.
+ */
+function screenSubjectKey(route: Exclude<AppRoute, { kind: "not-found" }>): string {
+  switch (route.kind) {
+    case "session":
+      return `session:${route.sessionId}`;
+    case "pane-harness":
+      return `pane-harness:${route.paneKind}:${route.sessionId}`;
+    case "sessions":
+    case "workflows":
+    case "settings":
+      return route.kind;
+  }
 }
 
 function AddressNamesNothing(): React.JSX.Element {

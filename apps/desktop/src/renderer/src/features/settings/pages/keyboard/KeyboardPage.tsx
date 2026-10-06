@@ -9,25 +9,25 @@
 // the shipped chords and written out again, and the page says so. The recorder suspends the
 // app keyboard, since the frame's capture-phase table would otherwise navigate on `$mod+1`.
 
-import "./keyboard.css";
+import "./KeyboardPage.css";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { Refusal } from "@renderer/lib/refusal.js";
-import { auditKeybindings } from "@renderer/registries/keybindings/keybinding-audit.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { useKeybindingSnapshot } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { auditKeybindings } from "#renderer/registries/keybindings/audit.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
+import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
   formatChordForPlatform,
-} from "@renderer/lib/chord-format.js";
-import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
+} from "#renderer/lib/chord-format.js";
+import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
 import { ResetAllKeybindings } from "./components/ResetAllKeybindings.js";
 import {
@@ -113,7 +113,8 @@ export function KeyboardPage(): ReactNode {
       announce(
         unsaved === undefined
           ? `${row.title} is back to the chord the app ships.`
-          : `${row.title} is back to the chord the app ships for this window only. ${unsaved.detail}`,
+          : `${row.title} is back to the chord the app ships for this window ` +
+              `only. ${unsaved.detail}`,
       );
     },
     [announce],
@@ -137,13 +138,13 @@ export function KeyboardPage(): ReactNode {
 
       <section className="meridian-settings-page__block" aria-label="Chords">
         <h3 className="meridian-settings-page__block-title">Chords</h3>
-        <div className="meridian-keymap__filter">
-          <label className="meridian-keymap__filter-label" htmlFor={FILTER_FIELD_ID}>
+        <div className="meridian-keymap__filter meridian-form__field">
+          <label className="meridian-visually-hidden" htmlFor={FILTER_FIELD_ID}>
             Search shortcuts
           </label>
           <input
             id={FILTER_FIELD_ID}
-            className="meridian-keymap__filter-input"
+            className="meridian-form__input"
             type="text"
             value={query}
             spellCheck={false}
@@ -209,7 +210,10 @@ export function KeyboardPage(): ReactNode {
             kind="empty"
             placement="inline"
             title="No two chords collide."
-            detail="Every installed chord is the only one live in its scope, so each keystroke has exactly one answer."
+            detail={
+              "Every installed chord is the only one live in its scope, so " +
+              "each keystroke has exactly one answer."
+            }
           />
         ) : (
           <ul className="meridian-settings-page__list">
@@ -217,7 +221,11 @@ export function KeyboardPage(): ReactNode {
               <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
                 <InlineRefusal
                   code={conflict.reason}
-                  detail={`${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} is claimed by both ${titleOf(conflict.commandIds[0])} and ${titleOf(conflict.commandIds[1])}. ${conflict.detail}`}
+                  detail={
+                    `${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} ` +
+                    `is claimed by both ${titleOf(conflict.commandIds[0])} and ` +
+                    `${titleOf(conflict.commandIds[1])}. ${conflict.detail}`
+                  }
                 />
               </li>
             ))}
@@ -229,7 +237,11 @@ export function KeyboardPage(): ReactNode {
               <li key={`${dropped.chord}:${dropped.commandId}`}>
                 <InlineRefusal
                   code={CHORD_NOT_INSTALLED_CODE}
-                  detail={`${titleOf(dropped.commandId)}'s chord ${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} was not installed. ${dropped.reason}`}
+                  detail={
+                    `${titleOf(dropped.commandId)}'s chord ` +
+                    `${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} ` +
+                    `was not installed. ${dropped.reason}`
+                  }
                 />
               </li>
             ))}
@@ -237,9 +249,9 @@ export function KeyboardPage(): ReactNode {
         )}
         {keybindingOverrides.repair === undefined ? null : (
           <p className="meridian-settings-page__state" role="alert">
-            The keyboard map on this machine could not be read, so the chords the app ships with
-            were used and the file was written out again. Any chord changed before now is back at
-            the one the app ships with.
+            The keyboard map could not be read, so the chords the app ships with were used and the
+            file was written out again. Any chord changed before now is back at the one the app
+            ships with.
           </p>
         )}
         {keybindingOverrides.readRefusal === undefined ? null : (
@@ -254,7 +266,10 @@ export function KeyboardPage(): ReactNode {
               <li key={declined.commandId}>
                 <InlineRefusal
                   code={declined.refusal.code}
-                  detail={`A chord kept for ${titleOf(declined.commandId)} was not installed this time. ${declined.refusal.detail}`}
+                  detail={
+                    `A chord kept for ${titleOf(declined.commandId)} was not ` +
+                    `installed this time. ${declined.refusal.detail}`
+                  }
                 />
               </li>
             ))}
@@ -297,6 +312,7 @@ function describeBinding(
       ? `${title} now has no chord`
       : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
   return unsaved === undefined
-    ? `${act}, and the change is kept on this machine.`
-    : `${act} for as long as this window is open, and will not come back after a reload. ${unsaved.detail}`;
+    ? `${act}, and the change is saved.`
+    : `${act} for as long as this window is open, and will not come ` +
+        `back after a reload. ${unsaved.detail}`;
 }

@@ -13,19 +13,23 @@ import {
   AgentIdSchema,
   type AgentDefinitionId,
   type AgentId,
-} from "./agent-definition.js";
+} from "./agent/definition.js";
 import {
   AgentTreeMemberSchema,
   ChildHandleSchema,
   type AgentTreeMember,
   type ChildHandle,
-} from "./agent.js";
+} from "./agent/methods.js";
+import { wireFreeFormString } from "./free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
-import { DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
-import { RunStateSchema, type RunState } from "./run-state.js";
-import { refuseSelfParentingRun } from "./transcript/child-run-summary.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/length-limits.js";
+import {
+  DRIVER_WIRE_REASON_MAX_LEN,
+  DRIVER_WIRE_TOKEN_MAX_LEN,
+} from "./provider/driver/methods.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
+import { RunStateSchema, type RunState } from "./run/state.js";
 import {
   OrchestrationBudgetReadRequestSchema,
   OrchestrationBudgetStateSchema,
@@ -36,8 +40,9 @@ import {
   type OrchestrationBudgetState,
   type SessionCostReceipt,
   type SessionCostReceiptRequest,
-} from "./session-cost.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+} from "./session/cost.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
+import { refuseSelfParentingRun } from "./transcript/child-run-summary.js";
 
 // orchestration.runCreate
 
@@ -205,7 +210,7 @@ export const ChildRunRejectionSchema: z.ZodType<ChildRunRejection> = z
   .strict();
 
 /**
- * The Sidekicks badge's figures, supplied by the daemon because the screen may hold
+ * The agents badge's figures, supplied by the daemon because the screen may hold
  * only part of the list: the children running now, the children dispatched in all,
  * and the children waiting on an approval.
  */

@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 
 /** What Electron and a test driver put on a command line besides the app's own arguments. */

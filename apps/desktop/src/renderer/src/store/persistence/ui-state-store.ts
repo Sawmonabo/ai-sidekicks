@@ -18,48 +18,42 @@
 //   4. The adapter is resolved once, not swapped; see `UiStateStoreOptions.adapter`.
 //
 // The class decides whether a write lands; classifying and counting refusals is
-// `persistence-health.ts`.
+// `health.ts`.
 
-import {
-  PERSISTENCE_RECORD_BYTE_CAP,
-  PERSISTENCE_SESSION_PARTITION_CAP,
-} from "../persistence-caps.js";
-import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import { PERSISTENCE_RECORD_BYTE_CAP, PERSISTENCE_SESSION_PARTITION_CAP } from "./caps.js";
+import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
   type PersistenceAdapter,
   type QuotaGauge,
   type StoredRecord,
-} from "./persistence-adapter.js";
-import { validatePersistedAddress } from "./persisted-value-classes.js";
-import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
-import {
-  openUiStateDatabase,
-  type OpenUiStateDatabaseOptions,
-} from "./indexeddb-persistence-adapter.js";
+} from "./adapter.js";
+import { validatePersistedAddress } from "./value-classes.js";
+import { MemoryPersistenceAdapter } from "./memory-adapter.js";
+import { openUiStateDatabase, type OpenUiStateDatabaseOptions } from "./indexeddb-adapter.js";
 import {
   PERSISTENCE_READ_ABSENT,
   PERSISTENCE_READ_FAILED,
   recordFromReadOutcome,
   type PersistenceReadOutcome,
-} from "./persistence-read-outcome.js";
-import { refusePersistence, type PersistenceRefusal } from "./persistence-refusals.js";
+} from "./read-outcome.js";
+import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
 import {
   PersistenceHealthTracker,
   REFUSED_ADDRESS_SITE,
   type PersistenceHealth,
-} from "./persistence-health.js";
+} from "./health.js";
 import {
   measureRecordByteLength,
   validatePersistedValue,
   type PersistableValue,
   type PersistedValueClass,
-} from "./persisted-value-classes.js";
+} from "./value-classes.js";
 
 /** The outcome of a write. A refusal is a value, not an exception. */
 export type PersistenceWriteResult =
@@ -151,7 +145,9 @@ export class UiStateStore {
       return this.#refuse(
         refusePersistence(
           "value-too-large",
-          `${valueClass} at ${site} serializes to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
+          `${valueClass} at ${site} serializes to ${String(recordByteLength)} ` +
+            `bytes including its address, past the ` +
+            `${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
         ),
         site,
       );
@@ -206,7 +202,7 @@ export class UiStateStore {
     return { outcome: "written" };
   }
 
-  /** Write a window-wide preference (the color scheme) rather than a session one. */
+  /** Write window-wide state (the pins, the run filters) rather than a session's. */
   public async writeGlobal(
     key: string,
     valueClass: PersistedValueClass,
@@ -297,7 +293,7 @@ export class UiStateStore {
       severity: "warning",
       source: "store/persistence",
       kind: "read-failed",
-      detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      detail: describeThrownValue(error),
     });
   }
 
@@ -310,15 +306,22 @@ export class UiStateStore {
    * The one translation from a thrown adapter failure into a refused write, used by every arm
    * of the write path because `write` declares its failure as a returned refusal.
    *
-   * A failure that is not a `PersistenceAdapterError` is rethrown: both adapters wrap every
-   * rejection in one, so anything else is a defect, and refusing it would file the bug under a
-   * code naming storage.
+   * A failure that is not a `PersistenceAdapterError` is refused as `adapter-unavailable`, the
+   * code the durable adapter gives any rejection it does not recognize, with the thrown name and
+   * message as the detail. Rethrowing it would reject a promise callers handle only on its
+   * fulfilled arm, and a shipped window reports no unhandled rejection.
    */
   #refuseAdapterFailure(error: unknown, site: string): PersistenceWriteResult {
-    if (!(error instanceof PersistenceAdapterError)) {
-      throw error;
+    if (error instanceof PersistenceAdapterError) {
+      return this.#refuse(error.refusal, site);
     }
-    return this.#refuse(error.refusal, site);
+    return this.#refuse(
+      refusePersistence(
+        "adapter-unavailable",
+        `the store's adapter failed without a persistence refusal (${describeThrownValue(error)})`,
+      ),
+      site,
+    );
   }
 
   async #trimIfOverCap(): Promise<void> {
@@ -335,4 +338,8 @@ export class UiStateStore {
     const summaries = await (await this.#adapterReady).summarizePartitions();
     return summaries.filter((summary) => summary.partition !== PERSISTENCE_GLOBAL_PARTITION).length;
   }
+}
+
+function describeThrownValue(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }

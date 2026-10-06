@@ -1,7 +1,7 @@
 // The two-step control that retires one standing permission: the first press arms, the
 // confirming press reaches the wire, and a control already revoking offers no second press.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 
 /**
  * Idle, confirming, pending: three states on one control.
@@ -21,7 +21,10 @@ export function RevokeRuleControl(props: {
   if (!props.isConfirming) {
     return (
       <button
-        className="meridian-remembered-rules__revoke meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        className={
+          "meridian-action-button " +
+          "meridian-action-button--regular meridian-action-button--outline"
+        }
         type="button"
         onClick={props.onAsk}
       >
@@ -39,14 +42,20 @@ export function RevokeRuleControl(props: {
         Revoke this permission? The next matching request will be asked again.
       </span>
       <button
-        className="meridian-remembered-rules__revoke meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        className={
+          "meridian-action-button " +
+          "meridian-action-button--regular meridian-action-button--outline"
+        }
         type="button"
         onClick={props.onConfirm}
       >
         Revoke it
       </button>
       <button
-        className="meridian-remembered-rules__cancel meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        className={
+          "meridian-action-button " +
+          "meridian-action-button--regular meridian-action-button--outline"
+        }
         type="button"
         onClick={props.onCancel}
       >

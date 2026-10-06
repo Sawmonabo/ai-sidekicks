@@ -10,32 +10,32 @@ This document covers durable stores, event logs, projections, artifacts, and rec
 
 ## Context
 
-The product requires durable replay and recovery while keeping local execution private and machine-scoped. That requires a deliberate split between local runtime storage and shared control-plane storage.
+The product requires durable rebuild and recovery while keeping local execution private and machine-scoped. That requires a deliberate split between local runtime storage and shared control-plane storage.
 
 ## Responsibilities
 
 - persist runtime events, receipts, projections, and recovery handles locally
 - persist the device registry, the signed statement chain and each machine's registration in shared storage; the control plane keeps no session record
-- support replay and projection rebuild
+- support projection rebuild
 - preserve artifact provenance and audit history
 
 ## Component Boundaries
 
 | Store | Responsibility |
 | --- | --- |
-| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)) — on a single-writer worker thread (see [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency)). |
+| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin)) — on a single-writer worker thread (see [Spec-013 §Writer Concurrency](../specs/013-persistence-and-recovery.md#writer-concurrency)). |
 | `Shared Postgres Store` | The device registry, the signed statement chain and each machine's registration. No session record: a machine's service is its sessions' one store. |
 | `Artifact Storage` | Durable artifact payloads and manifests, held on the machine that runs the session. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
 
 Artifact Storage uses an OCI-inspired manifest envelope with content-addressable storage (CAS) keyed by SHA-256 for deduplication. Artifacts are stored on the filesystem of the machine that runs the session, and the person's other devices list and read them through Remote Control. The control plane holds no artifact bytes, keys or copies.
 
-Liveness data is ephemeral. A device or a machine is reachable while its relay connection is live, and the control plane records that connection; nothing about liveness is canonical, and no reader replays it. There is no shared presence CRDT — liveness answers only which of the user's own endpoints are currently reachable.
+Liveness data is ephemeral. A device or a machine is reachable while its relay connection is live, and the control plane records that connection; nothing about liveness is canonical, and nothing is rebuilt from it. There is no shared presence CRDT — liveness answers only which of the user's own endpoints are currently reachable.
 
 ## Data Flow
 
 1. Local execution state changes append to the local event log.
-2. Local projections update from those events for fast reads and replay safety.
+2. Local projections update from those events for fast reads and rebuild safety.
 3. Device registration, liveness, and relay coordination write to the shared relational store.
 4. Artifact manifests record provenance; payloads stay on the machine that runs the session.
 5. Clients read merged projections from local and shared stores.
@@ -50,7 +50,7 @@ V1 scopes event-sourcing to per-machine local event logs. Each session runs on o
 
 **Audit across machines (accepted trade-off).** No single query spans all of the person's machines: each machine answers for the sessions it runs, and an audit or export covering several machines reads each one. The control plane holds no event payloads, which is the cost of a relay that sees no session content.
 
-**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, a manual clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-013 §Clock Handling](../specs/013-persistence-recovery-and-replay.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
+**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, a manual clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-013 §Clock Handling](../specs/013-persistence-and-recovery.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
 
 ## Trust Boundaries
 
@@ -59,7 +59,7 @@ V1 scopes event-sourcing to per-machine local event logs. Each session runs on o
 
 ## Privacy and Data Protection
 
-The person's messages and every queued message's body sit in the daemon's database as plain text, like every other column: a session event's personal fields, a steer's text on its `interventions` row, and a queue item's body on its `queue_items` row, whether a person's send or an orchestration-authored prompt. Nothing in the daemon's database is encrypted by the app, and no credential is kept in it. `Delete old data` deletes a session's rows with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log is checkpointed with `TRUNCATE` once the delete commits ([Spec-020 §Ordering And Atomicity](../specs/020-data-retention-and-gdpr.md#ordering-and-atomicity)). `Erase all data` deletes the app's credential-store items and the store.
+The person's messages and every queued message's body sit in the daemon's database as plain text, like every other column: a session event's personal fields, a steer's text on its `interventions` row, and a queue item's body on its `queue_items` row, whether a person's send or an orchestration-authored prompt. Nothing in the daemon's database is encrypted by the app, and no credential is kept in it. `Delete old data` deletes a session's rows with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log is checkpointed with `TRUNCATE` once the delete commits ([Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity)). `Erase all data` deletes the app's credential-store items and the store.
 
 ## Schema References
 
@@ -83,13 +83,13 @@ Key properties the rest of the architecture depends on:
 - **The app and the service agree a version range at the handshake.** Each app accepts its own service version and the previous one; outside that range the console is read-only and names the side that is behind. A session carries no version floor of its own.
 - **Audit log is never rewritten.** Receivers encountering unknown event types persist the original bytes as **version stubs**, each retaining all its fields verbatim. A receiver that upgrades re-reads a stub's kept bytes with its own schema; nothing converts one version's shape to another's, and committed rows are never rewritten. Stubs also keep a newer service's events after the service is rolled back.
 - **MINOR bumps are additive-only.** New optional fields, new event types, new enum values. Any semantic or structural break requires a MAJOR bump.
-- **Version stubs are never compacted.** A stub keeps its bytes until its session is deleted, so post-upgrade replay is lossless.
+- **Version stubs are never compacted.** A stub keeps its bytes until its session is deleted, so a post-upgrade rebuild is lossless.
 
 See [ADR-017 §Decision](../decisions/017-cross-version-compatibility.md#decision) for the full semantics and [ADR-017 §Reviewer Checklist for MINOR Bumps](../decisions/017-cross-version-compatibility.md#reviewer-checklist-for-minor-bumps) for the author discipline that governs each additive bump.
 
 ## Failure Modes
 
-- Local SQLite corruption prevents replay until repaired or restored.
+- Local SQLite corruption prevents rebuild until repaired or restored.
 - Projection lag causes stale reads even when canonical events exist.
 
 ## Related Domain Docs
@@ -102,7 +102,7 @@ See [ADR-017 §Decision](../decisions/017-cross-version-compatibility.md#decisio
 
 - [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
 - [Artifacts Files And Attachments](../specs/012-artifacts-files-and-attachments.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ## Related Architecture Docs

@@ -1,23 +1,41 @@
-// The router keys the mounted screen on its address. Two addresses can resolve to one screen (a
-// second session), and without the key React would carry what one session's screen holds into
-// the next session's. The pane harness is the probe screen, because its open-pane count and each
-// body's mount lifecycle show whether the screen was rebuilt; the body is a stub.
+// The router keys the mounted screen on what it is about. Two addresses can resolve to one screen
+// for two subjects (a second session), and without the key React would carry what one session's
+// screen holds into the next session's; two addresses inside one destination (the runs list and a
+// run's page) are one subject, and a key on the whole address would throw away what the screen
+// holds on every move. The pane harness is the probe screen for the first, because its open-pane
+// count and each body's mount lifecycle show whether the screen was rebuilt; the workflows screen
+// over the playback is the probe for the second, through what it holds for the sitting.
 
 import { useEffect } from "react";
 
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { registerPaneHarnessScreen } from "./pane-harness/register-pane-harness-screen.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
+import {
+  createWorkflowCommandTargets,
+  registerWorkflowScreens,
+} from "#renderer/features/workflows/index.js";
+import {
+  attentionOf,
+  mountWorkflowsScreen,
+  navigate,
+  nextWaitingControl,
+  openRunId,
+  press,
+} from "#renderer/features/workflows/WorkflowsScreen.test-support.js";
+import { workflowRunsRoute } from "#renderer/routing/readers.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneKind } from "#renderer/routing/panes/kinds.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { registerPaneHarnessScreen } from "./pane-harness/register-screen.js";
 import { AppRouter } from "./AppRouter.js";
-import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { screenRegistry } from "#renderer/registries/screens/registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/context.js";
 
 afterEach(cleanup);
 
@@ -154,3 +172,64 @@ describe("AppRouter — the screen across an address change", () => {
     expect(mountedPaneLifecycle).toStrictEqual([`mounted ${paneInstanceId(0)}`]);
   });
 });
+
+describe("AppRouter — the workflows screen across a run's page", () => {
+  beforeAll(async () => {
+    registerWorkflowScreens(screenRegistry, createWorkflowCommandTargets());
+    await screenRegistry.preload("workflows");
+  });
+
+  afterAll(() => {
+    screenRegistry.unregister("workflows");
+  });
+
+  it("opens the list with `That run is not here.` for a run the daemon does not have", async () => {
+    const mounted = await mountWorkflowsScreen({
+      route: workflowRunsRoute(UNKNOWN_RUN_ID),
+      mount: routedThroughRouter,
+    });
+
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(screen.getByText("That run is not here.")).toBeTruthy();
+    });
+    expect(openRunId(mounted)).toBeUndefined();
+  });
+
+  it("keeps the count of runs answered while a run's page opens and closes", async () => {
+    const mounted = await mountWorkflowsScreen({
+      route: workflowRunsRoute(undefined),
+      mount: routedThroughRouter,
+      answer: async (call, passThrough) => {
+        const reply = await passThrough();
+        return call.method === "workflow.runAttentionList"
+          ? attentionOf(reply, [WORKFLOW_RUN_IDS.waitingApproval])
+          : reply;
+      },
+    });
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(nextWaitingControl().textContent).toBe("Next waiting (1)");
+    });
+
+    await press("Next waiting (1)");
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+    });
+    await press("Approve");
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(screen.getByText(/^Approved at /u)).toBeTruthy();
+    });
+    await navigate(mounted);
+
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(screen.getByText(/^Nothing waiting · you answered 1 run this /u)).toBeTruthy();
+    });
+  });
+});
+
+/** A run id no run in the playback has. */
+const UNKNOWN_RUN_ID = "019b7a10-0280-75e5-8510-ada11a5a4999";
+
+/** The workflows screen as the window draws it: through the router. */
+function routedThroughRouter(context: ScreenContext): React.JSX.Element {
+  return <AppRouter context={context} />;
+}

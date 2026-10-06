@@ -92,9 +92,9 @@ Intervention payloads are a discriminated union by type:
 - `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, clientIdempotencyKey, content, attachments?}` — the daemon's delivery of a message the person sent mid-turn (`run.queueCreate`) through the driver's own steer; no client sends a steer intervention
 - `interrupt`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
 
-All intervention types carry a **mandatory** version guard (`expectedRunVersion`) — the guard is **fail-closed**: the comparand is required on every intervention request and an absent comparand is **rejected**, never applied (an optional guard would let a caller bypass stale-replay protection by omitting the field). See [Spec-003 §Interfaces And Contracts](../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts) and [Plan-002 D-002-2](../plans/002-queue-steer-pause-resume.md). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
+All intervention types carry a **mandatory** version guard (`expectedRunVersion`) — the guard is **fail-closed**: the comparand is required on every intervention request and an absent comparand is **rejected**, never applied (an optional guard would let a caller bypass the stale-request guard by omitting the field). See [Spec-003 §Interfaces And Contracts](../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts) and [Plan-002 D-002-2](../plans/002-queue-steer-pause-resume.md). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
 
-All intervention types also carry a **mandatory** requester-generated `clientIdempotencyKey` (UUID; [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). The daemon persists it on the `interventions` row (`UNIQUE(target_run_id, client_idempotency_key)`) and applies replay-or-conflict semantics: an identical retry returns the originally recorded outcome without re-dispatching the driver; reuse of a key with a differing payload is rejected as `intervention.idempotency_conflict`. For a steer's `content`, same-vs-differing is adjudicated by comparing the stored text with the retry's, as plain text ([Spec-003 §Interfaces And Contracts](../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts)). The guards are orthogonal — `expectedRunVersion` defeats stale replays of **outdated** intent, `clientIdempotencyKey` defeats duplicate applications of the **same** intent. The daemon's own stops (the orchestration layer’s spend-limit and token-limit interrupts — ADR-011 dispatch, Plan-013) carry a key the daemon synthesizes at enqueue time under the same replay-or-conflict semantics; the field keeps its wire-standard `client` prefix because the requester is the client toward the driver boundary.
+All intervention types also carry a **mandatory** requester-generated `clientIdempotencyKey` (UUID; [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). The daemon persists it on the `interventions` row (`UNIQUE(target_run_id, client_idempotency_key)`) and applies return-or-conflict semantics: an identical retry returns the saved result without re-dispatching the driver; reuse of a key with a differing payload is rejected as `intervention.idempotency_conflict`. For a steer's `content`, same-vs-differing is adjudicated by comparing the stored text with the retry's, as plain text ([Spec-003 §Interfaces And Contracts](../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts)). The guards are orthogonal — `expectedRunVersion`, the stale-request guard, defeats a stale request carrying **outdated** intent; `clientIdempotencyKey`, the duplicate-request guard, defeats duplicate applications of the **same** intent. The daemon's own stops (the orchestration layer’s spend-limit and token-limit interrupts — ADR-011 dispatch, Plan-013) carry a key the daemon synthesizes at enqueue time under the same return-or-conflict semantics; the field keeps its wire-standard `client` prefix because the requester is the client toward the driver boundary.
 
 ## Field-Level Consistency
 
@@ -113,7 +113,7 @@ The following field inventory maps each intervention payload to its sources.
 
 At-rest routing: `content` rests on the durable intervention row in its `payload` column, as plain text like every other column ([Spec-003 §State And Data Implications](../specs/003-queue-steer-pause-resume.md#state-and-data-implications)), and the driver leg is handed the same text. `attachments` are references, not bodies.
 
-Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [api-payload-contracts.md §Plan-003 — Provider Driver Contract (Internal Interface)](../architecture/contracts/api-payload-contracts.md#plan-003--provider-driver-contract-internal-interface), and cited from `run.queueCreate` rather than restated.
+Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [provider-driver-payloads.md §Plan-003 — Provider Driver Contract (Internal Interface)](../architecture/contracts/provider-driver-payloads.md#plan-003--provider-driver-contract-internal-interface), and cited from `run.queueCreate` rather than restated.
 
 **`interrupt` payload:**
 
@@ -158,14 +158,14 @@ Static capability refusal is a separate, earlier path with a narrow carve-out: t
 ## Edge Cases
 
 - A waiting message has a deadline: once it has waited longer than the daemon's own delivery timeout it is `not_delivered`, carries its reason and can be sent again from itself. While the daemon is only unreachable it keeps waiting.
-- A canceled queue item remains in history for audit and replay.
+- A canceled queue item remains in history for audit.
 
 ## Related Specs
 
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
 - [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 
 ## Related ADRs
 

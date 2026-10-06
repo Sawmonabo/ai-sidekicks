@@ -7,13 +7,19 @@
 
 import { describe, expect, it } from "vitest";
 
+import { routesAreEqual, sessionRoute } from "./readers.js";
 import { formatRoute, parseRoute, type AppRoute } from "./routes.js";
 
 /** Main-window routes, including the arm that carries an optional segment. */
 const MAIN_WINDOW_ROUTES: readonly AppRoute[] = [
   { kind: "sessions" },
   { kind: "session", sessionId: "session-1" },
+  // A session opened at the message a link names, by its event cursor.
+  { kind: "session", sessionId: "session-1", messageAnchorCursor: "cursor-41" },
   { kind: "workflows" },
+  { kind: "workflows", tab: "runs" },
+  // One run's page under the Runs tab.
+  { kind: "workflows", tab: "runs", runId: "run-1" },
   { kind: "settings", page: undefined },
   { kind: "settings", page: "providers" },
   // The paged arm carrying its page's own selection.
@@ -31,14 +37,46 @@ describe("routes — every main-window route renders to a hash that parses back 
   }
 });
 
+describe("routes — a link to a message of a session", () => {
+  it("builds the address that parses back to the session opened at that message", () => {
+    expect(parseRoute(formatRoute(sessionRoute("session-1", "cursor-41")))).toStrictEqual({
+      kind: "session",
+      sessionId: "session-1",
+      messageAnchorCursor: "cursor-41",
+    });
+    // No cursor is the plain session address, with no key left behind for the round trip.
+    expect(sessionRoute("session-1", undefined)).toStrictEqual(parseRoute("#/session/session-1"));
+  });
+
+  it("treats another message of the same session as another route", () => {
+    // The window adopts a hash only when it differs, so an equality blind to the message would
+    // leave a second link into an open session going nowhere.
+    expect(
+      routesAreEqual(sessionRoute("session-1", "cursor-41"), sessionRoute("session-1", "cursor-7")),
+    ).toBe(false);
+    expect(
+      routesAreEqual(sessionRoute("session-1", "cursor-41"), sessionRoute("session-1", undefined)),
+    ).toBe(false);
+    expect(
+      routesAreEqual(
+        sessionRoute("session-1", "cursor-41"),
+        sessionRoute("session-1", "cursor-41"),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("routes — malformed main-window hashes resolve to not-found", () => {
   it("refuses trailing segments the grammar does not have", () => {
     expect(parseRoute("#/sessions/extra")).toStrictEqual({
       kind: "not-found",
       attempted: "#/sessions/extra",
     });
-    expect(parseRoute("#/session/one/two").kind).toBe("not-found");
+    // `#/session/<sessionId>/<messageAnchorCursor>` is grammar, so the overrun is a third segment.
+    expect(parseRoute("#/session/one/two/three").kind).toBe("not-found");
     expect(parseRoute("#/workflows/extra").kind).toBe("not-found");
+    // `#/workflows/runs/<runId>` is grammar, so the overrun is a fourth segment.
+    expect(parseRoute("#/workflows/runs/run-1/step").kind).toBe("not-found");
     // `#/settings/<page>/<selection>` is grammar, so the overrun is a third segment.
     expect(parseRoute("#/settings/one/two/three").kind).toBe("not-found");
   });
@@ -52,6 +90,21 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
       selection: "one/two",
     });
     expect(formatRoute(parseRoute(escaped))).toBe(escaped);
+  });
+
+  it("decodes an escaped message cursor and renders it back escaped", () => {
+    // The cursor is the daemon's opaque string, so a slash in it must not split the address.
+    const escaped = "#/session/session-1/cursor%2F41";
+    expect(parseRoute(escaped)).toStrictEqual({
+      kind: "session",
+      sessionId: "session-1",
+      messageAnchorCursor: "cursor/41",
+    });
+    expect(formatRoute(parseRoute(escaped))).toBe(escaped);
+  });
+
+  it("refuses a message cursor whose escapes are malformed", () => {
+    expect(parseRoute("#/session/session-1/%zz").kind).toBe("not-found");
   });
 
   it("refuses a settings selection whose escapes are malformed", () => {

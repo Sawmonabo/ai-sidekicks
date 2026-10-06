@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
+import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { ToolOutput } from "./ToolOutput.js";
 
 const ESCAPE = "\u001b";

@@ -34,7 +34,7 @@ import {
   focusTargetWithin,
   nearestMountedRowIndex,
   rowElementAt,
-} from "@renderer/lib/windowed-row-markers.js";
+} from "#renderer/lib/windowed-row-markers.js";
 
 /** Where one key press moves the active row. */
 export type WindowedRowMove = "next" | "previous" | "first" | "last";

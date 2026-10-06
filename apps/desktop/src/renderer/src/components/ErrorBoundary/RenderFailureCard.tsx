@@ -1,3 +1,5 @@
+import { TryAgainButton } from "../TryAgainButton/TryAgainButton.js";
+
 /** What {@link RenderFailureCard} needs: the failed region's name and a retry. */
 export interface RenderFailureCardProps {
   /** What failed, in the person's words: "The transcript", "The inspector". */
@@ -12,10 +14,7 @@ export interface RenderFailureCardProps {
 export function RenderFailureCard(props: RenderFailureCardProps): React.JSX.Element {
   return (
     <p className="meridian-render-failure" role="alert">
-      {props.regionName} stopped rendering.{" "}
-      <button className="meridian-render-failure__retry" type="button" onClick={props.onRetry}>
-        Retry
-      </button>
+      {props.regionName} stopped rendering. <TryAgainButton word="Retry" onPress={props.onRetry} />
     </p>
   );
 }

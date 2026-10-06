@@ -4,7 +4,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
+import { ProviderCommandEnumeration } from "../provider/enumeration.js";
 import { useProviderCommandEnumeration } from "./useProviderCommandEnumeration.js";
 import {
   FIRST_AGENT,
@@ -12,9 +12,9 @@ import {
   enumerationCalls,
   recordingBridge,
   targetForAgent,
-} from "../provider-command-enumeration.test-support.js";
-import { type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+} from "../provider/enumeration.test-support.js";
+import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("useProviderCommandEnumeration", () => {
   it("asks nothing until the command list is open", async () => {

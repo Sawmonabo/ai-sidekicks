@@ -1,16 +1,16 @@
-// Command output: the spans `ansi-spans.ts` produced, as elements in a `<pre>` because the
+// Command output: the spans `spans.ts` produced, as elements in a `<pre>` because the
 // output is preformatted. The one piece of state is the fold: `ANSI_SPAN_RENDER_CAP` withholds
 // the tail of a color-heavy log, so a control lifts the cap for this block, keyed to the source
 // it was granted for so a changed body returns to the default.
 
 import { useMemo, useState } from "react";
 
-import { ANSI_SPAN_RENDER_CAP } from "./ansi-spans.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
-import { ansiSpanClassNames, parseAnsiSpans } from "./ansi-spans.js";
+import { ANSI_SPAN_RENDER_CAP } from "./spans.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { ansiSpanClassNames, parseAnsiSpans } from "./spans.js";
 
-import "./ansi.css";
+import "./AnsiOutput.css";
 
 /** The tool output to render and the label a screen reader gives its block. */
 export interface AnsiOutputProps {
@@ -55,7 +55,10 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
           // One sentence carries both figures: an inline badge shows `detail` only as a hover
           // title, and the counts are the substance of the notice. The badge still fits because
           // the output it qualifies is present.
-          title={`Showing ${formatCount(spans.length)} styled runs; ${formatCount(elidedSpanCount)} more are not shown.`}
+          title={
+            `Showing ${formatCount(spans.length)} styled runs; ` +
+            `${formatCount(elidedSpanCount)} more are not shown.`
+          }
           action={
             <button
               type="button"

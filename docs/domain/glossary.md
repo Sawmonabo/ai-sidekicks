@@ -20,17 +20,17 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Agent` | A configured execution persona inside a session, used to perform runs. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
 | `AgentDefinition` | A saved, reusable agent configuration the Sidekicks destination lists; a run started under one keeps the configuration it was resolved for. |
 | `Run` | A single execution episode performed by one agent inside one session. |
-| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-003 (provider driver contract), extended by Plan-012 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-recovery-and-replay.md). |
+| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-003 (provider driver contract), extended by Plan-012 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-and-recovery.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
 | `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or interrupts active or queued work. |
 | `RepoMount` | A git repository attached to the machine as a project's folder, once per machine; every session of that project binds to it. A chat's managed workspace is a mount too, owned by its one chat. |
 | `Workspace` | A session's execution context, rooted at one checkout: the project's checkout, a worktree the daemon made, or a chat's managed workspace. |
 | `Worktree` | An isolated checkout derived from a repository and typically used as the default write target for coding runs. |
-| `ExecutionMode` | Where a session's runs work: `bound-root`, the root already bound to its workspace (the project's checkout, or a chat's managed workspace), or `provisioned-worktree`, a worktree the daemon's worktree lifecycle made or reused. There is no disposable copy and no read-only place: how much a session may change is its permission level, not its execution mode. |
+| `ExecutionMode` | Where a session's runs work: `bound-root`, the root already bound to its workspace (the project's checkout, or a chat's managed workspace), or `provisioned-worktree`, a worktree the daemon's worktree lifecycle made. There is no disposable copy and no read-only place: how much a session may change is its permission level, not its execution mode. |
 | `Artifact` | An immutable output or record produced by a run, a user, or the system. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-step work inside a session. |
-| `WorkflowDefinition` | The named, durable record of one workflow: the document an author wrote and the chain of immutable versions of it. Scoped `session`, `project` or `shared`. |
+| `WorkflowDefinition` | The named, durable record of one workflow: the document an author wrote and the chain of immutable versions of it. Every definition is in the one workflow library; its name is used once there, ignoring case. |
 | `WorkflowVersion` | An immutable snapshot of a `WorkflowDefinition`'s document body at a point in time, addressed by that body's content hash. |
 | `WorkflowRun` | A single execution instance of a specific `WorkflowVersion` within a session. |
 | `WorkflowDocument` | The authored body of a workflow: one JSON document holding exactly one trigger node, the rest of the graph as nodes, and the edges between them. Every kind the runtime offers is a node, and nothing is compiled into a second shape when the document is saved. |
@@ -63,7 +63,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `Worktree` is a specialized repository execution root inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode and `Agent` is the live actor inside a session that performs it; `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
-- `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
+- `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and rebuilds.
 - `Workflow` is a reusable execution template. `WorkflowDefinition` records the template; `WorkflowVersion` is an immutable snapshot; `WorkflowRun` is an execution instance inside a `Session`.
 - `WorkflowDocument` is the body a `WorkflowVersion` snapshots, and each of its nodes is one step a run executes; a `WorkflowStep` records one attempt of one node; a `Gate` is a `human.approval` step or a chain's question, and the run waits on it until the person answers.
 - `local-only` may describe session continuity or execution scope, but it does not define a second kind of `Session`.
@@ -90,7 +90,7 @@ The glossary changes with the domain docs: each entry carries the same meaning a
 - [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md)
 
 ## Related ADRs

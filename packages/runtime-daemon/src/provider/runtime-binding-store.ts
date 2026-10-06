@@ -2,7 +2,7 @@
 // `session/daemon-schema.ts`; binding state never touches a remote provider.
 //
 // - `contract_version`, `resume_handle` and the `cli_version_raw` / `cli_version_semver` pair are
-//   provider-declared: the SQL CHECKs bound length and NULs, `provider-output-validation.ts` adds
+//   provider-declared: the SQL CHECKs bound length and NULs, `output-validation.ts` adds
 //   the semantic layer. The pair is spawn-scoped, so it is validated at INSERT only.
 // - `spawn_config` is required at create; recovery re-reads it to rebuild `ResumeSessionParams`
 //   without the original client request. `cliVersion` is one optional member, so the DDL's rule
@@ -11,19 +11,14 @@
 //   guard. `driverName` is typed at the write and parsed as a provider name on every read.
 //   `update` runs IMMEDIATE (see the `#updateTxn` field).
 
-import { ProviderNameSchema, type ProviderName } from "@ai-sidekicks/contracts/provider-account";
-import type {
-  ExecutionPosture,
-  SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import { ProviderNameSchema, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
-import {
-  assertValidContractVersion,
-  assertValidResumeHandle,
-} from "./provider-output-validation.js";
-import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { assertValidContractVersion, assertValidResumeHandle } from "./output-validation.js";
+import { mintUuidV7 } from "../uuid-v7.js";
 import { isPlainObject } from "./record-readers.js";
 import {
   type CallbackToolInvocation,
@@ -33,7 +28,7 @@ import {
   type ResumeSessionParams,
   type SubagentPolicy,
   readCliVersionColumns,
-} from "./provider-driver.js";
+} from "./driver/contract.js";
 
 /**
  * The daemon-owned record of the spawn-bound configuration, persisted at every binding write.
@@ -90,7 +85,7 @@ export interface CreateRuntimeBindingInput {
 /**
  * The `create` members filled from one spawned-build reading of `resolvedExecutablePath`, never a
  * launcher symlink or `--version`, so a row never pairs one install's version with another's path.
- * `spawned-provider-version.ts` produces this through `toBindingVersionCarriers`.
+ * `spawned-version.ts` produces this through `toBindingVersionCarriers`.
  */
 export interface SpawnedVersionBindingCarriers {
   readonly cliVersion: DriverCliVersionReport;
@@ -112,7 +107,9 @@ export function withSpawnedVersionCarriers(
     declaredExecutablePath !== carriers.resolvedExecutablePath
   ) {
     throw new Error(
-      `RuntimeBindingStore: spawn_config.resolvedExecutablePath disagrees with the spawned-version reading for run ${input.runId} (driver ${input.driverName}) — the recorded version and the recorded executable must come from one reading`,
+      `RuntimeBindingStore: spawn_config.resolvedExecutablePath disagrees with the ` +
+        `spawned-version reading for run ${input.runId} (driver ${input.driverName}) — the ` +
+        `recorded version and the recorded executable must come from one reading`,
     );
   }
   return {
@@ -124,7 +121,7 @@ export function withSpawnedVersionCarriers(
 
 /**
  * `update` patch: the mutable columns only. `spawnConfig` and `cliVersion` are absent because a
- * relaunch mints a new row; patching them would rewrite the provenance recovery replays from.
+ * relaunch mints a new row; patching them would rewrite the provenance recovery rebuilds from.
  */
 export interface UpdateRuntimeBindingPatch {
   readonly contractVersion?: string;
@@ -202,12 +199,12 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   outputSpeed: "resume-leg",
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "relaunch-input">>;
 
+type ResumeDisposition = typeof SPAWN_CONFIG_RESUME_DISPOSITION;
+
 /** The `spawn_config` members a resumed leg re-realizes through its params. */
 type ResumeLegSpawnConfigKey = {
-  [Key in keyof typeof SPAWN_CONFIG_RESUME_DISPOSITION]: (typeof SPAWN_CONFIG_RESUME_DISPOSITION)[Key] extends "resume-leg"
-    ? Key
-    : never;
-}[keyof typeof SPAWN_CONFIG_RESUME_DISPOSITION];
+  [Key in keyof ResumeDisposition]: ResumeDisposition[Key] extends "resume-leg" ? Key : never;
+}[keyof ResumeDisposition];
 
 /** Raised when a binding cannot describe a resumable leg; recovery should relaunch, not retry. */
 export class RuntimeBindingNotResumableError extends Error {
@@ -236,7 +233,9 @@ export function composeResumeSessionParams(
   const resumeHandle = binding.resumeHandle;
   if (resumeHandle === null || resumeHandle.length === 0) {
     throw new RuntimeBindingNotResumableError(
-      `RuntimeBindingStore: binding ${binding.id} (run ${binding.runId}, driver ${binding.driverName}) carries no resume handle — the leg must be relaunched fresh, not resumed`,
+      `RuntimeBindingStore: binding ${binding.id} (run ${binding.runId}, driver ` +
+        `${binding.driverName}) carries no resume handle — the leg must be relaunched fresh, ` +
+        `not resumed`,
       binding.id,
       binding.runId,
     );
@@ -287,18 +286,22 @@ export class RuntimeBindingStore {
 
     this.#insertStmt = db.prepare(
       `INSERT INTO runtime_bindings
-         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+          resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
        VALUES
-         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, @resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
+         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver,
+          @resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
     );
     this.#selectByIdStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE id = ?`,
     );
     // Uses `idx_runtime_bindings_run`; the order is stable for a run's many bindings.
     this.#selectByRunStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE run_id = ?
         ORDER BY created_at, id`,
@@ -306,13 +309,15 @@ export class RuntimeBindingStore {
     // One statement for any arity: run ids arrive as one JSON-array parameter, since an
     // `IN (?,?,...)` list would need SQL per arity and could reach SQLITE_MAX_VARIABLE_NUMBER.
     this.#selectByRunsStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE run_id IN (SELECT value FROM json_each(?))
         ORDER BY run_id, created_at, id`,
     );
     this.#selectResumableStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE resume_handle IS NOT NULL
         ORDER BY created_at, id`,
@@ -391,7 +396,9 @@ export class RuntimeBindingStore {
     // Only an untyped caller reaches this; writing `'{}'` would leave a posture-less record.
     if (input.spawnConfig === undefined) {
       throw new Error(
-        `RuntimeBindingStore.create: spawnConfig is required at every binding write for run ${input.runId} (driver ${input.driverName}) — the '{}' column default is never a write's outcome`,
+        `RuntimeBindingStore.create: spawnConfig is required at every binding write for run ` +
+          `${input.runId} (driver ${input.driverName}) — the '{}' column default is never a ` +
+          `write's outcome`,
       );
     }
     const spawnConfigJson: string = JSON.stringify(input.spawnConfig);
@@ -566,13 +573,15 @@ export class RuntimeBindingStore {
       // Own keys only (see `assertValidCapabilityFlags`), so the table lookup below is total.
       if (!Object.prototype.hasOwnProperty.call(SPAWN_CONFIG_MEMBER_CHECKS, key)) {
         throw new Error(
-          `runtime_bindings.spawn_config carries unknown member "${key}" (binding id ${bindingId}).`,
+          `runtime_bindings.spawn_config carries unknown member "${key}" (binding id ` +
+            `${bindingId}).`,
         );
       }
       const check = SPAWN_CONFIG_MEMBER_CHECKS[key as keyof typeof SPAWN_CONFIG_MEMBER_CHECKS];
       if (!check(record[key])) {
         throw new Error(
-          `runtime_bindings.spawn_config member "${key}" has the wrong shape (binding id ${bindingId}).`,
+          `runtime_bindings.spawn_config member "${key}" has the wrong shape (binding id ` +
+            `${bindingId}).`,
         );
       }
     }

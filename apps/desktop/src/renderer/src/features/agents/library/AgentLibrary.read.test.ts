@@ -9,7 +9,7 @@ import {
   definition,
   renderAgentLibrary,
   savedRegionOf,
-} from "./agent-library.test-support.js";
+} from "./AgentLibrary.test-support.js";
 
 describe("the agent library — the read", () => {
   it("says a read is in flight before the registry answers", () => {

@@ -7,6 +7,8 @@
 // the axes, but `happy-dom` (the `renderer` tier's document) reports the empty string
 // for both axes of an element styled with the shorthand alone.
 
+import { getComputedStyle } from "@floating-ui/utils/dom";
+
 /**
  * The computed `overflow` values that clip a descendant.
  *
@@ -29,12 +31,9 @@ export function clipsItsContents(overflowValue: string): boolean {
  * scroll.
  */
 export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
-  if (typeof window === "undefined") {
-    return;
-  }
   let ancestor = element.parentElement;
   while (ancestor !== null) {
-    if (styleClipsItsContents(window.getComputedStyle(ancestor))) {
+    if (styleClipsItsContents(getComputedStyle(ancestor))) {
       yield ancestor;
     }
     ancestor = ancestor.parentElement;

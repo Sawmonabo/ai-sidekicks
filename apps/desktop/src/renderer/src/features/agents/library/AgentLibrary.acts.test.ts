@@ -11,7 +11,7 @@ import {
   press,
   renderAgentLibrary,
   savedRegionOf,
-} from "./agent-library.test-support.js";
+} from "./AgentLibrary.test-support.js";
 
 describe("the agent library — deleting one", () => {
   it("asks before it asks the daemon anything", async () => {

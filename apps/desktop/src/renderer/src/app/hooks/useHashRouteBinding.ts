@@ -10,17 +10,21 @@
 
 import { useEffect, useRef } from "react";
 
-import { formatRoute } from "@renderer/routing/routes.js";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { type WindowStore } from "@renderer/store/window/window-store.js";
+import { formatRoute } from "#renderer/routing/routes.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { type WindowStore } from "#renderer/store/window/store.js";
 
 /**
- * Bind this window's location hash to its route, in both directions.
+ * Bind `ownerWindow`'s location hash to its route, in both directions.
  *
  * @param hash The caller's live hash subscription, passed in so the window holds one
  *   `hashchange` subscription: the same value seeds the store and drives this binding.
  */
-export function useHashRouteBinding(frameStore: WindowStore, hash: string): void {
+export function useHashRouteBinding(
+  frameStore: WindowStore,
+  hash: string,
+  ownerWindow: Window,
+): void {
   // The hash this binding wrote and has not yet heard back; a ref, since nothing renders from it.
   const unheardWrite = useRef<string | undefined>(undefined);
 
@@ -43,10 +47,10 @@ export function useHashRouteBinding(frameStore: WindowStore, hash: string): void
       return;
     }
     const desired = formatRoute(current);
-    if (window.location.hash === desired) {
+    if (ownerWindow.location.hash === desired) {
       return;
     }
     unheardWrite.current = desired;
-    window.location.hash = desired;
-  }, [frameStore, route]);
+    ownerWindow.location.hash = desired;
+  }, [frameStore, route, ownerWindow]);
 }

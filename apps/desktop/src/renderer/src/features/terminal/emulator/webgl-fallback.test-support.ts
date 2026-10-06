@@ -1,7 +1,7 @@
 // A renderer that activates, which this environment cannot supply: the DOM shim has no WebGL2,
 // so the real `WebglAddon` throws before a context exists. Only that library is stood in.
 // `vi.mock` is module-scoped, so each consumer declares it in its own file (mocking it in
-// `xterm-adapter.test.ts` would move all of that file's cases onto a renderer they do not assert).
+// `xterm/adapter.test.ts` would move all of that file's cases onto a renderer they do not assert).
 
 import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
 

@@ -12,12 +12,16 @@
 import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
+import { wireFreeFormString } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The longest terminal id the daemon accepts. */
 export const TERMINAL_ID_MAX_LEN = 256;
@@ -198,14 +202,14 @@ export const PtyOutputSubscribeRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema }).strict();
 
 /**
- * One frame of a shell's output stream. The first is always `replay`: the replay window starting at
- * its first whole line, the columns and rows it was last drawn at (so a running program's boxes
- * come back unwrapped), and who holds it. Then `output` in the order the shell wrote it, and
- * `exited` once its program ends.
+ * One frame of a shell's output stream. The first is always `scrollback`: the scrollback window
+ * starting at its first whole line, the columns and rows it was last drawn at (so a running
+ * program's boxes come back unwrapped), and who holds it. Then `output` in the order the shell
+ * wrote it, and `exited` once its program ends.
  */
 export type PtyOutputFrame =
   | {
-      kind: "replay";
+      kind: "scrollback";
       sessionId: SessionId;
       terminalId: TerminalId;
       data: string;
@@ -219,7 +223,7 @@ export type PtyOutputFrame =
 export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.literal("replay"),
+      kind: z.literal("scrollback"),
       sessionId: SessionIdSchema,
       terminalId: TerminalIdSchema,
       data: z.string(),

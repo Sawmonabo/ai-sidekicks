@@ -14,15 +14,15 @@
 // be the same race, and a retry would hide a palette that never took focus.
 //
 // The two waits are one phase. Two waits each declaring `IN_WINDOW_STEP_TIMEOUT_MS` would entitle
-// an opening to twenty seconds, while `launch-body` counts it as one ten-second phase, so
-// the phase is minted once and both waits draw from what is left.
+// an opening to twenty seconds, while a body counting its waits against `launch-body` counts it as
+// one ten-second step, so the phase is minted once and both waits draw from what is left.
 
 import type { Locator, Page } from "@playwright/test";
 import { expect } from "vitest";
 
-import type { AppUnderTest } from "./electron-harness.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "./launch-body.js";
-import { LaunchDeadline } from "./launch-deadline.js";
+import type { AppUnderTest } from "./electron/harness.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "./launch/body.js";
+import { LaunchDeadline } from "./launch/deadline.js";
 
 /**
  * The palette input's accessible name, as `CommandPalette.tsx` publishes it. Matched by role and
@@ -79,9 +79,8 @@ async function readPaletteInputFocus(appWindow: Page): Promise<PaletteInputFocus
  * Two waits in the order the facts become true, so the missing one names itself: a palette that
  * never opened fails on the dialog, one that opened without focus fails on the input. Both are
  * charged to the body's allowance so neither's sentence is replaced by the generic overrun. They
- * draw on one phase minted here, so the pair costs the one ten-second opening
- * `launch-body` counts, and an opening that spends the whole phase fails on the focus
- * reading inside it.
+ * draw on one phase minted here, so the pair costs one ten-second step against the body's
+ * allowance, and an opening that spends the whole phase fails on the focus reading inside it.
  */
 export async function openPalette(appUnderTest: PaletteApp): Promise<Locator> {
   const appWindow = appUnderTest.window;
@@ -96,7 +95,8 @@ export async function openPalette(appUnderTest: PaletteApp): Promise<Locator> {
     .poll(async () => await readPaletteInputFocus(appWindow), {
       timeout: appUnderTest.bodyAllowance.boundedMs(openingPhase.remainingMs()),
       message:
-        "the palette opened but never moved focus into its input — the reading names whether the input was absent or present and unfocused",
+        "the palette opened but never moved focus into its input — the reading names whether " +
+        "the input was absent or present and unfocused",
     })
     .toBe("focused");
   return appWindow.getByRole("combobox", { name: PALETTE_INPUT_ACCESSIBLE_NAME });

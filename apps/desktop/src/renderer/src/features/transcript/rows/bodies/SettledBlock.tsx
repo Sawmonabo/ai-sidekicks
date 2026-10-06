@@ -4,7 +4,10 @@
 import type { RootContent } from "mdast";
 import { memo } from "react";
 
-import { MarkdownNodes, type MarkdownRenderContext } from "../markdown/nodes/MarkdownNodes.js";
+import {
+  MarkdownNodes,
+  type MarkdownRenderContext,
+} from "#renderer/components/Markdown/MarkdownNodes.js";
 
 /** What one settled block is drawn from. */
 export interface SettledBlockProps {

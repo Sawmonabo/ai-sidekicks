@@ -1,0 +1,61 @@
+/* The tool row. */
+
+/* One line: `min-width: 0` on the summary lets it be the part that gives, not the header wrap. */
+.meridian-tool-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-tool-card__name {
+  flex: none;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-tool-card__name--absent {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+}
+
+.meridian-tool-card__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-tool-card__elapsed {
+  flex: none;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+/* Revealed by focus as well as hover: a control that appears only under a pointer is
+   unreachable by keyboard. */
+.meridian-tool-card__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: none;
+  padding: 0 var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* The row-hover arm belongs to the row layout's sheet, reached through the class the
+   disclosure carries; naming that class here would make the reveal depend on stylesheet order. */
+.meridian-tool-card__disclosure:focus-visible,
+.meridian-tool-card__disclosure[aria-expanded="true"] {
+  opacity: 1;
+}

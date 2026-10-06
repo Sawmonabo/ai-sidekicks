@@ -1,0 +1,79 @@
+/* The agent library: all of `.meridian-agent-library`. */
+
+/* A standalone page carries its own measure and padding. The two columns collapse to one
+ * under the narrow measure, since a 2-up layout in a torn-off window leaves both unreadable. */
+.meridian-agent-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  padding: var(--meridian-space-6);
+  min-width: 0;
+}
+
+.meridian-agent-library__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 68ch;
+}
+
+.meridian-agent-library__title {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-agent-library__lede {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-agent-library__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: var(--meridian-space-5);
+  align-items: start;
+}
+
+@media (width <= 60rem) {
+  .meridian-agent-library__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.meridian-agent-library__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+/* The same quiet column-title treatment the Agents pane uses, not a heading competing with
+ * the page's own. */
+.meridian-agent-library__column-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: var(--meridian-tracking-heading);
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+/* A list of records, not cards: one hairline-bounded block per row, no fill of its own. */
+.meridian-agent-library__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+/* The create control sits with the heading, since it makes a record rather than a list
+ * entry. */
+.meridian-agent-library__new {
+  align-self: flex-start;
+}

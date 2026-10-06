@@ -2,32 +2,27 @@
 // revoke the remembered rules, and allow once an action the provider's own reviewer blocked,
 // with the payloads of the `approval.*` events the daemon records for each.
 //
-// The daemon raises every ask itself from a provider's callback, so no client creates one. An
-// ask is held with no timer until it is answered or its run ends, so nothing here names an
-// expiry.
+// The daemon raises every ask, from a provider's callback or from a workflow's command step, so
+// no client creates one. An ask is held with no timer until it is answered or its run ends, so
+// nothing here names an expiry.
 //
 // A remembered rule is handed to the provider that runs the session, which keeps it: for this
 // session, or in the provider's own rule file for this project. The daemon keeps no rule store;
 // it lists the session's own answers and the project's rule files, and a rule holds at every
 // level that asks.
 //
-// This file imports nothing from `event.ts`: that module imports the payload schemas below, and
-// an import back would close an eager module cycle.
+// This file imports nothing from `event/session.ts`: that module imports the payload schemas
+// below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-import type { MethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
-import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "./session.js";
-import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
+import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
+import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 
 /**
  * An ask's target scope, free text such as a command or a path. Bounded by the longest wire
@@ -91,12 +86,6 @@ const APPROVAL_STATE_VALUES = ["pending", "approved", "rejected", "canceled"] as
  * answered, and the only ends besides an answer cancel it with its run.
  */
 export type ApprovalState = (typeof APPROVAL_STATE_VALUES)[number];
-/**
- * Every {@link ApprovalState}.
- *
- * @consumedBy the approval card's ask, pending until answered or canceled with its run
- */
-export const APPROVAL_STATES: readonly ApprovalState[] = APPROVAL_STATE_VALUES;
 /** Parses an {@link ApprovalState}. */
 export const ApprovalStateSchema: z.ZodType<ApprovalState, ApprovalState> =
   z.enum(APPROVAL_STATE_VALUES);
@@ -105,12 +94,6 @@ const APPROVAL_DECISION_VALUES = ["approved", "rejected"] as const;
 
 /** The person's answer to an ask. */
 export type ApprovalDecision = (typeof APPROVAL_DECISION_VALUES)[number];
-/**
- * Every {@link ApprovalDecision}.
- *
- * @consumedBy the approval card's Allow and Deny
- */
-export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = APPROVAL_DECISION_VALUES;
 /** Parses an {@link ApprovalDecision}. */
 export const ApprovalDecisionSchema: z.ZodType<ApprovalDecision, ApprovalDecision> =
   z.enum(APPROVAL_DECISION_VALUES);
@@ -122,8 +105,6 @@ const REMEMBERED_SCOPE_KIND_VALUES = ["session", "project"] as const;
  * session on this project, kept in the provider's own project rule file.
  */
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KIND_VALUES)[number];
-/** Every {@link RememberedScopeKind}. */
-export const REMEMBERED_SCOPE_KINDS: readonly RememberedScopeKind[] = REMEMBERED_SCOPE_KIND_VALUES;
 /** Parses a {@link RememberedScopeKind}. */
 export const RememberedScopeKindSchema: z.ZodType<RememberedScopeKind, RememberedScopeKind> =
   z.enum(REMEMBERED_SCOPE_KIND_VALUES);
@@ -145,12 +126,6 @@ const INVALIDATION_TRIGGER_VALUES = ["explicit", "session_end", "server_removed"
  * was removed. A project's rules live in the project's own folder and stay with it.
  */
 export type InvalidationTrigger = (typeof INVALIDATION_TRIGGER_VALUES)[number];
-/**
- * Every {@link InvalidationTrigger}.
- *
- * @consumedBy the inspector's Rules section, whose `Revoke` takes a remembered rule away
- */
-export const INVALIDATION_TRIGGERS: readonly InvalidationTrigger[] = INVALIDATION_TRIGGER_VALUES;
 /** Parses an {@link InvalidationTrigger}. */
 export const InvalidationTriggerSchema: z.ZodType<InvalidationTrigger, InvalidationTrigger> =
   z.enum(INVALIDATION_TRIGGER_VALUES);
@@ -315,6 +290,12 @@ export interface ApprovalProjectionRow {
    * `Approve once`.
    */
   standingAllowOffered: boolean;
+  /**
+   * Whether that standing allow may also be written for the whole project: false on a chat, which
+   * has no project, and on a workflow command step's ask, which no provider relayed. Never true
+   * without `standingAllowOffered`.
+   */
+  projectScopeOffered: boolean;
   state: ApprovalState;
   createdAt: string;
   updatedAt: string;
@@ -338,6 +319,7 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     subject: z.string().min(1),
     reason: z.string().min(1).optional(),
     standingAllowOffered: z.boolean(),
+    projectScopeOffered: z.boolean(),
     state: ApprovalStateSchema,
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
@@ -366,6 +348,13 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
         code: "custom",
         path: ["decision"],
         message: "the decision is the state the ask resolved to",
+      });
+    }
+    if (row.projectScopeOffered && !row.standingAllowOffered) {
+      context.addIssue({
+        code: "custom",
+        path: ["projectScopeOffered"],
+        message: "the project scope is offered only beside a standing allow",
       });
     }
     const mintedSense = row.decision === undefined ? undefined : SENSE_BY_DECISION[row.decision];

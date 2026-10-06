@@ -4,14 +4,14 @@
 // sending is `SendButton.tsx`'s.
 
 import { useCallback, useEffect, useRef } from "react";
-import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
-import { subscribeToComposerFocus } from "../../composer-focus-requests.js";
-import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
-import { COMPOSER_DRAFT_MAX_ROWS } from "../../composer-bounds.js";
+import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
+import { subscribeToComposerFocus } from "../../focus-requests.js";
+import { type ComposerProps } from "#renderer/registries/composer/registry.js";
+import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { readTextNeutralization } from "../text-neutralization.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
-import { DRAFT_PLACEHOLDER } from "../draft-line.js";
+import { DRAFT_PLACEHOLDER } from "../caret.js";
 import { composerDraftKey } from "../draft-key.js";
 
 /** The message line over the addressed draft. Enter keeps the draft and sends nothing. */

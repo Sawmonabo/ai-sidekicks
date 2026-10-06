@@ -5,9 +5,8 @@
 // unknown one is refused, not answered with an empty reply.
 import { z } from "zod";
 
-import { jsonUtf8ByteLength } from "./jsonrpc.js";
-import type { MethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import { jsonUtf8ByteLength } from "./jsonrpc/message.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** Every language the daemon can color. */
@@ -114,7 +113,9 @@ export const HighlightReadResponseSchema: z.ZodType<HighlightReadResponse> = z
         issueContext.addIssue({
           code: "custom",
           path: ["spans", index + 2],
-          message: `a span's class is an index into the ${String(HIGHLIGHT_SPAN_CLASSES.length)} span classes`,
+          message:
+            `a span's class is an index into the ` +
+            `${String(HIGHLIGHT_SPAN_CLASSES.length)} span classes`,
         });
       }
       if (offset < previousEnd) {
@@ -131,7 +132,9 @@ export const HighlightReadResponseSchema: z.ZodType<HighlightReadResponse> = z
       issueContext.addIssue({
         code: "custom",
         path: ["spans"],
-        message: `spans measure ${String(spanBytes)} bytes, over the ${String(HIGHLIGHT_SPANS_MAX_BYTES)}-byte reply bound`,
+        message:
+          `spans measure ${String(spanBytes)} bytes, over the ` +
+          `${String(HIGHLIGHT_SPANS_MAX_BYTES)}-byte reply bound`,
       });
     }
   });

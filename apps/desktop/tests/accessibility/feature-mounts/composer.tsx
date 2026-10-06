@@ -1,13 +1,13 @@
 // The composer feature's views, mounted once for the accessibility tier.
 //
-// Not a test file. `app-harness.ts` owns how the app is mounted; this owns what of this feature is
-// mounted into it.
+// Not a test file. `helpers/app/harness.tsx` owns how the app is mounted; this owns what of this
+// feature is mounted into it.
 //
-// The composer states are addresses, not variants: `composer-target.ts` resolves the send path
-// from the focused pane and the session store's own partitions, so the composer has an address to
-// be read at, not a state to be put into. The three mounts are three `focusedPane` values (and,
-// for the two provider-bound ones, two prefixes of the same scenario log), so they share one
-// store builder:
+// The composer states are addresses, not variants: `features/composer/target.ts` resolves the send
+// path from the focused pane and the session store's own partitions, so the composer has an address
+// to be read at, not a state to be put into. The three mounts are three `focusedPane` values (and,
+// for the two provider-bound ones, two prefixes of the same scenario log), so they share one store
+// builder:
 //
 //   • the session default, which a composer addresses when focus is not in the pane layout;
 //   • the provider-bound path with the run `running`;
@@ -24,24 +24,24 @@
 
 import type { ReactElement } from "react";
 
-import { renderSettled } from "../../helpers/app-harness.js";
-import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
-import { scenarioLeadAgentId } from "@fixtures/data/opening-entries.js";
+import { renderSettled } from "../../helpers/app/harness.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
+import { scenarioLeadAgentId } from "#fixtures/data/opening-entries.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "../../helpers/app-frame-fixtures.js";
+} from "#renderer/services/platform/bridge.fixture.js";
+import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "../../helpers/scheduled-read.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { MessageComposer } from "@renderer/features/composer/Composer.js";
-import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/drafts.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { MessageComposer } from "#renderer/features/composer/Composer.js";
+import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
-import { requireLabeledRegion, type MountedView } from "./mount-queries.js";
+import { requireLabeledRegion, type MountedView } from "./queries.js";
 
 /**
  * A store holding the scenario's beats up to and including the named kind.

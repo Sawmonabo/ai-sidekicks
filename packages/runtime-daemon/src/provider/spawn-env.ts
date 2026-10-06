@@ -1,16 +1,16 @@
 /**
  * The child-environment builder every provider child spawns through, the version handshake
- * included: strips the credential policy's denied names and always sets the provider's
- * auto-update opt-out.
+ * included: sets the session's environment rows over the base, strips the credential policy's
+ * denied names and always sets the provider's auto-update opt-out.
  *
  * - No `credentialEnvPolicy` (a spawn with no declared posture) strips nothing; the opt-out
  *   always applies.
  * - A policy whose name matching differs from the host's is refused, not reconciled.
  */
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/descriptor.js";
 
 /** One child-environment entry, in the pair shape the PTY spawn surface takes. */
 export type SpawnEnvPair = readonly [name: string, value: string];
@@ -32,8 +32,13 @@ export interface CredentialEnvPolicy {
 /** The inputs to {@link buildProviderSpawnEnv} for one provider spawn. */
 export interface ProviderSpawnEnvRequest {
   readonly driverName: ProviderName;
-  /** The curated base for this child as pairs; never the daemon's own `process.env`. */
+  /**
+   * The base every provider's environment is built from, the login shell's environment captured
+   * at the daemon's start; never the daemon's own `process.env`.
+   */
   readonly baseEnv: readonly SpawnEnvPair[];
+  /** Pairs set over the base by name, such as a project's environment rows; one pair per name. */
+  readonly environmentRows?: readonly SpawnEnvPair[] | undefined;
   /** Every fold keys on it, even without a policy, so a base `disable_updates=0` cannot survive. */
   readonly hostEnvNameMatch: SpawnEnvNameMatch;
   /** Absent for a spawn with no declared posture, which denies nothing. */
@@ -66,7 +71,9 @@ export class ProviderSpawnEnvNameMatchMismatchError extends Error {
 
   constructor(hostEnvNameMatch: SpawnEnvNameMatch, policyEnvNameMatch: SpawnEnvNameMatch) {
     super(
-      `credential policy declares '${policyEnvNameMatch}' environment-name matching but this host uses '${hostEnvNameMatch}'; refusing to compose a child environment under semantics the policy was not authored for`,
+      `credential policy declares '${policyEnvNameMatch}' environment-name matching but this ` +
+        `host uses '${hostEnvNameMatch}'; refusing to compose a child environment under ` +
+        `semantics the policy was not authored for`,
     );
     this.name = "ProviderSpawnEnvNameMatchMismatchError";
     this.hostEnvNameMatch = hostEnvNameMatch;
@@ -79,8 +86,8 @@ function toMatchKey(name: string, match: SpawnEnvNameMatch): string {
 }
 
 /**
- * The base minus denied names, then the mandated pairs; a policy or base value cannot re-enable
- * an auto-updater. Throws {@link ProviderSpawnEnvConflictError} or
+ * The base with the rows set over it, minus denied names, then the mandated pairs; a policy, row
+ * or base value cannot re-enable an auto-updater. Throws {@link ProviderSpawnEnvConflictError} or
  * {@link ProviderSpawnEnvNameMatchMismatchError}.
  */
 export function buildProviderSpawnEnv(request: ProviderSpawnEnvRequest): readonly SpawnEnvPair[] {
@@ -115,14 +122,15 @@ export function buildProviderSpawnEnv(request: ProviderSpawnEnvRequest): readonl
     (request.credentialEnvPolicy?.denyEnvVars ?? []).map((name) => toMatchKey(name, nameMatch)),
   );
 
-  const survivors: SpawnEnvPair[] = [];
-  for (const [name, value] of request.baseEnv) {
-    const key = toMatchKey(name, nameMatch);
-    if (deniedKeys.has(key) || mandatedByKey.has(key)) {
-      continue;
+  // A row replaces the base pair of its name under the host's matching, so the child receives one
+  // value per name and the spawn surface never chooses between two.
+  const layeredByKey = new Map<string, SpawnEnvPair>();
+  for (const pair of [...request.baseEnv, ...(request.environmentRows ?? [])]) {
+    const key = toMatchKey(pair[0], nameMatch);
+    if (!deniedKeys.has(key) && !mandatedByKey.has(key)) {
+      layeredByKey.set(key, [pair[0], pair[1]]);
     }
-    survivors.push([name, value]);
   }
 
-  return [...survivors, ...mandatedByKey.values()];
+  return [...layeredByKey.values(), ...mandatedByKey.values()];
 }

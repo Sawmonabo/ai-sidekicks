@@ -5,8 +5,8 @@
 // the run changes every turn and would empty the line mid-sentence. Keys are opaque, never
 // parsed back or persisted; the leading discriminator keeps the two paths' key spaces disjoint.
 
-import { structuralKey } from "@renderer/lib/structural-key.js";
-import type { ComposerTarget } from "../composer-target.js";
+import { structuralKey } from "#renderer/lib/structural-key.js";
+import type { ComposerTarget } from "../target.js";
 
 /** The draft key for one composer address; total over the send-path union. */
 export function composerDraftKey(target: ComposerTarget): string {

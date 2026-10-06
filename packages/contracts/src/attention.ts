@@ -3,7 +3,7 @@
 // whose secrets the daemon seals and never sends back.
 import { z } from "zod";
 
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -11,8 +11,9 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
-import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow-definition.js";
+import { wireFreeFormString } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow/definition/document.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**

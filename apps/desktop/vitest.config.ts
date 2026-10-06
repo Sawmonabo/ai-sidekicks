@@ -7,15 +7,14 @@
 //
 // The renderer's tiers are declared in `vitest/tier-projects.ts` and spread below. Playwright is a
 // library here, not a second runner: browser mode drives it for the page tiers, and
-// `tests/helpers/electron-harness.ts` drives it for the window tiers.
+// `tests/helpers/electron/harness.ts` drives it for the window tiers.
 
-import { configDefaults, defineConfig } from "vitest/config";
+import { configDefaults, defineConfig, type ViteUserConfig } from "vitest/config";
 
-import { sharedCoverageOptions } from "../../vitest.shared";
-import { RENDERER_TESTS_OUTSIDE_SOURCE, TIER_PROJECTS } from "./vitest/tier-projects";
-import { PATH_ALIASES } from "./vitest/path-aliases";
+import { sharedCoverageOptions } from "../../vitest.shared.js";
+import { RENDERER_TESTS_OUTSIDE_SOURCE, TIER_PROJECTS } from "./vitest/tier-projects.js";
 
-export default defineConfig({
+const config: ViteUserConfig = defineConfig({
   test: {
     // Coverage is root-only in Vitest 4 when `projects` are declared, so this block sits beside
     // `projects`, not inside one.
@@ -30,7 +29,6 @@ export default defineConfig({
     }),
     projects: [
       {
-        resolve: { alias: PATH_ALIASES },
         test: {
           name: "smoke",
           environment: "node",
@@ -57,7 +55,7 @@ export default defineConfig({
           // probe branch is statically dead here exactly as in a release bundle. Without it the
           // bare identifier is a ReferenceError the moment the ready continuation runs.
           __SMOKE_BUILD__: "false",
-          // `main/index.ts`'s fixture-launch check and `src/main/windows/window-reveal.ts`'s hidden
+          // `main/index.ts`'s fixture-launch check and `src/main/windows/reveal.ts`'s hidden
           // windows; substituted for the same reason as above.
           __FIXTURE_BUILD__: "false",
           __TEST_TIER_BUILD__: "false",
@@ -68,7 +66,6 @@ export default defineConfig({
         // pass (vitest-dev/vitest#8431). Conditions replace vitest's defaults, so `import` and
         // `default` are re-listed.
         resolve: {
-          alias: PATH_ALIASES,
           conditions: ["@ai-sidekicks/source", "import", "default"],
         },
         ssr: {
@@ -110,3 +107,5 @@ export default defineConfig({
     ],
   },
 });
+
+export default config;

@@ -5,9 +5,9 @@ const ELLIPSIS = "…";
 
 /**
  * `text` whole when it fits within `maximumCharacters`, otherwise its first `maximumCharacters`
- * characters followed by `…`. With `ellipsisWithinBound`, the `…` counts toward the bound, so the
- * result never exceeds `maximumCharacters`. With `atWordBoundary`, the cut moves back to the last
- * space when that keeps more than half the kept length, and the trailing whitespace before the
+ * characters followed by `…`. With `ellipsisWithinBound`, the `…` counts toward the bound, so
+ * the result never exceeds `maximumCharacters`. With `atWordBoundary`, the cut moves back to the
+ * last space when that keeps more than half the kept length, and the trailing whitespace before the
  * ellipsis goes.
  */
 export function elideText(

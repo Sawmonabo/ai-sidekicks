@@ -4,7 +4,7 @@ import { useMountedTranscript } from "../../hooks/useMountedTranscript.js";
 import {
   buildTranscriptStructureActs,
   type TranscriptStructureActInputs,
-} from "../transcript-structure-acts.js";
+} from "../structure-acts.js";
 
 /**
  * Fill the mounted-transcript holder the palette reads, for as long as the feed is mounted. The

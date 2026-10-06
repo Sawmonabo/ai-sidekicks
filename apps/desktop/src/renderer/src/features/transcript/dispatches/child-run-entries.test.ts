@@ -4,10 +4,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { generalRow, runRow } from "../transcript-event-rows.test-support.js";
+import { generalRow, runRow } from "../event-rows.test-support.js";
 import { deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
 
 /** When a later observation saw the child's transcript lose entries. */

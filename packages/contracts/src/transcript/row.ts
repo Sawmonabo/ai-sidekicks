@@ -9,23 +9,24 @@ import {
   INTERACTIVE_REQUEST_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
-} from "../event-registry.js";
+} from "../event/registry.js";
 import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
   EVENT_FIELD_MAX_LEN,
   EventCategorySchema,
   SOURCE_EPOCH_PAYLOAD_KEY,
   SOURCE_POSITION_PAYLOAD_KEY,
-} from "../event-envelope.js";
-import type { EventCategory } from "../event-envelope.js";
-import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
+  type EventCategory,
+} from "../event/envelope.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
+import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run/control.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import {
+  EventCursorSchema,
   SessionIdSchema,
-  wireFreeFormString,
+  type EventCursor,
   type SessionId,
-  FILE_PATH_MAX_LEN,
-} from "../session.js";
+} from "../session/id.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
@@ -102,7 +103,7 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
 
 /**
  * Every event type whose payload always names a run, built from the run-scoped category arrays in
- * `../event-registry.js` so a type added there joins on its own. The `general` arm refuses these
+ * `../event/registry.js` so a type added there joins on its own. The `general` arm refuses these
  * by type because a projected payload is a summary that may omit `runId`, as a `tool.result`
  * row's can.
  */
@@ -160,6 +161,11 @@ export interface TranscriptEventRowBase {
   sessionId: SessionId;
   /** The session event sequence, never a run position: re-execution reuses run ordinals. */
   sequence: number;
+  /**
+   * The position the session's stream delivers this event at, opaque and relayed verbatim, so a
+   * link naming a message by its cursor finds the row however the row was read.
+   */
+  cursor: EventCursor;
   category: EventCategory;
   /** Free-form by contract — narrow on `kind`, never on this. */
   type: string;
@@ -179,6 +185,7 @@ const buildTranscriptEventRowCommonShape = () => ({
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.id"),
   sessionId: SessionIdSchema,
   sequence: countSchema.max(EVENT_ENVELOPE_SEQUENCE_MAX),
+  cursor: EventCursorSchema,
   category: EventCategorySchema,
   type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.type"),
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.actor").optional(),

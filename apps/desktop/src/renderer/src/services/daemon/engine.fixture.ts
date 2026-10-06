@@ -2,26 +2,26 @@
 // renderer reads in fixture mode. `dispose()` is final; a later advance is dropped and reported on
 // the tripwire, never delivered into a torn-down subscriber.
 //
-// The engine decides what is due; `event-delivery.fixture.ts` decides who gets it (fan-out, replay
-// and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies, and the
-// machine notices a settled reply pushes, against engine time. `advance`, the one reach that
+// The engine decides what is due; `event/delivery.fixture.ts` decides who gets it (fan-out,
+// catch-up and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies, and
+// the machine notices a settled reply pushes, against engine time. `advance`, the one reach that
 // delivers, is guarded here by the disposed flag. Attaching a sink needs no guard, since
 // `dispose()` clears the emitters.
 
-import { ManualClock, type Clock } from "@renderer/lib/clock.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { parseInstant } from "@renderer/lib/instant.js";
-import { reportTripwire } from "@renderer/lib/tripwires.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { ManualClock, type Clock } from "#renderer/lib/clock.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { parseInstant } from "#renderer/lib/instant.js";
+import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
   ScenarioDelivery,
   type ScenarioSink,
   type ScenarioSubscribeOptions,
-} from "./event-delivery.fixture.js";
-import type { ScenarioReply } from "./scenario-reply.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
+} from "./event/delivery.fixture.js";
+import type { ScenarioReply } from "./scenario/reply.fixture.js";
+import type { Scenario } from "#fixtures/scenario.js";
 
 /**
  * Scripted replies the engine holds waiting for the frozen clock. A held reply is one
@@ -66,8 +66,8 @@ export class ScenarioEngine {
   readonly #notices = new Emitter<DeliveredNotice>("scenario notice");
   // How many computed answers this playback has produced for each call name.
   readonly #computedRepliesByCall = new Map<string, number>();
-  // The requests each write has been answered for, in settle order.
-  readonly #answeredRequestsByCall = new Map<string, unknown[]>();
+  // Each write answered, with the call it answered, in settle order across every call.
+  readonly #answeredWrites: { readonly call: string; readonly request: unknown }[] = [];
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
   #disposed = false;
@@ -107,15 +107,12 @@ export class ScenarioEngine {
   /**
    * Subscribe to delivered beats. Returns an idempotent unsubscribe.
    *
-   * Tail by default, replay-then-tail on request, because the two are different registered
-   * subscriptions (named in `session-event-streams.ts`). A disposed engine replays nothing, as a
-   * replay is a delivery; the sink still attaches.
+   * Follow only by default, catch up, then follow on request, because the two are different
+   * registered subscriptions (named in `services/daemon/session/event/streams.ts`). A disposed
+   * engine catches nothing up, as a catch-up is a delivery; the sink still attaches.
    */
   public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
-    return this.#delivery.subscribeToBeats(
-      sink,
-      options?.replayDeliveredPrefix === true && !this.#disposed,
-    );
+    return this.#delivery.subscribeToBeats(sink, options?.catchUp === true && !this.#disposed);
   }
 
   /**
@@ -136,7 +133,8 @@ export class ScenarioEngine {
       reportTripwire(
         "tick-after-teardown",
         `ScenarioEngine(${this.#scenario.id})`,
-        `a scenario tick of ${String(deltaMs)}ms arrived after teardown; the engine dropped it rather than delivering into a disposed store`,
+        `a scenario tick of ${String(deltaMs)}ms arrived after teardown; ` +
+          `the engine dropped it rather than delivering into a disposed store`,
       );
       return;
     }
@@ -144,7 +142,7 @@ export class ScenarioEngine {
     // The contiguous due prefix: stopping at the first beat not yet due keeps
     // `deliveredBeatCount` and the set actually delivered the same claim whatever order the
     // script is written in. A filter would skip an earlier beat and re-emit a later one.
-    // `tests/helpers/scenario-contract-check/beat-order.ts` holds shipped scripts to
+    // `tests/helpers/scenario/contract-check/beat/order.ts` holds shipped scripts to
     // nondecreasing `atMs`; this makes a disordered script cost a late beat, not a duplicate.
     const remainingBeats = this.#scenario.beats.slice(this.#deliveredBeatCount);
     const firstNotYetDueIndex = remainingBeats.findIndex((beat) => beat.atMs > target);
@@ -171,7 +169,7 @@ export class ScenarioEngine {
    * as a side effect of a request.
    *
    * Never rejects: the outcome says only that the reply came due, was abandoned or found the
-   * backlog full, and `scripted-reply.fixture.ts` turns a due rejecting reply into a rejection,
+   * backlog full, and `scripted/reply.fixture.ts` turns a due rejecting reply into a rejection,
    * since the wire's error shape is the bridge's vocabulary and not the engine's.
    */
   public holdReply(afterMs: number): Promise<ScenarioReplyOutcome> {
@@ -215,17 +213,18 @@ export class ScenarioEngine {
    * {@link answeredRequests}, so a read can reflect a write the playback has already answered.
    */
   public recordAnsweredRequest(call: string, request: unknown): void {
-    const answered = this.#answeredRequestsByCall.get(call);
-    if (answered === undefined) {
-      this.#answeredRequestsByCall.set(call, [request]);
-      return;
-    }
-    answered.push(request);
+    this.#answeredWrites.push({ call, request });
   }
 
-  /** The requests the write `call` has been answered for in this playback, oldest first. */
-  public answeredRequests(call: string): readonly unknown[] {
-    return this.#answeredRequestsByCall.get(call) ?? [];
+  /**
+   * The requests the writes in `calls` have been answered for in this playback, oldest first and
+   * interleaved across the calls, so a read applies two writes that undo each other in the order
+   * they landed.
+   */
+  public answeredRequests(...calls: readonly string[]): readonly unknown[] {
+    return this.#answeredWrites
+      .filter((answered) => calls.includes(answered.call))
+      .map((answered) => answered.request);
   }
 
   /**

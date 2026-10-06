@@ -2,23 +2,23 @@
 /**
  * codex-gate.mjs — single-shot Codex review verdict for one PR.
  *
- * Exists because the correct ack predicate has been hand-rolled wrong five times
- * (PR #171, #172, #199 r13, #255, #257). Every one of those monitors watched
- * `pulls/N/reviews` (± issue comments) and treated a zero there as "Codex has not
- * reviewed". A zero on the reviews endpoint is the NORMAL shape of a CLEAN pass:
- * a no-findings verdict arrives as a THUMBS_UP reaction on the PR ISSUE and
- * frequently produces no review object at all.
- *
- * The terminal states are modeled here so a caller cannot miss one:
- *   1. findings     — review object whose .commit_id is HEAD, with open threads
- *   2. clean        — +1 reaction on the PR issue, at or after the ack anchor
- *   3. clean        — "Didn't find any major issues" comment, same freshness bind
- *   4. rate-limited — fresh bot comment matching /usage limits for code reviews/ (NON-ack; stop polling)
+ * A zero on the `pulls/N/reviews` endpoint does not mean "Codex has not
+ * reviewed": it is the NORMAL shape of a CLEAN pass, which arrives as a `+1`
+ * reaction or a clean-verdict comment on the PR ISSUE and frequently produces no
+ * review object at all. So the gate reads every shape Codex answers with:
+ *   - review    — a bot review whose .commit_id is HEAD (findings come with threads)
+ *   - +1        — a bot +1 reaction on the PR issue, at or after the ack anchor
+ *   - clean     — a "Didn't find any major issues" comment, same freshness bind,
+ *                 refused when its `Reviewed commit:` line names another commit
+ *   - cited     — a comment whose `Reviewed commit:` line names HEAD (no time bind)
+ *   - findings  — a findings-summary comment whose permalinks name HEAD
+ *   - limit     — a fresh bot comment matching /usage limits for code reviews/
+ *                 (NON-ack; stop polling)
  *
  * The ack anchor is the latest of three floors: this gate's own first sighting of
  * the sha as this PR's HEAD (lib/observation-baseline.mjs), the earliest check
  * suite for that sha, and the HEAD commit's timestamp — see derivePushAnchor for
- * the last two and why each was insufficient alone. Commit time is
+ * the last two and why neither is enough alone. Commit time is
  * author-controlled, and a check suite dates the sha's first visibility anywhere
  * in the repo rather than the moment it became this PR's head, so both can be
  * predated by an ack of the PREVIOUS head. Only the first sighting cannot.
@@ -30,22 +30,24 @@
  *
  * Which is why only the ACK legs get the first-sighting floor. Two consumers
  * deliberately read the lower push anchor instead — deriveStaleRunEvidence and
- * the usage-limits non-ack — and passing them the raised floor was a live defect
- * caught in review, not a hypothetical. The stale-run detector asks whether a
- * run for an older commit was in flight ACROSS THE PUSH, so a floor starting at
- * first sighting hides any such run that published in the push-to-sighting gap;
- * on this PR that silently turned a detected stale review into no evidence at
- * all once the baseline landed. The quota notice is not a claim about a commit
- * at all, so attribution is the wrong question to ask of it; floored on first
- * sighting, a genuine notice in the same gap disappears and the gate advises
- * polling at the one moment polling cannot work.
+ * the usage-limits non-ack. The stale-run detector asks whether a run for an
+ * older commit was in flight ACROSS THE PUSH, so a floor starting at first
+ * sighting would hide any such run that published in the push-to-sighting gap.
+ * The quota notice is not a claim about a commit at all, so attribution is the
+ * wrong question to ask of it; floored on first sighting, a genuine notice in
+ * the same gap would disappear and the gate would advise polling at the one
+ * moment polling cannot work.
  *
  * This file is the I/O shell only: it fetches, then prints. Every predicate that
- * decides anything lives in lib/codex-verdict.mjs, where it is unit-tested —
- * see that module's header for why a live probe cannot test them.
+ * decides anything lives in lib/codex-signals.mjs, lib/merge-readiness.mjs and
+ * lib/codex-verdict.mjs, where it is unit-tested — see codex-verdict.mjs's
+ * header for why a live probe cannot test them.
  *
  * Prints a human block, then a machine-readable final line:
- *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...> merge_state=<...> merge_ok=<0|1> head_sha=<40-hex>
+ *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...>
+ *     merge_state=<...> merge_ok=<0|1> advisory=<0|1> head_sha=<40-hex>
+ *
+ * `advisory` says whether `--advisory` was passed, not whether it excused anything.
  *
  * `head_sha` names the commit every other field on that line was measured
  * against. Pass it to `gh pr merge --match-head-commit` so the merge refuses a
@@ -54,7 +56,7 @@
  * Exit code is always 0 on a successful probe — the verdict is the payload, not
  * the exit status. Exit 1 means the probe itself failed (bad PR, gh error).
  *
- * Usage: node codex-gate.mjs <pr-number> [--repo owner/name]
+ * Usage: node codex-gate.mjs <pr-number> [--repo owner/name] [--advisory]
  */
 
 import { execFileSync } from "node:child_process";
@@ -62,19 +64,16 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  checkState,
-  computeVerdict,
-  deriveCiStatus,
   deriveCommentSignals,
   derivePreBaselineAcks,
   derivePushAnchor,
   deriveReactionAck,
   deriveReviewAck,
   deriveStaleRunEvidence,
-  mergeStateAllowsMerge,
   selectUnresolvedBotThreads,
-  DEFAULT_SETTLE_WINDOW_MS,
-} from "./lib/codex-verdict.mjs";
+} from "./lib/codex-signals.mjs";
+import { computeVerdict, DEFAULT_SETTLE_WINDOW_MS } from "./lib/codex-verdict.mjs";
+import { checkState, deriveCiStatus, mergeStateAllowsMerge } from "./lib/merge-readiness.mjs";
 import { observeBaseline } from "./lib/observation-baseline.mjs";
 import {
   describeTruncation,
@@ -178,9 +177,9 @@ if (!headSha) {
 const headShaShort = headSha.slice(0, 10);
 
 // One half of the ack anchor. Using the PR's updatedAt instead would let a
-// reaction that predates the latest push masquerade as an ack of it — the PR #70
-// false-pass. The commit timestamp alone is not enough either, because it is
-// author-controlled; derivePushAnchor pairs it with the push observation below.
+// reaction that predates the latest push masquerade as an ack of it. The commit
+// timestamp alone is not enough either, because it is author-controlled;
+// derivePushAnchor pairs it with the push observation below.
 const headCommit = ghJson([
   "api",
   `repos/${repository}/commits/${headSha}`,
@@ -189,16 +188,16 @@ const headCommit = ghJson([
 ]);
 // Validated rather than trusted, because both failure directions are silent and
 // one of them fails OPEN. `new Date(null)` is the EPOCH, not Invalid Date, so a
-// field that resolves to null made every `created_at >= anchor` comparison true
-// and every stale reaction on the PR acked the current HEAD — measured by
-// degrading this very fetch: the gate printed `committed
-// 1970-01-01T00:00:00.000Z` and still exited 0. A wholly failed fetch goes the
-// other way, to NaN, where nothing can ever ack. A probe that cannot establish
-// its own anchor must stop rather than pick a direction to be wrong in.
+// field that resolves to null would make every `created_at >= anchor`
+// comparison true and every stale reaction on the PR ack the current HEAD. A
+// wholly failed fetch goes the other way, to NaN, where nothing can ever ack. A
+// probe that cannot establish its own anchor must stop rather than pick a
+// direction to be wrong in.
 const headCommittedAtMs = new Date(headCommit?.date ?? Number.NaN).getTime();
 if (!Number.isFinite(headCommittedAtMs)) {
   fail(
-    `could not read the HEAD commit timestamp for ${headShaShort} (got ${JSON.stringify(headCommit?.date)})`,
+    `could not read the HEAD commit timestamp for ` +
+      `${headShaShort} (got ${JSON.stringify(headCommit?.date)})`,
   );
 }
 const headCommittedAt = new Date(headCommittedAtMs);
@@ -219,13 +218,13 @@ const {
 } = derivePushAnchor(headCommittedAtMs, checkSuites);
 
 // The PRIMARY floor: this gate's own first sighting of the sha as this PR's
-// HEAD. Every server-side candidate is a proxy for the head-update moment and
-// each has been predated in review — the author's commit clock, then the
-// earliest check suite, which dates the sha's first visibility ANYWHERE in the
-// repo and so predates this PR entirely for a sha pushed on another branch
-// first. GitHub exposes no head-update timestamp to replace them with
-// (`pushedDate` null, `PullRequestCommit` carries no `createdAt`), so the floor
-// has to come from an observation this gate makes itself.
+// HEAD. Every server-side candidate is a proxy for the head-update moment that
+// can be predated — the author's commit clock, and the earliest check suite,
+// which dates the sha's first visibility ANYWHERE in the repo and so predates
+// this PR entirely for a sha pushed on another branch first. GitHub exposes no
+// head-update timestamp to replace them with (`pushedDate` null,
+// `PullRequestCommit` carries no `createdAt`), so the floor has to come from an
+// observation this gate makes itself.
 //
 // State lives under `.cache/` rather than `.agents/tmp/`, and the difference is
 // load-bearing rather than cosmetic. Both are gitignored, but AGENTS.md directs
@@ -251,10 +250,10 @@ const {
   nowMs: Date.now(),
 });
 
-// `max`, never replacement — the same rule `derivePushAnchor` already applies
+// `max`, never replacement — the same rule `derivePushAnchor` applies
 // internally. The baseline dominates in practice, but a suite timestamp skewed
 // into the future is a later floor than a local clock reading, and handing that
-// back would loosen the gate relative to today's behavior.
+// back would loosen the gate.
 const ackAnchorMs = observationBaselineKnown
   ? Math.max(fallbackAnchorMs, baselineObservedAtMs)
   : fallbackAnchorMs;
@@ -262,8 +261,8 @@ const ackAnchorMs = observationBaselineKnown
 // ---------------------------------------------------- signal 1: review object
 
 // Pagination is mandatory: the reviews endpoint pages at 30 and on a many-round
-// PR the newest review rolls onto page 2+, where an unpaginated `last` returns a
-// permanently stale review (PR #199 r8).
+// PR the newest review rolls onto a later page, where an unpaginated read
+// returns a permanently stale review.
 const allReviews = ghJsonPaginated([
   "api",
   `repos/${repository}/pulls/${pullRequestNumber}/reviews`,
@@ -338,9 +337,7 @@ const {
 // raised floor clips the detector's window to start at first sighting, so a
 // stale review that landed in the gap between the push and that sighting becomes
 // invisible — and a bare `+1` arriving after the sighting then reads as a clean
-// ack with nothing contradicting it. Verified against this PR: the review for
-// 59344aaea9 at 20:56:27Z was detected at a 20:56:24Z push anchor and vanished
-// once the baseline moved the floor to 21:58:10Z, with the reviews unchanged.
+// ack with nothing contradicting it.
 const { staleReviews, staleCitations, staleCitedShas, staleRunLandedAfterPush } =
   deriveStaleRunEvidence({
     botReviews,
@@ -368,13 +365,10 @@ const { preBaselineReactions, preBaselineCleanComments, ackPredatesBaseline } =
 
 // ------------------------------------------------------- unresolved threads
 
-// Drained to completion, not windowed. The old `last:100` window existed because
-// unresolved findings are the MOST RECENT threads, so a leading `first:N` window
-// returns 0 unresolved *falsely* on a thread-heavy PR (PR #174 r22: first:50 of
-// 76 threads reported 0 while 6 findings were open). Full pagination retires that
-// trade-off entirely — every thread is fetched — and any shortfall against
-// totalCount becomes a fail-closed verdict rather than a printed warning that
-// never reached the decision.
+// Drained to completion, not windowed. Unresolved findings are the MOST RECENT
+// threads, so any fixed window can report 0 unresolved falsely on a
+// thread-heavy PR. Every thread is fetched, and any shortfall against
+// totalCount becomes a fail-closed verdict rather than a printed warning.
 const REVIEW_THREAD_QUERY = `
 query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -410,14 +404,12 @@ const { unresolved: unresolvedBotThreads, outdatedCount: outdatedUnresolvedCount
 // Fetched via GraphQL rather than `gh pr view --json statusCheckRollup` for one
 // field the CLI does not expose: `isRequired(pullRequestNumber:)`. Without it the
 // gate cannot tell a branch-protection-required check from an advisory one, and a
-// transient advisory failure (`lychee — outbound HTTP (advisory)`, which
-// .github/workflows/docs-corpus.yml deliberately excludes from docs-corpus-gate)
-// blocked a merge every required check had already cleared.
+// transient advisory failure would block a merge every required check had
+// already cleared.
 //
-// OID-anchored on the HEAD sha rather than `commits(last:1)`, matching the
-// BASELINE_TS discipline in references/failure-modes.md: the rollup must belong
-// to the commit the ack legs are anchored to, not to whatever the commit
-// connection happens to return.
+// OID-anchored on the HEAD sha rather than `commits(last:1)`, for the same reason
+// the ack legs are anchored to HEAD: the rollup must belong to the commit the
+// gate is judging, not to whatever the commit connection happens to return.
 const CHECK_ROLLUP_QUERY = `
 query($owner:String!, $name:String!, $number:Int!, $headSha:GitObjectID!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -458,7 +450,7 @@ const rollupDrain = drainConnection((cursor) => {
 const { nodes: rollupNodes, truncated: checkWindowTruncated } = rollupDrain;
 
 // Deduped to the newest run per check name — a superseded CANCELLED row sitting
-// beside its real SUCCESS would otherwise read as red. See lib/codex-verdict.mjs.
+// beside its real SUCCESS would otherwise read as red. See lib/merge-readiness.mjs.
 const {
   status: ciStatus,
   failed: failedChecks,
@@ -557,13 +549,19 @@ const mergeStateAllows = mergeStateAllowsMerge(mergeStateStatus);
 // `no_ack_yet` with nothing on screen to explain it.
 function describeAckAnchor() {
   if (observationBaselineKnown && ackAnchorMs === baselineObservedAtMs) {
-    return `this gate's FIRST SIGHTING of the sha as HEAD${baselineFirstObservation ? ", recorded just now" : ""}`;
+    return (
+      `this gate's FIRST SIGHTING of the sha as ` +
+      `HEAD${baselineFirstObservation ? ", recorded just now" : ""}`
+    );
   }
   if (!pushAnchorKnown) {
     return "commit time — NO check suite dates this sha, so the push time is unknown";
   }
   if (ackAnchorMs === pushObservedAtMs) {
-    return `earliest check suite, ${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`;
+    return (
+      `earliest check suite, ` +
+      `${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`
+    );
   }
   return "commit time — later than the earliest check suite, so it wins the max";
 }
@@ -574,25 +572,47 @@ const lines = [
   `  repo            ${repository}`,
   `  HEAD            ${headShaShort}  committed ${headCommittedAt.toISOString()}`,
   `  ack anchor      ${new Date(ackAnchorMs).toISOString()}  (${ackAnchorSource})`,
-  `  draft           ${pullRequest.isDraft}   state ${pullRequest.state}   mergeState ${mergeStateStatus}${mergeStateAllows ? "" : "  (BLOCKS MERGE)"}`,
+  `  draft           ${pullRequest.isDraft}   state ${pullRequest.state}   ` +
+    `mergeState ${mergeStateStatus}${mergeStateAllows ? "" : "  (BLOCKS MERGE)"}`,
   "",
   "  ack legs (disjunction — any one is a valid ack of HEAD):",
-  `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "}   (${botReviews.length} bot review(s) total)`,
-  `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "}   (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
-  `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   (${botComments.length} bot comment(s): ${shaCitingComments.length} cite the sha, ${freshCleanVerdictComments.length} fresh clean verdict(s), ${otherCommitCleanVerdictComments.length} clean verdict(s) naming ANOTHER commit)`,
-  `    ..and that ack says CLEAN   ${commentAssertsClean ? "YES" : "no "}   (${cleanVerdictShaComments.length} sha-cited clean verdict(s); citing a sha is not a verdict)`,
-  `    ..or carries FINDINGS       ${commentReportsFindings ? "YES" : "no "}   (${findingsShaComments.length} findings summary(ies) naming HEAD, findings in the body not in threads)`,
-  `    ack is BOUND BY SHA         ${shaBoundAckOfHead ? "YES" : "no "}   (a review on HEAD or a comment naming the sha; the +1 and a sha-less clean verdict rest on the anchor alone)`,
-  `    stale-run evidence          ${staleRunLandedAfterPush ? "YES" : "no "}   (${staleReviews.length} review(s) + ${staleCitations.length} citation(s) for a NON-head commit published after the anchor${staleCitedShas.length > 0 ? `: ${staleCitedShas.join(", ")}` : ""})`,
+  `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "} ` +
+    `  (${botReviews.length} bot review(s) total)`,
+  `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "} ` +
+    `  (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
+  `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   ` +
+    `(${botComments.length} bot comment(s): ${shaCitingComments.length} cite the ` +
+    `sha, ${freshCleanVerdictComments.length} fresh clean verdict(s), ` +
+    `${otherCommitCleanVerdictComments.length} clean verdict(s) naming ANOTHER commit)`,
+  `    ..and that ack says CLEAN   ${commentAssertsClean ? "YES" : "no "} ` +
+    `  (${cleanVerdictShaComments.length} ` +
+    `sha-cited clean verdict(s); citing a sha is not a verdict)`,
+  `    ..or carries FINDINGS       ${commentReportsFindings ? "YES" : "no "} ` +
+    `  (${findingsShaComments.length} findings ` +
+    `summary(ies) naming HEAD, findings in the body not in threads)`,
+  `    ack is BOUND BY SHA         ${shaBoundAckOfHead ? "YES" : "no "} ` +
+    `  (a review on HEAD or a comment naming the sha; ` +
+    `the +1 and a sha-less clean verdict rest on the anchor alone)`,
+  `    stale-run evidence          ${staleRunLandedAfterPush ? "YES" : "no "} ` +
+    `  (${staleReviews.length} review(s) + ${staleCitations.length} ` +
+    `citation(s) for a NON-head commit published after the ` +
+    `anchor${staleCitedShas.length > 0 ? `: ${staleCitedShas.join(", ")}` : ""})`,
   `    first-sighting baseline     ${observationBaselineKnown ? "OK " : "NO "}   ${
     observationBaselineKnown
-      ? `${new Date(baselineObservedAtMs).toISOString()}${baselineFirstObservation ? " (stamped by THIS run)" : ""}`
+      ? `${new Date(baselineObservedAtMs).toISOString()}` +
+        `${baselineFirstObservation ? " (stamped by THIS run)" : ""}`
       : (baselineError ?? "unavailable")
   }${timestampOnlyAckUnvouchable ? "  <- cannot vouch for the current ack" : ""}`,
-  `    acks refused as pre-baseline ${ackPredatesBaseline ? "YES" : "no "}  (${preBaselineReactions.length} +1(s), ${preBaselineCleanComments.length} sha-less clean verdict(s) older than that sighting)`,
+  `    acks refused as pre-baseline ${ackPredatesBaseline ? "YES" : "no "} ` +
+    ` (${preBaselineReactions.length} +1(s), ${preBaselineCleanComments.length} ` +
+    `sha-less clean verdict(s) older than that sighting)`,
   "",
-  `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} outdated, counted anyway) of ${threadTotal} total thread(s)`,
-  `  CI                ${ciStatus}  (${gatingChecks.length} of ${dedupedChecks.length} check(s) gate the merge [${ciMode}], ${failedChecks.length} failed, ${pendingChecks.length} pending${supersededCount > 0 ? `, ${supersededCount} superseded run(s) ignored` : ""})`,
+  `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} ` +
+    `outdated, counted anyway) of ${threadTotal} total thread(s)`,
+  `  CI                ${ciStatus}  (${gatingChecks.length} of ` +
+    `${dedupedChecks.length} check(s) gate the merge [${ciMode}], ` +
+    `${failedChecks.length} failed, ${pendingChecks.length} ` +
+    `pending${supersededCount > 0 ? `, ${supersededCount} superseded run(s) ignored` : ""})`,
 ];
 
 if (ciMode === "all-checks" && dedupedChecks.length > 0) {
@@ -618,12 +638,15 @@ if (!pushAnchorKnown) {
 }
 if (threadWindowTruncated) {
   lines.push(
-    `  !! review-thread connection truncated [${threadDrain.truncationReason}]: ${describeTruncation(threadDrain)} — the unresolved count is a floor, not a total. NOT mergeable.`,
+    `  !! review-thread connection truncated ` +
+      `[${threadDrain.truncationReason}]: ${describeTruncation(threadDrain)} — the ` +
+      `unresolved count is a floor, not a total. NOT mergeable.`,
   );
 }
 if (checkWindowTruncated) {
   lines.push(
-    `  !! check-rollup connection truncated [${rollupDrain.truncationReason}]: ${describeTruncation(rollupDrain)} — CI status is unverified. NOT mergeable.`,
+    `  !! check-rollup connection truncated [${rollupDrain.truncationReason}]: ` +
+      `${describeTruncation(rollupDrain)} — CI status is unverified. NOT mergeable.`,
   );
 }
 for (const check of failedChecks) {
@@ -631,7 +654,8 @@ for (const check of failedChecks) {
 }
 for (const check of advisoryFailedChecks) {
   lines.push(
-    `  -- advisory check failed (real signal, does not block merge): ${checkName(check)} = ${checkState(check)}`,
+    `  -- advisory check failed (real signal, does not ` +
+      `block merge): ${checkName(check)} = ${checkState(check)}`,
   );
 }
 if (rateLimited) {
@@ -651,7 +675,9 @@ if (verdict === "no_ack_yet") {
 // immediately, because nothing is in flight for HEAD.
 if (verdict === "no_ack_yet" && otherCommitCleanVerdictComments.length > 0) {
   lines.push(
-    `     NOTE: ${otherCommitCleanVerdictComments.length} clean verdict(s) ARE on this PR, each naming a DIFFERENT commit${staleCitedShas.length > 0 ? ` (${staleCitedShas.join(", ")})` : ""} —`,
+    `     NOTE: ${otherCommitCleanVerdictComments.length} clean ` +
+      `verdict(s) ARE on this PR, each naming a DIFFERENT ` +
+      `commit${staleCitedShas.length > 0 ? ` (${staleCitedShas.join(", ")})` : ""} —`,
   );
   lines.push(
     "     the tail of a run for the previous head, not a verdict on this one. Re-trigger now.",
@@ -665,7 +691,8 @@ if (verdict === "signal_truncated") {
 }
 if (verdict === "ack_unsettled" && !ackAgeUnknown) {
   lines.push(
-    `  !! ${unsettledAckLeg} ack of HEAD is ${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
+    `  !! ${unsettledAckLeg} ack of HEAD is ` +
+      `${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
   );
   lines.push(
     "     cannot distinguish 'clean' from 'threads not yet materialized'. Re-poll; do NOT merge.",
@@ -677,7 +704,8 @@ if (verdict === "ack_unsettled" && !ackAgeUnknown) {
 // holds it because an ack it cannot date is one it cannot rule out as brand new.
 if (verdict === "ack_unsettled" && ackAgeUnknown) {
   lines.push(
-    `  !! the ${unsettledAckLeg} ack of HEAD carries NO usable timestamp, so its age is unknown and`,
+    `  !! the ${unsettledAckLeg} ack of HEAD carries ` +
+      `NO usable timestamp, so its age is unknown and`,
   );
   lines.push(
     "     the settle window can never expire on it. Re-polling will not clear this. Comment",
@@ -688,7 +716,8 @@ if (verdict === "ack_unsettled" && ackAgeUnknown) {
 }
 if (verdict === "ack_findings_no_threads") {
   lines.push(
-    `  !! Codex filed findings for HEAD in ${findingsShaComments.length} comment body(ies), with 0 review threads.`,
+    `  !! Codex filed findings for HEAD in ${findingsShaComments.length} ` +
+      `comment body(ies), with 0 review threads.`,
   );
   lines.push(
     "     There is nothing to resolve, so require-conversation-resolution will NOT block this",
@@ -699,16 +728,21 @@ if (verdict === "ack_findings_no_threads") {
 }
 if (verdict === "ack_unattributable") {
   lines.push(
-    `  !! the only ack of HEAD is TIMESTAMP-bound (+1 and/or a sha-less clean verdict), and a Codex run`,
+    `  !! the only ack of HEAD is TIMESTAMP-bound (+1 ` +
+      `and/or a sha-less clean verdict), and a Codex run`,
   );
   lines.push(
-    `     for an OLDER commit published AFTER this push (${staleReviews.length} review(s), ${staleCitations.length} citation(s)${staleCitedShas.length > 0 ? ` naming ${staleCitedShas.join(", ")}` : ""}).`,
+    `     for an OLDER commit published AFTER this push (${staleReviews.length} ` +
+      `review(s), ${staleCitations.length} ` +
+      `citation(s)${staleCitedShas.length > 0 ? ` naming ${staleCitedShas.join(", ")}` : ""}).`,
   );
   lines.push(
-    "     That ack cannot be told apart from the older run's tail, so it is not a verdict on HEAD and",
+    "     That ack cannot be told apart from the older " +
+      "run's tail, so it is not a verdict on HEAD and",
   );
   lines.push(
-    "     the settle window is not what is missing. A pass for THIS commit cites the sha — re-poll for",
+    "     the settle window is not what is missing. A " +
+      "pass for THIS commit cites the sha — re-poll for",
   );
   lines.push("     that, and comment '@codex review' if it does not arrive. Do NOT merge.");
 }
@@ -718,12 +752,15 @@ if (verdict === "ack_baseline_unavailable") {
   );
   lines.push(`     it against: ${baselineError ?? "the first-sighting baseline is unavailable"}`);
   lines.push(
-    `     Nothing is wrong with the ack — the gap is in this gate's own state at ${baselinePath}.`,
+    `     Nothing is wrong with the ack — the gap is in this gate's own state at ` +
+      `${baselinePath}.`,
   );
   lines.push(
     baselineWritable
-      ? "     Delete that file and re-run: the next poll re-stamps it and the ack is judged normally."
-      : "     Fix the path's permissions (or free the disk) and re-run. Re-polling alone will NOT clear this.",
+      ? "     Delete that file and re-run: the next poll " +
+          "re-stamps it and the ack is judged normally."
+      : "     Fix the path's permissions (or free the disk) " +
+          "and re-run. Re-polling alone will NOT clear this.",
   );
   lines.push(
     "     A sha-bound verdict needs no baseline at all, so '@codex review' also clears it.",
@@ -734,10 +771,12 @@ if (verdict === "ack_predates_baseline") {
     `  !! Codex HAS acked, and this gate refused the ack: ${preBaselineReactions.length} +1(s) and`,
   );
   lines.push(
-    `     ${preBaselineCleanComments.length} sha-less clean verdict(s) predate this gate's first sighting of ${headShaShort} as HEAD`,
+    `     ${preBaselineCleanComments.length} sha-less clean verdict(s) ` +
+      `predate this gate's first sighting of ${headShaShort} as HEAD`,
   );
   lines.push(
-    `     (${new Date(baselineObservedAtMs).toISOString()}). Neither carries a sha, so nothing else binds them to THIS commit —`,
+    `     (${new Date(baselineObservedAtMs).toISOString()}). Neither ` +
+      `carries a sha, so nothing else binds them to THIS commit —`,
   );
   lines.push(
     "     and an ack that landed before the gate ever saw this head cannot be told from one for a",
@@ -761,15 +800,18 @@ if (verdict === "ack_without_verdict") {
 }
 if (verdict === "head_moved") {
   lines.push(
-    `  !! HEAD moved mid-probe: ${headShaShort} -> ${headShaAtFinish.slice(0, 10)}. Every signal above`,
+    `  !! HEAD moved mid-probe: ${headShaShort} -> ` +
+      `${headShaAtFinish.slice(0, 10)}. Every signal above`,
   );
   lines.push(
-    "     describes the OLD commit, so none of it decides anything. Re-run the gate on the new head.",
+    "     describes the OLD commit, so none of it " +
+      "decides anything. Re-run the gate on the new head.",
   );
 }
 if (!isOpen) {
   lines.push(
-    `  !! PR state is ${pullRequest.state}, not OPEN — there is nothing left to merge, so merge_ok is 0`,
+    `  !! PR state is ${pullRequest.state}, not OPEN ` +
+      `— there is nothing left to merge, so merge_ok is 0`,
   );
   lines.push("     regardless of the review verdict.");
 }
@@ -778,10 +820,12 @@ if (!isOpen) {
 // a phantom blocker when the real answer is "it already merged".
 if (verdict === "ack_clean" && isOpen && !mergeStateAllows) {
   lines.push(
-    `  !! Codex is clean but GitHub reports mergeStateStatus=${mergeStateStatus} — a merge requirement is unmet`,
+    `  !! Codex is clean but GitHub reports ` +
+      `mergeStateStatus=${mergeStateStatus} — a merge requirement is unmet`,
   );
   lines.push(
-    "     (a required check with no rollup row, an unresolved human conversation, or a stale base).",
+    "     (a required check with no rollup row, an " +
+      "unresolved human conversation, or a stale base).",
   );
 }
 
@@ -792,7 +836,9 @@ lines.push("");
 // merger does. Feed it to `gh pr merge --match-head-commit` so the merge refuses
 // a head that moved between this print and the call.
 lines.push(
-  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} merge_ok=${mergeOk ? 1 : 0} advisory=${advisory ? 1 : 0} head_sha=${headSha}`,
+  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ` +
+    `ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} ` +
+    `merge_ok=${mergeOk ? 1 : 0} advisory=${advisory ? 1 : 0} head_sha=${headSha}`,
 );
 
 process.stdout.write(`${lines.join("\n")}\n`);

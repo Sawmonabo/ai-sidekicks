@@ -4,22 +4,21 @@
 // progress, Generate, and the payload of `git.settled`, the one event that records a
 // commit, a push, a pull, an opened change request or a posted review.
 //
-// This module imports nothing that reaches `../event.js`: `event.ts` imports
-// `GitSettledPayloadSchema` from here, and a cycle among module-scope zod schemas
-// throws at load time.
+// This module imports nothing that reaches `../event/session.js`: `event/session.ts`
+// imports `GitSettledPayloadSchema` from here, and a cycle among module-scope zod schemas throws at
+// load time.
 import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "../provider-driver.js";
-import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
-import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "../session.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow-run.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
+import { GitObjectIdSchema, type GitObjectId } from "../repo/git-reads.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow/definition/document.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/id.js";
+import { WorkflowRunEpochSchema, WorkflowRunPauseNumberSchema } from "../workflow/run/snapshot.js";
 import {
   ChangeRequestSummarySchema,
   GIT_HOST_KINDS,
@@ -61,11 +60,7 @@ export const DIFF_FILE_KINDS = ["added", "deleted", "renamed", "modified"] as co
 export type DiffFileKind = (typeof DIFF_FILE_KINDS)[number];
 
 /** Why a changed file's contents cannot be shown. */
-export const DIFF_FILE_UNREADABLE_REASONS = [
-  "too_large",
-  "permission_denied",
-  "not_regular_file",
-] as const;
+export const DIFF_FILE_UNREADABLE_REASONS = ["permission_denied", "not_regular_file"] as const;
 /** One reason a file cannot be shown. */
 export type DiffFileUnreadableReason = (typeof DIFF_FILE_UNREADABLE_REASONS)[number];
 
@@ -171,27 +166,26 @@ export const GitflowBranchContextReadResponseSchema: z.ZodType<GitflowBranchCont
 // The diff
 
 /**
- * One of a workflow run's snapshot points: its start, an approval pause, or its end,
- * within one execution of the run (each re-execution opens the next epoch).
+ * One of a workflow run's snapshot points: its start, an approval pause (counted from 1), or its
+ * end, within one execution of the run (each re-execution opens the next epoch, counted from 0).
  */
 export type WorkflowRunSnapshotPoint =
   | { epoch: number; point: "start" }
   | { epoch: number; point: "pause"; pauseNumber: number }
   | { epoch: number; point: "end" };
-const epochSchema = countSchema;
 const WorkflowRunSnapshotPointSchema: z.ZodType<
   WorkflowRunSnapshotPoint,
   WorkflowRunSnapshotPoint
 > = z.discriminatedUnion("point", [
-  z.object({ epoch: epochSchema, point: z.literal("start") }).strict(),
+  z.object({ epoch: WorkflowRunEpochSchema, point: z.literal("start") }).strict(),
   z
     .object({
-      epoch: epochSchema,
+      epoch: WorkflowRunEpochSchema,
       point: z.literal("pause"),
-      pauseNumber: countSchema,
+      pauseNumber: WorkflowRunPauseNumberSchema,
     })
     .strict(),
-  z.object({ epoch: epochSchema, point: z.literal("end") }).strict(),
+  z.object({ epoch: WorkflowRunEpochSchema, point: z.literal("end") }).strict(),
 ]);
 
 /**
@@ -264,8 +258,11 @@ export interface DiffFile {
   newBlobId?: GitObjectId | undefined;
   /** The newest turn that touched the file; absent for a change made outside a turn. */
   newestTurn?: number | undefined;
-  /** On a workflow run's diff, the step that changed the file. */
-  stepId?: string | undefined;
+  /**
+   * On a workflow run's diff, the step that changed the file, named as the run's pinned version
+   * names it; absent for an edit made in the checkout by anyone else.
+   */
+  step?: { nodeId: WorkflowNodeId; nodeName: string } | undefined;
 }
 const DiffFileSchema: z.ZodType<DiffFile> = z
   .object({
@@ -281,7 +278,10 @@ const DiffFileSchema: z.ZodType<DiffFile> = z
     oldBlobId: GitObjectIdSchema.optional(),
     newBlobId: GitObjectIdSchema.optional(),
     newestTurn: z.number().int().positive().optional(),
-    stepId: z.string().min(1).optional(),
+    step: z
+      .object({ nodeId: WorkflowNodeIdSchema, nodeName: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((file) => (file.kind === "renamed") === (file.oldPath !== undefined), {

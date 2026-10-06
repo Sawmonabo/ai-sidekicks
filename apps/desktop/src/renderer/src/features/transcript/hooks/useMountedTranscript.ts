@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+
 import {
   forwardActs,
   mountedTranscript,
@@ -8,7 +10,7 @@ import {
 } from "../mounted-transcript.js";
 
 /**
- * Makes this feed the mounted transcript while the component is mounted.
+ * Makes this feed its window's mounted transcript while the component is mounted.
  *
  * Acts are read through a ref at act time: a feed rebuilds its callbacks every render, and
  * adopting the object itself would re-adopt each pass or keep the first render's callbacks.
@@ -17,6 +19,7 @@ export function useMountedTranscript(
   acts: TranscriptActs,
   transcript: MountedTranscript = mountedTranscript,
 ): void {
+  const ownerDocument = useOwnerWindow().document;
   const actsRef = useRef(acts);
   actsRef.current = acts;
   const forwarding = useMemo(
@@ -26,5 +29,8 @@ export function useMountedTranscript(
       }),
     [],
   );
-  useEffect(() => transcript.adopt(forwarding), [transcript, forwarding]);
+  useEffect(
+    () => transcript.adopt(forwarding, ownerDocument),
+    [transcript, forwarding, ownerDocument],
+  );
 }

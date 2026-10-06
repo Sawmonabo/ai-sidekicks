@@ -1,13 +1,14 @@
-// The provider child environment: denied credential names never reach the child (under the
-// host's name matching), no ambient daemon variable is inherited, and nothing can re-enable a
-// provider's auto-updater or drop the Codex build pin.
+// The provider child environment: a session's rows replace the captured base's pair of the same
+// name, denied credential names never reach the child (under the host's name matching), no ambient
+// daemon variable is inherited, and nothing can re-enable a provider's auto-updater or drop the
+// Codex build pin.
 
 import { describe, expect, it } from "vitest";
 
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
-import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/descriptor.js";
 import {
   ProviderSpawnEnvConflictError,
   ProviderSpawnEnvNameMatchMismatchError,
@@ -17,7 +18,7 @@ import {
   type SpawnEnvPair,
 } from "../spawn-env.js";
 
-const CURATED_BASE: readonly SpawnEnvPair[] = [
+const CAPTURED_BASE: readonly SpawnEnvPair[] = [
   ["HOME", "/home/agent"],
   ["PATH", "/usr/bin"],
 ];
@@ -34,6 +35,26 @@ function occurrencesOf(env: readonly SpawnEnvPair[], name: string): number {
   return namesOf(env).filter((entryName) => entryName === name).length;
 }
 
+describe("provider spawn environment — rows over the captured base", () => {
+  it("lets a row replace the base pair its name matches under the host's rule, once", () => {
+    const built = buildProviderSpawnEnv({
+      driverName: "claude",
+      baseEnv: [
+        ["Path", "C:\\Windows\\System32"],
+        ["HTTPS_PROXY", "http://proxy.internal:3128"],
+      ],
+      environmentRows: [["PATH", "C:\\Tools"]],
+      hostEnvNameMatch: "case-insensitive",
+    });
+
+    expect(built.slice(0, 2)).toStrictEqual([
+      ["PATH", "C:\\Tools"],
+      ["HTTPS_PROXY", "http://proxy.internal:3128"],
+    ]);
+    expect(built.filter(([name]) => name.toUpperCase() === "PATH")).toHaveLength(1);
+  });
+});
+
 describe("provider spawn environment — auto-update suppression", () => {
   it("realizes each driver's declared opt-out, across the whole driver union", () => {
     // The table is total, but the builder could still read it for one driver and not another.
@@ -43,7 +64,7 @@ describe("provider spawn environment — auto-update suppression", () => {
         driverName,
         buildProviderSpawnEnv({
           driverName,
-          baseEnv: CURATED_BASE,
+          baseEnv: CAPTURED_BASE,
           hostEnvNameMatch: "case-sensitive",
         }),
       );
@@ -59,15 +80,15 @@ describe("provider spawn environment — auto-update suppression", () => {
         expect(valueOf(built, name)).toBe(value);
       }
       // The base survives whole: no policy was supplied, so nothing is pruned.
-      expect(built.slice(0, CURATED_BASE.length)).toEqual(CURATED_BASE);
-      expect(built).toHaveLength(CURATED_BASE.length + declared.length);
+      expect(built.slice(0, CAPTURED_BASE.length)).toEqual(CAPTURED_BASE);
+      expect(built).toHaveLength(CAPTURED_BASE.length + declared.length);
     }
   });
 
   it("overrides a base that would re-enable the updater, rather than appending beside it", () => {
     const built = buildProviderSpawnEnv({
       driverName: "claude",
-      baseEnv: [...CURATED_BASE, ["DISABLE_AUTOUPDATER", "0"]],
+      baseEnv: [...CAPTURED_BASE, ["DISABLE_AUTOUPDATER", "0"]],
       hostEnvNameMatch: "case-sensitive",
     });
 
@@ -90,23 +111,23 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     envNameMatch: "case-sensitive",
   };
 
-  it("strips a denied name that the curated base carried", () => {
+  it("strips a denied name that the captured base carried", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
-      baseEnv: [...CURATED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
+      baseEnv: [...CAPTURED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
       hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: DENY_SECRET,
     });
 
     expect(namesOf(built)).not.toContain("ANTHROPIC_API_KEY");
-    expect(built).toEqual(CURATED_BASE);
+    expect(built).toEqual(CAPTURED_BASE);
   });
 
   it("keeps the denied name stripped while the opt-out survives the same strip", () => {
     // Strip, then set: the order is the contract.
     const built = buildProviderSpawnEnv({
       driverName: "claude",
-      baseEnv: [...CURATED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
+      baseEnv: [...CAPTURED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
       hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: {
         denyEnvVars: ["ANTHROPIC_API_KEY", "DISABLE_AUTOUPDATER", "DISABLE_UPDATES"],
@@ -123,7 +144,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
   it("honors a case-insensitive host's match mode", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
-      baseEnv: [...CURATED_BASE, ["Anthropic_Api_Key", "sk-live"]],
+      baseEnv: [...CAPTURED_BASE, ["Anthropic_Api_Key", "sk-live"]],
       hostEnvNameMatch: "case-insensitive",
       credentialEnvPolicy: {
         denyEnvVars: ["ANTHROPIC_API_KEY"],
@@ -159,7 +180,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     // strip it, the child would fall back to a floating build.
     const built = buildProviderSpawnEnv({
       driverName: "codex",
-      baseEnv: CURATED_BASE,
+      baseEnv: CAPTURED_BASE,
       hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: { denyEnvVars: [CODEX_BIN], envNameMatch: "case-sensitive" },
       additionalMandatedPairs: [[CODEX_BIN, "/opt/codex/bin/codex"]],
@@ -190,7 +211,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     expect(() =>
       buildProviderSpawnEnv({
         driverName: "claude",
-        baseEnv: CURATED_BASE,
+        baseEnv: CAPTURED_BASE,
         hostEnvNameMatch: "case-sensitive",
         additionalMandatedPairs: pairs,
       }),
@@ -202,7 +223,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     expect(() =>
       buildProviderSpawnEnv({
         driverName: "claude",
-        baseEnv: CURATED_BASE,
+        baseEnv: CAPTURED_BASE,
         hostEnvNameMatch: "case-insensitive",
         additionalMandatedPairs: [["disable_updates", "0"]],
       }),
@@ -228,7 +249,7 @@ describe("provider spawn environment — host name-matching semantics", () => {
     const error = captureThrow(() =>
       buildProviderSpawnEnv({
         driverName: "claude",
-        baseEnv: CURATED_BASE,
+        baseEnv: CAPTURED_BASE,
         hostEnvNameMatch: host,
         credentialEnvPolicy: { denyEnvVars: ["ANTHROPIC_API_KEY"], envNameMatch: policy },
       }),
@@ -265,7 +286,7 @@ describe("bound-account child environment carries no ambient credential inherita
     }
   }
 
-  it("composes EXACTLY the curated base plus the mandated pairs, and nothing else", () => {
+  it("composes EXACTLY the captured base plus the mandated pairs, and nothing else", () => {
     // Asserted over the whole variable set: probing for one absent name cannot report a
     // variable nobody anticipated.
     const { composed, ambientDuringBuild } = withAmbientCredential(() => ({

@@ -5,7 +5,7 @@
 // transaction under a `pg_advisory_xact_lock` and re-probes inside the lock; a racer blocks on the
 // lock, then finds the committed schema and returns.
 
-import { CONTROL_PLANE_SCHEMA_SQL } from "./control-plane-schema.js";
+import { CONTROL_PLANE_SCHEMA_SQL } from "./schema.js";
 
 // The advisory-lock key. It must differ from every other advisory-lock caller in
 // the same database, and every control-plane replica must use the same value.

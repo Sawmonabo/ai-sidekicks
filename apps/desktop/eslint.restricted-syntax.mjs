@@ -48,9 +48,9 @@ const NUMERIC_INSTANT_NAME_SUFFIX =
  *
  * `String(...)` of a catch binding has no selector here. esquery has no backreference, so a
  * selector cannot bind a catch parameter and compare it to the identifier being stringified, and
- * the spellings outside a `CatchClause` (`"" + error`, `error.toString()`, `.catch((error) => …)`)
- * are out of reach. A selector that catches half a class reads exactly like one that catches the
- * class, so that claim is left to review.
+ * the spellings outside a `CatchClause` (`"" + error`, `error.toString()`,
+ * `.catch((error) => …)`) are out of reach. A selector that catches half a class reads exactly
+ * like one that catches the class, so that claim is left to review.
  */
 export const TIME_READING_SELECTORS = [
   {
@@ -94,7 +94,7 @@ export const TIME_READING_SELECTORS = [
   {
     // The named form, inverted: a `new Date` whose argument is a name is refused unless the name
     // says it is a number. Keying on stamp-shaped names (`…At`, `…Iso`) fails because
-    // `formatClockTime(iso: string)` in `lib/wire-figures.ts` carries a wire stamp under a
+    // `formatClockTime(iso: string)` in `lib/wire/figures.ts` carries a wire stamp under a
     // lower-case name. Inverted, a new stamp name is caught, and a new numeric name is a one-word
     // edit to `NUMERIC_INSTANT_NAME_SUFFIX` that a reviewer sees. A sum or a call is not a name and
     // is outside the arm, so `new Date(base + offsetMs)` and `new Date(Date.UTC(...))` still pass.
@@ -105,7 +105,8 @@ export const TIME_READING_SELECTORS = [
       `[arguments.0.property.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/])`,
     message:
       "`new Date(<a named value>)` is `Date.parse` with a wrapper and carries the same leniency " +
-      "— it just does not look like it, because the string is behind a name. Read the stamp with " +
+      "— it just does not look like it, because the " +
+      "string is behind a name. Read the stamp with " +
       "`parseInstant` from `lib/instant.ts`; build a fixture instant from `Date.UTC(...)`, or " +
       "name the value for the number it holds (`…Ms`, `…Milliseconds`, `…Epoch`).",
   },
@@ -138,7 +139,7 @@ export const TIME_READING_SELECTORS = [
     //
     // Both sides must name a stamp, for precision: this tree carries two `…At` figures that are
     // numbers (`dueAt` on the frozen clock's entries in `lib/clock.ts`, `updatedAt` on a
-    // persistence record in `store/persistence/persistence-adapter.ts`) and both are compared
+    // persistence record in `store/persistence/adapter.ts`) and both are compared
     // against a plain identifier, so a one-sided name key would flag them falsely.
     //
     // The third arm is the wrapped form, where one side is enough: a stamp reached through `?? ""`
@@ -198,7 +199,8 @@ export const EXPORTED_COLLECTION_SELECTOR = {
     "An exported `Set` or `Map` is a mutable runtime singleton however it is annotated: " +
     "`ReadonlySet` and `ReadonlyMap` hide the mutators from a reader and from nothing else, " +
     "every importer shares the one object, and `Object.freeze` does not close it. Export the " +
-    "derived data instead — a `readonly T[]` of entries — and build the collection inside the " +
+    "derived data instead — a `readonly T[]` of " +
+    "entries — and build the collection inside the " +
     "module, class, or controller that reads it. A collection this module keeps to itself is " +
     "untouched.",
 };
@@ -242,16 +244,17 @@ export const BRIDGE_GLOBAL_READ = {
  * (`*.config.{ts,mjs}`, `.dependency-cruiser.mjs`) live at the package root, outside every scope
  * this rule is composed into.
  *
- * Both spellings are banned: `export { x as default }` (and its `… from "./other.js"` form) parses
- * as an `ExportSpecifier`, not an `ExportDefaultDeclaration`, and publishes the same nameless
- * symbol. `export { default as Thing } from …` is untouched: it imports a default and republishes
- * it under a name, which is the remedy.
+ * Both spellings are banned: `export { x as default }` (and its `… from "./other.js"` form)
+ * parses as an `ExportSpecifier`, not an `ExportDefaultDeclaration`, and publishes the same
+ * nameless symbol. `export { default as Thing } from …` is untouched: it imports a default and
+ * republishes it under a name, which is the remedy.
  */
 export const EXPORT_DEFAULT_DECLARATION = {
   selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
   message:
     "Mechanical gate 3 in `apps/desktop/AGENTS.md`: named exports only. `export default` is for " +
-    "tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, " +
+    "tool configuration at the package root — " +
+    "`*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, " +
     "which their tools load by default export — and nowhere else: a default export has no name " +
     "at the import site, so two importers can call one symbol two things and a rename reaches " +
     "neither.",
@@ -274,7 +277,8 @@ export const MODULE_LEVEL_LET = {
   message:
     "Mechanical gate 4 in `apps/desktop/AGENTS.md`: stateful logic is an encapsulated class with " +
     "private fields. A module-level `let` is a singleton every importer in the window shares and " +
-    "any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
+    "any of them can reassign — put it in a class, " +
+    "a hook, or a controller the caller constructs.",
 };
 
 /**
@@ -286,18 +290,18 @@ export const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: "ImportExpression[source.value=/child_process/]",
     message:
-      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the " +
-      "only module that reaches `spawn` from `node:child_process`, and it registers the kill on " +
-      "`onTestFinished` so a spawned child's lifetime belongs to the test rather than to a " +
-      "timer. Spawn through that module; `spawnSync` is untouched.",
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/spawner.ts` " +
+      "is the only module that reaches `spawn` from `node:child_process`, and it registers the " +
+      "kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to " +
+      "a timer. Spawn through that module; `spawnSync` is untouched.",
   },
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
     message:
-      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the " +
-      "only module that reaches `spawn` from `node:child_process`, and it registers the kill on " +
-      "`onTestFinished` so a spawned child's lifetime belongs to the test rather than to a " +
-      "timer. Spawn through that module; `spawnSync` is untouched.",
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/spawner.ts` " +
+      "is the only module that reaches `spawn` from `node:child_process`, and it registers the " +
+      "kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to " +
+      "a timer. Spawn through that module; `spawnSync` is untouched.",
   },
 ];
 
@@ -313,7 +317,7 @@ export const WINDOW_CONSTRUCTION_OUTSIDE_FACTORY = {
     `NewExpression:matches([callee.name=${WINDOW_CLASS_NAME}], ` +
     `[callee.property.name=${WINDOW_CLASS_NAME}])`,
   message:
-    "Every window and web view is built by the window factory in `src/main/windows/window.ts`, " +
+    "Every window and web view is built by the window factory in `src/main/windows/factory.ts`, " +
     "which holds the one locked `webPreferences` block. Build it there.",
 };
 
@@ -387,14 +391,14 @@ export const SCREENSHOT_MATCHER_REACH = {
  * A stylesheet imported from another folder.
  *
  * A component imports its own sheet from its own folder, so importing the component brings its
- * styles. Relative and `@renderer/` specifiers only: a vendor sheet reached by package specifier
+ * styles. Relative and `#renderer/` specifiers only: a vendor sheet reached by package specifier
  * has no owning folder here.
  *
  * A trailing query is still the sheet: `./x.css?inline` and `./x.css?raw` are bundler spellings of
  * the same import, so the match is not `$`-anchored. The dynamic form carries the sheet as the
  * static one does (the chunk it lands on is the component's), so both declarations are named.
  */
-const STYLESHEET_SPECIFIER = "^(?:[.][.]?[/]|@renderer[/]).*[.]css(?:[?].*)?$";
+const STYLESHEET_SPECIFIER = "^(?:[.][.]?[/]|#renderer[/]).*[.]css(?:[?].*)?$";
 const SAME_FOLDER_STYLESHEET_SPECIFIER = "^[.][/][^/?]+[.]css(?:[?].*)?$";
 const STYLESHEET_OUTSIDE_FOLDER_SPECIFIER =
   `[source.value=/${STYLESHEET_SPECIFIER}/]` +
@@ -407,8 +411,9 @@ export const STYLESHEET_THROUGH_OWNER = {
   message:
     "Mechanical gate 7 in `apps/desktop/AGENTS.md`: a component imports its own sheet from its " +
     "own folder (`X.tsx` imports `./X.css`); a sheet that styles several components of a feature " +
-    "is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`); a " +
-    "global sheet in `styles/` is imported by `main.tsx`. A module that reaches into another " +
+    "is imported by the feature's top view in the sheet's folder, or by a chunk root listed in " +
+    "`STYLESHEET_OWNER_FILES` in `eslint.config.mjs`; a global sheet in `styles/` is imported by " +
+    "`main.tsx`. A module that reaches into another " +
     "folder's sheet puts that surface's rules wherever the module loads.",
 };
 
@@ -429,6 +434,7 @@ export const DIRECTORY_SOURCE_GLOB = {
     '[callee.property.name="glob"] > ArrayExpression > Literal[value=/[*]/])',
   message:
     "A directory `import.meta.glob` under `src/` is a second source of truth for what the tree " +
-    "holds, and it decides its own membership — so it is silently wrong the moment a file moves " +
+    "holds, and it decides its own membership — so " +
+    "it is silently wrong the moment a file moves " +
     "and reports nothing. Name the modules, or let the bundler's own entry graph decide.",
 };

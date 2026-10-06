@@ -4,10 +4,10 @@
 // use one projection.
 
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
+import { type AttentionReading } from "#renderer/store/attention/summary.js";
 import { NotificationsListBody } from "./NotificationsListBody.js";
 
-import "./notifications.css";
+import "./NotificationsList.css";
 
 /** What the notifications list draws from: the attention reading, the time, and how to open. */
 export interface NotificationsListProps {

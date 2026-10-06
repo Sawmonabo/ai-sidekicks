@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
+import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile } from "./keyboard-map-file.js";
 
 const REPAIRED_AT = new Date("2026-09-30T12:00:00.000Z");
 
@@ -36,25 +36,32 @@ describe("reading the keyboard map", () => {
     const file = keyboardMapFile();
     const stored = await file.write({
       "frame.goToSessions": "$mod+9",
-      "app.checkForUpdates": null,
+      "settings.cycleColorScheme": null,
     });
 
-    expect(stored).toStrictEqual({ "frame.goToSessions": "$mod+9", "app.checkForUpdates": null });
+    expect(stored).toStrictEqual({
+      "frame.goToSessions": "$mod+9",
+      "settings.cycleColorScheme": null,
+    });
     await expect(keyboardMapFile().read()).resolves.toStrictEqual({ map: stored });
   });
 
-  it("reads a file that is not JSON as the empty map, rewrites it, and says so until the next write", async () => {
-    await writeFile(filePath, "{ not json", "utf8");
-    const file = keyboardMapFile();
+  it(
+    "reads a file that is not JSON as the empty map, " +
+      "rewrites it, and says so until the next write",
+    async () => {
+      await writeFile(filePath, "{ not json", "utf8");
+      const file = keyboardMapFile();
 
-    const repaired = { repairedAt: REPAIRED_AT.toISOString(), cause: "unparseable" };
-    await expect(file.read()).resolves.toStrictEqual({ map: {}, repair: repaired });
-    expect(JSON.parse(await readFile(filePath, "utf8"))).toStrictEqual({});
-    await expect(file.read()).resolves.toStrictEqual({ map: {}, repair: repaired });
+      const repaired = { repairedAt: REPAIRED_AT.toISOString(), cause: "unparseable" };
+      await expect(file.read()).resolves.toStrictEqual({ map: {}, repair: repaired });
+      expect(JSON.parse(await readFile(filePath, "utf8"))).toStrictEqual({});
+      await expect(file.read()).resolves.toStrictEqual({ map: {}, repair: repaired });
 
-    await file.write({ "frame.goToSessions": "$mod+9" });
-    await expect(file.read()).resolves.toStrictEqual({ map: { "frame.goToSessions": "$mod+9" } });
-  });
+      await file.write({ "frame.goToSessions": "$mod+9" });
+      await expect(file.read()).resolves.toStrictEqual({ map: { "frame.goToSessions": "$mod+9" } });
+    },
+  );
 
   it("reads a map the schema refuses as the empty map, naming that cause", async () => {
     await writeFile(filePath, JSON.stringify({ "frame.goToSessions": 7 }), "utf8");
@@ -77,13 +84,4 @@ describe("writing the keyboard map", () => {
       await expect(readdir(userData)).resolves.toStrictEqual([KEYBOARD_MAP_FILE_NAME]);
     },
   );
-
-  it("refuses a map that is not one before anything is written", () => {
-    expect(() => parseKeyboardMap({ "frame.goToSessions": 7 })).toThrow();
-    expect(() => parseKeyboardMap(["$mod+9"])).toThrow();
-    expect(() => parseKeyboardMap({ "": "$mod+9" })).toThrow();
-    expect(parseKeyboardMap({ "frame.goToSessions": null })).toStrictEqual({
-      "frame.goToSessions": null,
-    });
-  });
 });

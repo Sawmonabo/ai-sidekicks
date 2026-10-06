@@ -1,13 +1,13 @@
-// The Electron spawn-and-probe harness for the BrowserWindow GC probe.
+// The Electron spawn-and-probe harness for the window GC probe.
 //
 // Everything here gets a probe reading out of a real Electron process: isolating a profile,
 // arranging the activation gates, spawning through the one owner, scanning the tagged line, and
 // releasing what the spawn held. Whether a reading is acceptable is the suite's decision. It
-// shares the bundle paths, spawner and spawn deadline with `helpers/smoke-probe-harness.ts`; the
+// shares the bundle paths, spawner and spawn deadline with `helpers/smoke-probe/harness.ts`; the
 // two probes read different things and carry different diagnostics.
 //
-// The GC probe in `src/main/probes/gc-probe.ts` runs 20 cycles of two `gc()` calls, an 8 MB
-// allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BrowserWindow)` count. It
+// The GC probe in `src/main/probes/gc.ts` runs 20 cycles of two `gc()` calls, an 8 MB
+// allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BaseWindow)` count. It
 // records whether `window-all-closed` fired, prints one `[SIDEKICKS_GC_PROBE]` JSON line and
 // calls `app.exit(0)`. Bare `gc()` is used because `gc(true)` is a minor scavenge in V8.
 //
@@ -20,33 +20,39 @@
 //      the reading carries `globalGcAvailable` false for the suite to gate on.
 //
 // On Linux CI one Xvfb serves the whole job with `$DISPLAY` exported (see
-// `.github/workflows/ci.yml`), so `needsXvfb()` is false and the binary is spawned directly. The
-// `xvfb-run -a` arm is the fallback for a contributor with no display server.
+// `.github/actions/setup-electron-display/action.yml`), so `needsXvfb()` is false and the binary
+// is spawned directly. The `xvfb-run -a` arm is the fallback for a contributor with no display
+// server.
 
 import process from "node:process";
 
-import type { GcProbeReading } from "@main/probes/gc-probe.js";
-import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { GC_PROBE_TAG } from "@shared/probe-tags.js";
-import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron-child-cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
-import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture-bundle.js";
+import type { GcProbeReading } from "#main/probes/gc.js";
+import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
+import { GC_PROBE_TAG } from "#shared/probe-tags.js";
+import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron/child/cleanup.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron/child/spawner.js";
+import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture/bundle.js";
 import { needsXvfb } from "./helpers/display-readiness.js";
-import { createLaunchProfile } from "./helpers/launch-profile.js";
-import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
+import { createLaunchProfile } from "./helpers/launch/profile.js";
+import {
+  ISOLATED_SERVICE_START_CEILING_MS,
+  startSpawnHarnessService,
+} from "./helpers/isolated-service.js";
+import { TERMINATION_GRACE_MS } from "./helpers/electron/child/managed.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./helpers/process-tree/budget.js";
-import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe-harness.js";
+import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe/harness.js";
 import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";
 
 /**
- * The enclosing vitest budget, derived from the phases it must contain: the spawn's blocking host
- * queries, the spawn budget, the SIGTERM-to-SIGKILL grace, then the shared reserve. The queries
- * lead because no spawn deadline contains them. The suite's own deadline must fire first (see
- * `TEST_TIMEOUT_SLACK_MS`): a vitest timeout tears the worker down with its timers and leaves
- * the Electron reparented to init. The settle-time kill and profile removal keep the process and
- * its directory bounded even if this arithmetic is wrong.
+ * The enclosing vitest budget, derived from the phases it must contain: the isolated service's
+ * start, the spawn's blocking host queries, the spawn budget, the SIGTERM-to-SIGKILL grace, then
+ * the shared reserve. The queries lead because no spawn deadline contains them. The suite's own
+ * deadline must fire first (see `TEST_TIMEOUT_SLACK_MS`): a vitest timeout tears the worker down
+ * with its timers and leaves the Electron reparented to init. The settle-time kill and profile
+ * removal keep the process and its directory bounded even if this arithmetic is wrong.
  */
 export const GC_TEST_TIMEOUT_MS: number =
+  ISOLATED_SERVICE_START_CEILING_MS +
   SPAWNED_TREE_HOST_QUERY_CEILING_MS +
   SPAWN_TIMEOUT_MS +
   TERMINATION_GRACE_MS +
@@ -72,8 +78,21 @@ interface GcProbeSpawnResult {
  * private profile comes off disk after the child is gone, at the end of the test; a removal that
  * fails fails the test.
  */
-export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
+export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   const startedAt = Date.now();
+
+  const service = await startSpawnHarnessService();
+  if ("failure" in service) {
+    return {
+      probe: null,
+      malformedProbeLines: [],
+      stdout: "",
+      stderr: service.failure,
+      exitCode: null,
+      signal: null,
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
 
   // A private profile keeps this Electron off the default profile's `SingletonLock`: a second
   // instance sees `gotTheLock === false` and exits 0 before the probe runs.
@@ -103,8 +122,9 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         cwd: PACKAGE_ROOT,
         env: {
           ...envWithoutSmoke,
+          ...service.environment,
           SIDEKICKS_GC_PROBE: "1",
-          // No focus steal on the person's machine; see `src/main/windows/window-reveal.ts`.
+          // No focus steal on the person's machine; see `src/main/windows/reveal.ts`.
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
         },
       },
@@ -125,7 +145,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
 
     child.stdout.on("data", (chunk: Buffer) => {
       // Output proves the tree is up, so record its descendants now: a rootless kill needs them
-      // once the shim is reaped (`spawned-tree-record.ts` says why the root's `exit` is too late).
+      // once the shim is reaped (`process-tree/record.ts` says why the root's `exit` is too late).
       managed.captureTreeDescendants();
       const text = chunk.toString("utf8");
       stdout += text;

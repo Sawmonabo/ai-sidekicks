@@ -5,10 +5,7 @@
 
 import { memo } from "react";
 
-import {
-  type TranscriptRowRenderer,
-  type TranscriptRowProps,
-} from "../../transcript-row-renderer.js";
+import { type TranscriptRowRenderer, type TranscriptRowProps } from "../../rows/renderer.js";
 
 /** What one row hands the row renderer. */
 export interface TranscriptFeedRowProps extends TranscriptRowProps {
@@ -31,6 +28,7 @@ export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProp
       agentHue: props.agentHue,
       isSuperseded: props.isSuperseded,
       density: props.density,
+      replyRowIds: props.replyRowIds,
     }),
 );
 TranscriptFeedRow.displayName = "TranscriptFeedRow";

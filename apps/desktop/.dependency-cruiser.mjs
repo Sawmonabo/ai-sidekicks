@@ -8,9 +8,9 @@
 // Resolution runs through `enhanced-resolve` with an explicit extension list, not `--ts-config`:
 // dependency-cruiser resolves a tsconfig's `extends` chain against the process directory rather
 // than the tsconfig's own, so a tsconfig whose `extends` climbs above its package loads only when
-// the cruise runs from that directory. The path aliases come from `tsconfig.paths.json`, which
-// extends nothing. The extension list is what makes this tree's `./foo.js` specifiers resolve to
-// `foo.ts` sources.
+// the cruise runs from that directory. The `#renderer/*`-style specifiers resolve through the
+// package's `imports` in `package.json`, which `enhanced-resolve` reads. The extension list is what
+// makes this tree's `./foo.js` specifiers resolve to `foo.ts` sources.
 //
 // Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`. The layer
 // vocabulary (folders, ladder, named readers) is `.dependency-cruiser.layers.mjs`.
@@ -88,11 +88,11 @@ export default {
           // beside its `ignoreFiles` entry in the root `knip.json`; each goes in the change that
           // builds its consumer.
           //
-          // Scripted diff patches kept as the fixtures' test data, read by no module until the
-          // Review pane's diff read lands.
+          // Scripted diff patches kept as the fixtures' test data, read by no module until Review's
+          // diff read of a session's changes lands.
           "^fixtures/data/repos-diff-patches\\.ts$",
           // The Preview pane's handback: which chords the page claims, told to the page host.
-          "^src/renderer/src/features/preview/handback/chord-mirror\\.ts$",
+          "^src/renderer/src/features/preview/handback/chord/mirror\\.ts$",
         ],
       },
       to: {},
@@ -307,6 +307,5 @@ export default {
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],
     },
-    tsConfig: { fileName: "tsconfig.paths.json" },
   },
 };

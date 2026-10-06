@@ -4,12 +4,12 @@
 
 import { useState } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
 /** The origin a refused cancel is reported under. */
 const QUEUE_CANCEL_ORIGIN = "queue-cancel";
@@ -74,7 +74,10 @@ export function QueueRow(props: {
       {item.state === CANCELABLE_STATE ? (
         <button
           type="button"
-          className="meridian-queue__cancel meridian-action-button meridian-action-button--small meridian-action-button--raised"
+          className={
+            "meridian-queue__cancel meridian-action-button " +
+            "meridian-action-button--small meridian-action-button--raised"
+          }
           disabled={props.isCancelPending}
           aria-busy={props.isCancelPending}
           onClick={() => {

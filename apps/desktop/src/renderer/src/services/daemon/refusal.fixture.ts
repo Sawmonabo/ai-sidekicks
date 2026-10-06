@@ -5,7 +5,7 @@
 // merging them would put a fixture-scoped code in front of every typed daemon refusal. It is its
 // own module so the daemon fixture, its subscriptions and the platform fixture each read one leaf.
 
-import { RefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 
 /**
  * The codes a scripted reply that never arrived refuses with. Each is a distinct remedy:
@@ -25,10 +25,10 @@ export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[num
  * `beat-unprojectable` is an authoring error: the beat names a kind a narrowed stream carries but
  * cannot supply the required payload, and it refuses rather than deliver a half-built projection.
  * `reply-off-contract` is the same on the call seam: a scripted reply does not match the shape
- * `daemon-reply-registry.ts` binds to its method, or a notice it pushes does not match the shape
- * its stream registers, and delivering either would teach a view to render a frame production
- * never produces. The last two name a reply the frozen clock never released, or a notice it could
- * not park.
+ * `#shared/daemon/method-bindings.ts` binds to its method, or a notice it pushes does not
+ * match the shape its stream registers, and delivering either would teach a view to render a frame
+ * production never produces. The last two name a reply the frozen clock never released, or a notice
+ * it could not park.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",
@@ -69,8 +69,8 @@ export class FixtureBridgeError extends RefusalError {
 }
 
 /**
- * Reject one call the fixture cannot stand in for. Not named `refuse`, which is `lib/refusal.ts`'s
- * builder imported above.
+ * Reject one call the fixture cannot stand in for. Not named `refuse`, which is
+ * `lib/refusal/contract.ts`'s builder imported above.
  */
 export function refuseAbsentCapability(call: string): Promise<never> {
   return Promise.reject(

@@ -1,7 +1,7 @@
 // The `Intl` objects the app holds, and the bounds on holding them. Constructing an `Intl`
 // formatter resolves a locale and builds a message table while formatting is cheap, so every
 // figure is formatted through a held instance, one per named style and locale, under a cap.
-// A sibling of `wire-figures.ts`, which owns the formatting policy and is the only importer.
+// A sibling of `wire/figures.ts`, which owns the formatting policy and is the only importer.
 
 /**
  * Make room in a cache at its cap by dropping the oldest inserted entry. Insertion order rather
@@ -83,6 +83,7 @@ const relativeTimeFormatters = new LocaleKeyedFormatters(
 /** One named number style. */
 export type NumberStyle =
   | "count"
+  | "compactCount"
   | "percent"
   | "wholeNumber"
   | "oneDecimal"
@@ -102,6 +103,7 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
  */
 const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
   count: {},
+  compactCount: { notation: "compact" },
   percent: { style: "percent", maximumFractionDigits: 0 },
   wholeNumber: { minimumFractionDigits: 0, maximumFractionDigits: 0 },
   oneDecimal: { minimumFractionDigits: 1, maximumFractionDigits: 1 },
@@ -112,7 +114,13 @@ const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
 };
 
 /** One named date or time style. */
-export type DateTimeStyle = "clockTime" | "dateTime" | "date";
+export type DateTimeStyle =
+  | "clockTime"
+  | "clockMinute"
+  | "weekdayClockMinute"
+  | "monthDayClockMinute"
+  | "dateTime"
+  | "date";
 
 /**
  * Every date and time style a figure renders in, by name. The hour is `numeric` with no
@@ -120,6 +128,9 @@ export type DateTimeStyle = "clockTime" | "dateTime" | "date";
  */
 const DATE_TIME_STYLES: Readonly<Record<DateTimeStyle, Intl.DateTimeFormatOptions>> = {
   clockTime: { hour: "numeric", minute: "2-digit", second: "2-digit" },
+  clockMinute: { hour: "numeric", minute: "2-digit" },
+  weekdayClockMinute: { weekday: "short", hour: "numeric", minute: "2-digit" },
+  monthDayClockMinute: { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   dateTime: { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   date: { year: "numeric", month: "short", day: "numeric" },
 };

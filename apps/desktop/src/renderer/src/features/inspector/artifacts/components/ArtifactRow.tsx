@@ -1,13 +1,15 @@
 // One artifact manifest row: the figures on its face, its manifest re-read, and its
 // disclosure. Everything here is scoped to one manifest, and no element can hold a payload.
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire-figures.js";
-import { type ArtifactManifestRow } from "../artifact-model.js";
-import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
+import "./ArtifactRow.css";
+
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity, formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { type ArtifactManifestRow } from "../model.js";
+import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../copy.js";
 
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
@@ -34,7 +36,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           glyph={row.artifactType === "diff" ? "diff" : "artifact"}
         />
         <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={row.state} mono />
-        <span className="meridian-artifact-row__size">
+        <span>
           {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
         </span>
@@ -61,9 +63,9 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         )}
       </div>
 
-      <details className="meridian-artifact-row__detail">
+      <details>
         <summary className="meridian-artifact-row__detail-summary">Digest and metadata</summary>
-        <dl className="meridian-artifact-row__detail-list">
+        <dl>
           <div className="meridian-artifact-row__pair">
             <dt>Digest</dt>
             <dd>

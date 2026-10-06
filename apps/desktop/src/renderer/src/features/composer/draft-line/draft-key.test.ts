@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ComposerSessionTarget, ComposerRunTarget } from "../composer-target.js";
+import type { ComposerSessionTarget, ComposerRunTarget } from "../target.js";
 import { composerDraftKey } from "./draft-key.js";
 
 /**

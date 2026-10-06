@@ -3,7 +3,7 @@
 
 import type { ReactNode } from "react";
 
-import { findSettingsPageBody } from "../page-body-registry.js";
+import { findSettingsPageBody } from "../body-registry.js";
 
 /** The MCP servers page: the registered body under the page heading. */
 export function McpServersPage(): ReactNode {

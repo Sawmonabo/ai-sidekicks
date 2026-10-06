@@ -15,10 +15,10 @@
 // empty session is the one composition no script reaches, and it lives in `empty-session.ts`.
 //
 // Every beat is a registered event with its registered payload.
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event.ts`, and `fixtures/data/script-entries.ts` carries the
-// payload builders so a member cannot drift between two beats of one kind.
+// `packages/contracts/src/event/session.ts`, and `fixtures/data/script-entries.ts` carries
+// the payload builders so a member cannot drift between two beats of one kind.
 //
 // Deliberately not scripted:
 //
@@ -33,6 +33,8 @@ import {
   composeScenarioInstant,
   composeScriptBeats,
   createRunEntryBuilders,
+  findBeatCursor,
+  newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
@@ -139,9 +141,13 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   {
     atMs: 280,
     kind: "user.message",
-    // The author is the envelope's actor; the fixture draws no message text.
+    // The payload's actor repeats the envelope's.
     actorId: USER_YOU,
-    payload: { sessionId: SESSION_ID },
+    payload: {
+      sessionId: SESSION_ID,
+      actor: USER_YOU,
+      message: "Split the session store and keep each lane's run moving.",
+    },
   },
 
   // Lane one — the implementer. Born, blocked, unblocked, rewound, finished.
@@ -330,7 +336,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   {
     atMs: 2_600,
     kind: "run.rolled_back",
-    // `RunRolledBackEvent`'s members (`packages/contracts/src/run-control.ts`): the
+    // `RunRolledBackEvent`'s members (`packages/contracts/src/run/control.ts`): the
     // post-rollback progression value and the turn boundary the run landed at, which the
     // superseded turns above it are measured against.
     actorId: USER_YOU,
@@ -407,8 +413,6 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
 
   // The open question is the last beat: an agent blocked on a question needs an answer from a
   // person, so the session ends on the composition the question card is measured against.
-  // The payload is the record's plain half (id, run, page count); the questions themselves are
-  // personal data the event never carries.
   {
     atMs: 3_140,
     kind: "question.asked",
@@ -417,10 +421,28 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
       questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
       sessionId: SESSION_ID,
       runId: RUN_ARCHITECT,
-      pageCount: 1,
+      isAgentWaiting: true,
+      questions: [
+        {
+          text: "Keep the old session store behind a flag while the lanes move over?",
+          options: [{ label: "Keep it" }, { label: "Remove it" }],
+          severalAnswers: false,
+          secret: false,
+        },
+      ],
     },
   },
 ];
+
+const TRANSCRIPT_STATES_BEATS = composeScriptBeats({
+  sessionId: SESSION_ID,
+  eventIdStem: EVENT_ID_STEM,
+  startedAtMs,
+  entries: TRANSCRIPT_STATES_SCRIPT,
+});
+
+/** The acknowledged log position: the implementer's answer after its rewind. */
+const ACKNOWLEDGED_LOG_POSITION = 30;
 
 /** The id of the transcript-states scenario. */
 export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
@@ -430,15 +452,12 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   id: TRANSCRIPT_STATES_SCENARIO_ID,
   label: "Three lanes",
   purpose:
-    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
+    "A session whose three runs end in three different conditions at once — " +
+    "one finished behind a rewind boundary, one parked, one still streaming " +
+    "— so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
-  beats: composeScriptBeats({
-    sessionId: SESSION_ID,
-    eventIdStem: EVENT_ID_STEM,
-    startedAtMs,
-    entries: TRANSCRIPT_STATES_SCRIPT,
-  }),
+  beats: TRANSCRIPT_STATES_BEATS,
   replies: [
     // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
     // need no scripted entries (a run this reply does not name gets the fixture's refusal),
@@ -470,13 +489,16 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           id: SESSION_ID,
           state: "active",
           createdAt: STARTED_AT_ISO,
-          updatedAt: "2026-01-01T11:05:03.060Z",
+          updatedAt: newestBeatInstant(TRANSCRIPT_STATES_BEATS),
           draft: "",
         },
         // An acknowledged position beside `latest` makes the resume cycle reachable: the store
-        // submits the acknowledged position on its next read. It sits behind `latest`, as a
-        // real one does.
-        transcriptCursors: { latest: "transcript-cursor-33", acknowledged: "transcript-cursor-30" },
+        // submits the acknowledged position on its next read. It sits behind `latest`, the newest
+        // row, as a real one does.
+        transcriptCursors: {
+          latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length),
+          acknowledged: findBeatCursor(TRANSCRIPT_STATES_BEATS, ACKNOWLEDGED_LOG_POSITION),
+        },
       },
     },
   ],

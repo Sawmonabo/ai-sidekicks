@@ -2,7 +2,7 @@
 // writes), appends never interleave, the sink creates its directory, and a failure stops the log
 // and is readable afterwards.
 
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,14 +14,23 @@ import {
   reportUnwrittenDiagnostics,
   type DiagnosticLogFileSink,
   type MainDiagnosticEntry,
+  type MainDiagnosticLine,
   rotatedPathFor,
   toLogLine,
 } from "./diagnostic-log.js";
 
 const AT = "2026-09-08T00:00:00.000Z";
 
+/** The log's clock in every case, so a written line is known to the byte. */
+const STOPPED_CLOCK = (): Date => new Date(AT);
+
 function entry(level: MainDiagnosticEntry["level"], message: string): MainDiagnosticEntry {
-  return { at: AT, level, source: "main/test", message };
+  return { level, source: "main/test", message };
+}
+
+/** The bytes `entry(level, message)` is written as, stamped by `STOPPED_CLOCK`. */
+function lineOf(level: MainDiagnosticEntry["level"], message: string): string {
+  return toLogLine({ at: AT, ...entry(level, message) });
 }
 
 /** The shipped sink, not a double: rotation is two file operations whose order matters. */
@@ -51,11 +60,12 @@ describe("main diagnostic log", () => {
   });
 
   it("rotates one generation at the byte ceiling and keeps the previous file", async () => {
-    const oneLine = toLogLine(entry("error", "a"));
+    const oneLine = lineOf("error", "a");
     const log = new MainDiagnosticLog({
       filePath,
       sink: realFileSink,
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       // Two lines fit; the third rotates.
       fileByteCeiling: Buffer.byteLength(oneLine, "utf8") * 2,
     });
@@ -65,17 +75,18 @@ describe("main diagnostic log", () => {
     await log.drain();
 
     expect(log.rotationCount).toBe(1);
-    expect(await readFile(filePath, "utf8")).toBe(toLogLine(entry("error", "b")));
+    expect(await readFile(filePath, "utf8")).toBe(lineOf("error", "b"));
     const rotated = await readFile(rotatedPathFor(filePath), "utf8");
     expect(rotated.split("\n").filter((line) => line.length > 0)).toHaveLength(2);
   });
 
   it("keeps exactly one generation across a second rotation", async () => {
-    const oneLine = toLogLine(entry("error", "a"));
+    const oneLine = lineOf("error", "a");
     const log = new MainDiagnosticLog({
       filePath,
       sink: realFileSink,
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling: Buffer.byteLength(oneLine, "utf8"),
     });
     log.write(entry("error", "a"));
@@ -84,8 +95,8 @@ describe("main diagnostic log", () => {
     await log.drain();
 
     expect(log.rotationCount).toBe(2);
-    expect(await readFile(filePath, "utf8")).toBe(toLogLine(entry("error", "c")));
-    expect(await readFile(rotatedPathFor(filePath), "utf8")).toBe(toLogLine(entry("error", "b")));
+    expect(await readFile(filePath, "utf8")).toBe(lineOf("error", "c"));
+    expect(await readFile(rotatedPathFor(filePath), "utf8")).toBe(lineOf("error", "b"));
   });
 
   it("appends in call order however many writes are issued at once", async () => {
@@ -93,6 +104,7 @@ describe("main diagnostic log", () => {
       filePath,
       sink: realFileSink,
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling: 64 * 1024,
     });
     for (let index = 0; index < 40; index += 1) {
@@ -103,17 +115,18 @@ describe("main diagnostic log", () => {
     const messages = (await readFile(filePath, "utf8"))
       .split("\n")
       .filter((line) => line.length > 0)
-      .map((line) => (JSON.parse(line) as MainDiagnosticEntry).message);
+      .map((line) => (JSON.parse(line) as MainDiagnosticLine).message);
     expect(messages).toStrictEqual(Array.from({ length: 40 }, (_unused, index) => `line ${index}`));
   });
 
   it("rotates on the bytes the file holds, not the bytes one instance wrote", async () => {
-    const oneLine = toLogLine(entry("error", "a"));
+    const oneLine = lineOf("error", "a");
     const fileByteCeiling = Buffer.byteLength(oneLine, "utf8") * 2;
     const beforeRestart = new MainDiagnosticLog({
       filePath,
       sink: realFileSink,
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling,
     });
     beforeRestart.write(entry("error", "a"));
@@ -127,24 +140,26 @@ describe("main diagnostic log", () => {
       filePath,
       sink: realFileSink,
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling,
     });
     afterRestart.write(entry("error", "b"));
     await afterRestart.drain();
 
     expect(afterRestart.rotationCount).toBe(1);
-    expect(await readFile(filePath, "utf8")).toBe(toLogLine(entry("error", "b")));
+    expect(await readFile(filePath, "utf8")).toBe(lineOf("error", "b"));
     const rotated = await readFile(rotatedPathFor(filePath), "utf8");
     expect(rotated.split("\n").filter((line) => line.length > 0)).toHaveLength(2);
   });
 
-  it("creates the log directory rather than assuming one exists", async () => {
+  it("creates the log folder and file, readable by the person alone", async () => {
     // `app.getPath("logs")` names a directory Electron has not necessarily made.
     const nestedFilePath = join(directory, "logs", "main.jsonl");
     const log = new MainDiagnosticLog({
       filePath: nestedFilePath,
       sink: realFileSink,
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling: 64 * 1024,
     });
     log.write(entry("error", "sidecar refused to start"));
@@ -152,8 +167,13 @@ describe("main diagnostic log", () => {
 
     expect(log.writeFailureCount).toBe(0);
     expect(await readFile(nestedFilePath, "utf8")).toBe(
-      toLogLine(entry("error", "sidecar refused to start")),
+      lineOf("error", "sidecar refused to start"),
     );
+    // Windows keeps no POSIX mode bits.
+    if (process.platform !== "win32") {
+      expect((await stat(nestedFilePath)).mode & 0o777).toBe(0o600);
+      expect((await stat(join(directory, "logs"))).mode & 0o777).toBe(0o700);
+    }
   });
 
   it("stops accepting on a failed write, records why, and never throws at the caller", async () => {
@@ -161,6 +181,7 @@ describe("main diagnostic log", () => {
       filePath,
       sink: rejectingSink("no space left on device"),
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling: 64 * 1024,
     });
     expect(() => log.write(entry("error", "first"))).not.toThrow();
@@ -193,6 +214,7 @@ describe("reporting what the log could not write", () => {
       filePath,
       sink: rejectingSink("no space left on device"),
       minimumLevel: "notice",
+      now: STOPPED_CLOCK,
       fileByteCeiling: 64 * 1024,
     });
     log.write(entry("error", "startup failed"));

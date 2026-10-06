@@ -7,9 +7,9 @@ import { act, render } from "@testing-library/react";
 import { memo, useRef } from "react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
-import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
+import { TWO_FRAME_REVEAL_SOURCE } from "../prose.test-support.js";
 import { useReveal, type RevealBinding } from "../hooks/useReveal.js";
 import { useRowReveal } from "../hooks/useRowReveal.js";
 import { RowRevealProvider } from "./RowRevealProvider.js";

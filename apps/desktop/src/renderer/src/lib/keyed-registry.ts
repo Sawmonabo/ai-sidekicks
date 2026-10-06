@@ -8,7 +8,7 @@
 //
 // Insertion order is preserved (`Map` semantics) and several callers depend on it.
 
-import { RefusalError, refuse, type Refusal } from "./refusal.js";
+import { RefusalError, refuse, type Refusal } from "./refusal/contract.js";
 
 /** The subsystem every registry refusal names as its author. */
 const REGISTRY_ORIGIN = "keyed-registry";
@@ -59,7 +59,8 @@ export class KeyedRegistry<Key, Value> {
         refuse(
           REGISTRY_ORIGIN,
           "owner-reader-missing",
-          `an owner-scoped ${options.describeWhat} registry needs an ownerOf reader to decide whether a repeat is a replacement or a conflict`,
+          `an owner-scoped ${options.describeWhat} registry needs an ownerOf ` +
+            `reader to decide whether a repeat is a replacement or a conflict`,
         ),
       );
     }
@@ -168,7 +169,8 @@ export class KeyedRegistry<Key, Value> {
       refuse(
         REGISTRY_ORIGIN,
         "owner-conflict",
-        `${this.#describeWhat} "${String(key)}" is already registered by ${this.#ownerName(existing)}; ${this.#ownerName(incoming)} cannot claim it too`,
+        `${this.#describeWhat} "${String(key)}" is already registered by ` +
+          `${this.#ownerName(existing)}; ${this.#ownerName(incoming)} cannot claim it too`,
       ),
       String(key),
     );

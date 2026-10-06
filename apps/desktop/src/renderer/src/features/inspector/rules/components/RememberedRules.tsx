@@ -13,12 +13,12 @@
 import type { RememberedRule } from "@ai-sidekicks/contracts/approval";
 import { useState } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
-import { RULE_SCOPE_LABELS, RULE_SENSE_LABELS } from "@renderer/lib/approval-vocabulary.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { RULE_SCOPE_LABELS, RULE_SENSE_LABELS } from "#renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";
-import { offersRevoke } from "../contributions/revoke-rule-commands.js";
+import { offersRevoke } from "../contributions/commands.js";
 import { useRevokeRuleCommands } from "../hooks/useRevokeRuleCommands.js";
 
 import "./RememberedRules.css";
@@ -48,7 +48,13 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         kind="error"
         placement="block"
         title="Standing permissions could not be read."
-        detail={`The background service answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
+        detail={
+          "The background service answered, and all " +
+          `${formatCount(props.unreadableCount)} of the rows it carried ` +
+          "were shaped in a way this build cannot read. Whether any " +
+          "permission is in force is unknown from here — it is not known " +
+          "to be none."
+        }
       />
     ) : (
       <Nothing kind="empty" placement="block" title="No rules yet" />
@@ -56,7 +62,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
   }
 
   return (
-    <div className="meridian-remembered-rules">
+    <div>
       {props.unreadableCount > 0 ? (
         <p className="meridian-remembered-rules__unreadable">
           The reply carried rows this build could not read, so this list is shorter than what the
@@ -68,7 +74,8 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
           <li className="meridian-remembered-rules__row" key={rule.ruleId}>
             <div className="meridian-remembered-rules__line">
               <span>
-                {RULE_SENSE_LABELS[rule.scope.sense]} <WireFigure value={rule.scope.pattern} /> ·{" "}
+                {RULE_SENSE_LABELS[rule.scope.sense]} <WireFigure value={rule.scope.pattern} />
+                {" · "}
                 {RULE_SCOPE_LABELS[rule.scope.kind]}
               </span>
             </div>

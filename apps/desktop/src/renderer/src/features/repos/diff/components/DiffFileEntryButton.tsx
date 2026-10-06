@@ -1,6 +1,7 @@
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { type WindowedRowTargetProps } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { type DiffFileListEntry } from "../diff-file-entries.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { type WindowedRowTargetProps } from "#renderer/components/WindowedListRow/WindowedListRow.js";
+import { type DiffFileListEntry } from "../file-entries.js";
+import { DiffStepMark } from "./DiffStepMark.js";
 
 /** What one file-list row's control is drawn from, plus the row's target props. */
 export type DiffFileEntryButtonProps = {
@@ -43,6 +44,7 @@ export function DiffFileEntryButton({
           <span className="meridian-diff-files__path" title={entry.path}>
             {entry.path}
           </span>
+          {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
           {entry.changeNotes.length === 0 ? null : (
             <span className="meridian-diff-files__change" title={entry.changeNotes.join(", ")}>
               {entry.changeNotes.join(", ")}

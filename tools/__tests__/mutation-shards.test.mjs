@@ -57,7 +57,7 @@ function fixtureRepository() {
   return root;
 }
 
-test("every source file lands in exactly one shard, and the heaviest file gets a shard to itself", () => {
+test("every source file lands in exactly one shard; the heaviest gets a shard to itself", () => {
   const root = fixtureRepository();
   try {
     const output = execFileSync("node", [TOOL, "plan"], {
@@ -80,12 +80,17 @@ test("every source file lands in exactly one shard, and the heaviest file gets a
   }
 });
 
-test("a merge takes each shard's own files, keeps what no shard re-ran, and drops deleted files", () => {
+test("a merge takes each shard's files, keeps what no shard re-ran, drops deleted files", () => {
   const root = fixtureRepository();
   try {
     // Each shard's report also carries a stale copy of the other shard's file.
     const shards = [
-      { name: "sample--0", mutated: "src/light.ts", fresh: "src/light.ts", stale: "src/medium.ts" },
+      {
+        name: "sample--0",
+        mutated: "src/light.ts",
+        fresh: "src/light.ts",
+        stale: "src/medium.ts",
+      },
       {
         name: "sample--1",
         mutated: "src/medium.ts",

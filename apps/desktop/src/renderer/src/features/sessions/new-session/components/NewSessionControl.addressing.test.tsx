@@ -7,17 +7,17 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {
   CREATE_REPLY,
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
   bridgeFor,
-} from "../new-session-draft.test-support.js";
-import { SESSION_CREATE_METHOD } from "../new-session-settlement.js";
+} from "../draft.test-support.js";
+import { SESSION_CREATE_METHOD } from "../settlement.js";
 import {
   REJECTING_FIRST_TURN,
   bridgeHoldingCreate,
@@ -29,10 +29,10 @@ import {
   renderControlOn,
   typeFirstTurn,
 } from "./NewSessionControl.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — which composition a settlement lands in", () => {
-  it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
+  it("drops a discarded draft's settlement rather than show it under its replacement", async () => {
     // A settlement lands only in the composition it was sent for, so a person who discarded and
     // started again never sees a refusal for a session this draft never sent.
     const queued = bridgeQueueingCreates();
@@ -144,7 +144,8 @@ describe("the composed new-session draft — the composition a completed send cl
       "What you typed after pressing Send was not sent, and it is still here.",
     );
     expect(politeText(container)).toBe(
-      "The session was created. What you typed after pressing Send was not sent, and it is still here.",
+      "The session was created. What you typed after pressing Send was " +
+        "not sent, and it is still here.",
     );
     // Every leg it names landed, so Send is closed rather than left to report the session again.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
@@ -152,7 +153,7 @@ describe("the composed new-session draft — the composition a completed send cl
     expect(settledSessionIds).toStrictEqual([]);
   });
 
-  it("negative control: a send nobody edited closes its draft and hands the session out", async () => {
+  it("negative control: an unedited send closes its draft and hands the session out", async () => {
     // Without this, a control that never closed a draft would pass the case above and leave a
     // form standing over a session the app had already started.
     const settledSessionIds: string[] = [];
@@ -206,7 +207,7 @@ function bridgeCountingCreates(): {
 describe("the composed new-session draft — the transport it would send through", () => {
   afterEach(cleanup);
 
-  it("drops the draft when the bridge is replaced, and sends nothing through the retired one", async () => {
+  it("drops the draft when the bridge is replaced, and sends nothing via the old one", async () => {
     // A reconnect leaves a draft addressed to a retired transport, where its send would never
     // land or would name a session nobody can open. The draft goes with the transport and
     // "+ New" comes back.
@@ -247,7 +248,7 @@ describe("the composed new-session draft — the transport it would send through
     expect(retired.createCount()).toBe(0);
   });
 
-  it("negative control: with no replacement, the same composition reaches its own bridge", async () => {
+  it("negative control: unreplaced, the same composition reaches its own bridge", async () => {
     // Without this, the case above would pass over a Send that reached no bridge at all.
     const composed = bridgeCountingCreates();
     render(

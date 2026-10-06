@@ -1,26 +1,28 @@
 // The accounts fixture body over this window's bridge. The registry read, the sign-in, its
-// cancellation and the token registration go through `callDaemon`, so each reply is parsed
-// against the method's registered shape. The registry's tail, opened before the first read,
-// reaches the account fold through `ProviderAccountDeliveries`: each read's snapshot is loaded
-// into the fold with the tail held across it, and the body draws the fold's accounts and quota
-// rows, the read's readiness, and the newest sign-in the tail reported finished.
+// cancellation, the token registration, the account check and the default move go through
+// `callDaemon`, so each reply is parsed against the method's registered shape. The registry's
+// tail, opened before the first read, reaches the account fold through
+// `ProviderAccountDeliveries`: each read's snapshot is loaded into the fold with the tail held
+// across it, and the body draws the fold's accounts and quota rows, the read's readiness, and
+// the newest sign-in the tail reported finished.
 
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
-import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider-account";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "@renderer/services/daemon/session-event-streams.js";
-import { ProviderAccountDeliveries } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { openObservedSubscription } from "@renderer/services/transport/observed-subscription.js";
-import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
-import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
-import { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/streams.js";
+import { ProviderAccountDeliveries } from "#renderer/services/provider-accounts/deliveries.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
+import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
+import { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 import {
   AccountsFixtureBody,
   type AccountListReading,
@@ -73,15 +75,11 @@ export function AccountsFixtureMount(): ReactNode {
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-action-button"
-            onClick={() => {
+          <TryAgainButton
+            onPress={() => {
               setOpeningOrdinal((held) => held + 1);
             }}
-          >
-            Try again
-          </button>
+          />
         }
       />
     );
@@ -158,12 +156,18 @@ function createAccountRegistry(
       }
       return registry;
     },
-    subscribe: () =>
-      openObservedSubscription(bridge.transportReconnect, () =>
-        bridge.daemon.subscribe(PROVIDER_ACCOUNT_NOTICE_STREAM, {}, (frame) => {
+    // A tail opened again after it ended reads again, since a change in the gap went unheard.
+    subscribe: (onChange) =>
+      openReopeningSubscription({
+        signal: bridge.transportReconnect,
+        subject: PROVIDER_ACCOUNT_NOTICE_STREAM,
+        open: (deliver, onEnded) =>
+          bridge.daemon.subscribe(PROVIDER_ACCOUNT_NOTICE_STREAM, {}, deliver, onEnded),
+        onFrame: (frame) => {
           deliveries.deliver(frame);
-        }),
-      ),
+        },
+        onReopened: onChange,
+      }),
   });
   return { registryRead, fold, deliveries };
 }
@@ -192,7 +196,7 @@ function loadRegistrySnapshot(
   }
 }
 
-/** The three verbs the body drives, over one bridge; a refused reply rejects with the refusal. */
+/** The five verbs the body drives, over one bridge; a refused reply rejects with the refusal. */
 function accountOperationsOver(bridge: PlatformBridge): AccountOperations {
   return {
     login: async (request) =>
@@ -201,5 +205,9 @@ function accountOperationsOver(bridge: PlatformBridge): AccountOperations {
       unwrapDaemonReply(await callDaemon(bridge, "providerAccount.loginCancel", request)),
     register: async (request) =>
       unwrapDaemonReply(await callDaemon(bridge, "providerAccount.register", request)),
+    probe: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.probe", request)),
+    setCurrent: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "providerAccount.setCurrent", request)),
   };
 }

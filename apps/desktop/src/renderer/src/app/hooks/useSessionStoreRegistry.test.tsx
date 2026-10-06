@@ -5,18 +5,18 @@
 import { act, render } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
-import { type BridgeComposition } from "@renderer/services/platform/bridge-context.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
+import { type BridgeComposition } from "#renderer/services/platform/bridge-context.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { type SessionDiagnostics } from "#renderer/services/session-events/diagnostics-handle.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   SessionProbe,
   fixtureBridgeWrapper,
   lastObservation,
   type Observation,
-} from "./session-store-hooks.test-support.js";
+} from "./session-probe.test-support.js";
 
 /** A session id the daemon admits, so the subscriber opens a stream for it. */
 const BOUND_SESSION_ID = "019b7a44-4400-75e5-8510-ada11a5a66a5";
@@ -27,6 +27,7 @@ function queuedRunEvent(sessionId: string, sequence: number, runId: string): Pro
     id: `event-${String(sequence)}`,
     sessionId,
     sequence,
+    cursor: `cursor-at-${String(sequence)}`,
     kind: "run.queued",
     occurredAt: new Date(sequence).toISOString(),
     payload: { sessionId, runId, runVersion: 1, newState: "queued" },
@@ -112,7 +113,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
   });
 });
 
-describe("useSessionStoreRegistry — the window's registry and the subscriber that feeds it", () => {
+describe("useSessionStoreRegistry: the window's registry and the subscriber feeding it", () => {
   it("mints a subscriber beside the registry and binds the open session", () => {
     const { diagnosticsHolder, wrapper } = compositionHarness();
     render(<SessionProbe sessionId={BOUND_SESSION_ID} onObserve={() => undefined} />, {

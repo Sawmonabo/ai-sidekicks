@@ -16,12 +16,12 @@ portable-pty = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_with = { version = "3.7", features = ["base64"] }
 serde_json = "1.0"
-# `sync` is required by `pty_session::PtySessionRegistry` for `tokio::sync::{Mutex, mpsc}`. `rt` is
+# `sync` is required by `session::PtySessionRegistry` for `tokio::sync::{Mutex, mpsc}`. `rt` is
 # pulled in transitively by `rt-multi-thread`, so it is not listed.
 tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync"] }
 clap = { version = "4.5", features = ["derive"] }
 
-# POSIX `kill(2)` for `pty_session::kill()`. `portable-pty`'s default `ChildKiller` on unix
+# POSIX `kill(2)` for `session::kill()`. `portable-pty`'s default `ChildKiller` on unix
 # hardcodes `SIGHUP`; this crate calls `libc::kill` directly to forward the caller-supplied
 # `PtySignal`. `libc` is already a transitive dependency of `portable-pty` and `tokio`; declaring it
 # under `cfg(unix)` makes the signal-delivery intent visible in the manifest and pins the major

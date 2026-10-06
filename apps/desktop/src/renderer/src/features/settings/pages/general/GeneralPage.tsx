@@ -5,7 +5,7 @@
 
 import type { ReactNode } from "react";
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { SettingsPageContext } from "../../types.js";
 
 /** The General page: the running version, platform, architecture and locale. */

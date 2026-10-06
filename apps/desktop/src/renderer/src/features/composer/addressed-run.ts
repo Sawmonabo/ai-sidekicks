@@ -3,11 +3,11 @@
 // own call; this only picks the run to point at, which "the newest row touched" gets wrong once a
 // run settles.
 
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
-import { readRunState } from "@renderer/services/daemon/wire-identifiers.js";
-import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
+import { readRunState } from "#renderer/services/daemon/wire/identifiers.js";
+import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
+import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
 
 /** The rank a first candidate takes: newer than nothing. */
 const NEWER_THAN_NOTHING = -1;
@@ -27,6 +27,7 @@ export const RUN_STATE_ADMITS_STEER: Readonly<Record<RunState, boolean>> = {
   paused: true,
   completed: false,
   interrupted: false,
+  stopped: false,
   failed: false,
 };
 

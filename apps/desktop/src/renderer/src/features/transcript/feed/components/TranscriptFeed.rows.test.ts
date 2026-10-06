@@ -6,12 +6,12 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RetainingRowBody, renderFeed } from "./TranscriptFeed.test-support.js";
-import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
-import { openSessionStoreWithToolRows } from "../../transcript-logs.test-support.js";
+import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
+import { openSessionStoreWithToolRows } from "../../logs.test-support.js";
 import {
   openSessionStoreWithSystemMessage,
   openSessionStoreWithTerminalRunGroup,
-} from "../../run-group-logs.test-support.js";
+} from "../../runs/groups.logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

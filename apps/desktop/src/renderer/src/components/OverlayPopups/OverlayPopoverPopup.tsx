@@ -4,13 +4,14 @@
 
 import { Popover } from "@base-ui/react/popover";
 
-import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
+import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayPopoverPopup`. */
 export interface OverlayPopoverPopupProps {
-  /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
-  readonly positionerClassName?: string | undefined;
   /** Distance from the anchor, in pixels, as the positioner takes it. */
   readonly sideOffset?: number | undefined;
   /** The popup's own id, where a trigger names it. */
@@ -21,11 +22,16 @@ export interface OverlayPopoverPopupProps {
 
 /** Anchored portal, positioner and popup for a popover. */
 export function OverlayPopoverPopup(props: OverlayPopoverPopupProps): React.JSX.Element {
+  const ownerWindow = useOwnerWindow();
   const airspaceRef = useAirspaceRegistration();
   return (
-    <Popover.Portal container={props.container}>
-      <Popover.Positioner className={props.positionerClassName} sideOffset={props.sideOffset}>
-        <Popover.Popup ref={airspaceRef} id={props.popupId} className={props.className}>
+    <Popover.Portal container={props.container ?? ownerWindow.document.body}>
+      <Popover.Positioner className={overlayClassName(undefined)} sideOffset={props.sideOffset}>
+        <Popover.Popup
+          ref={airspaceRef}
+          id={props.popupId}
+          className={overlayClassName(props.className)}
+        >
           {props.children}
         </Popover.Popup>
       </Popover.Positioner>

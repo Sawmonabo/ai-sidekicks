@@ -8,8 +8,8 @@
 
 import { useEffect, useRef } from "react";
 
-import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
-import type { WindowBanner } from "@renderer/store/window/window-store.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
+import type { WindowBanner } from "#renderer/store/window/store.js";
 
 /** Announces each newly raised refusal banner once, in the assertive region. */
 export function useRefusalBannerAnnouncements(banners: readonly WindowBanner[]): void {

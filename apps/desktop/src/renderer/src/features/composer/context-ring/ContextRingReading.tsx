@@ -1,8 +1,8 @@
 // The context ring's own reading: how much of the window this run has spent. The source note
 // table lives here because where a figure came from is part of what it means.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ContextWindowReading } from "./context-window-reading.js";
 

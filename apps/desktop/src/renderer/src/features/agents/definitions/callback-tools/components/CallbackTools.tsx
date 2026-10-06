@@ -5,13 +5,13 @@
 
 import "./CallbackTools.css";
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
-import type { DriverCapabilityReading } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readings.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
-import { type CallbackToolRegistryReading } from "../callback-tool-registry.js";
+import { type CallbackToolRegistryReading } from "../registry.js";
 
 /**
  * The flag this section gates on. The annotation makes a contracts-side rename a compile
@@ -45,7 +45,13 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
         kind="not-checked"
         placement="block"
         title="The bound driver's capability flags have not been read."
-        detail="Whether this session's sidekicks can reach a tool the background service hosts at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
+        detail={
+          "Whether this session's sidekicks can reach a tool the " +
+          "background service hosts at all is a flag on the driver, and " +
+          "this build has not read one. Nothing is reported here until it " +
+          "has, because an empty list under a heading would report a " +
+          "registry that exists and holds nothing."
+        }
       />
     );
   }
@@ -60,7 +66,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
   }
   if (props.registry.kind === "withheld") {
     return (
-      <div className="meridian-callback-tools meridian-callback-tools--withheld">
+      <div className="meridian-callback-tools">
         <p className="meridian-callback-tools__note">
           The registry is withheld. Spawn does not expose these tools while the background service
           has no registered approval-create seam, so a sidekick cannot reach them, and a stray

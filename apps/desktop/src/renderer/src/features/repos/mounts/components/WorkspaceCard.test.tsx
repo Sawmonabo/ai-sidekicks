@@ -1,17 +1,15 @@
 // A workspace row: it wears its binding and lifecycle position, a stale row quotes its
-// `lastError`, and the root preparation is held while the mount withholds its controls or a
-// mode switch is on the wire.
+// `lastError`, and the root preparation is held while the mount withholds its controls.
 
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { scriptedRepoOperations } from "../../operations.test-support.js";
 
-import { readBindControlAvailability } from "../mount-health.js";
-import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import { readBindControlAvailability } from "../health.js";
+import type { RepoWorkspaceRow } from "../reading.js";
 import { buildMount, workspaceRow as workspace } from "../repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 
@@ -26,14 +24,9 @@ function renderRow(
   return render(
     <WorkspaceCard
       workspace={row}
-      capabilities={undefined}
-      pendingMode={undefined}
-      modeRefusal={undefined}
       bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
       bridge={bridge}
       operations={scriptedRepoOperations()}
-      sessionStore={new SessionStore({ sessionId: "session-repos" })}
-      onSelectExecutionMode={() => undefined}
       onRequestRead={() => undefined}
       {...overrides}
     />,
@@ -69,24 +62,15 @@ describe("WorkspaceCard — the row wears what the list gave it", () => {
   });
 });
 
-describe("WorkspaceCard — one availability for both binding controls", () => {
+describe("WorkspaceCard — the root preparation follows the mount", () => {
   function branchInput(container: HTMLElement): HTMLInputElement | null {
-    return container.querySelector<HTMLInputElement>(".meridian-prepare-root__branch-input");
+    return within(container).queryByLabelText<HTMLInputElement>("Branch");
   }
 
   it("holds the root preparation while the mount withholds its bind controls", () => {
     // A prepare is a bind, and the mount refuses every bind; the form must not collect a
     // branch name for a call the daemon will refuse.
     const { container } = renderRow(WRITABLE_ROW, { bindControls: DETACHED_MOUNT_BIND_CONTROLS });
-
-    expect(branchInput(container)?.disabled).toBe(true);
-    expect(container.querySelector(".meridian-prepare-root__held")).not.toBeNull();
-  });
-
-  it("holds the root preparation while a mode switch is on the wire", () => {
-    // A prepare sent now would be for the mode being left: its call and reuse question both
-    // read `workspace.executionMode`, which the pending switch is about to change.
-    const { container } = renderRow(WRITABLE_ROW, { pendingMode: "bound-root" });
 
     expect(branchInput(container)?.disabled).toBe(true);
     expect(container.querySelector(".meridian-prepare-root__held")).not.toBeNull();

@@ -7,8 +7,8 @@
 // The empty state follows the read, never the row count: a read in flight is `not-loaded`, a read
 // that returned no rows is `empty`. Deciding from `rows.length === 0` would conflate them.
 
-import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
-import type { SessionListRow } from "./session-rows.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import type { SessionListRow } from "./list-row.js";
 
 /** The kind of nothing the destination renders when it has no row: three of the five kinds. */
 export type SessionListNothingKind = "not-loaded" | "empty" | "error";

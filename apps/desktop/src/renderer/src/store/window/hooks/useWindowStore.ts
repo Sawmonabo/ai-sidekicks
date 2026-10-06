@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 
-import type { WindowStore, WindowStoreState } from "../window-store.js";
+import type { WindowStore, WindowStoreState } from "../store.js";
 
 /**
  * Select from the window's store.

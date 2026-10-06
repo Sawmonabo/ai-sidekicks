@@ -6,10 +6,10 @@
 // constant sentence, never the caught error's message, which crosses IPC from the main
 // process and may be a stack naming a subsystem the person cannot act on.
 
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
-import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/features/settings/pages/general/updates/updater-unreachable.js";
 
 /** Why a bridge-backed command could not complete. */
 export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";
@@ -40,9 +40,9 @@ export function buildBridgeCommands(
         // fixture pins it so a rendered view does not move with the machine.
         const { version, platform, arch, locale } = bridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
-          bridge.native.copyToClipboard(
-            `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
-          ),
+          bridge.native.copyToClipboard({
+            text: `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
+          }),
         );
       },
     },
@@ -55,7 +55,7 @@ export function buildBridgeCommands(
         // Requests the check and returns: the updater's state arrives through
         // `update.subscribe` to whichever view renders it, and awaiting an outcome here would be
         // a second reader of it.
-        await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
+        await settle(onRefusal, "update-check-unavailable", UPDATER_UNREACHABLE_DETAIL.check, () =>
           bridge.update.requestCheck(),
         );
       },
@@ -64,37 +64,29 @@ export function buildBridgeCommands(
 }
 
 /**
- * The `Color scheme` row, which moves this window to the next scheme in the cycle. Built per
- * window because it reads and chooses through the window's own scheme.
+ * The `Color scheme` row, which moves to the next scheme in the cycle. Built per window because it
+ * asks through the window's own appearance act, which discloses a refusal itself.
  */
-export function buildColorSchemeCommand(
-  readScheme: () => SchemePreference,
-  chooseScheme: (preference: SchemePreference) => void,
-): CommandDefinition {
+export function buildColorSchemeCommand(chooseNextScheme: () => void): CommandDefinition {
   return {
     id: "settings.cycleColorScheme",
     title: "Color scheme",
     group: "App",
     keywords: ["dark", "light", "system"],
-    run: () => {
-      chooseScheme(nextSchemePreference(readScheme()));
-    },
+    run: chooseNextScheme,
   };
 }
 
 const CLIPBOARD_REFUSAL_DETAIL =
-  "The build details could not be copied. The clipboard belongs to the main process, and this window could not reach it.";
-
-const UPDATE_REFUSAL_DETAIL =
-  "The update check could not start. The updater runs in the main process, and this window could not reach it.";
+  "The build details could not be copied. The clipboard belongs to " +
+  "the main process, and this window could not reach it.";
 
 /**
  * Perform one act, and route either kind of failure to the sink.
  *
- * `act` is called inside the `try`, and that placement is the contract: a preload member main
- * has not wired throws synchronously while the fixture refuses with a rejected promise. A
- * boundary on the returned promise would let the throw escape into the palette's
- * fire-and-forget dispatch, which drops it.
+ * `act` is called inside the `try`, and that placement is the contract: a member that throws
+ * before it returns a promise reaches the sink as a rejected one does. A boundary on the returned
+ * promise would let the throw escape into the palette's fire-and-forget dispatch, which drops it.
  */
 async function settle(
   onRefusal: BridgeCommandRefusalSink,

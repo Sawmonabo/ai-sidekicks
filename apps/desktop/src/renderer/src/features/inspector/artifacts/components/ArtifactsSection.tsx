@@ -4,16 +4,16 @@
 // It renders and does not read, and never renders a payload. A count is a reading, so the
 // head figure and the filter counts render on the `listed` arm alone.
 
-import "./artifacts.css";
+import "./ArtifactsSection.css";
 
 import { useMemo, useState } from "react";
 
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { ArtifactRow } from "./ArtifactRow.js";
 import {
   ARTIFACT_FILTER_TYPES,
@@ -24,7 +24,7 @@ import {
   type ArtifactType,
   type ArtifactTypeFilter,
   type ArtifactsSectionState,
-} from "../artifact-model.js";
+} from "../model.js";
 
 /** The artifacts panel's state and the re-read wiring. */
 export interface ArtifactsSectionProps {
@@ -119,7 +119,11 @@ function renderPanelBody(
         kind="empty"
         placement="block"
         title="No artifacts of the type this filter is set to."
-        detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
+        detail={
+          `This session holds ${formatCount(props.state.rows.length)} of ` +
+          "other types. Every type is on the filter above with its own " +
+          "count."
+        }
         // The type is a wire word, so it renders through `WireFigure`, not prose.
         action={<WireFigure value={typeFilter} />}
       />

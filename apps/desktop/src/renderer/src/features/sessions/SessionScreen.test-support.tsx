@@ -5,24 +5,24 @@
 import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/store.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
-import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
+} from "#renderer/services/platform/bridge.fixture.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import type { StoredRecord } from "#renderer/store/persistence/adapter.js";
+import { DraftStore } from "#renderer/store/drafts.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { PaneLayoutStore } from "./pane-layout/store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/persistence.js";
 import { SessionScreen } from "./SessionScreen.js";
 
 /** The fixture session's id. */
@@ -45,14 +45,19 @@ export interface SessionWithStore {
   readonly store: SessionStore;
 }
 
-/** A registry whose bodies say which kind they are, so a pane is identifiable. */
+/**
+ * A registry whose bodies say which kind they are and what they were opened over, so a pane and
+ * its address are identifiable.
+ */
 export function testRegistry(): PaneRegistry {
   const registry = new PaneRegistry();
-  for (const kind of ["transcript", "terminal"] as const) {
+  for (const kind of ["transcript", "terminal", "diff"] as const) {
     registry.register({
       kind,
       owner: "session-screen-test",
-      render: () => <TestPaneBody kind={kind} />,
+      render: (context) => (
+        <TestPaneBody kind={kind} entity={"entity" in context ? context.entity : undefined} />
+      ),
     });
   }
   return registry;
@@ -67,9 +72,16 @@ export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   return store;
 }
 
-/** A body that says which kind it is, so a pane is identifiable in the rendered pane layout. */
-function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
-  return <p data-body={props.kind}>{props.kind} body</p>;
+/** A body that says which kind it is and its entity, so a pane is identifiable on screen. */
+function TestPaneBody(props: {
+  readonly kind: string;
+  readonly entity: unknown;
+}): React.JSX.Element {
+  return (
+    <p data-body={props.kind} data-entity={JSON.stringify(props.entity)}>
+      {props.kind} body
+    </p>
+  );
 }
 
 /** A second session's id. */
@@ -173,15 +185,16 @@ export function workspaceFor(
   session: SessionWithStore,
   uiStateStore: UiStateStore,
   fixture: FixtureBridge = createFixtureBridge({ scenario: SCENARIO }),
+  frameStore: WindowStore = new WindowStore({
+    initialRoute: { kind: "session", sessionId: session.sessionId },
+  }),
 ): React.JSX.Element {
   return (
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <SessionScreen
           bridge={fixture.bridge}
-          frameStore={
-            new WindowStore({ initialRoute: { kind: "session", sessionId: session.sessionId } })
-          }
+          frameStore={frameStore}
           sessionStore={session.store}
           uiStateStore={uiStateStore}
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}

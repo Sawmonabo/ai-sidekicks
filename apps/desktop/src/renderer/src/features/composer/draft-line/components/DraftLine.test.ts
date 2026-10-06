@@ -5,19 +5,19 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send-router.test-support.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/drafts.js";
+import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send/router.test-support.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_COMMAND_PREFILL,
-} from "../../command-list/workflow-command/workflow-command-grammar.js";
+  WORKFLOW_RUN_COMMAND_PREFILL,
+} from "../../command-list/workflow/grammar.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
-} from "../../command-list/workflow-command/workflow-command.test-support.js";
-import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow-command/hooks/useWorkflowStartPrefill.js";
+} from "../../command-list/workflow/start-from-line.test-support.js";
+import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import {
   FIRST_AGENT_ID,
   SECOND_AGENT_ID,
@@ -193,12 +193,12 @@ describe("DraftLine — Send runs a line-reading command", () => {
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  it("starts the workflow a sent `/workflow start <name>` names, and sends no message", async () => {
+  it("starts the workflow a sent `/workflow run <name>` names, sending no message", async () => {
     // Registered here as the palette entry would register it: the executor sends an unlisted
     // name as typed before any handler runs.
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
+      title: "Run a workflow",
       group: WORKFLOW_START_COMMAND_GROUP,
       run: () => undefined,
     });
@@ -218,7 +218,7 @@ describe("DraftLine — Send runs a line-reading command", () => {
     });
 
     fireEvent.change(line, {
-      target: { value: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review` },
+      target: { value: `${WORKFLOW_RUN_COMMAND_PREFILL}nightly-review` },
     });
     await act(async () => {
       pressSend(result.container);

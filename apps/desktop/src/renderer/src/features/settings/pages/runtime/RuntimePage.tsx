@@ -11,13 +11,13 @@
 
 import type { ReactNode } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { MainProcessState } from "@shared/daemon-status-topic.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
   describeDaemonConnection,
-} from "@renderer/store/window/main-process-state.js";
+} from "#renderer/store/window/main-process-state.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
 import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
@@ -34,8 +34,8 @@ export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
       <p className="meridian-settings-page__lede">
-        The background service that runs your sidekicks, the folders it can reach, what it keeps,
-        and the port it listens on.
+        The background service that runs sidekicks, the folders it can reach, what it keeps, and the
+        port it listens on.
       </p>
 
       <section className="meridian-settings-page__block">
@@ -71,21 +71,21 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
           <span>{describeDaemonConnection(connection)}</span>
         )}
       </SettingsFact>
-      {connection.kind === "reconnecting" ? (
+      {connection.kind === "transient_disconnect" ? (
         <SettingsFact term="Attempt">
           <span>
             {connection.attempt} of {connection.attemptLimit}
           </span>
         </SettingsFact>
       ) : null}
-      {connection.kind === "offline" ? (
+      {connection.kind === "degraded" ? (
         <SettingsFact term="Attempts spent">
           <span>
             {connection.attemptLimit} of {connection.attemptLimit}
           </span>
         </SettingsFact>
       ) : null}
-      {connection.kind === "offline" ? (
+      {connection.kind === "degraded" || connection.kind === "unknown" ? (
         <SettingsFact term="Last error">
           {connection.lastError === undefined ? (
             <Nothing kind="not-checked" placement="inline" title="No error recorded" />

@@ -1,7 +1,7 @@
 import { useStore } from "zustand";
 
-import type { WindowStore, WindowStoreState } from "../window-store.js";
-import type { MainProcessState } from "@shared/daemon-status-topic.js";
+import type { WindowStore, WindowStoreState } from "../store.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 
 /**
  * What the main process says about itself, subscribed rather than sampled.

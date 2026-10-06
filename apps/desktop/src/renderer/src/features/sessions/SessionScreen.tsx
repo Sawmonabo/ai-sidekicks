@@ -3,9 +3,10 @@
 // through their registries.
 //
 // The layout is restored once at mount and saved through the persistence hook. An empty
-// layout opens the transcript alone at full width. A save that failed raises one banner
-// under the header; its code goes to the window's diagnostic capture, as does every part of
-// a saved arrangement the restore left closed. The screen is not
+// layout opens the transcript alone at full width. A pane another screen asked this session
+// for (Review from a workflow run's page) opens once the restore has landed. A save that failed
+// raises one banner under the header; its code goes to the window's diagnostic capture, as does
+// every part of a saved arrangement the restore left closed. The screen is not
 // remounted between two open sessions, so banners are scoped to (bridge, session): the
 // arriving session reads an empty column, and a bridge replacement clears it too.
 
@@ -16,33 +17,34 @@ import { useCallback } from "react";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type Clock } from "@renderer/lib/clock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
-import { type WindowStore } from "@renderer/store/window/window-store.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type DraftStore } from "@renderer/store/draft-store.js";
-import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { routeSessionId } from "#renderer/routing/readers.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { type WindowStore } from "#renderer/store/window/store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type DraftStore } from "#renderer/store/drafts.js";
+import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 
-import { SessionHeader } from "./session-header/components/SessionHeader.js";
+import { SessionHeader } from "./header/components/SessionHeader.js";
 import { SessionBannerRow } from "./components/SessionBannerRow.js";
 import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/store.js";
 import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
 import { usePaneLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
-import type { SessionPane } from "./pane-layout/pane-layout.js";
+import type { SessionPane } from "./pane-layout/state.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
+import { usePaneOpenRequests } from "./pane-layout/hooks/usePaneOpenRequests.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
-import { findComposerRenderer } from "@renderer/registries/composer/composer-registry.js";
-import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { findComposerRenderer } from "#renderer/registries/composer/registry.js";
+import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import {
   NO_SESSION_BANNERS,
   PANE_LAYOUT_NOT_SAVED_BANNER,
@@ -50,7 +52,7 @@ import {
   raiseSessionBanner,
   sessionBannerKey,
   type SessionBanner,
-} from "./session-banners.js";
+} from "./banners.js";
 
 /** What the session screen is handed: the stores it reads and the pane board it mounts. */
 export interface SessionScreenProps {
@@ -117,12 +119,19 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [clock],
   );
 
+  const layoutRestored = usePaneOpenRequests({
+    layout,
+    requests: props.frameStore.paneOpenRequests,
+    sessionId,
+  });
+
   usePaneLayoutPersistence({
     layout,
     uiStateStore: props.uiStateStore,
     sessionId,
     onSaveRefused: saveRefused,
     onRestoreRefused: restoreRefused,
+    onRestored: layoutRestored,
   });
 
   const paneContextFor = useCallback(

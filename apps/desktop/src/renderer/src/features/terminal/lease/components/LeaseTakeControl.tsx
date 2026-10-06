@@ -5,7 +5,7 @@
 
 import { resolveTakeShellAvailability } from "../take-shell-availability.js";
 import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
-import type { TerminalLeaseHolder } from "../lease-model.js";
+import type { TerminalLeaseHolder } from "../state.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 
 /** What the take control needs: its call state, the holder, and which device this is. */

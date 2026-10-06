@@ -3,9 +3,9 @@
 // methods on a namespace that is not there.
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createStubBridge } from "@shared/preload-api.js";
-import type { PlatformBridge } from "./platform-bridge.js";
-import { FIXTURE_APP_META } from "./platform-bridge.fixture.js";
+import { createStubBridge } from "#shared/preload-api.js";
+import type { PlatformBridge } from "./bridge.js";
+import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "./bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 
 /**
@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe("readInstalledBridge — the preload probe", () => {
-  it("reads a missing, partial or array-valued bridge as absent, and a whole one as present", () => {
+  it("reads a missing, partial or array bridge as absent, and a whole one as present", () => {
     // "The preload did not run" is a window to reopen and "the bridges diverged" is a defect to
     // fix; conflating them sends a person to the wrong one.
     expect(resolveLiveBridgeFrom(undefined)).toBeUndefined();
@@ -32,7 +32,7 @@ describe("readInstalledBridge — the preload probe", () => {
 
     // A hand-written `typeof === "object"` probe admits an array, so a namespace that arrived as
     // one passed and the app called methods on it. `isWireRecord` rejects it.
-    const installed = createStubBridge(FIXTURE_APP_META);
+    const installed = createStubBridge(FIXTURE_APP_META, FIXTURE_WINDOW_ID);
     const arrayValued = { ...installed, daemon: [] };
 
     expect(resolveLiveBridgeFrom(arrayValued)).toBeUndefined();

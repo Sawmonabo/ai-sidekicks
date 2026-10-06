@@ -11,7 +11,8 @@
 // hold the `SingletonLock`, and this spawn would quit before a window and exit 0 without a probe
 // line (see `spawnElectron()`).
 // CI exports `$DISPLAY` once one job-level Xvfb signals ready on `-displayfd` (see
-// `.github/workflows/ci.yml`); a Linux contributor without one falls back to `xvfb-run -a`.
+// `.github/actions/setup-electron-display/action.yml`); a Linux contributor without one falls
+// back to `xvfb-run -a`.
 //
 // `out/main/index.js` is ESM (Electron supports an ESM main since v28) and
 // `out/preload/index.cjs` is CommonJS because a sandboxed preload cannot be ESM; the header of
@@ -23,8 +24,8 @@ import {
   BOOT_TEST_TIMEOUT_MS,
   spawnElectron,
   WINDOW_BUDGET_MS,
-} from "./helpers/smoke-probe-harness.js";
-import { renderReadinessFailure } from "./helpers/smoke-probe-diagnosis.js";
+} from "./helpers/smoke-probe/harness.js";
+import { renderReadinessFailure } from "./helpers/smoke-probe/diagnosis.js";
 
 describe("desktop main process boot", () => {
   // Asserts the preload bridge registered and no Node global reached the renderer.
@@ -74,8 +75,9 @@ describe("desktop main process boot", () => {
       expect(probe.probe.indexedDB).toBe("object");
       expect(probe.probe.localStorageRoundTrip).toBe(true);
 
-      // Invariant 8: the React tree mounted. `did-finish-load` fires on the document, so a bundle
-      // whose entry chunk 404'd would pass every assertion above.
+      // Invariant 8: the React tree mounted, drawn by the console document into the first window
+      // it opens. `did-finish-load` fires on the document, so a bundle whose entry chunk 404'd
+      // would pass every assertion above.
       expect(probe.probe.rootChildren).toBeGreaterThan(0);
 
       // Invariant 9: the CSP header rides the response. It is the policy's only carrier

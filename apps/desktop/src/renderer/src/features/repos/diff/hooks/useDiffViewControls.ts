@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import { type DiffViewMode } from "../diff-model.js";
+import { type DiffViewMode } from "../model.js";
 
 /** What the view control holds, and the setter that moves it. */
 export interface DiffViewControls {

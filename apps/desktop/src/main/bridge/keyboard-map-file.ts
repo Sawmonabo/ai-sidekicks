@@ -7,9 +7,7 @@
 // permissions, so a crash mid-save never leaves half a file. Which command ids still name an
 // act is the renderer's to decide.
 
-import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 
 import type {
   SettingsFileRepair,
@@ -17,14 +15,12 @@ import type {
 } from "@ai-sidekicks/contracts/machine-settings";
 import * as z from "zod/mini";
 
-import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
+import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
 import { isMissingPath } from "../services/missing-path.js";
+import { writeOwnerOnlyJsonFile } from "../services/owner-only-file.js";
 
 /** The file's name inside the app's user-data folder. */
 export const KEYBOARD_MAP_FILE_NAME = "keyboard-map.json";
-
-const KEYBOARD_MAP_FILE_MODE = 0o600;
-const KEYBOARD_MAP_FOLDER_MODE = 0o700;
 
 /** The longest command id or chord the file admits. */
 const KEYBOARD_MAP_TEXT_MAX_LEN = 256;
@@ -72,7 +68,7 @@ export class KeyboardMapFile {
   /** Replaces the whole map and answers it as stored. */
   public write(map: KeyboardMap): Promise<KeyboardMap> {
     return this.#oneAtATime(async () => {
-      await this.#writeAtomically(map);
+      await writeOwnerOnlyJsonFile(this.#filePath, map);
       this.#repair = undefined;
       return map;
     });
@@ -113,31 +109,12 @@ export class KeyboardMapFile {
   }
 
   async #repairWithEmptyMap(cause: SettingsFileRepairCause): Promise<KeyboardMapReading> {
-    await this.#writeAtomically(EMPTY_MAP);
+    await writeOwnerOnlyJsonFile(this.#filePath, EMPTY_MAP);
     this.#repair = { repairedAt: this.#now().toISOString(), cause };
     return this.#readingOf(EMPTY_MAP);
   }
 
   #readingOf(map: KeyboardMap): KeyboardMapReading {
     return this.#repair === undefined ? { map } : { map, repair: this.#repair };
-  }
-
-  // A flushed temporary file renamed over the real one: a reader sees the old file or the new.
-  async #writeAtomically(map: KeyboardMap): Promise<void> {
-    await mkdir(dirname(this.#filePath), { recursive: true, mode: KEYBOARD_MAP_FOLDER_MODE });
-    const temporaryPath = `${this.#filePath}.${randomBytes(8).toString("hex")}.tmp`;
-    try {
-      const handle = await open(temporaryPath, "wx", KEYBOARD_MAP_FILE_MODE);
-      try {
-        await handle.writeFile(`${JSON.stringify(map, null, 2)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await rename(temporaryPath, this.#filePath);
-    } catch (error) {
-      await rm(temporaryPath, { force: true });
-      throw error;
-    }
   }
 }

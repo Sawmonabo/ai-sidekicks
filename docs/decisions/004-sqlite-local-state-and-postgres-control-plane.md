@@ -11,7 +11,7 @@
 
 ## Context
 
-The system needs durable local execution truth, replay, and recovery on the user's machines, while also needing shared coordination storage for the account's statement chain and the device and machine registry. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
+The system needs durable local execution truth, rebuild, and recovery on the user's machines, while also needing shared coordination storage for the account's statement chain and the device and machine registry. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
 
 ## Problem Statement
 
@@ -35,7 +35,7 @@ Two storage systems create operational and engineering complexity. JSON files ar
 
 ### Synthesis — Why It Still Holds
 
-JSON files are too weak for replay-heavy, event-oriented runtime truth. A single hosted store would break the local-execution boundary and increase trust and offline dependence. SQLite's constraints are acceptable for Local Runtime Daemon workloads, especially with WAL and deliberate projection design. The dual-store complexity is justified because the data domains are different.
+JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A single hosted store would break the local-execution boundary and increase trust and offline dependence. SQLite's constraints are acceptable for Local Runtime Daemon workloads, especially with WAL and deliberate projection design. The dual-store complexity is justified because the data domains are different.
 
 ## Alternatives Considered
 
@@ -49,7 +49,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 - **What:** Use JSON or file stores locally and Postgres remotely.
 - **Steel man:** Simple local implementation and easy inspection.
-- **Why rejected:** Too weak for event sourcing, receipts, transactional queue state, and reliable replay.
+- **Why rejected:** Too weak for event sourcing, receipts, transactional queue state, and reliable rebuild.
 
 ### Option C: One Shared Relational Store For Everything (Rejected)
 
@@ -76,7 +76,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 ## Reversibility Assessment
 
 - **Reversal cost:** High. It would require migrations, operational changes, and likely API contract changes.
-- **Blast radius:** Persistence, replay, recovery, observability, control-plane services, and operations docs.
+- **Blast radius:** Persistence, rebuild, recovery, observability, control-plane services, and operations docs.
 - **Migration path:** Introduce a new store, backfill from canonical records, run dual-write or staged migration, then cut over.
 - **Point of no return:** After implementation plans and runtime recovery depend on the store split.
 
@@ -94,7 +94,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 
 ### Unknowns
 
-- Exact replay and snapshot tuning under heavy long-running session volume
+- Exact rebuild and snapshot tuning under heavy long-running session volume
 
 ## Decision Validation
 
@@ -112,7 +112,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `architecture/data-architecture.md` | Canonical architecture doc | Local and shared state belong to different trust and workload domains | [architecture/data-architecture.md](../architecture/data-architecture.md) |
-| `specs/013-persistence-recovery-and-replay.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/013-persistence-recovery-and-replay.md](../specs/013-persistence-recovery-and-replay.md) |
+| `specs/013-persistence-and-recovery.md` | Canonical spec | SQLite and Postgres split is part of the correctness contract | [specs/013-persistence-and-recovery.md](../specs/013-persistence-and-recovery.md) |
 | `operations/local-persistence-repair-and-restore.md` | Canonical operations doc | Local persistence integrity and restore behavior are explicit operational requirements | [operations/local-persistence-repair-and-restore.md](../operations/local-persistence-repair-and-restore.md) |
 
 ### Related Domain Docs
@@ -130,7 +130,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 ### Related Specs
 
 - [Artifacts Files And Attachments](../specs/012-artifacts-files-and-attachments.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ### Related ADRs

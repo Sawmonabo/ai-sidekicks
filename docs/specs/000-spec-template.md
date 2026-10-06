@@ -71,7 +71,7 @@ For external technical facts (wire formats, vendor limits, protocol numbers) lin
 
 - {State transitions}
 - {Persistence impact}
-- {Audit or replay impact}
+- {Audit or rebuild impact}
 
 ## Example Flows
 

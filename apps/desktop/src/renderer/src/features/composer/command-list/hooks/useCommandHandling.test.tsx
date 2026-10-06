@@ -6,31 +6,28 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import { useCommandHandling } from "./useCommandHandling.js";
-import type { WorkflowStartOperations } from "../workflow-command/start-workflow-from-line.js";
-import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowStartHandlers.js";
-import { WORKFLOW_START_COMMAND_GROUP } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
-import {
-  WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_COMMAND_PREFILL,
-} from "../workflow-command/workflow-command-grammar.js";
+import type { WorkflowStartOperations } from "../workflow/start-from-line.js";
+import { useWorkflowStartHandlers } from "../workflow/hooks/useWorkflowStartHandlers.js";
+import { WORKFLOW_START_COMMAND_GROUP } from "../workflow/hooks/useWorkflowStartPrefill.js";
+import { WORKFLOW_COMMAND_ROOT, WORKFLOW_RUN_COMMAND_PREFILL } from "../workflow/grammar.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
   type WorkflowCalls,
-} from "../workflow-command/workflow-command.test-support.js";
+} from "../workflow/start-from-line.test-support.js";
 
-/** Stub calls recording which session each definition read named. */
+/** Stub calls holding the one workflow the line names, recording which session each start named. */
 function operationsRecording(calls: WorkflowCalls): WorkflowStartOperations {
-  return fixtureWorkflowStartOperations({ calls });
+  return fixtureWorkflowStartOperations({ calls, definitions: [{ name: "nightly-review" }] });
 }
 
-function readSessionIds(calls: WorkflowCalls): (string | undefined)[] {
-  return calls.listed.map((request) => request.sessionId);
+function startedSessionIds(calls: WorkflowCalls): string[] {
+  return calls.started.map((request) => request.sessionId);
 }
 
 function ComposerCommandZoneHarness(props: {
@@ -51,7 +48,7 @@ function ComposerCommandZoneHarness(props: {
 
 const START_LINE = {
   commandName: WORKFLOW_COMMAND_ROOT,
-  text: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review`,
+  text: `${WORKFLOW_RUN_COMMAND_PREFILL}nightly-review`,
 } as const;
 
 describe("the composer command zone reads the committed render's handlers", () => {
@@ -62,7 +59,7 @@ describe("the composer command zone reads the committed render's handlers", () =
   function registerWorkflowRoot(): void {
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
+      title: "Run a workflow",
       group: WORKFLOW_START_COMMAND_GROUP,
       run: () => {},
     });
@@ -94,6 +91,6 @@ describe("the composer command zone reads the committed render's handlers", () =
 
     await executor.current?.(START_LINE);
 
-    expect(readSessionIds(calls)).toStrictEqual([WORKFLOW_TEST_SESSION_ID]);
+    expect(startedSessionIds(calls)).toStrictEqual([WORKFLOW_TEST_SESSION_ID]);
   });
 });

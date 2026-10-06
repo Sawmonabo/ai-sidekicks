@@ -4,7 +4,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
+import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
 
 const OCCURRED_AT = "2026-09-01T13:04:05.123Z";
@@ -39,7 +39,7 @@ function basicRow(
   );
 }
 
-describe("TranscriptRowLayout — attribution fails closed rather than into someone else's hue", () => {
+describe("TranscriptRowLayout: attribution fails closed, never into another's hue", () => {
   it("refuses to wrap or clamp a step that is off the wheel", () => {
     const offWheelSteps = [HUE_WHEEL_STEPS, HUE_WHEEL_STEPS + 3, -1, 1.5, Number.NaN];
     const onWheelHues = Array.from({ length: HUE_WHEEL_STEPS }, (_unused, step) =>
@@ -55,7 +55,8 @@ describe("TranscriptRowLayout — attribution fails closed rather than into some
       expect(onWheelHues).not.toContain(hue);
     }
 
-    // The on-wheel hues are twelve distinct values, so the assertion above checks a populated set.
+    // The on-wheel hues are twelve distinct values, so the assertion above checks a populated
+    // set.
     expect(new Set(onWheelHues).size).toBe(HUE_WHEEL_STEPS);
   });
 });

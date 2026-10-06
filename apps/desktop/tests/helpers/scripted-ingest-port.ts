@@ -7,17 +7,17 @@
 // mid-call can put an abandonment inside an await. The recorded shapes are derived from
 // `AttachmentIngestPort`, so a request that drops or invents a member fails to compile here.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { manualGate } from "./held-calls.js";
-import type { ChunkAcknowledgement } from "@renderer/features/composer/attachments/services/attachment-ingest-acknowledgement.js";
-import type { AttachmentIngestPort } from "@renderer/features/composer/attachments/services/attachment-ingest-answer.js";
-import { AttachmentIngestClient } from "@renderer/features/composer/attachments/attachment-ingest-client.js";
+import type { ChunkAcknowledgement } from "#renderer/features/composer/attachments/services/ingest-acknowledgement.js";
+import type { AttachmentIngestPort } from "#renderer/features/composer/attachments/services/ingest-port.js";
+import { AttachmentIngestClient } from "#renderer/features/composer/attachments/ingest-client.js";
 import {
   attachmentSourceFrom,
   type AttachmentSource,
-} from "@renderer/features/composer/attachments/attachment-shapes.js";
+} from "#renderer/features/composer/attachments/shapes.js";
 
 /** The session every case attaches into. */
 export const INGEST_SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
@@ -50,7 +50,7 @@ export class ScriptedIngestPort {
    * A real running total, because the registered `AttachmentIngestChunkResponse` carries it and the
    * client advances its own running total from it; a constant would let a client that ignored the
    * reply pass. The length comes from the platform's base64 decoder rather than arithmetic over the
-   * encoded string. Keyed by sequence number so the total is idempotent under the replay the
+   * encoded string. Keyed by sequence number so the total is idempotent under the resend the
    * contract makes safe: a chunk resent after a lost response is not appended twice.
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();

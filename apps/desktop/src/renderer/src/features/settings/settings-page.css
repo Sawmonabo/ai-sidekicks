@@ -20,12 +20,6 @@
   line-height: 1.55;
 }
 
-.meridian-settings-page__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-}
-
 .meridian-settings-page__block {
   display: flex;
   flex-direction: column;
@@ -42,7 +36,7 @@
   color: var(--meridian-text);
   font-size: var(--meridian-text-sm);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--meridian-tracking-mixed);
 }
 
 .meridian-settings-page__aside,
@@ -102,15 +96,16 @@
   gap: var(--meridian-space-1);
 }
 
+/* A fact's label in the muted ink, its value at weight 500 in the text ink. */
 .meridian-settings-page__fact dt {
-  color: var(--meridian-text-faint);
+  color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .meridian-settings-page__fact dd {
   margin: 0;
+  color: var(--meridian-text);
+  font-weight: 500;
 }
 
 .meridian-settings-page__actions {
@@ -139,6 +134,13 @@
   color: var(--meridian-accent);
 }
 
+/* The act a confirm asks about when it ends work: the palette's red on text and edge only, as
+   the shared destructive face draws it, and only while enabled, so a closed one fades. */
+.meridian-settings-page__action--destructive:enabled {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}
+
 .meridian-settings-page__progress-label {
   color: var(--meridian-text);
 }
@@ -152,8 +154,8 @@
 }
 
 /* A wire vocabulary: the closed set a page's rows will speak. Two columns rather than the
-   `__facts` grid, because `__facts` upper-cases its terms and a wire string renders
-   verbatim. The term column sizes to its content so the definitions share one left edge. */
+   `__facts` stack, because a wire string is the term here and reads at the text's own size and
+   ink. The term column sizes to its content so the definitions share one left edge. */
 
 .meridian-settings-page__vocabulary {
   display: grid;

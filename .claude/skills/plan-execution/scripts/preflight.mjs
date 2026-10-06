@@ -280,9 +280,9 @@ if (labelIndex !== -1) {
 // (`Plan-005 Phase 1 merged`), bare (`Phase 1 merged` — the commonest, since
 // most preconditions point at this plan's own earlier phase), coordinated
 // (`Phases 2 and 3 merged`), or a range (`Phases 2-4`). Reading only the
-// qualified singular let every other shape pass unchecked, which is the one
-// failure direction this check exists to prevent: a false red costs a re-read,
-// a false green dispatches work whose prerequisite has not shipped.
+// qualified singular would let every other shape pass unchecked, which is the
+// one failure direction this check exists to prevent: a false red costs a
+// re-read, a false green dispatches work whose prerequisite has not shipped.
 const LABEL = "R?[0-9]+[A-Za-z]?";
 const SEPARATOR = "\\s*(?:,|and|&|\\+|/|-|–|—|to)\\s*";
 const PHASE_REFERENCE = new RegExp(
@@ -316,8 +316,11 @@ function labelsIn(list) {
 // another plan's phase inside a precondition block is already the gate.
 // The window stops at the next phase reference or sentence end, so a later
 // sentence's "merged" is never credited to an earlier mention.
-const SHIPMENT_CLAIM =
-  /^(?:(?!\bPhases?\b|\bPlan-\d{3}\b|\.\s|;).){0,60}?\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b/is;
+const SHIPMENT_CLAIM = new RegExp(
+  String.raw`^(?:(?!\bPhases?\b|\bPlan-\d{3}\b|\.\s|;).){0,60}?` +
+    String.raw`\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b`,
+  "is",
+);
 
 const required = [];
 for (const m of preconditionText.matchAll(PHASE_REFERENCE)) {

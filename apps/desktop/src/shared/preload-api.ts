@@ -2,9 +2,11 @@
 //
 // Every namespace and `app` member is `readonly`, so a compromised renderer cannot reassign
 // `bridge.daemon`. No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
-// `preload-api.test-d.ts` fails the typecheck when any property name at any depth matches
-// /token|dpop|secret/i. Paths reach the renderer only as opaque `FilePathRef` values, which
-// main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
+// `preload-api.test-d.ts` fails the typecheck when a property name the page can reach, daemon
+// results and delivered values included, matches /token|dpop|secret/i and is not a credential-free
+// name, a question's masked-answer flag, or one of the two credentials shown to the person once,
+// each allowed only where it is sent. Paths reach the renderer only as opaque `FilePathRef` values,
+// which main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
 // never appear.
 //
 // The daemon's calls and subscriptions are typed by the daemon's method map in
@@ -12,10 +14,10 @@
 // `src/shared/`, with no dependency on the `electron` package.
 //
 // `PreloadApi` carries the members main answers and the members the renderer already calls.
-// A member main does not answer yet throws `NotImplementedError`; `createStubBridge` is that
-// whole object, and the preload replaces the members main answers. The request and reply types
-// of the bridge calls not built yet are declared here as well, and each call joins `PreloadApi`
-// with its main handler.
+// `createStubBridge` is the same object with every round-trip member throwing
+// `NotImplementedError`, the shape the live bridge is checked against.
+// The request and reply types of the bridge calls not built yet are declared here as well, and
+// each call joins `PreloadApi` with its main handler.
 
 import type {
   DaemonEvent,
@@ -24,7 +26,7 @@ import type {
   DaemonParams,
   DaemonResult,
   DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon-methods";
+} from "@ai-sidekicks/contracts/daemon/method-map";
 import type {
   MachineSettings,
   MachineSettingsChange,
@@ -32,10 +34,18 @@ import type {
   SettingsFileRepair,
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import type { AppFacts } from "./app-facts.js";
+import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";
+import type { DaemonSubscriptionEnd } from "./daemon/forwarding.js";
+import type {
+  DaemonStatusRequest,
+  DaemonStatusTopic,
+  MainProcessState,
+} from "./daemon/status-topic.js";
+import type { WindowDefaultSizes, WindowSize } from "./window/size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
@@ -50,8 +60,8 @@ export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 export interface OpenDialogResults {
   readonly attachFiles: OpenDialogResult;
   readonly importFile: OpenDialogResult;
-  /** The picked folder's token, or `null` when the person canceled. */
-  readonly pickFolder: FilePathRef | null;
+  /** The picked folder, or `null` when the person canceled. */
+  readonly pickFolder: PickedFolder | null;
 }
 
 /** What an open dialog is for. */
@@ -70,6 +80,12 @@ export interface PickedFile {
   readonly ref: FilePathRef;
   readonly name: string;
   readonly sizeBytes: number;
+}
+
+/** One folder a person picked: its token, and the folder's own name for the form to draw. */
+export interface PickedFolder {
+  readonly ref: FilePathRef;
+  readonly name: string;
 }
 
 /** The files a person picked, empty when they canceled. */
@@ -91,13 +107,20 @@ export interface NotificationPermission {
 /**
  * One editor the app looks for. `installed` is whether this machine has it, found through the
  * operating system's register of installed apps; one that is not can be shown, not chosen.
- *
- * @consumedBy the editor list in Settings, when main answers it
  */
 export interface EditorEntry {
   readonly id: string;
   readonly label: string;
   readonly installed: boolean;
+}
+
+/**
+ * What one copy puts on the clipboard: the plain text, and a formatted flavor beside it that a
+ * paste target which reads formatting takes instead.
+ */
+export interface ClipboardContent {
+  readonly text: string;
+  readonly html?: string;
 }
 
 /**
@@ -289,27 +312,56 @@ export type BrowserPaneEvent =
   | { readonly kind: "downloadRefused"; readonly fileName: string }
   | { readonly kind: "pageCrashed" };
 
+/** What `daemon.subscribe` opens: one of the daemon's subscriptions, or main's status topic. */
+export type DaemonWireTopic = DaemonEvent | DaemonStatusTopic;
+
+/** What a topic is opened with: the request its daemon method registers, or nothing. */
+export type DaemonWireRequest<E extends DaemonWireTopic> = E extends DaemonEvent
+  ? DaemonSubscribeParams<E>
+  : DaemonStatusRequest;
+
+/** One value a topic delivers: its daemon method's emission, or main's state. */
+export type DaemonWirePayload<E extends DaemonWireTopic> = E extends DaemonEvent
+  ? DaemonEventPayload<E>
+  : MainProcessState;
+
 /**
- * A window's minimum size, in CSS pixels.
- *
- * @consumedBy the window's minimum size call to main
+ * What a served daemon call answers: the daemon's result, and the token main minted for each path
+ * the result offers to open, keyed by the path; absent when it offers none.
  */
-export interface WindowSize {
-  readonly width: number;
-  readonly height: number;
+export interface ServedDaemonCall<Value> {
+  readonly value: Value;
+  readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
 }
 
 /**
  * The daemon's own wire: its JSON-RPC calls, and its subscriptions, each opened with the
- * request its method registers.
+ * request its method registers. A call the daemon refuses rejects with the wire error itself
+ * (`{code, message, data}`), and any other failed call with an `Error`; a subscription that
+ * cannot open throws.
  */
 export interface DaemonWire {
-  call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
-  subscribe<E extends DaemonEvent>(
+  call<M extends DaemonMethod>(
+    method: M,
+    params: DaemonParams<M>,
+  ): Promise<ServedDaemonCall<DaemonResult<M>>>;
+  /**
+   * Open one subscription. `daemon.status` is main's own topic: it opens while no service
+   * answers, its first delivery is the current state, and it never ends. A daemon subscription
+   * that ends after it opened, because the daemon completed or refused it or the link under it
+   * failed, calls `onEnded` once and delivers nothing more; closing it before then never does.
+   */
+  subscribe<E extends DaemonWireTopic>(
     event: E,
-    params: DaemonSubscribeParams<E>,
-    handler: (payload: DaemonEventPayload<E>) => void,
+    params: DaemonWireRequest<E>,
+    handler: (payload: DaemonWirePayload<E>) => void,
+    onEnded?: (end: DaemonSubscriptionEnd) => void,
   ): Unsubscribe;
+  /**
+   * Start the background service again with a full set of attempts: the boot card's `Retry`.
+   * Resolves once main has begun; the service's state reports how the start goes.
+   */
+  requestStart(): Promise<void>;
 }
 
 /**
@@ -324,25 +376,63 @@ export interface PreloadApi {
     showOpenDialog<Purpose extends OpenDialogPurpose>(
       options: OpenDialogOptions<Purpose>,
     ): Promise<OpenDialogResults[Purpose]>;
+    /**
+     * A token for a file dropped on the composer. Refused for a `File` the page built itself,
+     * which has no path, and for a folder.
+     */
+    getDroppedFileRef(file: File): Promise<FilePathRef>;
+    /**
+     * Write a pasted picture to a file only the person can read and answer its token. The file
+     * lasts until `session.attachmentAdd` has copied it, or the page that pasted it goes; empty
+     * bytes are refused.
+     */
+    savePastedImage(bytes: ArrayBuffer): Promise<FilePathRef>;
     /** Open a web address in the system browser; refused unless it is `http:` or `https:`. */
     openExternal(url: string): Promise<void>;
-    copyToClipboard(text: string): Promise<void>;
+    /**
+     * Open a file or folder, at a line from 1 where one is given, in the editor the machine's
+     * settings name, or in the system default when none is named or the named one is gone.
+     */
+    openInEditor(ref: FilePathRef, line?: number): Promise<void>;
+    /** Every editor the app looks for, in list order, each saying whether this machine has it. */
+    listEditors(): Promise<EditorEntry[]>;
+    /** The operating system's notification permission for this app. */
+    getNotificationPermission(): Promise<NotificationPermission>;
+    /**
+     * Put the text, with its formatted flavor where one is given, on the clipboard in one write.
+     */
+    copyToClipboard(content: ClipboardContent): Promise<void>;
+    /** Show a file or folder selected in the platform's file manager. */
+    revealInFileExplorer(ref: FilePathRef): Promise<void>;
   };
 
+  /** The app's updater, in main. */
   readonly update: {
     getState(): Promise<UpdateState>;
+    /** Each state main pushes; the current one is read through `getState`. */
     subscribe(handler: (state: UpdateState) => void): Unsubscribe;
     requestCheck(): Promise<void>;
     requestDownload(): Promise<void>;
     requestRestart(): Promise<void>;
   };
 
-  /** The machine's settings file, carried by the service's live read and its one writer. */
+  /**
+   * The machine's settings file, carried by the service, its one writer. A refused call rejects
+   * with the wire error itself, as `daemon.call` does.
+   */
   readonly machineSettings: {
+    /** The file as it stands, with the repair the service made since the last change. */
+    read(): Promise<MachineSettingsReading>;
     /** Write one change; answers the file as written. */
     write(change: MachineSettingsChange): Promise<MachineSettings>;
-    /** Each written change, the first delivery the file as it stands. */
-    subscribe(handler: (reading: MachineSettingsReading) => void): Unsubscribe;
+    /**
+     * Each written change, the first delivery the file as it stands. A feed that ends after it
+     * opened calls `onEnded` once, as a daemon subscription does.
+     */
+    subscribe(
+      handler: (reading: MachineSettingsReading) => void,
+      onEnded?: (end: DaemonSubscriptionEnd) => void,
+    ): Unsubscribe;
   };
 
   /**
@@ -355,12 +445,58 @@ export interface PreloadApi {
     write(map: KeyboardMap): Promise<KeyboardMap>;
   };
 
+  /**
+   * The windows a person sees, each named by its window id, the frame name the console document
+   * opened it under: the one used last, the appearance, each one's minimum size, and main's asks.
+   */
+  readonly window: {
+    /**
+     * The window used last at the last quit, or a new id on a first launch. The console document
+     * opens it first, and keys its kept window layout by window ids.
+     */
+    readonly lastUsedWindowId: string;
+    /**
+     * The appearance chosen and its theme's two grounds: main sets the platform scheme, ticks the
+     * View menu, paints first frames from the grounds and keeps the record.
+     */
+    setAppearance(choice: AppearanceChoice, grounds: AppearanceGrounds): Promise<void>;
+    /** The appearance record on every change, the first delivery the kept one. */
+    subscribeAppearance(handler: (record: AppearanceRecord) => void): Unsubscribe;
+    /** The smallest size one window may shrink to. */
+    setMinimumSize(windowId: string, size: WindowSize): Promise<void>;
+    /**
+     * Brings an open window forward through main's one reveal path; nothing for a window that
+     * closed while the ask crossed.
+     */
+    bringForward(windowId: string): Promise<void>;
+    /**
+     * The widths a pane's own window with no kept place opens at, handed before the first window
+     * opens and again when the text size changes.
+     */
+    setDefaultSizes(sizes: WindowDefaultSizes): Promise<void>;
+    /**
+     * Ends a safe start once `Restore windows` reopened the kept windows, so main keeps each
+     * window's place again.
+     */
+    endSafeStart(): Promise<void>;
+    /**
+     * Main's ask to open a window again, by its id, when none a person sees is open: a Dock click
+     * or a second launch.
+     */
+    subscribeToReopenRequest(handler: (windowId: string) => void): Unsubscribe;
+    /**
+     * Main's word that a color scheme picked from the View menu could not be saved, so the scheme
+     * in force stays.
+     */
+    subscribeToUnkeptScheme(handler: () => void): Unsubscribe;
+  };
+
   readonly app: AppFacts;
 }
 
 /**
- * Thrown by a preload member main has no handler for yet. Its `name` is stable, so a caller can
- * test it without importing the class.
+ * Thrown by every round-trip member of the stub bridge. Its `name` is stable, so a caller can test
+ * it without importing the class.
  */
 export class NotImplementedError extends Error {
   public constructor(member: string) {
@@ -374,19 +510,27 @@ function stubThrow(member: string): never {
 }
 
 /**
- * The preload API with every round-trip member throwing `NotImplementedError`. The caller
- * supplies the build facts, because only the preload can read what main passed.
+ * `PreloadApi` as an object literal, with every round-trip member throwing `NotImplementedError`
+ * and the build facts and the window used last the caller gives: the members the live bridge must
+ * have, and a bridge none of whose calls reaches main.
  */
-export function createStubBridge(app: AppFacts): PreloadApi {
+export function createStubBridge(app: AppFacts, lastUsedWindowId: string): PreloadApi {
   return {
     daemon: {
       call: () => stubThrow("daemon.call"),
       subscribe: () => stubThrow("daemon.subscribe"),
+      requestStart: () => stubThrow("daemon.requestStart"),
     },
     native: {
       showOpenDialog: () => stubThrow("native.showOpenDialog"),
+      getDroppedFileRef: () => stubThrow("native.getDroppedFileRef"),
+      savePastedImage: () => stubThrow("native.savePastedImage"),
       openExternal: () => stubThrow("native.openExternal"),
+      openInEditor: () => stubThrow("native.openInEditor"),
+      listEditors: () => stubThrow("native.listEditors"),
+      getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
+      revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
     },
     update: {
       getState: () => stubThrow("update.getState"),
@@ -396,12 +540,24 @@ export function createStubBridge(app: AppFacts): PreloadApi {
       requestRestart: () => stubThrow("update.requestRestart"),
     },
     machineSettings: {
+      read: () => stubThrow("machineSettings.read"),
       write: () => stubThrow("machineSettings.write"),
       subscribe: () => stubThrow("machineSettings.subscribe"),
     },
     keyboardMap: {
       read: () => stubThrow("keyboardMap.read"),
       write: () => stubThrow("keyboardMap.write"),
+    },
+    window: {
+      lastUsedWindowId,
+      setAppearance: () => stubThrow("window.setAppearance"),
+      subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
+      setMinimumSize: () => stubThrow("window.setMinimumSize"),
+      bringForward: () => stubThrow("window.bringForward"),
+      setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
+      endSafeStart: () => stubThrow("window.endSafeStart"),
+      subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),
+      subscribeToUnkeptScheme: () => stubThrow("window.subscribeToUnkeptScheme"),
     },
     app,
   };

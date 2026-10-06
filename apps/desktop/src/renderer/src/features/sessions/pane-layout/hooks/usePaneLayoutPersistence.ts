@@ -8,24 +8,20 @@
 
 import { useEffect } from "react";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
-import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type PaneLayoutStore } from "../pane-layout-store.js";
-import { paneAddressKey } from "../pane-layout.js";
-import { type PaneLayoutRestoreReport } from "../pane-layout-snapshot.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { type PaneLayoutStore } from "../store.js";
+import { paneAddressKey } from "../state.js";
+import { type PaneLayoutRestoreReport } from "../snapshot.js";
 import {
   CoalescingLayoutWriter,
   WRITER_RETIREMENT,
   type PersistedLayoutRecord,
-} from "../coalescing-layout-writer.js";
-import {
-  PANE_LAYOUT_RECORD_KEY,
-  RestoreProgress,
-  refusePaneLayoutSave,
-} from "../layout-persistence.js";
+} from "../coalescing-writer.js";
+import { PANE_LAYOUT_RECORD_KEY, RestoreProgress, refusePaneLayoutSave } from "../persistence.js";
 
 /** What the persistence hook binds: the layout, its store, the session, the refusal sinks. */
 export interface PaneLayoutPersistenceOptions {
@@ -36,6 +32,8 @@ export interface PaneLayoutPersistenceOptions {
   readonly onSaveRefused: (refusal: Refusal, sessionId: string) => void;
   /** A restore left part of a saved arrangement closed: one refusal, and its session. */
   readonly onRestoreRefused: (refusal: Refusal, sessionId: string) => void;
+  /** The saved arrangement has landed for this session, so a pane may now be opened over it. */
+  readonly onRestored?: (sessionId: string) => void;
 }
 
 /**
@@ -50,6 +48,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
   // Read when a restore lands, so a caller's fresh function does not re-run the restore effect,
   // whose cleanup would abandon a read in flight.
   const restoreRefusedRef = useLatestRef(options.onRestoreRefused);
+  const restoredRef = useLatestRef(options.onRestored);
 
   // The session (partition) rides each write request: the writer coalesces, so a queued
   // arrangement settles after the navigation that could change the current session.
@@ -78,7 +77,8 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
           onSaveRefused(
             refusePaneLayoutSave(
               "layout-save-failed",
-              "This window's pane arrangement could not be saved. It is still on screen, and it will be saved again on the next change.",
+              "This window's pane arrangement could not be saved. It is still " +
+                "on screen, and it will be saved again on the next change.",
             ),
             partition,
           );
@@ -156,6 +156,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
 
       // Opened only now, so no save fired during the commits above.
       restore.settle();
+      restoredRef.current?.(sessionId);
       if (readOutcome.outcome === "failed") {
         // Nothing is filed over a record this read could not reach: the layout on screen is the
         // fallback, not an arrangement the person asked to save. The subscription below still
@@ -172,7 +173,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       // Abandoned before it landed: this pass adopted nothing, so the gate goes back.
       restore.abandon();
     };
-  }, [layout, restore, restoreRefusedRef, sessionId, uiStateStore, writer]);
+  }, [layout, restore, restoreRefusedRef, restoredRef, sessionId, uiStateStore, writer]);
 
   useEffect(() => {
     if (sessionId === undefined) {

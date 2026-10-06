@@ -52,6 +52,7 @@
     "typecheck": {
       // `scripts/**` is an input because the harnesses there are TypeScript that
       // `tsconfig.scripts.json` typechecks, so a change to one must invalidate this task.
+      // The Vitest config and the root module it imports are typechecked by `tsconfig.test.json`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -59,9 +60,14 @@
         "build/**",
         "scripts/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "vitest.config.ts",
+        "vitest/**",
+        "$TURBO_ROOT$/vitest.shared.ts"
       ],
-      "outputs": [".tsbuildinfo"]
+      // `tsc -b` emits each project's output beside its build info, and a later `tsc -b` trusts the
+      // build info and never re-emits a missing output, so a cache hit restores both or neither.
+      "outputs": [".tsbuildinfo", "dist/**", "src/renderer/.tsbuildinfo", "out/tsc-renderer/**"]
     },
     "lint": {
       "inputs": [
@@ -105,9 +111,8 @@
       ],
       "outputs": []
     },
-    // Only `tsconfig.paths.json` of the tsconfigs: the cruise resolves through an explicit
-    // extension list and that file's aliases, so no other tsconfig edit can change its result.
-    // `package.json` stays because the script that invokes it lives there.
+    // No tsconfig: the cruise resolves through an explicit extension list and the package's
+    // `imports` in `package.json`, which also holds the script that invokes it.
     "structure:layering": {
       "inputs": [
         "src/**",
@@ -117,7 +122,6 @@
         "vitest/**",
         ".dependency-cruiser.mjs",
         ".dependency-cruiser.layers.mjs",
-        "tsconfig.paths.json",
         "package.json"
       ],
       "outputs": []
@@ -136,7 +140,7 @@
         "fixtures/**",
         "build/**",
         "scripts/**",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "tests/helpers/**",
         "vitest.config.*",
         "vitest/**",
@@ -156,17 +160,23 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": ["coverage/**"],
       "cache": false
     },
     "test:smoke": {
-      "dependsOn": ["build:smoke"],
+      // Its launches play no scenario, so each starts a background service of its own from the
+      // service's build (`tests/helpers/isolated-service.ts`), except the one that asks for a
+      // scenario to see the smoke bundle refuse it.
+      "dependsOn": ["build:smoke", "@ai-sidekicks/runtime-daemon#build"],
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.
-      // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
-      // pull the budget harnesses in with it.
+      // `scripts/materialize-electron.ts` is named because this task runs it, and
+      // `scripts/budget/**` because the config reads the launch budgets through it; `scripts/**`
+      // would pull every other script in with them.
       "inputs": [
         "tests/*.test.ts",
         "tests/helpers/**",
@@ -175,7 +185,9 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -186,6 +198,9 @@
     // Each tier is its own task so it can be run, cached and gated alone. `cache: false`
     // throughout, as above: these assert against a tree state, and a cached pass would report on a
     // tree that is no longer there.
+    //
+    // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`), so each
+    // lists `tests/budget/document.json` and the `scripts/budget/**` reader that loads it.
 
     "test:renderer": {
       "dependsOn": ["^build"],
@@ -195,12 +210,14 @@
         "fixtures/**",
         "tests/helpers/**",
         "tests/endurance/streaming-lanes*",
-        "tests/endurance/transcript-endurance.test-support*",
+        "tests/endurance/transcript/long-log.test-support*",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -209,12 +226,16 @@
       "dependsOn": ["^build"],
       "inputs": [
         "src/renderer/src/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/browser/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json"
+        "package.json",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -223,12 +244,16 @@
       "dependsOn": ["^build"],
       "inputs": [
         "src/renderer/src/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/accessibility/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json"
+        "package.json",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -244,9 +269,9 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json",
+        "package.json",
         "electron.vite.config.ts",
-        "src/renderer/src/app/fixture-global-names.ts",
+        "src/renderer/src/app/fixture/global-names.ts",
         "src/shared/fixture-launch.ts",
         "out/main/**",
         "out/preload/**",
@@ -259,18 +284,25 @@
       // The one tier that needs a fixture build rather than a release one: it drives the renderer
       // against the fixture implementations, which the release define folds out. The edge makes
       // that bundle present by construction, so the tier's skip-with-a-message path stays a
-      // developer convenience rather than something CI can silently fall into.
-      "dependsOn": ["build:fixtures"],
+      // developer convenience rather than something CI can silently fall into. A launch playing no
+      // scenario starts a background service of its own from the service's build. The real-click
+      // test's opt-in variable is handed through, since Turbo passes a task only what it names.
+      "dependsOn": ["build:fixtures", "@ai-sidekicks/runtime-daemon#build"],
+      "passThroughEnv": ["SIDEKICKS_RUN_REAL_CLICKS"],
       "inputs": [
         "src/renderer/src/**",
         "src/main/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/e2e/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json",
-        "out/**"
+        "package.json",
+        "out/**",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -283,13 +315,17 @@
       "inputs": [
         "src/renderer/src/**",
         "src/main/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/endurance/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json",
-        "out/**"
+        "package.json",
+        "out/**",
+        "tests/budget/document.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -308,7 +344,7 @@
       "dependsOn": ["build"],
       "inputs": [
         "scripts/budget/**",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "out/renderer/**",
         "package.json"
       ],

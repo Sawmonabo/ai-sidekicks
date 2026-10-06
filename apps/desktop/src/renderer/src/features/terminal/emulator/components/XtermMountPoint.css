@@ -1,0 +1,40 @@
+/*
+ * The emulator's mount point and its boundary, and nothing inside them. xterm.js draws inside
+ * `.meridian-terminal-mount-point__mount-element` and its own sheet (imported by
+ * `xterm/adapter.ts`, so it rides the lazy emulator chunk) owns everything under it. This
+ * sheet must therefore stand alone: the mount point keeps its size and boundary while the
+ * chunk is still in flight.
+ */
+
+/* The clip keeps the emulator inside its boundary; the margin lets the browser's focus
+   mark on anything inside paint past that edge without moving the layout. */
+.meridian-terminal-mount-point {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  overflow: clip;
+  overflow-clip-margin: var(--meridian-space-1);
+}
+
+/* Typing focus sits in the emulator's input, which the emulator keeps off-screen, so the
+   focus mark is drawn on the terminal body that holds it. The `auto` style alone would draw
+   it in the text color; the browser's focus color keyword makes it match every focused
+   control in both schemes. */
+.meridian-terminal-mount-point:focus-within {
+  outline-style: auto;
+  outline-color: -webkit-focus-ring-color;
+}
+
+/* A watcher's terminal reads as read-only through its dashed boundary, not a disabled-control
+   look; the region's accessible name carries the rest. */
+.meridian-terminal-mount-point[data-write-enabled="false"] {
+  border-style: dashed;
+}
+
+.meridian-terminal-mount-point__mount-element {
+  block-size: 100%;
+  inline-size: 100%;
+  font-family: var(--meridian-font-mono);
+}

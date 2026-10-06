@@ -2,13 +2,13 @@
 // focus, reconnect, and the terminal events the owning view names (`subscribe` belongs to the
 // reader). No interval polling.
 //
-// It wires a `ReadTriggerTarget`, not a scheduler: `read-triggers.ts` does the same through
+// It wires a `ReadTriggerTarget`, not a scheduler: `triggers.ts` does the same through
 // React hooks, while this class does it imperatively for a reading minted in a resource seam.
 // Both read `triggeringEventKinds` and `requestRead` off the reading, so there is one answer
 // to when it goes stale.
 //
 // The repair edge is the reconnect signal. Nothing publishes a bridge-level "reconnected"
-// event, but the store sets `degradedCause` when the stream fails (`session-degradation.ts`)
+// event, but the store sets `degradedCause` when the stream fails (`session/degradation.ts`)
 // and clears it only by a completed re-pull, so the clearing edge is the moment the projection
 // is whole again. A base state is not a frame: `initialize()` backfill is already reflected by
 // the reader's first read, so the scan runs only over an initialized store's transitions.
@@ -18,8 +18,8 @@ import {
   isRepairEdge,
   requestReadOnWindowFocus,
   type ReadTriggerTarget,
-} from "./read-triggers.js";
-import type { SessionStore } from "../session/session-store.js";
+} from "./triggers.js";
+import type { SessionStore } from "../session/store.js";
 
 /** Options for a `SessionRefreshTriggers`. */
 export interface SessionRefreshTriggerOptions {
@@ -32,6 +32,8 @@ export interface SessionRefreshTriggerOptions {
   readonly target: ReadTriggerTarget;
   /** The session whose frames and whose repair edge are two of the three reasons. */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in, whose regaining focus is the third. */
+  readonly ownerWindow: Window;
 }
 
 /**
@@ -42,6 +44,7 @@ export interface SessionRefreshTriggerOptions {
 export class SessionRefreshTriggers {
   readonly #target: ReadTriggerTarget;
   readonly #sessionStore: SessionStore;
+  readonly #ownerWindow: Window;
   /** One detach per attached listener, run in `dispose` and then dropped. */
   readonly #detachers: (() => void)[] = [];
   #started = false;
@@ -49,6 +52,7 @@ export class SessionRefreshTriggers {
   public constructor(options: SessionRefreshTriggerOptions) {
     this.#target = options.target;
     this.#sessionStore = options.sessionStore;
+    this.#ownerWindow = options.ownerWindow;
   }
 
   public start(): void {
@@ -60,7 +64,7 @@ export class SessionRefreshTriggers {
       this.#sessionStore.readable.subscribe((state, previous) => {
         this.#observeSessionTransition(state, previous);
       }),
-      requestReadOnWindowFocus(this.#target),
+      requestReadOnWindowFocus(this.#target, this.#ownerWindow),
     );
   }
 

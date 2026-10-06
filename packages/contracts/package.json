@@ -13,14 +13,18 @@
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js"
     },
-    "./event-core": null,
+    "./event/version": null,
     "./gitflow/shared": null,
     "./internal/*": null,
-    "./__tests__/*": null,
+    "./*.test": null,
+    "./*.test-support": null,
     "./*.test-d": null
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "!src/**/__tests__",
+    "!src/**/*.test-d.ts"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -30,6 +34,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "unicode-case-folding": "1.1.2",
     "zod": "catalog:"
   },
   "devDependencies": {

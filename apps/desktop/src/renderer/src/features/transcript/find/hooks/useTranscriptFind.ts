@@ -13,7 +13,7 @@ import {
   stepFindMatch,
   type FindStepDirection,
   type FindResult,
-} from "../find-model.js";
+} from "../matcher.js";
 import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** The find field's state, and the walk over one window's matches. */

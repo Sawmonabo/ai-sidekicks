@@ -1,7 +1,7 @@
 import { useSubjectScopedResource } from "./subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedTerminalDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { ReadScope } from "@renderer/lib/reads/read-scope.js";
-import { type SubjectKey } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
+import { type SubjectScopedTerminalDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { ReadScope } from "#renderer/lib/reads/scope.js";
+import { type SubjectKey } from "#renderer/lib/subject-scoped/holder.js";
 
 /** Mint one scope per read line. A module-level function, so the holder gets a stable identity. */
 function openReadScope(): ReadScope {

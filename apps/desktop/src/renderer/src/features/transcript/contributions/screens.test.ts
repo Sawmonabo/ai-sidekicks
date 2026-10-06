@@ -4,9 +4,9 @@
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { ScreenRegistry } from "#renderer/registries/screens/registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/context.js";
 import { registerTranscriptScreens } from "./screens.js";
 
 /**

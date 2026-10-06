@@ -5,18 +5,18 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { settle } from "@test/helpers/settle.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
+} from "#renderer/services/platform/bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { settle } from "#test/helpers/settle.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { ProvidersPage } from "../ProvidersPage.js";
-import { pressFirstStartControl } from "./accounts-fixture-body.test-support.js";
-import { registerAccountsFixtureBody } from "./register-accounts-fixture-body.js";
+import { pressFirstStartControl, signInAddressOf } from "./AccountsFixtureBody.test-support.js";
+import { registerAccountsFixtureBody } from "./register-accounts-body.js";
 
 afterEach(() => {
   cleanup();
@@ -46,6 +46,7 @@ describe("AccountsFixtureMount", () => {
     const accountRows = container.querySelectorAll(".meridian-accounts__rows > li");
     expect([...accountRows].map((row) => row.textContent)).toStrictEqual([
       expect.stringContaining("Claude — work"),
+      expect.stringContaining("Claude — token"),
       expect.stringContaining("Codex — personal"),
     ]);
 
@@ -54,22 +55,42 @@ describe("AccountsFixtureMount", () => {
     await settle(() => {
       fixture.scenarioEngine.advance(200);
     });
-    expect(container.textContent).toContain("provider.example.test/device");
+    expect(signInAddressOf(container)).toContain("provider.example.test/device");
+    // The code's time left counts down on the window's clock, a second at a time.
+    expect(container.textContent).toContain("This code expires in 15:00.");
+    await settle(() => {
+      fixture.scenarioEngine.advance(1000);
+    });
+    expect(container.textContent).toContain("This code expires in 14:59.");
+    await settle(() => {
+      fixture.scenarioEngine.advance(1000);
+    });
+    expect(container.textContent).toContain("This code expires in 14:58.");
   });
 
-  it("clears a sign-in the service reports finished on its own", async () => {
+  it("says a failed sign-in did not finish, then clears one that finishes", async () => {
     const { container, fixture } = await mountProvidersPage();
-    pressFirstStartControl(container);
-    await settle(() => {
-      fixture.scenarioEngine.advance(200);
-    });
-    expect(container.textContent).toContain("provider.example.test/device");
+    const signInEndsAfterStart = async (): Promise<void> => {
+      pressFirstStartControl(container);
+      await settle(() => {
+        fixture.scenarioEngine.advance(200);
+      });
+      expect(signInAddressOf(container)).toContain("provider.example.test/device");
+      // The scripted sign-in ends on its own seconds later, reported on the registry's tail.
+      await settle(() => {
+        fixture.scenarioEngine.advance(5000);
+      });
+      expect(signInAddressOf(container)).toBeUndefined();
+    };
 
-    // The scripted sign-in finishes on its own seconds later, reported on the registry's tail.
-    await settle(() => {
-      fixture.scenarioEngine.advance(5000);
-    });
-    expect(container.textContent).not.toContain("provider.example.test/device");
+    // The first sign-in fails, with the provider's own reason under the line.
+    await signInEndsAfterStart();
+    expect(container.textContent).toContain("Sign-in did not finish.");
+    expect(container.textContent).toContain("The device code expired before it was entered.");
+
+    // `Sign in` is still there, and the next attempt finishes and leaves nothing drawn.
+    await signInEndsAfterStart();
+    expect(container.textContent).not.toContain("Sign-in did not finish.");
   });
 
   it("reports no completion for a sign-in canceled before it finishes", async () => {
@@ -82,9 +103,9 @@ describe("AccountsFixtureMount", () => {
     await settle(() => {
       fixture.scenarioEngine.advance(200);
     });
-    const [cancelControl] = [...container.querySelectorAll("button")].filter(
-      (button) => button.textContent === "Cancel sign-in",
-    );
+    const [cancelControl] = [
+      ...container.querySelectorAll(".meridian-accounts__signin button"),
+    ].filter((button) => button.textContent === "Cancel");
     if (cancelControl === undefined) {
       throw new Error("the running sign-in rendered no control to cancel it");
     }
@@ -96,5 +117,59 @@ describe("AccountsFixtureMount", () => {
       fixture.scenarioEngine.advance(5000);
     });
     expect(registryFrames).toStrictEqual([]);
+  });
+
+  it("says the provider did not accept a pasted token, the field left empty", async () => {
+    const { container, fixture } = await mountProvidersPage();
+    const form = container.querySelector<HTMLFormElement>(".meridian-accounts__resupply");
+    const field = form?.querySelector<HTMLInputElement>('input[type="password"]');
+    if (form === null || field === undefined || field === null) {
+      throw new Error("the expired token account drew no field to paste a fresh token into");
+    }
+    fireEvent.change(field, { target: { value: "a-token-the-provider-refuses" } });
+    fireEvent.submit(form);
+    await settle(() => {
+      fixture.scenarioEngine.advance(200);
+    });
+
+    expect(form.querySelector('[role="alert"]')?.textContent).toBe(
+      "The provider did not accept that token.",
+    );
+    expect(field.value).toBe("");
+    expect(form.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+  });
+
+  it("moves the default to a signed-in account and refuses one whose login is gone", async () => {
+    const { container, fixture } = await mountProvidersPage();
+    const pressAccountRow = async (label: string): Promise<void> => {
+      const row = [...container.querySelectorAll(".meridian-accounts__rows > li")].find(
+        (candidate) => candidate.textContent.includes(label),
+      );
+      const press = row?.querySelector("button");
+      if (press === undefined || press === null) {
+        throw new Error(`the account list drew no row to press for ${label}`);
+      }
+      fireEvent.click(press);
+      await settle(() => {
+        fixture.scenarioEngine.advance(200);
+      });
+      await settleScheduledRead(fixture.scenarioEngine.clock);
+    };
+
+    // The signed-in account takes the mark, which the re-read registry shows.
+    await pressAccountRow("Claude — work");
+    const workRow = [...container.querySelectorAll(".meridian-accounts__rows > li")].find((row) =>
+      row.textContent.includes("Claude — work"),
+    );
+    expect(workRow?.textContent).toContain("Default");
+
+    // The token account's login is gone, so the move is refused with its own way back, the
+    // remedy the refusal carried rather than one guessed from the code.
+    await pressAccountRow("Claude — token");
+    const handoff = container.querySelector(".meridian-account-handoff__sentence");
+    expect(handoff?.textContent).toBe(
+      "This account cannot refresh itself. When the token stops working, mint a new one and " +
+        "paste it here. Mint a fresh token at the provider and paste it below.",
+    );
   });
 });

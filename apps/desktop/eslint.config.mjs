@@ -59,49 +59,73 @@ const RENDERER_RESTRICTED_PATHS = [
   {
     name: "electron",
     message:
-      "The renderer is untrusted: `electron` must NEVER be imported from renderer source. Route through the preload bridge (`window.desktopBridge`) instead. See apps/desktop/src/preload/index.ts.",
+      "The renderer is untrusted: `electron` must NEVER be imported from " +
+      "renderer source. Route through the preload bridge " +
+      "(`window.desktopBridge`) instead. See apps/desktop/src/preload/index.ts.",
   },
   {
     name: "fs",
     message:
-      "The renderer is untrusted: Node built-in `fs` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `fs` is forbidden " +
+      "in renderer source. Route through the preload bridge.",
   },
   {
     name: "child_process",
     message:
-      "The renderer is untrusted: Node built-in `child_process` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `child_process` is " +
+      "forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "net",
     message:
-      "The renderer is untrusted: Node built-in `net` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `net` is forbidden " +
+      "in renderer source. Route through the preload bridge.",
   },
   {
     name: "os",
     message:
-      "The renderer is untrusted: Node built-in `os` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `os` is forbidden " +
+      "in renderer source. Route through the preload bridge.",
   },
   {
     name: "path",
     message:
-      "The renderer is untrusted: Node built-in `path` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `path` is forbidden " +
+      "in renderer source. Route through the preload bridge.",
   },
   {
     name: "process",
     message:
-      "The renderer is untrusted: Node built-in `process` is forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: Node built-in `process` is " +
+      "forbidden in renderer source. Route through the preload bridge.",
   },
   {
     name: "@ai-sidekicks/runtime-daemon",
     message:
-      "The renderer is untrusted: the daemon package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.desktopBridge.daemon`).",
+      "The renderer is untrusted: the daemon package must NEVER be " +
+      "imported from renderer source (directly or through a local helper). " +
+      "Route through the preload bridge (`window.desktopBridge.daemon`).",
   },
   {
     name: "@ai-sidekicks/control-plane",
     message:
-      "The renderer is untrusted: the control-plane package must NEVER be imported from renderer source (directly or through a local helper). The control plane is reached through the background service, never from renderer source.",
+      "The renderer is untrusted: the control-plane package must NEVER be imported " +
+      "from renderer source (directly or through a local helper). The control " +
+      "plane is reached through the background service, never from renderer source.",
   },
 ];
+
+/** Why renderer source may not import main or preload code, however the specifier reaches it. */
+const RENDERER_INTO_MAIN_OR_PRELOAD =
+  "The renderer is untrusted: imports into `main/**` or `preload/**`, " +
+  "relative or through `#main` / `#preload`, are forbidden. The renderer's " +
+  "only cross-process surface is the `window.desktopBridge` bridge.";
+
+/** Why `src/shared/**` may not import main or preload code. */
+const SHARED_INTO_MAIN_OR_PRELOAD =
+  "`src/shared/**` is bundled into the renderer: it must never " +
+  "reach into `main/**` or `preload/**`. Dependencies point " +
+  "the other way: main imports shared, never the reverse.";
 
 /** The specifier GROUPS renderer source may not import. Hoisted for the same reason. */
 const RENDERER_RESTRICTED_PATTERNS = [
@@ -112,7 +136,9 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // this catches every present and future subpath.
     group: ["electron/**"],
     message:
-      "The renderer is untrusted: `electron` (and any `electron/*` subpath) must NEVER be imported from renderer source. Route through the preload bridge (`window.desktopBridge`) instead. See apps/desktop/src/preload/index.ts.",
+      "The renderer is untrusted: `electron` (and any `electron/*` subpath) must " +
+      "NEVER be imported from renderer source. Route through the preload bridge " +
+      "(`window.desktopBridge`) instead. See apps/desktop/src/preload/index.ts.",
   },
   {
     // The rule treats `fs` and `node:fs` as distinct specifiers, so `paths` bans the bare forms and
@@ -120,28 +146,36 @@ const RENDERER_RESTRICTED_PATTERNS = [
     // `node:stream/web`).
     group: ["node:**"],
     message:
-      "The renderer is untrusted: `node:*` protocol imports (and their subpaths, e.g. `node:fs/promises`) are forbidden in renderer source. Route through the preload bridge.",
+      "The renderer is untrusted: `node:*` protocol imports (and their subpaths, e.g. " +
+      "`node:fs/promises`) are forbidden in renderer source. Route through the preload bridge.",
   },
   {
     // Subpaths of the two banned workspace packages, which the `paths` entries do not cover
     // (`@ai-sidekicks/control-plane/router`). Same `**` semantics as the `electron/**` group.
     group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
     message:
-      "The renderer is untrusted: daemon / control-plane package subpaths are forbidden in renderer source. Route through the preload bridge (`window.desktopBridge`).",
+      "The renderer is untrusted: daemon / control-plane package subpaths are forbidden " +
+      "in renderer source. Route through the preload bridge (`window.desktopBridge`).",
   },
   {
-    // Escape into the main and preload subtrees, relative or through their aliases (`../main/x`,
-    // `@main/x`). `**` matches zero or more path segments, so any depth is caught. The only
-    // legitimate cross-process channel is `window.desktopBridge`.
-    group: ["**/main/**", "**/preload/**", "@main/**", "@preload/**"],
-    message:
-      "The renderer is untrusted: imports into `main/**` or `preload/**`, relative or through `@main` / `@preload`, are forbidden. The renderer's only cross-process surface is the `window.desktopBridge` bridge.",
+    // Escape into the main and preload subtrees by a relative path (`../main/x`). `**` matches
+    // zero or more path segments, so any depth is caught. The only legitimate cross-process
+    // channel is `window.desktopBridge`.
+    group: ["**/main/**", "**/preload/**"],
+    message: RENDERER_INTO_MAIN_OR_PRELOAD,
+  },
+  {
+    // The same escape through the package's `#main/*` and `#preload/*` imports. A regex, because
+    // `group` takes gitignore syntax, where a leading `#` starts a comment.
+    regex: "^#(?:main|preload)/",
+    message: RENDERER_INTO_MAIN_OR_PRELOAD,
   },
   {
     // Three or more `../` segments, at any depth.
     regex: "^(?:\\.\\./){3}",
     message:
-      "No deep relative import (`../../../`). Use the path alias for the folder it reaches (`@renderer/`, `@shared/`, `@fixtures/`); an import inside a module stays `./`.",
+      "No deep relative import (`../../../`). Use the package import for the folder it reaches " +
+      "(`#renderer/`, `#shared/`, `#fixtures/`); an import inside a module stays `./`.",
   },
 ];
 
@@ -151,7 +185,10 @@ const ZOD_IMPORT = {
   // them as distinct.
   group: ["zod", "zod/**"],
   message:
-    "A surface never parses a wire value itself. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+    "A surface never parses a wire value itself. Reach the daemon through " +
+    "`callDaemon` from `services/daemon/reply.ts`, which parses the reply " +
+    "against the method's registered schema and answers `served` or `refused`; a " +
+    "value that needs a shape needs a registry row, not a local validator.",
 };
 
 /** A contracts schema, which is a parser; types and non-schema values stay importable. */
@@ -165,12 +202,25 @@ const CONTRACTS_SCHEMA_IMPORT = {
   // way: the suffix is how this repository spells a parser.
   importNamePattern: "Schema$",
   message:
-    "A surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+    "A surface never parses a wire value itself, and a contracts schema is a parser. " +
+    "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`, " +
+    "which parses the reply against the method's registered schema and answers `served` " +
+    "or `refused`; a value that needs a shape needs a registry row, not a second " +
+    "reading of one. Types and non-schema values from this package are untouched.",
+};
+
+/** The daemon method table, which hands out each method's schemas: the same claim again. */
+const DAEMON_METHOD_BINDINGS_IMPORT = {
+  // A regex, because `group` takes gitignore syntax, where a leading `#` starts a comment.
+  regex: "^#shared/daemon/method-bindings\\.js$",
+  message:
+    "The daemon method table binds each method to its schemas, which are parsers. " +
+    "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`.",
 };
 
 /**
  * The groups a renderer module outside `services/` may not import: the renderer's, plus
- * the two that keep wire parsing out of a surface. Flat config replaces a rule's options
+ * the three that keep wire parsing out of a surface. Flat config replaces a rule's options
  * at the last matching block, so each narrower block below spreads these instead of
  * copying them.
  */
@@ -178,6 +228,7 @@ const RENDERER_WIRE_RESTRICTED_PATTERNS = [
   ...RENDERER_RESTRICTED_PATTERNS,
   ZOD_IMPORT,
   CONTRACTS_SCHEMA_IMPORT,
+  DAEMON_METHOD_BINDINGS_IMPORT,
 ];
 
 /**
@@ -250,10 +301,14 @@ function withoutSelectors(bans, ...liftedBans) {
 }
 
 /**
- * The files that may import a sheet from another folder: a lazily-loaded chunk root. `main.tsx`
- * joins them where this is used, for the global sheets.
+ * The files that may import a sheet from another folder: the chunk roots whose sheet styles
+ * components in several folders, and `main.tsx` for the global sheets.
  */
-const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
+const STYLESHEET_OWNER_FILES = [
+  "src/renderer/src/features/agents/pane/body.ts",
+  "src/renderer/src/features/transcript/contributions/pane-body.ts",
+  "src/renderer/src/main.tsx",
+];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */
 const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"];
@@ -313,14 +368,19 @@ const CLASS_SECTION_GROUPS = [
 const SET_INTERVAL_GLOBAL = {
   name: "setInterval",
   message:
-    "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+    "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
+    "through `lib/reads/refresh/scheduler.ts`. A `setInterval` is a " +
+    "second cadence nothing cancels on unmount, nothing pauses when the " +
+    "window is hidden, and nothing bounds when the daemon stops answering.",
 };
 
 /** The fixture build flag, read only by `app/App.tsx`, which chooses the fixture composition. */
 const FIXTURE_BUILD_FLAG_GLOBAL = {
   name: "__FIXTURE_BUILD__",
   message:
-    "Only `app/App.tsx` reads `__FIXTURE_BUILD__`: it chooses the fixture composition once, at startup. Take the fixture implementation from that composition instead of branching on the flag.",
+    "Only `app/App.tsx` reads `__FIXTURE_BUILD__`: it chooses the fixture " +
+    "composition once, at startup. Take the fixture implementation from " +
+    "that composition instead of branching on the flag.",
 };
 
 const desktopConfig = defineConfig(
@@ -340,39 +400,51 @@ const desktopConfig = defineConfig(
             {
               name: "electron",
               message:
-                "`src/shared/**` is bundled into the RENDERER: `electron` must never be imported here. Put main-process code in `src/main/**` and share only data and pure functions.",
+                "`src/shared/**` is bundled into the RENDERER: `electron` " +
+                "must never be imported here. Put main-process code in " +
+                "`src/main/**` and share only data and pure functions.",
             },
             {
               name: "@ai-sidekicks/runtime-daemon",
               message:
-                "`src/shared/**` is bundled into the renderer: the daemon package must never be imported here. Route through the preload bridge.",
+                "`src/shared/**` is bundled into the renderer: the daemon package " +
+                "must never be imported here. Route through the preload bridge.",
             },
             {
               name: "@ai-sidekicks/control-plane",
               message:
-                "`src/shared/**` is bundled into the renderer: the control-plane package must never be imported here. Route through the preload bridge.",
+                "`src/shared/**` is bundled into the renderer: the control-plane " +
+                "package must never be imported here. Route through the preload bridge.",
             },
           ],
           patterns: [
             {
               group: ["electron/**"],
               message:
-                "`src/shared/**` is bundled into the renderer: `electron` and every `electron/*` subpath are forbidden here.",
+                "`src/shared/**` is bundled into the renderer: `electron` " +
+                "and every `electron/*` subpath are forbidden here.",
             },
             {
               group: ["node:**"],
               message:
-                "`src/shared/**` is bundled into the renderer: `node:*` protocol imports (and their subpaths) are forbidden here.",
+                "`src/shared/**` is bundled into the renderer: `node:*` " +
+                "protocol imports (and their subpaths) are forbidden here.",
             },
             {
               group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
               message:
-                "Daemon / control-plane subpaths are forbidden in `src/shared/**`, which is bundled into the renderer.",
+                "Daemon / control-plane subpaths are forbidden in " +
+                "`src/shared/**`, which is bundled into the renderer.",
             },
             {
-              group: ["**/main/**", "**/preload/**", "@main/**", "@preload/**"],
-              message:
-                "`src/shared/**` is bundled into the renderer: it must never reach into `main/**` or `preload/**`. Dependencies point the other way: main imports shared, never the reverse.",
+              group: ["**/main/**", "**/preload/**"],
+              message: SHARED_INTO_MAIN_OR_PRELOAD,
+            },
+            {
+              // A regex, because `group` takes gitignore syntax, where a leading `#` starts a
+              // comment.
+              regex: "^#(?:main|preload)/",
+              message: SHARED_INTO_MAIN_OR_PRELOAD,
             },
           ],
         },
@@ -392,9 +464,9 @@ const desktopConfig = defineConfig(
   // `@ai-sidekicks/contracts` already ships.
   //
   // Every daemon reply the renderer reads is parsed in one module,
-  // `services/daemon/daemon-reply.ts`, against the schemas
-  // `services/daemon/daemon-reply-registry.ts` binds to each method. A surface that could reach the
-  // validator directly could parse a second time, differently, or skip the parse and keep the
+  // `services/daemon/reply.ts`, against the schemas
+  // `src/shared/daemon/method-bindings.ts` binds to each method. A surface that could reach
+  // the validator directly could parse a second time, differently, or skip the parse and keep the
   // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
   //
   // Banning `zod` alone left the second parser one import away: the contracts package publicly
@@ -405,16 +477,17 @@ const desktopConfig = defineConfig(
   // binding whose name ends in `Schema`.
   //
   // The import is banned, not the call: `.parse(` is not a zod name
-  // (`registries/commands/when-clause/when-clause-parser.ts` calls `.parse()` on its own parser and
+  // (`registries/commands/when-clause/parser.ts` calls `.parse()` on its own parser and
   // two time suites call `Date.parse`), so a call selector's findings would be mostly false.
   // `.safeParse(` needs no ban once the import is banned, because a schema can only arrive by
   // importing `zod`, importing this package, or through a renderer barrel that re-exported one, and
   // both import spellings refuse here.
   //
-  // `services/**` is exempt as a layer, not the chokepoint file alone: the registry composes
-  // contracts-exported schemas, the run-stream projector decodes a subscription payload, and the
-  // scenario contract checks assert against the wire's own shapes, three modules in one layer below
-  // every surface.
+  // `services/**` is exempt as a layer, not the chokepoint file alone: `callDaemon` reads the
+  // daemon method table, the run-stream projector decodes a subscription payload, and the scenario
+  // contract checks assert against the wire's own shapes, three modules in one layer below every
+  // surface. The table itself sits in `src/shared/`, because main's relay parses against it too,
+  // so it is banned here by its module name.
   //
   // It restates the renderer ban because flat config replaces a rule's options at the last matching
   // object, and spreads the hoisted arrays so the two cannot drift.
@@ -446,27 +519,12 @@ const desktopConfig = defineConfig(
       ],
     },
   },
-  // `zod` where a module owns the data it validates, never a contracts schema. The schema
-  // form validates a person's answers against a workflow's input schema, which is not a
-  // wire read.
-  {
-    files: ["src/renderer/src/features/workflows/schema-form/json-schema-validator.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [...RENDERER_RESTRICTED_PATTERNS, CONTRACTS_SCHEMA_IMPORT],
-        },
-      ],
-    },
-  },
   // A contracts schema and no `zod` of its own: the approval fold reads each approval
   // event's payload through that event's contract schema, because the stream decoder
   // passes payloads through unexamined and a half-read ask would draw a card for an
   // action nobody can see. The store may not import `services/`, so the read sits here.
   {
-    files: ["src/renderer/src/store/session-events/approval-flow-projection.ts"],
+    files: ["src/renderer/src/store/session/events/approval-flow-projection.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -496,15 +554,15 @@ const desktopConfig = defineConfig(
     },
   },
   {
-    // The main process spawns for real (the daemon supervisor and the PTY sidecar) through its own
-    // supervised lifetimes, not the test spawner, so it carries the dynamic-reach pair beside the
-    // import ban below, and the window-security bans, which main alone can break.
+    // The main process starts programs for real (the daemon service and the editor launcher)
+    // through its own supervised lifetimes, not the test spawner, so it carries the dynamic-reach
+    // pair beside the import ban below, and the window-security bans, which main alone can break.
     files: ["src/main/**/*.ts"],
     rules: { "no-restricted-syntax": ["error", ...MAIN_SYNTAX_BANS] },
   },
   {
     // The window factory is where windows are built; its settings stay held to their literals.
-    files: ["src/main/windows/window.ts"],
+    files: ["src/main/windows/factory.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -519,7 +577,7 @@ const desktopConfig = defineConfig(
   {
     // A chunk root imports the feature-wide sheets its body needs, and `main.tsx` the
     // global ones in `styles/`.
-    files: [...rendererFiles("**", STYLESHEET_OWNER_FILES), "src/renderer/src/main.tsx"],
+    files: STYLESHEET_OWNER_FILES,
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -588,7 +646,7 @@ const desktopConfig = defineConfig(
   {
     // The spawn module. It registers the kill on `onTestFinished`, which runs on a pass,
     // on a failure, and on vitest's own timeout kill alike.
-    files: ["tests/helpers/electron-child.ts"],
+    files: ["tests/helpers/electron/child/spawner.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -645,10 +703,10 @@ const desktopConfig = defineConfig(
   },
   // --- The refresh cadence: no wall-clock polling in the renderer ----------------
   //
-  // Every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` beside it is a
-  // second cadence that nothing cancels on unmount, pauses when the window is hidden, or bounds
-  // when the daemon stops answering. Both spellings are banned, since `window.setInterval` and the
-  // bare global are the same timer. The fixture build flag rides the same globals list.
+  // Every refresh goes through `lib/reads/refresh/scheduler.ts`. A `setInterval` beside it
+  // is a second cadence that nothing cancels on unmount, pauses when the window is hidden, or
+  // bounds when the daemon stops answering. Both spellings are banned, since `window.setInterval`
+  // and the bare global are the same timer. The fixture build flag rides the same globals list.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
     rules: {
@@ -659,13 +717,19 @@ const desktopConfig = defineConfig(
           object: "window",
           property: "setInterval",
           message:
-            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
+            "through `lib/reads/refresh/scheduler.ts`. A `setInterval` is a " +
+            "second cadence nothing cancels on unmount, nothing pauses when the " +
+            "window is hidden, and nothing bounds when the daemon stops answering.",
         },
         {
           object: "globalThis",
           property: "setInterval",
           message:
-            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
+            "through `lib/reads/refresh/scheduler.ts`. A `setInterval` is a " +
+            "second cadence nothing cancels on unmount, nothing pauses when the " +
+            "window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
     },
@@ -692,13 +756,21 @@ const desktopConfig = defineConfig(
               name: "node:child_process",
               importNames: ["spawn"],
               message:
-                "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
+                "Mechanical gate 5 in `apps/desktop/AGENTS.md`: " +
+                "`tests/helpers/electron/child/spawner.ts` is the only module that reaches " +
+                "`spawn`, and it registers the kill on `onTestFinished` — which " +
+                "runs on a pass, on a failure, and on vitest's own timeout kill " +
+                "alike. A child a timer was going to kill is reparented to init " +
+                "when the worker is torn down first. `spawnSync` is untouched.",
             },
             {
               name: "child_process",
               importNames: ["spawn"],
               message:
-                "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
+                "Mechanical gate 5 in `apps/desktop/AGENTS.md`: " +
+                "`tests/helpers/electron/child/spawner.ts` is the only module that reaches " +
+                "`spawn`, and it registers the kill on `onTestFinished`. The prefix-less " +
+                "specifier resolves to the same builtin. `spawnSync` is untouched.",
             },
           ],
         },
@@ -707,7 +779,14 @@ const desktopConfig = defineConfig(
   },
   {
     // The spawn module itself.
-    files: ["tests/helpers/electron-child.ts"],
+    files: ["tests/helpers/electron/child/spawner.ts"],
+    rules: { "no-restricted-imports": "off" },
+  },
+  {
+    // Main's one start of the background service. Its child is meant to outlive the app, so it
+    // starts detached and released; no test or app lifetime owns it, and the supervisor reaches
+    // it only through its socket. A test that starts it kills it by process id in teardown.
+    files: ["src/main/services/daemon/service/start.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   // --- Member order: file and class shapes, mechanical gates 10 and 11 in `apps/desktop/AGENTS.md`

@@ -30,7 +30,7 @@ export const APPROVAL_STATE_LABELS: Readonly<Record<ApprovalState, string>> = {
   canceled: "Canceled",
 };
 
-/** A remembered rule's reach, in the words its label and its Rules row use. */
+/** A remembered rule's reach, in the words the card's answers and its Rules row use. */
 export const RULE_SCOPE_LABELS: Readonly<Record<RememberedScopeKind, string>> = {
   session: "this session",
   project: "this project",

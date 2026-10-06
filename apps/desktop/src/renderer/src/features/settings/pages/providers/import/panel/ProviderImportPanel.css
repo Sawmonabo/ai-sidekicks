@@ -1,0 +1,96 @@
+/* The provider-import panel's styles. The action and `Stop` wear the shared action button from
+   `styles/action-buttons.css`, and a row that unfolds wears the shared disclosure trigger. */
+
+.meridian-provider-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/* The action's name and line on the left, the action on the right. */
+.meridian-provider-import__head {
+  display: flex;
+  gap: var(--meridian-space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.meridian-provider-import__words {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-provider-import__name {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-provider-import__submit {
+  flex: none;
+}
+
+.meridian-provider-import__submit:disabled {
+  color: var(--meridian-text-muted);
+  cursor: not-allowed;
+}
+
+/* The line under the name, and the one progress row: quiet text. */
+.meridian-provider-import__lede,
+.meridian-provider-import__progress {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-provider-import__progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+/* The bar under a running import, on a line of its own. It sweeps rather than fills, since the
+   stream sends no total; the global reduced-motion rule stops the sweep like every animation. */
+.meridian-provider-import__bar {
+  flex-basis: 100%;
+  block-size: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  appearance: none;
+  background-color: var(--meridian-surface-sunken);
+  background-image: linear-gradient(90deg, transparent, var(--meridian-accent), transparent);
+  background-repeat: no-repeat;
+  background-size: 50% 100%;
+  animation: meridian-provider-import-sweep var(--meridian-motion-breath) linear infinite;
+}
+
+.meridian-provider-import__bar::-webkit-progress-bar {
+  background: transparent;
+}
+
+@keyframes meridian-provider-import-sweep {
+  from {
+    background-position: -100% 0;
+  }
+
+  to {
+    background-position: 200% 0;
+  }
+}
+
+/* What a settled row unfolds: each failure with its reason, and each file that could not be
+   read. */
+.meridian-provider-import__unfolded {
+  flex-basis: 100%;
+}
+
+.meridian-provider-import__unfolded-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

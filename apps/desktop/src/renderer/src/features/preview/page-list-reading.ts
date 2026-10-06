@@ -2,9 +2,9 @@
 // navigation one: a pane showing nothing still owns pages, and a pane whose list has not arrived
 // still has a URL to render. Active page and loading state come off the served frame.
 
-import type { PreviewPage, PreviewPageListFrame } from "@ai-sidekicks/contracts/preview";
+import type { PreviewPage, PreviewPageListFrame } from "@ai-sidekicks/contracts/preview/methods";
 
-import type { ReadingState } from "@renderer/lib/partial-read.js";
+import type { ReadingState } from "#renderer/lib/partial-read.js";
 
 /**
  * What the pane knows about the session's pages right now. Like `NavigationReading`, an ended

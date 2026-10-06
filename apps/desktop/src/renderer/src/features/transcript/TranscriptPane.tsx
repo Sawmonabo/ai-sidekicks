@@ -2,14 +2,11 @@
 // renderer its rows are drawn with. The close control is not defaulted: a control nobody can
 // perform is left out, so a close prop is forwarded only where the caller owns the pane.
 
-import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import {
-  findTranscriptRowRenderer,
-  type TranscriptRowRenderer,
-} from "./transcript-row-renderer.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { findTranscriptRowRenderer, type TranscriptRowRenderer } from "./rows/renderer.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
 
 /** The pane context narrowed to the transcript arm, using the pane registry's own narrowing. */
@@ -40,6 +37,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       <TranscriptPaneBody
         renderTranscriptRow={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
+        messageAnchorCursor={sessionMessageAnchorCursor(route)}
       />
     </PaneFrame>
   );
@@ -53,7 +51,8 @@ function registeredTranscriptRowRenderer(): TranscriptRowRenderer {
   const renderer = findTranscriptRowRenderer();
   if (renderer === undefined) {
     throw new Error(
-      "No transcript row renderer is registered. The transcript pane's body registers it when it loads.",
+      "No transcript row renderer is registered. The transcript pane's " +
+        "body registers it when it loads.",
     );
   }
   return renderer;

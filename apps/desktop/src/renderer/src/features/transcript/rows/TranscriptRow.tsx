@@ -8,11 +8,11 @@ import { useCallback, useState } from "react";
 
 import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
-import { type TranscriptRowDensity, type TranscriptRowProps } from "../transcript-row-renderer.js";
-import { findTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
-import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
+import { type TranscriptRowDensity, type TranscriptRowProps } from "./renderer.js";
+import { findTranscriptRowFooterRenderer } from "./footer-renderer.js";
+import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 import { MessageRow } from "./MessageRow.js";
-import { classifyTranscriptRow } from "./row-kind.js";
+import { classifyTranscriptRow } from "./kind.js";
 import { ThinkingRowWithRead } from "./thinking/ThinkingRowWithRead.js";
 import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";
@@ -75,6 +75,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           density={density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
+          replyRowIds={props.replyRowIds}
           editControl={editControlOf(props)}
           thinkingRow={
             rowKind.kind === "thinking" ? (

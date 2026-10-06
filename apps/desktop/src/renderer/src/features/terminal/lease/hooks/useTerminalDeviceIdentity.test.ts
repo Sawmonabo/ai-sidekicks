@@ -40,7 +40,7 @@ interface IdentityProps {
 }
 
 describe("the terminal device identity", () => {
-  it("reverts to not-loaded for a different session, then reads that session's device", async () => {
+  it("reverts to not-loaded for another session, then reads that session's device", async () => {
     const held = heldRead();
     const bridge = terminalFixtureBridge();
     const { result, rerender } = renderHook(

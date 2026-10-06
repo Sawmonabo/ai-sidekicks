@@ -1,8 +1,12 @@
 // Announces a newly pending card, and moves focus to it only when the composer had focus.
 
+import { isHTMLElement } from "@floating-ui/utils/dom";
 import { useEffect, useRef, useState } from "react";
 
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
+
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { APPROVAL_CATEGORY_LABELS } from "#renderer/lib/approval-vocabulary.js";
 
 import { findApprovalCardAction } from "../components/ApprovalCard.js";
 
@@ -13,8 +17,6 @@ const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
  * Announces a newly pending card and moves focus to its action only when the composer had it.
  * Focus lands on the arrived record's own card, found within `cardRootRef`, because the
  * announcement names that record and a document-wide query could land on an older card.
- *
- * @consumedBy the approval card's arrival focus
  */
 export function useApprovalArrivalAnnouncement(
   pending: readonly ApprovalProjectionRow[],
@@ -22,6 +24,7 @@ export function useApprovalArrivalAnnouncement(
 ): string {
   const [announcement, setAnnouncement] = useState("");
   const seenIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const ownerDocument = useOwnerWindow().document;
 
   useEffect(() => {
     const currentIds = new Set(pending.map((record) => record.id));
@@ -36,18 +39,18 @@ export function useApprovalArrivalAnnouncement(
     }
     setAnnouncement(
       arrived.length === 1
-        ? `A decision is waiting: ${first.category} requested by ${first.requestedBy}.`
-        : `${String(arrived.length)} decisions are waiting.`,
+        ? `Approval needed: ${APPROVAL_CATEGORY_LABELS[first.category]}.`
+        : `${String(arrived.length)} approvals needed.`,
     );
-    const focused = document.activeElement;
-    if (!(focused instanceof HTMLElement) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
+    const focused = ownerDocument.activeElement;
+    if (!isHTMLElement(focused) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
       return;
     }
     // Scoped to this pane, since a pane layout may hold a second one. The focus move never
     // scrolls the conversation.
-    const action = findApprovalCardAction(cardRootRef.current ?? document, first.id);
+    const action = findApprovalCardAction(cardRootRef.current ?? ownerDocument, first.id);
     action?.focus({ preventScroll: true });
-  }, [pending, cardRootRef]);
+  }, [pending, cardRootRef, ownerDocument]);
 
   return announcement;
 }

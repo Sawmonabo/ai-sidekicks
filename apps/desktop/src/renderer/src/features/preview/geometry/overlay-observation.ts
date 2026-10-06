@@ -3,12 +3,9 @@
 // a view no frame is armed. A transition reports only its start and end, so a moving overlay is
 // sampled once per frame in flight, and the last frame publishes where it came to rest.
 
-import type {
-  AirspaceMotionObserver,
-  AirspaceOverlayElement,
-} from "@renderer/lib/airspace-registry.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { AirspaceMotionObserver, AirspaceOverlayElement } from "#renderer/lib/airspace.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./element-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";
 
@@ -47,7 +44,7 @@ class OverlayMotionObservation {
       onFrame: onMoved,
     });
     this.#samplersByElement.set(element, sampler);
-    this.#armMotionStarts();
+    this.#armMotionStarts(element.ownerDocument);
     if (hasRunningMotion(element)) {
       // Observed mid-animation: the start event has already come and gone.
       sampler.startIfIdle();
@@ -59,11 +56,12 @@ class OverlayMotionObservation {
     };
   }
 
-  #armMotionStarts(): void {
+  /** Every watched overlay is in one document: the airspace it came from is that document's. */
+  #armMotionStarts(ownerDocument: Document): void {
     if (this.#detachMotionStarts !== undefined) {
       return;
     }
-    this.#detachMotionStarts = observeMotionStarts((movingNode) => {
+    this.#detachMotionStarts = observeMotionStarts(ownerDocument, (movingNode) => {
       for (const [element, sampler] of this.#samplersByElement) {
         if (sharesMotionWith(element, movingNode)) {
           sampler.startIfIdle();

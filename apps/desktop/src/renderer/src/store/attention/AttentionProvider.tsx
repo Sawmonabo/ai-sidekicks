@@ -7,14 +7,11 @@
 
 import { useCallback, useMemo, type ReactNode } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
-import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
-import {
-  requestSessionDirectoryRead,
-  type SessionDirectoryReadCall,
-} from "../session-directory/session-directory.js";
-import { useSessionDirectory } from "../session-directory/useSessionDirectory.js";
-import { type SessionStoreRegistry } from "../session/session-store-registry.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { type SessionDirectoryFeed } from "../session/directory/state.js";
+import { sessionDirectoryFeeds } from "../session/directory/feeds.js";
+import { useSessionDirectory } from "../session/directory/useSessionDirectory.js";
+import { type SessionStoreRegistry } from "../session/registry.js";
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
@@ -24,12 +21,10 @@ import { WindowAttentionContext, type WindowAttention } from "./hooks/useAttenti
 /** The subtree it provides for, and the calls and window handles it keeps answers from. */
 export interface AttentionProviderProps {
   readonly children: ReactNode;
-  /** The call that lists the service's sessions. */
-  readonly readDirectory: SessionDirectoryReadCall;
+  /** The window's feed of the service's sessions. */
+  readonly sessionDirectoryFeed: SessionDirectoryFeed;
   /** The call that reads the attention projection. */
   readonly readAttention: AttentionProjectionReadCall;
-  /** The bridge's reconnect signal, which re-reads the directory. */
-  readonly transportReconnect: TransportReconnectObservable;
   readonly sessionStoreRegistry: SessionStoreRegistry;
   /** The window's clock, which the attention read's scheduling runs on. */
   readonly clock: Clock;
@@ -40,16 +35,16 @@ export interface AttentionProviderProps {
  * composition mounts it, never a route.
  */
 export function AttentionProvider(props: AttentionProviderProps): React.JSX.Element {
-  const directory = useSessionDirectory(props.readDirectory, props.transportReconnect);
+  const directory = useSessionDirectory(props.sessionDirectoryFeed);
   const reading = useAttentionProjection(
     props.readAttention,
     props.sessionStoreRegistry,
     props.clock,
   );
-  const { readDirectory } = props;
+  const { sessionDirectoryFeed } = props;
   const recheckDirectory = useCallback(() => {
-    requestSessionDirectoryRead(readDirectory);
-  }, [readDirectory]);
+    sessionDirectoryFeeds.reread(sessionDirectoryFeed);
+  }, [sessionDirectoryFeed]);
   const held = useMemo<WindowAttention>(
     () => ({
       directory,

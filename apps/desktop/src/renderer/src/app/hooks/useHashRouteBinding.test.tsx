@@ -6,18 +6,18 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { SESSIONS_HASH } from "@test/helpers/mount-app.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { SESSIONS_HASH } from "#test/helpers/mount-app.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
 import { useHashRouteBinding } from "./useHashRouteBinding.js";
 
 const SETTINGS_HASH = "#/settings";
 const SESSION_HASH = "#/session/session-alpha";
 
 function BoundFrame(props: { readonly frameStore: WindowStore }): React.JSX.Element {
-  const hash = useLocationHash();
-  useHashRouteBinding(props.frameStore, hash);
+  const hash = useLocationHash(window);
+  useHashRouteBinding(props.frameStore, hash, window);
   return <div data-testid="bound" />;
 }
 

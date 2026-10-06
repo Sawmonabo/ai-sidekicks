@@ -3,18 +3,21 @@
  *
  * `meridian-action-button` is a button that does something. The base holds only what every such
  * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer.
- * Sizes: `--regular` is the small text step with roomy side padding; `--small` is the smallest
- * text step with tight padding, laid out for a glyph beside the label. Faces: `--outline` is the
+ * Sizes: `--regular` is the small text step with roomy side padding; `--compact` is the smallest
+ * text step with the same roomy padding; `--small` is the smallest text step with tight padding.
+ * `--compact` and `--small` lay a glyph out beside the label. Faces: `--outline` is the
  * page surface under the strong edge; `--raised` is the raised surface under the quiet edge,
- * which strengthens on hover. A size or face no other control shares stays in that control's
- * class.
+ * which strengthens on hover and sinks with its text faded while disabled. `--destructive` marks
+ * a face red while it is enabled. A size or face no other control shares stays in that
+ * control's class.
  *
  * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
  * it (a details toggle, a message's Copy) and holds the whole treatment.
  *
  * The base and modifiers sit inside `:where()` so they carry no specificity: a control's own
  * class, state and variant win whichever sheet loads first. A global sheet, loaded through
- * `global-sheets.ts`; every value is a Meridian token.
+ * `global-sheets.ts`; every value is a Meridian token but the 1px hairline, which stays a pixel
+ * at every text size.
  */
 
 /* --- the action button ------------------------------------------------------- */
@@ -32,12 +35,19 @@
   font-size: var(--meridian-text-sm);
 }
 
-:where(.meridian-action-button--small) {
+:where(.meridian-action-button--compact, .meridian-action-button--small) {
   display: inline-flex;
   gap: var(--meridian-space-1);
   align-items: center;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
   font-size: var(--meridian-text-xs);
+}
+
+:where(.meridian-action-button--compact) {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+}
+
+:where(.meridian-action-button--small) {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
 }
 
 :where(.meridian-action-button--outline) {
@@ -54,6 +64,22 @@
 
 :where(.meridian-action-button--raised:hover:enabled) {
   border-color: var(--meridian-edge-strong);
+}
+
+:where(.meridian-action-button--raised:disabled) {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/*
+ * Destructive marks the face it sits on in the palette's red, on text and edge only: a filled red
+ * control would read as the primary act. Only while enabled, so a closed destructive control
+ * fades like any other, and after the hover rule, so its edge stays red under the pointer.
+ */
+:where(.meridian-action-button--destructive:enabled) {
+  color: var(--meridian-red-text);
+  border-color: var(--meridian-red-mark);
 }
 
 /* --- the disclosure trigger -------------------------------------------------- */

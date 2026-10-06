@@ -26,37 +26,42 @@ describe("mounted transcript — which feed an act reaches", () => {
   it("performs on the mounted transcript and says so", () => {
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
-    mountedTranscript.adopt(namedActs("pane", fired));
-    expect(mountedTranscript.perform("openFind")).toStrictEqual({
+    mountedTranscript.adopt(namedActs("pane", fired), document);
+    expect(mountedTranscript.perform("openFind", document)).toStrictEqual({
       status: "performed",
       act: "openFind",
     });
     expect(fired).toStrictEqual(["pane:openFind"]);
   });
 
-  it("acts on the newest mount while both are up", () => {
+  it("acts on the newest mount in the window the act runs in while several are up", () => {
     // Two panes are two feeds, and the chord acts on the one mounted last, not the list's first.
+    // A feed in another window, mounted later still, never takes this window's chord.
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
-    mountedTranscript.adopt(namedActs("first", fired));
-    mountedTranscript.adopt(namedActs("second", fired));
-    mountedTranscript.perform("jumpToLatest");
+    mountedTranscript.adopt(namedActs("first", fired), document);
+    mountedTranscript.adopt(namedActs("second", fired), document);
+    mountedTranscript.adopt(
+      namedActs("another window", fired),
+      document.implementation.createHTMLDocument(),
+    );
+    mountedTranscript.perform("jumpToLatest", document);
     expect(fired).toStrictEqual(["second:jumpToLatest"]);
   });
 
   it("releases by identity, so an unmount drops its own adoption", () => {
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
-    const releaseFirst = mountedTranscript.adopt(namedActs("first", fired));
-    mountedTranscript.adopt(namedActs("second", fired));
+    const releaseFirst = mountedTranscript.adopt(namedActs("first", fired), document);
+    mountedTranscript.adopt(namedActs("second", fired), document);
     releaseFirst();
-    mountedTranscript.perform("foldEveryRun");
+    mountedTranscript.perform("foldEveryRun", document);
     expect(fired).toStrictEqual(["second:foldEveryRun"]);
   });
 
   it("refuses rather than silently doing nothing when nothing is mounted", () => {
     const mountedTranscript = new MountedTranscript();
-    expect(mountedTranscript.perform("openFind")).toStrictEqual({
+    expect(mountedTranscript.perform("openFind", document)).toStrictEqual({
       status: "refused",
       refusal: TRANSCRIPT_NOT_MOUNTED_REFUSAL,
     });
@@ -80,10 +85,10 @@ describe("mounted transcript — a component fills the holder for its lifetime",
     const mounted = render(
       createElement(TranscriptMountProbe, { name: "feed", fired, mountedTranscript }),
     );
-    mountedTranscript.perform("jumpToLatest");
+    mountedTranscript.perform("jumpToLatest", document);
     expect(fired).toStrictEqual(["feed:jumpToLatest"]);
     mounted.unmount();
-    expect(mountedTranscript.perform("jumpToLatest").status).toBe("refused");
+    expect(mountedTranscript.perform("jumpToLatest", document).status).toBe("refused");
   });
 
   it("acts through the latest render's callbacks rather than the first render's", () => {
@@ -98,7 +103,7 @@ describe("mounted transcript — a component fills the holder for its lifetime",
     mounted.rerender(
       createElement(TranscriptMountProbe, { name: "feed", fired: laterPass, mountedTranscript }),
     );
-    mountedTranscript.perform("stepFindNext");
+    mountedTranscript.perform("stepFindNext", document);
     expect(laterPass).toStrictEqual(["feed:stepFindNext"]);
     expect(firstPass).toStrictEqual([]);
   });

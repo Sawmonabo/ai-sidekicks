@@ -1,0 +1,70 @@
+/* The frame's own styles: the window box, its banners and the screen region. */
+
+/* The reflow floor lives on this box. Below it the document scrolls horizontally, which WCAG 2.2
+   SC 1.4.10 permits under 320 CSS px; above it the frame is fluid. On macOS the rail is as wide
+   as the traffic lights, whose area starts the content at `env(titlebar-area-x)`; that value is
+   undefined in fullscreen and on every other platform, where the rail keeps its own width. */
+.meridian-frame {
+  display: grid;
+  grid-template-columns: max(var(--meridian-rail-width), env(titlebar-area-x, 0px)) minmax(0, 1fr);
+  min-width: var(--meridian-reflow-min-width);
+  height: 100%;
+  min-height: 0;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+}
+
+/* A frame with no rail holds no control, so the whole window is its drag region: with no title
+   bar on macOS, nothing else would move it. */
+.meridian-frame--bare {
+  grid-template-columns: minmax(0, 1fr);
+  app-region: drag;
+}
+
+/* Carries `inert` while a modal overlay is open. `display: contents` keeps it out of the grid, so
+   the rail and the column still get their tracks. */
+.meridian-frame__background {
+  display: contents;
+}
+
+.meridian-frame__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-frame__banners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3) var(--meridian-space-4) 0;
+}
+
+/* --- Notice ------------------------------------------------------------ */
+
+/* One line about the window itself, above the banners, with its one control beside the words. */
+.meridian-frame__notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin: 0;
+  padding: var(--meridian-space-3) var(--meridian-space-4) 0;
+  font-size: var(--meridian-text-sm);
+}
+
+/* --- Banner ------------------------------------------------------------ */
+
+/* One banner, as one element of the column above. */
+.meridian-frame__banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-frame__screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}

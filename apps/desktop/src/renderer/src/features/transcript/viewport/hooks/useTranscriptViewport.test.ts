@@ -9,19 +9,19 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../viewport-constants.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { TRANSCRIPT_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../caps.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
-import { ViewportController } from "../viewport-controller.js";
-import type { ViewportRow } from "../viewport-snapshot.js";
+import { ViewportController } from "../controller.js";
+import type { ViewportRow } from "../snapshot.js";
 import {
   CALM,
   LAID_OUT_CONTENT_HEIGHT_PX,
   LAID_OUT_VIEWPORT_HEIGHT_PX,
   syntheticRows,
   withLaidOutViewport,
-} from "../viewport-controller.test-support.js";
+} from "../controller.test-support.js";
 import { type PruneDeferralReason } from "../window-cap.js";
 
 const TAIL_OFFSET_PX = LAID_OUT_CONTENT_HEIGHT_PX - LAID_OUT_VIEWPORT_HEIGHT_PX;
@@ -29,7 +29,7 @@ const TAIL_OFFSET_PX = LAID_OUT_CONTENT_HEIGHT_PX - LAID_OUT_VIEWPORT_HEIGHT_PX;
  * Inside the tail tolerance, so the reader counts as at the tail, yet far enough that a glide
  * to the exact tail moves the offset and publishes a sample subscribers are woken for.
  */
-const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
+const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - SCROLL_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
 const OVER_CAP_ROW_COUNT = TRANSCRIPT_WINDOW_ROW_CAP + 40;
 
@@ -120,10 +120,11 @@ describe("the transcript viewport binding — a prune the window refused", () =>
 
 describe("the transcript viewport binding — a prune the write itself refused", () => {
   it("takes the rows once the write that vetoed them has finished", () => {
-    // The reader never leaves the tail and nothing is pinned, so the prune outcome's identity
-    // is the only dependency that moves. The veto is raised and dropped inside one synchronous
-    // glide, so reconciling under it needs a subscriber the glide wakes, as in
-    // `viewport-controller.test.ts`; keying the retry on the refusal makes it reachable.
+    // The reader never leaves the tail and nothing is pinned, so the prune outcome's identity is
+    // the only dependency that moves. The veto is raised and dropped inside one synchronous glide,
+    // so reconciling under it needs a subscriber the glide wakes, as in
+    // `features/transcript/viewport/controller.test.ts`; keying the retry on the refusal makes it
+    // reachable.
     withLaidOutViewport();
     const { binding, controller } = mountBinding(
       syntheticRows(SETTLED_ROW_COUNT),

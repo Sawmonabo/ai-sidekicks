@@ -3,19 +3,19 @@
 // The control is absent, not disabled, on a row with no run attribution: the read is run-scoped,
 // and a disabled control would claim an action that exists but is not permitted.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type {
   ReasoningEntry,
   ReasoningSurfaceReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   REASONING_AVAILABILITY_COPY,
   reasoningTailOf,
   type ReasoningReading,
 } from "./reasoning-reading.js";
 
-import "./thinking.css";
+import "./ThinkingRow.css";
 
 /** What a mount hands the reasoning row. */
 export interface ThinkingRowProps {
@@ -107,8 +107,9 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
   return (
     <ol className="meridian-reasoning-surface__entries" aria-label="reasoning entries">
       {entries.map((entry) => (
-        <li key={entry.sequence} className="meridian-reasoning-surface__entry">
-          {entry.content}
+        <li key={entry.sequence}>
+          {/* Preformatted, so text copied out of it keeps its lines. */}
+          <pre className="meridian-reasoning-surface__entry">{entry.content}</pre>
         </li>
       ))}
     </ol>

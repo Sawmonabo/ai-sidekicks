@@ -12,8 +12,8 @@ import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
   type IdleWarmScheduler,
-} from "@renderer/components/LazyBody/lazy-body-warm.js";
-import { type SettingsPageRegistry } from "../settings-pages.js";
+} from "#renderer/components/LazyBody/idle-warm.js";
+import { type SettingsPageRegistry } from "../pages/registry.js";
 
 /**
  * Warm this mount's loader-backed settings pages once, after its first frame.
@@ -31,7 +31,7 @@ export function useSettingsPageIdleWarm(
   const [warmScheduler] = useState(() => scheduler);
   useEffect(() => {
     // Built inside the setup: a walk is once-per-instance and permanently cancelable, so under
-    // `StrictMode` a held walk would be canceled by the replayed cleanup and stay cold.
+    // `StrictMode` a held walk would be canceled by the re-run's cleanup and stay cold.
     const walk = new LazyBodyIdleWarm(pages, warmScheduler);
     walk.start();
     return () => {

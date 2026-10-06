@@ -1,22 +1,22 @@
-// What the viewport draws and refuses to mount. `happy-dom` answers zero for every geometry
-// read, so geometry-dependent states (the tail pill, the anchor holding across an append) are
-// asserted in `reading-anchor.test.ts` and `viewport-controller.test.ts`. Here: the feed is
-// named, only a slice of the log is in the document, and a settled viewport has no timer
-// armed. `withLaidOutViewport` stands in for the layout engine only; every module in the
-// assertion path is the shipped one.
+// What the viewport draws and refuses to mount. `happy-dom` answers zero for every geometry read,
+// so geometry-dependent states (the tail pill, the anchor holding across an append) are asserted in
+// `reading-anchor.test.ts` and `features/transcript/viewport/controller.test.ts`. Here: the feed is
+// named, only a slice of the log is in the document, and a settled viewport has no timer armed.
+// `withLaidOutViewport` stands in for the layout engine only; every module in the assertion path is
+// the shipped one.
 
 import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock, type Clock } from "@renderer/lib/clock.js";
+import { ManualClock, type Clock } from "#renderer/lib/clock.js";
 import { TranscriptViewport } from "./TranscriptViewport.js";
 import {
   useTranscriptViewport,
   type TranscriptViewportBinding,
 } from "../hooks/useTranscriptViewport.js";
-import type { ViewportRow } from "../viewport-snapshot.js";
-import { syntheticRows, withLaidOutViewport } from "../viewport-controller.test-support.js";
+import type { ViewportRow } from "../snapshot.js";
+import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
 
 const LONG_LOG_ROW_COUNT = 500;
 

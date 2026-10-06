@@ -16,7 +16,7 @@
 // grid, scrollback and texture atlas; past the cap a terminal uses the DOM renderer, which
 // reflows about a device pixel per cell (xterm.js issue #6015).
 
-import { TERMINAL_WEBGL_POOL_CAP } from "../terminal-caps.js";
+import { TERMINAL_WEBGL_POOL_CAP } from "../caps.js";
 
 /**
  * One created context's standing in the pool, minted by `acquire` and handed back to

@@ -83,7 +83,7 @@ pub struct ResizeRequest {
 /// Reply to a [`ResizeRequest`].
 ///
 /// `error` is set when the resize failed, most often
-/// [`crate::pty_session::PtySessionError::UnknownSession`] because the session exited between the
+/// [`crate::session::PtySessionError::UnknownSession`] because the session exited between the
 /// request and its dispatch.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ResizeResponse {
@@ -104,8 +104,8 @@ pub struct WriteRequest {
 
 /// Reply to a [`WriteRequest`].
 ///
-/// `error` is set on failure, typically [`crate::pty_session::PtySessionError::UnknownSession`]
-/// (the session exited) or [`crate::pty_session::PtySessionError::WriterUnavailable`] (the writer
+/// `error` is set on failure, typically [`crate::session::PtySessionError::UnknownSession`]
+/// (the session exited) or [`crate::session::PtySessionError::WriterUnavailable`] (the writer
 /// was already taken).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WriteResponse {
@@ -126,7 +126,7 @@ pub struct KillRequest {
 /// [`ExitCodeNotification`] carries the terminal status.
 ///
 /// `error` is set when the kill failed, most often
-/// [`crate::pty_session::PtySessionError::UnknownSession`] because the session exited just before
+/// [`crate::session::PtySessionError::UnknownSession`] because the session exited just before
 /// the request arrived. That race cannot be avoided: the `ExitCodeNotification` may still be in
 /// flight to the daemon.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

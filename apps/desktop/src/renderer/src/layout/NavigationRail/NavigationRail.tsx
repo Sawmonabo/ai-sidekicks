@@ -2,11 +2,11 @@
 // memory. It renders exactly the entries it is handed and has no availability flag: an unreachable
 // destination is absent, not disabled. It carries no color except the accent on the current one.
 
-import type { GlyphName } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import type { RailDestination } from "@renderer/routing/route-readers.js";
+import type { GlyphName } from "#renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import type { RailDestination } from "#renderer/routing/readers.js";
 
-import "./navigation-rail.css";
+import "./NavigationRail.css";
 
 /** What one destination shows. Availability is decided elsewhere. */
 export interface RailEntryTemplate {
@@ -62,7 +62,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
 /**
  * What each rail destination shows. A total `Record` over the destination union, so a new
  * destination fails to typecheck until it has an entry. Rail order is not here: it comes from the
- * `RAIL_DESTINATIONS` tuple where the entries are built (`rail-navigation.ts`).
+ * `RAIL_DESTINATIONS` tuple where the entries are built (`destinations.ts`).
  */
 export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTemplate>> = {
   sessions: { label: "Sessions", glyph: "sessions" },

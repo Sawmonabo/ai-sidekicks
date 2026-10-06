@@ -17,17 +17,17 @@
 // pair dropped by a discarded render, which no effect closed over.
 
 import { useEffect } from "react";
-import { type Clock } from "@renderer/lib/clock.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useBridgeComposition } from "@renderer/services/platform/hooks/useBridgeComposition.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { type EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
-import { SessionEventSubscriber } from "@renderer/services/session-events/session-event-subscriber.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { useBridgeComposition } from "#renderer/services/platform/hooks/useBridgeComposition.js";
+import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { type EntityProjectorRegistry } from "#renderer/registries/entity-projectors/registry.js";
+import { type SessionBaseStateReader } from "#renderer/store/session/open/entry.js";
+import { SessionEventSubscriber } from "#renderer/services/session-events/subscriber.js";
 
 /**
  * This window's session-store registry, rebuilt on a new bridge and disposed with the window.
@@ -100,7 +100,7 @@ function createWindowSessionPlumbing(
     // an open store would fold two events of one kind two ways.
     projectors: projectorRegistry.snapshot(),
   });
-  return { registry, subscriber: new SessionEventSubscriber({ registry, bridge }) };
+  return { registry, subscriber: new SessionEventSubscriber({ registry, bridge, clock }) };
 }
 
 /**

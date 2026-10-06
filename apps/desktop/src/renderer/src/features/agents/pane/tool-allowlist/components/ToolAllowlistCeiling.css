@@ -1,0 +1,7 @@
+/* The note under the agent list's tool allowlist. */
+
+.meridian-agents__allowlist-note {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

@@ -3,16 +3,15 @@
 // history loads that history then. The count and each hit's position come from the daemon.
 import { z } from "zod";
 
-import { EVENT_FIELD_MAX_LEN } from "../event-envelope.js";
+import { EVENT_FIELD_MAX_LEN } from "../event/envelope.js";
+import { SearchMatchRangeSchema, type SearchMatchRange } from "../session/methods.js";
+import { wireFreeFormString } from "../free-form-string.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  wireFreeFormString,
   type EventCursor,
-  SearchMatchRangeSchema,
-  type SearchMatchRange,
   type SessionId,
-} from "../session.js";
+} from "../session/id.js";
 
 import { TRANSCRIPT_READ_LIMIT_MAX, requirePageToRideOneFrame } from "./operations.js";
 import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./row.js";
@@ -115,7 +114,9 @@ export const TranscriptSearchResponseSchema: z.ZodType<TranscriptSearchResponse>
       issueContext.addIssue({
         code: "custom",
         path: ["matchCount"],
-        message: `matchCount counts the whole session, so it is at least the ${String(pageMatchCount)} matches this page carries`,
+        message:
+          `matchCount counts the whole session, so it is at least ` +
+          `the ${String(pageMatchCount)} matches this page carries`,
       });
     }
   });

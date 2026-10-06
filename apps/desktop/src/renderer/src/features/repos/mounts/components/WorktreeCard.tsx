@@ -3,27 +3,27 @@
 // native `<details>`, which keeps no per-row state. There is no retire control: its confirm
 // needs an inspection preview this card is not given and must not fabricate.
 
-import "./execution-root-cards.css";
+import "./WorktreeCard.css";
 
 import { useId } from "react";
 
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
-import { WORKTREE_STATE_TONES } from "../execution-root-model.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { WORKTREE_STATE_TONES } from "../execution-roots/state-tones.js";
 import {
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
   WORKTREE_SUMMARY_COLUMNS,
   worktreeColumnCell,
   type WorktreeSummaryColumnKey,
-} from "../execution-root-columns.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+} from "../execution-roots/columns.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
@@ -63,7 +63,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         ))}
       </dl>
 
-      <details className="meridian-root-card__detail">
+      <details>
         <summary className="meridian-root-card__detail-summary">Provenance</summary>
         <dl className="meridian-root-card__detail-list">
           {WORKTREE_DETAIL_COLUMNS.map((column) => {

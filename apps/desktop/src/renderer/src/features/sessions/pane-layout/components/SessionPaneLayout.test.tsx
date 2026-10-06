@@ -4,16 +4,16 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
-import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../store.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { SessionPaneLayout } from "./SessionPaneLayout.js";
-import { PaneLayoutStore } from "../pane-layout-store.js";
-import type { SessionPane } from "../pane-layout.js";
+import { PaneLayoutStore } from "../store.js";
+import type { SessionPane } from "../state.js";
 
 function emptyLayout(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });

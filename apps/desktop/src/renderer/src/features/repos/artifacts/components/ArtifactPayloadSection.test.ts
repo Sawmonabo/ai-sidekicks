@@ -7,22 +7,21 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
-import { handAnsweredCall } from "@test/helpers/held-calls.js";
+import { handAnsweredCall } from "#test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,
   artifactOperations,
-  deferredRead,
   inlineRead,
   readThrough,
   settleAct,
-} from "@test/helpers/artifact-list-readers.js";
+} from "#test/helpers/artifact-list-readers.js";
 import {
   OPENED_ARTIFACT_ID,
   artifactPayloadSubject,
   artifactPayloadTree,
   renderArtifactPayloadSection,
-} from "@test/helpers/render-artifact-payload-section.js";
+} from "#test/helpers/render-artifact-payload-section.js";
 
 // "diff --git a/one b/one" in RFC 4648 base64.
 const DIFF_PAYLOAD_BASE64 = "ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==";
@@ -39,7 +38,7 @@ describe("artifact payload — fetching is an act", () => {
   it("asks for nothing until the control is pressed", async () => {
     // A payload is bounded only by the ingest cap, so a fetch on mount would spend the user's
     // link on a section they merely passed through.
-    const artifactRead = vi.fn(async () => deferredRead("published"));
+    const artifactRead = vi.fn(async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"));
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
@@ -49,7 +48,7 @@ describe("artifact payload — fetching is an act", () => {
   });
 
   it("asks the read for the bytes, by the member the wire discriminates on", async () => {
-    const artifactRead = vi.fn(async () => deferredRead("published"));
+    const artifactRead = vi.fn(async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"));
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
     );
@@ -100,13 +99,16 @@ describe("artifact payload — fetching is an act", () => {
     expect(container.querySelector(".meridian-artifact-payload__preview")).toBeNull();
   });
 
-  it("holds the fetch control while one is outstanding, and gives it back when it settles", async () => {
+  it("holds the fetch control while one is out, and gives it back when it settles", async () => {
     // A payload is bounded only by the ingest cap, so a second press before the first settles
     // would download the same bytes twice; the arm the reading is on holds the control.
     const readCall = handAnsweredCall<ArtifactReadResponse>();
     const artifactRead = vi.fn(readCall.invoke);
     const subject = artifactPayloadSubject(
-      artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
+      artifactOperations({
+        listArtifacts: async () => LISTED_ONE_ROW,
+        readArtifact: artifactRead,
+      }),
     );
     const { getByRole } = renderArtifactPayloadSection(subject);
     await readThrough(subject.clock);
@@ -119,7 +121,7 @@ describe("artifact payload — fetching is an act", () => {
     await settleAct();
     expect(artifactRead).toHaveBeenCalledTimes(1);
 
-    readCall.open(deferredRead("published"));
+    readCall.open(inlineRead(DIFF_PAYLOAD_BASE64, "base64"));
     await settleAct();
     expect(control).toHaveProperty("disabled", false);
   });

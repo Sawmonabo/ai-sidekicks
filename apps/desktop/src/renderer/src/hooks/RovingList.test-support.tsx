@@ -10,7 +10,7 @@
 
 import { useRef } from "react";
 
-import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
+import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { useWindowedRovingIndex } from "./useWindowedRovingIndex.js";
 
 /** A windowed list reduced to what the hook touches: a slice, an anchor, a reveal. */

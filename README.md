@@ -11,10 +11,6 @@
 
 AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agents that delegate to other agents, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent works under your own provider account. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
 
-<p align="center">
-  <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />
-</p>
-
 ---
 
 ## Table of Contents
@@ -89,9 +85,9 @@ Real runtime control — not UI illusions. The queue is daemon-backed. Steer is 
 
 A session in a project works in one of two places: a worktree of its own, or the checkout the project already has. The default is **a new worktree** — agents work on an isolated branch, produce attributed diffs, and prepare PRs without touching your main checkout. How much a session may change is its permission level, not the place it works.
 
-### Visibility and Replay
+### A Full Record
 
-Every message, tool call, approval, diff, and state transition is recorded as it happens. Any session replays from its event log.
+Every message, tool call, approval, diff, and state transition is recorded as it happens, and a session reopens from that record with its whole history.
 
 ### Provider Drivers
 
@@ -156,10 +152,6 @@ The CLI (`sidekicks`) is the first client delivery track — it proves the typed
 
 A short alias `sk` installs alongside it; if an unrelated `sk` is already on your `PATH` (Homebrew ships one), `PATH` order alone decides which runs — check with `which -a sk`, and use `sidekicks` when you need certainty.
 
-<p align="center">
-  <img src="assets/hero/cli-terminal-hero.png" alt="AI Sidekicks CLI" width="720" />
-</p>
-
 ---
 
 ## Technology Stack
@@ -196,13 +188,13 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-014: V1 Feature Sc
 | 5 | Approval gates | 7 categories of human-in-the-loop safety |
 | 6 | Repo attach | Bind sessions to git repositories |
 | 7 | Worktree execution | Isolated branches per agent run |
-| 8 | Session transcript | Event-sourced session history, replayable |
+| 8 | Session transcript | Event-sourced session history |
 | 9 | Local daemon + CLI | First client over the typed SDK |
 | 10 | Event audit log | Event-sourced persistence backbone |
 | 11 | Artifacts | Diffs, files, and attachments; a session's artifacts stay on the machine that runs it, and every linked device reads them through Remote Control |
 | 12 | Desktop GUI | Electron main process + React/Vite renderer over the same typed SDK |
 | 13 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session transcript, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
-| 14 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-025](docs/decisions/025-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-024](docs/decisions/024-visual-node-graph-workflow-authoring.md) |
+| 14 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, one workflow library, the repository chosen per run, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-025](docs/decisions/025-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-024](docs/decisions/024-visual-node-graph-workflow-authoring.md) |
 | 15 | MCP server configuration and governance | Server-config CRUD, status/health probing, server OAuth per [Spec-024](docs/specs/024-mcp-server-configuration-and-governance.md) + [Plan-022](docs/plans/022-mcp-server-configuration-and-governance.md) |
 | 16 | Undo to an earlier message | Put back the conversation and the files, the conversation alone, or the files alone, as one request with one reported result; the conversation goes back through the provider's own cut and the files through the daemon's checkpoints, and every undo is recorded forward, so the log never truncates |
 | 17 | Session goals | `/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet; a session is never named by its goal |

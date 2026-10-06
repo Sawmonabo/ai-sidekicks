@@ -4,10 +4,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
-import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
-import { settle } from "@test/helpers/settle.js";
+import { bridgeAnswering, type BridgeUnderTest } from "#test/helpers/fixture/bridge.js";
+import { settle } from "#test/helpers/settle.js";
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "./useReasoningRead.test-support.js";
 import { useReasoningRead } from "./useReasoningRead.js";
 

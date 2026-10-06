@@ -1,5 +1,5 @@
-// Where a store's next read of a session's stream starts. Pure: `open-session-entry.ts` acts on
-// the decision and recovers when the daemon refuses the position it submitted.
+// Where a store's next read of a session's stream starts. Pure: `store/session/open/entry.ts` acts
+// on the decision and recovers when the daemon refuses the position it submitted.
 //
 // The decision reads the two members the wire schema carries (`latest` and optional
 // `acknowledged`). The cursor is opaque to the app, so there is no lost-event arm: a lost row
@@ -7,7 +7,7 @@
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 
-import { readWireErrorEnvelopeWithCode } from "@renderer/lib/wire-errors.js";
+import { readWireErrorEnvelopeWithCode } from "#renderer/lib/wire/errors.js";
 
 /**
  * What a read said about where the stream picks up next. A union rather than a cursor plus a

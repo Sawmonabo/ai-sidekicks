@@ -11,7 +11,7 @@ import type {
   ReviewerVerdict,
 } from "@ai-sidekicks/contracts/gitflow/hosting";
 
-import type { ChipTone } from "@renderer/components/Chip/Chip.js";
+import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 
 /** What a status value means and how loudly it reads. The name itself is the wire's. */
 export interface StatusPresentation {

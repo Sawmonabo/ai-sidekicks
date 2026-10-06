@@ -3,11 +3,13 @@
 // Combobox owns the roles, active descendant and keyboard navigation; Dialog owns the focus trap,
 // Escape, outside press and portal.
 //
-// Two deviations from the library defaults:
+// Three deviations from the library defaults:
 //   - `modal="trap-focus"`: focus is trapped but the document scroll is not locked. The `inert`
 //     that hides the rest of the app is the frame's, since a dialog cannot know what that is.
 //   - `filter={null}`: the registry already filtered and ranked, and a second matcher would
 //     diverge from the one shared with settings search.
+//   - `virtualized`: every match is listed but only the rows in view are drawn, so the combobox
+//     navigates by each item's `index` and the list's window scrolls a highlight into view.
 //
 // Rows are `PaletteResultList.tsx`, the empty state is `PaletteEmptyState.tsx`, and every
 // decision (scope capture, dormancy, the post-commit clear, the open chord) is in
@@ -16,10 +18,10 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 
-import "./command-palette.css";
+import "./CommandPalette.css";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { PaletteEmptyState } from "./PaletteEmptyState.js";
 import { PaletteResultList } from "./PaletteResultList.js";
 import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandPalette.js";
@@ -35,13 +37,15 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
     query,
     setQuery,
     groups,
+    rows,
+    rowWindowRef,
     results,
     capturedScopeLabel,
     capturedContext,
     invocationRefusal,
     inputRef,
     runResult,
-    warmHighlighted,
+    highlightResult,
     resultCountLabel,
   } = useCommandPalette(props);
 
@@ -51,11 +55,12 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
       open={open}
       onOpenChange={onOpenChange}
       inline
+      virtualized
       autoHighlight
       filter={null}
       inputValue={query}
       onInputValueChange={setQuery}
-      onItemHighlighted={warmHighlighted}
+      onItemHighlighted={highlightResult}
     >
       <Dialog.Root open={open} onOpenChange={onOpenChange} modal="trap-focus">
         {/* The popup primitive registers the palette's rectangle in the window's airspace. */}
@@ -82,6 +87,8 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
 
           {/* The captured context, so a printed chord is the one that would run that row. */}
           <PaletteResultList
+            rows={rows}
+            rowWindowRef={rowWindowRef}
             context={capturedContext}
             platform={platform}
             bindings={bindings}
@@ -90,7 +97,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
 
           {/* Must stay mounted: it is already a polite live region, and `Combobox.Status` below
               stays silent when the list is empty so one absence is not announced twice. */}
-          <Combobox.Empty className="command-palette__empty">
+          <Combobox.Empty>
             <PaletteEmptyState query={query} />
           </Combobox.Empty>
 

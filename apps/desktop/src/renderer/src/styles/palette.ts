@@ -22,10 +22,11 @@
 // and both `generate-css.ts` and `contrast.test.ts` read that record, so the number measured is
 // the number painted.
 
-import type { OklchColor } from "./color.js";
-// The enumeration row height is a product of the type scale and line height from `typography.ts`,
-// a leaf that imports nothing local, and the spacing scale here.
-import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
+import { MERIDIAN_GROUND_COLORS } from "#shared/appearance.js";
+import type { OklchColor } from "#shared/color.js";
+// The enumeration row height and the transcript's row gap are products of the type scale and line
+// heights from `typography.ts`, a leaf that imports nothing local, and the spacing scale here.
+import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
 /**
  * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the shortest
@@ -52,7 +53,7 @@ function oklch(lightness: number, chroma: number, hueDegrees: number): OklchColo
  * overlay's, `surfaceSunken` a well (a code block, an input trough).
  */
 export const GROUND_TOKENS: Readonly<Record<string, SchemePair>> = {
-  ground: { light: oklch(0.965, 0.003, 255), dark: oklch(0.165, 0.011, 255) },
+  ground: MERIDIAN_GROUND_COLORS,
   surface: { light: oklch(0.995, 0.001, 255), dark: oklch(0.203, 0.013, 255) },
   "surface-raised": { light: oklch(1, 0, 255), dark: oklch(0.246, 0.014, 255) },
   "surface-sunken": { light: oklch(0.93, 0.005, 255), dark: oklch(0.132, 0.01, 255) },
@@ -100,8 +101,8 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // fill above 4.5 * (L + 0.05) - 0.05. Even a pure-black ink puts that at 0.175 and the light
   // accent's luminance is 0.198, so no ink buys a visibly darker press. The light leg takes the
   // deepest face the floor admits, L 0.565 at 4.57:1, with chroma up against the sRGB edge so it
-  // reads deeper rather than dimmer; `features/composer/accent-fill.css` carries the rest of the
-  // press on the control's boundary. The dark leg can afford a real deepening: L 0.68 at 6.18:1.
+  // reads deeper rather than dimmer; `accent-fill.css` carries the rest of the press on the
+  // control's boundary. The dark leg can afford a real deepening: L 0.68 at 6.18:1.
   //
   // Both legs clear the 3:1 non-text floor on all four grounds (3.58 light, 5.83 dark) and are
   // measured there, because a pressed control's face is still the boundary a person must find.
@@ -223,9 +224,21 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
  */
 export const LEADING_EDGE_WIDTH_PX = 2;
 
-// Throws on an unknown step so a typo cannot become `NaNrem`, which the browser discards
-// silently. The same stance as `schemeColor`.
-function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
+/** The navigation rail's square button, in rem: its hit target. */
+export const RAIL_BUTTON_SIZE_REM = 2.25;
+
+/**
+ * The navigation rail's width, in rem: its button with one `space-2` margin either side, 52 px at
+ * the default text size. Root-relative like every chrome width, so it grows with the text size.
+ */
+export const RAIL_WIDTH_REM: number =
+  RAIL_BUTTON_SIZE_REM + 2 * scaleStep(SPACE_SCALE_REM, "space-2");
+
+/**
+ * One step of a rem scale, such as `SPACE_SCALE_REM` or `TYPE_SCALE_REM`. Throws on an unknown
+ * step so a typo cannot become `NaNrem`, which the browser discards silently.
+ */
+export function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
   const sizeRem = scale[stepName];
   if (sizeRem === undefined) {
     throw new RangeError(`unknown Meridian scale step ${stepName}`);
@@ -251,12 +264,19 @@ export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;
 
 /**
+ * The one gap between any two consecutive transcript rows, in rem: half the reply's reading line,
+ * a `text-sm` line box at the reading line height, so it moves with the text size.
+ */
+export const TRANSCRIPT_ROW_GAP_REM: number =
+  (scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT) / 2;
+
+/**
  * The narrowest viewport the app lays out in, in CSS px. WCAG 2.2 SC 1.4.10 (Reflow) asks
  * that vertically scrolling content be usable without two-dimensional scrolling at 320 CSS px,
  * the width a 1280 px window reaches at 400% zoom.
  *
  * A floor the frame declares, not a breakpoint: one fluid layout holds down to this width,
- * `layout/AppShell/app-frame.css` spends it as the frame's `min-width`, and below it the document
+ * `layout/AppShell/AppFrame.css` spends it as the frame's `min-width`, and below it the document
  * scrolls horizontally. A px value because that is the criterion's unit; a rem floor would move
  * under a person who raised the root font size.
  */

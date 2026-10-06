@@ -15,16 +15,97 @@ import type {
   JsonRpcErrorData,
   JsonRpcErrorResponse,
   JsonRpcId,
-} from "@ai-sidekicks/contracts/jsonrpc";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { FramingError } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
-import { FramingError } from "./content-length-framing.js";
 import { DaemonDomainError } from "./domain-error.js";
-import { redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
 import { NegotiationError } from "./protocol-negotiation.js";
 import { RegistryDispatchError } from "./registry.js";
 import { SessionNotFoundError } from "./session-errors.js";
+
+// --------------------------------------------------------------------------
+// Error-message sanitization
+// --------------------------------------------------------------------------
+
+/**
+ * Reduce any thrown value to a string safe to send as `error.message`. An `Error` contributes its
+ * `.message` only, never `.stack`; anything else goes through `String(value)`. Unix, UNC and
+ * Windows-drive paths become `<redacted-path>` (see {@link redactPathsFromString}), and the result
+ * is capped at `SANITIZED_MESSAGE_MAX_LEN`.
+ *
+ * It never throws: a hostile value whose `toString` throws would otherwise escape as an unhandled
+ * rejection, so it yields `"<unprintable thrown value>"`. It does not catch secrets that do not
+ * look like paths; handler authors keep those out of messages. Because Windows and UNC segments
+ * may contain spaces, prose that directly follows such a path can be over-redacted, which is the
+ * safe direction.
+ */
+export function sanitizeErrorMessage(value: unknown): string {
+  let raw: string;
+  if (value instanceof Error) {
+    // Never `.stack`: it leaks file paths, function names and module structure.
+    raw = value.message;
+  } else if (typeof value === "string") {
+    raw = value;
+  } else {
+    // `String(value)` is printable for null, undefined and plain objects without exposing
+    // structured fields, but it calls `toString`, which a hostile thrown object can make throw.
+    try {
+      raw = String(value);
+    } catch {
+      raw = "<unprintable thrown value>";
+    }
+  }
+
+  const sanitized = redactPathsFromString(raw);
+
+  if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
+    const keptLength = SANITIZED_MESSAGE_MAX_LEN - TRUNCATION_MARKER.length;
+    return `${sanitized.slice(0, keptLength)}${TRUNCATION_MARKER}`;
+  }
+  return sanitized;
+}
+
+/**
+ * Replace Unix absolute paths, UNC paths and Windows-drive paths with `<redacted-path>`. It is
+ * shared by `sanitizeErrorMessage` and `sanitizeFields` so both channels redact the same way. Each
+ * pattern accepts an optional `:line:col` trailer for stack-frame-shaped text.
+ *
+ * Unix segments exclude spaces, which end a path token. UNC hosts also exclude spaces, but UNC
+ * share and path segments and Windows-drive segments allow them (`\\fs\Shared Drive\a.json`,
+ * `C:\Program Files\a.exe`). It never throws and is idempotent, since `<redacted-path>` matches
+ * none of the patterns. Each quantifier body is a bounded character class over disjoint segments,
+ * so backtracking stays linear on pathological input such as `'/'.repeat(N)`.
+ */
+export function redactPathsFromString(input: string): string {
+  // Unix: conservative character class, so it stops at whitespace, quotes and similar. A path
+  // starts at a token boundary, so a slash inside a name (`feature/login`) is not one.
+  let sanitized = input.replace(
+    /(?<![A-Za-z0-9_.-])(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g,
+    "<redacted-path>",
+  );
+  // UNC: the host has no spaces, the share and path segments may.
+  sanitized = sanitized.replace(
+    /\\\\[A-Za-z0-9_.-]+(?:\\[A-Za-z0-9_. -]+)+(?::\d+(?::\d+)?)?/g,
+    "<redacted-path>",
+  );
+  // Windows drive: segments may contain spaces; `-` is last in the class so it is not a range.
+  sanitized = sanitized.replace(
+    /[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::\d+(?::\d+)?)?/g,
+    "<redacted-path>",
+  );
+  return sanitized;
+}
+
+/**
+ * Cap on a sanitized error message, so a pathological thrown string cannot push the response past
+ * `MAX_MESSAGE_BYTES`.
+ */
+export const SANITIZED_MESSAGE_MAX_LEN = 8192;
+
+// What a capped message or field value ends with.
+const TRUNCATION_MARKER = "…[truncated]";
 
 /**
  * Maps a `FramingError.code` to a JSON-RPC numeric: a desynced or unparseable wire is `-32700`, a
@@ -308,7 +389,7 @@ function capString(value: string): string {
   if (value.length <= FIELDS_VALUE_MAX_LEN) {
     return value;
   }
-  return `${value.slice(0, FIELDS_VALUE_MAX_LEN - "…[truncated]".length)}…[truncated]`;
+  return `${value.slice(0, FIELDS_VALUE_MAX_LEN - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }
 
 /**

@@ -1,13 +1,14 @@
 import { memo } from "react";
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { diffFileChangeNotes, type DiffViewMode } from "../diff-model.js";
-import type { DiffRow } from "../diff-row-model.js";
-import type { DiffRowIndex } from "../diff-row-index.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { diffFileChangeNotes, type DiffViewMode } from "../model.js";
+import type { DiffRow } from "../rows/model.js";
+import type { DiffRowIndex } from "../rows/flat-index.js";
 import type { IntralineSegmentCache } from "../intraline-segment-cache.js";
 import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
+import { DiffStepMark } from "./DiffStepMark.js";
 
 /** What one virtualized diff row is drawn from. */
 export interface DiffRowViewProps {
@@ -52,6 +53,7 @@ export const DiffRowView: React.MemoExoticComponent<
         <span className="meridian-diff__file-path" role="cell" title={file?.path}>
           <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           {file?.path ?? ""}
+          {file?.stepName === undefined ? null : <DiffStepMark stepName={file.stepName} />}
           {changeNotes.length === 0 ? null : (
             <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
           )}
@@ -66,9 +68,7 @@ export const DiffRowView: React.MemoExoticComponent<
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--hunk">
         {/* Wire-verbatim: the `@@` header is the daemon's string and its numbers are not
             re-parsed. */}
-        <span className="meridian-diff__hunk-header" role="cell">
-          {hunk?.header ?? ""}
-        </span>
+        <span role="cell">{hunk?.header ?? ""}</span>
       </div>
     );
   }
@@ -126,7 +126,11 @@ export const DiffRowView: React.MemoExoticComponent<
       {/* One cell, not three: `role="row"` admits only cells, and the gutters belong to the
           line. */}
       <span
-        className={`meridian-diff__side meridian-diff__side--unified meridian-diff__side--${line.kind}`}
+        className={[
+          "meridian-diff__side",
+          "meridian-diff__side--unified",
+          `meridian-diff__side--${line.kind}`,
+        ].join(" ")}
         role="cell"
       >
         <DiffGutter line={line} side="base" />

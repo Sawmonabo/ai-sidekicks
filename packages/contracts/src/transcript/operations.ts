@@ -4,16 +4,16 @@
 // limit. The reasoning read names no principal: the caller is the authenticated connection.
 import { z } from "zod";
 
-import { jsonUtf8ByteLength } from "../jsonrpc.js";
-import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../run-state.js";
+import { jsonUtf8ByteLength } from "../jsonrpc/message.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
+import { RunStateSchema, type RunState } from "../run/state.js";
+import { wireFreeFormString } from "../free-form-string.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  wireFreeFormString,
   type EventCursor,
   type SessionId,
-} from "../session.js";
+} from "../session/id.js";
 
 import { refuseSelfParentingRun } from "./child-run-summary.js";
 import { TranscriptEventRowSchema, type TranscriptEventRow } from "./row.js";

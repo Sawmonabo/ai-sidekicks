@@ -1,22 +1,22 @@
 // The accessibility tier over every view the composer feature mounts, each scoped to itself
-// so a violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s
+// so a violation names the view that owns it, in both schemes for `app-frame.test.ts`'s
 // reason. The composer is always on screen while a person types and carries the most controls
 // per pixel, and its addresses offer different ones, so a name or label lost on one address is
 // invisible on the others.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../helpers/app-harness.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import {
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
   mountComposerSessionDefault,
 } from "./feature-mounts/composer.js";
-import { type MountedView } from "./feature-mounts/mount-queries.js";
+import { type MountedView } from "./feature-mounts/queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 /** The views this feature ships, each named as a reader would name it. */
 const AUDITED_VIEWS: readonly {

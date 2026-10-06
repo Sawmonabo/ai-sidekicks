@@ -30,7 +30,7 @@ const SHARED_COVERAGE_EXCLUDES: readonly string[] = [
   "**/out/**",
   "**/node_modules/**",
   "src/session/daemon-schema.ts",
-  "src/database/control-plane-schema.ts",
+  "src/database/schema.ts",
 ];
 
 interface TestTimeouts {
@@ -43,7 +43,7 @@ interface TestTimeouts {
  * instrumented code runs many times slower. Stryker's per-mutant timeout still ends a hang.
  */
 export function sharedTestTimeouts(limits: TestTimeouts = {}): TestTimeouts {
-  return process.env.STRYKER_MUTATOR_WORKER === undefined
+  return process.env["STRYKER_MUTATOR_WORKER"] === undefined
     ? limits
     : { testTimeout: 300_000, hookTimeout: 300_000 };
 }

@@ -3,7 +3,7 @@
 // held open by hand so "the push wins" is asserted.
 
 import { describe, expect, it } from "vitest";
-import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
+import type { UpdateState, Unsubscribe } from "#shared/preload-api.js";
 
 import { UpdaterReadingHolder, type UpdaterCalls } from "./updater-reading.js";
 

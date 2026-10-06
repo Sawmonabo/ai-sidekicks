@@ -5,8 +5,11 @@ import { z } from "zod";
 // UUIDs. Not `z.uuid()`, which refuses an upper-case Nil or Max. It normalizes nothing: ids are
 // branded by casts at database reads, where a schema could not lowercase them, so canonical casing
 // is applied at each map-key or hash-input boundary (`uuid-canonical.ts`).
-const RFC_9562_TEXT_FORM =
-  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/iu;
+const RFC_9562_TEXT_FORM = new RegExp(
+  String.raw`^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}` +
+    String.raw`|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$`,
+  "iu",
+);
 
 /**
  * The same accept set as `brandedUuidIdSchema`, without a brand: for a wire member that is an id

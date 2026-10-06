@@ -1,4 +1,4 @@
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**
@@ -13,6 +13,6 @@ export function registerTranscriptPanes(registry: PaneRegistry): void {
     // Loader-backed: the pane is reached by opening a session, so its chunk loads on demand.
     // The specifier sits here so the chunk boundary shows where the claim is made; the pane
     // layout's reserved chrome stands in while the module is in flight.
-    body: () => import("./transcript-pane-body.js"),
+    body: () => import("./pane-body.js"),
   });
 }

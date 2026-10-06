@@ -4,7 +4,7 @@
 
 import { act } from "@testing-library/react";
 
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 
 /**
  * The index of every row Tab would reach, read from the element that holds the stop.

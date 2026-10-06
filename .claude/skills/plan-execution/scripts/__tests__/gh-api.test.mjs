@@ -1,6 +1,7 @@
 // node:test suite for lib/gh-api.mjs.
 // Run via:
-//   node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+//   node --test --experimental-strip-types \
+//     '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 //
 // The drain behaviors are unit-tested rather than probed against live PRs
 // because none of them is reachable from real data: both GraphQL connections
@@ -8,9 +9,9 @@
 // truncation branch, and a server that stops advancing its own cursor cannot be
 // summoned on demand.
 //
-// The page-flattening half is no longer in that category. `check-suites` is
-// object-typed (`{total_count, check_suites}` per page), so codex-gate.mjs now
-// drives the object-page path on every run.
+// The page-flattening half is reachable live: `check-suites` is object-typed
+// (`{total_count, check_suites}` per page), so codex-gate.mjs drives the
+// object-page path on every run.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -58,8 +59,8 @@ test("a concatenated page stream throws — which is why paginated calls use --s
 // ------------------------------------------------------ flattenSlurpedPages
 
 test("multi-page array output flattens to the concatenated rows", () => {
-  // Live shape: `pulls/259/comments?per_page=1 --paginate --slurp` → 9 pages,
-  // each a 1-element array (probed 2026-07-27, gh v2.92.0).
+  // The shape `gh api <array endpoint>?per_page=1 --paginate --slurp` returns:
+  // one 1-element array per page.
   assert.deepEqual(flattenSlurpedPages([[{ id: 1 }], [{ id: 2 }], [{ id: 3 }]]), [
     { id: 1 },
     { id: 2 },
@@ -166,8 +167,8 @@ test("hasNextPage with no endCursor stops the walk and reports truncation", () =
 
 test("a connection longer than the page ceiling reports truncation", () => {
   // The cursor must ADVANCE for this to be a long connection rather than a
-  // stalled one — the earlier fixture returned a fixed "next" forever, which is
-  // the cursor-stall case below and never reached the ceiling at all.
+  // stalled one — a fixed "next" forever is the cursor-stall case below, which
+  // never reaches the ceiling at all.
   let pagesServed = 0;
   const endlessPage = () => {
     pagesServed += 1;
@@ -208,8 +209,8 @@ test("a complete drain names no truncation reason", () => {
 });
 
 test("a non-advancing cursor is truncation even when the node count says otherwise", () => {
-  // The reported hole. The server keeps handing back the cursor it was given, so
-  // the walk refetches page one to the ceiling. The DUPLICATE nodes then push
+  // The server keeps handing back the cursor it was given, so the walk would
+  // refetch page one to the ceiling. The DUPLICATE nodes then push
   // nodes.length past totalCount, and a count-only test reports a complete drain
   // of a connection that never advanced.
   const stuck = () => page([1, 2], { totalCount: 4, hasNextPage: true, endCursor: "stuck" });
@@ -257,8 +258,8 @@ test("hasNextPage with no endCursor reports pages-pending, not a shortfall", () 
 });
 
 test("a connection with no totalCount is unverifiable, not complete", () => {
-  // The old `?? totalCount` default left it at 0, so `nodes.length < 0` was
-  // unsatisfiable and every such connection reported a complete drain.
+  // Defaulting a missing total to 0 would make `nodes.length < 0` unsatisfiable,
+  // so every such connection would report a complete drain.
   const result = drainConnection(() => ({ nodes: [1, 2, 3], pageInfo: { hasNextPage: false } }));
   assert.deepEqual(result.nodes, [1, 2, 3]);
   assert.equal(result.truncated, true);
@@ -281,7 +282,7 @@ test("an absent connection is still zero-of-zero, not unverifiable", () => {
 
 test("a short drain is still reported as a shortfall", () => {
   // Precedence check: totalCount IS reported here, so the reason must stay
-  // short-drain rather than shifting to one of the new conditions.
+  // short-drain rather than shifting to one of the other three reasons.
   const { fetchPage } = pagedFetcher([page([1, 2], { totalCount: 7 })]);
   assert.equal(drainConnection(fetchPage).truncationReason, "short-drain");
 });

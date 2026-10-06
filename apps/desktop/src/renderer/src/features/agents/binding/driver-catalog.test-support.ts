@@ -1,12 +1,13 @@
 // The catalog readings the binding suites drive against. The first has one model with an
 // effort vocabulary and one without; the second's drivers overlap on purpose, for the
-// dependent-axis chain. The flag record is derived from the contract's closed list.
+// dependent-axis chain; the third publishes speed tiers per model. The flag record is derived
+// from the contract's closed list.
 
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider-driver";
-import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 
 import type { DriverCatalogReading } from "./driver-catalog.js";
 
@@ -103,5 +104,48 @@ export const OVERLAPPING_DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
       },
       builtInTools: [],
     })),
+  },
+};
+
+/**
+ * A driver that declares the speed axis and publishes its tiers per model, as the Codex catalog
+ * read does: two models with different tiers and one with none. Its report carries no list.
+ */
+export const SPEED_TIER_CATALOG_FIXTURE: DriverCatalogReading = {
+  models: {
+    drivers: [
+      {
+        driverName: "codex",
+        models: [
+          {
+            id: "tiered",
+            name: "Tiered",
+            capabilities: [],
+            outputSpeedLevels: ["priority"],
+            fast: true,
+          },
+          {
+            id: "flex-only",
+            name: "Flex only",
+            capabilities: [],
+            outputSpeedLevels: ["flex"],
+            fast: true,
+          },
+          { id: "untiered", name: "Untiered", capabilities: [], fast: false },
+        ],
+      },
+    ],
+  },
+  capabilities: {
+    drivers: [
+      {
+        driverName: "codex",
+        capabilities: {
+          flags: driverCapabilityFlags({ output_speed: true }),
+          contractVersion: "1.0.0",
+        },
+        builtInTools: [],
+      },
+    ],
   },
 };

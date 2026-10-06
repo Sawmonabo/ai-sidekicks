@@ -2,19 +2,21 @@
 // remount, since a disposed engine ingests nothing. A drained frame or an ingest bumps a
 // revision so the feed renders; each row reads its own lane through the channel and React's
 // snapshot comparison decides which rows repaint. What the engine reports (a quarantined lane, a
-// retracted source) goes to the window's diagnostic capture.
+// retracted source) goes to the window's diagnostic capture. The record of what each reply row
+// drew is the feed's, so it outlives a re-minted engine.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
-import { RevealEngine } from "../reveal-engine.js";
+import { DrawnReplyText, replyCopyFlavorOf } from "../../copy/drawn-reply-text.js";
+import { RevealEngine } from "../engine.js";
 import { type RowRevealContextValue } from "../components/RowRevealProvider.js";
-import { type RevealDelta } from "../reveal-model.js";
+import { type RevealDelta } from "../model.js";
 
 /** What a view gets back: the channel its rows read, the drain state, and the acts. */
 export interface RevealBinding {
@@ -28,10 +30,16 @@ export interface RevealBinding {
   /** Take one lane's delta and arm a frame to reveal it. */
   readonly ingest: (delta: RevealDelta) => void;
   /**
-   * Drop every lane the predicate names. Asked of the engine's own lanes (at most one per
+   * Drop every lane `shouldRetire` names, first recording the text of each that `isReplyRow`
+   * names, so the reply's foot keeps it. Asked of the engine's own lanes (at most one per
    * streaming row) instead of walking the window's rows on every event.
    */
-  readonly retireLanes: (shouldRetire: (laneId: string) => boolean) => void;
+  readonly retireLanes: (
+    shouldRetire: (laneId: string) => boolean,
+    isReplyRow: (laneId: string) => boolean,
+  ) => void;
+  /** Forgets what every row the window no longer holds drew. */
+  readonly forgetDrawnTextOutside: (isHeld: (rowId: string) => boolean) => void;
 }
 
 /** Inputs to `useReveal`. */
@@ -51,6 +59,7 @@ export interface UseRevealOptions {
 export function useReveal(options: UseRevealOptions): RevealBinding {
   const { frameScheduler, clock } = options;
   const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameScheduler }));
+  const [drawnReplyText] = useState(() => new DrawnReplyText());
   // The engine is not React state; bumping the revision is how the tree learns it moved, so the
   // drain state read below is current. Nothing reads the number itself.
   const [, setFrameRevision] = useState(0);
@@ -93,12 +102,13 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
         const published = engine.publishedText(laneId);
         return published === "" ? undefined : published;
       },
+      drawnReplyText,
       subscribe: (sink: () => void) =>
         engine.subscribe(() => {
           sink();
         }),
     }),
-    [engine],
+    [engine, drawnReplyText],
   );
 
   return {
@@ -114,14 +124,29 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
       [engine],
     ),
     retireLanes: useCallback(
-      (shouldRetire: (laneId: string) => boolean) => {
+      (shouldRetire: (laneId: string) => boolean, isReplyRow: (laneId: string) => boolean) => {
         for (const lane of engine.lanes()) {
-          if (shouldRetire(lane.laneId)) {
-            engine.retireLane(lane.laneId);
+          if (!shouldRetire(lane.laneId)) {
+            continue;
           }
+          if (isReplyRow(lane.laneId)) {
+            const text = engine.publishedText(lane.laneId);
+            drawnReplyText.note(lane.laneId, {
+              text,
+              // The row's own flavor, where it drew and noted one; the bytes' otherwise.
+              flavor: drawnReplyText.drawnTextOf(lane.laneId)?.flavor ?? replyCopyFlavorOf(text),
+            });
+          }
+          engine.retireLane(lane.laneId);
         }
       },
-      [engine],
+      [engine, drawnReplyText],
+    ),
+    forgetDrawnTextOutside: useCallback(
+      (isHeld: (rowId: string) => boolean) => {
+        drawnReplyText.forgetRowsOutside(isHeld);
+      },
+      [drawnReplyText],
     ),
   };
 }

@@ -4,14 +4,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { diffLineText } from "./diff-model.js";
+import { diffLineText } from "./model.js";
 import { intralineSegments, parseUnifiedPatch } from "./patch-parse.js";
 import {
   COMPARED_STATES,
   PLAIN_PATCH,
   linesOfFirstHunk,
   parsePlainPatch,
-} from "@test/helpers/patch-parsing.js";
+} from "#test/helpers/patch-parsing.js";
 
 /**
  * A git-style patch whose header carries what a reconstruction loses: the section context
@@ -95,7 +95,7 @@ describe("parseUnifiedPatch", () => {
 
   it("reads every file in a multi-file patch, under the path the patch names", () => {
     expect(parsePlainPatch(PLAIN_PATCH).files.map((file) => file.path)).toStrictEqual([
-      "packages/contracts/src/event.ts",
+      "packages/contracts/src/event/session-event.ts",
       "apps/desktop/src/main.ts",
     ]);
   });
@@ -175,8 +175,8 @@ describe("intralineSegments", () => {
  * after it off by one.
  */
 const BLANK_CONTEXT_PATCH = [
-  "--- packages/contracts/src/event.ts",
-  "+++ packages/contracts/src/event.ts",
+  "--- packages/contracts/src/event/session-event.ts",
+  "+++ packages/contracts/src/event/session-event.ts",
   "@@ -1,4 +1,4 @@",
   " alpha",
   "",
@@ -210,8 +210,8 @@ describe("parseUnifiedPatch — an empty context line is a line", () => {
     // off-by-one invisible on a blank.
     const lines = linesOfFirstHunk(
       [
-        "--- packages/contracts/src/event.ts",
-        "+++ packages/contracts/src/event.ts",
+        "--- packages/contracts/src/event/session-event.ts",
+        "+++ packages/contracts/src/event/session-event.ts",
         "@@ -1,2 +1,2 @@",
         " ",
         "-beta",
@@ -233,8 +233,8 @@ describe("parseUnifiedPatch — the header scan splits the way the parser splits
     // scanner that also split on `\r`, `\v`, `\f` or `\u0085` would find a header the parser
     // never saw and misalign every later hunk. The counts disagree and this parse refuses.
     const patch = [
-      "--- packages/contracts/src/event.ts",
-      "+++ packages/contracts/src/event.ts",
+      "--- packages/contracts/src/event/session-event.ts",
+      "+++ packages/contracts/src/event/session-event.ts",
       "@@ -1,2 +1,2 @@",
       " alpha",
       "-beta",

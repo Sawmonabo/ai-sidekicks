@@ -8,14 +8,14 @@ import type {
   ProviderAccountLoginCancelResponse,
   ProviderAccountLoginResponse,
   ProviderAccountRegisterResponse,
-} from "@ai-sidekicks/contracts/provider-account-sign-in";
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
+import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import type {
   ProviderAccountLoginCall,
   ProviderAccountLoginCancelCall,
   ProviderAccountRegisterCall,
-} from "./provider-sign-in-flow.js";
+} from "./sign-in/flow.js";
 
 /** One brokered attempt, as the account plane answers a start with it. */
 export const PROVIDER_SIGN_IN_ATTEMPT: ProviderAccountLoginResponse = {

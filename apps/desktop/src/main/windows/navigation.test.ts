@@ -1,16 +1,16 @@
-// The navigation classifier. `window-navigation.test.ts` asserts the policy is installed and each verdict
-// acted on; this asserts the classification itself. Two traps: `URL.origin` is `"null"` for every
-// non-special scheme (and `sidekicks-renderer:` is non-special in Node's parser), so comparing
-// `.origin` would admit `weird://app` and the like; and `shell.openExternal` hands a string to the
-// OS handler registry, so the allowlist keeps a "link" from being a local-execution primitive.
-// Both are false-pass directions: a wrong answer breaks nothing visible.
+// The navigation classifier. `factory.navigation.test.ts` asserts the policy is installed and each
+// verdict acted on; this asserts the classification itself. Two traps: `URL.origin` is `"null"` for
+// every non-special scheme (and `sidekicks-renderer:` is non-special in Node's parser), so
+// comparing `.origin` would admit `weird://app` and the like; and `shell.openExternal` hands a
+// string to the OS handler registry, so the allowlist keeps a "link" from being a local-execution
+// primitive. Both are false-pass directions: a wrong answer breaks nothing visible.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// A local `electron` stub rather than the shared `tests/helpers/electron-mock.ts`: the module
-// under test is imported statically, so `electron` resolves before a top-level
-// `createElectronMock(...)` would initialize, leaving the hoisted `vi.mock` factory in its
-// temporal dead zone.
+// A local `electron` stub rather than the shared `tests/helpers/electron/mock/module.ts`:
+// the module under test is imported statically, so `electron` resolves before a top-level
+// `createElectronMock(...)` would initialize, leaving the hoisted `vi.mock` factory in its temporal
+// dead zone.
 const shellMock = vi.hoisted(() => {
   const openedUrls: string[] = [];
   return {

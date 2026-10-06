@@ -1,12 +1,12 @@
 // The inline shape: one line beside the control that was pressed, with the control still there.
-// `refusal-props.ts` declares the grammar and props all three shapes share.
+// `props.ts` declares the grammar and props all three shapes share.
 
 import "./Refusal.css";
 
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
-import { formatWireString } from "@renderer/lib/wire-figures.js";
-import { type RefusalProps } from "./refusal-props.js";
+import { formatWireString } from "#renderer/lib/wire/figures.js";
+import { type RefusalProps } from "./props.js";
 
 /** Beside the control that was pressed. Nothing changed; the control stays. */
 export function InlineRefusal(props: RefusalProps): React.JSX.Element {

@@ -25,8 +25,8 @@
 .meridian-figure--wire {
   font-family: var(--meridian-font-mono);
   color: var(--meridian-figure-wire-color, inherit);
-  /* Mono runs optically larger than sans at the same size; a hair under 1em balances them. */
-  font-size: var(--meridian-figure-wire-size, 0.93em);
+  /* A hair under 1em, from the token sheet, since mono runs optically larger than sans. */
+  font-size: var(--meridian-figure-wire-size, var(--meridian-figure-wire-size-default));
   user-select: text;
   -webkit-user-select: text;
 }

@@ -3,23 +3,10 @@
   display: contents;
 }
 
-/* One line in the region's slot; `Retry` is a faint word with no box, border or icon. */
+/* One line in the region's slot, ending in its faint `Retry`. */
 .meridian-render-failure {
   margin: 0;
   padding: var(--meridian-space-3) var(--meridian-space-4);
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
-}
-
-.meridian-render-failure__retry {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--meridian-text-faint);
-  font: inherit;
-  cursor: pointer;
-}
-
-.meridian-render-failure__retry:hover {
-  text-decoration: underline;
 }

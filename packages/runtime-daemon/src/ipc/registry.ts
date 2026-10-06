@@ -20,8 +20,8 @@ import type {
   MethodRegistry,
   RegisterOptions,
   ZodType,
-} from "@ai-sidekicks/contracts/jsonrpc-registry";
-import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc-registry";
+} from "@ai-sidekicks/contracts/jsonrpc/registry";
+import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 // --------------------------------------------------------------------------
 // Method-name format regexes
@@ -144,14 +144,17 @@ export class MethodRegistryImpl implements MethodRegistry {
     if (!isCanonicalMethodName(method)) {
       throw new RegistryRegistrationError(
         "invalid_method_name",
-        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the canonical dotted-camelCase format 'namespace.method' or the LSP-style '$/segment[/segment]*' system-method shape`,
+        `MethodRegistry.register: method name ${JSON.stringify(method)} does not match the ` +
+          `canonical dotted-camelCase format 'namespace.method' or the LSP-style ` +
+          `'$/segment[/segment]*' system-method shape`,
       );
     }
 
     if (this.#methods.has(method)) {
       throw new RegistryRegistrationError(
         "duplicate_method",
-        `MethodRegistry.register: method ${JSON.stringify(method)} is already registered (duplicate registrations are rejected at register-time, not dispatch-time)`,
+        `MethodRegistry.register: method ${JSON.stringify(method)} is already registered ` +
+          `(duplicate registrations are rejected at register-time, not dispatch-time)`,
       );
     }
 
@@ -196,7 +199,9 @@ export class MethodRegistryImpl implements MethodRegistry {
     if (!parsedResult.success) {
       throw new RegistryDispatchError(
         "invalid_result",
-        `MethodRegistry.dispatch: result validation failed for method ${JSON.stringify(method)} (handler returned a value that does not match the registered resultSchema; programmer error)`,
+        `MethodRegistry.dispatch: result validation failed for method ` +
+          `${JSON.stringify(method)} (handler returned a value that does not match the ` +
+          `registered resultSchema; programmer error)`,
         parsedResult.error.issues,
       );
     }

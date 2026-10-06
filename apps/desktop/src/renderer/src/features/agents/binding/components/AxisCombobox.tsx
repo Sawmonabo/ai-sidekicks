@@ -15,7 +15,7 @@ export interface AxisComboboxProps {
   readonly options: readonly string[] | undefined;
   readonly value: string | undefined;
   readonly onValueChange: (value: string | undefined) => void;
-  /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where popups portal. The frame's overlay root; `undefined` is its own window's body. */
   readonly overlayContainer?: HTMLElement | null | undefined;
   /** Shown under the control, for an advisory the caller wants beside the field. */
   readonly advisory?: string | undefined;
@@ -30,11 +30,14 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
     return null;
   }
   return (
-    <label className="meridian-axis-field">
-      <span className="meridian-axis-field__label">
+    <label className="meridian-axis-field meridian-form__field">
+      <span className="meridian-form__label">
         {props.label}
         {props.isOverridden === true ? (
-          <span className="meridian-axis-field__overridden"> overridden</span>
+          <span className="meridian-axis-field__overridden meridian-form__label-note">
+            {" "}
+            overridden
+          </span>
         ) : null}
       </span>
       <Combobox.Root
@@ -42,18 +45,17 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
         value={props.value ?? null}
         onValueChange={(next: string | null) => props.onValueChange(next ?? undefined)}
       >
-        <Combobox.Trigger className="meridian-axis-field__trigger">
+        <Combobox.Trigger className="meridian-axis-field__trigger meridian-form__input">
           <Combobox.Value />
         </Combobox.Trigger>
         {/* The primitive's anchored part keeps this list in the window's airspace; a field
             mounting its own portal would be painted over by the Preview pane's native view. */}
         <OverlayComboboxPopup
           container={props.overlayContainer}
-          positionerClassName="meridian-axis-field__positioner"
           className="meridian-axis-field__popup"
         >
           <Combobox.Input
-            className="meridian-axis-field__input"
+            className="meridian-axis-field__input meridian-form__input"
             aria-label={`Filter ${props.label.toLowerCase()}`}
           />
           <Combobox.Empty className="meridian-axis-field__empty">No value matches.</Combobox.Empty>

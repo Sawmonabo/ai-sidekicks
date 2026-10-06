@@ -6,12 +6,12 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "@renderer/lib/tripwires.js";
-import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
+import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
+import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
-import type { WindowBanner } from "@renderer/store/window/window-store.js";
-import { liveRegionOf, liveRegionText } from "@test/helpers/live-region.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
+import type { WindowBanner } from "#renderer/store/window/store.js";
+import { liveRegionOf, liveRegionText } from "#test/helpers/live-region.js";
 import { AppFrame } from "./AppFrame.js";
 import {
   CalmScreen,
@@ -19,7 +19,7 @@ import {
   backgroundOf,
   frameProps,
   liveBridgeWrapper,
-} from "@test/helpers/app-frame-fixtures.js";
+} from "#test/helpers/app/frame-fixtures.js";
 
 const RENDER_FAILURE_MESSAGE = "the sessions list could not render this row";
 

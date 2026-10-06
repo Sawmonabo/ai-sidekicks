@@ -1,7 +1,7 @@
 // The sent-message history: ArrowUp and ArrowDown at the line's edge offsets recall this
 // window's sent messages without destroying an unsent draft.
 
-import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
+import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../bounds.js";
 
 /**
  * This user's sent messages, walkable and draft-guarded: the text typed before a walk is

@@ -9,12 +9,12 @@ import {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
-} from "../diff-caps.js";
-import { diffLineText, type DiffModel, type DiffLine } from "./diff-model.js";
-import type { DiffLineRow } from "./diff-row-model.js";
+} from "./caps.js";
+import { diffLineText, type DiffModel, type DiffLine } from "./model.js";
+import type { DiffLineRow } from "./rows/model.js";
 import { IntralineSegmentCache } from "./intraline-segment-cache.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
-import { COMPARED_STATES } from "@test/helpers/patch-parsing.js";
+import { COMPARED_STATES } from "#test/helpers/patch-parsing.js";
 
 const wordDiffCalls = vi.hoisted(() => vi.fn());
 
@@ -151,24 +151,28 @@ describe("intraline segmentation — what a pair segments to", () => {
     }
   });
 
-  it("pairs a longer delete run with a shorter insert run by ordinal and leaves the surplus whole", () => {
-    // The context line after the runs is where a surplus delete paired past its insert run
-    // would land, highlighting words against a line it was never replaced by.
-    const cache = new IntralineSegmentCache(
-      modelOf([
-        "-const value = compute(previousBudget, 1);",
-        "-const dropped = true;",
-        "+const value = compute(nextBudget, 1);",
-        " const kept = false;",
-      ]),
-    );
-    expect(
-      cache.readingFor(bodyRow(0), 0).segments.filter((segment) => segment.changed),
-    ).toStrictEqual([{ text: "previousBudget", changed: true }]);
-    expect(cache.readingFor(bodyRow(1), 1)).toStrictEqual({
-      segments: [{ text: "const dropped = true;", changed: false }],
-    });
-  });
+  it(
+    "pairs a longer delete run with a shorter insert run by ordinal " +
+      "and leaves the surplus whole",
+    () => {
+      // The context line after the runs is where a surplus delete paired past its insert run
+      // would land, highlighting words against a line it was never replaced by.
+      const cache = new IntralineSegmentCache(
+        modelOf([
+          "-const value = compute(previousBudget, 1);",
+          "-const dropped = true;",
+          "+const value = compute(nextBudget, 1);",
+          " const kept = false;",
+        ]),
+      );
+      expect(
+        cache.readingFor(bodyRow(0), 0).segments.filter((segment) => segment.changed),
+      ).toStrictEqual([{ text: "previousBudget", changed: true }]);
+      expect(cache.readingFor(bodyRow(1), 1)).toStrictEqual({
+        segments: [{ text: "const dropped = true;", changed: false }],
+      });
+    },
+  );
 
   it("leaves a longer insert run's overhang whole", () => {
     const cache = new IntralineSegmentCache(

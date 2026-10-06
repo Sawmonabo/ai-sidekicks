@@ -1,8 +1,8 @@
 // The inspector's boundary arm, split from the frame that wears it: the record's hooks live
 // below this branch, so a body running inside the frame would call them conditionally.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { InspectedEntity } from "../entity-detail/components/InspectedEntity.js";
 
 /**
@@ -23,7 +23,11 @@ export function InspectorPaneBody(props: {
         kind="not-checked"
         placement="block"
         title="This pane was opened outside a session."
-        detail="Every entity the inspector reads belongs to a session, and a bare route holds none. Open the session this entity belongs to and its record appears."
+        detail={
+          "Every entity the inspector reads belongs to a session, and a " +
+          "bare route holds none. Open the session this entity belongs to " +
+          "and its record appears."
+        }
       />
     );
   }

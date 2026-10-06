@@ -1,7 +1,7 @@
 // What a modal overlay puts in the window's airspace: the backdrop as well as the popup.
 //
 // A modal covers the window with a fixed, full-viewport backdrop. The visibility predicate a
-// native view yields to (`features/preview/geometry/pane-geometry.ts`) hides a view only
+// native view yields to (`features/preview/geometry/pane.ts`) hides a view only
 // where a registered rectangle overlaps the pane, so registering only the popup left a pane
 // the dialog did not cross painting over the backdrop and taking its input, including the
 // backdrop press that dismisses the dialog. The backdrop's rectangle is the suppression,

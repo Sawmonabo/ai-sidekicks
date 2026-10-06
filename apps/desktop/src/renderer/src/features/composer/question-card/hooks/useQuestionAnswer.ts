@@ -6,8 +6,8 @@
 
 import { useCallback, useState } from "react";
 
-import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
+import type { DaemonReply } from "#renderer/services/daemon/reply.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type {
   QuestionAnswer,
   QuestionResolveRequest,
@@ -16,7 +16,7 @@ import type {
 import {
   UNSENT_ANSWER_DELIVERY,
   type AnswerDelivery,
-} from "@renderer/store/session-events/question-reading.js";
+} from "#renderer/store/session/events/question-reading.js";
 
 /** The `question.resolve` call, supplied by the mount. */
 export type ResolveQuestionCall = (

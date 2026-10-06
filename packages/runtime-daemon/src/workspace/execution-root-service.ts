@@ -19,35 +19,30 @@ import {
   ExecutionModeSchema,
   type ExecutionMode,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo";
-import { WorktreeStateSchema } from "@ai-sidekicks/contracts/worktree";
-
+} from "@ai-sidekicks/contracts/repo/mount";
 import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
-  WorktreeReuseConflictError,
-} from "../git/worktree-errors.js";
-import { deriveWorktreeBranchName } from "../git/worktree-branch-name.js";
-import {
-  type CreateWorktreeInput,
-  type CreatedWorktree,
-  type ReusableWorktreeCandidate,
-  type ValidateWorktreeReuseInput,
-} from "../git/worktree-service.js";
+} from "../git/worktree/errors.js";
+import { deriveWorktreeBranchName } from "../git/worktree/branch-name.js";
+import { type CreateWorktreeInput, type CreatedWorktree } from "../git/worktree/service.js";
+import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../git/filesystem.js";
 import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   readGitExitStatus,
+  runGitWithExecFile,
   type GitCommand,
   type GitInvocationResult,
   type GitRunner,
-} from "../git/git-process.js";
+} from "../git/process.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
-import { RepoMountNotFoundError } from "./repo-errors.js";
-import { HOLDING_RUN_ID_METADATA_PATH } from "./workspace-row-guards.js";
-import { WorkspaceBusyError, WorkspaceNotFoundError } from "./workspace-service-errors.js";
-import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { RepoMountNotFoundError } from "./repo/errors.js";
+import { HOLDING_RUN_ID_METADATA_PATH } from "./row-guards.js";
+import { WorkspaceBusyError, WorkspaceNotFoundError } from "./errors.js";
+import { mintUuidV7 } from "../uuid-v7.js";
+import { withCleanupFailures } from "../cleanup-failures.js";
 
 /** A space is illegal in a git ref, so this cannot be mistaken for a real branch name. */
 const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";
@@ -55,15 +50,9 @@ const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";
 /** Exit status of `symbolic-ref --quiet` on a detached HEAD; any other non-zero one is a fault. */
 const DETACHED_HEAD_EXIT_CODE = 1;
 
-/** The filesystem seam. One verb: create leading directories, tolerate existing. */
-interface ExecutionRootFilesystem {
-  createDirectory(path: string): Promise<void>;
-}
-
 /** The worktree service narrowed to the calls this module makes; data types stay shared. */
 export interface ExecutionRootWorktreeProvisioner {
   create(input: CreateWorktreeInput): Promise<CreatedWorktree>;
-  validateReuse(input: ValidateWorktreeReuseInput): Promise<ReusableWorktreeCandidate>;
   /**
    * Compensation only: records the retirement and removes nothing from disk. `Promise<unknown>`
    * because the response is ignored and the real one is not `void`.
@@ -102,10 +91,10 @@ export interface ExecutionRootServiceDeps {
    * the one the worktree services resolve.
    */
   readonly executionRootsDirectory: string;
-  /** Git process seam; required, so the composition root names the runner. */
-  readonly git: GitRunner;
-  /** Filesystem seam. Required, like `git`. */
-  readonly filesystem: ExecutionRootFilesystem;
+  /** Git process seam; defaults to `execFile` against `git`. */
+  readonly git?: GitRunner;
+  /** Filesystem seam, for the hook-neutralizing folder; defaults to `node:fs/promises`. */
+  readonly filesystem?: Pick<GitFilesystem, "createDirectory">;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at`. Injectable for tests. */
@@ -127,10 +116,6 @@ export interface PrepareExecutionRootInput {
    * give one field two meanings depending on a mode the caller may not know.
    */
   readonly baseRef?: string;
-  /** EXPLICIT reuse only: a candidate binds by being named. */
-  readonly reuseWorktreeId?: string;
-  /** The separate consent that binds a DIRTY named candidate. */
-  readonly acknowledgeDirtyCandidate?: boolean;
   /** Gate-only. Present iff a run is being set up; unlocks the branch fallback. */
   readonly runId?: string;
   /** Branch-collision disposition for a worktree CREATE. Defaults to `refuse`. */
@@ -158,8 +143,6 @@ export interface PreparedExecutionRoot {
 type ExecutionRootInvariantKind =
   /** A `workspaces` row carries a mode outside the execution-mode vocabulary. */
   | "unreadable_workspace_row"
-  /** A reuse candidate has no `branch_contexts` row to carry a base branch from. */
-  | "reuse_candidate_without_branch_context"
   /** A `branch_contexts` write reported a row count this module cannot explain. */
   | "branch_context_write_lost"
   /** `symbolic-ref` could not be run, or answered with a status this module cannot read. */
@@ -197,10 +180,6 @@ interface MountLookupParams {
   readonly repo_mount_id: string;
 }
 
-interface WorktreeContextLookupParams {
-  readonly worktree_id: string;
-}
-
 interface WorktreePairLookupParams {
   readonly worktree_id: string;
   readonly workspace_id: string;
@@ -234,32 +213,14 @@ interface AttachedMountRow {
   readonly canonical_root: string;
 }
 
-interface BusyWorktreeHolderParams {
-  readonly worktree_id: string;
-}
-
-interface BusyWorktreeHolderRow {
-  readonly workspace_id: string;
-  readonly holding_run_id: string | null;
-}
-
 interface BranchContextIdRow {
   readonly id: string;
 }
 
-interface BranchContextBaseRow {
-  readonly base_branch: string;
-}
-
-interface WorktreeStateRow {
-  readonly state: string;
-}
-
 /**
- * How a root came to be. Only `created` is compensated: a `reused` worktree may be bound by other
- * workspaces, and a `bound` root is the user's own checkout.
+ * How a root came to be. Only `created` is compensated: a `bound` root is the user's own checkout.
  */
-type ExecutionRootProvenance = "created" | "reused" | "bound";
+type ExecutionRootProvenance = "created" | "bound";
 
 /** What one mode arm produced, before the branch context and the bracket close. */
 interface MaterializedRoot {
@@ -283,16 +244,7 @@ export class ExecutionRootService {
 
   readonly #selectWorkspaceStmt: Statement<WorkspaceLookupParams, WorkspaceRootRow>;
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
-  readonly #selectWorktreeBaseBranchStmt: Statement<
-    WorktreeContextLookupParams,
-    BranchContextBaseRow
-  >;
-  readonly #selectBusyWorktreeHolderStmt: Statement<
-    BusyWorktreeHolderParams,
-    BusyWorktreeHolderRow
-  >;
   readonly #selectWorktreePairContextStmt: Statement<WorktreePairLookupParams, BranchContextIdRow>;
-  readonly #selectWorktreeStateStmt: Statement<WorktreeContextLookupParams, WorktreeStateRow>;
   readonly #upsertWorktreeContextStmt: Statement<BranchContextWriteParams>;
   readonly #insertBranchContextStmt: Statement<BranchContextWriteParams>;
   readonly #deleteBranchContextStmt: Statement<BranchContextDeleteParams>;
@@ -303,8 +255,8 @@ export class ExecutionRootService {
     // `-c core.fsmonitor=false` is inert here (`symbolic-ref` never reaches the fsmonitor hook);
     // the shared entry point keeps every service's argv the same.
     this.#runGit = createHookNeutralizedGitCommand({
-      git: deps.git,
-      createDirectory: (path) => deps.filesystem.createDirectory(path),
+      git: deps.git ?? runGitWithExecFile,
+      filesystem: deps.filesystem ?? DEFAULT_GIT_FILESYSTEM,
       executionRootsDirectory: deps.executionRootsDirectory,
       timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
@@ -333,39 +285,10 @@ export class ExecutionRootService {
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
 
-    // Joined on `fs_root`, not through `branch_contexts`: compensation deletes pair rows while
-    // roots stay live. Keyed by the candidate's row id so the probe runs pre-bracket.
-    this.#selectBusyWorktreeHolderStmt = database.prepare(
-      `SELECT holder.id AS workspace_id,
-              json_extract(holder.metadata, '${HOLDING_RUN_ID_METADATA_PATH}') AS holding_run_id
-         FROM worktrees
-         JOIN workspaces AS holder ON holder.fs_root = worktrees.fs_root
-        WHERE worktrees.id = @worktree_id
-          AND holder.state = 'busy'
-        LIMIT 1`,
-    );
-
-    // The earliest row names the branch the worktree was cut from; `id` breaks a `created_at` tie.
-    this.#selectWorktreeBaseBranchStmt = database.prepare(
-      `SELECT base_branch
-         FROM branch_contexts
-        WHERE worktree_id = @worktree_id
-        ORDER BY created_at ASC, id ASC
-        LIMIT 1`,
-    );
-
     this.#selectWorktreePairContextStmt = database.prepare(
       `SELECT id
          FROM branch_contexts
         WHERE worktree_id = @worktree_id AND workspace_id = @workspace_id`,
-    );
-
-    // Re-checks a reused candidate's liveness at bind time: `validateReuse` awaits a git spawn, so
-    // a retirement can commit before the context write. See `#writeBranchContext`.
-    this.#selectWorktreeStateStmt = database.prepare(
-      `SELECT state
-         FROM worktrees
-        WHERE id = @worktree_id`,
     );
 
     // The conflict target repeats the partial index's WHERE clause, as SQLite requires. `@id` is
@@ -434,18 +357,6 @@ export class ExecutionRootService {
       throw new WorkspaceBusyError(workspace.id, workspace.holding_run_id);
     }
 
-    // Also refuse a reuse candidate whose directory another workspace holds `busy` (keyed by root).
-    // Pre-bracket, because the catch would mark the requester `stale` for someone else's run; it
-    // answers before `validateReuse` refuses. `bound-root` ignores the field, so it is not probed.
-    if (executionMode === "provisioned-worktree" && input.reuseWorktreeId !== undefined) {
-      const busyHolder = this.#selectBusyWorktreeHolderStmt.get({
-        worktree_id: input.reuseWorktreeId,
-      });
-      if (busyHolder !== undefined) {
-        throw new WorkspaceBusyError(busyHolder.workspace_id, busyHolder.holding_run_id);
-      }
-    }
-
     const mount = this.#requireAttachedMount(workspace.repo_mount_id);
 
     // Before the bracket: a mismatch is a caller disagreement, and `stale` is reserved for faults.
@@ -479,7 +390,7 @@ export class ExecutionRootService {
       cleanupFailures.push(...(await this.#failRootPreparation(workspace.id, preparationFailure)));
       // Rethrow the cause itself where it can carry the cleanup failures: the run-setup gate wraps
       // by code.
-      throw withCleanupFailures(preparationFailure, cleanupFailures);
+      throw withCleanupFailures(preparationFailure, cleanupFailures, "execution root preparation");
     }
 
     try {
@@ -488,6 +399,7 @@ export class ExecutionRootService {
       throw withCleanupFailures(
         completionFailure,
         await this.#compensateOrphanedRoot(materialized, branchContextId),
+        "execution root preparation",
       );
     }
 
@@ -555,7 +467,7 @@ export class ExecutionRootService {
     };
   }
 
-  /** `provisioned-worktree` mode: explicit reuse when a candidate is NAMED, otherwise create. */
+  /** `provisioned-worktree` mode: a new worktree, cut for this workspace. */
   async #prepareWorktreeRoot(
     input: PrepareExecutionRootInput,
     workspace: WorkspaceRootRow,
@@ -563,24 +475,6 @@ export class ExecutionRootService {
     branchName: string,
     runId: string,
   ): Promise<MaterializedRoot> {
-    if (input.reuseWorktreeId !== undefined) {
-      const candidate = await this.#worktrees.validateReuse({
-        worktreeId: input.reuseWorktreeId,
-        repoMountId: workspace.repo_mount_id,
-        branchName,
-        ...(input.acknowledgeDirtyCandidate === undefined
-          ? {}
-          : { acknowledgeDirtyCandidate: input.acknowledgeDirtyCandidate }),
-      });
-      return {
-        executionRoot: candidate.fsRoot,
-        branchName: candidate.branchName,
-        baseBranch: this.#requireCarriedBaseBranch(workspace.id, candidate),
-        worktreeId: candidate.worktreeId,
-        provenance: "reused",
-      };
-    }
-
     const created = await this.#worktrees.create({
       repoMountId: mount.id,
       sessionId: workspace.session_id,
@@ -611,17 +505,6 @@ export class ExecutionRootService {
 
     if (materialized.worktreeId !== null) {
       const worktreeId = materialized.worktreeId;
-      // Re-proves a reused candidate's liveness (a retirement may have committed during
-      // `validateReuse`); a later one is covered by the sweep's busy deferral and the run-setup
-      // gate, which also owns re-proving cleanliness. A vanished row counts as `not_live`.
-      if (materialized.provenance === "reused") {
-        const current = this.#selectWorktreeStateStmt.get({ worktree_id: worktreeId });
-        const currentState =
-          current === undefined ? "retired" : WorktreeStateSchema.parse(current.state);
-        if (currentState === "retired" || currentState === "failed") {
-          throw new WorktreeReuseConflictError(worktreeId, "not_live");
-        }
-      }
       this.#upsertWorktreeContextStmt.run({
         id: this.#newBranchContextId(),
         workspace_id: workspaceId,
@@ -655,23 +538,6 @@ export class ExecutionRootService {
       now,
     });
     return branchContextId;
-  }
-
-  /**
-   * The base branch carried from the row written when a reused worktree was created. Fails closed
-   * when there is none, since an invented value would persist as unverifiable provenance.
-   */
-  #requireCarriedBaseBranch(workspaceId: string, candidate: ReusableWorktreeCandidate): string {
-    const carried = this.#selectWorktreeBaseBranchStmt.get({
-      worktree_id: candidate.worktreeId,
-    });
-    if (carried === undefined) {
-      throw new ExecutionRootServiceInvariantError(
-        `worktree ${candidate.worktreeId} has no branch context to carry a base branch from`,
-        { kind: "reuse_candidate_without_branch_context", workspaceId },
-      );
-    }
-    return carried.base_branch;
   }
 
   #requireWorkspace(workspaceId: string): WorkspaceRootRow {
@@ -729,14 +595,13 @@ export class ExecutionRootService {
    * Undoes a root this call created but could not hand over; nothing else reclaims it. Each step
    * runs even after an earlier one failed, and the failures are returned for the caller to attach
    * to the original cause: a delete followed by a failed retire leaves a live worktree with no
-   * pair row, which a later reuse refuses and whose `(mount, branch)` stays held.
+   * pair row, whose `(mount, branch)` stays held.
    */
   async #compensateOrphanedRoot(
     materialized: MaterializedRoot,
     branchContextId: string | null,
   ): Promise<unknown[]> {
-    // Only `created`: a `reused` worktree may be bound elsewhere and its pair row may hold a
-    // previous binding's provenance.
+    // Only `created`: a `bound` root is the user's own checkout.
     if (materialized.provenance !== "created") {
       return [];
     }
@@ -810,28 +675,6 @@ export class ExecutionRootService {
       );
     }
   }
-}
-
-/**
- * The error to throw for `original` once cleanup after it failed too: `original` itself carrying
- * the cleanup failures as its `cause` when that is free, so its code still reaches the caller, or
- * every failure in one `AggregateError` when it is not.
- */
-function withCleanupFailures(original: unknown, cleanupFailures: readonly unknown[]): unknown {
-  if (cleanupFailures.length === 0) {
-    return original;
-  }
-  if (original instanceof Error && original.cause === undefined) {
-    original.cause =
-      cleanupFailures.length === 1
-        ? cleanupFailures[0]
-        : new AggregateError(cleanupFailures, "execution root cleanup failed");
-    return original;
-  }
-  return new AggregateError(
-    [original, ...cleanupFailures],
-    "execution root preparation failed, and cleaning up after it failed too",
-  );
 }
 
 /** Whether a rejected git invocation printed nothing on stdout. */

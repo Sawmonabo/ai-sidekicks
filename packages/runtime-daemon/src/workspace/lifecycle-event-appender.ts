@@ -5,17 +5,17 @@
 //   * No sequence number, chain hash or signature: the append path owns them.
 //   * The append receipt is returned as is, not examined.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
-import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event-envelope";
-import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
+import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
-} from "../events/event-log-service.js";
-import { mintUuidV7 } from "../ids/uuid-v7.js";
+} from "../events/log-service.js";
+import { mintUuidV7 } from "../uuid-v7.js";
 
 /**
  * The durable append seam, typed against the append path's own signature. A table write that must
@@ -32,7 +32,7 @@ export interface LifecycleEventLog {
 /** Dependencies of a lifecycle emitter; every member but `sessionEvents` has a default. */
 export interface LifecycleEventEmitterDeps {
   readonly sessionEvents: LifecycleEventLog;
-  /** Source for `monotonic_ns` (in-daemon ordering only; replay orders by `sequence`). */
+  /** Source for `monotonic_ns` (in-daemon ordering only; a rebuild orders by `sequence`). */
   readonly monotonicNow?: () => bigint;
   /** Source for `occurredAt` (ISO 8601). */
   readonly now?: () => string;

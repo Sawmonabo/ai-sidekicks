@@ -1,6 +1,6 @@
 // The Agents pane's registration, called from `app/registrations.ts`.
 
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 
 /** The owner string this body's claim carries, so a hot reload replaces. */
 const AGENTS_PANE_OWNER = "agents";
@@ -16,6 +16,6 @@ export function registerAgentsPane(registry: PaneRegistry): void {
     kind: "agents",
     owner: AGENTS_PANE_OWNER,
     // A loader, not a `render`, so the body stays off the initial import graph.
-    body: () => import("../pane/agents-pane-body.js"),
+    body: () => import("../pane/body.js"),
   });
 }

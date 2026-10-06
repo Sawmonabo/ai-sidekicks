@@ -1,15 +1,16 @@
 // Driven through `deriveTranscriptWindow`, not the table alone: retention matters as a property
 // of the derivation (which row objects reach the feed and stay recognizable). Logs are built here
 // because two cases need logs differing in one member of one event, which no shared builder
-// offers; ids and instants still come from `transcript-logs.test-support.ts`.
+// offers; ids and instants still come from `features/transcript/logs.test-support.ts`.
 
 import { describe, expect, it } from "vitest";
 
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   transcriptFixtureEventId,
   transcriptFixtureStampAt,
-} from "../transcript-logs.test-support.js";
+  transcriptFixtureStreamCursor,
+} from "../logs.test-support.js";
 import { TranscriptRowRetention } from "./row-retention.js";
 import { deriveTranscriptWindow } from "./transcript-window.js";
 
@@ -23,6 +24,7 @@ function logEntry(
     id: transcriptFixtureEventId(sequence),
     sessionId: SESSION_ID,
     sequence,
+    cursor: transcriptFixtureStreamCursor(sequence),
     kind: "user.message",
     occurredAt: transcriptFixtureStampAt(sequence),
     payload,

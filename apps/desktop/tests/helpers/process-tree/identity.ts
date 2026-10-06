@@ -93,7 +93,7 @@ export class SpawnedTreeIdentity {
    * a root is gone nothing may be addressed, because a parent table's rows under a dead pid
    * cannot be told from a stranger's; the arm reports what the table says still claims the
    * number and kills none of it. Callers are `terminateProcessTree`'s default (handed a pid by
-   * Playwright) and `spawned-tree-record.ts`, when the root capture never ran.
+   * Playwright) and `record.ts`, when the root capture never ran.
    */
   static unverified(processId: number): SpawnedTreeIdentity {
     return new SpawnedTreeIdentity(

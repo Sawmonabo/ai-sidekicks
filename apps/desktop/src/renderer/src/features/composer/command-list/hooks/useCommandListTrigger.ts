@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DraftStore } from "@renderer/store/draft-store.js";
+import type { DraftStore } from "#renderer/store/drafts.js";
 import { readSlashCommandName } from "../../slash-command-syntax.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 
@@ -53,7 +53,11 @@ export function useCommandListTrigger(
     setDismissedAtText(readLineText());
     // Focus follows the closed list: otherwise it drops to the body and a keyboard reader has
     // nowhere.
-    if (line !== null && element !== null && element.contains(document.activeElement)) {
+    if (
+      line !== null &&
+      element !== null &&
+      element.contains(element.ownerDocument.activeElement)
+    ) {
       line.focus();
     }
   }, [region, readLineText]);

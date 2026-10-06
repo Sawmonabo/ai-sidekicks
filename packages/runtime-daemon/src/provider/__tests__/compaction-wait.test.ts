@@ -86,7 +86,7 @@ describe("PendingCompactionRegistry — withdrawal", () => {
     await expect(raceAgainstMicrotask(withdrawn.settled)).resolves.toBe(NEVER_SETTLED);
   });
 
-  it("stays withdrawn even when the bound then fires through a canceler that does nothing", async () => {
+  it("stays withdrawn even when the bound fires through a canceler that does nothing", async () => {
     // The `closed`-before-`cancelTimer` ordering, driven. This canceler is a no-op, as for a host
     // whose clear races the fire, so a withdrawal relying on cancellation alone would deliver
     // `wait_expired` to a caller that already returned `provider_error`.

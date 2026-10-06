@@ -1,23 +1,24 @@
 // Window focus as a refresh reason, bound once per window so no view arms a listener of its own.
 //
 // The re-read rides the transition into focus, not the event: a window that never lost focus
-// missed nothing, and re-reading on every focus event would be the poll this design refuses.
+// missed nothing, so re-reading on every focus event would be wasted work.
 // The store's `isWindowFocused` holds whether the window was focused, so no second copy is kept.
 // A destination's listener would stop hearing the transition once a person navigated away.
 
 import { useEffect } from "react";
 
-import type { WindowStore } from "@renderer/store/window/window-store.js";
-import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import type { WindowStore } from "#renderer/store/window/store.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 
 /**
- * Arm this window's focus transition for the frame's lifetime.
+ * Arm `ownerWindow`'s focus transition for the frame's lifetime.
  *
  * Both edges are bound together: the blur is what makes a focus a transition worth a re-read.
  */
 export function useWindowFocusRefresh(
   frameStore: WindowStore,
   sessionStoreRegistry: SessionStoreRegistry,
+  ownerWindow: Window,
 ): void {
   useEffect(() => {
     const onFocus = (): void => {
@@ -30,11 +31,11 @@ export function useWindowFocusRefresh(
     const onBlur = (): void => {
       frameStore.setWindowFocused(false);
     };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
+    ownerWindow.addEventListener("focus", onFocus);
+    ownerWindow.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
+      ownerWindow.removeEventListener("focus", onFocus);
+      ownerWindow.removeEventListener("blur", onBlur);
     };
-  }, [frameStore, sessionStoreRegistry]);
+  }, [frameStore, sessionStoreRegistry, ownerWindow]);
 }

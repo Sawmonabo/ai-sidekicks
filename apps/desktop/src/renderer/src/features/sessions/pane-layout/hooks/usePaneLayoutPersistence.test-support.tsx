@@ -8,11 +8,11 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { expect } from "vitest";
 
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { PaneLayoutStore } from "../pane-layout-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
+import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../store.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { PaneLayoutStore } from "../store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "../persistence.js";
 import { usePaneLayoutPersistence } from "./usePaneLayoutPersistence.js";
 
 /** The one session every case here arranges, saves, and restores. */

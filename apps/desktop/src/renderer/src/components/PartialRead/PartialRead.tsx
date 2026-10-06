@@ -6,7 +6,7 @@
 // - The consequence is the sentence and the cause is the refusal beneath it, rendered through
 //   `InlineRefusal` and never paraphrased.
 // - The count is the app's own arithmetic, so it wears the derived signature, formatted by
-//   `lib/wire-figures.ts` only.
+//   `lib/wire/figures.ts` only.
 //
 // Neither this component nor the notice creates a live region: the `reading` arm delegates to
 // `Nothing` and a prose arm nests `InlineRefusal`, which own theirs, and a wrapper would announce
@@ -14,7 +14,7 @@
 // a view calls `useAnnounceOncePerSentence`.
 
 import { ReadingNotice } from "./ReadingNotice.js";
-import { partialReadNotices, type ReadingState } from "@renderer/lib/partial-read.js";
+import { partialReadNotices, type ReadingState } from "#renderer/lib/partial-read.js";
 
 /** Props for `PartialRead`. */
 export interface PartialReadProps {

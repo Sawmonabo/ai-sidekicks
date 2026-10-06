@@ -11,10 +11,10 @@ import { render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
-import type { ViewportRow } from "../viewport-snapshot.js";
-import { syntheticRows, withLaidOutViewport } from "../viewport-controller.test-support.js";
+import type { ViewportRow } from "../snapshot.js";
+import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
 
 /** Comfortably more rows than a 400 px box can hold, so a window is the only answer. */
 const LOG_ROW_COUNT = 200;
@@ -67,7 +67,8 @@ describe("the transcript viewport's first commit", () => {
     const mountedRowCount = view.container.querySelectorAll(MOUNTED_ROW_SELECTOR).length;
     expect(
       mountedRowCount,
-      "the mount settled with no row on screen, so a session opened on a log this long draws an empty transcript",
+      "the mount settled with no row on screen, so a session opened on " +
+        "a log this long draws an empty transcript",
     ).toBeGreaterThan(0);
     // And it is still a window: a viewport that gave up and mounted the whole log is also wrong.
     expect(mountedRowCount).toBeLessThan(LOG_ROW_COUNT);

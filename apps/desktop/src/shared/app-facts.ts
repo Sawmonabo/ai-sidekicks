@@ -5,11 +5,13 @@
 // `process.argv` and exposes them as the bridge's `app` namespace. Both spellings of each
 // switch live here once.
 
+import { readRequiredSwitchValue } from "./renderer-switch.js";
+
 /** The operating systems a build runs on. */
-export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
+const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 
 /** The processor architectures a build runs on. */
-export const SUPPORTED_ARCHES = ["arm64", "x64"] as const;
+const SUPPORTED_ARCHES = ["arm64", "x64"] as const;
 
 /** One supported operating system, in Node's spelling. */
 export type SupportedPlatform = (typeof SUPPORTED_PLATFORMS)[number];
@@ -67,23 +69,15 @@ export function appFactsSwitches(facts: AppFacts): string[] {
  * passes all five, and a made-up value would be a fact nobody read.
  */
 export function readAppFactsSwitches(argv: readonly string[]): AppFacts {
-  const physicalMemoryBytes = Number(requiredSwitch(argv, PHYSICAL_MEMORY_SWITCH));
+  const physicalMemoryBytes = Number(readRequiredSwitchValue(argv, PHYSICAL_MEMORY_SWITCH));
   if (!Number.isSafeInteger(physicalMemoryBytes) || physicalMemoryBytes <= 0) {
     throw new RangeError("The physical memory switch is not a positive whole number of bytes.");
   }
   return {
-    version: requiredSwitch(argv, VERSION_SWITCH),
-    platform: supportedPlatform(requiredSwitch(argv, PLATFORM_SWITCH)),
-    arch: supportedArch(requiredSwitch(argv, ARCH_SWITCH)),
-    locale: requiredSwitch(argv, LOCALE_SWITCH),
+    version: readRequiredSwitchValue(argv, VERSION_SWITCH),
+    platform: supportedPlatform(readRequiredSwitchValue(argv, PLATFORM_SWITCH)),
+    arch: supportedArch(readRequiredSwitchValue(argv, ARCH_SWITCH)),
+    locale: readRequiredSwitchValue(argv, LOCALE_SWITCH),
     physicalMemoryBytes,
   };
-}
-
-function requiredSwitch(argv: readonly string[], prefix: string): string {
-  const argument = argv.find((candidate) => candidate.startsWith(prefix));
-  if (argument === undefined) {
-    throw new RangeError(`The window was started without ${prefix.slice(0, -1)}.`);
-  }
-  return decodeURIComponent(argument.slice(prefix.length));
 }

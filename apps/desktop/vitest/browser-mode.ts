@@ -53,6 +53,9 @@ export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
     "react-dom",
     "react-dom/client",
     ...BASE_UI_ENTRY_POINTS,
+    // The run graph's lazy chunk: found late, it would start the second pass described above.
+    "@xyflow/react",
+    "@dagrejs/dagre",
     "@testing-library/react",
     "axe-core",
   ],

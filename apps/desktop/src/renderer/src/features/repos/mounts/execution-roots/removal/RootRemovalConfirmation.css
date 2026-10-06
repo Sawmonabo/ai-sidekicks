@@ -1,0 +1,12 @@
+/*
+ * Removing an execution root. The confirmation and its buttons wear the shared treatments in
+ * `components/OverlayPopups/OverlayPopups.css` and `styles/action-buttons.css`, and the line a
+ * removal leaves wears the form's settlement in `styles/form.css`; here is the control's column.
+ */
+
+.meridian-root-removal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}

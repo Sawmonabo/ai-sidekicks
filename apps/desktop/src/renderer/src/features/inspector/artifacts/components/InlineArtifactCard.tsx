@@ -4,19 +4,19 @@
 // makes no read: it renders the identity it was given, and the manifest row when the caller
 // has one.
 
-import "./inline-artifact-card.css";
+import "./InlineArtifactCard.css";
 
 import { useId } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
-import { type ArtifactManifestRow } from "../artifact-model.js";
-import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
-import type { ArtifactInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
+import { type ArtifactManifestRow } from "../model.js";
+import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../copy.js";
+import type { ArtifactInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 
 /** What the inline artifact card is given. */
 export interface InlineArtifactCardProps {

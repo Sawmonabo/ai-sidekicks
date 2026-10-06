@@ -6,13 +6,13 @@
 // navigation, so a mount-scoped holder would carry one session's expansions into the next).
 
 import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
-import { ReadScope } from "@renderer/lib/reads/read-scope.js";
+import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { ReadScope } from "#renderer/lib/reads/scope.js";
 
 /**
  * Where one child run's expansion has got to. `expand-failed` is a state, not an absence: the
@@ -42,7 +42,7 @@ export const CHILD_RUN_SUMMARIZED: ChildRunExpansion = {
 /**
  * What one mounted transcript offers for a child-run summary row.
  *
- * @consumedBy opening a child in the Sidekicks pane
+ * @consumedBy opening a child in the agents pane
  */
 export interface ChildRunDisclosure {
   readonly expansionFor: (childRunId: RunId) => ChildRunExpansion;

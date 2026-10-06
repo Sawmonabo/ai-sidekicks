@@ -11,15 +11,14 @@
 // no projection and no artifact, and the person's turn records only that a secret
 // was answered.
 //
-// This file imports nothing from `event.ts`: that module imports the payload
+// This file imports nothing from `event/session.ts`: that module imports the payload
 // schema below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-import type { MethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The daemon-minted id of one question record. */
 export type QuestionId = string & { readonly __brand: "QuestionId" };
@@ -78,16 +77,21 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
   });
 
 /**
- * The stored `question.asked` payload, without the question text, which is personal data and
- * travels as {@link QuestionAskedPersonalData}. Exactly one of `runId` (an agent's or a tool
- * server's question) and `waitId` (a workflow step's) names what is waiting.
+ * The `question.asked` payload: exactly one of `runId` (an agent's or a tool server's question)
+ * and `waitId` (a workflow step's) names what is waiting. `questions` holds every question of the
+ * record in page order, so a rebuilt card pages through them with no further read.
  */
 export type QuestionAskedPayload = {
   questionId: QuestionId;
   sessionId: SessionId;
   runId?: RunId | undefined;
   waitId?: string | undefined;
-  pageCount: number;
+  /**
+   * False only on a question the agent does not wait for: its run keeps running, no card of its
+   * own is raised, and the `user.message` naming it as `answersQuestionId` marks it answered.
+   */
+  isAgentWaiting: boolean;
+  questions: QuestionPrompt[];
 };
 /** Parses a {@link QuestionAskedPayload}. */
 export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
@@ -96,7 +100,8 @@ export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
     sessionId: SessionIdSchema,
     runId: RunIdSchema.optional(),
     waitId: uuidTextFormSchema.optional(),
-    pageCount: z.number().int().positive(),
+    isAgentWaiting: z.boolean(),
+    questions: z.array(QuestionPromptSchema).min(1),
   })
   .strict()
   .superRefine((payload, context) => {
@@ -108,20 +113,6 @@ export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
       });
     }
   });
-
-/**
- * The personal-data half of a `question.asked` row: every question of the record,
- * one per page in order, so a rebuilt card pages through them with no further read
- * and each question keeps its own `severalAnswers` and `secret` beside its text.
- * The emitter seals it with the row and writes `pageCount` as its length.
- */
-export interface QuestionAskedPersonalData {
-  questions: QuestionPrompt[];
-}
-/** Parses a {@link QuestionAskedPersonalData}. */
-export const QuestionAskedPersonalDataSchema: z.ZodType<QuestionAskedPersonalData> = z
-  .object({ questions: z.array(QuestionPromptSchema).min(1) })
-  .strict();
 
 /**
  * The answer to one question: the picked labels, typed text, a secret, or a skip.
@@ -179,11 +170,7 @@ export interface QuestionMethodDescriptors {
   >;
 }
 
-/**
- * The `question.*` descriptor table.
- *
- * @consumedBy the daemon's `question.resolve` handler
- */
+/** The `question.*` descriptor table. */
 export const QUESTION_METHOD_DESCRIPTORS: QuestionMethodDescriptors = defineMethodDescriptors({
   "question.resolve": {
     method: "question.resolve",

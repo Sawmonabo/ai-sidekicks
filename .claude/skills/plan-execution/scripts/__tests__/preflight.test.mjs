@@ -31,7 +31,8 @@ function makeRepo({
       : "Precondition: Plan-003 Phase 1 merged.");
   writeFileSync(
     path.join(root, "docs/plans/003-queue.md"),
-    `# Plan-003: Queue\n\n| **Status** | \`${status}\` |\n\n## Phases\n\n### Phase 1 — Queue core\n\nPrecondition: none.\n\n### Phase 2 — Steer\n\n${phaseTwoPrecondition}\n`,
+    `# Plan-003: Queue\n\n| **Status** | \`${status}\` |\n\n## Phases\n\n### Phase 1 — ` +
+      `Queue core\n\nPrecondition: none.\n\n### Phase 2 — Steer\n\n${phaseTwoPrecondition}\n`,
   );
   run(["add", "."]);
   run(["commit", "-q", "-m", "docs(repo): add plan"]);
@@ -58,7 +59,8 @@ function makeRenumberedRepo({
   // A second plan whose number was retired by the renumbering.
   writeFileSync(
     path.join(root, "docs/plans/008-retired.md"),
-    "# Plan-008: Retired\n\n| **Status** | `ready` |\n\n## Phases\n\n### Phase 1 — Work\n\nPrecondition: none.\n",
+    "# Plan-008: Retired\n\n| **Status** | `ready` |\n\n## " +
+      "Phases\n\n### Phase 1 — Work\n\nPrecondition: none.\n",
   );
   run(["add", "."]);
   run(["commit", "-q", "-m", "docs(repo): add the second plan"]);

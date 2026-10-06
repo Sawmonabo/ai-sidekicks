@@ -51,9 +51,9 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 10. **Version failures surface as handshake reasons, never crashes.** The only version refusals are the `version.floor_exceeded` and `version.ceiling_exceeded` reasons on `DaemonHelloAck`, registered in [Error Contracts](../architecture/contracts/error-contracts.md), and the app reads each as the side that is behind (item 4). No write, join or envelope read carries a typed version error.
 
-11. **Retro-replay durability contract.** Version stubs remain parseable for the full audit-retention lifetime. The version-stub-metadata schema is versioned separately from envelope `.version` so future stub-schema evolution is itself versionable. A version stub keeps its bytes until its session is deleted, which deletes it with the session's other rows; background compaction never removes a version stub's bytes.
+11. **Retro-rebuild durability contract.** Version stubs remain parseable for the full audit-retention lifetime. The version-stub-metadata schema is versioned separately from envelope `.version` so future stub-schema evolution is itself versionable. A version stub keeps its bytes until its session is deleted, which deletes it with the session's other rows; background compaction never removes a version stub's bytes.
 
-12. **Provider-CLI skew is a different axis and is not governed here.** This ADR governs skew in shapes this corpus defines — the `EventEnvelope` between the user's own service and its clients, where the version range applies and unknowns are stubbed and re-emitted. A provider vendor owns its own surface and ships it faster than we re-verify, so [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) sets that axis separately: every installed build is admitted, and every capability is decided individually by a zero-turn probe of the running build. Accept-and-stub has no analogue there, because a provider surface that moved cannot be stubbed and replayed, only detected and degraded. It is decided at runtime, by the daemon's probes at spawn.
+12. **Provider-CLI skew is a different axis and is not governed here.** This ADR governs skew in shapes this corpus defines — the `EventEnvelope` between the user's own service and its clients, where the version range applies and unknowns are stubbed and re-emitted. A provider vendor owns its own surface and ships it faster than we re-verify, so [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) sets that axis separately: every installed build is admitted, and every capability is decided individually by a zero-turn probe of the running build. Accept-and-stub has no analog there, because a provider surface that moved cannot be stubbed and re-emitted, only detected and degraded. It is decided at runtime, by the daemon's probes at spawn.
 
 13. **Until the first release, nothing is kept for an older daemon.** The additive-only MINOR rule and version stubs protect envelopes already written to a production audit log, and they apply from the point of no return ([§Reversibility Assessment](#reversibility-assessment)). Before it, no daemon has shipped: a shape changes in place, and no field is made optional, and no arm is kept, for an older daemon.
 
@@ -170,7 +170,7 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| MINOR bump (e.g., `1.0` → `1.1`) preserves all existing replay output | 100% of replay test suite passes across all historical MINOR versions within the same MAJOR | CI replay-diff suite | First MINOR bump after release |
+| MINOR bump (e.g., `1.0` → `1.1`) preserves all existing rebuild output | 100% of rebuild test suite passes across all historical MINOR versions within the same MAJOR | CI rebuild-diff suite | First MINOR bump after release |
 | An app outside the service's version range gets `DaemonHelloAck` with the matching reason and a read-only console, never a crash | 100% of out-of-range handshakes in the contract-test matrix | CI contract tests | The handshake's landing (Plan-005) |
 | A version stub re-read by a receiver that knows its type equals the native read | Byte-identical diff = 0 across reserved event-type test fixtures | CI version-stub tests | First MINOR bump |
 | Unknown-type events persist as version stubs, never dropped | 100% of version stubs keep their original canonical bytes byte-identical | CI version-stub persistence tests | First MINOR bump |
@@ -203,7 +203,7 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 ### Related Specs
 
 - [Spec-005: Session Event Taxonomy and Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md) — `EventEnvelope.version` field declaration; §EventEnvelope Version Semantics subsection documents the semantics this ADR establishes.
-- [Spec-013: Persistence, Recovery, and Replay](../specs/013-persistence-recovery-and-replay.md) — replay path; audit-log hydration semantics.
+- [Spec-013: Persistence And Recovery](../specs/013-persistence-and-recovery.md) — rebuild path; audit-log hydration semantics.
 
 ### Related Architecture Docs
 

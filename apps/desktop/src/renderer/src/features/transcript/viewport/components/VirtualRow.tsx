@@ -7,10 +7,10 @@
 
 import { memo, useCallback } from "react";
 
-import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
-import type { ViewportRow } from "../viewport-snapshot.js";
+import type { ViewportRow } from "../snapshot.js";
 
 /**
  * What a transcript row is in the accessibility tree: the other half of the `feed` role

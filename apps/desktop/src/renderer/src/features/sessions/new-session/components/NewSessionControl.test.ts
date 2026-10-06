@@ -13,7 +13,7 @@
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CREATED_SESSION_ID, bridgeFor } from "../new-session-draft.test-support.js";
+import { CREATED_SESSION_ID, bridgeFor } from "../draft.test-support.js";
 import {
   bridgeAnsweringCreateUnreadably,
   bridgeHoldingCreate,
@@ -25,7 +25,7 @@ import {
   renderControl,
   renderControlOn,
 } from "./NewSessionControl.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — what a send reports", () => {
   afterEach(cleanup);
@@ -150,7 +150,8 @@ describe("the composed new-session draft — the create it cannot answer for", (
     // The draft stays: a person can still read what they typed and copy it out.
     expect(container.querySelector(".meridian-new-session")).not.toBeNull();
     expect(politeText(container)).toBe(
-      "A session may have been created, and this window could not read the reply. Check the sessions list.",
+      "A session may have been created, and this window could not read " +
+        "the reply. Check the sessions list.",
     );
   });
 

@@ -7,6 +7,8 @@
 // Focus moves only when the reveal took it: the holder is gone and nothing else has claimed
 // it. A click elsewhere, or a body focusing something on mount, is left alone.
 
+import { isHTMLElement } from "@floating-ui/utils/dom";
+
 /**
  * One mount's focus, carried across its own reveal. Per-mount state, so two panes revealing in
  * one commit each restore their own control.
@@ -16,12 +18,13 @@ export class RevealFocusTransfer {
 
   /**
    * Remembers where the keyboard was as the reserved region is torn down. Called from the
-   * teardown, not a `blur` handler, because not every engine fires blur on removal.
+   * teardown, not a `blur` handler, because not every engine fires blur on removal. The document
+   * is the window's the region was drawn in, since each window has its own focus.
    */
-  public recordReservedFocus(): void {
-    const active = document.activeElement;
+  public recordReservedFocus(ownerDocument: Document): void {
+    const active = ownerDocument.activeElement;
     this.#reserved =
-      active instanceof HTMLElement && active !== document.body
+      isHTMLElement(active) && active !== ownerDocument.body
         ? { element: active, ancestors: ancestorsOf(active), identity: controlIdentity(active) }
         : undefined;
   }
@@ -37,7 +40,7 @@ export class RevealFocusTransfer {
     if (reserved === undefined || reserved.element.isConnected) {
       return;
     }
-    if (focusHeldElsewhere(reserved.element, document.activeElement)) {
+    if (focusHeldElsewhere(reserved.element, reserved.element.ownerDocument.activeElement)) {
       return;
     }
     const container = reserved.ancestors.find((ancestor) => ancestor.isConnected);
@@ -108,5 +111,10 @@ function ancestorsOf(element: HTMLElement): readonly HTMLElement[] {
  * differ on where focus lands when its holder is removed, so this does not test for the body.
  */
 function focusHeldElsewhere(reserved: HTMLElement, active: Element | null): boolean {
-  return active !== null && active !== reserved && active.isConnected && active !== document.body;
+  return (
+    active !== null &&
+    active !== reserved &&
+    active.isConnected &&
+    active !== reserved.ownerDocument.body
+  );
 }

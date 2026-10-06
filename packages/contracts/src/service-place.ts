@@ -7,7 +7,7 @@
 import { z } from "zod";
 
 import { ReleaseVersionSchema } from "./release-manifest.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
 
 /**
  * The record's file name, in `%LOCALAPPDATA%\ai-sidekicks\`.

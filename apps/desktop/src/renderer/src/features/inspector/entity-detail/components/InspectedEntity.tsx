@@ -8,10 +8,10 @@
 import {
   useSessionDegradedCause,
   useSessionInitialized,
-} from "@renderer/store/session/hooks/useSessionInitialized.js";
-import { useSessionPartition } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type EntityRef } from "@renderer/lib/entity-kinds.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+} from "#renderer/store/session/hooks/useSessionInitialized.js";
+import { useSessionPartition } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { type EntityRef } from "#renderer/lib/entity-kinds.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { ENTITY_DETAIL_BY_KIND, type EntityDetailKind } from "../entity-detail-by-kind.js";
 
 /** The addressed entity, the store it is read from, and the pane that linked to it. */

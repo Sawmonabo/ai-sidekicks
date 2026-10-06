@@ -1,0 +1,134 @@
+/* The changed-file list beside a diff. */
+
+.meridian-diff-files {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  inline-size: 15rem;
+  min-inline-size: 0;
+  border-inline-end: 1px solid var(--meridian-edge);
+}
+
+/*
+ * The file list's viewport, which the window is computed against. Past the file-count threshold
+ * it scrolls on its own instead of pushing the rows off the pane. The list inside holds the
+ * whole height, so the scrollbar reports every entry rather than the mounted handful.
+ */
+.meridian-diff-files__scroller {
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+.meridian-diff-files--scrolling .meridian-diff-files__scroller {
+  overflow-y: auto;
+}
+
+.meridian-diff-files__filter {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-diff-files__filter-input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-diff-files__list {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * One windowed entry, placed at the offset the window computed. Placed rather than spaced
+ * (unlike the rows renderer) because these are `<li>` of a real `<ul>`, and a spacer `<div>`
+ * would break list semantics. The height is fixed because the window estimates with it: one
+ * value under one owner (`measures.ts`) keeps offsets and painted rows from drifting.
+ */
+.meridian-diff-files__row {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--meridian-diff-file-row-height);
+}
+
+/*
+ * Minimum block size is the WCAG 2.2 2.5.8 target size (24 CSS pixels), which padding alone did
+ * not reach at this text size (the accessibility tier measured it). This list is the pane's
+ * only way to move between files.
+ */
+.meridian-diff-files__entry {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 1.5rem;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-diff-files__entry:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-diff-files__entry[aria-current="true"] {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+/* The path is what a reader scans: it takes the measure and truncates from the start, since a
+   change set's files differ in their tails. */
+.meridian-diff-files__path {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+}
+
+/* What the extended headers said, where a change is in no hunk. Sans so it reads as the
+   console's sentence about the file, and it never takes the measure from the path. */
+.meridian-diff-files__change {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-diff-files__counts {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-diff-files__no-match,
+.meridian-diff-files__hidden-selection {
+  margin: 0;
+  padding: var(--meridian-space-3);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}

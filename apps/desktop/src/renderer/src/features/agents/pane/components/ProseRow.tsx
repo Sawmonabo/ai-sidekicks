@@ -1,5 +1,5 @@
-import { elideText } from "@renderer/lib/elide-text.js";
-import { RESOLVED_PROSE_INLINE_CAP } from "../../agents-caps.js";
+import { elideText } from "#renderer/lib/elide-text.js";
+import { RESOLVED_PROSE_INLINE_CAP } from "../../caps.js";
 
 /**
  * One labeled row of an agent's resolved configuration, its prose clamped at the named
@@ -11,7 +11,7 @@ export function ProseRow(props: {
 }): React.JSX.Element {
   return (
     <div className="meridian-agent-card__resolved-row">
-      <dt>{props.label}</dt>
+      <dt className="meridian-form__label">{props.label}</dt>
       <dd>
         {props.text === null || props.text.length === 0 ? (
           <span className="meridian-agent-card__axis-absent">none</span>

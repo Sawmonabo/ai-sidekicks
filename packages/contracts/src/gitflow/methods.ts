@@ -1,7 +1,7 @@
 // The `gitflow.*` descriptor table: each method's name, procedure type, whether it
 // changes state, and the schemas the registry validates its request, its result and
 // (for a subscription) each emission against. A descriptor registers nothing.
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,

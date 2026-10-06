@@ -1,24 +1,24 @@
-// The staged list a composer holds is re-minted when its setup replays, so files chosen after a
+// The staged list a composer holds is re-minted when its setup re-runs, so files chosen after a
 // StrictMode teardown reach a live client.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import {
   useStagedAttachments,
   type StagedAttachmentsBinding,
 } from "./hooks/useStagedAttachments.js";
-import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import type { AttachmentIngestPort } from "./services/ingest-port.js";
+import { bridgeOnClock, type BridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import {
   INGEST_SESSION_ID,
   ScriptedIngestPort,
   patternedBytes,
-} from "@test/helpers/scripted-ingest-port.js";
+} from "#test/helpers/scripted-ingest-port.js";
 
 /** One file, exactly as a picker hands it over. */
 function pickedFile(byteLength: number): File {
@@ -45,7 +45,7 @@ function StagedAttachmentsProbe(props: {
   return <span>{String(binding.snapshot.entries.length)}</span>;
 }
 
-describe("useStagedAttachments — a disposed staged list is re-minted on the replayed setup", () => {
+describe("useStagedAttachments — a disposed staged list is re-minted on the re-run setup", () => {
   it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
     // StrictMode runs the cleanup and then the setup again on the same instance. The cleanup
     // terminally disposed the ingest client, so files chosen afterwards would reach a client

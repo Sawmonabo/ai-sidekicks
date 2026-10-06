@@ -17,7 +17,8 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
   id: EMPTY_SESSION_SCENARIO_ID,
   label: "Quiet session",
   purpose:
-    "A session with agents and nothing on the log yet. Reaches the transcript's empty state, which no scripted stream can.",
+    "A session with agents and nothing on the log yet. Reaches " +
+    "the transcript's empty state, which no scripted stream can.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
   beats: [],

@@ -1,0 +1,20 @@
+/* A step's markdown drawn one row at a time: a row's last block leaves no margin below it. */
+.meridian-workflow-payload__markdown-row > :last-child,
+.meridian-workflow-payload__footnote-definition > :last-child {
+  margin-bottom: 0;
+}
+
+/* Its footnote definitions follow its blocks, each by its label. */
+.meridian-workflow-payload__footnote-definition {
+  display: flex;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-workflow-payload__footnote-label {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-workflow-payload__footnote-body {
+  min-width: 0;
+}

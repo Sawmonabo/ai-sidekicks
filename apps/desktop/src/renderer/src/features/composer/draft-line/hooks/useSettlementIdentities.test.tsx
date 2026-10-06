@@ -5,10 +5,10 @@
 import { act, render, screen } from "@testing-library/react";
 import { Suspense, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
-import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
+import { SuspendsWhenAsked, abandonOneRenderPass } from "#test/helpers/abandoned-pass.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./useSettlementIdentities.js";
 
 /**

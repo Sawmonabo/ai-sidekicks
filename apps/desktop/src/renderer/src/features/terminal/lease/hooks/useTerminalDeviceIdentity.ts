@@ -1,11 +1,11 @@
-// Which device this is, for the one terminal decision that needs it: `lease-model.ts` tells
+// Which device this is, for the one terminal decision that needs it: `model.ts` tells
 // `held-by-this-device` from `held-by-another-device` by comparing the holder's device id with
 // this device's, so the take control waits for the identity. Held per `(bridge, sessionId)` by
 // the subject-scoped holder.
 
 import { useEffect } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** Which device this is, or that the app has not been told yet. */
 export type TerminalDeviceIdentity =

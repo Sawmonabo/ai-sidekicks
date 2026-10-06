@@ -4,73 +4,83 @@
 // confirmation, and asks the daemon's reported line again once it can have changed. That last
 // is two claims: a read that never happens again leaves a stopped runtime beside `Reported
 // state: connected`, while a read on every render or every supervisor retry is an interval
-// poll. The cases drive a settled control and a
-// supervisor transition, and an advancing retry attempt that must change nothing.
+// poll. The cases drive a settled control, a supervisor transition and `Check again`, and an
+// advancing retry attempt that must change nothing.
 
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { settle } from "@test/helpers/settle.js";
-import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
-import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { settle } from "#test/helpers/settle.js";
+import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
+import type { DaemonOperations } from "./daemon-status-read.js";
 import { useDaemonControl } from "./hooks/useDaemonControl.js";
-import { daemonStatusAt, getButton, renderRuntimePage } from "./runtime-page.test-support.js";
+import { daemonStatusAt, getButton, renderRuntimePage } from "./RuntimePage.test-support.js";
 
 describe("RuntimePage — the reported status", () => {
   it("asks the runtime again once a control settles", async () => {
     // Guards a stale reply: a stop that was accepted changes what the runtime would answer,
     // and a page holding the pre-control reply would show a stopped supervisor beside
     // `Reported state: connected` for the rest of the visit.
-    const { container, ledger } = renderRuntimePage({});
-    await waitFor(() => {
-      expect(container.textContent).toContain("2026-04-30-read-1");
-    });
+    const { container, ledger, settleReads } = renderRuntimePage({});
+    await settleReads();
+    expect(container.textContent).toContain("2026-04-30-read-1");
 
     fireEvent.click(getButton(container, "Stop"));
     fireEvent.click(getButton(container, "Stop"));
+    // The stop settles first; its settlement is what asks the runtime again.
+    await settle();
+    await settleReads();
 
-    await waitFor(() => {
-      expect(container.textContent).toContain("2026-04-30-read-2");
-    });
+    expect(container.textContent).toContain("2026-04-30-read-2");
     expect(ledger.calls).toStrictEqual(["stop"]);
   });
 
   it("asks the runtime again when the supervisor moves under the window", async () => {
-    const { container, ledger, showMainProcessState } = renderRuntimePage({
+    const { container, ledger, showMainProcessState, settleReads } = renderRuntimePage({
       mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
-    await waitFor(() => {
-      expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
-    });
+    await settleReads();
+    expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
 
     showMainProcessState({ ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } });
+    await settleReads();
 
-    await waitFor(() => {
-      expect(container.textContent).toContain("2026-04-30-read-2");
-    });
+    expect(container.textContent).toContain("2026-04-30-read-2");
+  });
+
+  it("asks the runtime again on Check again, once for a burst of presses", async () => {
+    // The person's own way to a fresh processor and memory reading, since nothing samples them
+    // on a timer; presses inside the scheduler's window are one question.
+    const { container, ledger, settleReads } = renderRuntimePage({});
+    await settleReads();
+
+    fireEvent.click(getButton(container, "Check again"));
+    fireEvent.click(getButton(container, "Check again"));
+    await settleReads();
+
+    expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1", "2026-04-30-read-2"]);
+    expect(container.textContent).toContain("2026-04-30-read-2");
   });
 
   it("negative control: a re-render and an advancing retry attempt ask nothing", async () => {
     // Both halves of the anti-poll claim: a page re-reading on every render would pass the
-    // two cases above, and keying the read on the whole connection would put one call per
-    // supervisor retry, which is polling in another form.
-    const { ledger, showMainProcessState } = renderRuntimePage({
+    // cases above, and asking on the whole connection would put one call per supervisor
+    // retry, which is polling in another form.
+    const { ledger, showMainProcessState, settleReads } = renderRuntimePage({
       mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
-        connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
+        connection: { kind: "transient_disconnect", attempt: 1, attemptLimit: 5 },
       },
     });
-    await waitFor(() => {
-      expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
-    });
+    await settleReads();
+    expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
 
     showMainProcessState({
       ...UNREPORTED_MAIN_PROCESS_STATE,
-      connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
-      lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
+      connection: { kind: "transient_disconnect", attempt: 2, attemptLimit: 5 },
     });
-    await settle();
+    await settleReads();
 
     expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
   });
@@ -82,7 +92,8 @@ describe("RuntimePage — the two controls", () => {
     fireEvent.click(getButton(container, "Stop"));
     expect(ledger.calls).toStrictEqual([]);
     expect(container.textContent).toContain(
-      "Stop the background service? Work in flight stops, and nothing new starts until it is running again.",
+      "Stop the background service? Work in flight stops, and nothing " +
+        "new starts until it is running again.",
     );
   });
 

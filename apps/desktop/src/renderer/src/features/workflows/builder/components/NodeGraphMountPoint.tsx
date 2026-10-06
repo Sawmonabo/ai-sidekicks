@@ -4,7 +4,7 @@
 // so this mount carries neither it nor the definition's bytes.
 
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 
 /** What the builder pane hands the node-graph body. */
 export interface NodeGraphMount {

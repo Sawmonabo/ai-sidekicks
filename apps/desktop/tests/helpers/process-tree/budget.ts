@@ -57,11 +57,11 @@ function spawnedTreeHostQueryCeilingMs(consumesCapturedDescendants: boolean): nu
 /**
  * The reserve every spawner's enclosing budget keeps for this host's own queries.
  *
- * The capture runs inside `spawnManagedElectronChild`, before the probe harness has armed the
- * timer that bounds its spawn, so a slow `ps` or PowerShell spends this time outside the
- * harness's own budget. Leaving it out of the enclosure let the worst legal run exceed it and
- * vitest's timeout win before the harness's diagnostic path settled. It is spelled in
- * `HOST_QUERY_TIMEOUT_MS` so a change to the query bound moves every derived budget together.
+ * The capture runs inside `spawnManagedChild`, before the probe harness has armed the timer that
+ * bounds its spawn, so a slow `ps` or PowerShell spends this time outside the harness's own budget.
+ * Leaving it out of the enclosure let the worst legal run exceed it and vitest's timeout win before
+ * the harness's diagnostic path settled. It is spelled in `HOST_QUERY_TIMEOUT_MS` so a change to
+ * the query bound moves every derived budget together.
  */
 export const SPAWNED_TREE_HOST_QUERY_CEILING_MS: number = spawnedTreeHostQueryCeilingMs(
   TERMINATION_CONSUMES_CAPTURED_DESCENDANTS,

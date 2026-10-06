@@ -5,7 +5,7 @@
 // owner on one kind and the refusal should say which body is already there. The stylesheet is
 // not imported here: the pane is loader-backed, so the body module owns it.
 
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 
 /** Claim the `inspector` kind, with its body loaded on demand. */
 export function registerInspectorPane(registry: PaneRegistry): void {
@@ -13,6 +13,6 @@ export function registerInspectorPane(registry: PaneRegistry): void {
     kind: "inspector",
     owner: "inspector-pane",
     // A loader, not a `render`: the body, readers and sheets ride a separate chunk.
-    body: () => import("./inspector-pane-body.js"),
+    body: () => import("./pane-body.js"),
   });
 }

@@ -13,14 +13,14 @@
   // The answer is a config with both libs, scoped to the directories that need it, rather than
   // widening `tsconfig.test.json`, which would hand the DOM to `launch.smoke.test.ts` and every
   // `src/main/**` unit, where reaching for `document` is a defect the compiler should still catch.
-  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
     // The budget registry's modules import each other by their real `.mts` path, because
     // `node --experimental-strip-types` resolves the extension it is given and does no `.mjs` to
     // `.mts` rewriting. A program that pulls them in needs this option, and this tier does, through
-    // `launch-budgets.ts`, which reads the harness bounds off the same registry. Legal here because
-    // this config is `noEmit`.
+    // `tests/helpers/launch/budgets.ts`, which reads the harness bounds off the same registry.
+    // Legal here because this config is `noEmit`.
     "allowImportingTsExtensions": true,
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
     // project-references graph.
@@ -41,12 +41,15 @@
   "include": [
     "tests/e2e/**/*",
     "tests/endurance/**/*",
+    // The smoke tier's one launch through the end-to-end launcher, which runs against the smoke
+    // bundle because that build refuses a scenario.
+    "tests/launch-failure.smoke.test.ts",
     "tests/helpers/**/*.test-support.ts",
-    "tests/helpers/electron-harness.ts",
-    "tests/helpers/launch-readiness.ts",
+    "tests/helpers/electron/harness.ts",
+    "tests/helpers/launch/readiness.ts",
     // The palette helper both launching tiers open through. It hands `page.evaluate` a callback
     // that reads `document.activeElement`, which is browser code, and imports the launcher, which
-    // drags `launch-readiness.ts`'s callbacks in with it.
+    // drags `tests/helpers/launch/readiness.ts`'s callbacks in with it.
     "tests/helpers/palette-interaction.ts",
     // These tiers import renderer constants (a database name, a partition, a key) so a rename
     // breaks the test at compile time instead of leaving it reading a record nothing writes. That

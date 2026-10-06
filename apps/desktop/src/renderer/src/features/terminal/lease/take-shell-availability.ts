@@ -8,7 +8,7 @@
 // and the next device to take it displaces the holder. The daemon refuses a take against a
 // run's hold, so none is offered while a run holds the shell.
 
-import type { TerminalLeaseHolder } from "./lease-model.js";
+import type { TerminalLeaseHolder } from "./state.js";
 import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.js";
 
 /** Which control the lease line offers. */

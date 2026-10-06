@@ -9,8 +9,8 @@ import {
   fixtureBridgeWrapper,
   lastObservation,
   type Observation,
-} from "./session-store-hooks.test-support.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+} from "./session-probe.test-support.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 
 /** The assertion: how many different stores answered these renders. */
 function distinctStores(stores: readonly (SessionStore | undefined)[]): number {

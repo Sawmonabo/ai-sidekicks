@@ -1,0 +1,40 @@
+/* The preference row around its switch; imported by the component so any page that renders the
+ * row gets the styles. */
+
+/* --- One preference row -------------------------------------------------- */
+
+.meridian-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-settings-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+  max-width: 56ch;
+}
+
+/*
+ * The two custom properties are this label's public API: a page whose label is a wire value
+ * sets them for the provenance face, and every other page leaves them unset. A page's own
+ * sheet redeclaring the class would make load order decide which one wins.
+ */
+.meridian-settings-row__label {
+  color: var(--meridian-text);
+  font-family: var(--meridian-settings-row-label-font, inherit);
+  font-size: var(--meridian-settings-row-label-size, var(--meridian-text-sm));
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.meridian-settings-row__description {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}

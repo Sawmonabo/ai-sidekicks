@@ -1,20 +1,22 @@
-import "./mounted-folders.css";
+import "./MountedFolderList.css";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
-import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
-import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
-import type { SettingsPageContext } from "@renderer/features/settings/types.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
+import type { SettingsPageContext } from "#renderer/features/settings/types.js";
 import { MountedFolderRow } from "./MountedFolderRow.js";
-import { type PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";
+import { type PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import {
   createMountInventoryRead,
   type MountInventory,
   type MountInventoryCalls,
-} from "./mount-inventory.js";
+} from "./mount-inventory/read.js";
 
 /**
  * The list itself: the session's mounts, read and kept current.
@@ -33,6 +35,7 @@ export function MountedFolderList(props: {
   // the window's clock hook, which keeps one identity for the mount, so this read is not
   // rebuilt around a new clock when the bridge is replaced.
   const clock = useClock();
+  const ownerWindow = useOwnerWindow();
   // A dependency that moves the read's construction: a subscription that could not be
   // opened is terminal without one, because the read requests no snapshot then and the
   // effect below re-runs only when the session or the transport moves.
@@ -49,19 +52,19 @@ export function MountedFolderList(props: {
       inventoryRead.dispose();
     };
   }, [inventoryRead]);
-  // Focus is the second of the section's three refresh signals: a window that was away may
-  // have missed a mount going unreachable. It goes through the read's scheduler, so a
-  // flurry of focus changes costs one read. The first signal is the session's event stream,
-  // bound by the read (see `mount-inventory.ts`).
+  // Focus is the second of the section's three refresh signals: a window that was away may have
+  // missed a mount going unreachable. It goes through the read's scheduler, so a flurry of focus
+  // changes costs one read. The first signal is the session's event stream, bound by the read (see
+  // `features/settings/pages/runtime/mounted-folders/mount-inventory/read.ts`).
   useEffect(() => {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");
     };
-    window.addEventListener("focus", onWindowFocus);
+    ownerWindow.addEventListener("focus", onWindowFocus);
     return () => {
-      window.removeEventListener("focus", onWindowFocus);
+      ownerWindow.removeEventListener("focus", onWindowFocus);
     };
-  }, [inventoryRead]);
+  }, [inventoryRead, ownerWindow]);
   // Reconnect is the third, and a different fact: a window that never lost focus can still
   // have had its transport drop and come back, leaving everything read across the gap stale
   // with nothing on screen saying so. A separate effect from focus because the two release
@@ -96,15 +99,11 @@ export function MountedFolderList(props: {
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-action-button"
-            onClick={() => {
+          <TryAgainButton
+            onPress={() => {
               setOpeningOrdinal((held) => held + 1);
             }}
-          >
-            Try again
-          </button>
+          />
         }
       />
     );
@@ -154,5 +153,6 @@ function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): st
   }
   return unreadMountCount === 0
     ? `Mounts read for this session: ${formatCount(readings.length)}.`
-    : `Mounts read for this session: ${formatCount(readings.length)}, with ${formatCount(unreadMountCount)} more not read.`;
+    : `Mounts read for this session: ${formatCount(readings.length)}, ` +
+        `with ${formatCount(unreadMountCount)} more not read.`;
 }

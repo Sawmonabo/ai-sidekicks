@@ -1,23 +1,32 @@
-// The message card for user, agent and reasoning rows: open body, the author's hue on the edge,
-// hover-revealed affordances. A live `liveText` beats the stored body; a user body is the row's
-// `summary` (`user.message` has no payload variant); reasoning is composed by the mount so a
-// policy-withheld body stays distinguishable from an unreadable one.
+// The message card for user, agent and reasoning rows: open body, the author's hue on the edge. A
+// reply's foot stands on its last row once the reply has drawn something to read, and stays for the
+// rest of the turn: its time at rest, its Copy revealed on hover and focus. A user's actions are
+// revealed on hover. A live `liveText` beats the stored body; a user body is the row's `summary`
+// (`user.message` has no payload variant); reasoning is composed by the mount so a policy-withheld
+// body stays distinguishable from an unreadable one.
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import "./MessageRow.css";
+
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
-import { type InlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { type RowKindDescriptor } from "./row-kind.js";
-import type { HydratedRowProps } from "./hydrated-row-props.js";
+import { type InlineCardProps } from "#renderer/registries/inline-cards/registry.js";
+import { type RowKindDescriptor } from "./kind.js";
+import type { HydratedRowProps } from "./hydrated-props.js";
 import { InlineCards } from "./InlineCards.js";
-import { CopyButton } from "./components/CopyButton.js";
+import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
+import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
-import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
+import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
+import { replyClipboardContent } from "../copy/clipboard-flavors.js";
+import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
+import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
+import { useReplyText } from "../copy/hooks/useReplyText.js";
 
 /** What a mount hands a message card, beyond the row itself. */
 export interface MessageRowProps extends HydratedRowProps {
@@ -42,6 +51,7 @@ export interface MessageRowProps extends HydratedRowProps {
 export function MessageRow(props: MessageRowProps): React.JSX.Element {
   const rowKind = props.rowKind;
   const isUser = rowKind.kind === "user-message";
+  const isReply = rowKind.kind === "agent-message";
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
@@ -53,7 +63,35 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       ? undefined
       : (props.liveText ??
         (props.content?.status === "available" ? props.content.body : undefined));
-  const copyControl = copyText === undefined ? undefined : <CopyButton text={copyText} />;
+  // A reply drawn as markdown copies as markdown with a formatted flavor beside it; the person's
+  // own message, and a reply drawn as text, copy as plain text and nothing else.
+  const copyFlavor: CopyFlavor =
+    isReply && copyText !== undefined ? replyCopyFlavorOf(copyText, assistantMediaType) : "text";
+  // A reply's time and Copy sit in its foot, on its last row, and Copy takes every row of the
+  // reply, as markdown when any row is drawn as prose. The foot is drawn once the reply has drawn
+  // text, so a time never stands over an empty answer, and both stay for the rest of the turn.
+  // The time stands at rest and only the Copy waits for a hover or focus.
+  const replyText = useReplyText(
+    props.replyRowIds ?? NO_REPLY_ROWS,
+    props.row.id,
+    isReply && copyText !== undefined ? { text: copyText, flavor: copyFlavor } : undefined,
+  );
+  const clipboardCopy = useClipboardCopy(() => {
+    if (!isReply) {
+      return { text: copyText ?? "" };
+    }
+    const wholeReply = replyText.read();
+    return replyText.flavor === "markdown"
+      ? replyClipboardContent(wholeReply)
+      : { text: wholeReply };
+  });
+  const hasCopy = isReply ? replyText.hasText : copyText !== undefined;
+  const copyButton = <CopyButton label="Copy" clipboardCopy={clipboardCopy} />;
+  const copyControl = !hasCopy ? undefined : isReply ? (
+    <span className="meridian-transcript-row-layout__revealed">{copyButton}</span>
+  ) : (
+    copyButton
+  );
   const footer =
     isUser && props.editControl !== undefined ? (
       <>
@@ -71,6 +109,8 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       authorLabel={props.row.actor ?? rowKind.label}
       isSuperseded={props.isSuperseded}
       footer={footer}
+      timePlacement={isReply ? (replyText.hasText ? "footer" : "none") : "gutter"}
+      footerVisibility={isReply ? "always" : "on-hover"}
     >
       <div className={`meridian-message-card meridian-message-card--${rowKind.kind}`}>
         <span className="meridian-message-card__kind-label">
@@ -79,22 +119,25 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
           )}
           {rowKind.label}
         </span>
-        {isUser ? (
-          <UserBody row={props.row} footnotes={props.footnotes} />
-        ) : rowKind.kind === "thinking" ? (
-          props.thinkingRow
-        ) : (
-          <MessageContent
-            content={props.content}
-            {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-            // The media type is the producer-set `contentType` on the payload, and the same
-            // reading feeds the receipt below, so the renderer and the printed type agree.
-            {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
-            sourceId={props.row.id}
-            footnotes={props.footnotes}
-            label={rowKind.label}
-          />
-        )}
+        {/* The body alone is what a selection in the conversation copies out of this row. */}
+        <div className="meridian-message-card__body" {...{ [COPY_FLAVOR_ATTRIBUTE]: copyFlavor }}>
+          {isUser ? (
+            <UserBody row={props.row} footnotes={props.footnotes} />
+          ) : rowKind.kind === "thinking" ? (
+            props.thinkingRow
+          ) : (
+            <MessageContent
+              content={props.content}
+              {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
+              // The media type is the producer-set `contentType` on the payload, and the same
+              // reading feeds the receipt below, so the renderer and the printed type agree.
+              {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
+              sourceId={props.row.id}
+              footnotes={props.footnotes}
+              label={rowKind.label}
+            />
+          )}
+        </div>
         <InlineCards cards={props.inlineCards ?? []} />
         {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
           <RecordedBodyLine
@@ -106,3 +149,6 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
     </TranscriptRowLayout>
   );
 }
+
+/** The rows of no reply, for a message row that carries no reply's foot. */
+const NO_REPLY_ROWS: readonly string[] = [];

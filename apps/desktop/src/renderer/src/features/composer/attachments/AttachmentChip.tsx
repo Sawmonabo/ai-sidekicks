@@ -1,16 +1,17 @@
 // One attachment on one line beside the message it rides with: name, type, size and inline
 // progress, so a staged list does not push the message input off the screen. The words come from
-// `composer-attachment-chip.ts`, so the chip and the transcript card describe an upload alike.
+// `chip.ts`, so the chip and the transcript card describe an upload alike.
 // The chip's × is client-side abandonment with the daemon's reaper claiming the spool, and the
 // line under it says so rather than promising an instant reclaim.
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import type { ComposerAttachmentChipModel } from "./composer-attachment-chip.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import type { ComposerAttachmentChipModel } from "./chip.js";
 
 /** One chip model with the retry and abandon acts, keyed by the entry's local id. */
 export interface AttachmentChipProps {
@@ -54,15 +55,12 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
           </span>
         ) : null}
         {chip.offersRetry ? (
-          <button
-            type="button"
-            className="meridian-composer-attachment__act"
-            onClick={() => {
+          <TryAgainButton
+            word="Retry"
+            onPress={() => {
               props.onRetry(chip.localId);
             }}
-          >
-            Retry
-          </button>
+          />
         ) : null}
         {chip.offersAbandon ? (
           <button

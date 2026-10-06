@@ -11,7 +11,10 @@ export function captureThrow(body: () => unknown): unknown {
   throw new Error("expected the operation to throw, but it returned");
 }
 
-/** Awaits `pending` (or the promise `body` returns) and returns its rejection; throws if it resolved. */
+/**
+ * Awaits `pending` (or the promise `body` returns) and returns its rejection; throws if it
+ * resolved.
+ */
 export async function captureRejection(
   pending: Promise<unknown> | (() => Promise<unknown>),
 ): Promise<unknown> {

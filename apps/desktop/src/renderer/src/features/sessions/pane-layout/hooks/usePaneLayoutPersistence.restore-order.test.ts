@@ -4,7 +4,7 @@
 // being read, and a restore landing after the person arranged the layout takes the
 // arrangement away with no error. Every case drives the real hook against a real
 // `PaneLayoutStore` and store, because the failure is in how the two effects interleave.
-// `coalescing-layout-writer.test.ts` holds the writer's claims and
+// `features/sessions/pane-layout/coalescing-writer.test.ts` holds the writer's claims and
 // `usePaneLayoutPersistence.read-failure.test.ts` the read that never landed; all mount
 // through `usePaneLayoutPersistence.test-support.tsx`.
 
@@ -12,8 +12,8 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { memoryStore } from "../../SessionScreen.test-support.js";
-import { type PaneLayoutStore } from "../pane-layout-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
+import { type PaneLayoutStore } from "../store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "../persistence.js";
 import {
   RESTORE_SESSION_ID,
   createPaneLayoutStore,
@@ -191,7 +191,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     expect(paneKinds(layout)).toStrictEqual(["terminal", "transcript"]);
   });
 
-  it("negative control: an untouched read restores the record and writes nothing back", async () => {
+  it("negative control: an untouched read restores the record, writing nothing back", async () => {
     // Without this, a hook that wrote on every settle would pass while spending a durable
     // write on every session opened.
     const store = memoryStore();
@@ -207,7 +207,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
 
-  it("negative control: with nothing saved the fallback transcript is opened and written", async () => {
+  it("negative control: nothing saved opens the fallback transcript and writes it", async () => {
     // The gate must not swallow the first run's own record.
     const store = memoryStore();
     const layout = createPaneLayoutStore();

@@ -7,6 +7,8 @@
 // keyframe animates, and where the animated box sits. Both fail safe: an animation or flow that
 // cannot be read counts as able to move something.
 
+import { isElement } from "@floating-ui/utils/dom";
+
 /**
  * The properties whose animation moves nothing: paint-time properties that change neither a
  * box's size nor its place. An exclusion set rather than an allowlist of layout properties, so
@@ -120,7 +122,7 @@ function readKeyframes(animation: Animation): readonly Record<string, unknown>[]
 /** The element an animation is running on, or `null` where it names none. */
 function animationTargetElement(animation: Animation): Element | null {
   const target = readEffect(animation)?.target;
-  return target instanceof Element ? target : null;
+  return isElement(target) ? target : null;
 }
 
 /** The effect, read structurally: `AnimationEffect` declares neither member. */
@@ -139,9 +141,10 @@ function readEffect(
  * is yes, keeping the coarser reading.
  */
 function isInNormalFlow(target: Element): boolean {
-  if (typeof getComputedStyle !== "function") {
+  const ownerWindow = target.ownerDocument.defaultView;
+  if (ownerWindow === null || typeof ownerWindow.getComputedStyle !== "function") {
     return true;
   }
-  const position = getComputedStyle(target).position;
+  const position = ownerWindow.getComputedStyle(target).position;
   return position !== "absolute" && position !== "fixed";
 }

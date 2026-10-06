@@ -5,11 +5,11 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import {
   HEALTHY_WORKSPACE_ID,
   SESSION_ID,
@@ -44,7 +44,6 @@ async function renderReadList(
         operations={operations}
         onCopy={() => undefined}
         onRequestRead={() => undefined}
-        onSelect={() => undefined}
         onOpenDiff={onOpenDiff}
       />
     </LiveAnnouncerProvider>,

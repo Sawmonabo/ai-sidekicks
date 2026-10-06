@@ -5,18 +5,19 @@
 // reuses the attach controller and `hooks/useConfirmationLifecycle.ts`, whose discard rule
 // handles the confirm press closing the dialog.
 
-import "./attach.css";
+import "./ReattachControl.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { OverlayAlertDialogPopup } from "@renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { RepoOperations } from "../../repo-operations.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { OverlayAlertDialogPopup } from "#renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { RepoOperations } from "../../operations.js";
+import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import { type AttachRequestReading } from "./attach-controller.js";
+import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 
 /** Props for the re-attach confirmation. */
@@ -64,7 +65,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
     <div className="meridian-reattach">
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
-          className="meridian-reattach__trigger"
+          className={BUTTON_CLASS_NAME}
           disabled={reading.status === "sending"}
           aria-label={`Re-attach ${localPath}`}
         >
@@ -73,13 +74,13 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
         {/* The portal, backdrop and popup are the primitive's, which registers this
             confirmation in the window's airspace so a native browser-pane view yields to it. */}
         <OverlayAlertDialogPopup
-          backdropClassName="meridian-reattach__backdrop"
-          className="meridian-reattach__dialog"
+          backdropClassName="meridian-dialog__backdrop"
+          className="meridian-dialog"
         >
-          <AlertDialog.Title className="meridian-reattach__title">
+          <AlertDialog.Title className="meridian-dialog__title">
             Re-attach this path as a new mount?
           </AlertDialog.Title>
-          <AlertDialog.Description className="meridian-reattach__body">
+          <AlertDialog.Description className="meridian-dialog__description">
             This mount is not repaired. The path is resolved again and attached as a new mount; this
             row stays as history, and nothing bound to it is moved across.
           </AlertDialog.Description>
@@ -89,11 +90,11 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
               <WireFigure value={localPath} title={localPath} />
             </dd>
           </dl>
-          <div className="meridian-reattach__acts">
-            <AlertDialog.Close className="meridian-reattach__cancel" onClick={lifecycle.canceled}>
+          <div className="meridian-dialog__actions">
+            <AlertDialog.Close className={BUTTON_CLASS_NAME} onClick={lifecycle.canceled}>
               Leave it as it is
             </AlertDialog.Close>
-            <AlertDialog.Close className="meridian-reattach__confirm" onClick={confirm}>
+            <AlertDialog.Close className={BUTTON_CLASS_NAME} onClick={confirm}>
               Re-attach
             </AlertDialog.Close>
           </div>
@@ -118,7 +119,7 @@ function renderSettlement(act: AttachRequestReading): React.JSX.Element | null {
       return <InlineRefusal code={act.refusal.code} detail={act.refusal.detail} />;
     case "attached":
       return (
-        <p className="meridian-reattach__attached" role="status">
+        <p className="meridian-form__settlement" role="status">
           Attached as a new mount. This row is now history.
         </p>
       );

@@ -2,10 +2,10 @@
 // `AgentBindingCard.tsx` because it is fixed for the agent's life, where the card's binding is
 // live. It is never re-read from the definition registry, whose row may already have moved.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts/agent-definition";
-import { type AgentToolAllowlistPosition } from "../tool-allowlist.js";
-import { ToolAllowlist } from "./ToolAllowlist.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts/agent/definition";
+import { type AgentToolAllowlistPosition } from "../tool-allowlist/position.js";
+import { ToolAllowlist } from "../tool-allowlist/components/ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
 
 /** The resolved configuration, fixed for the agent's life and never re-read. */
@@ -18,13 +18,13 @@ export function ResolvedConfiguration(props: {
   return (
     <dl className="meridian-agent-card__resolved">
       <div className="meridian-agent-card__resolved-row">
-        <dt>Definition</dt>
+        <dt className="meridian-form__label">Definition</dt>
         <dd>
           <WireFigure value={resolved.resolvedFromDefinitionId} />
         </dd>
       </div>
       <div className="meridian-agent-card__resolved-row">
-        <dt>Tools</dt>
+        <dt className="meridian-form__label">Tools</dt>
         <dd>
           <ToolAllowlist position={props.toolAllowlist} />
         </dd>

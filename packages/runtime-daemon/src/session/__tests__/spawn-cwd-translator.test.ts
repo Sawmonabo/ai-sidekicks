@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { translateSpawnCwd } from "../spawn-cwd-translator.js";
 import type { DriverStrategy, TranslateSpawnCwdInput } from "../spawn-cwd-translator.js";
-import type { SpawnRequest } from "../../pty/pty-host-protocol.js";
+import type { SpawnRequest } from "../../pty/host/protocol.js";
 
 const WORKTREE_PATH: string = "/Users/dev/worktrees/feature-x";
 const STABLE_PARENT: string = "/Users/dev";

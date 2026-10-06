@@ -7,12 +7,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../helpers/app-harness.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import { mountTerminalPane } from "./feature-mounts/terminal.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 beforeEach(() => {
   document.location.hash = "";

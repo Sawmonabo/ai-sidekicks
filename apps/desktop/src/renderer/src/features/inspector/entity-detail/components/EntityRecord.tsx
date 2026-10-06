@@ -5,16 +5,16 @@
 
 import "./EntityRecord.css";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 // The kind glyph is drawn at the pane header's scale, taken from its one home.
-import { GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
-import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
-import type { EntityFacet } from "../entity-facets.js";
+import type { SessionDegradedCause } from "#renderer/store/session/degradation.js";
+import type { EntityFacet } from "../facets.js";
 
 /** What one entity record draws: identity, facets, and the wording of its empty-state arms. */
 export interface EntityRecordProps {
@@ -63,7 +63,10 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         title={`The ${subject} record is incomplete.`}
         // The cause is the store's own word, unparaphrased. No Retry: nothing reachable from an
         // inspector re-pulls a session.
-        detail={`The projection is incomplete (${props.degradedCause}), so ${props.degradedConsequence}`}
+        detail={
+          `The projection is incomplete (${props.degradedCause}), ` +
+          `so ${props.degradedConsequence}`
+        }
       />
     );
   }

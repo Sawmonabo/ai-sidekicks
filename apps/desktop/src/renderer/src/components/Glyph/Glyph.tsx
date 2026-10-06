@@ -6,13 +6,16 @@
 
 import "./Glyph.css";
 
-import { GLYPH_DEFAULT_SIZE, type GlyphName } from "@renderer/styles/glyphs.js";
-import { GLYPH_ICONS } from "./glyph-icons.js";
+import { GLYPH_DEFAULT_SIZE, type GlyphName } from "#renderer/styles/glyphs.js";
+import { GLYPH_ICONS } from "./icons.js";
 
 /** Props for `Glyph`. */
 export interface GlyphProps {
   readonly name: GlyphName;
-  /** Rendered edge length in CSS pixels. Square by construction. */
+  /**
+   * Edge length in CSS pixels, at every text size: a glyph is drawn, not measured, so it stays put
+   * while the text beside it grows. Square by construction.
+   */
   readonly size?: number;
   /** The glyph's accessible name. Omit when adjacent text already names it. */
   readonly title?: string;

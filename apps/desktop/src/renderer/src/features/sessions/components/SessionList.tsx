@@ -1,10 +1,12 @@
 // The all-sessions list: one row per session, pinned rows first. Every row handed in is
 // mounted; rows are memoized, so one row's change re-renders one row.
 
+import "./SessionList.css";
+
 import { useMemo } from "react";
 
-import { orderSessionRows, type SessionListRow } from "../rows/session-rows.js";
-import type { SessionPins } from "../rows/session-pins.js";
+import { orderSessionRows, type SessionListRow } from "../rows/list-row.js";
+import type { SessionPins } from "../rows/pins.js";
 import { SessionRowGroup } from "./SessionRowGroup.js";
 
 /** What the list is handed: the rows, which of them are pinned, and how to open one. */

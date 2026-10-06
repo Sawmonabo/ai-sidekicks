@@ -46,13 +46,14 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
 -- payload, so the index is partial over terminal run_lifecycle rows only.
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once
   ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion'))
-  WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted');
+  WHERE category = 'run_lifecycle'
+    AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
 
 -- A UNIQUE index treats NULLs as distinct, and "7" and 7 as different keys: a
 -- terminal insert must carry a text runId and an integer runVersion.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
   AND (json_extract(NEW.payload, '$.runId') IS NULL
     OR json_type(NEW.payload, '$.runId') <> 'text'
     OR json_extract(NEW.payload, '$.runVersion') IS NULL
@@ -67,7 +68,7 @@ END;
 CREATE TRIGGER trg_run_terminal_key_update
 BEFORE UPDATE OF payload, category, type ON session_events
 WHEN OLD.category = 'run_lifecycle'
-  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
   AND (json_extract(NEW.payload, '$.runId') IS NULL
     OR json_type(NEW.payload, '$.runId') <> 'text'
     OR json_extract(NEW.payload, '$.runVersion') IS NULL
@@ -84,9 +85,9 @@ END;
 -- Terminal rows are insert-only: no update may promote a row into the index.
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
 WHEN NOT (OLD.category = 'run_lifecycle'
-    AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted'))
+    AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped'))
   AND NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
 BEGIN
   SELECT RAISE(ABORT,
     'a row cannot be promoted to terminal run_lifecycle by UPDATE; terminal rows are insert-only');
@@ -110,6 +111,17 @@ CREATE TABLE session_drafts (
   session_id  TEXT PRIMARY KEY,
   text        TEXT NOT NULL,
   updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
+) STRICT;
+
+-- ---------------------------------------------------------------------------
+-- This machine: its id, minted at the daemon's first start, and the friendly
+-- name read then. One row, kept the same at every later start.
+-- ---------------------------------------------------------------------------
+CREATE TABLE local_machine (
+  singleton   INTEGER PRIMARY KEY CHECK (singleton = 1),
+  node_id     TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  minted_at   TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
@@ -354,12 +366,12 @@ CREATE TABLE interventions (
   -- The admitting connection's device; NULL when the daemon itself wrote the row.
   device_id               TEXT,
   result                  TEXT,                       -- JSON outcome
-  -- Why a request was rejected. A rejected outcome carries no result, so an
-  -- idempotent replay rebuilds rejectionReason from here.
+  -- Why a request was rejected. A rejected outcome carries no result, so a retry's
+  -- saved result is rebuilt from here.
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
-  -- An identical retry replays the recorded outcome; a reused key with a
+  -- An identical retry returns the saved result; a reused key with a
   -- different payload is refused (intervention.idempotency_conflict).
   UNIQUE (target_run_id, client_idempotency_key)
 ) STRICT;

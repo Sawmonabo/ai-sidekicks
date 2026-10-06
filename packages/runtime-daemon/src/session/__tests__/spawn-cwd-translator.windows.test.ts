@@ -11,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { translateSpawnCwd } from "../spawn-cwd-translator.js";
 import type { TranslateSpawnCwdInput } from "../spawn-cwd-translator.js";
-import type { PtySignal, SpawnRequest, SpawnResponse } from "../../pty/pty-host-protocol.js";
-import type { DrainResult, PtyHost } from "../../pty/pty-host.js";
+import type { PtySignal, SpawnRequest, SpawnResponse } from "../../pty/host/protocol.js";
+import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
 
 // ----------------------------------------------------------------------------
 // Minimal in-memory PtyHost — recording mock
@@ -103,36 +103,40 @@ afterEach(() => {
 describe.skipIf(process.platform !== "win32")(
   "translateSpawnCwd × PtyHost.spawn — Windows worktree teardown",
   () => {
-    it("translated cwd is the stable parent (not the worktree); worktree path lives in cmd.exe script", async () => {
-      const spec: SpawnRequest = {
-        kind: "spawn_request",
-        command: "cmd.exe",
-        args: [],
-        env: [],
-        cwd: ctx.worktree,
-        rows: 24,
-        cols: 80,
-      };
+    it(
+      "translated cwd is the stable parent (not the worktree); worktree path lives in cmd.exe " +
+        "script",
+      async () => {
+        const spec: SpawnRequest = {
+          kind: "spawn_request",
+          command: "cmd.exe",
+          args: [],
+          env: [],
+          cwd: ctx.worktree,
+          rows: 24,
+          cols: 80,
+        };
 
-      const translateInput: TranslateSpawnCwdInput = {
-        spec,
-        strategy: "cd-prefix",
-        stableParent: ctx.stableParent,
-      };
-      const translated: SpawnRequest = translateSpawnCwd(translateInput);
+        const translateInput: TranslateSpawnCwdInput = {
+          spec,
+          strategy: "cd-prefix",
+          stableParent: ctx.stableParent,
+        };
+        const translated: SpawnRequest = translateSpawnCwd(translateInput);
 
-      const response: SpawnResponse = await ctx.host.spawn(translated);
-      expect(response.kind).toBe("spawn_response");
+        const response: SpawnResponse = await ctx.host.spawn(translated);
+        expect(response.kind).toBe("spawn_response");
 
-      // What the backend would see: the stable parent, so the OS cannot lock the worktree.
-      const seen: SpawnRequest | undefined = ctx.host.spawned[0];
-      expect(seen).toBeDefined();
-      expect(seen?.cwd).toBe(ctx.stableParent);
-      expect(seen?.command).toBe("cmd.exe");
-      expect(seen?.args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
+        // What the backend would see: the stable parent, so the OS cannot lock the worktree.
+        const seen: SpawnRequest | undefined = ctx.host.spawned[0];
+        expect(seen).toBeDefined();
+        expect(seen?.cwd).toBe(ctx.stableParent);
+        expect(seen?.command).toBe("cmd.exe");
+        expect(seen?.args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
 
-      // The worktree path survives in the wrapped script.
-      expect(seen?.args[4]).toContain(`cd /d "${ctx.worktree}"`);
-    });
+        // The worktree path survives in the wrapped script.
+        expect(seen?.args[4]).toContain(`cd /d "${ctx.worktree}"`);
+      },
+    );
   },
 );

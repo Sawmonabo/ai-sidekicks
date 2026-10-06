@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { mergeEarlierWindow } from "./earlier-window.js";
-import { eventOfKind } from "@test/helpers/session-events.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
 
 const SESSION_ID = "session-earlier-window";
 

@@ -2,8 +2,10 @@
 // skeleton: a failed read leaves the store uninitialized, so `initialized` alone would keep
 // `aria-busy` rows up over a read that already ended.
 
-import { useSessionDegraded } from "@renderer/store/session/hooks/useSessionInitialized.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import "./TranscriptWindowSkeleton.css";
+
+import { useSessionDegraded } from "#renderer/store/session/hooks/useSessionInitialized.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { useTranscriptFirstReadSettled } from "../hooks/useTranscriptFirstReadSettled.js";
 
 /** A screenful at transcript density, so the first read replaces the rows in one repaint. */

@@ -1,4 +1,4 @@
-import { type SessionListRow } from "../rows/session-rows.js";
+import { type SessionListRow } from "../rows/list-row.js";
 import { SessionRow } from "./SessionRow.js";
 
 /** A labeled list of session rows. */

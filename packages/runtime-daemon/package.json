@@ -9,16 +9,19 @@
     "node": ">=24.21.0"
   },
   "exports": {
-    ".": {
-      "@ai-sidekicks/source": "./src/index.ts",
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "./typescript-source-loader": "./tests/helpers/typescript-source-loader.mjs",
+    "./main": {
+      "@ai-sidekicks/source": "./src/main.ts",
+      "types": "./dist/main.d.ts",
+      "import": "./dist/main.js"
     }
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "bin": {
+    "sidekicks-daemon": "./dist/main.js"
+  },
   "files": [
-    "dist"
+    "dist",
+    "tests/helpers/typescript-source-loader.mjs"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -40,7 +43,6 @@
     "@modelcontextprotocol/sdk": "1.32.0",
     "@modelcontextprotocol/server": "2.3.0",
     "@napi-rs/keyring": "2.1.0",
-    "@noble/hashes": "^2.4.0",
     "better-sqlite3": "13.0.3",
     "bun": "1.4.2",
     "canonicalize": "5.1.0",
@@ -50,6 +52,8 @@
     "node-pty": "^1.2.0-beta.15",
     "nodemailer": "10.0.13",
     "picomatch": "4.0.7",
+    "pidtree": "1.0.0",
+    "pidusage": "4.0.1",
     "playwright-core": "1.63.0",
     "quickjs-emscripten": "0.32.0",
     "re2js": "2.8.6",
@@ -66,6 +70,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.19.0",
+    "@types/pidusage": "2.0.5",
     "@types/semver": "^7.8.0",
     "@vitest/coverage-v8": "catalog:testing",
     "vitest": "catalog:testing"

@@ -5,8 +5,8 @@
 import { act } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { SettingsPageRegistry } from "./settings-pages.js";
-import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
+import { SettingsPageRegistry } from "./pages/registry.js";
+import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import {
   CHUNK_WARM_TIMEOUT_MS,
   renderSettingsScreen,

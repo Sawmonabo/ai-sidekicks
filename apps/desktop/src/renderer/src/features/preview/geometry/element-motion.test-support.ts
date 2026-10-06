@@ -1,5 +1,5 @@
 // Fakes for the motion sources: Web Animations readings and mutation-record settling. The size
-// observer's fake is `tests/helpers/element-resize.ts`, beside the seam it drives.
+// observer's fake is `tests/helpers/element/resize.ts`, beside the seam it drives.
 
 /**
  * One animation whose play state the test moves, read live through the getter, so a case can

@@ -1,5 +1,5 @@
-// The accessibility tier over the repos feature's two views, each scoped to itself so a
-// violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s reason.
+// The accessibility tier over the repos feature's views, each scoped to itself so a
+// violation names the view that owns it, in both schemes for `app-frame.test.ts`'s reason.
 // The palette tests cannot reach a mount card tinted by its health verdict or a diff row whose
 // intraline highlight is a tint inside text.
 //
@@ -9,13 +9,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountDiffPane, mountMountList } from "./feature-mounts/repos.js";
-import { type MountedView } from "./feature-mounts/mount-queries.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
+import {
+  mountDiffPane,
+  mountMountList,
+  mountWorkflowRunReview,
+} from "./feature-mounts/repos/views.js";
+import { type MountedView } from "./feature-mounts/queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 /** The views this feature ships, each named as a reader would name it. */
 const AUDITED_VIEWS: readonly {
@@ -24,6 +28,7 @@ const AUDITED_VIEWS: readonly {
 }[] = [
   { label: "the mount list with a degraded mount", mount: mountMountList },
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },
+  { label: "Review over a workflow run's changes", mount: mountWorkflowRunReview },
 ];
 
 beforeEach(() => {

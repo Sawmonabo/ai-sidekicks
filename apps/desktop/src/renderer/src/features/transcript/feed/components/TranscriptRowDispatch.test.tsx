@@ -5,14 +5,14 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
-import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 import {
   TranscriptRowDispatch,
   type TranscriptRowDispatchOptions,
 } from "./TranscriptRowDispatch.js";
-import { TERMINAL_RUN_ID } from "../../transcript-logs.test-support.js";
-import { openSessionStoreWithTerminalRunGroup } from "../../run-group-logs.test-support.js";
+import { TERMINAL_RUN_ID } from "../../logs.test-support.js";
+import { openSessionStoreWithTerminalRunGroup } from "../../runs/groups.logs.test-support.js";
 import {
   deriveTranscriptWindow,
   type TranscriptWindowModel,

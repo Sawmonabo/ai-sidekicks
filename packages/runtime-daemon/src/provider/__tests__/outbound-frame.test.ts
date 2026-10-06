@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
-import { classifyClaudeTurnEvidence } from "../drivers/claude/turn-evidence.js";
-import { CLAUDE_ZERO_TURN_RESULT_FRAME } from "../drivers/claude/__fixtures__/turn-evidence-transcripts.js";
+import { classifyClaudeTurnEvidence } from "../driver/claude/turn-evidence.js";
+import { CLAUDE_ZERO_TURN_RESULT_FRAME } from "../driver/claude/__fixtures__/turn-evidence-transcripts.js";
 import {
   composeTextNeutralizationRunFailure,
   isCommandShapedText,
@@ -37,7 +37,7 @@ const NO_BREAK_SPACE = String.fromCodePoint(0x00a0);
 const IDEOGRAPHIC_SPACE = String.fromCodePoint(0x3000);
 
 describe("command-shaped text predicate", () => {
-  it("treats a leading slash as command-shaped after exactly the six ASCII whitespace bytes", () => {
+  it("treats a leading slash as command-shaped after only the six ASCII whitespace bytes", () => {
     // No command-name list is consulted: the measured interception happens on the leading byte,
     // upstream of any name lookup, so avoiding real command names does not dodge it.
     expect(isCommandShapedText("/status")).toBe(true);
@@ -72,21 +72,26 @@ describe("outbound text frame writer", () => {
     });
   }
 
-  it("prepends exactly one newline under the emulated grade and never mutates the author's bytes", () => {
-    const authored = "/status please";
-    const frame = writer("emulated").compose({ text: authored, origin: "human_text" });
+  it(
+    "prepends exactly one newline under the emulated " +
+      "grade and never mutates the author's bytes",
+    () => {
+      const authored = "/status please";
+      const frame = writer("emulated").compose({ text: authored, origin: "human_text" });
 
-    // Asserted as bytes: a boolean would not notice a second newline, an added space, a
-    // zero-width character or a reordering.
-    expect([...frame.wireText]).toStrictEqual(["\n", ...[..."/status please"]]);
-    expect(frame.wireText).toBe(OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL + "/status please");
-    expect(frame.wireText.length).toBe("/status please".length + 1);
-    expect(frame.neutralized).toBe(true);
-    // The sentinel is transport-only: `authoredText` is what the daemon persists and replays.
-    expect(frame.authoredText).toBe(authored);
-    expect(frame.authoredText.startsWith("\n")).toBe(false);
-    expect(frame.authoredText).not.toBe(frame.wireText);
-  });
+      // Asserted as bytes: a boolean would not notice a second newline, an added space, a
+      // zero-width character or a reordering.
+      expect([...frame.wireText]).toStrictEqual(["\n", ...[..."/status please"]]);
+      expect(frame.wireText).toBe(OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL + "/status please");
+      expect(frame.wireText.length).toBe("/status please".length + 1);
+      expect(frame.neutralized).toBe(true);
+      // The sentinel is transport-only: `authoredText` is what the daemon persists and rebuilds
+      // from.
+      expect(frame.authoredText).toBe(authored);
+      expect(frame.authoredText.startsWith("\n")).toBe(false);
+      expect(frame.authoredText).not.toBe(frame.wireText);
+    },
+  );
 
   it("emits the author's bytes unchanged under the native grade", () => {
     // The grade is a behavioral input; both drivers default to `emulated`, so this arm is driven

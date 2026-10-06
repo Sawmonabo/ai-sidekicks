@@ -10,10 +10,10 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 
 ## Definitions
 
-- `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Scoped to one of the three `WorkflowScope` tiers below.
+- `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Every definition is in the one workflow library, and its name is used once there.
 - `WorkflowVersion`: an immutable snapshot of a workflow definition's document body at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run keeps one step record per node attempt.
-- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (one session, named by `scope_ref`), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). A definition carries no owning session of its own; runs, not definitions, live in sessions. Scope identity is carried by a companion `scope_ref` value — the session's id at `session`, the project record's id at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)` ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
+- The workflow library: every workflow definition on the daemon, visible and runnable from every chat, every project session and the Workflows tab. A definition carries no owning session, project or scope; runs, not definitions, live in sessions, and a run chooses the repository it works in ([Workflow Graph Model §One workflow library (SA-33)](workflow-graph-model.md#one-workflow-library-sa-33)).
 
 ## What This Is
 
@@ -30,15 +30,15 @@ The workflow model describes how reusable, multi-step execution templates are de
 
 - A workflow definition has exactly one active version at a time. Previous versions remain immutable and referenceable.
 - A workflow run executes exactly one version. If the definition changes while a run is in progress, the running instance continues on the version it started with.
-- Workflow scope is three-valued: `session`, `project`, or `shared`. A definition is visible and executable only within its declared scope's tier; run-start resolution walks the tiers most-specific-first (`session`, then `project`, then `shared`) with no merging across tiers, and editing a `shared` definition is copy-on-write into the editor's scope — never edit-in-place ([Spec-015 §Definition scope in the builder (SA-34)](../specs/015-workflow-authoring-and-execution.md#definition-scope-in-the-builder-sa-34)).
-- Every workflow run belongs to exactly one session.
+- There is one workflow library, and a name names one workflow in it: a save, an import or a create whose name another workflow holds is refused ([Workflow Graph Model §One workflow library (SA-33)](workflow-graph-model.md#one-workflow-library-sa-33)).
+- Every workflow run belongs to exactly one session, and works in one folder chosen per run: a run started in a session in that session's recorded folder, or, in a chat, in the folder of the project its start names, a run nobody started from a session in the repository its Run now panel or its trigger names or in none, and a sub-workflow child in its parent's.
 - A workflow definition has exactly one trigger node. A document with no node, with no trigger, or with a second trigger is refused when it is saved.
 - Version immutability is absolute: no mutation of the nodes or edges of a published version. The canvas layout sits outside the version's hashed bytes, so moving a node changes no version.
 
 ## Relationships To Adjacent Concepts
 
-- `Session` is the containing boundary for every workflow run and for a `session`-scoped definition. A run started from a chat lives in that chat's session, an unattended run in the one session its workflow owns, and a sub-workflow's child run in its parent's session.
-- `Project` and the daemon-wide `shared` tier are the broader scope tiers above `session` ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
+- `Session` is the containing boundary for every workflow run. A run started from a chat lives in that chat's session, an unattended run in the one session its workflow owns, and a sub-workflow's child run in its parent's session.
+- `Project` is the repository a run works in when the run's session is a project session, or when its Run now panel or trigger names one; no definition belongs to a project ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
 - `WorkflowStep` records one attempt of one node within a workflow run. See [Workflow Step Model](./workflow-step-model.md).
 - `Run` (from the run state machine) is the execution primitive an agent step uses: `agent.run` starts its run through the run admission, and `agent.multi-agent` runs a lead and its helpers in the workflow run's session through `orchestration.runCreate`.
 - `Agent` (from the [Agent And Run Model](./agent-and-run-model.md)) provides the execution persona for a step's work. A multi-agent step runs its lead and helpers as an orchestration run in the workflow run's own session.
@@ -54,10 +54,10 @@ The workflow model describes how reusable, multi-step execution templates are de
 | --- | --- |
 | `new` | The workflow run has been created but no step has started. |
 | `running` | At least one step is executing, or the run is advancing between steps. |
-| `waiting` | A step of the run is waiting — on a person (an approval, a form or a chat reply), on a child run held behind its chain's question, or on a spent provider account — and the run is neither progressing nor finished. The wait's cause, and the resume instant where one was armed, are per-step state ([Spec-015 §Park integrity and cancelability (SA-40)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-40)). A step held by the memory gate before it starts reads `waiting-memory` and leaves the run `running`. |
+| `waiting` | A step of the run is waiting — on a person (an approval, a form or a chat reply), on a child run held behind its chain's question, or on a spent provider account — and the run is neither progressing nor finished. The wait's cause, and the resume instant where one was armed, are per-step state ([Spec-015 §Park integrity and cancelability (SA-39)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-39)). A step held by the memory gate before it starts reads `waiting-memory` and leaves the run `running`. |
 | `succeeded` | Every step reached a terminal state and the run finished successfully. |
 | `failed` | A step failed and its node's `onError` is `stop` (after the retries its node allows), a `flow.stop-error` step ran, or a set run cap elapsed. A run parked on a failed step reads `failed` while it waits, with `Resume` and `Cancel` both open. |
-| `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.runCancel` ([Spec-015 §Run control (SA-43)](../specs/015-workflow-authoring-and-execution.md#run-control-sa-43)). |
+| `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.runCancel` ([Spec-015 §Run control (SA-42)](../specs/015-workflow-authoring-and-execution.md#run-control-sa-42)). |
 | `crashed` | The daemon restarted while the run was `new` or `running`, or in a state the sweep does not recognize, so the run was swept to this state on the next start. A run in `waiting` is never swept and is never pruned. |
 
 Allowed transitions:
@@ -77,7 +77,7 @@ Allowed transitions:
 
 ### Workflow Definition (no state machine)
 
-Workflow definitions do not have a lifecycle state machine. They exist once created and are versioned through `WorkflowVersion`. A definition carries these flags: whether it is enabled, which arms or disarms every one of its triggers and holds until someone changes it, and whether it is deleted. It also carries its own permission level, set on the workflow and starting at `YOLO`, outside the document's hashed body, so a change mints no version: every run of the workflow uses that level wherever the run lives, a chat's session or the workflow's own, and a change reaches a live run from its next step ([Spec-015 §Node-Kind Taxonomy](../specs/015-workflow-authoring-and-execution.md#node-kind-taxonomy)). It carries its tags the same way, outside the hashed body: the person sets them beside the workflow's name in the builder header and an agent through the authoring call, and a change saves at once and mints no version ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)). Deleting a workflow is a soft delete: the definition leaves every list and its triggers are never armed again, while its runs stay readable against the versions they are pinned to, and the delete reports how many there are. The values `Keep for later runs` kept for the workflow are deleted with it.
+Workflow definitions do not have a lifecycle state machine. They exist once created and are versioned through `WorkflowVersion`. A definition carries these flags: whether it is enabled, which arms or disarms every one of its triggers and holds until someone changes it, and whether it is deleted. It also carries its own permission level, set on the workflow and starting at `YOLO`, outside the document's hashed body, so a change mints no version: every run of the workflow uses that level wherever the run lives, a chat's session or the workflow's own, and a change reaches a live run from its next step ([Workflow Graph Model §Node-Kind Taxonomy](workflow-graph-model.md#node-kind-taxonomy)). It carries its tags the same way, outside the hashed body: the person sets them beside the workflow's name in the builder header and an agent through the authoring call, and a change saves at once and mints no version ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)). Deleting a workflow is a soft delete: the definition leaves every list and its triggers are never armed again, while its runs stay readable against the versions they are pinned to, and the delete reports how many there are. The values `Keep for later runs` kept for the workflow are deleted with it.
 
 ### Workflow Version (no state machine)
 
@@ -101,7 +101,7 @@ WorkflowDefinition (1)
 
 ## Edge Cases
 
-- A workflow run may be canceled even if some steps have already succeeded. Their outputs remain addressable, and a canceled run preserves each parked step's recorded park reason and cause while clearing its live schedule and attention key.
+- A workflow run may be canceled even if some steps have already succeeded. Their outputs remain addressable, and the suspension events in the log keep each wait's cause, while each waiting step reads `canceled` with its live wait members — its `waitCause`, its instants and its spent account — cleared.
 - A workflow whose trigger feeds a single node is valid. A node that waits on a person holds the run `waiting` until it is answered; any other node runs and the run ends.
 - A waiting run survives a daemon restart or a client reconnect with its parks, its step state persisted in `workflow_steps`, one row per step attempt. A run that was `new` or `running` when the daemon stopped is swept to `crashed` on the next start, and the person retries it from a step or runs it again; no step resumes mid-attempt.
 - A full-tier Code step or a shell step whose sandbox cannot start at the Sandboxed level refuses with `workflow.sandbox_unavailable`, and the run takes the step's own `onError` from there; it never runs unprotected.

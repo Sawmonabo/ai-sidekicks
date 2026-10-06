@@ -1,8 +1,8 @@
 import { createContext, useContext, type Context } from "react";
 
-import { RefusalError, refuse } from "@renderer/lib/refusal.js";
-import type { SessionDirectoryState } from "../../session-directory/session-directory.js";
-import type { AttentionReading } from "../attention-summary.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+import type { SessionDirectoryState } from "../../session/directory/state.js";
+import type { AttentionReading } from "../summary.js";
 
 /**
  * What this window holds about the sessions it can name, read once: the destination renders
@@ -12,7 +12,7 @@ export interface WindowAttention {
   /** The service's session list, as the read settled it. */
   readonly directory: SessionDirectoryState;
   readonly reading: AttentionReading;
-  /** Declare the session list stale, so it is read again. */
+  /** Ask for the session list again, as it now stands. */
   readonly recheckDirectory: () => void;
 }
 
@@ -37,7 +37,8 @@ export function useAttention(): WindowAttention {
       refuse(
         SESSION_ATTENTION_ORIGIN,
         "binding-unmounted",
-        "This component reads the window's attention binding, and no composition mounted one above it.",
+        "This component reads the window's attention " +
+          "binding, and no composition mounted one above it.",
       ),
     );
   }

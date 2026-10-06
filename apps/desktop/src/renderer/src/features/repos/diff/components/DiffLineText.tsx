@@ -1,4 +1,4 @@
-import { type DiffLine, type DiffLineKind } from "../diff-model.js";
+import { type DiffLine, type DiffLineKind } from "../model.js";
 import type { IntralineReading } from "../intraline-segment-cache.js";
 
 /** The marker, then the line's segments. One implementation for both layouts. */
@@ -18,9 +18,7 @@ export function DiffLineText(props: {
             // Segments have no identity and never reorder (the list is rebuilt whole), so the
             // position is the key.
             key={segmentIndex}
-            className={
-              segment.changed ? "meridian-diff__segment meridian-diff__segment--changed" : undefined
-            }
+            className={segment.changed ? "meridian-diff__segment--changed" : undefined}
           >
             {segment.text}
           </span>

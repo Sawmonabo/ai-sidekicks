@@ -5,13 +5,13 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
-import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
-import type { NewSessionControlProps } from "../new-session-control-contract.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { NewSessionDraft, type NewSessionDraftState } from "../new-session-draft.js";
-import { type NewSessionSendResult } from "../new-session-settlement.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
+import type { NewSessionControlProps } from "../control-contract.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { NewSessionDraft, type NewSessionDraftState } from "../draft.js";
+import { type NewSessionSendResult } from "../settlement.js";
 
 /**
  * What a person hears once a send settles, one sentence per outcome. A `Record` over the
@@ -22,7 +22,8 @@ const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], strin
   partial: "The session was created, but not everything the draft asked for could be sent.",
   refused: "Nothing was sent, and the draft is still here.",
   "created-unreadable":
-    "A session may have been created, and this window could not read the reply. Check the sessions list.",
+    "A session may have been created, and this window could not read " +
+    "the reply. Check the sessions list.",
 };
 
 /**

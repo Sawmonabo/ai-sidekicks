@@ -1,5 +1,5 @@
-// The settings pages that exist, in the design's order. Kept with the routes because a page id
-// is also the page's `#/settings/<page>` address segment.
+// The settings pages that exist, in the order Settings lists them. Kept with the routes because a
+// page id is also the page's `#/settings/<page>` address segment.
 
 /** Every settings page that is built, in page-list order. */
 export const SETTINGS_PAGE_IDS = [

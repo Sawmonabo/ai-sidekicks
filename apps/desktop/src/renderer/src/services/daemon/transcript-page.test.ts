@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";
@@ -18,6 +18,7 @@ function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): T
     id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,
     sequence,
+    cursor: `cursor-at-${String(sequence)}` as EventCursor,
     category: "session_lifecycle",
     type: "session.created",
     summary: `row ${String(sequence)}`,
@@ -41,6 +42,7 @@ describe("readEarlierTranscriptPage — one window, read as the store's own log"
         id: "event-7",
         sessionId: SESSION_ID,
         sequence: 7,
+        cursor: "cursor-at-7",
         kind: "session.created",
         occurredAt: "2026-01-01T11:00:00.000Z",
         actorId: "user-a",

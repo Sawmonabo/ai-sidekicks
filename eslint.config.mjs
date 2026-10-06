@@ -7,33 +7,50 @@ import tseslint from "typescript-eslint";
 /**
  * The daemon's `randomUUID` property ban, hoisted so a second block that configures
  * `no-restricted-properties` for a daemon file can restate it. Flat config replaces a rule's
- * options at the last matching config object, so the `worktree-projector.ts` clock block below
+ * options at the last matching config object, so the `git/worktree/projector.ts` clock block below
  * would otherwise drop the v4 ban for that file.
  */
 const DAEMON_RANDOM_UUID_PROPERTY = {
   property: "randomUUID",
   message:
-    "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), which the contracts package's ID-format rule requires. An id that is genuinely an ephemeral token — no row and no event stores it — earns an entry in the exemption block beside this one, reviewed on the diff that adds it.",
+    "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids " +
+    "must mint through mintUuidV7 (packages/runtime-daemon/src/uuid-v7.ts), " +
+    "which the contracts package's ID-format rule requires. An id that is " +
+    "genuinely an ephemeral token — no row and no event stores it — earns an entry " +
+    "in the exemption block beside this one, reviewed on the diff that adds it.",
 };
 
 /**
  * The daemon's `randomUUID` import ban, hoisted for the same reason: the provider-driver
- * descriptor registry's block below restates it without the driver-folder ban.
+ * descriptor table's block below restates it without the driver-folder ban.
  */
 const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
   {
     name: "node:crypto",
     importNames: ["randomUUID"],
     message:
-      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). node:crypto's other exports are unrestricted.",
+      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and " +
+      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/uuid-v7.ts). " +
+      "node:crypto's other exports are unrestricted.",
   },
   {
     name: "crypto",
     importNames: ["randomUUID"],
     message:
-      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). Use the `node:` prefix for the other builtins.",
+      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and " +
+      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/uuid-v7.ts). " +
+      "Use the `node:` prefix for the other builtins.",
   },
 ];
+
+/** A relative import through a provider's folder; only the descriptor table may make one. */
+const DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN = {
+  regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
+  message:
+    "A provider's folder is imported only by the " +
+    "provider-driver descriptor table; shared daemon code " +
+    "reads a provider through the table and names none.",
+};
 
 /**
  * The enum ban, exported so a package config that sets `no-restricted-syntax` for its own
@@ -42,14 +59,17 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
 export const ENUM_DECLARATION = {
   selector: "TSEnumDeclaration",
   message:
-    "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
+    "Do not use TypeScript enums in application or domain code. Use a string-literal " +
+    "union, an `as const` object with its derived union, or a discriminated union. An " +
+    "enum an external contract requires stays at that boundary and is translated there.",
 };
 
 /** The `export *` ban, exported so a package config restates it beside the enum ban. */
 export const EXPORT_ALL_DECLARATION = {
   selector: "ExportAllDeclaration",
   message:
-    "No `export *`. Name each export, so a module's public surface is written where it is published and a symbol added to the source module is not exported by accident.",
+    "No `export *`. Name each export, so a module's public surface is written where it " +
+    "is published and a symbol added to the source module is not exported by accident.",
 };
 
 /*
@@ -273,7 +293,10 @@ const repositoryConfig = defineConfig(
         },
         {
           ignoreMiddleExtensions: true,
-          errorMessage: `"{{ target }}" breaks the renderer's file names: a component or page is PascalCase, a hook useThing, any other module kebab-case, and a test keeps its subject's name; see ${NAMING_RULES_SOURCE}`,
+          errorMessage:
+            `"{{ target }}" breaks the renderer's file names: a component or ` +
+            `page is PascalCase, a hook useThing, any other module kebab-case, ` +
+            `and a test keeps its subject's name; see ${NAMING_RULES_SOURCE}`,
         },
       ],
       "check-file/folder-naming-convention": [
@@ -285,7 +308,10 @@ const repositoryConfig = defineConfig(
           "layout/*/": "PASCAL_CASE",
         },
         {
-          errorMessage: `Folder "{{ target }}" breaks the renderer's folder names: a shared component or group owner directly under components/ or layout/ is PascalCase, every other folder kebab-case; see ${NAMING_RULES_SOURCE}`,
+          errorMessage:
+            `Folder "{{ target }}" breaks the renderer's folder names: a shared ` +
+            `component or group owner directly under components/ or layout/ is ` +
+            `PascalCase, every other folder kebab-case; see ${NAMING_RULES_SOURCE}`,
         },
       ],
     },
@@ -374,10 +400,10 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // `event-core.ts` is the acyclic leaf of the contracts module graph. `event.ts` imports it, so an
-  // import back into `./event.js` re-closes the cycle; under Vite's SSR transform a module-scope
-  // read of the uninitialized binding is `undefined` rather than a throw, so the breakage is silent
-  // until a payload-schema union branch fails to construct.
+  // `event/version.ts` is the acyclic leaf of the contracts module graph. `event/session.ts`
+  // imports it, so an import back into `./session.js` re-closes the cycle; under Vite's SSR
+  // transform a module-scope read of the uninitialized binding is `undefined` rather than a throw,
+  // so the breakage is silent until a payload-schema union branch fails to construct.
   //
   // Carried on `no-restricted-syntax`, not `no-restricted-imports`: the block above already
   // configures `no-restricted-imports` for every contracts source file, and flat config replaces a
@@ -385,35 +411,39 @@ const repositoryConfig = defineConfig(
   // for this file. The static import, the dynamic import and `export { … } from` are denied here;
   // `export *` is banned everywhere.
   {
-    files: ["packages/contracts/src/event-core.ts"],
+    files: ["packages/contracts/src/event/version.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ENUM_DECLARATION,
         EXPORT_ALL_DECLARATION,
         {
-          selector: 'ImportDeclaration[source.value="./event.js"]',
+          selector: 'ImportDeclaration[source.value="./session.js"]',
           message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — importing ./event.js from it closes an import cycle, which can leave a module-scope schema undefined with no error.",
+            "event/version.ts is the acyclic leaf of the contracts module " +
+            "graph — importing ./session.js from it closes an import cycle, " +
+            "which can leave a module-scope schema undefined with no error.",
         },
         {
-          selector: 'ImportExpression[source.value="./event.js"]',
+          selector: 'ImportExpression[source.value="./session.js"]',
           message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — a dynamic import of ./event.js closes the cycle just as the static form does.",
+            "event/version.ts is the acyclic leaf of the contracts module graph — a " +
+            "dynamic import of ./session.js closes the cycle just as the static form does.",
         },
         {
-          selector: 'ExportNamedDeclaration[source.value="./event.js"]',
+          selector: 'ExportNamedDeclaration[source.value="./session.js"]',
           message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
+            "event/version.ts is the acyclic leaf of the contracts module graph — " +
+            "re-exporting from ./session.js closes the cycle exactly as importing it does.",
         },
       ],
     },
   },
   // `crypto.randomUUID()` emits a v4 UUID: 122 random bits, no time ordering. Daemon-assigned ids
-  // are UUID v7 (contracts `session.ts` and `event.ts`), and the wire schemas accept any version on
-  // purpose (control-plane rows are Postgres `gen_random_uuid()` v4), so nothing downstream rejects
-  // a v4 and a factory written the old way is wrong and silent. Every daemon persisted-row id and
-  // event id mints through `mintUuidV7` (`src/ids/uuid-v7.ts`).
+  // are UUID v7 (contracts `session/id.ts` and `event/session.ts`), and the wire schemas
+  // accept any version on purpose (control-plane rows are Postgres `gen_random_uuid()` v4), so
+  // nothing downstream rejects a v4 and a factory minting one is wrong and silent. Every
+  // daemon persisted-row id and event id mints through `mintUuidV7` (`src/uuid-v7.ts`).
   //
   // Carried on `no-restricted-properties` and `no-restricted-imports`: the block above owns
   // `no-restricted-syntax` for this scope, and flat config replaces a rule's options at the last
@@ -422,9 +452,11 @@ const repositoryConfig = defineConfig(
   // (global, namespaced, `globalThis`-qualified); `no-restricted-imports` with `importNames` denies
   // the named import while leaving `createHash` and `randomBytes` available.
   //
-  // The same `no-restricted-imports` entry keeps a provider's driver folder private: shared daemon
-  // code names no provider, so only the descriptor registry imports from `drivers/`. Files inside a
-  // driver folder reach their siblings by `./` and `../` paths that never spell `drivers/`.
+  // The same `no-restricted-imports` entry keeps each provider's folder (`provider/driver/claude/`,
+  // `provider/driver/codex/`) private: shared daemon code names no provider, so only the descriptor
+  // registry imports from one. The pattern matches a relative path with a `claude/` or `codex/`
+  // segment; a provider's own files reach their siblings by `./` and shared code by `../` paths
+  // that never spell one, and no other daemon folder carries either name.
   {
     files: ["packages/runtime-daemon/src/**/*.ts"],
     ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
@@ -434,20 +466,14 @@ const repositoryConfig = defineConfig(
         "error",
         {
           paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
-          patterns: [
-            {
-              regex: "(?:^|/)drivers/",
-              message:
-                "A provider's driver folder is imported only by the provider-driver descriptor registry; shared daemon code reads a provider through the registry and names none.",
-            },
-          ],
+          patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN],
         },
       ],
     },
   },
-  // The descriptor registry is the one shared module that imports each driver's descriptor.
+  // The descriptor table is the one shared module that imports each driver's descriptor.
   {
-    files: ["packages/runtime-daemon/src/provider/provider-driver-descriptors.ts"],
+    files: ["packages/runtime-daemon/src/provider/driver/descriptor.ts"],
     rules: {
       "no-restricted-imports": ["error", { paths: DAEMON_RANDOM_UUID_IMPORT_PATHS }],
     },
@@ -456,22 +482,22 @@ const repositoryConfig = defineConfig(
   // a PTY handle, a scratch filename): no row or event stores it and nothing sorts a set of them,
   // so uniqueness is the whole requirement and v4 supplies it. Each is exempt as a file, the
   // granularity a lint rule has, so a second mint added inside one of them passes lint and is
-  // caught in review; that is why the set stays at four. Only the two rules above are turned off;
-  // the test-seeding guard is unaffected.
+  // caught in review; that is why the set stays at four. Only the `randomUUID` bans are lifted:
+  // the provider-folder ban still applies, and the test-seeding guard is unaffected.
   {
     files: [
       // Scratch git-index filename, unlinked in the same call.
-      "packages/runtime-daemon/src/git/turn-snapshot-service.ts",
+      "packages/runtime-daemon/src/git/turn-snapshot/service.ts",
       // In-memory subscription id, alive for one transport connection.
       "packages/runtime-daemon/src/ipc/streaming-primitive.ts",
       // In-flight correlation token for one outbound frame.
       "packages/runtime-daemon/src/provider/outbound-frame.ts",
       // Host-local PTY handle; the Rust sidecar backend mints `s-{n}` here.
-      "packages/runtime-daemon/src/pty/node-pty-host.ts",
+      "packages/runtime-daemon/src/pty/host/node-pty.ts",
     ],
     rules: {
       "no-restricted-properties": "off",
-      "no-restricted-imports": "off",
+      "no-restricted-imports": ["error", { patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN] }],
     },
   },
   // The two read-side projectors are pure: no database, no temp directory, no clock; each is a
@@ -491,8 +517,8 @@ const repositoryConfig = defineConfig(
   // copy is worse. A lazy import into a pure fold is a review finding.
   {
     files: [
-      "packages/runtime-daemon/src/workspace/workspace-projector.ts",
-      "packages/runtime-daemon/src/git/worktree-projector.ts",
+      "packages/runtime-daemon/src/workspace/projector.ts",
+      "packages/runtime-daemon/src/git/worktree/projector.ts",
     ],
     rules: {
       "no-restricted-imports": [
@@ -502,7 +528,10 @@ const repositoryConfig = defineConfig(
             {
               regex: "^(?!@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*$).*$",
               message:
-                "The read-side projectors are pure: @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The read-side projectors are pure: @ai-sidekicks/contracts is " +
+                "the only import they may carry, because any other specifier " +
+                "can reach I/O transitively. Widen this allow-list in " +
+                "eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
@@ -510,14 +539,15 @@ const repositoryConfig = defineConfig(
     },
   },
   // The brief projection floor makes the same purity claim as the projectors above.
-  // `hand-over-brief.ts` folds an already-read canonical projection into the brief turn and
-  // persists nothing; delivering the brief is `brief-delivery.ts`'s job. The allow-list enumerates
-  // specifiers rather than admitting a shape: a relative-path shape would admit `../../db/`, which
-  // reaches the database layer and is spelled like the sibling this module legitimately imports.
+  // `hand-over/brief/projection.ts` folds an already-read canonical projection into the brief turn
+  // and persists nothing; delivering the brief is `brief/delivery.ts`'s job. The allow-list
+  // enumerates specifiers rather than admitting a shape: a relative-path shape would admit
+  // `../../db/`, which reaches the database layer and is spelled like the sibling this module
+  // legitimately imports.
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
-    files: ["packages/runtime-daemon/src/provider/transcript/hand-over-brief.ts"],
+    files: ["packages/runtime-daemon/src/provider/hand-over/brief/projection.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -525,17 +555,23 @@ const repositoryConfig = defineConfig(
           patterns: [
             {
               regex:
-                "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
+                "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|" +
+                "\\.\\./transform-pipeline\\.js|\\.\\./\\.\\./driver/contract\\.js)$).*$",
               message:
-                "The brief projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The brief projection floor is pure: it folds an already-read " +
+                "canonical projection into a turn and persists nothing, so its " +
+                "imports are the three this allow-list names and nothing else " +
+                "— a sibling that reaches the database or the filesystem pulls " +
+                "I/O into the fold behind it. Widen this allow-list in " +
+                "eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
       ],
     },
   },
-  // `worktree-projector.ts` reports the expiry fields its caller read and derives no expiry of its
-  // own, so clock math must be unavailable to it, not merely unwritten. `no-restricted-globals`
+  // `git/worktree/projector.ts` reports the expiry fields its caller read and derives no expiry of
+  // its own, so clock math must be unavailable to it, not merely unwritten. `no-restricted-globals`
   // resolves the identifier, so a locally shadowed `Date` is not reported and a real global read
   // is, which a text scan cannot tell apart.
   //
@@ -544,19 +580,23 @@ const repositoryConfig = defineConfig(
   // daemon-wide `randomUUID` entry because this block sits inside that block's scope and flat
   // config would otherwise drop it here.
   {
-    files: ["packages/runtime-daemon/src/git/worktree-projector.ts"],
+    files: ["packages/runtime-daemon/src/git/worktree/projector.ts"],
     rules: {
       "no-restricted-globals": [
         "error",
         {
           name: "Date",
           message:
-            "worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "git/worktree/projector.ts reads no clock — it reports the " +
+            "expiry fields its caller handed it and derives no expiry of " +
+            "its own. Compute the instant in the caller and pass it in.",
         },
         {
           name: "performance",
           message:
-            "worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "git/worktree/projector.ts reads no clock — it reports the " +
+            "expiry fields its caller handed it and derives no expiry of " +
+            "its own. Compute the instant in the caller and pass it in.",
         },
       ],
       "no-restricted-properties": [
@@ -566,13 +606,17 @@ const repositoryConfig = defineConfig(
           object: "globalThis",
           property: "Date",
           message:
-            "worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "git/worktree/projector.ts reads no clock — reaching `Date` " +
+            "through the global object is the same read the identifier ban " +
+            "refuses. Compute the instant in the caller and pass it in.",
         },
         {
           object: "globalThis",
           property: "performance",
           message:
-            "worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "git/worktree/projector.ts reads no clock — reaching `performance` " +
+            "through the global object is the same read the identifier " +
+            "ban refuses. Compute the instant in the caller and pass it in.",
         },
       ],
     },

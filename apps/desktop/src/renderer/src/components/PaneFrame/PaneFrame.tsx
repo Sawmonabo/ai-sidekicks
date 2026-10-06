@@ -1,7 +1,7 @@
 // The chrome every pane wears, drawn once so six features do not draw six frames.
 //
 // The control strip holds the kind's own actions and close. Close comes from an explicit prop or
-// from `pane-controls.ts`'s context (explicit wins); with neither, the control is left out rather
+// from `controls.ts`'s context (explicit wins); with neither, the control is left out rather
 // than drawn disabled. The head is also the drag handle, so selecting text in a body never starts
 // a drag; the registration arrives through the same context, and a pane outside a pane layout is
 // simply not draggable. The pane-level key claim is a prop for the same reason: the head is not
@@ -11,21 +11,20 @@ import "./PaneFrame.css";
 import { useId } from "react";
 
 import { Glyph } from "../Glyph/Glyph.js";
-import { type EntityRef } from "@renderer/lib/entity-kinds.js";
-import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
+import { type EntityRef } from "#renderer/lib/entity-kinds.js";
+import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./usePaneControls.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { type PaneKind } from "#renderer/routing/panes/kinds.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set so a new kind fails to compile here.
- * `workflow-run` and `workflow-builder` share a glyph on purpose, to keep the glyph set small.
+ * `workflow-builder` wears the rail's workflows glyph, so the glyph set stays small.
  */
 export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
   transcript: "transcript",
   inspector: "inspector",
   diff: "diff",
-  "workflow-run": "workflow",
   "workflow-builder": "workflow",
   browser: "browser",
   terminal: "terminal",
@@ -35,13 +34,12 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
 /**
  * What a pane kind is called everywhere: the heading, the trail's current crumb and the
  * mismatch refusal. Total like `GLYPH_BY_PANE_KIND`; the kind string is a wire-shaped identifier
- * (`workflow-run`) and a person reads a phrase (`Workflow run`).
+ * (`workflow-builder`) and a person reads a phrase (`Workflow builder`).
  */
 export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
   transcript: "Transcript",
   inspector: "Inspector",
   diff: "Review",
-  "workflow-run": "Workflow run",
   "workflow-builder": "Workflow builder",
   browser: "Preview",
   terminal: "Terminal",
@@ -77,8 +75,8 @@ export interface PaneFrameProps {
 /**
  * One pane's frame: kind glyph, breadcrumb, control strip, body. The section has `tabIndex={-1}`
  * so the pane layout can route focus to it without a tab stop per pane. It is named by its whole
- * trail through `aria-labelledby`, so its name is "session-1 run-01 Workflow run" rather than
- * "Workflow run" for every such pane.
+ * trail through `aria-labelledby`, so its name is "session-1 worktree-01 Inspector" rather than
+ * "Inspector" for every such pane.
  */
 export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const mintedHeadingId = useId();

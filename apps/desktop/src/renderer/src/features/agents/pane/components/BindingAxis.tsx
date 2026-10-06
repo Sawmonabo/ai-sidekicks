@@ -1,10 +1,10 @@
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 
 /** One axis of the effective binding, with the meaning of its unset state. */
 export function BindingAxis(props: BindingAxisProps): React.JSX.Element {
   return (
     <span className="meridian-agent-card__axis">
-      <span className="meridian-agent-card__axis-label">{props.label}</span> {axisReading(props)}
+      <span className="meridian-form__label">{props.label}</span> {axisReading(props)}
     </span>
   );
 }

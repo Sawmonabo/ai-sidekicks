@@ -1,0 +1,41 @@
+/* A workspace's card under its mount. */
+
+.meridian-workspace-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-workspace-card__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-workspace-card__root {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The daemon's captured failure detail, quoted. The one thing on the row a person must read
+   whole. */
+.meridian-workspace-card__last-error {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border-inline-start: 2px solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}

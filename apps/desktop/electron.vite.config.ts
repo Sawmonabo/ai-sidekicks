@@ -10,7 +10,7 @@
 //   • main: `format: "es"` (`index.js`). The package is `"type": "module"` and Electron runs an
 //     ESM main process.
 //   • preload: `format: "cjs"` (`index.cjs`). The sandboxed preload (`sandbox: true` in
-//     `src/main/windows/window.ts`) loads only CommonJS; an ESM preload fails with "Cannot use
+//     `src/main/windows/factory.ts`) loads only CommonJS; an ESM preload fails with "Cannot use
 //     import statement outside a module". The `.cjs` extension is what lets Node load it as CJS
 //     under `"type": "module"`, and `PRELOAD_PATH` in that file names it.
 //   • renderer: browser ESM, loaded through `<script type="module">`.
@@ -26,7 +26,7 @@
 //
 // The dev server's Content-Security-Policy: `electron-vite dev` serves the renderer over HTTP,
 // which bypasses the protocol handler's response headers, so the `server` block sends the same
-// policy, composed from the directive list in `src/main/services/renderer-scheme.ts` and widened
+// policy, composed from the directive list in `src/main/services/renderer/scheme.ts` and widened
 // only to admit the HMR websocket. `strictPort` holds because the policy names that port.
 
 import { fileURLToPath } from "node:url";
@@ -36,9 +36,8 @@ import { defineConfig, type ElectronViteConfigFnObject } from "electron-vite";
 import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
-} from "./src/main/services/renderer-scheme.js";
+} from "./src/main/services/renderer/scheme.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
-import { PATH_ALIASES } from "./vitest/path-aliases.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
@@ -86,8 +85,8 @@ function isFixtureCorpusModule(moduleId: string): boolean {
  * bundle on their own. They are named here so the release gate can prove that they did.
  */
 const FIXTURE_ONLY_PATHS: readonly string[] = [
-  "/src/renderer/src/app/fixture-composition.ts",
-  "/src/renderer/src/app/fixture-global-names.ts",
+  "/src/renderer/src/app/fixture/composition.ts",
+  "/src/renderer/src/app/fixture/global-names.ts",
   "/src/renderer/src/app/pane-harness/",
 ];
 
@@ -125,13 +124,12 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
   // included, folds the fixture code away.
   const isFixtureBuild = mode === "development" || mode === "fixtures";
   // The builds the automated Electron tiers launch, which may hide their windows
-  // (`src/main/windows/window-reveal.ts`). Narrower than the fixture flag: a
+  // (`src/main/windows/reveal.ts`). Narrower than the fixture flag: a
   // development window is never hidden.
   const isTestTierBuild = isSmokeBuild || mode === "fixtures";
 
   return {
     main: {
-      resolve: { alias: PATH_ALIASES },
       // See the header on `define`: a textual substitution, so Rollup folds `if (false && expr)`
       // and drops the probe body from the release bundle.
       define: {
@@ -158,7 +156,6 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       },
     },
     preload: {
-      resolve: { alias: PATH_ALIASES },
       // The preload hands a fixture launch to the page, and only in a build that
       // carries the catalog; a release preload folds the read away.
       define: {
@@ -182,7 +179,6 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       },
     },
     renderer: {
-      resolve: { alias: PATH_ALIASES },
       // The app's icons, compiled to components at build time rather than fetched or
       // inlined as markup. The options live in one module the Vitest tiers call too (see
       // `vitest/icon-compilation.ts`), so the three consumers cannot drift.

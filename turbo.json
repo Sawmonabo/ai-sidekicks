@@ -15,7 +15,9 @@
     "typecheck": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "tsconfig*.json", "package.json"],
-      "outputs": [".tsbuildinfo"]
+      // `tsc -b` emits `dist/` beside `.tsbuildinfo`, and a later `tsc -b` trusts the build info
+      // and never re-emits a missing output, so a cache hit restores both or neither.
+      "outputs": ["dist/**", ".tsbuildinfo"]
     },
     "lint": {
       "inputs": ["src/**", "*.{ts,tsx,js,mjs,cjs,json}", "eslint.config.mjs"],

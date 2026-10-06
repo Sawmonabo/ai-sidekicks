@@ -5,12 +5,9 @@
 // because a read-back taken while reads fail would assert the failure a second time and pass over
 // a store that had written anything at all.
 
-import {
-  PersistenceAdapterError,
-  type StoredRecord,
-} from "@renderer/store/persistence/persistence-adapter.js";
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { refusePersistence } from "@renderer/store/persistence/persistence-refusals.js";
+import { PersistenceAdapterError, type StoredRecord } from "#renderer/store/persistence/adapter.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
+import { refusePersistence } from "#renderer/store/persistence/refusals.js";
 
 /**
  * A memory persistence adapter whose `read` rejects until `stopFailingReads` is called.

@@ -31,7 +31,7 @@ Queue items and interventions change runtime truth. They must survive client res
 
 ### Antithesis — The Strongest Case Against
 
-Client-side queueing is simpler and faster to ship. Provider-native queueing could reduce local complexity. A daemon-backed scheduler adds persistence, replay, and concurrency concerns to the runtime.
+Client-side queueing is simpler and faster to ship. Provider-native queueing could reduce local complexity. A daemon-backed scheduler adds persistence, rebuild, and concurrency concerns to the runtime.
 
 ### Synthesis — Why It Still Holds
 
@@ -42,7 +42,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 ### Option A: Daemon-Backed Queue And Interventions (Chosen)
 
 - **What:** Persist queue items and intervention records in the local runtime authority.
-- **Steel man:** Durable, replayable, and consistent with authoritative run state.
+- **Steel man:** Durable, rebuildable, and consistent with authoritative run state.
 - **Weaknesses:** Requires scheduler persistence and concurrency control.
 
 ### Option B: Client-Side Queue (Rejected)
@@ -75,7 +75,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ## Reversibility Assessment
 
-- **Reversal cost:** High. It changes runtime truth, persistence, replay, and UI semantics.
+- **Reversal cost:** High. It changes runtime truth, persistence, rebuild, and UI semantics.
 - **Blast radius:** Queue UI, run engine, recovery, approvals, and transcript.
 - **Migration path:** Would require moving queue truth to a different authority and reconciling outstanding queue items and interventions.
 - **Point of no return:** After queue items and interventions are persisted as part of canonical runtime state.
@@ -90,7 +90,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 ### Negative (accepted trade-offs)
 
 - More scheduler and persistence complexity in the Local Runtime Daemon
-- Higher need for good replay and idempotency design
+- Higher need for good rebuild and idempotency design
 
 ### Unknowns
 
@@ -129,7 +129,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 ### Related Specs
 
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ### Related ADRs

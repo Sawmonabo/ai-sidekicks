@@ -6,7 +6,7 @@
 // lazy chunks stay out; the initial/lazy split is the bundler's and is not re-derived here.
 //
 // One walk, two sums, because code and fonts are not commensurable:
-//   - code: scripts and stylesheets, gated gzipped, since the spec's figure is a gzip figure.
+//   - code: scripts and stylesheets, gated gzipped, since the code budget is a gzip figure.
 //   - fonts: the self-hosted `woff2` faces `src/renderer/src/styles/typeface.ts` declares, gated
 //     raw. A `woff2` is already Brotli-compressed; gzipping one measured 28 B larger than the file.
 //
@@ -24,8 +24,8 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
-import { errorText } from "./budget-document.mts";
-import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./budget-registry.mts";
+import { describeFailure } from "#shared/failure-message.ts";
+import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./registry.mts";
 import {
   BudgetSubjectMissingError,
   formatBudgetReport,
@@ -33,12 +33,12 @@ import {
   runBudgetHarness,
   type BudgetGate,
   type BudgetGateReading,
-} from "./budget-harness.mts";
+} from "./harness.mts";
 
 /** The compressed-code ceiling for the renderer's initial graph. */
 export const RENDERER_BUNDLE_BUDGET_ID: string = "renderer-initial-bundle";
 
-/** The raw-font-byte ceiling, a `harness` row beside the spec's code row. */
+/** The raw-font-byte ceiling, a `harness` row beside the code budget's row. */
 export const RENDERER_FONTS_BUDGET_ID: string = "renderer-initial-fonts";
 
 /** `electron.vite.config.ts` → `renderer.build.outDir`. */
@@ -162,7 +162,7 @@ export class RendererBundleMeasurer {
     } catch (manifestError) {
       this.#refuse(
         `no readable chunk manifest at ${RENDERER_MANIFEST_RELATIVE_PATH} ` +
-          `(${errorText(manifestError)})`,
+          `(${describeFailure(manifestError)})`,
       );
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -176,9 +176,10 @@ export class RendererBundleMeasurer {
     if (assetClass === undefined) {
       // An unclassified asset would sum into neither row, the same silent under-count as a missing
       // file.
+      const knownExtensions = [...ASSET_CLASS_BY_EXTENSION.keys()].join(", ");
       this.#refuse(
         `the chunk manifest names ${relativePath}, whose extension belongs to no asset class ` +
-          `(${[...ASSET_CLASS_BY_EXTENSION.keys()].join(", ")}) — classify it before it can be budgeted`,
+          `(${knownExtensions}) — classify it before it can be budgeted`,
       );
     }
     let contents: Buffer;
@@ -188,7 +189,7 @@ export class RendererBundleMeasurer {
       // Counting a named-but-unreadable file as zero bytes would be a silent under-count.
       this.#refuse(
         `the chunk manifest names ${relativePath}, which the output tree cannot give ` +
-          `(${errorText(readError)})`,
+          `(${describeFailure(readError)})`,
       );
     }
     return {
@@ -285,7 +286,8 @@ export function formatRendererBundleReport(
       title: "Renderer initial-graph budgets",
       provenance: [
         `  output tree:   ${measurement.rendererOutputDirectory}`,
-        `  chunk graph:   ${RENDERER_MANIFEST_RELATIVE_PATH}, entries: ${measurement.entryKeys.join(", ")}`,
+        `  chunk graph:   ${RENDERER_MANIFEST_RELATIVE_PATH}, ` +
+          `entries: ${measurement.entryKeys.join(", ")}`,
         `  measured at:   ${measurement.measuredAt}`,
       ],
       readings: [

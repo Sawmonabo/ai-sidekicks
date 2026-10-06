@@ -6,7 +6,7 @@ import "./ErrorBoundary.css";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { RenderFailureCard } from "./RenderFailureCard.js";
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
 export interface ErrorBoundaryProps {

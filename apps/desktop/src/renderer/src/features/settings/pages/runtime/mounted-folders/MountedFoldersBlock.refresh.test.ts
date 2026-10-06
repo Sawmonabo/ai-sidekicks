@@ -2,14 +2,14 @@
 //
 // These cases are about behavior over time (which signals reach the refresh chokepoint, and
 // whether a refusal ends the conversation) and drive the block through the harness in
-// `mounted-folders-block.test-support.tsx`.
+// `MountedFoldersBlock.test-support.tsx`.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { MOUNT_A } from "./mounted-folders.test-support.js";
-import { contextReading, renderSettledBlock } from "./mounted-folders-block.test-support.js";
+import { MOUNT_A } from "./MountedFolderList.test-support.js";
+import { contextReading, renderSettledBlock } from "./MountedFoldersBlock.test-support.js";
 
 describe("the page's refresh signals", () => {
   it("re-reads the inventory when the transport comes back", async () => {

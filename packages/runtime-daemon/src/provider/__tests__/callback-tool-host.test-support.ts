@@ -1,8 +1,9 @@
 // The callback-tool host wired to recording sinks, shared by the host's tests and the Codex ask
 // responder's tests.
 
-import type { RunId, SessionCallbackTool } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import {
   bindCallbackToolsForSpawn,
@@ -12,8 +13,8 @@ import {
   type CallbackToolApprovalRequest,
   type CallbackToolSpawnBinding,
 } from "../callback-tool-host.js";
-import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
-import type { CallbackToolInvocation, CallbackToolResult } from "../provider-driver.js";
+import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver/diagnostics.js";
+import type { CallbackToolInvocation, CallbackToolResult } from "../driver/contract.js";
 
 /** The session every harness invocation and ask names. */
 export const TEST_SESSION_ID: SessionId = "11111111-1111-4111-8111-111111111111" as SessionId;

@@ -89,7 +89,7 @@ CREATE INDEX idx_webauthn_challenges_expires ON webauthn_challenges(expires_at);
 
 **The verification transaction takes this table `FOR UPDATE` (Plan-015 I-015-8).** The signature-counter advance is a locked read and a conditional write inside the same transaction that consumed the challenge, so the ceremony's lock order is `webauthn_challenges` → `webauthn_credentials`, registered below at [§Lock Ordering Across Shared Tables](#lock-ordering-across-shared-tables). An unlocked read-then-write is defeated by the exact adversary the counter exists to detect: two concurrent replays of a cloned authenticator each read the pre-existing value and each find the presented counter greater.
 
-Both tables carry `REFERENCES users(id)` for the same reason `devices` does — it places them inside the [Spec-020 §Path 2](../../specs/020-data-retention-and-gdpr.md#erasure-paths) exhaustive inbound-FK erasure closure, and the closure costs nothing because a WebAuthn credential is verified live and no retained row re-verifies one post-erasure.
+Both tables carry `REFERENCES users(id)` for the same reason `devices` does — it places them inside the [Spec-020 §Path 2](../../specs/020-data-retention-export-and-deletion.md#erasure-paths) exhaustive inbound-FK erasure closure, and the closure costs nothing because a WebAuthn credential is verified live and no retained row re-verifies one post-erasure.
 
 ---
 
@@ -139,7 +139,7 @@ CREATE TABLE refresh_token_families (
 CREATE INDEX idx_refresh_token_families_user ON refresh_token_families(user_id);
 ```
 
-**Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-019 CP-019-3): no refresh token of a deleted account can be traded, so nothing is left for the row to block. Canonical: [Plan-019 D-019-3](../../plans/019-data-retention-and-gdpr.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths); `sidekicks delete-account` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
+**Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-019 CP-019-3): no refresh token of a deleted account can be traded, so nothing is left for the row to block. Canonical: [Plan-019 D-019-3](../../plans/019-data-retention-export-and-deletion.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-export-and-deletion.md#erasure-paths); `sidekicks delete-account` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
 
 **Retention:** A `revoked_jtis` row is reaped 24 hours past its `expires_at`, the access token's own 15-minute expiry, so the table holds only tokens that could still verify. A `revoked_token_families` row has no expiry: the refresh token lasts until sign-out or revocation (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)), so a revoked family stays on the denylist for its account's life and goes with the account (`account.delete`). The table grows by one row per sign-out or revocation. `refresh_token_families` holds one row per signed-in machine: a trade updates that row in place, so nothing grows per trade, and the row goes at sign-out or revocation (to the denylist) and with the account (`ON DELETE CASCADE`).
 
@@ -203,7 +203,7 @@ CREATE TABLE trust_statements (
 
 **Push.** A machine seals each push to the device's push key and hands the sealed bytes to the control plane, which looks up `push_address` and delivers through the person's own APNs, FCM or VAPID credentials. The control plane holds nothing that opens a notice, and keeps no notification queue or preference.
 
-**Erasure.** All three tables carry `REFERENCES users(id)` and join the [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths) Path-2 closure as hard-DELETE: an erased account's devices, machines and chain go with it.
+**Erasure.** All three tables carry `REFERENCES users(id)` and join the [Spec-020 §Erasure Paths](../../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path-2 closure as hard-DELETE: an erased account's devices, machines and chain go with it.
 
 **Invariant compatibility.** One current-state row per device and per machine, and a chain of trust statements that carries no session content and no event payload, so none of them reads as a shared event log under invariant (2).
 

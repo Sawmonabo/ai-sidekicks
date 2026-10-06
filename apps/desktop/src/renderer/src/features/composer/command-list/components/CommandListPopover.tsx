@@ -5,13 +5,13 @@
 // entries are names it will not send. The partition keeps each row's flat position.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
-import { createConsoleCommandExecutor } from "../console-command-executor.js";
-import { noComposerCommandLineHandlers } from "../composer-command-line-handlers.js";
-import { type ComposerCommands } from "../composer-commands.js";
+import { createConsoleCommandExecutor } from "../console/executor.js";
+import { noComposerCommandLineHandlers } from "../line-handlers.js";
+import { type ComposerCommands } from "../registry-view.js";
 import {
   composeCommandList,
   filterCommandList,
@@ -19,9 +19,9 @@ import {
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
   type CommandListEntry,
-} from "../command-list-entries.js";
+} from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
-import { type ProviderCommandReadState } from "../provider-command-read.js";
+import { type ProviderCommandReadState } from "../provider/read.js";
 import { EnumerationState } from "./EnumerationState.js";
 
 /**
@@ -36,11 +36,13 @@ const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
  * Shown only in answer to the press: the lede already states the standing claim.
  */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
-  "Provider commands and skills are listed for reference. This app starts no turn from one, so there is nothing here to run.";
+  "Provider commands and skills are listed for reference. This app " +
+  "starts no turn from one, so there is nothing here to run.";
 
 /** The same press on a row the provider declared disabled; it is disabled there too. */
 const PROVIDER_ENTRY_DISABLED =
-  "The provider published this entry as disabled, so it is unavailable there as well as here. Nothing was run.";
+  "The provider published this entry as disabled, so it is " +
+  "unavailable there as well as here. Nothing was run.";
 
 /** The console group's heading: it names the act, so a person knows what pressing does. */
 const CONSOLE_GROUP_LABEL = "This app's commands — these run here";

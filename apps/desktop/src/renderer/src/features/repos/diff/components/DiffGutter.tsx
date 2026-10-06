@@ -1,4 +1,4 @@
-import { type DiffLine } from "../diff-model.js";
+import { type DiffLine } from "../model.js";
 
 /** The line-number gutter of one side of a row. */
 export function DiffGutter(props: {
@@ -8,9 +8,7 @@ export function DiffGutter(props: {
   const lineNumber = props.side === "base" ? props.line.baseLineNumber : props.line.headLineNumber;
   return (
     <span className="meridian-diff__gutter">
-      <span className="meridian-diff__line-number">
-        {lineNumber === undefined ? "" : String(lineNumber)}
-      </span>
+      <span>{lineNumber === undefined ? "" : String(lineNumber)}</span>
     </span>
   );
 }

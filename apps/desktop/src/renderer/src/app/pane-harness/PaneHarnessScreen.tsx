@@ -16,13 +16,13 @@
 
 import { useState } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
-import { paneHarnessInstances } from "./pane-harness-instances.js";
-import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { paneHarnessInstances } from "./instances.js";
+import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { type ScreenContext } from "#renderer/registries/screens/context.js";
 
 /** The harness screen's inputs: the route's context, its harness route, and the pane board. */
 export interface PaneHarnessScreenProps {
@@ -65,7 +65,10 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
           kind="empty"
           placement="block"
           title="No feature has registered a body for this pane kind."
-          detail={`"${address.kind}" is one of the pane kinds and nothing in this build renders it, so there is no instance for a harness to hold.`}
+          detail={
+            `"${address.kind}" is one of the pane kinds and nothing in this ` +
+            `build renders it, so there is no instance for a harness to hold.`
+          }
         />
       </PaneHarnessFrame>
     );

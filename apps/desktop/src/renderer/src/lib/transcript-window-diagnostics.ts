@@ -1,5 +1,5 @@
 // What one session's transcript viewport is showing, and the registry that carries the reading from
-// the transcript feature down to `services/session-events/session-event-subscriber.ts`.
+// the transcript feature down to `services/session-events/subscriber.ts`.
 //
 // It sits in `lib/` because the producer (the transcript feature) is above the consumer (a
 // service) in the import layering, so the consumer cannot import it. A mount registers a function,
@@ -9,7 +9,7 @@
 // Last writer wins, and an unregister is identity-checked: a route change remounts a pane before
 // React runs the outgoing mount's cleanup, and a blind delete would remove the incoming reader.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**
  * What a transcript viewport is showing for one session, at one instant. Each figure reads one
@@ -52,7 +52,7 @@ export interface TranscriptWindowReading {
    * only box the library sees. It sits beside `viewportClientHeightPx` because a reading taken
    * from the sample alone always agrees with the window; measured once, the sample said 32 px
    * while the element was 149 px. The gap means the sample is stale, which `publishOnResize` in
-   * `features/transcript/viewport/overflow-measurement-batch.ts` closes by republishing on resize.
+   * `lib/scroll/overflow-measurement-batch.ts` closes by republishing on resize.
    */
   readonly rangedAgainstClientHeightPx: number;
 }

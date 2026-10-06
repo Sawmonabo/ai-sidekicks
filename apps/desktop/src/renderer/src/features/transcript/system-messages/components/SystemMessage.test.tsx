@@ -4,13 +4,13 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { runRow } from "../../transcript-event-rows.test-support.js";
+import { runRow } from "../../event-rows.test-support.js";
 import { SystemMessage } from "./SystemMessage.js";
-import { SystemMessageClassifier } from "../system-message-classifier.js";
+import { SystemMessageClassifier } from "../classifier.js";
 import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-} from "@ai-sidekicks/contracts/agent-provider-binding";
+} from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 function renderSystemMessage(row: TranscriptEventRow): HTMLElement {

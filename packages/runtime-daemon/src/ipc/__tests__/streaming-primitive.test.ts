@@ -4,18 +4,20 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   SubscriptionCancelParams,
   SubscriptionCancelResult,
+  SubscriptionEndParams,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { MethodRegistryImpl } from "../registry.js";
 import {
@@ -24,7 +26,7 @@ import {
   type StreamingPrimitiveOptions,
 } from "../streaming-primitive.js";
 
-import { passthroughSchema, rejectingSchema } from "../__fixtures__/zod-schemas.js";
+import { passthroughSchema, rejectingSchema } from "../__fixtures__/schema-doubles.js";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 interface PrimitiveFixture {
@@ -44,29 +46,33 @@ function makeFixture(): PrimitiveFixture {
 }
 
 describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
-  it("createSubscription returns a subscriptionId; subsequent next(value) emits a `$/subscription/notify` frame", () => {
-    const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ tick: number }>(
-      42,
-      passthroughSchema<{ tick: number }>(),
-    );
-    expect(typeof sub.subscriptionId).toBe("string");
-    expect(sub.subscriptionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
-    expect(send).not.toHaveBeenCalled();
-    sub.next({ tick: 1 });
-    expect(send).toHaveBeenCalledTimes(1);
-    const [transportId, frame] = send.mock.calls[0] ?? [];
-    expect(transportId).toBe(42);
-    expect(frame).toBeDefined();
-    if (frame === undefined) throw new Error("unreachable");
-    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
-    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-    const params = frame.params as SubscriptionNotifyParams<{ tick: number }>;
-    expect(params.subscriptionId).toBe(sub.subscriptionId);
-    expect(params.value).toStrictEqual({ tick: 1 });
-  });
+  it(
+    "createSubscription returns a subscriptionId; subsequent next(value) emits a " +
+      "`$/subscription/notify` frame",
+    () => {
+      const { primitive, send } = makeFixture();
+      const sub = primitive.createSubscription<{ tick: number }>(
+        42,
+        passthroughSchema<{ tick: number }>(),
+      );
+      expect(typeof sub.subscriptionId).toBe("string");
+      expect(sub.subscriptionId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+      expect(send).not.toHaveBeenCalled();
+      sub.next({ tick: 1 });
+      expect(send).toHaveBeenCalledTimes(1);
+      const [transportId, frame] = send.mock.calls[0] ?? [];
+      expect(transportId).toBe(42);
+      expect(frame).toBeDefined();
+      if (frame === undefined) throw new Error("unreachable");
+      expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
+      expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
+      const params = frame.params as SubscriptionNotifyParams<{ tick: number }>;
+      expect(params.subscriptionId).toBe(sub.subscriptionId);
+      expect(params.value).toStrictEqual({ tick: 1 });
+    },
+  );
 
   it("emits N notifications correlating each to the same subscriptionId", () => {
     const { primitive, send } = makeFixture();
@@ -99,77 +105,121 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("server-side cancel() or complete() removes the entry; a later next() is a silent no-op", () => {
+  it("tells the client once when the daemon ends a stream, then sends nothing more", () => {
     const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ x: number }>(11, passthroughSchema<{ x: number }>());
-    sub.next({ x: 1 });
-    expect(send).toHaveBeenCalledTimes(1);
-    sub.cancel();
-    sub.next({ x: 2 }); // silent no-op
-    expect(send).toHaveBeenCalledTimes(1);
-    // Idempotent.
-    expect(() => sub.cancel()).not.toThrow();
+    const endFrame = (params: SubscriptionEndParams): JsonRpcNotification<unknown> => ({
+      jsonrpc: JSONRPC_VERSION,
+      method: SUBSCRIPTION_END_METHOD,
+      params,
+    });
 
     const completed = primitive.createSubscription<{ y: number }>(
       12,
       passthroughSchema<{ y: number }>(),
     );
-    completed.next({ y: 1 });
     completed.complete();
-    completed.next({ y: 2 }); // silent no-op
-    expect(send).toHaveBeenCalledTimes(2);
+    completed.complete();
+    completed.next({ y: 2 });
+    expect(send.mock.calls).toStrictEqual([
+      [12, endFrame({ subscriptionId: completed.subscriptionId, reason: "completed" })],
+    ]);
+    send.mockClear();
+
+    // A cancel names its error, or the stream reads as ended by the service.
+    const error = { code: -32602, message: "bad", data: { type: "session.not_found" } };
+    const named = primitive.createSubscription<{ x: number }>(
+      11,
+      passthroughSchema<{ x: number }>(),
+    );
+    named.cancel(error);
+    named.cancel();
+    named.next({ x: 2 });
+    const unnamed = primitive.createSubscription<{ x: number }>(
+      11,
+      passthroughSchema<{ x: number }>(),
+    );
+    unnamed.cancel();
+    expect(send.mock.calls).toStrictEqual([
+      [11, endFrame({ subscriptionId: named.subscriptionId, reason: "refused", error })],
+      [
+        11,
+        endFrame({
+          subscriptionId: unnamed.subscriptionId,
+          reason: "refused",
+          error: {
+            code: JsonRpcErrorCode.InternalError,
+            message: "The service ended this stream.",
+          },
+        }),
+      ],
+    ]);
   });
 
-  it("client-initiated `$/subscription/cancel` with matching transportId removes the subscription", async () => {
-    const { primitive, registry, send } = makeFixture();
-    const sub = primitive.createSubscription<{ z: number }>(33, passthroughSchema<{ z: number }>());
-    const cancelParams: SubscriptionCancelParams = {
-      subscriptionId: sub.subscriptionId,
-    };
-    const ctx: HandlerContext = { transportId: 33 };
-    const result = (await registry.dispatch(
-      SUBSCRIPTION_CANCEL_METHOD,
-      cancelParams,
-      ctx,
-    )) as SubscriptionCancelResult;
-    expect(result.canceled).toBe(true);
-    sub.next({ z: 1 });
-    expect(send).not.toHaveBeenCalled();
-  });
+  it(
+    "client-initiated `$/subscription/cancel` with " +
+      "matching transportId removes the subscription",
+    async () => {
+      const { primitive, registry, send } = makeFixture();
+      const sub = primitive.createSubscription<{ z: number }>(
+        33,
+        passthroughSchema<{ z: number }>(),
+      );
+      const cancelParams: SubscriptionCancelParams = {
+        subscriptionId: sub.subscriptionId,
+      };
+      const ctx: HandlerContext = { transportId: 33 };
+      const result = (await registry.dispatch(
+        SUBSCRIPTION_CANCEL_METHOD,
+        cancelParams,
+        ctx,
+      )) as SubscriptionCancelResult;
+      expect(result.canceled).toBe(true);
+      // The client asked, so no end frame answers it; a later value is dropped.
+      sub.next({ z: 1 });
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
-  it("client-initiated `$/subscription/cancel` from another transport, or of an unknown id, answers `{ canceled: false }`", async () => {
-    const { primitive, registry, send } = makeFixture();
-    const sub = primitive.createSubscription<{ q: number }>(55, passthroughSchema<{ q: number }>());
-    // Transport 56 tries to cancel a subscription owned by transport 55.
-    const cancelParams: SubscriptionCancelParams = {
-      subscriptionId: sub.subscriptionId,
-    };
-    const ctx: HandlerContext = { transportId: 56 };
-    const result = (await registry.dispatch(
-      SUBSCRIPTION_CANCEL_METHOD,
-      cancelParams,
-      ctx,
-    )) as SubscriptionCancelResult;
-    expect(result.canceled).toBe(false);
-    // The subscription is still alive.
-    sub.next({ q: 1 });
-    expect(send).toHaveBeenCalledTimes(1);
+  it(
+    "client-initiated `$/subscription/cancel` from another transport, or of an unknown id, " +
+      "answers `{ canceled: false }`",
+    async () => {
+      const { primitive, registry, send } = makeFixture();
+      const sub = primitive.createSubscription<{ q: number }>(
+        55,
+        passthroughSchema<{ q: number }>(),
+      );
+      // Transport 56 tries to cancel a subscription owned by transport 55.
+      const cancelParams: SubscriptionCancelParams = {
+        subscriptionId: sub.subscriptionId,
+      };
+      const ctx: HandlerContext = { transportId: 56 };
+      const result = (await registry.dispatch(
+        SUBSCRIPTION_CANCEL_METHOD,
+        cancelParams,
+        ctx,
+      )) as SubscriptionCancelResult;
+      expect(result.canceled).toBe(false);
+      // The subscription is still alive.
+      sub.next({ q: 1 });
+      expect(send).toHaveBeenCalledTimes(1);
 
-    // An unknown id answers the same as another transport's, so the answer reveals nothing.
-    const unknownCancelParams: SubscriptionCancelParams = {
-      // Passes the wire schema, but no such subscription exists.
-      subscriptionId:
-        "00000000-0000-4000-8000-000000000000" as SubscriptionCancelParams["subscriptionId"],
-    };
-    const unknownResult = (await registry.dispatch(
-      SUBSCRIPTION_CANCEL_METHOD,
-      unknownCancelParams,
-      {
-        transportId: 99,
-      },
-    )) as SubscriptionCancelResult;
-    expect(unknownResult.canceled).toBe(false);
-  });
+      // An unknown id answers the same as another transport's, so the answer reveals nothing.
+      const unknownCancelParams: SubscriptionCancelParams = {
+        // Passes the wire schema, but no such subscription exists.
+        subscriptionId:
+          "00000000-0000-4000-8000-000000000000" as SubscriptionCancelParams["subscriptionId"],
+      };
+      const unknownResult = (await registry.dispatch(
+        SUBSCRIPTION_CANCEL_METHOD,
+        unknownCancelParams,
+        {
+          transportId: 99,
+        },
+      )) as SubscriptionCancelResult;
+      expect(unknownResult.canceled).toBe(false);
+    },
+  );
 
   it("`cleanupTransport(id)` drops every subscription owned by that transport and no other", () => {
     const { primitive, send } = makeFixture();
@@ -208,7 +258,7 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT fire handlers on complete() — natural producer-driven termination is silent", () => {
+  it("does NOT fire handlers on complete(): the producer ended the stream itself", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
     const handler = vi.fn<() => void>();
@@ -217,34 +267,46 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("fires handlers when cleanupTransport() drops the subscription (transport-disconnect path)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    primitive.cleanupTransport(42);
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
+  it(
+    "fires handlers when cleanupTransport() drops " +
+      "the subscription (transport-disconnect path)",
+    () => {
+      const { primitive } = makeFixture();
+      const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
+      const handler = vi.fn<() => void>();
+      sub.onCancel(handler);
+      primitive.cleanupTransport(42);
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
 
-  it("fires handlers when cancelSubscription() drops the subscription (wire-cancel trusted path)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
+  it(
+    "fires handlers when cancelSubscription() drops " +
+      "the subscription (wire-cancel trusted path)",
+    () => {
+      const { primitive } = makeFixture();
+      const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
+      const handler = vi.fn<() => void>();
+      sub.onCancel(handler);
+      expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
 
-  it("a handler registered AFTER cancel fires at once, so an upstream acquired late is still released", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-    sub.cancel();
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
+  it(
+    "a handler registered AFTER cancel fires at once, so an upstream acquired late is still " +
+      "released",
+    () => {
+      const { primitive } = makeFixture();
+      const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+      sub.cancel();
+      const handler = vi.fn<() => void>();
+      sub.onCancel(handler);
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
 
-  it("registration AFTER complete is silently dropped (matches no-fire-on-complete semantic)", () => {
+  it("registration AFTER complete is silently dropped (no fire on complete)", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
     sub.complete();
@@ -282,42 +344,54 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(after).toHaveBeenCalledTimes(1);
   });
 
-  it("cleanupTransport() bulk path: a throwing handler in one subscription does NOT prevent sibling subscription handlers from firing", () => {
-    const { primitive } = makeFixture();
-    const subA = primitive.createSubscription<unknown>(7, passthroughSchema<unknown>());
-    const subB = primitive.createSubscription<unknown>(7, passthroughSchema<unknown>());
-    const aHandler = vi.fn<() => void>();
-    const bHandler = vi.fn<() => void>();
-    subA.onCancel(() => {
-      throw new Error("A handler internal failure");
-    });
-    subA.onCancel(aHandler);
-    subB.onCancel(bHandler);
-    expect(() => primitive.cleanupTransport(7)).not.toThrow();
-    expect(aHandler).toHaveBeenCalledTimes(1);
-    // A's failure must not reach B.
-    expect(bHandler).toHaveBeenCalledTimes(1);
-  });
+  it(
+    "cleanupTransport() bulk path: a throwing handler in one subscription does NOT prevent " +
+      "sibling subscription handlers from firing",
+    () => {
+      const { primitive } = makeFixture();
+      const subA = primitive.createSubscription<unknown>(7, passthroughSchema<unknown>());
+      const subB = primitive.createSubscription<unknown>(7, passthroughSchema<unknown>());
+      const aHandler = vi.fn<() => void>();
+      const bHandler = vi.fn<() => void>();
+      subA.onCancel(() => {
+        throw new Error("A handler internal failure");
+      });
+      subA.onCancel(aHandler);
+      subB.onCancel(bHandler);
+      expect(() => primitive.cleanupTransport(7)).not.toThrow();
+      expect(aHandler).toHaveBeenCalledTimes(1);
+      // A's failure must not reach B.
+      expect(bHandler).toHaveBeenCalledTimes(1);
+    },
+  );
 
-  it("handlers fire AFTER the entry is removed from the maps (re-entrant handler observes post-cancel state)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(99, passthroughSchema<unknown>());
-    let observedCancelable: boolean | null = null;
-    sub.onCancel(() => {
-      // Re-entering the primitive returns false because the entry is already gone.
-      observedCancelable = primitive.cancelSubscription(sub.subscriptionId);
-    });
-    sub.cancel();
-    expect(observedCancelable).toBe(false);
-  });
+  it(
+    "handlers fire AFTER the entry is removed from the maps (re-entrant handler observes " +
+      "post-cancel state)",
+    () => {
+      const { primitive } = makeFixture();
+      const sub = primitive.createSubscription<unknown>(99, passthroughSchema<unknown>());
+      let observedCancelable: boolean | null = null;
+      sub.onCancel(() => {
+        // Re-entering the primitive returns false because the entry is already gone.
+        observedCancelable = primitive.cancelSubscription(sub.subscriptionId);
+      });
+      sub.cancel();
+      expect(observedCancelable).toBe(false);
+    },
+  );
 
-  it("idempotent cancel(): a second cancel() does NOT re-fire handlers (handler queue cleared after first fire)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    sub.cancel();
-    sub.cancel(); // idempotent
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
+  it(
+    "idempotent cancel(): a second cancel() does NOT re-fire handlers (handler queue cleared " +
+      "after first fire)",
+    () => {
+      const { primitive } = makeFixture();
+      const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+      const handler = vi.fn<() => void>();
+      sub.onCancel(handler);
+      sub.cancel();
+      sub.cancel(); // idempotent
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
 });

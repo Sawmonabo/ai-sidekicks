@@ -3,7 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { CallbackToolInvocation } from "../provider-driver.js";
+import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run/tool";
+
+import { describeArgumentRefusal } from "../callback-tool-host.js";
+import type { CallbackToolInvocation } from "../driver/contract.js";
 import {
   bindSpawn,
   buildCallbackToolHostHarness,
@@ -133,6 +136,15 @@ describe("CallbackToolHost — refusals that precede the pipeline", () => {
     expect(harness.evaluatedRequests).toHaveLength(0);
     expect(harness.activityRecords[0]?.disposition).toBe("failed-invalid-arguments");
   });
+
+  it("refuses a workflow_run call without the definition name its input schema requires", () => {
+    // The host checks the JSON Schema the provider received, which is generated from the tool's
+    // own input schema, so the host refuses what the tool would.
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, {})).toContain("definitionName");
+    const run = { definitionName: "Nightly suite" };
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, run)).toBe(null);
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, { ...run, project: "Notes app" })).toBe(null);
+  });
 });
 
 describe("CallbackToolHost — execution outcomes are the tool's, not the pipeline's", () => {
@@ -210,20 +222,24 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
     ]);
   });
 
-  it("refuses a superseded binding's dispatch rather than adjudicating it against the live registry", async () => {
-    const harness = buildCallbackToolHostHarness();
-    const supersededBinding = bindSpawn(harness);
-    bindSpawn(harness);
+  it(
+    "refuses a superseded binding's dispatch rather than adjudicating it against the live " +
+      "registry",
+    async () => {
+      const harness = buildCallbackToolHostHarness();
+      const supersededBinding = bindSpawn(harness);
+      bindSpawn(harness);
 
-    const result = await supersededBinding.onCallbackToolCall(makeInvocation());
+      const result = await supersededBinding.onCallbackToolCall(makeInvocation());
 
-    expect(result.status).toBe("failed");
-    // A same-named tool in the replacement registry must not carry a dead process's call into
-    // the live spawn's approval seam.
-    expect(harness.evaluatedRequests).toStrictEqual([]);
-    expect(harness.executedInvocations).toStrictEqual([]);
-    expect(harness.activityRecords[0]?.disposition).toBe("failed-superseded-binding");
-  });
+      expect(result.status).toBe("failed");
+      // A same-named tool in the replacement registry must not carry a dead process's call into
+      // the live spawn's approval seam.
+      expect(harness.evaluatedRequests).toStrictEqual([]);
+      expect(harness.executedInvocations).toStrictEqual([]);
+      expect(harness.activityRecords[0]?.disposition).toBe("failed-superseded-binding");
+    },
+  );
 });
 
 describe("CallbackToolHost — a failed replacement spawn rolls its registry back", () => {
@@ -231,7 +247,7 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
   // predecessor that a resume path deliberately leaves alive. `release()` would delete only
   // the replacement, and the surviving process would then dispatch against an absent registry and
   // be refused on every later call.
-  it("restores the predecessor's registry, so the surviving process keeps dispatching", async () => {
+  it("restores the predecessor's registry so the surviving process still dispatches", async () => {
     const harness = buildCallbackToolHostHarness();
     const liveBinding = bindSpawn(harness);
     const failedReplacement = bindSpawn(harness, [{ ...SEARCH_TOOL, name: "read_workspace" }]);

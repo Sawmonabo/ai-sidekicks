@@ -1,0 +1,6 @@
+<!-- The icon's glow layer, icon.icon/Assets/glow.png, is this drawing rendered by Chromium at
+     1024 x 1024 on a transparent ground; render it again after an edit here. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><filter id="neon-blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="26"/></filter></defs><g filter="url(#neon-blur)" opacity=".85"><g fill="none" stroke="#6ce7ed" stroke-width="30" stroke-linecap="round">
+    <rect x="272" y="392" width="480" height="370" rx="130"/><path d="M226 520V640M798 520V640M512 392V306"/></g>
+  <g fill="#6ce7ed"><rect x="410" y="512" width="56" height="92" rx="28"/><rect x="558" y="512" width="56" height="92" rx="28"/>
+    <rect x="433" y="664" width="14" height="14" rx="7"/><rect x="457" y="656" width="14" height="30" rx="7"/><rect x="481" y="648" width="14" height="46" rx="7"/><rect x="505" y="643" width="14" height="56" rx="7"/><rect x="529" y="648" width="14" height="46" rx="7"/><rect x="553" y="656" width="14" height="30" rx="7"/><rect x="577" y="664" width="14" height="14" rx="7"/></g><circle cx="512" cy="276" r="32" fill="#aa9afc"/></g></svg>

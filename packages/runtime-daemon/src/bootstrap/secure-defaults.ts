@@ -1,6 +1,7 @@
 // SecureDefaults: the validated bootstrap configuration, loaded before any listener binds.
 // `effectiveSettings()` throws until `load()` has succeeded. Only `localIpcPath` exists; any
-// other key is refused with `unknown_setting`. Socket-path probing belongs to the listener.
+// other key is refused with `unknown_setting`. Measuring the platform's socket path limit belongs
+// to the listener, which hands the figure to `assertSocketPathFits` before it binds.
 
 /** The bootstrap settings: the OS-local socket or pipe path. */
 export interface SecureDefaultsConfig {
@@ -67,7 +68,8 @@ export class SecureDefaults {
   static effectiveSettings(): SecureDefaultsEffectiveSettings {
     if (loadedSettings === null) {
       throw new Error(
-        "SecureDefaults.effectiveSettings: SecureDefaults.load(config) must succeed before this view is read",
+        "SecureDefaults.effectiveSettings: SecureDefaults.load(config) must succeed before " +
+          "this view is read",
       );
     }
     return loadedSettings;
@@ -96,7 +98,8 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     if (!KNOWN_KEYS.has(key)) {
       throw new SecureDefaultsValidationError(
         "unknown_setting",
-        `SecureDefaults.load: unknown setting "${key}" — the validation surface accepts only ${listKeys(KNOWN_KEYS)}`,
+        `SecureDefaults.load: unknown setting "${key}" — the validation surface accepts ` +
+          `only ${listKeys(KNOWN_KEYS)}`,
         { setting: key, value: (config as unknown as Record<string, unknown>)[key] },
       );
     }
@@ -114,12 +117,30 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
   if (typeof localIpcPath !== "string" || localIpcPath.length === 0) {
     throw new SecureDefaultsValidationError(
       "invalid_local_ipc_path",
-      `SecureDefaults.load: localIpcPath must be a non-empty string (got ${describeValue(localIpcPath)})`,
+      `SecureDefaults.load: localIpcPath must be a non-empty string (got ` +
+        `${describeValue(localIpcPath)})`,
       { setting: "localIpcPath", value: localIpcPath },
     );
   }
 
   return { localIpcPath };
+}
+
+/**
+ * Refuses a socket path longer than the platform's socket address field, `limitBytes`, with
+ * `invalid_local_ipc_path` naming the limit and the path's length, so the person reads that the
+ * path is too long rather than the bind's bare EINVAL.
+ */
+export function assertSocketPathFits(localIpcPath: string, limitBytes: number): void {
+  const observedBytes = Buffer.byteLength(localIpcPath, "utf8");
+  if (observedBytes > limitBytes) {
+    throw new SecureDefaultsValidationError(
+      "invalid_local_ipc_path",
+      `The socket path ${localIpcPath} is too long for a socket on this platform: it is ` +
+        `${String(observedBytes)} bytes and the limit is ${String(limitBytes)}`,
+      { setting: "localIpcPath", limit: limitBytes, observed: observedBytes },
+    );
+  }
 }
 
 function hasOwn(obj: SecureDefaultsConfig, key: string): boolean {

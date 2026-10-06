@@ -1,5 +1,5 @@
 // How a keyboard chord is printed and spoken. It lives in `lib/` because `ChordHint` is a shared
-// component below the registries; `registries/keybindings/keybinding-chord.ts` imports
+// component below the registries; `registries/keybindings/chord.ts` imports
 // `decodeChordKeyToken` so its conflict comparator and the printer agree that `k`, `K` and `KeyK`
 // are one keystroke.
 //

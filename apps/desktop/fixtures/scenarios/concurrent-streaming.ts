@@ -1,7 +1,7 @@
 // The concurrent-streaming scenario: four lanes streaming at once.
 //
 // This is the session behind the `frame-time-p95-four-lanes` row in
-// `tests/budget/budgets.json`, so its concurrency is the property measured: four runs are
+// `tests/budget/document.json`, so its concurrency is the property measured: four runs are
 // mid-turn at the same tick, interleaved beat by beat, and `tests/endurance/streaming-lanes.ts`
 // reads that back off these beats.
 //
@@ -21,10 +21,10 @@
 //     never shows: a run that has produced nothing yet.
 //
 // Every beat is a registered event with its registered payload.
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event.ts`, because a fixture that plays a type no daemon emits
-// produces passing results about a wire that does not exist.
+// `packages/contracts/src/event/session.ts`, because a fixture that plays a type no daemon
+// emits produces passing results about a wire that does not exist.
 //
 // The approval pair and the run-state pair are two records, not one: `approval_flow` records
 // what was asked, by whom and who granted it, and `run_lifecycle` records what the run did
@@ -42,6 +42,8 @@ import {
   composeScriptBeats,
   type ScriptEntry,
   createRunEntryBuilders,
+  findBeatCursor,
+  newestBeatInstant,
 } from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
 import {
@@ -50,7 +52,10 @@ import {
   composeResolvedAgent,
   findScenarioMember,
 } from "../data/opening-entries.js";
-import { SETTINGS_PAGE_REPLIES } from "../data/settings-page-replies.js";
+import { WORKFLOW_RUN_DIFF_REPLIES } from "../data/workflow/run/review-diffs.js";
+import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
+import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow/replies.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/clock.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.
@@ -72,9 +77,9 @@ const RUN_SCOUT = "019b79ee-0280-740e-8130-d1a4c1150013";
 const RUN_ARCHITECT = "019b79ee-0280-740e-8140-d1a4c1150014";
 const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
 
-// The base instant, built with `Date.UTC` rather than by parsing a string (`Date.parse` reads
-// a timezone-less stamp in the host's zone), so the ISO spelling below cannot disagree.
-const startedAtMs: number = Date.UTC(2026, 0, 1, 14, 20);
+// The base instant is the one the workflow replies spread in below call now, so their stamps sit
+// on this session's clock.
+const startedAtMs: number = WORKFLOW_FIXTURE_NOW_MS;
 
 const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 
@@ -508,20 +513,24 @@ export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
  */
 export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
+const CONCURRENT_STREAMING_BEATS = composeScriptBeats({
+  sessionId: SESSION_ID,
+  eventIdStem: EVENT_ID_STEM,
+  startedAtMs,
+  entries: CONCURRENT_STREAMING_SCRIPT,
+});
+
 /** Four agents streaming at once, with a mid-stream approval, a parked lane and a helper run. */
 export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   id: CONCURRENT_STREAMING_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
+    "A live session with four agents streaming at once — interleaved turns on four run " +
+    "groups, an approval landing mid-stream while the other three carry on, the cost " +
+    "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
-  beats: composeScriptBeats({
-    sessionId: SESSION_ID,
-    eventIdStem: EVENT_ID_STEM,
-    startedAtMs,
-    entries: CONCURRENT_STREAMING_SCRIPT,
-  }),
+  beats: CONCURRENT_STREAMING_BEATS,
   replies: [
     {
       // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
@@ -531,12 +540,17 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           id: SESSION_ID,
           state: "active",
           createdAt: STARTED_AT_ISO,
-          updatedAt: "2026-01-01T14:20:02.450Z",
+          updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
           draft: "",
         },
-        transcriptCursors: { latest: "concurrent-streaming-cursor-45" },
+        transcriptCursors: {
+          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length),
+        },
       },
     },
-    ...SETTINGS_PAGE_REPLIES,
+    ...SETTINGS_REPLIES,
+    ...WORKFLOW_REPLIES,
+    ...WORKFLOW_RUN_DIFF_REPLIES,
   ],
+  openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
 };

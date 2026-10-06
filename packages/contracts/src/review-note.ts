@@ -7,13 +7,14 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
+import { FILE_PATH_MAX_LEN } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The id of one held note, minted by the client, so adding the same note twice makes one note. */

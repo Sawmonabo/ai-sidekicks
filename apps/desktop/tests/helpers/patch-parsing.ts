@@ -5,16 +5,16 @@
 // `intraline-segment-cache.test.ts` (what the intraline register costs), which parse through the
 // same fixed compared-states pair.
 
-import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js";
-import type { DiffLine } from "@renderer/features/repos/diff/diff-model.js";
+import { parseUnifiedPatch } from "#renderer/features/repos/diff/patch-parse.js";
+import type { DiffLine } from "#renderer/features/repos/diff/model.js";
 
 /** The argument every parse here holds fixed, so a case varies only the patch. */
 export const COMPARED_STATES = { baseRef: "main", headRef: "feat/thing" } as const;
 
 /** A plain unified patch: two files, one hunk each, one modified line pair. */
 export const PLAIN_PATCH: string = [
-  "--- packages/contracts/src/event.ts",
-  "+++ packages/contracts/src/event.ts",
+  "--- packages/contracts/src/event/session-event.ts",
+  "+++ packages/contracts/src/event/session-event.ts",
   "@@ -10,2 +10,2 @@",
   " const before = 1;",
   "-const value = compute(previousBudget, 11);",

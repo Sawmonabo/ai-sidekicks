@@ -4,9 +4,9 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { commandRegistry } from "../window-command-registry.js";
+import { commandRegistry } from "../registry.js";
 import { useRegisterCommands } from "./useRegisterCommands.js";
-import type { CommandDefinition } from "../command-types.js";
+import type { CommandDefinition } from "../definition.js";
 
 const OWNER = "command-registration-test";
 

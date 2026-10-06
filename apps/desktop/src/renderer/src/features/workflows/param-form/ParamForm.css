@@ -1,0 +1,94 @@
+/*
+ * The form drawn from a kind's parameter list: its fields, their help and issue lines, and the
+ * fieldsets a multiselect or a collection draws. Each field, label, legend and control wears the
+ * shared form parts from `styles/form.css`; this sheet keeps their layout and the refused mark.
+ * Imported by `ParamForm.tsx`, which composes every component in this folder. Meridian tokens
+ * only.
+ */
+
+.meridian-workflow-param-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------- one field */
+
+.meridian-workflow-param-form__field,
+.meridian-workflow-param-form__control {
+  min-width: 0;
+}
+
+textarea.meridian-workflow-param-form__control {
+  resize: vertical;
+}
+
+/*
+ * A refused answer is marked by its sentence and an edge stronger than every control's, never an
+ * attention hue.
+ */
+.meridian-workflow-param-form__control[aria-invalid="true"] {
+  border-color: var(--meridian-text);
+}
+
+.meridian-workflow-param-form__help,
+.meridian-workflow-param-form__issue {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-workflow-param-form__help {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-param-form__issue {
+  color: var(--meridian-text);
+  font-weight: 600;
+}
+
+/* A checkbox sits before its label, on one line. */
+.meridian-workflow-param-form__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-workflow-param-form__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* ------------------------------------------------ multiselects and collections */
+
+.meridian-workflow-param-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-workflow-param-form__legend {
+  padding: 0 var(--meridian-space-1);
+}
+
+.meridian-workflow-param-form__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-workflow-param-form__entry-action {
+  align-self: flex-start;
+}

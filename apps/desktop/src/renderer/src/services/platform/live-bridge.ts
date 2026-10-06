@@ -3,11 +3,11 @@
 // context so the fixture is substitutable, and a lint rule in `eslint.config.mjs` bans the direct
 // read elsewhere. A preload that did not run is a real state, so `readInstalledBridge` returns
 // `undefined` and the caller renders a stated failure instead of a blank window.
-import { isWireRecord } from "@renderer/lib/wire-record.js";
-import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "@shared/fixture-launch.js";
-import type { PreloadApi } from "@shared/preload-api.js";
-import type { PlatformBridge } from "./platform-bridge.js";
-import { TransportReconnectSignal } from "../transport/transport-reconnect.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
+import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "#shared/fixture-launch.js";
+import type { PreloadApi } from "#shared/preload-api.js";
+import type { PlatformBridge } from "./bridge.js";
+import { TransportReconnectSignal } from "../transport/reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
 export function readInstalledBridge(): PreloadApi | undefined {
@@ -31,9 +31,9 @@ export function readFixtureLaunch(): FixtureLaunch | undefined {
 export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
     ...preloadApi,
-    // Reported into by every subscription this window opens (`transport/observed-subscription.ts`),
-    // since whether `daemon.subscribe` returned or threw is the only connection state a live
-    // renderer has. One per window: a shared signal would mix two windows' transport readings.
+    // Reported into by main's `daemon.status` topic (`daemon/status.ts`) and by every
+    // subscription any window opens (`transport/observed-subscription.ts`). One for the app: every
+    // window reaches the service through main's one connection, so they share one reading.
     transportReconnect: new TransportReconnectSignal(),
     source: "live",
   };
@@ -49,6 +49,7 @@ const PRELOAD_NAMESPACE_PRESENCE: Readonly<Record<keyof PreloadApi, true>> = {
   update: true,
   machineSettings: true,
   keyboardMap: true,
+  window: true,
   app: true,
 };
 

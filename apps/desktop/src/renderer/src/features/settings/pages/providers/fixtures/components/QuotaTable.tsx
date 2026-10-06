@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatDateTime, formatDuration, formatPercent } from "@renderer/lib/wire-figures.js";
-import { MILLISECONDS_PER_MINUTE } from "@renderer/lib/instant.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatDateTime, formatDuration, formatPercent } from "#renderer/lib/wire/figures.js";
+import { MILLISECONDS_PER_MINUTE } from "#renderer/lib/instant.js";
 import type { AccountQuotaRow } from "../quota-rows.js";
 
 /**
@@ -34,7 +34,10 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
         kind="empty"
         placement="inline"
         title="No quota reading has been stored for this account."
-        detail="A reading is recorded when a run spends against the account or when a probe asks for one."
+        detail={
+          "A reading is recorded when a run spends against the account or " +
+          "when a probe asks for one."
+        }
       />
     );
   }

@@ -16,7 +16,7 @@ export function SecretAnswerField(props: SecretAnswerFieldProps): React.JSX.Elem
   return (
     <input
       type="password"
-      className="meridian-input-ask__field"
+      className="meridian-input-ask__field meridian-form__input"
       aria-label={props.questionText}
       autoComplete="off"
       spellCheck={false}

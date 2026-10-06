@@ -5,16 +5,15 @@
 // run's binding group renders. It speaks through its own status region, not the announcer.
 
 import { useCallback, useMemo } from "react";
-import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
+import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
-import { readComposerCommands } from "../composer-commands.js";
+import { readComposerCommands } from "../registry-view.js";
 import { useCommandListTrigger } from "../hooks/useCommandListTrigger.js";
-import { addressedProviderBinding } from "../command-list-entries.js";
+import { addressedProviderBinding } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
-import { type ProviderCommandEnumeration } from "../provider-command-enumeration.js";
+import { type ProviderCommandEnumeration } from "../provider/enumeration.js";
 import { CommandListPopover } from "./CommandListPopover.js";
-import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 
 import "./CommandList.css";
 
@@ -44,9 +43,6 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
     target,
     isOpen,
   });
-  // Contributes the palette entry that types the command word onto the line.
-  useWorkflowStartPrefill({ draftStore, draftKey });
-
   const readCommands = useCallback(() => readComposerCommands(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   return isOpen ? (

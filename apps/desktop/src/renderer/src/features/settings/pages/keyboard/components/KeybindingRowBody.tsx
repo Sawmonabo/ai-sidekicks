@@ -4,11 +4,11 @@
 
 import { useState, type ReactNode } from "react";
 
-import type { Refusal } from "@renderer/lib/refusal.js";
-import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { HOST_CHORD_PLATFORM, formatChordForPlatform } from "@renderer/lib/chord-format.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { HOST_CHORD_PLATFORM, formatChordForPlatform } from "#renderer/lib/chord-format.js";
 import {
   readChordFromEvent,
   readHeldModifiersFromEvent,
@@ -63,7 +63,9 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
       <div className="meridian-keymap__controls">
         <button
           type="button"
-          className="meridian-keymap__record meridian-action-button"
+          className={
+            "meridian-keymap__record meridian-action-button meridian-action-button--compact"
+          }
           aria-pressed={recording}
           aria-label={recording ? `Press a chord for ${row.title}` : `Rebind ${row.title}`}
           onClick={() => {
@@ -111,8 +113,13 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
         {row.overridden ? (
           <button
             type="button"
-            className="meridian-keymap__reset meridian-action-button"
-            aria-label={`Reset ${row.title} to ${describeShippedChord(row.shippedChord)}, the chord the app ships`}
+            className={
+              "meridian-keymap__reset meridian-action-button meridian-action-button--compact"
+            }
+            aria-label={
+              `Reset ${row.title} to ${describeShippedChord(row.shippedChord)}, ` +
+              "the chord the app ships"
+            }
             onClick={props.onReset}
           >
             {row.shippedChord === undefined ? (

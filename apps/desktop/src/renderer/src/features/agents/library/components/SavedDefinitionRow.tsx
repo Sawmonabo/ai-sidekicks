@@ -1,8 +1,10 @@
-import type { Refusal } from "@renderer/lib/refusal.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { type AgentLibraryView } from "../library-view.js";
+import "./SavedDefinitionRow.css";
+
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { type AgentLibraryView } from "../view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
 
 /** One saved definition: what it is, and the three things that can be done to it. */
@@ -56,7 +58,10 @@ export function SavedDefinitionRow(props: {
           <p className="meridian-saved-definition-row__question">{describeDeletionQuestion(row)}</p>
           <button
             type="button"
-            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive meridian-action-button"
+            className={
+              "meridian-action-button meridian-action-button--compact " +
+              "meridian-action-button--raised meridian-action-button--destructive"
+            }
             onClick={() => {
               void view.confirmDeletion(row.definitionId);
             }}
@@ -66,7 +71,10 @@ export function SavedDefinitionRow(props: {
           </button>
           <button
             type="button"
-            className="meridian-saved-definition-row__action meridian-action-button"
+            className={
+              "meridian-action-button meridian-action-button--compact " +
+              "meridian-action-button--raised"
+            }
             onClick={() => {
               view.cancelDeletion();
             }}
@@ -78,7 +86,10 @@ export function SavedDefinitionRow(props: {
         <div className="meridian-saved-definition-row__actions">
           <button
             type="button"
-            className="meridian-saved-definition-row__action meridian-action-button"
+            className={
+              "meridian-action-button meridian-action-button--compact " +
+              "meridian-action-button--raised"
+            }
             onClick={() => {
               view.openEditor({ kind: "stored", definitionId: row.definitionId });
             }}
@@ -89,7 +100,10 @@ export function SavedDefinitionRow(props: {
           </button>
           <button
             type="button"
-            className="meridian-saved-definition-row__action meridian-saved-definition-row__action--destructive meridian-action-button"
+            className={
+              "meridian-action-button meridian-action-button--compact " +
+              "meridian-action-button--raised meridian-action-button--destructive"
+            }
             onClick={() => {
               view.armDeletion(row.definitionId);
             }}
@@ -107,7 +121,10 @@ export function SavedDefinitionRow(props: {
           action={
             <button
               type="button"
-              className="meridian-saved-definition-row__action meridian-action-button"
+              className={
+                "meridian-action-button meridian-action-button--compact " +
+                "meridian-action-button--raised"
+              }
               onClick={() => {
                 view.dismissRefusal(row.definitionId);
               }}

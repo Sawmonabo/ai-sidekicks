@@ -64,13 +64,12 @@ Nothing else on the relay is counted.
 
 - When the limit is exceeded, the relay must respond with HTTP `429 Too Many Requests`.
 - The response must include a `Retry-After` header indicating the number of seconds the client should wait.
-- The response must include standard rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
 - The refusal body is the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
 
 ## Default Behavior
 
 - The limit is active by default on every sign-in route.
-- An allowed response carries no rate-limit header; the headers come only on a 429.
+- An allowed response carries no rate-limit header; `Retry-After` comes only on a 429.
 
 ## Fallback Behavior
 
@@ -103,7 +102,7 @@ Nothing else on the relay is counted.
 
 ## Acceptance Criteria
 
-- [ ] Sign-in route requests exceeding 20 per source address per minute on `auth.endpoint` receive HTTP 429 with `Retry-After` and the rate limit headers.
+- [ ] Sign-in route requests exceeding 20 per source address per minute on `auth.endpoint` receive HTTP 429 with `Retry-After`.
 - [ ] The Workers relay counts the sign-in routes in a per-identity Durable Object and the self-hosted relay in its process's memory; both enforce the same limit.
 - [ ] On the Workers relay, requests to the sign-in routes count once across every edge location: the 21st `auth.endpoint` request from one address in a minute is refused whichever location serves it.
 - [ ] A counter error fails only the request it occurred on.

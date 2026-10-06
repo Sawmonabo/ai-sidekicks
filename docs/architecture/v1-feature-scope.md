@@ -17,7 +17,7 @@ Every V1 feature has a governing spec; feature #21 (Remote Control) is governed 
 | 5 | Approval gates | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) |
 | 6 | Repo attach and workspace binding | [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md) |
 | 7 | Worktree-based execution | [Spec-008](../specs/008-worktree-lifecycle-and-execution-modes.md) |
-| 8 | Session transcript with replay | [Spec-011](../specs/011-transcript-and-reasoning.md), [Spec-013](../specs/013-persistence-recovery-and-replay.md) |
+| 8 | Session transcript history | [Spec-011](../specs/011-transcript-and-reasoning.md), [Spec-013](../specs/013-persistence-and-recovery.md) |
 | 9 | Local daemon with CLI | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | 10 | Event audit log | [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) |
 | 11 | Artifact publication | [Spec-012](../specs/012-artifacts-files-and-attachments.md) — a session's artifacts stay on the machine that runs the session, which lists them on every linked device; a device reads them through Remote Control's method proxy, and the relay keeps no copy |
@@ -25,7 +25,7 @@ Every V1 feature has a governing spec; feature #21 (Remote Control) is governed 
 | 13 | Multi-agent orchestration | [Spec-014](../specs/014-multi-agent-orchestration.md) |
 | 14 | Workflow authoring and execution (full engine) | [Spec-015](../specs/015-workflow-authoring-and-execution.md) |
 | 15 | MCP server configuration and governance | [Spec-024](../specs/024-mcp-server-configuration-and-governance.md) + [Plan-022](../plans/022-mcp-server-configuration-and-governance.md). Scope: server configuration at every scope, per-tool approval overrides set on Settings › MCP servers |
-| 16 | Undo to an earlier message | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the undo: the conversation and the files, the conversation alone, or the files alone, one request with one reported result) + the daemon's own file checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior)) + the forward `session.restore_finished` event, with `run.rolled_back` for the conversation cut ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)). The conversation goes back through the provider's own cut, Claude Code's `rewind_conversation` and Codex's `thread/revert {threadId, beforeTurnId}`, neither of which touches a file; the files go back through the daemon's checkpoints, never through the git snapshot. A point before Claude Code's last compaction is reached through the provider's own copy of the conversation, resumed in place, so the session keeps its identity |
+| 16 | Undo to an earlier message | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the undo: the conversation and the files, the conversation alone, or the files alone, one request with one reported result) + the daemon's own file checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-and-recovery.md#required-behavior)) + the forward `session.restore_finished` event, with `run.rolled_back` for the conversation cut ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)). The conversation goes back through the provider's own cut, Claude Code's `rewind_conversation` and Codex's `thread/revert {threadId, beforeTurnId}`, neither of which touches a file; the files go back through the daemon's checkpoints, never through the git snapshot. A point before Claude Code's last compaction is reached through the provider's own copy of the conversation, resumed in place, so the session keeps its identity |
 | 17 | Session goals | [Spec-014 §Session Goals](../specs/014-multi-agent-orchestration.md#session-goals) (`/goal` gives one agent a condition to work toward; a session may have no goal, one or several, and is never named or labeled by one) + `session.goal_updated`, carrying the goal's status, and `session.goal_cleared` in [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md), each drawn only as a transcript system message |
 | 18 | Session callback tools | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (registry shape) + [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (Cedar governance) |
 | 19 | Execution postures and sandbox profiles | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (`executionPosture` authorization semantics) + [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (driver legs) |
@@ -45,7 +45,7 @@ Per [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deploymen
 - **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects: nothing to keep running at home, and no open port. It counts requests on its sign-in routes in its per-identity Durable Object.
 - **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It counts requests on its sign-in routes in memory.
 
-The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-022](../specs/022-first-run-onboarding.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
+The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-022](../specs/022-first-run.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
 
 ## Platform Support (V1)
 
@@ -68,16 +68,16 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | Spec | Coverage |
 | --- | --- |
 | [Spec-009](../specs/009-gitflow-pr-and-diff-attribution.md) | Gitflow, PR preparation, and diff attribution |
-| [Spec-016](../specs/016-identity-and-user-state.md) | Identity and user state |
+| [Spec-016](../specs/016-hosted-account-and-identity.md) | Hosted account and identity |
 | [Spec-017](../specs/017-notifications-and-attention-model.md) | Notifications and attention model |
 | [Spec-018](../specs/018-observability-and-failure-recovery.md) | Observability and failure recovery |
 | [Spec-019](../specs/019-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
-| [Spec-020](../specs/020-data-retention-and-gdpr.md) | Data retention, export and deletion |
-| [Spec-022: First Run](../specs/022-first-run-onboarding.md) | First run: nothing to answer, and when the daemon pins a relay's TLS key |
+| [Spec-020](../specs/020-data-retention-export-and-deletion.md) | Data retention, export and deletion |
+| [Spec-022: First Run](../specs/022-first-run.md) | First run: nothing to answer, and when the daemon pins a relay's TLS key |
 
 ## Spec Coverage Assessment
 
-- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25 and SA-26 items in its own body; SA-23, SA-27, SA-28 and SA-29 live in Plan-014 as implementation detail.
+- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25, SA-26 and SA-29…SA-42 items in its own body; SA-23, SA-27 and SA-28 live in Plan-014 as implementation detail.
 
 ## Backlog Coverage Assessment
 

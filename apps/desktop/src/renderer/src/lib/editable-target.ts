@@ -9,7 +9,10 @@
 //
 // The wide answer is the narrow one plus an ancestor walk, because events from a
 // `role="textbox"` div, a listbox option or a combobox input fire on a descendant;
-// `isContentEditable` inherits down a subtree but an ARIA role does not.
+// `isContentEditable` inherits down a subtree but an ARIA role does not. Every window's element is
+// its own document's, so the element tests ask each node's own window rather than this one's.
+
+import { isElement, isHTMLElement } from "@floating-ui/utils/dom";
 
 /** `<input>` types that are controls rather than text entry; a chord still reaches them. */
 const NON_TEXT_INPUT_TYPES: readonly string[] = [
@@ -39,7 +42,7 @@ const EDITABLE_ROLE_SELECTOR =
  * keeps a checkbox out, since no text is typed there.
  */
 export function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (target === null || !(target instanceof HTMLElement)) {
+  if (!isHTMLElement(target)) {
     return false;
   }
   if (target.isContentEditable) {
@@ -66,7 +69,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (isTextEntryTarget(target)) {
     return true;
   }
-  if (target === null || !(target instanceof Element)) {
+  if (!isElement(target)) {
     return false;
   }
   return target.closest(EDITABLE_ROLE_SELECTOR) !== null;

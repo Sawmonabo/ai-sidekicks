@@ -1,0 +1,113 @@
+/* The pane chrome's tab strip. No literal color: every value is read from a Meridian property. */
+
+/* One row above the address field. It scrolls rather than wraps, so a second row never moves
+   the address field down and makes the page area jump. */
+
+.meridian-preview-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+  overflow-x: auto;
+}
+
+.meridian-preview-tabs__list {
+  display: flex;
+  align-items: stretch;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-preview-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  max-inline-size: 14rem;
+  padding-inline: var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-preview-tab--selected {
+  border-color: var(--meridian-edge-strong);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-preview-tab__face {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+  padding: var(--meridian-space-1);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-preview-tab__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The page's own icon, sized from the tab's text so it scales with it. */
+.meridian-preview-tab__favicon {
+  flex: none;
+  inline-size: 1em;
+  block-size: 1em;
+  object-fit: contain;
+}
+
+.meridian-preview-tab__spinner {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-preview-tab__close {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-faint);
+  cursor: pointer;
+}
+
+.meridian-preview-tab__close:hover {
+  color: var(--meridian-text);
+}
+
+/* A tab's menu: its four move rows on the raised ground, a space step clear of the tab. */
+.meridian-preview-tab-menu {
+  display: flex;
+  flex-direction: column;
+  margin-block: var(--meridian-space-1);
+  padding: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-preview-tab-menu__row {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text);
+  cursor: default;
+}
+
+.meridian-preview-tab-menu__row[data-highlighted] {
+  background: var(--meridian-surface-sunken);
+}
+
+/* A row with nowhere to move the tab. */
+.meridian-preview-tab-menu__row[data-disabled] {
+  color: var(--meridian-text-faint);
+}

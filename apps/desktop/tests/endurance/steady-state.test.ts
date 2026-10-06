@@ -4,7 +4,7 @@
 // app open over a sustained workload and gates the steady-state heap: the reading after the
 // application has settled against the reading after a long stretch of the same work, near zero
 // whatever happened in between. It asserts no ceiling on the heap itself; that is
-// `heap-at-rest.test.ts`'s budget, and one number must not have two owners.
+// `heap/at-rest.test.ts`'s budget, and one number must not have two owners.
 //
 // The workload is the fixture bridge's scenario engine: deterministic, driving the store paths a
 // daemon would, on a frozen clock. That clock does not advance itself, so the run names the
@@ -23,7 +23,7 @@
 // that once a cycle found a mounted row no later cycle finds the transcript emptied, and the
 // count of cycles that found one is asserted non-zero. Absence of the diagnostics handle fails,
 // never skips. The last case snapshots the renderer over the same workload and reads what named
-// constructors retained (`heap-snapshot-analysis.ts`).
+// constructors retained (`heap/snapshot-analysis.ts`).
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,13 +32,13 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
+import { withLaunchedApp } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
-} from "@renderer/app/fixture-global-names.js";
+} from "#renderer/app/fixture/global-names.js";
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
@@ -46,12 +46,14 @@ import {
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
-} from "./endurance-workload.js";
-import { readTranscriptWindow } from "./transcript-window-read.js";
-import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+} from "./workload.js";
+import { readTranscriptWindow } from "./transcript/window-read.js";
+import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrument.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 // The viewport's own overscan, so the bound below is not a figure kept in step by hand.
-import { TRANSCRIPT_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "#renderer/features/transcript/viewport/caps.js";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -59,19 +61,18 @@ const bundleIsBuilt = fixtureBundleExists();
  * How many settle-and-churn cycles the run performs.
  *
  * A cycle costs roughly 50 ms of driven interaction, so this keeps the tier under a minute
- * while a leak of ~40 kB per cycle reaches the ceiling below. A smaller leak is below what this
- * instrument can see.
+ * while a leak of ~40 kB per cycle reaches the `steady-heap-growth` ceiling. A smaller leak is
+ * below what this instrument can see.
  */
 const CHURN_CYCLE_COUNT = 200;
 
-/**
- * The growth a run may show and still pass.
- *
- * Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run.
- * Not a percentage, because a percentage of a large baseline is a large absolute allowance and
- * a leak's size does not depend on the application's.
- */
-const STEADY_HEAP_GROWTH_CEILING_BYTES = 8 * 1024 * 1024;
+const registry = BudgetRegistry.load();
+
+/** The growth a run may show and still pass; its row says why that figure. */
+const steadyHeapGrowthBudget = registry.requireBudget("steady-heap-growth");
+
+/** What the detached-node reading may reach and still pass; its row says why that figure. */
+const detachedNodeRetentionBudget = registry.requireBudget("detached-node-retention");
 
 /**
  * The constructors the snapshot case reads, and why each is in the list.
@@ -91,16 +92,6 @@ const RETAINED_READING_CONSTRUCTORS = [
   "Map",
   "Array",
 ] as const;
-
-/**
- * What the detached-node reading may reach and still pass: four megabytes.
- *
- * Well above the transient detachment a React unmount leaves for the next collection and far
- * below a frame that retained one route's subtree per cycle. Not derived from
- * `STEADY_HEAP_GROWTH_CEILING_BYTES`: that bounds a difference of two readings over the whole
- * application, this an absolute retention of one constructor.
- */
-const DETACHED_NODE_RETENTION_CEILING_BYTES = 4 * 1024 * 1024;
 
 /**
  * How many cycles the snapshot case churns.
@@ -137,7 +128,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // argument, no read, no composition) that makes this tier idle.
         expect(
           await readPlayingScenarioId(appUnderTest),
-          `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
+          `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this ` +
+            `build, or the launch did not select a scenario`,
         ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
         // One warm-up cycle before the baseline, so the one-time allocation of the palette, its
@@ -168,7 +160,9 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
           if (transcriptRowsHaveMounted) {
             expect(
               cycleReading.transcriptRowCount,
-              `cycle ${String(cycle)} left the transcript holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose transcript is gone`,
+              `cycle ${String(cycle)} left the transcript holding no ` +
+                `row after an earlier cycle had mounted one, so every ` +
+                `cycle after it churned a route whose transcript is gone`,
             ).toBeGreaterThan(0);
           }
           if (cycleReading.transcriptRowCount > 0) {
@@ -198,7 +192,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
             `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
             `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
             `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
-            `${String(beatsDelivered)} of ${String(CONCURRENT_STREAMING_SCENARIO.beats.length)} at ` +
+            `${String(beatsDelivered)} of ` +
+            `${String(CONCURRENT_STREAMING_SCENARIO.beats.length)} at ` +
             `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
             `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
             `${String(appliedEventCount)}; transcript rows mounted on ` +
@@ -209,7 +204,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // reading taken over an app whose transcript never came up.
         expect(
           cyclesWithTranscriptRows,
-          "no churn cycle found a mounted transcript row, so the whole loop churned a route whose transcript never drew — the pane's chrome is what satisfied every wait",
+          "no churn cycle found a mounted transcript row, so the whole loop churned a route " +
+            "whose transcript never drew — the pane's chrome is what satisfied every wait",
         ).toBeGreaterThan(0);
 
         // The workload moved: the first says the handle was reachable and the script running,
@@ -218,13 +214,19 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         expect(beatsDelivered).not.toBeNull();
         expect(Number(beatsDelivered)).toBeGreaterThan(Number(beatsAfterWarmUp));
 
-        expect(growthBytes).toBeLessThanOrEqual(STEADY_HEAP_GROWTH_CEILING_BYTES);
+        const growthVerdict = evaluateBudget(steadyHeapGrowthBudget, growthBytes);
+        expect(
+          growthVerdict.withinBudget,
+          `${steadyHeapGrowthBudget.label}: ${String(growthBytes)} B against a ` +
+            `${String(growthVerdict.limitCanonicalValue)} B ceiling`,
+        ).toBe(true);
 
         // Beats delivered are not events reaching a store. Absence fails here, as for the
         // tripwire registry below, since a build without the handle would make this vacuous.
         expect(
           appliedEventCount,
-          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
+          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, ` +
+            `so nothing can be shown about where the workload's events went`,
         ).not.toBeNull();
         expect(appliedEventsAfterWarmUp).not.toBeNull();
         expect(appliedEventsAtMidRun).not.toBeNull();
@@ -260,7 +262,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         );
         if (transcriptWindow === null) {
           throw new Error(
-            `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport for this session, so nothing here says anything about windowing`,
+            `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport ` +
+              `for this session, so nothing here says anything about windowing`,
           );
         }
         process.stdout.write(
@@ -283,11 +286,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // is the workload's, since the fixture script is what has to grow until it overflows.
         expect(
           transcriptWindow.viewportScrollHeightPx,
-          "the concurrent-streaming script does not overflow the transcript's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
+          "the concurrent-streaming script does not overflow the transcript's " +
+            "viewport, so this window is bounded by having nothing to hold — grow " +
+            "the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
         ).toBeGreaterThan(transcriptWindow.viewportClientHeightPx);
         expect(
           transcriptWindow.mountedRowCount,
-          "the transcript mounted every row it holds, so it is not bounded by the viewport and the whole log is being laid out",
+          "the transcript mounted every row it holds, so it is not " +
+            "bounded by the viewport and the whole log is being laid out",
         ).toBeLessThan(transcriptWindow.totalRowCount);
         // Bounded by the box plus its declared overscan: the rows the box intersects, and
         // `TRANSCRIPT_OVERSCAN_ROWS` either side.
@@ -312,7 +318,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         try {
           expect(
             await readPlayingScenarioId(appUnderTest),
-            `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
+            `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this ` +
+              `build, or the launch did not select a scenario`,
           ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
           for (let cycle = 0; cycle < SNAPSHOT_CHURN_CYCLE_COUNT; cycle += 1) {
@@ -349,7 +356,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
           // absent, and the subject's bound below would pass over it.
           expect(
             instancesOf("Map"),
-            "the snapshot reports no Map at all, so it was not written, not parsed, or not this renderer's",
+            "the snapshot reports no Map at all, so it was " +
+              "not written, not parsed, or not this renderer's",
           ).toBeGreaterThan(0);
           expect(instancesOf("Array")).toBeGreaterThan(0);
 
@@ -357,13 +365,16 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
           // which would make the subject a permanent zero.
           expect(
             instancesOf("HTMLDivElement"),
-            "this renderer's snapshot names no attached HTMLDivElement, so the `Detached HTMLDivElement` subject below is a name nothing in this heap can match",
+            "this renderer's snapshot names no attached HTMLDivElement, so the `Detached " +
+              "HTMLDivElement` subject below is a name nothing in this heap can match",
           ).toBeGreaterThan(0);
 
+          const detachedBytes = retainedBytesOf("Detached HTMLDivElement");
           expect(
-            retainedBytesOf("Detached HTMLDivElement"),
-            "the app is retaining detached DOM subtrees across route churn — a frame or a store is holding a reference into a tree it unmounted",
-          ).toBeLessThanOrEqual(DETACHED_NODE_RETENTION_CEILING_BYTES);
+            evaluateBudget(detachedNodeRetentionBudget, detachedBytes).withinBudget,
+            `the app is retaining ${String(detachedBytes)} B of detached DOM subtrees across ` +
+              "route churn — a frame or a store is holding a reference into a tree it unmounted",
+          ).toBe(true);
         } finally {
           await heapProbe.detach();
         }
@@ -384,7 +395,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         await churnOnce(appUnderTest, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }
-      const firings = await appUnderTest.window.evaluate((globalName: string) => {
+      const firings = await appUnderTest.consolePage.evaluate((globalName: string) => {
         const registry = (
           globalThis as unknown as Record<string, { reports(): readonly unknown[] } | undefined>
         )[globalName];

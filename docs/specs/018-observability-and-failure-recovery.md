@@ -7,7 +7,7 @@
 | **Slug** | `observability-and-failure-recovery` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Depends On** | [Persistence And Recovery](../specs/013-persistence-and-recovery.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
 | **Implementation Plan** | [Plan-017: Observability And Failure Recovery](../plans/017-observability-and-failure-recovery.md) |
 
 ## Purpose
@@ -40,7 +40,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 ## Required Behavior
 
-- The daemon must keep health and failure signals for itself, provider drivers, replay state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in two places, neither of them a console read: its diagnostic logs and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
+- The daemon must keep health and failure signals for itself, provider drivers, rebuild state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in two places, neither of them a console read: its diagnostic logs and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
 - A failed recovery is never silent. A provider-session recovery that fails leaves the session showing that the provider ended, with `Restart`; a projection rebuild that fails puts the daemon in the degraded read-only mode of §Fallback Behavior.
 - The person must be able to distinguish:
   - transport failure
@@ -51,7 +51,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 - The person must be able to distinguish canonical `RunState` from derived health signals, failure categories, and recovery conditions.
 - Degraded modes must be explicit and must preserve as much read visibility as possible.
 - Non-canonical observability payloads such as driver raw events, raw command output, high-volume tool traces and the workflow engine's event record must use explicit bounded retention separate from canonical event and failure-detail retention.
-- Losing the connection to the local daemon must be one explicit reading in one place — never a banner, a toast, a modal, or a badge. In the console that place is the session's working line: it turns amber, reads `Connection lost` where the action words stand, says `Reconnecting…` while the connection is still being retried and `Not connected.` once retrying has stopped, keeps the elapsed clock of a turn that was under way and omits it on an idle session, and carries a `Retry` at its right that asks for the connection again and says so while it tries. Nothing is said while the connection is healthy — no green line, no `Connected` word — and the reading raises no notification and no second mark anywhere ([Spec-017 §Required Behavior](017-notifications-and-attention-model.md#required-behavior)). It arms only once the daemon has answered at least once since the client started, so a client started into an outage reports a daemon that would not start rather than a connection that was lost.
+- Losing the connection to the local daemon must be one explicit reading in one place — never a banner, a toast, a modal, or a badge. In the console that place is the session's working line: it turns amber, its three lights stepping while the connection is being retried and holding still once retrying has stopped, reads `Connection lost` where the action words stand, says `Reconnecting…` while the connection is still being retried and `Not connected.` once retrying has stopped, keeps the elapsed clock of a turn that was under way and omits it on an idle session, and carries a `Retry` at its right that asks for the connection again and says so while it tries. Nothing is said while the connection is healthy — no green line, no `Connected` word — and the reading raises no notification and no second mark anywhere ([Spec-017 §Required Behavior](017-notifications-and-attention-model.md#required-behavior)). It arms only once the daemon has answered at least once since the client started, so a client started into an outage reports a daemon that would not start rather than a connection that was lost.
 - A connection gap must not empty what was already read. No session row dims, grays, moves, or leaves its list; no pane closes; no control is disabled; a draft keeps its text; a surface holding last-read facts keeps them until the daemon has re-read them rather than drawing its own empty state; and a list that could not be refreshed says only that it could not be refreshed. When the connection returns, the reading goes back to what it showed before, or away if nothing was running.
 - A provider process that ends on its own under a running session is a provider failure the product states rather than absorbs. The statement names the provider and carries the exit code or signal the daemon observed — never one the product composed — with the last output the process produced before it went, so a person can tell whether restarting will help, and it offers a restart that puts the provider back on the same session. The turn that was running ends where it was and leaves one record in the session's transcript: live calls stop at the figure they reached, the approval the process held dies, the command it was waiting on ends, and the agents it had dispatched end with it — each reading as having ended with the process rather than as having been stopped by a person. It is never silent, never attributed to a person, and never reported as an interruption.
 - A provider process the daemon slept is not a failure, and nothing on screen reports it. An idle Claude Code session is slept once it has been idle for 30 minutes and holds nothing the stop would end — no turn running, no message queued, no approval or question open, no background task, no pending wake-up or session-only scheduled job, no side question and no voice call. The next message to it wakes it through Claude Code's own resume on the same conversation, account, folder, settings and permission level, with nothing on screen: no banner, no row. Codex is never slept, and no process is stopped for memory pressure.
@@ -94,19 +94,19 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 ### Required Behavior (policy)
 
 - **Nothing leaves the machine.** The daemon runs no telemetry exporter and sends no diagnostic content to any sink off the machine. The providers' own telemetry is pointed at the daemon on this machine and written to the service's own diagnostic logs, which drop it past `Keep diagnostic logs for`; none of it is forwarded to a telemetry destination the person set. Each request the daemon prices from it becomes an event on its session, the same spend event stream-priced requests write, so the inspector's `Cost` section counts it; it is never a transcript row. A crash report is built on the machine that crashed, stripped of personal data there, and kept there under `Keep crash reports`.
-- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-41)](015-workflow-authoring-and-execution.md#engine-event-record-sa-41) writes, per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) are log files in the daemon's data folder, never database tables, and MUST apply a 7-day TTL by default. `Keep diagnostic logs for` sets the TTL and takes any period.
-- **Bound and erase.** Every diagnostic log file MUST be deleted whole once it is past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes it with the data folder. A diagnostic pipeline that keeps PII-carrying records outside both is a spec violation. There is no per-person flush.
-- **The two diagnostic switches record only while on.** `Record traces` and `Record an event-replay log`, on Settings › Runtime, are both off by default. While `Record traces` is off nothing is written to `tool_traces`; while `Record an event-replay log` is off nothing is written to the event-replay log, the file the page names. Each log they write is a diagnostic log under the bound and the erase above.
+- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-40)](015-workflow-authoring-and-execution.md#engine-event-record-sa-40) writes, and the service log (`logs/service-<start time>.log`, [Spec-006 §Required Behavior](006-local-ipc-and-daemon-control.md#required-behavior)), per [Spec-020 §PII Data Map](020-data-retention-export-and-deletion.md#pii-data-map) bounded-retention tier) are log files in the daemon's data folder, never database tables, and MUST apply a 7-day TTL by default. `Keep diagnostic logs for` sets the TTL and takes any period.
+- **Bound and erase.** Every diagnostic log file MUST be deleted whole once it is past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](020-data-retention-export-and-deletion.md#erasure-paths) Path 3), and `Erase all data` deletes it with the data folder. A diagnostic pipeline that keeps PII-carrying records outside both is a spec violation. There is no per-person flush.
+- **The two diagnostic switches record only while on.** `Record traces` and `Record raw provider messages`, on Settings › Runtime, are both off by default. While `Record traces` is off nothing is written to `tool_traces`; while `Record raw provider messages` is off nothing is written to `driver_raw_events`, the folder the page names. While it is on, `driver_raw_events` holds every message Claude Code or Codex sends the daemon, word for word, so a turn the daemon translated wrongly can be debugged. Each log they write is a diagnostic log under the bound and the erase above.
 
 ### Cross-Reference To Spec-020
 
-- [Spec-020 §PII Data Map — bounded-retention tier](020-data-retention-and-gdpr.md#pii-data-map) — owns the durability-and-retention side of the diagnostic buckets
-- [Spec-020 §Erasure Paths — Path 3](020-data-retention-and-gdpr.md#erasure-paths) — owns the age bound and the erase for the bounded-retention diagnostic tier
+- [Spec-020 §PII Data Map — bounded-retention tier](020-data-retention-export-and-deletion.md#pii-data-map) — owns the durability-and-retention side of the diagnostic buckets
+- [Spec-020 §Erasure Paths — Path 3](020-data-retention-export-and-deletion.md#erasure-paths) — owns the age bound and the erase for the bounded-retention diagnostic tier
 
 ## Example Flows
 
-- `Example: The Codex service for one account dies. The daemon restarts it at once and resumes its conversations, each transcript carrying one faint row that says so. It dies twice more within five minutes, so the daemon leaves it down: each of its sessions shows that Codex ended, with Restart, and nothing restarts it until the person presses Restart.`
-- `Example: Replay rebuild fails on startup. The daemon enters degraded read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
+- `Example: The Codex service for one account dies. The daemon restarts it at once and resumes its conversations, writing the restart to its own log and nothing to any transcript. It dies twice more within five minutes, so the daemon leaves it down: each of its sessions shows that Codex ended, with Restart, and nothing restarts it until the person presses Restart.`
+- `Example: Projection rebuild fails on startup. The daemon enters degraded read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
 
 ## Implementation Notes
 
@@ -118,7 +118,7 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 ## Pitfalls To Avoid
 
 - Treating all failures as generic provider errors
-- Accepting new mutable work during uncertain replay state
+- Accepting new mutable work during uncertain rebuild state
 - Hiding recovery failures behind silent retries only
 
 ## Acceptance Criteria
@@ -135,6 +135,6 @@ None.
 
 ## References
 
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 - [Data Architecture](../architecture/data-architecture.md)

@@ -8,7 +8,7 @@
 // inferred types on exports, and the schemas do not transform.
 import { z } from "zod";
 
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -16,7 +16,7 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString } from "./free-form-string.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
 
 /** The longest device category, such as "desktop" or "mobile", in characters. */

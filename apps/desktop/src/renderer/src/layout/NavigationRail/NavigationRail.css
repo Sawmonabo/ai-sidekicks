@@ -1,0 +1,66 @@
+/* The rail is a drag region of the window and its buttons are cut out of it. On macOS its top
+ * holds the traffic lights: the platform reports their area as `env(titlebar-area-height)`, an
+ * inset that is undefined in fullscreen and on every other platform, where the padding stays. */
+.meridian-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-block: env(titlebar-area-height, var(--meridian-space-3)) var(--meridian-space-3);
+  border-right: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  app-region: drag;
+}
+
+.meridian-rail__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-rail__item {
+  display: flex;
+}
+
+.meridian-rail__button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--meridian-rail-button-size);
+  height: var(--meridian-rail-button-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--meridian-radius-md);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: default;
+  app-region: no-drag;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-rail__button:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-rail__button--current {
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface-raised);
+}
+
+/* The current marker is a bar, not a fill: at this size a filled square reads as a pressed button.
+ * It sits on the rail's leading edge, one margin before the button, centered on it at the
+ * `space-5` height. */
+.meridian-rail__button--current::before {
+  content: "";
+  position: absolute;
+  inset-block: calc((100% - var(--meridian-space-5)) / 2);
+  inset-inline-start: calc(-1 * var(--meridian-space-2));
+  width: var(--meridian-leading-edge);
+  border-radius: calc(var(--meridian-leading-edge) / 2);
+  background: var(--meridian-accent);
+}

@@ -11,13 +11,12 @@ import {
   UNSENT_ANSWER_DELIVERY,
   type AnswerDelivery,
   type QuestionReading,
-} from "@renderer/store/session-events/question-reading.js";
+} from "#renderer/store/session/events/question-reading.js";
 import { QuestionCard } from "./QuestionCard.js";
 
 const OPEN_QUESTION: QuestionReading = {
   questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
   runId: undefined,
-  pageCount: 2,
 };
 
 const BRANCH_QUESTION: QuestionPrompt = {
@@ -117,7 +116,7 @@ function MountedWithDelivery(props: { readonly settled: AnswerDelivery }): React
 }
 
 describe("the answers it sends", () => {
-  it("sends one answer per question, in the record's order, only once every question has one", () => {
+  it("sends one answer per question, in record order, once every question has one", () => {
     const sent: QuestionAnswer[][] = [];
     const container = renderCard((answers) => sent.push(answers));
 

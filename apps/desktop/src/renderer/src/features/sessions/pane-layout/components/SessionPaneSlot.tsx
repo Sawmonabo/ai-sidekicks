@@ -3,23 +3,18 @@
 // file answers what is drawn for a single pane, including when nothing is registered for its
 // kind. Both symbols are reached only from `SessionPaneLayout.tsx`.
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
-import {
-  PaneControlsContext,
-  type PaneControls,
-} from "@renderer/components/PaneFrame/pane-controls.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type ReorderDrag } from "#renderer/lib/reorder-drag.js";
+import { PaneControlsContext, type PaneControls } from "#renderer/components/PaneFrame/controls.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { PaneBody } from "./PaneBody.js";
-import { PERMILLE_PER_PERCENT, type SessionPane } from "../pane-layout.js";
-import { type PaneLayoutDensity } from "../pane-layout-measures.js";
-import { minimumPaneWidthPx } from "../pane-layout-density.js";
-import { usePaneDragSource } from "../hooks/usePaneDragSource.js";
-import { usePaneDropTarget } from "../hooks/usePaneDropTarget.js";
-import { type PaneLayoutDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
+import { PERMILLE_PER_PERCENT, type SessionPane } from "../state.js";
+import { type PaneLayoutDensity } from "../measures.js";
+import { minimumPaneWidthPx } from "../density.js";
 
 /** What a pane slot is handed: the pane, its registry, its context resolver and its handlers. */
 export interface SessionPaneSlotProps {
@@ -34,9 +29,8 @@ export interface SessionPaneSlotProps {
    * partition that never held the row.
    */
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
-  readonly dragCoordinator: PaneLayoutDragCoordinator;
-  /** The edge a drop would land on, when a drag is currently over this pane. */
-  readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
+  /** The pane row's reorder: the panel is the item that moves, the pane's header its grip. */
+  readonly paneDrag: ReorderDrag<string>;
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
 }
@@ -48,13 +42,9 @@ export interface SessionPaneSlotProps {
  */
 export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(
   function SessionPaneSlotBody(props: SessionPaneSlotProps): React.JSX.Element {
-    const { dragCoordinator, pane, onClose, onFocus } = props;
+    const { paneDrag, pane, onClose, onFocus } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
-
-    // The panel's own root element, which the library sizes and a drop is aimed at.
-    const [panelElement, setPanelElement] = useState<HTMLDivElement | null>(null);
-    const registerDragHandle = usePaneDragSource(dragCoordinator, pane.paneId);
-    usePaneDropTarget(dragCoordinator, pane.paneId, panelElement);
+    const registerDragHandle = paneDrag.handleRef(pane.paneId);
 
     const controls = useMemo<PaneControls>(
       () => ({
@@ -75,20 +65,11 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
       throw new Error(`no body is registered for the ${pane.kind} pane kind`);
     }
 
-    const paneClassName = [
-      "meridian-pane-layout__pane",
-      props.dropIndicator === undefined
-        ? undefined
-        : `meridian-pane-layout__pane--drop-${props.dropIndicator}`,
-    ]
-      .filter((token): token is string => token !== undefined)
-      .join(" ");
-
     return (
       <Panel
         id={pane.paneId}
-        className={paneClassName}
-        elementRef={setPanelElement}
+        className="meridian-pane-layout__pane"
+        elementRef={paneDrag.itemRef(pane.paneId)}
         minSize={minimumPaneWidthPx(props.density)}
         defaultSize={`${String(pane.sizePermille / PERMILLE_PER_PERCENT)}%`}
         onFocusCapture={onFocusCapture}

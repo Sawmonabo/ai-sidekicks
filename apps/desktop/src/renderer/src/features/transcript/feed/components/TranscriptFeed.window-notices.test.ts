@@ -3,8 +3,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OVER_CAP_EVENT_COUNT, renderFeed } from "./TranscriptFeed.test-support.js";
-import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
-import { openSessionStoreWithGeneralLog } from "../../transcript-logs.test-support.js";
+import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
+import { openSessionStoreWithGeneralLog } from "../../logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

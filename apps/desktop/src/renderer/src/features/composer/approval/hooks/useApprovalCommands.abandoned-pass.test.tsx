@@ -9,11 +9,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
-import { PENDING_APPROVAL_ID, pendingRecord } from "../approval-record.test-support.js";
-import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { SuspendsWhenAsked, abandonOneRenderPass } from "#test/helpers/abandoned-pass.js";
+import { PENDING_APPROVAL_ID, pendingRecord } from "../record.test-support.js";
+import { type ApprovalCommandInput } from "../contributions/commands.js";
 import { useApprovalCommands } from "./useApprovalCommands.js";
 
 const APPROVE_COMMAND_ID = `approvals.approve.${PENDING_APPROVAL_ID}`;
@@ -54,7 +54,7 @@ function ApprovalCommandsHarness(props: {
 }
 
 describe("the approvals palette rows answer through the committed render", () => {
-  it("resolves through the on-screen render's dispatcher after a discarded re-address", async () => {
+  it("resolves through the on-screen dispatcher after a discarded re-address", async () => {
     const committedResolve = vi.fn();
     const abandonedResolve = vi.fn();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
@@ -82,7 +82,7 @@ describe("the approvals palette rows answer through the committed render", () =>
     });
   });
 
-  it("negative control: a committed re-address DOES move the row onto the new dispatcher", async () => {
+  it("negative control: a committed re-address moves the row to the new dispatcher", async () => {
     // Without this the case above would pass over a hook that ignored its input.
     const committedResolve = vi.fn();
     const laterResolve = vi.fn();

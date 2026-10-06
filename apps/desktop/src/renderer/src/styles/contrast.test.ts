@@ -6,7 +6,7 @@
 // other control boundaries and marks, and every agent hue against the grounds they sit on.
 
 import { describe, expect, it } from "vitest";
-import { contrastRatio } from "./color.js";
+import { contrastRatio } from "#shared/color.js";
 import {
   ACCENT_FILL_PAIRS,
   COLOR_SCHEMES,

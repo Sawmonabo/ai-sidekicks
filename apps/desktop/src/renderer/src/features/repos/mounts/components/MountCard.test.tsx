@@ -1,16 +1,16 @@
 // The mount card: the resolved root in its head, an unreachable mount withholding its bind
-// controls, a drifted one offering the re-attach, and a healthy one offering the bind.
+// controls, and a drifted one offering the re-attach.
 
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { scriptedRepoOperations } from "../../operations.test-support.js";
 import { MountCard } from "./MountCard.js";
-import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import type { RepoWorkspaceRow } from "../reading.js";
 import {
   CANONICAL_ROOT,
   ENTERED_PATH,
@@ -36,14 +36,10 @@ function renderCard(
       <MountCard
         mount={buildMount()}
         workspaces={[WORKSPACE]}
-        capabilitiesByWorkspaceId={{}}
-        pendingModeByWorkspaceId={{}}
-        refusedModeByWorkspaceId={{}}
         bridge={bridge}
         operations={scriptedRepoOperations()}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}
-        onSelectExecutionMode={() => undefined}
         onRequestRead={() => undefined}
         onOpenDiff={() => undefined}
         {...overrides}
@@ -65,14 +61,13 @@ describe("MountCard — the resolved root", () => {
 
 describe("MountCard — an unreachable mount", () => {
   it("puts an unreachable mount in an error posture and withholds its bind controls", () => {
-    const { container, queryByText } = renderCard({
+    const { container } = renderCard({
       mount: buildMount({
         health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
       }),
     });
     expect(container.querySelector(".meridian-mount-card--withheld")).not.toBeNull();
     expect(withheldLine(container)).toMatch(/could not be probed/u);
-    expect(queryByText("Bind a workspace")).toBeNull();
   });
 });
 
@@ -93,13 +88,5 @@ describe("MountCard — the drifted mount and its one control", () => {
       mount: buildMount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
     });
     expect(queryByText("Re-attach this path")).toBeNull();
-  });
-});
-
-describe("MountCard — the bind entry point", () => {
-  it("offers a bind on an attached, healthy mount", () => {
-    // Attach mints no workspace, so this trigger is where every workspace comes from.
-    const { getByText } = renderCard();
-    expect(getByText("Bind a workspace")).toBeDefined();
   });
 });

@@ -1,47 +1,32 @@
-// The Runtime page's status read: a read that must not be answered by a stale reply.
+// The Runtime page's status reading, held for the page and asked again when it can have moved.
 //
-// The supervisor state is not read here. It arrives on the page's own context, from the
-// one subscription the frame keeps live, so the page never gives a second answer to "is
-// the runtime up". What is read here is the one fact that subscription does not carry:
-// the daemon's own reported status line and version.
+// The supervisor state is not read here. It arrives on the page's own context, from the one
+// subscription the frame keeps live, so the page never gives a second answer to "is the runtime
+// up". What is read here is what that subscription does not carry: the service's own reported
+// line, its version, and what it is using of the machine.
 //
-// That reading goes stale, and what stales it is declared here as a thing that happened
-// rather than a clock: a control this page dispatched, or a supervisor transition. The
-// read is re-put by re-addressing it, which the subject holder already does: the answer
-// re-seeds to `reading` and a reply to the old subject is dropped. Nothing polls.
+// What stales that reading is declared here as a thing that happened, never a clock: a
+// supervisor transition, a control this page dispatched settling, or the person pressing
+// `Check again`. Each goes to the reading's own `requestRead`. Nothing polls.
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
-import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon-status";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { DaemonConnection } from "@shared/daemon-status-topic.js";
-
-/**
- * The daemon verbs this page drives.
- */
-export interface DaemonOperations {
-  readonly readStatus: () => Promise<DaemonStatusReadResponse>;
-  readonly stop: () => Promise<unknown>;
-  readonly restart: () => Promise<unknown>;
-}
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import type { DaemonConnection } from "#shared/daemon/status-topic.js";
+import {
+  DaemonStatusRead,
+  type DaemonOperations,
+  type DaemonStatusReading,
+} from "../daemon-status-read.js";
 
 /**
- * The read's three phases. `reading` is the seed; `read` and `failed` are its settlements, the
- * second carrying the refusal the read was answered with.
- */
-export type DaemonStatusReading =
-  | { readonly phase: "reading" }
-  | { readonly phase: "read"; readonly status: DaemonStatusReadResponse }
-  | { readonly phase: "failed"; readonly refusal: Refusal };
-
-/**
- * What makes the daemon's own answer stale.
+ * What makes the service's own answer stale, besides a person asking again.
  *
- * Two members, each a thing that happened. A control this page dispatched is the one
- * change the page caused; a supervisor transition is every change it did not.
+ * Two members, each a thing that happened. A control this page dispatched is the one change the
+ * page caused; a supervisor transition is every change it did not.
  */
 export interface DaemonStatusFreshness {
   /** What the supervisor is reporting about the runtime right now. */
@@ -50,50 +35,71 @@ export interface DaemonStatusFreshness {
   readonly settledControlCount: number;
 }
 
+/** The status reading on screen, and the `Check again` that asks it once more. */
+export interface DaemonStatusView {
+  readonly reading: DaemonStatusReading;
+  readonly checkAgain: () => void;
+}
+
+/** The key the page's one status reading is held under. */
 const DAEMON_STATUS_KEY = "daemon-status";
 
-/** The subsystem a failed status read names as its author. */
-const DAEMON_STATUS_ORIGIN = "daemon-status";
-
-const READING_DAEMON_STATUS: DaemonStatusReading = { phase: "reading" };
-
 /**
- * Read the daemon's own status line, and read it again when it can have changed.
+ * Read the service's own status when the page opens, and again when `freshness` moves or the
+ * person presses `Check again`.
  *
- * The freshness rides the subject key: the holder re-seeds during the render that first
- * sees a new subject and the read is put again, so no flag beside the state can disagree
- * with which answer is current.
+ * The connection's kind and never the whole connection: `transient_disconnect` carries an
+ * attempt number and the healthy path a heartbeat timestamp, and asking on either would put a
+ * read on the wire per attempt and per beat.
  */
 export function useDaemonStatus(
-  bridge: PlatformBridge,
   freshness: DaemonStatusFreshness,
   operations: DaemonOperations,
-): DaemonStatusReading {
-  const { value, publish } = useSubjectScopedState<DaemonStatusReading>(
-    bridge,
-    daemonStatusSubject(freshness),
-    () => READING_DAEMON_STATUS,
+): DaemonStatusView {
+  const clock = useClock();
+  const { value: statusRead } = useSubjectScopedResource(
+    operations,
+    DAEMON_STATUS_KEY,
+    () => new DaemonStatusRead(operations.readStatus, clock),
+    CONTROLLER_DISPOSAL,
   );
+  const subscribe = useCallback(
+    (onChange: () => void) => statusRead.subscribe(onChange),
+    [statusRead],
+  );
+  const readSnapshot = useCallback(() => statusRead.reading, [statusRead]);
+  const reading = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
+
+  const connectionKind = freshness.connection.kind;
+  const { settledControlCount } = freshness;
+  // What the last ask answered, so each ask names the thing that happened.
+  const askedFor = useRef<AskedFor | undefined>(undefined);
   useEffect(() => {
-    void operations.readStatus().then(
-      (status) => {
-        publish({ phase: "read", status });
-      },
-      (error: unknown) => {
-        publish({ phase: "failed", refusal: coerceToRefusal(error, DAEMON_STATUS_ORIGIN) });
-      },
-    );
-  }, [operations, publish]);
-  return value;
+    const previous = askedFor.current;
+    askedFor.current = { statusRead, connectionKind, settledControlCount };
+    statusRead.requestRead(reasonFor(previous, askedFor.current));
+  }, [statusRead, connectionKind, settledControlCount]);
+
+  const checkAgain = useCallback(() => {
+    statusRead.requestRead("user-request");
+  }, [statusRead]);
+  return { reading, checkAgain };
+}
+
+/** What one ask was made against. */
+interface AskedFor {
+  readonly statusRead: DaemonStatusRead;
+  readonly connectionKind: DaemonConnection["kind"];
+  readonly settledControlCount: number;
 }
 
 /**
- * The subject one status answer belongs to.
- *
- * The connection's kind and never the whole connection: `reconnecting` carries an
- * attempt number and the healthy path a heartbeat timestamp, and keying on either would
- * put a read on the wire per attempt and per beat.
+ * Why the reading is asked again: it opened, the supervisor moved, or a control the person
+ * confirmed settled, which is their own act asking what the service now says.
  */
-function daemonStatusSubject(freshness: DaemonStatusFreshness): string {
-  return `${DAEMON_STATUS_KEY}:${freshness.connection.kind}:${freshness.settledControlCount}`;
+function reasonFor(previous: AskedFor | undefined, current: AskedFor): RefreshReason {
+  if (previous === undefined || previous.statusRead !== current.statusRead) {
+    return "subscribe";
+  }
+  return previous.connectionKind === current.connectionKind ? "user-request" : "reconnect";
 }

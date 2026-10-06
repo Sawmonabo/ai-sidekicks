@@ -4,11 +4,12 @@
 import { useCallback, useMemo } from "react";
 
 import { AgentBindingCard } from "./AgentBindingCard.js";
-import { ToolAllowlistCeiling } from "./ToolAllowlistCeiling.js";
-import { type AgentsPaneModels } from "../agents-pane-models.js";
-import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
+import { ToolAllowlistCeiling } from "../tool-allowlist/components/ToolAllowlistCeiling.js";
+import { type AgentsPaneModels } from "../models.js";
+import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
 
 /** What the binding column reads from: the session's models and the agent it is about. */
 export interface AgentBindingColumnProps {
@@ -43,11 +44,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       {agentListState.kind === "failed" ? (
         <RefusalCard
           {...agentListState.refusal}
-          action={
-            <button type="button" onClick={reopenAgentList}>
-              Try again
-            </button>
-          }
+          action={<TryAgainButton onPress={reopenAgentList} />}
         />
       ) : null}
 

@@ -3,12 +3,13 @@
 // `evaluateBudget`, so the gate and the budget row share one number in one file.
 //
 // The instant a window is shown is a main-process act, and in an automated launch on macOS it
-// is never performed: `src/main/windows/window-reveal.ts` leaves the window hidden with
+// is never performed: `src/main/windows/reveal.ts` leaves the window hidden with
 // background throttling off, because a revealed one steals the person's focus and Space. So
 // there is no `show` timestamp, and a wall clock read in either process would compare two clocks
-// across a process boundary. The renderer records the instant itself: `revealWindow` runs from
-// `ready-to-show`, emitted once the page has rendered, so the renderer's own
-// `first-contentful-paint` entry is the instant the window became showable. It sits on
+// across a process boundary. The renderer records the instant itself: main reveals the window as
+// it adopts the window's document, before that document draws, so until the page's first
+// contentful paint the window shows only its painted ground, and the renderer's own
+// `first-contentful-paint` entry is the first instant it shows anything. That entry sits on
 // `performance`'s monotonic transcript, where the end of the interval is also read, so the whole
 // measurement is one clock in one process.
 //
@@ -24,19 +25,19 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
+import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
   CONCURRENT_STREAMING_SESSION_ROUTE,
   TRANSCRIPT_ROW_SELECTOR,
   SESSION_SCREEN_SELECTOR,
   concurrentStreamingDeliverySchedule,
-} from "./endurance-workload.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
+} from "./workload.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -161,8 +162,9 @@ async function measureFirstTranscriptRow(
       if (windowShownAtMs === null) {
         return { unmeasured: "no-paint-entry" };
       }
+      // The scenario's handle is the console document's, which opened this window.
       const scenarioControl = (
-        globalThis as unknown as Record<
+        (window.opener ?? globalThis) as unknown as Record<
           string,
           { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
         >
@@ -264,19 +266,23 @@ function elapsedFromWindowShow(reading: FirstTranscriptRowReading): number {
  */
 const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
   "no-paint-entry":
-    `the launched app recorded no first-contentful-paint entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
+    `the launched app recorded no first-contentful-paint ` +
+    `entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
     "so the interval has no start instant: nothing was timed, and reporting a figure would be " +
     "reporting the harness",
   "no-scenario-handle":
-    "the launched app exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
+    "the launched app exposed no scenario handle, so the " +
+    "concurrent-streaming script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
   "pane-never-painted":
     `the app never painted the session screen's pane inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
     "The instrument was ready and the app did not mount — this is an app failure, not a " +
     "harness that was not there yet, and re-running it will not change the answer",
   "row-never-painted":
-    `the app painted the session screen's pane but no transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
-    "An app that mounts no transcript row at all is the regression this budget row exists to catch — " +
+    `the app painted the session screen's pane but no ` +
+    `transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
+    "An app that mounts no transcript row at all is the " +
+    "regression this budget row exists to catch — " +
     "this is an app failure, not a harness that was not there yet",
 };
 
@@ -337,7 +343,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after la
       expect(elapsedFromWindowShow(reading)).toBeGreaterThan(PLANTED_PAINT_STALL_MS);
       expect(
         evaluateBudget(budget, elapsedFromWindowShow(reading)).withinBudget,
-        "an app that took longer than the ceiling to paint its first row passed the budget, so this gate " +
+        "an app that took longer than the ceiling to paint " +
+          "its first row passed the budget, so this gate " +
           "would report green over the one failure it exists to catch",
       ).toBe(false);
     });

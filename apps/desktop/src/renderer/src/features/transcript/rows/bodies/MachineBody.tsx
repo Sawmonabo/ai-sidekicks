@@ -3,12 +3,14 @@
 // its position with the unavailable marker, because an empty body or a dropped row would misreport
 // the turn. `MessageContent` and `ToolOutput` differ only in how a body's shape is read.
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
+import "./MachineBody.css";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
 import { withoutResidualEscapes } from "../ansi/escape-sequences.js";
-import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
+import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { type OutputKind } from "./output-kinds.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
@@ -76,8 +78,8 @@ function renderBodyText(
   }
   const strippedText = withoutResidualEscapes(body);
   if (kind === "plain-text") {
-    // Verbatim: no parse, no footnotes.
-    return <p className="meridian-machine-body__plain">{strippedText}</p>;
+    // Verbatim: no parse, no footnotes. Preformatted, so text copied out of it keeps its lines.
+    return <pre className="meridian-machine-body__plain">{strippedText}</pre>;
   }
   return (
     <StreamingMarkdown
@@ -85,6 +87,8 @@ function renderBodyText(
       sourceId={props.sourceId}
       footnotes={props.footnotes}
       isComplete={isComplete}
+      // Only an agent's reply is drawn as prose here; a tool's output never is.
+      offersCodeCopy
     />
   );
 }

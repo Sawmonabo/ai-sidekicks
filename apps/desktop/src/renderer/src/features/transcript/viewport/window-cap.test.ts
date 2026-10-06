@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "./viewport-constants.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
 import { TranscriptWindow, type PruneConditions } from "./window-cap.js";
 import {
   CHILDREN_PER_RUN_GROUP,

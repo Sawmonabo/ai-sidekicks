@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
-import type { MainProcessState } from "@shared/daemon-status-topic.js";
-import type { SchemePreference } from "@renderer/styles/tokens.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
+import type { SchemePreference } from "#renderer/styles/tokens.js";
 
 /**
  * Everything a settings page is handed.
@@ -56,7 +56,7 @@ export interface SettingsPageContext {
    * render the same value.
    */
   readonly mainProcessState: MainProcessState;
-  /** This window's act for choosing a color scheme, the one the palette row cycles. */
+  /** This window's act for choosing a color scheme, which asks main to keep it. */
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 

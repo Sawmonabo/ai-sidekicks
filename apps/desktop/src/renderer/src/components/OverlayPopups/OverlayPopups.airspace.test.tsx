@@ -1,5 +1,5 @@
 // A modal's backdrop is airspace, and this proves each wrapper registers it. The visibility
-// predicate in `features/preview/geometry/pane-geometry.ts` hides a native view only where a
+// predicate in `features/preview/geometry/pane.ts` hides a native view only where a
 // registered overlay rectangle overlaps the pane, so an unregistered full-viewport backdrop
 // would leave a web page painted over a modal.
 //
@@ -11,8 +11,8 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog } from "@base-ui/react/dialog";
 import { describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
-import { type AirspaceRect } from "@renderer/lib/airspace-registry.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
+import { type AirspaceRect } from "#renderer/lib/airspace.js";
 import { OverlayAlertDialogPopup } from "./OverlayAlertDialogPopup.js";
 import { OverlayDialogPopup } from "./OverlayDialogPopup.js";
 

@@ -1,61 +1,51 @@
 // One repo mount, with lifecycle and health as separate chips. `canonicalRoot` is shown
 // verbatim (the stylesheet truncates it; the title and copy control recover it) and never
 // resolved or compared here, because containment and symlink rules belong to the daemon.
-// The bind entry shows only where the mount's availability admits it; re-attach only on
-// `identity_mismatch`, the permanent verdict, since `unreachable` is transient.
+// Re-attach shows only on `identity_mismatch`, the permanent verdict, since `unreachable` is
+// transient.
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
-import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "@renderer/lib/wire-figures.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import "./MountCard.css";
+
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 import {
   readBindControlAvailability,
   mountHealthReading,
   mountLifecycleReading,
-} from "../mount-health.js";
+} from "../health.js";
 import { ReattachControl } from "../attach/ReattachControl.js";
-import { BindWorkspaceDialog } from "../bind/BindWorkspaceDialog.js";
-import type { RepoOperations } from "../../repo-operations.js";
-import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { RepoOperations } from "../../operations.js";
+import type { RepoWorkspaceRow } from "../reading.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
 /** A mount's read, its workspaces, and the handlers every control on the card passes through. */
 export interface MountCardProps {
   readonly mount: RepoMountReadResponse;
   /** This mount's workspaces, in the order the list read returned them. */
   readonly workspaces: readonly RepoWorkspaceRow[];
-  readonly capabilitiesByWorkspaceId: Readonly<
-    Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
-  >;
-  /** Per workspace: the mode a switch is on the wire for, where one is. */
-  readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
-  /** Per workspace: why its newest switch was refused, where it was. */
-  readonly refusedModeByWorkspaceId: Readonly<Record<string, Refusal>>;
   /** The bridge each control takes its clock from. */
   readonly bridge: PlatformBridge;
   /** The calls each control on this card makes. */
   readonly operations: RepoOperations;
-  /** The session each control takes its reconnect and stale-frame triggers from. */
+  /** The session a re-attach is sent for. */
   readonly sessionStore: SessionStore;
   /** Put the resolved root on the clipboard. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
   /** Read the section again, because a user's act minted a mount it has not seen. */
   readonly onRequestRead: () => void;
-  readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /** Open a change set over one of this card's rows; takes the subject, not a workspace. */
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 
-/** One mount: root, lifecycle and health chips, bind entry, provenance, and its workspaces. */
+/** One mount: root, lifecycle and health chips, provenance, and its workspaces. */
 export function MountCard(props: MountCardProps): React.JSX.Element {
   const { mount } = props;
   // The lifecycle sentence reaches the screen through the withheld line.
@@ -106,16 +96,6 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           {availability.unavailableBecause}
         </p>
       )}
-      {availability.available ? (
-        <BindWorkspaceDialog
-          bridge={props.bridge}
-          repoMountId={mount.id}
-          canonicalRoot={mount.canonicalRoot}
-          sessionStore={props.sessionStore}
-          operations={props.operations}
-          onBound={props.onRequestRead}
-        />
-      ) : null}
       {mount.health.status === "identity_mismatch" ? (
         <ReattachControl
           bridge={props.bridge}
@@ -126,7 +106,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         />
       ) : null}
 
-      <details className="meridian-mount-card__provenance">
+      <details>
         <summary className="meridian-mount-card__provenance-summary">Provenance</summary>
         <dl className="meridian-mount-card__provenance-list">
           <dt>Entered path</dt>
@@ -148,17 +128,10 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
             <div className="meridian-mount-card__workspace" key={workspace.id}>
               <WorkspaceCard
                 workspace={workspace}
-                capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
-                pendingMode={props.pendingModeByWorkspaceId[workspace.id]}
-                modeRefusal={props.refusedModeByWorkspaceId[workspace.id]}
                 bridge={props.bridge}
-                sessionStore={props.sessionStore}
                 operations={props.operations}
                 onRequestRead={props.onRequestRead}
                 bindControls={availability}
-                onSelectExecutionMode={(executionMode) => {
-                  props.onSelectExecutionMode(workspace.id, executionMode);
-                }}
               />
               {/* Beside the card, not inside it: opening a pane is the pane layout's act. */}
               <OpenDiffControl

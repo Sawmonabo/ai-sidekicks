@@ -4,14 +4,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
 import { mergeSessionRows } from "./session-directory-rows.js";
-import type { SessionListRow } from "./session-rows.js";
+import type { SessionListRow } from "./list-row.js";
 
 function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
   return {
     status: "served",
-    sessions: sessionIds.map((sessionId) => ({ sessionId, state: "active" })),
+    sessions: sessionIds.map((sessionId) => sessionListEntry({ sessionId })),
   };
 }
 

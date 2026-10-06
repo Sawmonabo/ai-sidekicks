@@ -3,8 +3,8 @@
 // `TranscriptEventRow` is a discriminated union whose `run` arm requires three members that are
 // all-or-none; a literal could write a row the projector never emits.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /** The session every sample row belongs to. Opaque on the wire; branded in the contract. */
@@ -38,6 +38,7 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEven
     id: overrides.id ?? "event-01",
     sessionId: SAMPLE_SESSION_ID,
     sequence: 1,
+    cursor: "cursor-at-1" as EventCursor,
     category: "run_lifecycle",
     type: overrides.type ?? "assistant.message",
     summary: overrides.summary ?? "The agent replied.",
@@ -57,6 +58,7 @@ export function sampleGeneralRow(overrides: SampleRowOverrides = {}): Transcript
     id: overrides.id ?? "event-02",
     sessionId: SAMPLE_SESSION_ID,
     sequence: 2,
+    cursor: "cursor-at-2" as EventCursor,
     category: "session_lifecycle",
     type: overrides.type ?? "session.created",
     summary: overrides.summary ?? "The session was created.",

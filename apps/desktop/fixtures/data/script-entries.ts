@@ -16,7 +16,7 @@
 // so an extra member is rejected on the wire; the other run transitions and `subagent.*` have
 // none.
 
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 
 import type { ScenarioBeat } from "../scenario.js";
 
@@ -88,17 +88,21 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
     if (entry.atMs < previousAtMs) {
       throw new RangeError(
         `script entry ${String(entryIndex)} ("${entry.kind}") is due at ${String(entry.atMs)}ms, ` +
-          `behind its predecessor at ${String(previousAtMs)}ms. The scenario engine delivers beats in ` +
-          "script order, so an entry that goes backwards is delivered late or not at all.",
+          `behind its predecessor at ${String(previousAtMs)}ms. ` +
+          "The scenario engine delivers beats in script order, " +
+          "so an entry that goes backwards is delivered late or not at all.",
       );
     }
     previousAtMs = entry.atMs;
+    const eventId = `${options.eventIdStem}${String(entryIndex + 1).padStart(4, "0")}`;
     return {
       atMs: entry.atMs,
       event: {
-        id: `${options.eventIdStem}${String(entryIndex + 1).padStart(4, "0")}`,
+        id: eventId,
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
+        // The position the scenario's stream delivers the beat at; its frames relay it verbatim.
+        cursor: eventId,
         kind: entry.kind,
         occurredAt: composeScenarioInstant(options.startedAtMs, entry.atMs),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
@@ -106,6 +110,33 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
       },
     };
   });
+}
+
+/**
+ * The cursor the beat at one log position is delivered with, for a reply that hands a position
+ * out. Throws when the script has no beat there, since the stream refuses a cursor its log lacks.
+ */
+export function findBeatCursor(beats: readonly ScenarioBeat[], sequence: number): string {
+  const beat = beats.find((candidate) => candidate.event.sequence === sequence);
+  if (beat === undefined) {
+    throw new RangeError(
+      `no beat sits at log position ${String(sequence)} (the script has ` +
+        `${String(beats.length)}), so a cursor for it would name no row the stream delivers.`,
+    );
+  }
+  return beat.event.cursor;
+}
+
+/**
+ * When the newest beat happened, for a reply that says when the session last changed. Throws on a
+ * script with no beat, which has no such instant.
+ */
+export function newestBeatInstant(beats: readonly ScenarioBeat[]): string {
+  const newest = beats.at(-1);
+  if (newest === undefined) {
+    throw new RangeError("the script has no beat, so nothing in it last changed the session.");
+  }
+  return newest.event.occurredAt;
 }
 
 /** The one transition a run's linkage and resolved agent ride. */
@@ -185,9 +216,10 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
   const creation = creationRowMembers(input);
   if (Object.keys(creation).length > 0 && input.newState !== RUN_BIRTH_STATE) {
     throw new RangeError(
-      `a run's linkage and resolved agent ride its birth beat, and this entry moves ${input.runId} ` +
-        `into "${input.newState}". The taxonomy puts them on \`run.${RUN_BIRTH_STATE}\` ` +
-        "alone, so a second beat carrying them would be a second record of one fact.",
+      `a run's linkage and resolved agent ride its birth beat, ` +
+        `and this entry moves ${input.runId} into "${input.newState}". ` +
+        `They ride \`run.${RUN_BIRTH_STATE}\` alone, ` +
+        "so a second beat carrying them would be a second record of one fact.",
     );
   }
   return {

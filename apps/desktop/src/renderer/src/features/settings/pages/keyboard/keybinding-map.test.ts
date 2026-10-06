@@ -1,14 +1,12 @@
 // The map joins commands to bindings, and the recorder reads one keystroke as one act. Verdicts
 // about a binding set are the keybinding service's own, in
-// `registries/keybindings/keybinding-audit.ts`.
+// `registries/keybindings/audit.ts`.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  type CommandDefinition,
-  type Keybinding,
-} from "@renderer/registries/commands/command-types.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
+import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,

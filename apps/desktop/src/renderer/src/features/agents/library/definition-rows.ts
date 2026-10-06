@@ -3,10 +3,10 @@
 // mono and the app's own sentence (an inherit `null` rephrased) in the derived style.
 // Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
 
-import type { AgentDefinition } from "@ai-sidekicks/contracts/agent-definition";
-import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
-import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist.js";
+import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
+import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/position.js";
 
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
@@ -58,8 +58,10 @@ export type SettledAgentDefinitionReading = Exclude<
 >;
 
 /** The empty registry's own sentence, so the page and its announcement agree. */
-export const NO_SAVED_DEFINITIONS =
-  "No sidekicks yet — a sidekick is a set of instructions and a model binding you tune once and reuse in every session and workflow on this machine.";
+export const NO_SAVED_DEFINITIONS: string =
+  "No sidekicks yet — a sidekick is a set of instructions and a " +
+  "model binding you tune once and reuse in every session and " +
+  "workflow.";
 
 /** Read the registry's rows into what the page renders. */
 export function readDefinitions(

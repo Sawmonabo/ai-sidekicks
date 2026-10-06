@@ -2,16 +2,16 @@
 // feed dispatches a system message here before the row renderer, which draws row bodies; a system
 // message has only a glyph and the act's name from the binding table.
 
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
 } from "../../components/TranscriptRowLayout/TranscriptRowLayout.js";
-import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
-import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
-import { type SystemMessageReading } from "../system-message-classifier.js";
+import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
+import { SYSTEM_MESSAGE_BINDINGS } from "../kinds.js";
+import { type SystemMessageReading } from "../classifier.js";
 
-import "./system-messages.css";
+import "./SystemMessage.css";
 
 /** Props for `SystemMessage`. */
 export interface SystemMessageProps {

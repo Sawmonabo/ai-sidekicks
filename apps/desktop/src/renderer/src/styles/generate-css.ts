@@ -17,17 +17,27 @@
 // inside mismatched scrollbars. `light dark` stays on `:root` to mean "follow the system", and
 // each explicit arm pins its own scheme.
 
-import { formatOklch } from "./color.js";
+import { formatOklch } from "#shared/color.js";
 import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
 import {
   LEADING_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
   RADIUS_SCALE_REM,
+  RAIL_BUTTON_SIZE_REM,
+  RAIL_WIDTH_REM,
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
+  TRANSCRIPT_ROW_GAP_REM,
 } from "./palette.js";
-import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
+import {
+  BODY_LINE_HEIGHT,
+  FONT_STACKS,
+  LETTER_SPACING_EM,
+  READING_LINE_HEIGHT,
+  TYPE_SCALE_REM,
+  WIRE_FIGURE_SIZE_EM,
+} from "./typography.js";
 import type { ColorScheme } from "./tokens.js";
 import {
   HUE_WHEEL,
@@ -36,9 +46,6 @@ import {
   tokenReference,
   tokenVariableName,
 } from "./tokens.js";
-
-/** The DOM attribute an explicit scheme choice is stamped on. */
-export const SCHEME_ATTRIBUTE = "data-color-scheme";
 
 /** The complete text of the token stylesheet. Deterministic: same inputs, same bytes. */
 export function generateMeridianCss(): string {
@@ -56,8 +63,8 @@ export function generateMeridianCss(): string {
     " *",
     " * Sources of truth: `styles/palette.ts` for the color ramps and the",
     " * spacing and radius scales, `styles/motion.ts` for the motion scale and",
-    " * its easing, and `styles/typography.ts` for the type scale, the line",
-    " * height, and the font stacks.",
+    " * its easing, and `styles/typography.ts` for the type scale, the letter",
+    " * spacing, the line height, the wire figure's size, and the font stacks.",
     " *",
     " * The design language's color, type, and spacing rules live in those files'",
     " * comments; this file carries only their values.",
@@ -187,6 +194,11 @@ function invariantBlock(): string {
   for (const [tokenName, sizeRem] of Object.entries(TYPE_SCALE_REM)) {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
+  for (const [tokenName, spacingEm] of Object.entries(LETTER_SPACING_EM)) {
+    lines.push(declaration(tokenName, `${spacingEm}em`));
+  }
+  lines.push(declaration("figure-wire-size-default", `${WIRE_FIGURE_SIZE_EM}em`));
+  lines.push(declaration("reading-line-height", String(READING_LINE_HEIGHT)));
 
   lines.push("");
   lines.push("  /* Space and radius. */");
@@ -197,7 +209,10 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
+  lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
+  lines.push(declaration("transcript-row-gap", `${TRANSCRIPT_ROW_GAP_REM}rem`));
   // The reflow floor is emitted so a stylesheet reads the property instead of copying the
   // palette's number. It cannot be a media-query condition (custom properties do not reach one);
   // the app holds this width with one fluid layout, not a breakpoint.

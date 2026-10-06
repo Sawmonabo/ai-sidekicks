@@ -1,7 +1,7 @@
 // State that belongs to a subject, and can never be read about another one.
 //
 // The React half of the rule. What a held value may do (discard, which publisher may write,
-// late settlements) is in `subject-scoped-holder.ts`, which has no renderer. This file
+// late settlements) is in `lib/subject-scoped/holder.ts`, which has no renderer. This file
 // addresses the holder during the render, so the pass that first sees a new subject reads its
 // own seed, and subscribes React to what the holder publishes.
 //
@@ -10,7 +10,7 @@
 // that owns a subscription, registry or connection takes `useSubjectScopedResource.ts`,
 // because a discarded pass still ran the seed. Not single-flight
 // (`lib/reads/generation-latch.ts`), not a cache, not a scheduler
-// (`lib/reads/refresh-scheduler.ts`).
+// (`lib/reads/refresh/scheduler.ts`).
 
 import {
   useCallback,
@@ -25,7 +25,7 @@ import {
   SubjectScopedHolder,
   type SubjectKey,
   type SubjectScopedPublish,
-} from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
+} from "#renderer/lib/subject-scoped/holder.js";
 
 /** What a caller reads and the two ways it writes. */
 export interface SubjectScopedState<TValue> {

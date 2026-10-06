@@ -5,10 +5,10 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/persistence.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
   GatedPersistenceAdapter,
   SESSION_B_ID,
@@ -35,7 +35,7 @@ describe("SessionScreen — the saved arrangement", () => {
     detachForwarder = undefined;
   });
 
-  it("records what a restore refused in the window's diagnostics and draws none of it", async () => {
+  it("records what a restore refused in the diagnostics and draws none of it", async () => {
     windowDiagnosticCapture.flush();
     const batches: string[] = [];
     detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
@@ -74,7 +74,7 @@ describe("SessionScreen — navigating between two sessions the window already h
     }
   }
 
-  it("files a queued arrangement under the session that made it, not the one now on screen", async () => {
+  it("files a queued arrangement under the session that made it, not the one shown", async () => {
     // Navigating straight between sessions re-renders rather than remounts, so the writer must
     // take the partition with the request, not read it at write time, or the first session's
     // queued arrangement would land in the second's partition over its saved pane layout.

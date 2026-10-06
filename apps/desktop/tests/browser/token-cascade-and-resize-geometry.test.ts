@@ -5,10 +5,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyColorScheme, installMeridianTokens } from "@renderer/app/token-installation.js";
-import { tokenVariableName } from "@renderer/styles/tokens.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { ScrollController } from "@renderer/features/transcript/scroll/scroll-chokepoint.js";
+import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
+import { tokenVariableName, type SchemePreference } from "#renderer/styles/tokens.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
 /**
  * Wait for the platform to deliver a resize observation, then run the frame it armed. Bounded;
@@ -35,22 +36,27 @@ function tokenValue(tokenName: string): string {
     .trim();
 }
 
+/** Applies the default appearance on `scheme`, as main's record would arrive. */
+function applyScheme(scheme: SchemePreference): void {
+  applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, scheme });
+}
+
 beforeEach(() => {
   installMeridianTokens(document);
-  applyColorScheme(document, "light");
+  applyScheme("light");
 });
 
 afterEach(() => {
-  applyColorScheme(document, "system");
+  applyScheme("system");
 });
 
 describe("browser — the token sheet reaches the cascade", () => {
   it("swaps the palette when the scheme attribute flips, in both directions", () => {
     const light = tokenValue("ground");
-    applyColorScheme(document, "dark");
+    applyScheme("dark");
     const dark = tokenValue("ground");
     expect(dark).not.toBe(light);
-    applyColorScheme(document, "light");
+    applyScheme("light");
     expect(tokenValue("ground")).toBe(light);
   });
 });

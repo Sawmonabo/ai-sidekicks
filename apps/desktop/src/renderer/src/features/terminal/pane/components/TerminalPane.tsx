@@ -5,9 +5,11 @@
 // only run when there is a store. The frame names the region, so this module sets no label and
 // no tab stop.
 
+import "./TerminalPane.css";
+
 import { SessionTerminalPane } from "./SessionTerminalPane.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 
 /** The registered terminal body: the bound pane, or an empty body when no session was addressed. */
 export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {

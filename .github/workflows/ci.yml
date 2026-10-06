@@ -84,6 +84,7 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'turbo.json'
               - '.github/workflows/ci.yml'
+              - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
             # entries (this workflow, the lefthook config).
             structure:
@@ -104,6 +105,7 @@ jobs:
               # implicit build is what the native-prebuild matrix asserts.
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/actions/assert-native-prebuild/**'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -174,72 +176,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # The daemon's `better-sqlite3` must come from the tarball's bundled Node-API prebuild, never
-      # a source compile. This asserts provenance in two conjuncts:
-      #
-      #   (a) the binding the daemon resolves, read from `require.cache` after a real
-      #       `new Database()` (so a prebuild that resolves but will not load also fails), lives
-      #       under `prebuilds/<platform>-<arch>.node`; and
-      #   (b) `build/Release/` holds no `.node`, the one place a source build writes.
-      #
-      # `node-gyp` never runs for this package: it declares no install script, and
-      # `pnpm-workspace.yaml` denies the implicit `node-gyp rebuild` npm synthesizes for a
-      # `binding.gyp` (`allowBuilds: better-sqlite3: false`). Approving that build would fail
-      # `pnpm install` on `windows-latest`, where node-gyp 11.5.0 cannot parse the image's Visual
-      # Studio 18 install, though the prebuild is in the tarball. Denying it also makes (b)
-      # absolute.
-      #
-      # `native-prebuilds` below is not a duplicate: this step checks the full workspace install on
-      # one platform; that job checks a scoped install on all five target platforms and also reads
-      # back the database pragmas.
       - name: Assert better-sqlite3 loads a bundled Node-API prebuild
-        shell: bash
-        run: |
-          cat > "${RUNNER_TEMP}/assert-better-sqlite3-prebuild.mjs" <<'NODE'
-          import { createRequire } from "node:module";
-          import { existsSync, readdirSync } from "node:fs";
-          import path from "node:path";
-          import { pathToFileURL } from "node:url";
-
-          // `pathToFileURL`, not a `file://` template: a Windows cwd is
-          // `D:\a\...` and `file://D:\a\...` is not a valid file URL. This job's
-          // matrix is Linux-only, but the `native-prebuilds` job below runs the
-          // same resolution on `windows-latest`, so the two forms must not drift.
-          const daemonRequire = createRequire(
-            new URL("packages/runtime-daemon/package.json", pathToFileURL(`${process.cwd()}/`)),
-          );
-
-          const DatabaseConstructor = daemonRequire("better-sqlite3");
-          new DatabaseConstructor(":memory:").close();
-
-          const loadedBindings = Object.keys(daemonRequire.cache).filter((entry) =>
-            entry.endsWith(".node"),
-          );
-          if (loadedBindings.length !== 1) {
-            throw new Error(
-              `expected exactly one loaded .node binding, saw ${JSON.stringify(loadedBindings)}`,
-            );
-          }
-          const [loadedBinding] = loadedBindings;
-          if (!/[/\\]prebuilds[/\\](darwin|linux|linuxmusl|win32)-(x64|arm64)\.node$/.test(loadedBinding)) {
-            throw new Error(`better-sqlite3 did not load a tarball prebuild: ${loadedBinding}`);
-          }
-
-          const packageRoot = path.dirname(daemonRequire.resolve("better-sqlite3/package.json"));
-          const releaseDirectory = path.join(packageRoot, "build", "Release");
-          const compiledArtifacts = existsSync(releaseDirectory)
-            ? readdirSync(releaseDirectory).filter((entry) => entry.endsWith(".node"))
-            : [];
-          if (compiledArtifacts.length > 0) {
-            throw new Error(
-              `build/Release holds compiled artifacts (a source build ran): ${JSON.stringify(compiledArtifacts)}`,
-            );
-          }
-
-          console.log(`loaded prebuild: ${loadedBinding}`);
-          console.log(`build/Release holds no .node: ${releaseDirectory}`);
-          NODE
-          node "${RUNNER_TEMP}/assert-better-sqlite3-prebuild.mjs"
+        uses: ./.github/actions/assert-better-sqlite3-prebuild
 
       # Backs Turborepo's remote cache with the GitHub Actions cache (no third-party service).
       # SHA-pinned.
@@ -252,106 +190,8 @@ jobs:
       - name: Turborepo remote cache (GitHub Actions cache backend)
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
-      # Electron 44 ships no install script, so `pnpm install` alone leaves no `dist/`;
-      # `apps/desktop/scripts/materialize-electron.ts` explains why. The `postinstall` normally ran
-      # it already, so this step is a fast check plus the path extraction the SUID step needs.
-      # Running the same script, not a second download path, means a skipped postinstall is repaired
-      # and a download failure is its own red step rather than a test timeout. `node -p` runs after
-      # `dist/` is populated so it prints only the path.
-      - name: Materialize the Electron binary
-        id: electron
-        working-directory: apps/desktop
-        run: |
-          node --experimental-strip-types scripts/materialize-electron.ts
-          executable=$(node -p "require('electron')")
-          [ -x "$executable" ] || { echo "::error::electron did not resolve to an executable: '$executable'"; exit 1; }
-          echo "executable=$executable" >> "$GITHUB_OUTPUT"
-          ls -l "$executable"
-
-      # Electron on Ubuntu runners needs the SUID sandbox helper (`chrome-sandbox`) owned by root
-      # with mode 4755 for the renderer's Linux namespace sandbox to start, and `pnpm install`
-      # cannot chown it. Running with `--no-sandbox` instead would defeat the invariant
-      # `apps/desktop/tests/launch.smoke.test.ts` asserts: `webPreferences.sandbox: true`, so the
-      # renderer sees `require`, `process` and `global` as `undefined`.
-      #
-      # The helper is taken from beside the executable the previous step resolved, not searched for
-      # under `.pnpm`: a tree holding two Electron versions has two `chrome-sandbox` files and
-      # `find` would return whichever it reached first. The guard fails fast if the `dist/` layout
-      # changed.
-      - name: Configure Electron SUID sandbox helper (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sandbox="$(dirname "${{ steps.electron.outputs.executable }}")/chrome-sandbox"
-          [ -f "$sandbox" ] || { echo "::error::chrome-sandbox not beside the resolved Electron executable — dist layout drift?"; exit 1; }
-          sudo chown root:root "$sandbox"
-          sudo chmod 4755 "$sandbox"
-          ls -l "$sandbox"
-
-      # One X server for the whole job, ready before any test runs, with `$DISPLAY` exported for
-      # every later step. The Electron test harnesses fall back to a per-spawn `xvfb-run -a` only
-      # when no display is set, because that was unsound on a hosted runner:
-      #
-      #   1. `xvfb-run -a` picks its display number with a plain `while [ -f /tmp/.X$i-lock ]` scan,
-      #      a documented race between concurrent invocations.
-      #   2. Each spawn stood up its own Xvfb and wrapper shell, two X servers on a 4-vCPU box for
-      #      no benefit.
-      #   3. `xvfb-run` merges the child's stderr into stdout, which silently disabled every
-      #      stderr-keyed diagnosis branch in the smoke harness.
-      #
-      # `-nolisten tcp` keeps the server on its unix socket.
-      #
-      # Readiness comes from Xvfb's own `-displayfd`: the server picks a free display and writes its
-      # number only once listening, so reading the number is the readiness proof and there is no
-      # display-number race. `xdpyinfo` is not used because the ubuntu-24.04 image has `xvfb` but
-      # not `x11-utils`, so a probe built on it can never succeed.
-      #
-      # Nothing here passes `--no-sandbox`; the SUID helper configured above makes the sandbox work.
-      - name: Start Xvfb and wait for the display to answer (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          display_file="${RUNNER_TEMP}/xvfb-display"
-          xvfb_log="${RUNNER_TEMP}/xvfb.log"
-          : > "$display_file"
-          # No `:N` argument: with `-displayfd` the server allocates a free
-          # display itself and reports it on fd 3, which we point at a file.
-          Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
-            3>"$display_file" >"$xvfb_log" 2>&1 &
-          xvfb_pid=$!
-          # Deliberately no teardown step: the display outlives every test in the
-          # job, and the runner reclaims the VM afterwards. One shared display
-          # means no spawn tears an X server down under another.
-          for attempt in $(seq 1 60); do
-            display_number=$(tr -d '[:space:]' < "$display_file")
-            if [ -n "$display_number" ]; then
-              echo "Xvfb serving :${display_number} after ${attempt} attempt(s)"
-              echo "DISPLAY=:${display_number}" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            # Checked AFTER the read, not before: a server that came up and
-            # wrote its number is a success even if this loop notices the pid
-            # later, and checking first would race the write.
-            if ! kill -0 "$xvfb_pid" 2>/dev/null; then
-              echo "::error::Xvfb exited before reporting a display number"
-              cat "$xvfb_log" || true
-              exit 1
-            fi
-            sleep 0.25
-          done
-          echo "::error::Xvfb reported no display number within 15s"
-          cat "$xvfb_log" || true
-          exit 1
-
-      # Chromium probes the session bus for portals and the secret service on boot. A hosted runner
-      # has none, and with `DBUS_SESSION_BUS_ADDRESS` unset libdbus tries an autolaunch that only
-      # costs time. `disabled:` is not a valid bus address, so the lookup fails at once.
-      # `NO_AT_BRIDGE=1` stops the accessibility bridge opening its own bus connection. Neither
-      # changes any sandbox or `webPreferences` setting.
-      - name: Harden D-Bus / portal environment for Electron (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          echo "DBUS_SESSION_BUS_ADDRESS=disabled:" >> "$GITHUB_ENV"
-          echo "NO_AT_BRIDGE=1" >> "$GITHUB_ENV"
+      - name: Set up Electron on a display
+        uses: ./.github/actions/setup-electron-display
 
       # Full-repo `eslint .` and `prettier --check .` close the `git commit --no-verify` bypass;
       # lefthook is not used because lint-staged reads the staging index, empty in CI. Gitleaks runs
@@ -513,106 +353,39 @@ jobs:
       - name: Turborepo remote cache (GitHub Actions cache backend)
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
-      # Electron 44 ships no install script, so `pnpm install` alone leaves no `dist/`;
-      # `apps/desktop/scripts/materialize-electron.ts` explains why. The `postinstall` normally ran
-      # it already, so this step is a fast check plus the path extraction the SUID step needs.
-      # Running the same script, not a second download path, means a skipped postinstall is repaired
-      # and a download failure is its own red step rather than a test timeout. `node -p` runs after
-      # `dist/` is populated so it prints only the path.
-      - name: Materialize the Electron binary
-        id: electron
-        working-directory: apps/desktop
-        run: |
-          node --experimental-strip-types scripts/materialize-electron.ts
-          executable=$(node -p "require('electron')")
-          [ -x "$executable" ] || { echo "::error::electron did not resolve to an executable: '$executable'"; exit 1; }
-          echo "executable=$executable" >> "$GITHUB_OUTPUT"
-          ls -l "$executable"
+      - name: Set up Electron on a display
+        uses: ./.github/actions/setup-electron-display
 
-      # Electron on Ubuntu runners needs the SUID sandbox helper (`chrome-sandbox`) owned by root
-      # with mode 4755 for the renderer's Linux namespace sandbox to start, and `pnpm install`
-      # cannot chown it. Running with `--no-sandbox` instead would defeat the invariant
-      # `apps/desktop/tests/launch.smoke.test.ts` asserts: `webPreferences.sandbox: true`, so the
-      # renderer sees `require`, `process` and `global` as `undefined`.
-      #
-      # The helper is taken from beside the executable the previous step resolved, not searched for
-      # under `.pnpm`: a tree holding two Electron versions has two `chrome-sandbox` files and
-      # `find` would return whichever it reached first. The guard fails fast if the `dist/` layout
-      # changed.
-      - name: Configure Electron SUID sandbox helper (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sandbox="$(dirname "${{ steps.electron.outputs.executable }}")/chrome-sandbox"
-          [ -f "$sandbox" ] || { echo "::error::chrome-sandbox not beside the resolved Electron executable — dist layout drift?"; exit 1; }
-          sudo chown root:root "$sandbox"
-          sudo chmod 4755 "$sandbox"
-          ls -l "$sandbox"
-
-      # One X server for the whole job, ready before any test runs, with `$DISPLAY` exported for
-      # every later step. The Electron test harnesses fall back to a per-spawn `xvfb-run -a` only
-      # when no display is set, because that was unsound on a hosted runner:
-      #
-      #   1. `xvfb-run -a` picks its display number with a plain `while [ -f /tmp/.X$i-lock ]` scan,
-      #      a documented race between concurrent invocations.
-      #   2. Each spawn stood up its own Xvfb and wrapper shell, two X servers on a 4-vCPU box for
-      #      no benefit.
-      #   3. `xvfb-run` merges the child's stderr into stdout, which silently disabled every
-      #      stderr-keyed diagnosis branch in the smoke harness.
-      #
-      # `-nolisten tcp` keeps the server on its unix socket.
-      #
-      # Readiness comes from Xvfb's own `-displayfd`: the server picks a free display and writes its
-      # number only once listening, so reading the number is the readiness proof and there is no
-      # display-number race. `xdpyinfo` is not used because the ubuntu-24.04 image has `xvfb` but
-      # not `x11-utils`, so a probe built on it can never succeed.
-      #
-      # Nothing here passes `--no-sandbox`; the SUID helper configured above makes the sandbox work.
-      - name: Start Xvfb and wait for the display to answer (Linux)
-        if: runner.os == 'Linux'
+      # A window manager on that display, for the leg that runs the end-to-end and endurance
+      # tiers. Bare Xvfb has none, and without one a window never minimizes, so the end-to-end check
+      # that minimizes a window could only fail here. Openbox is one small package. Readiness comes
+      # from openbox itself: it runs its `--startup` command once it manages the display, which
+      # writes the file waited on.
+      - name: Start a window manager on the display (Linux, end-to-end leg)
+        if: runner.os == 'Linux' && contains(matrix.tier, 'e2e')
         run: |
           set -euo pipefail
-          display_file="${RUNNER_TEMP}/xvfb-display"
-          xvfb_log="${RUNNER_TEMP}/xvfb.log"
-          : > "$display_file"
-          # No `:N` argument: with `-displayfd` the server allocates a free
-          # display itself and reports it on fd 3, which we point at a file.
-          Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
-            3>"$display_file" >"$xvfb_log" 2>&1 &
-          xvfb_pid=$!
-          # Deliberately no teardown step: the display outlives every test in the
-          # job, and the runner reclaims the VM afterwards. One shared display
-          # means no spawn tears an X server down under another.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends openbox
+          ready_file="${RUNNER_TEMP}/window-manager-ready"
+          wm_log="${RUNNER_TEMP}/openbox.log"
+          openbox --startup "touch ${ready_file}" >"$wm_log" 2>&1 &
+          wm_pid=$!
           for attempt in $(seq 1 60); do
-            display_number=$(tr -d '[:space:]' < "$display_file")
-            if [ -n "$display_number" ]; then
-              echo "Xvfb serving :${display_number} after ${attempt} attempt(s)"
-              echo "DISPLAY=:${display_number}" >> "$GITHUB_ENV"
+            if [ -f "$ready_file" ]; then
+              echo "openbox managing ${DISPLAY} after ${attempt} attempt(s)"
               exit 0
             fi
-            # Checked AFTER the read, not before: a server that came up and
-            # wrote its number is a success even if this loop notices the pid
-            # later, and checking first would race the write.
-            if ! kill -0 "$xvfb_pid" 2>/dev/null; then
-              echo "::error::Xvfb exited before reporting a display number"
-              cat "$xvfb_log" || true
+            if ! kill -0 "$wm_pid" 2>/dev/null; then
+              echo "::error::openbox exited before managing the display"
+              cat "$wm_log" || true
               exit 1
             fi
             sleep 0.25
           done
-          echo "::error::Xvfb reported no display number within 15s"
-          cat "$xvfb_log" || true
+          echo "::error::openbox did not manage the display within 15s"
+          cat "$wm_log" || true
           exit 1
-
-      # Chromium probes the session bus for portals and the secret service on boot. A hosted runner
-      # has none, and with `DBUS_SESSION_BUS_ADDRESS` unset libdbus tries an autolaunch that only
-      # costs time. `disabled:` is not a valid bus address, so the lookup fails at once.
-      # `NO_AT_BRIDGE=1` stops the accessibility bridge opening its own bus connection. Neither
-      # changes any sandbox or `webPreferences` setting.
-      - name: Harden D-Bus / portal environment for Electron (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          echo "DBUS_SESSION_BUS_ADDRESS=disabled:" >> "$GITHUB_ENV"
-          echo "NO_AT_BRIDGE=1" >> "$GITHUB_ENV"
 
       - name: Build (excluding control-plane, which the desktop does not use)
         run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
@@ -1016,138 +789,9 @@ jobs:
         run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
 
       - name: Assert prebuild provenance and the SQLite pragma readback
-        shell: bash
-        env:
-          EXPECTED_PREBUILD: ${{ matrix.prebuild }}
-        run: |
-          cat > "${RUNNER_TEMP}/assert-native-prebuild.mjs" <<'NODE'
-          import { createRequire } from "node:module";
-          import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-          import os from "node:os";
-          import path from "node:path";
-          import { pathToFileURL } from "node:url";
-
-          const expectedPrebuild = process.env["EXPECTED_PREBUILD"];
-          if (expectedPrebuild === undefined || expectedPrebuild === "") {
-            throw new Error("EXPECTED_PREBUILD is unset — the matrix leg names the platform");
-          }
-
-          // `pathToFileURL`, not a `file://` template: a Windows cwd is
-          // `D:\a\...`, which is not a valid file URL.
-          const daemonRequire = createRequire(
-            new URL("packages/runtime-daemon/package.json", pathToFileURL(`${process.cwd()}/`)),
-          );
-
-          const DatabaseConstructor = daemonRequire("better-sqlite3");
-
-          // Conjunct (a): the binding the daemon RESOLVES, read back off
-          // `require.cache` after a real open, so a prebuild that resolves but
-          // will not load fails here too.
-          const probeDirectory = mkdtempSync(path.join(os.tmpdir(), "sidekicks-prebuild-"));
-          const databasePath = path.join(probeDirectory, "probe.db");
-          try {
-            const seedDatabase = new DatabaseConstructor(databasePath);
-            seedDatabase.pragma("journal_mode = wal");
-            seedDatabase.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY)");
-            seedDatabase.close();
-
-            const loadedBindings = Object.keys(daemonRequire.cache).filter((entry) =>
-              entry.endsWith(".node"),
-            );
-            if (loadedBindings.length !== 1) {
-              throw new Error(
-                `expected exactly one loaded .node binding, saw ${JSON.stringify(loadedBindings)}`,
-              );
-            }
-            const [loadedBinding] = loadedBindings;
-            if (
-              !/[/\\]prebuilds[/\\](darwin|linux|linuxmusl|win32)-(x64|arm64)\.node$/.test(
-                loadedBinding,
-              )
-            ) {
-              throw new Error(`better-sqlite3 did not load a tarball prebuild: ${loadedBinding}`);
-            }
-            // ...and it is THIS platform's prebuild. Without this the assertion
-            // would pass on a leg that silently loaded the wrong architecture.
-            const loadedName = path.basename(loadedBinding, ".node");
-            if (loadedName !== expectedPrebuild) {
-              throw new Error(
-                `expected the ${expectedPrebuild} prebuild, loaded ${loadedName} (${loadedBinding})`,
-              );
-            }
-
-            // Conjunct (b): `build/Release/` holds no `.node` — the one location
-            // a source build writes and, with `prebuild-install` gone from the
-            // 13.x line, the only writer left.
-            const packageRoot = path.dirname(daemonRequire.resolve("better-sqlite3/package.json"));
-            const releaseDirectory = path.join(packageRoot, "build", "Release");
-            const compiledArtifacts = existsSync(releaseDirectory)
-              ? readdirSync(releaseDirectory).filter((entry) => entry.endsWith(".node"))
-              : [];
-            if (compiledArtifacts.length > 0) {
-              throw new Error(
-                `build/Release holds compiled artifacts (a source build ran): ${JSON.stringify(compiledArtifacts)}`,
-              );
-            }
-
-            // The daemon's pragmas, on the REOPEN path — the only path that tests
-            // the override. A freshly created database is in delete mode and
-            // reads `synchronous = 2` from `SQLITE_DEFAULT_SYNCHRONOUS`, which
-            // says nothing about the WAL default the override exists for. A
-            // connection opening an ALREADY-WAL database reads
-            // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and the daemon's durability
-            // rule is that this must be raised to FULL, not inherited.
-            const database = new DatabaseConstructor(databasePath);
-            const compileOptions = database.pragma("compile_options").map((row) => row.compile_options);
-            const walSynchronousDefault = database.pragma("synchronous", { simple: true });
-            if (walSynchronousDefault !== 1) {
-              throw new Error(
-                `expected the WAL default synchronous = 1 (NORMAL) before the override, read ${String(walSynchronousDefault)}`,
-              );
-            }
-
-            database.pragma("journal_mode = wal");
-            database.pragma("synchronous = FULL");
-            database.pragma("foreign_keys = ON");
-            database.pragma("busy_timeout = 5000");
-
-            const sqliteVersion = database.prepare("SELECT sqlite_version() AS version").get().version;
-            const readback = {
-              journal_mode: database.pragma("journal_mode", { simple: true }),
-              synchronous: database.pragma("synchronous", { simple: true }),
-              foreign_keys: database.pragma("foreign_keys", { simple: true }),
-              busy_timeout: database.pragma("busy_timeout", { simple: true }),
-            };
-            const expectedReadback = {
-              journal_mode: "wal",
-              synchronous: 2,
-              foreign_keys: 1,
-              busy_timeout: 5000,
-            };
-            for (const [pragmaName, expectedValue] of Object.entries(expectedReadback)) {
-              if (readback[pragmaName] !== expectedValue) {
-                throw new Error(
-                  `pragma ${pragmaName}: expected ${String(expectedValue)}, read ${String(readback[pragmaName])}`,
-                );
-              }
-            }
-            database.close();
-
-            console.log(`platform:            ${process.platform}-${process.arch}`);
-            console.log(`node:                ${process.version} (Node-API ${process.versions.napi})`);
-            console.log(`loaded prebuild:     ${loadedBinding}`);
-            console.log(`build/Release .node: none (${releaseDirectory})`);
-            console.log(`better-sqlite3:      ${daemonRequire("better-sqlite3/package.json").version}`);
-            console.log(`embedded sqlite:     ${sqliteVersion}`);
-            console.log(
-              `wal synchronous default: ${String(walSynchronousDefault)} (SQLITE_DEFAULT_WAL_SYNCHRONOUS present: ${String(compileOptions.includes("DEFAULT_WAL_SYNCHRONOUS=1"))})`,
-            );
-            console.log(`pragma readback:     ${JSON.stringify(readback)}`);
-          } finally {
-            rmSync(probeDirectory, { recursive: true, force: true });
-          }
-          NODE
-          node "${RUNNER_TEMP}/assert-native-prebuild.mjs"
+        uses: ./.github/actions/assert-native-prebuild
+        with:
+          expected-prebuild: ${{ matrix.prebuild }}
 
   ci-gate:
     name: ci-gate

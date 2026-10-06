@@ -5,27 +5,34 @@
 
 import type {
   BranchContextId,
-  WorktreeId,
   WorktreeStatusRecord,
-} from "@ai-sidekicks/contracts/worktree";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
-import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
+} from "@ai-sidekicks/contracts/worktree/lifecycle";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 
-import { act } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { RepoOperations } from "../repo-operations.js";
-import { scriptedRepoOperations } from "../repo-operations.test-support.js";
-import type { PrepareOperations } from "./execution-roots/prepare-controller.js";
-import { RepoMountsReader } from "./repo-mounts-reader.js";
-import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import type { RepoOperations } from "../operations.js";
+import { scriptedRepoOperations } from "../operations.test-support.js";
+import type { PrepareOperations } from "./execution-roots/prepare/controller.js";
+import { RepoMountsReader } from "./reader.js";
+import type { RepoWorkspaceRow } from "./reading.js";
 
 const trackedReaders: RepoMountsReader[] = [];
 
-/** The presses one alert-dialog confirmation takes, read off `document` (the popup is portalled). */
+/** The accessible names of one confirmation's trigger and its two answers. */
+export interface ConfirmationButtonNames {
+  readonly trigger: string;
+  readonly confirm: string;
+  readonly cancel: string;
+}
+
+/**
+ * The presses one alert-dialog confirmation takes, read off `document` (the popup is portaled).
+ */
 export interface ConfirmationPresses {
   /** The card's own trigger, which the sent state disables. */
   readonly trigger: () => HTMLButtonElement | null;
@@ -34,41 +41,25 @@ export interface ConfirmationPresses {
   readonly pressCancel: () => Promise<void>;
 }
 
-/** Move past the debounce and let a controller's prerequisite read land. */
-export async function settlePrerequisiteRead(
-  controller: PrerequisiteReading,
-  clock: ManualClock,
-): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  for (
-    let turn = 0;
-    turn < 50 && controller.snapshot.prerequisite.status === "reading";
-    turn += 1
-  ) {
-    await Promise.resolve();
-  }
-}
-
-/** The presses of the confirmation whose classes carry this block name. */
-export function confirmationPresses(block: string): ConfirmationPresses {
-  const press = async (element: string): Promise<void> => {
+/** The presses of the confirmation whose buttons carry these names. */
+export function confirmationPresses(names: ConfirmationButtonNames): ConfirmationPresses {
+  const button = (name: string): HTMLButtonElement | null =>
+    screen.queryByRole<HTMLButtonElement>("button", { name });
+  const press = async (name: string): Promise<void> => {
     await act(async () => {
-      document.querySelector<HTMLButtonElement>(`.${block}__${element}`)?.click();
+      button(name)?.click();
     });
   };
   return {
-    trigger: () => document.querySelector<HTMLButtonElement>(`.${block}__trigger`),
+    trigger: () => button(names.trigger),
     pressOpen: async () => {
-      await press("trigger");
+      await press(names.trigger);
     },
     pressConfirm: async () => {
-      await press("confirm");
+      await press(names.confirm);
     },
     pressCancel: async () => {
-      await press("cancel");
+      await press(names.cancel);
     },
   };
 }
@@ -93,7 +84,9 @@ export function openReader(
   // Defaulted so cases that only care about the read say nothing about the store.
   sessionStore: SessionStore = new SessionStore({ sessionId: SESSION_ID }),
 ): RepoMountsReader {
-  return trackReader(new RepoMountsReader({ operations, sessionStore, clock }));
+  return trackReader(
+    new RepoMountsReader({ operations, sessionStore, ownerWindow: window, clock }),
+  );
 }
 
 /**
@@ -108,11 +101,6 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
   for (let turn = 0; turn < 400 && reader.snapshot.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
-}
-
-/** Anything that reads a prerequisite question: the bind and prepare controllers. */
-interface PrerequisiteReading {
-  readonly snapshot: { readonly prerequisite: { readonly status: string } };
 }
 
 /**
@@ -223,15 +211,9 @@ export const WORKSPACES: readonly RepoWorkspaceRow[] = [
   workspaceRow({ id: "workspace-drifted", repoMountId: DRIFTED_MOUNT_ID }),
 ];
 
-/** Both modes, with the provisioned worktree the default. */
-export const ALL_MODES_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["bound-root", "provisioned-worktree"],
-  defaultMode: "provisioned-worktree",
-};
-
 /**
- * The daemon answering for the session above: its workspaces, each mount, each
- * workspace's modes and the execution roots. A case scripts only what it is about.
+ * The daemon answering for the session above: its workspaces, each mount and the execution
+ * roots. A case scripts only what it is about.
  */
 export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOperations {
   return scriptedRepoOperations({
@@ -243,7 +225,6 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
       }
       return Promise.resolve(found);
     },
-    readWorkspaceExecutionModes: () => Promise.resolve(ALL_MODES_CAPABILITIES),
     readWorktreeStatus: (repoMountId) =>
       Promise.resolve({
         repoRoot: { path: CANONICAL_ROOT, branchName: "main" },
@@ -256,42 +237,9 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
   });
 }
 
-/** A branch with a live, dirty, compatible checkout — the consent case. */
-export const DIRTY_BRANCH = "feat/rate-limit-wiring";
-
-/** A branch whose checkout belongs to another workspace, which admits no consent. */
-export const INCOMPATIBLE_BRANCH = "review/rate-limit-wiring";
-
-/**
- * The daemon's answers to the prepare form: a dirty candidate and an incompatible one. Any
- * other branch is free.
- */
+/** The daemon's answer to a prepare: a fresh root, ready. */
 export function preparingDaemon(): PrepareOperations {
   return {
-    checkWorktreeReuse: (_repoMountId, branchName) => {
-      if (branchName === DIRTY_BRANCH) {
-        return Promise.resolve({
-          available: true,
-          worktreeId: "worktree-dirty" as WorktreeId,
-          state: "dirty",
-          branchName,
-          isClean: false,
-          compatible: true,
-        });
-      }
-      if (branchName === INCOMPATIBLE_BRANCH) {
-        return Promise.resolve({
-          available: true,
-          worktreeId: "worktree-other" as WorktreeId,
-          state: "ready",
-          branchName,
-          isClean: true,
-          compatible: false,
-          reason: "That checkout belongs to another workspace.",
-        });
-      }
-      return Promise.resolve({ available: false });
-    },
     prepareExecutionRoot: () =>
       Promise.resolve({
         executionRoot: "/Users/dev/roots/fresh",

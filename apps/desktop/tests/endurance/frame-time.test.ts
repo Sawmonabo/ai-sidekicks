@@ -31,22 +31,19 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
+import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 import { percentileByNearestRank } from "../helpers/sample-statistics.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
-import {
-  ENDURANCE_LAUNCH_OPTIONS,
-  openConcurrentStreamingSessionRoute,
-} from "./endurance-workload.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import { ENDURANCE_LAUNCH_OPTIONS, openConcurrentStreamingSessionRoute } from "./workload.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
   CONCURRENT_STREAMING_SCENARIO,
-} from "../../fixtures/scenarios/concurrent-streaming.js";
+} from "#fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -115,8 +112,9 @@ async function sampleFrameTimings(
       advanceMilliseconds,
       stallMilliseconds,
     ]: [string, number, number, number, number]) => {
+      // The scenario's handle is the console document's, which opened this window.
       const scenarioControl = (
-        globalThis as unknown as Record<
+        (window.opener ?? globalThis) as unknown as Record<
           string,
           { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
         >
@@ -182,7 +180,8 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
     const run = await sampleFrameTimings(appUnderTest, plantedStallMilliseconds);
     if (run === null) {
       throw new Error(
-        `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, so no frame in it was driven by a ` +
+        `${SCENARIO_FIXTURE_GLOBAL} is not exposed by ` +
+          `this build, so no frame in it was driven by a ` +
           "scenario and every interval sampled would describe an idle window",
       );
     }
@@ -199,7 +198,8 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
 function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   expect(
     run.beatsAtWindowEnd,
-    "the concurrent-streaming script had not finished delivering by the end of the sampled window, so the " +
+    "the concurrent-streaming script had not finished " +
+      "delivering by the end of the sampled window, so the " +
       "reading describes an app the session never fully reached",
   ).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
   expect(

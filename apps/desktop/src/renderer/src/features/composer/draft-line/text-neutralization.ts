@@ -6,7 +6,7 @@
 // cause as the substring before the first space. This module is that read, done once. The code
 // takes its type from the contract, so a rename breaks the build instead of silently not matching.
 
-import type { DriverInterventionResult } from "@ai-sidekicks/contracts/provider-driver";
+import type { DriverInterventionResult } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
 /** The registered refusal code, taken from the contract rather than retyped. */
 export type TextNeutralizationRefusalCode = NonNullable<DriverInterventionResult["refusalCode"]>;

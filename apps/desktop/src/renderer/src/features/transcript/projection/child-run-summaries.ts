@@ -4,15 +4,15 @@
 // child, the only row naming both, so it takes a fresh object each pass.
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import {
   RUN_INITIAL_STATE,
   RUN_QUEUED_EVENT_KIND,
   runStateForTransitionKind,
-} from "@renderer/store/session-events/run-state-kinds.js";
-import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+} from "#renderer/store/session/events/run/state-kinds.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
 /**

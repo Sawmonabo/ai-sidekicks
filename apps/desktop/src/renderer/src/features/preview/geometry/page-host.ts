@@ -1,7 +1,7 @@
 // The page host a pane's rectangle is published to.
 
-import type { Refusal } from "@renderer/lib/refusal.js";
-import type { PaneGeometrySample } from "./pane-geometry.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { PaneGeometrySample } from "./pane.js";
 
 /** The subsystem name every refusal a page host raises carries. */
 export const PAGE_HOST_REFUSAL_ORIGIN = "page-host";

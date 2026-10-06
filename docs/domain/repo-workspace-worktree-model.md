@@ -49,7 +49,7 @@ This model explains how a session gains code context, how execution roots are ch
 | Mode | Meaning |
 | --- | --- |
 | `bound-root` | The run works at the root already bound to its workspace — the project's checkout, or a chat's managed workspace — and the daemon makes nothing. It carries no worktree. |
-| `provisioned-worktree` | The run works in a worktree the daemon's worktree lifecycle made, created for the session or reused. This is where a new project session starts by default. A session can also bind to any other worktree git lists for the repository: one the person made binds as an existing checkout and is never stamped as one the daemon provisioned or reused, and removing a worktree or deleting a branch stays limited to what the daemon's records say it made. |
+| `provisioned-worktree` | The run works in a worktree the daemon's worktree lifecycle made. This is where a new project session starts by default. A session can also bind to any other worktree git lists for the repository: one the person made binds as an existing checkout and is never stamped as one the daemon provisioned, and removing a worktree or deleting a branch stays limited to what the daemon's records say it made. |
 
 - A project session works in one of these places; a chat session is always `bound-root` on its own managed workspace and never gets a worktree.
 - There is no read-only place and no disposable copy: how much a session may change is its permission level.

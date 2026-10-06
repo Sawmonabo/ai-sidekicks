@@ -1,19 +1,19 @@
 // What holds the section's reader, and what happens to it on renders React discards and
-// replays. A memo is not a resource seam: a discarded pass would leak a started reader, and
-// StrictMode's replayed setup would call `start()` on a disposed one. The observable is the
+// re-runs. A memo is not a resource seam: a discarded pass would leak a started reader, and
+// StrictMode's re-run setup would call `start()` on a disposed one. The observable is the
 // workspace-list read, the first call every started reader makes.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, createElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import type { RepoOperations } from "../../operations.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { useRepoMounts, type RepoMountsBinding } from "./useRepoMounts.js";
 import { SESSION_ID, sessionOperations } from "../repo-mounts.test-support.js";
 
@@ -70,7 +70,7 @@ function renderBinding(options: { readonly strict: boolean }): BindingUnderTest 
 
 describe("useRepoMounts — the reader is a resource, not a memo", () => {
   it("reads under StrictMode, where a memoized reader was disposed, never restarted", async () => {
-    // The cleanup disposed terminally and the replayed setup called `start()` on the disposed
+    // The cleanup disposed terminally and the re-run setup called `start()` on the disposed
     // reader, so the section never left `not-read` in development.
     const binding = renderBinding({ strict: true });
 
@@ -81,7 +81,7 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
 
   it("re-mints once, not once per render", async () => {
     // A binding that opened a reader on every pass would double every read. Exactly one reader
-    // reaches the wire, StrictMode's replay included.
+    // reaches the wire, StrictMode's re-run included.
     const binding = renderBinding({ strict: true });
     await binding.settle();
     expect(binding.listReadCount()).toBe(1);

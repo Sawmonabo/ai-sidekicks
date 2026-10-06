@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { TranscriptRowRetention } from "../../window/row-retention.js";
 import {
   type TranscriptPipelineStage,

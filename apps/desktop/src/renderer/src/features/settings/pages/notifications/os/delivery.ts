@@ -1,0 +1,45 @@
+// Whether an OS notification this app raises will reach a person at all.
+//
+// The main process raises the notification and nothing comes back from raising it, so a denial
+// is indistinguishable from a delivery at emission; the machine's permission, in the states of
+// `NotificationPermission` (`src/shared/preload-api.ts`), says which. The renderer's
+// `Notification.permission` is the wrong instrument: it concerns the Web notification API, while
+// this app raises its notifications through the main process.
+//
+// The reading is advisory and gates nothing on the way out: the OS is the authority, so an
+// unobtainable reading suppresses no emission. Only `withheld` changes what a person sees. This
+// file is the fold; the probe and its scheduling are in `permission.ts`, and the
+// reading is handed out unfolded so each consumer folds it for its own question.
+
+import type { OsNotificationPermissionReading } from "./permission.js";
+
+/**
+ * What the app may say about the OS notification path.
+ *
+ * Three arms: `granted` and `not-determined` are both `permitted`, since a machine nobody has
+ * asked yet raises the system's own consent flow on the first emission, and reporting that as
+ * a denial would mislead someone whose notifications work. `unread` covers a read in flight
+ * and a platform whose permission the main process cannot read; the app does not know.
+ */
+export type OsNotificationDelivery =
+  | { readonly status: "unread" }
+  | { readonly status: "permitted" }
+  | { readonly status: "withheld" };
+
+/**
+ * The three readings, as three values.
+ *
+ * Named constants so an unchanged answer compares equal at the one comparison
+ * `useSyncExternalStore` makes; a fresh object per answer would re-render on every re-read.
+ */
+const UNREAD_DELIVERY: OsNotificationDelivery = { status: "unread" };
+const PERMITTED_DELIVERY: OsNotificationDelivery = { status: "permitted" };
+const WITHHELD_DELIVERY: OsNotificationDelivery = { status: "withheld" };
+
+/** The reading of one permission answer. Total, so no call site branches. */
+export function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
+  if (reading.kind !== "read" || reading.state === "unsupported") {
+    return UNREAD_DELIVERY;
+  }
+  return reading.state === "denied" ? WITHHELD_DELIVERY : PERMITTED_DELIVERY;
+}

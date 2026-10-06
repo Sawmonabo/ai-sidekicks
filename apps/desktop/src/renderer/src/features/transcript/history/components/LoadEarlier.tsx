@@ -1,18 +1,14 @@
 // The control at the window's head: reads the rows this window was never sent. It takes the
-// page read as a prop, so a composition with no read mounts no control and no walk. Like
+// feed's walk as a prop, so a composition with no read mounts no control. Like
 // `JumpToLatest.tsx` it sits outside the scroll container. A button, not a scroll trigger:
 // arriving at the top must not grow the log under someone passing through.
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type EarlierPageRead } from "../earlier-history-reader.js";
-import { useEarlierHistory } from "../hooks/useEarlierHistory.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { type EarlierHistoryPaging } from "../hooks/useEarlierHistory.js";
 
-/** The session whose earlier rows the control reads, and the read that fetches a page. */
+/** The walk whose state the control renders and whose page it asks for. */
 export interface LoadEarlierAffordanceProps {
-  readonly sessionStore: SessionStore;
-  /** The read a page is fetched with. A composition with none mounts no control. */
-  readonly readEarlierPage: EarlierPageRead;
+  readonly earlierHistory: EarlierHistoryPaging;
 }
 
 /**
@@ -23,10 +19,7 @@ export interface LoadEarlierAffordanceProps {
  * render, and offers the press again.
  */
 export function LoadEarlier(props: LoadEarlierAffordanceProps): React.JSX.Element | null {
-  const { canLoadEarlier, isReading, refusal, loadEarlier } = useEarlierHistory(
-    props.sessionStore,
-    props.readEarlierPage,
-  );
+  const { canLoadEarlier, isReading, refusal, loadEarlier } = props.earlierHistory;
   if (!canLoadEarlier && !isReading && refusal === undefined) {
     return null;
   }

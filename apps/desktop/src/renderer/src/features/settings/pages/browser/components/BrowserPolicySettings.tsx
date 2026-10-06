@@ -7,6 +7,8 @@
 // positions arrive as props and a toggle leaves as a callback, so the node's policy is decided
 // in one place.
 
+import "./BrowserPolicySettings.css";
+
 import { PolicyRow } from "./PolicyRow.js";
 import {
   BROWSER_POLICY_SWITCHES,

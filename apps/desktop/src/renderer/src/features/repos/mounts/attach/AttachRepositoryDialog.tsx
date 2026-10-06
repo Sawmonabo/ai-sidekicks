@@ -1,21 +1,21 @@
 // Attaching a repository by path: the one entry point for a mount, which belongs to the
 // machine rather than the session. A plain `Dialog`, not `AlertDialog`: this is abandonable
-// data entry, not consent to a consequence. Attach is not followed by a bind, since that would
-// pick an execution mode nobody asked for.
+// data entry, not consent to a consequence. Attach is not followed by a bind.
 
-import "./attach.css";
+import "./AttachRepositoryDialog.css";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { RepoOperations } from "../../repo-operations.js";
-import { type AttachRequestReading } from "./attach-controller.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { RepoOperations } from "../../operations.js";
+import { BUTTON_CLASS_NAME } from "../button-class.js";
+import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
-import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-form.js";
+import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./form.js";
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */
 export interface AttachRepositoryDialogProps {
@@ -73,24 +73,20 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
 
   return (
     <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
-      <Dialog.Trigger className="meridian-repo-attach__trigger">Attach a repository</Dialog.Trigger>
+      <Dialog.Trigger className={BUTTON_CLASS_NAME}>Attach a repository</Dialog.Trigger>
       {/* The portal, backdrop and popup are the primitive's, which also registers this dialog in
           the window's airspace so a native browser-pane view yields to it. */}
-      <OverlayDialogPopup
-        backdropClassName="meridian-repo-attach__backdrop"
-        className="meridian-repo-attach__dialog"
-      >
-        <Dialog.Title className="meridian-repo-attach__title">Attach a repository</Dialog.Title>
-        <Dialog.Description className="meridian-repo-attach__body">
-          Attaching adds the repository to this machine. Choosing an execution mode is a separate
-          step, taken when a workspace is bound on it.
+      <OverlayDialogPopup backdropClassName="meridian-dialog__backdrop" className="meridian-dialog">
+        <Dialog.Title className="meridian-dialog__title">Attach a repository</Dialog.Title>
+        <Dialog.Description className="meridian-dialog__description">
+          Attaching adds the repository to this machine.
         </Dialog.Description>
 
-        <label className="meridian-repo-attach__path">
-          <span className="meridian-repo-attach__legend">Path</span>
+        <label className="meridian-form__field">
+          <span className="meridian-form__label">Path</span>
           <input
             type="text"
-            className="meridian-repo-attach__path-input"
+            className="meridian-form__input meridian-form__input--wire"
             value={form.localPath}
             spellCheck={false}
             autoComplete="off"
@@ -104,11 +100,11 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
 
         {renderSettlement(reading)}
 
-        <div className="meridian-repo-attach__acts">
-          <Dialog.Close className="meridian-repo-attach__cancel">Cancel</Dialog.Close>
+        <div className="meridian-dialog__actions">
+          <Dialog.Close className={BUTTON_CLASS_NAME}>Cancel</Dialog.Close>
           <button
             type="button"
-            className="meridian-repo-attach__confirm"
+            className={BUTTON_CLASS_NAME}
             disabled={verdict.status !== "sendable" || reading.status === "sending"}
             onClick={submit}
           >
@@ -117,7 +113,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
         </div>
         {/* The reason the control is closed is always said; a grayed button reports nothing. */}
         {verdict.status === "incomplete" ? (
-          <p className="meridian-repo-attach__blocked" role="status">
+          <p className="meridian-form__blocked" role="status">
             {verdict.because}
           </p>
         ) : null}
@@ -140,7 +136,7 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
       return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "attached":
       return (
-        <div className="meridian-repo-attach__attached" role="status">
+        <div className="meridian-form__settlement" role="status">
           <p>Attached.</p>
           <dl className="meridian-repo-attach__minted">
             <dt>Mount</dt>

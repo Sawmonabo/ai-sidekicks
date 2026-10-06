@@ -19,9 +19,9 @@
 // A holder built with no disposal drops silently. The value the last commit saw is not handled
 // here: a live effect still holds it, and it is retired when a later render commits.
 
-import { wireRejectionToError } from "../wire-errors.js";
+import { wireRejectionToError } from "../wire/errors.js";
 
-import { reportTripwire } from "../tripwires.js";
+import { reportTripwire } from "../tripwires/registry.js";
 
 /** The site name a tripwire report from this module carries. */
 const SITE = "lib/subject-scoped/unheld-value-disposal.ts";
@@ -66,8 +66,12 @@ export class UnheldValueDisposal<TValue> {
       "unheld-resource",
       SITE,
       outcome.threw
-        ? `a resource settled into a subject-scoped visit that had already ended and its disposal threw, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`
-        : "a resource settled into a subject-scoped visit that had already ended; the holder handed it to the caller's disposal rather than installing it into a visit nothing on screen is addressed at",
+        ? `a resource settled into a subject-scoped visit that had already ` +
+            `ended and its disposal threw, so it is installed nowhere and ` +
+            `held by nothing: ${wireRejectionToError(outcome.failure).message}`
+        : "a resource settled into a subject-scoped visit that had already " +
+            "ended; the holder handed it to the caller's disposal rather than " +
+            "installing it into a visit nothing on screen is addressed at",
     );
   }
 
@@ -85,7 +89,8 @@ export class UnheldValueDisposal<TValue> {
     reportTripwire(
       "unheld-resource",
       SITE,
-      `a subject-scoped value replaced by a later publish could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`,
+      `a subject-scoped value replaced by a later publish could not be disposed, so it is ` +
+        `installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`,
     );
   }
 
@@ -102,7 +107,9 @@ export class UnheldValueDisposal<TValue> {
     reportTripwire(
       "region-render-failure",
       SITE,
-      `a subject-scoped value seeded by a render pass that never committed could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`,
+      `a subject-scoped value seeded by a render pass that never ` +
+        `committed could not be disposed, so it is installed nowhere and ` +
+        `held by nothing: ${wireRejectionToError(outcome.failure).message}`,
     );
   }
 

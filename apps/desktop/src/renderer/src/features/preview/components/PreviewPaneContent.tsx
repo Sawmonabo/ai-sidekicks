@@ -7,7 +7,7 @@ import "./PreviewPaneContent.css";
 
 import { useCallback, useId } from "react";
 
-import type { PreviewPageId } from "@ai-sidekicks/contracts/preview";
+import type { PreviewPageId } from "@ai-sidekicks/contracts/preview/methods";
 
 import type { PageHost } from "../geometry/page-host.js";
 import {
@@ -17,19 +17,20 @@ import {
   FOLLOWING_ADDRESS_FIELD,
   isFileAddress,
 } from "../address-field-model.js";
-import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
+import { describeChordEvent, isCloseTabChord } from "../handback/chord/claim.js";
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
-import { PageTabStrip } from "./PageTabStrip.js";
-import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
+import { PageTabStrip } from "./PageTab/PageTabStrip.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { AddressLineButton } from "./AddressLineButton.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */
@@ -47,7 +48,8 @@ export interface PreviewChromeActs {
   readonly stopLoading: () => void;
   readonly selectPage: (pageId: PreviewPageId) => void;
   readonly closePage: (pageId: PreviewPageId) => void;
-  readonly reorderPage: (pageId: PreviewPageId, toIndex: number) => void;
+  /** Moves a page within the strip; answers the refusal when the move was refused. */
+  readonly reorderPage: (pageId: PreviewPageId, toIndex: number) => Promise<Refusal | undefined>;
 }
 
 /** What the pane's content draws from, beside the pane layout's context. */
@@ -87,7 +89,8 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       if (selected === undefined) {
         refuseLocally(
           "no-selected-page",
-          "There is no selected page to close. The chord was caught here so it could not close this window instead.",
+          "There is no selected page to close. The chord was caught here " +
+            "so it could not close this window instead.",
         );
         return;
       }

@@ -36,9 +36,9 @@
 // through `subagent.started` and `subagent.completed`, never through the child's own frames.
 // The terminal-emission gate consumes the route unchanged.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import { type DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 
 /**
  * The capability a thread-scoped frame carries, which selects its carve-out: `usage` and
@@ -206,7 +206,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
 
     if (!parentRecognized) {
       const reason =
-        "child announcement carries no recognized parent linkage; recognition derives from the provider's declared lineage, never from arrival order";
+        "child announcement carries no recognized parent linkage; recognition derives from " +
+        "the provider's declared lineage, never from arrival order";
       this.#diagnostics.emit({
         provider: this.#provider,
         kind: "thread_registration_refused",
@@ -256,7 +257,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
         kind: "thread_pending_hold_shed",
         rawWireType: abandonedFrame.rawWireType,
         dispositionReason:
-          "child thread completed while frames were still held pending its registration; shed with a recorded diagnostic rather than dropped",
+          "child thread completed while frames were still held pending its registration; " +
+          "shed with a recorded diagnostic rather than dropped",
         details: { threadId: abandonedFrame.threadId, childThreadId },
       });
     }
@@ -290,14 +292,16 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
     if (frame.familyClass.scope === "unknown") {
       return this.#quarantine(
         frame,
-        "unrecognized family; the pinned census is the discriminator and an unlisted shape is never presumed connection-scoped",
+        "unrecognized family; the pinned census is the discriminator and an unlisted shape " +
+          "is never presumed connection-scoped",
       );
     }
 
     if (frame.threadId === null) {
       return this.#quarantine(
         frame,
-        "thread-scoped frame family carrying no thread identity; refused fail-closed rather than projected into the session's own thread",
+        "thread-scoped frame family carrying no thread identity; refused fail-closed rather " +
+          "than projected into the session's own thread",
       );
     }
 
@@ -326,7 +330,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
           kind: "thread_child_transcript_suppressed",
           rawWireType: frame.rawWireType,
           dispositionReason:
-            "registered child thread's transcript projection suppressed; child lifecycle reaches the transcript only as subagent.started / subagent.completed",
+            "registered child thread's transcript projection suppressed; child lifecycle " +
+            "reaches the transcript only as subagent.started / subagent.completed",
           details: { childThreadId: frame.threadId },
         });
       }
@@ -343,7 +348,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
           kind: "thread_pending_hold_shed",
           rawWireType: shedHold.frame.rawWireType,
           dispositionReason:
-            "pending-registration hold exceeded its declared cap; oldest entry shed per the bounded-hold rule",
+            "pending-registration hold exceeded its declared cap; oldest entry shed per the " +
+            "bounded-hold rule",
           details: {
             threadId: shedHold.frame.threadId,
             maxPendingHoldFrames: this.#config.maxPendingHoldFrames,
@@ -368,7 +374,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
           kind: "thread_pending_hold_shed",
           rawWireType: held.frame.rawWireType,
           dispositionReason:
-            "pending-registration hold timed out before the parent-linked announcement landed; shed with a recorded diagnostic",
+            "pending-registration hold timed out before the parent-linked announcement " +
+            "landed; shed with a recorded diagnostic",
           details: {
             threadId: held.frame.threadId,
             heldForMs: nowMs - held.heldAtMs,
@@ -403,7 +410,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
           kind: "thread_quarantine_shed",
           rawWireType: shedFrame.rawWireType,
           dispositionReason:
-            "quarantine buffer exceeded its declared cap; oldest entry shed (a diagnostic buffer, not a delivery queue)",
+            "quarantine buffer exceeded its declared cap; oldest entry shed (a diagnostic " +
+            "buffer, not a delivery queue)",
           details: {
             threadId: shedFrame.threadId,
             maxQuarantinedFrames: this.#config.maxQuarantinedFrames,

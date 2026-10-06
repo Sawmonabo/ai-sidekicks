@@ -2,9 +2,9 @@
 // session is open. It draws no body box: `PaneFrame` renders `.meridian-pane__body`, and a wrapper
 // would break the flex chain the feed's scroll container depends on.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** What the body needs to choose between the feed and its empty state. */
@@ -12,6 +12,8 @@ export interface TranscriptPaneBodyProps {
   /** The registered row renderer. */
   readonly renderTranscriptRow: TranscriptRowRenderer;
   readonly sessionStore: SessionStore | undefined;
+  /** The event cursor of the message the route opens the session at, or `undefined`. */
+  readonly messageAnchorCursor: string | undefined;
 }
 
 /**
@@ -37,6 +39,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       sessionStore={props.sessionStore}
       renderTranscriptRow={props.renderTranscriptRow}
       feedLabel="Transcript"
+      messageAnchorCursor={props.messageAnchorCursor}
     />
   );
 }

@@ -3,22 +3,26 @@
 // pieces and wires their callbacks. There is one viewport binding: a second would leave the find
 // walk reading a virtualizer with no element under it, a jump that scrolls nothing.
 
+import "./TranscriptFeed.css";
+
 import { useCallback, useMemo } from "react";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
-import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
+import { type EarlierPageRead } from "../../history/earlier-reader.js";
+import { useEarlierHistory } from "../../history/hooks/useEarlierHistory.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
+import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
@@ -29,6 +33,12 @@ export interface TranscriptFeedProps {
   readonly feedLabel: string;
   /** The backward page read. A composition with none mounts no `Load earlier`. */
   readonly readEarlierPage?: EarlierPageRead | undefined;
+  /**
+   * The event cursor of the message to open at, or `undefined` to open at the bottom. A message
+   * older than the window is reached by paging back through `readEarlierPage`; a cursor no page
+   * holds, down to the start of history, opens at the bottom too.
+   */
+  readonly messageAnchorCursor?: string | undefined;
 }
 
 /**
@@ -38,7 +48,13 @@ export interface TranscriptFeedProps {
  */
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useClock();
-  const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
+  const earlierHistory = useEarlierHistory(props.sessionStore, props.readEarlierPage);
+  const windows = useTranscriptFeedWindows({
+    sessionStore: props.sessionStore,
+    clock,
+    messageAnchorCursor: props.messageAnchorCursor,
+    earlierHistory,
+  });
   const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
@@ -90,6 +106,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     jumpToTail: viewport.jumpToTail,
     collapseAllTerminalRunGroups,
   });
+  const copySelection = useConversationCopy();
 
   // `Load earlier` comes from `history/`, over the producer's verdict about the log. The find box
   // offers none: the rows the cap took are rows the store still holds, so a backward read there
@@ -100,7 +117,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
         <TranscriptFeedHeader findAndJump={findAndJump} />
         <TranscriptWindowNotices droppedRowCount={visible.prunedAwayRows.length} />
       </div>
-      <div className="meridian-transcript-feed__body">
+      <div className="meridian-transcript-feed__body" onCopy={copySelection}>
         <RetainedRowStateProvider channel={retainedStateChannel}>
           <RowRevealProvider channel={windows.reveal.channel}>
             <TranscriptViewport
@@ -110,11 +127,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               firstReadSettled={windows.firstReadSettled}
               hasActiveTurn={transcriptWindow.hasActiveTurn}
               earlierHistoryControl={
-                props.readEarlierPage === undefined ? undefined : (
-                  <LoadEarlier
-                    sessionStore={props.sessionStore}
-                    readEarlierPage={props.readEarlierPage}
-                  />
+                earlierHistory === undefined ? undefined : (
+                  <LoadEarlier earlierHistory={earlierHistory} />
                 )
               }
             />

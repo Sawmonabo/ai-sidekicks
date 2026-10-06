@@ -9,7 +9,7 @@
 import "./ScreenNotice.css";
 
 import { ChordHint } from "../ChordHint/ChordHint.js";
-import { COMMAND_PALETTE_OPEN_CHORD } from "@renderer/lib/chord-format.js";
+import { COMMAND_PALETTE_OPEN_CHORD } from "#renderer/lib/chord-format.js";
 
 /** Centers `children` on a measure with the command palette hint beneath. */
 export function ScreenNotice(props: { readonly children?: React.ReactNode }): React.JSX.Element {

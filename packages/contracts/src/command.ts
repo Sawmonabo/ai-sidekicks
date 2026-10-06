@@ -6,14 +6,18 @@
 // subscription as it prints and is never stored; the stored `command.ended` event settles a
 // row after a reload.
 //
-// This file imports nothing from `event.ts`, which imports the event payload from here.
+// This file imports nothing from `event/session.ts`, which imports the event payload from
+// here.
 import { z } from "zod";
 
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest command id the daemon accepts. */

@@ -1,0 +1,7 @@
+/* A payload's scroll box: bounded, so only the rows in view are drawn. */
+
+.meridian-workflow-payload__window {
+  max-block-size: 60vh;
+  overflow-y: auto;
+  border-radius: var(--meridian-radius-sm);
+}

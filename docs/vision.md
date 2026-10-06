@@ -80,7 +80,7 @@ A session begins on the machine that executes it. Linking a second device change
 - the actual work product — file changes, diffs, plans, and artifacts as they are produced, rendered in the transcript and reviewable inline
 - agent activity as it unfolds — runs starting, commands executing, outputs streaming, subagent fan-outs — identically on every device
 - device presence — which of the user's linked devices are online, and whether the executing machine is reachable
-- history replay for a device that joins late, backfilled from the executing machine's event log (per-daemon logs are the V1 event-sourcing scope)
+- history catch-up for a device that joins late, backfilled from the executing machine's event log (per-daemon logs are the V1 event-sourcing scope)
 
 ### What Every Device Can Do
 
@@ -201,7 +201,7 @@ An event-sourced engine where everything important is an event:
 - device attached
 - device detached
 
-This gives replay, auditability, and determinism.
+This gives rebuildable state, auditability, and determinism.
 
 V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and events reach the user's other devices via the relay per [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md). See [ADR-016: Shared Event-Sourcing Scope](./decisions/016-shared-event-sourcing-scope.md).
 
@@ -272,7 +272,7 @@ If these are modeled cleanly, most major features become straightforward instead
 ### Files Vs Database
 
 - JSON files are fine for prototypes.
-- This product needs queryable history, projections, replay, and permissions.
+- This product needs queryable history, projections, rebuilds, and permissions.
 - The right local persistence choice is SQLite.
 
 ### Agent Chat Vs Workflow Engine
@@ -314,7 +314,7 @@ Every technology below ships in V1; the feature list is [ADR-014: V1 Feature Sco
 | XState v5 | `xstate` | Internal state machine logic — supports ADR-014 V1 Feature 4 (queue, steer, pause, resume) |
 | tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |
 | Cedar | `@cedar-policy/cedar-wasm` | Approval policy engine. The built-in rules are `.cedar` files in the service's own source, compiled into the service with it, changed only by an app update and evaluated in-process by the resident WASM authorizer, per [ADR-012](./decisions/012-cedar-approval-policy-engine.md). |
-| Terminal | `node-pty`, `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Spec-021 §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
+| Terminal | `node-pty`, `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Desktop App Implementation Notes §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
 | Push notifications | `web-push` (Web Push encryption and VAPID headers), `apns2`, FCM's HTTP v1 API through `google-auth-library`, `@hpke/core` with `@hpke/hybridkem-x-wing` | A push to a device with no live connection: the machine decides per device and seals the notice to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push), and the relay adds only the person's own APNs, FCM or VAPID credentials, per [Spec-017 §Cross-Device Delivery](./specs/017-notifications-and-attention-model.md#cross-device-delivery). |
 | OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
 | Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-018](./decisions/018-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
@@ -420,7 +420,7 @@ For details beyond this vision document, see:
 - **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-device local, the Workers relay, the Compose relay, relay-assisted remote access)
 - **Rate limiting:** [Spec-019](./specs/019-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (a per-identity Durable Object on the Workers relay, an in-memory counter on the Compose relay)
 - **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (one Durable Object for the account; Cloudflare publishes a 1,000 rps per-DO soft cap, and the object's sustained budget is 400 requests a second, 2.5× under it; a pre-launch load test of one account with two machines and three devices validates it)
-- **Deleting and exporting data:** [Spec-020](./specs/020-data-retention-and-gdpr.md) (deletion with SQLite's `secure_delete`, data export, purge lifecycle)
+- **Deleting and exporting data:** [Spec-020](./specs/020-data-retention-export-and-deletion.md) (deletion with SQLite's `secure_delete`, data export, purge lifecycle)
 
 ## Strategic Conclusion
 

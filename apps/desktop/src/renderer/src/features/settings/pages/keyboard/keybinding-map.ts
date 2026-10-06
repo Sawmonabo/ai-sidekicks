@@ -1,27 +1,25 @@
 // The keyboard map: which chord runs which command, and how a keystroke becomes one.
 //
-// One row per command with its chord. A chord that collides in the same scope is never
-// accepted without naming the collision, and a binding a platform reserves renders as
-// unavailable with the reason. Every verdict about a binding set is
-// the keybinding service's (`keybinding-audit.ts`); this module only joins the answers to rows.
+// One row per command with its chord. A chord that collides in the same scope is never accepted
+// without naming the collision, and a binding a platform reserves renders as unavailable with the
+// reason. Every verdict about a binding set is the keybinding service's
+// (`registries/keybindings/audit.ts`); this module only joins the answers to rows.
 //
 // {@link readChordFromEvent} is the page's half of the recorder seam: the override store decides
 // whether its chord can be bound. Chords use `KeyboardEvent.code` (`KeyK`, not `k`) where the
 // host supplies one, as `chord-format.ts` does, so a binding stays on the same physical key on
 // AZERTY and Dvorak.
 
-import { reservedChordReason } from "@renderer/registries/keybindings/keybinding-audit.js";
-import {
-  type CommandDefinition,
-  type Keybinding,
-} from "@renderer/registries/commands/command-types.js";
-import type { KeyboardMap } from "@shared/preload-api.js";
+import { reservedChordReason } from "#renderer/registries/keybindings/audit.js";
+import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
+import type { KeyboardMap } from "#shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import {
   HOST_CHORD_PLATFORM,
   formatChordForPlatform,
   type ChordPlatform,
-} from "@renderer/lib/chord-format.js";
+} from "#renderer/lib/chord-format.js";
 
 /** One row of the keyboard map. */
 export interface KeybindingRow {

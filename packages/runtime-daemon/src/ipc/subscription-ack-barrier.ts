@@ -2,7 +2,7 @@
 // subscribe-init response `{ subscriptionId }` reaches the wire before the first
 // `$/subscription/notify` frame for that subscription.
 //
-// * Why a barrier: a source may replay history synchronously inside the handler body,
+// * Why a barrier: a source may send its catch-up history synchronously inside the handler body,
 //   so its emit callback can fire before the handler returns. The gateway writes the init response
 //   in the dispatch promise's `.then` microtask, so an emission sent straight to the producer
 //   would reach the socket ahead of the response. The SDK registers a subscription only after the
@@ -14,8 +14,10 @@
 //   promise microtasks, and `setTimeout(fn, 0)` has a 1 ms minimum. One `setImmediate` suffices.
 // * This relies on the dispatch path resolving the response within microtasks, with no
 //   `setImmediate` or `process.nextTick` deferral between handler return and the gateway's
-//   synchronous `socket.write`. The wire-frame-ordering tests in `handlers/__tests__` catch a
-//   change that adds one.
+//   synchronous `socket.write`. The subscribe handlers' wire-ordering tests catch a change that
+//   adds one.
+
+import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
 
@@ -26,7 +28,7 @@ import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
 export interface AckBarrierProducer<EmissionType> {
   readonly subscriptionId: string;
   next(value: EmissionType): void;
-  cancel(): void;
+  cancel(error?: JsonRpcError): void;
 }
 
 /**
@@ -74,7 +76,7 @@ export function createSubscriptionAckBarrier<EmissionType>(
   let released = false;
   let scheduled = false;
 
-  const runOrQueue = (action: () => void, failureKind: "live-tail" | "replay"): void => {
+  const runOrQueue = (action: () => void, failureKind: "live-tail" | "catch-up"): void => {
     if (!released) {
       pendingActions.push(action);
       return;
@@ -84,7 +86,8 @@ export function createSubscriptionAckBarrier<EmissionType>(
     } catch (err) {
       cancelAfterDetachedFailure(
         producer,
-        `[${methodName}] ${failureKind} event validation/emission failed for subscriptionId=${producer.subscriptionId}; subscription canceled`,
+        `[${methodName}] ${failureKind} event validation/emission failed for subscriptionId=` +
+          `${producer.subscriptionId}; subscription canceled`,
         err,
       );
     }
@@ -115,7 +118,8 @@ export function createSubscriptionAckBarrier<EmissionType>(
         } catch (err) {
           cancelAfterDetachedFailure(
             producer,
-            `[${methodName}] replay event validation/emission failed for subscriptionId=${producer.subscriptionId}; subscription canceled`,
+            `[${methodName}] catch-up event validation/emission failed for subscriptionId=` +
+              `${producer.subscriptionId}; subscription canceled`,
             err,
           );
         }

@@ -3,6 +3,8 @@
 // put its hooks into the wrapper's hook list, and every mount is conditional. The caller must
 // pass a stable body reference, since a component composed inline each render remounts.
 
+import "./EngineMountPoint.css";
+
 /** What this mount is handed: the body once there is one, and what it is handed to render. */
 export interface EngineMountPointProps<TMount extends object> {
   /** The body, or `undefined` while nobody has filled the mount point. */

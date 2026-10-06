@@ -1,15 +1,20 @@
 // The app's routes as data. Hash routing, because the renderer is served from a custom
 // `sidekicks-renderer://` scheme whose handler resolves one document
-// (`main/services/renderer-protocol.ts`); a hash carries state after the `#` without asking it
+// (`main/services/renderer/protocol.ts`); a hash carries state after the `#` without asking it
 // for another path. A malformed hash resolves to the not-found route, never a blank screen.
 
 /** Where the app currently is. A closed union: every arm renders something. */
 export type AppRoute =
   | { readonly kind: "sessions" }
-  | { readonly kind: "session"; readonly sessionId: string }
-  // Bare on purpose: this destination opens the `workflow-builder` pane, which carries its own
-  // context, so a definition id here would be a second locator for something not yet defined.
-  | { readonly kind: "workflows" }
+  // A session, opened at one message where the address names one. The message is its event
+  // cursor, a bare string because the daemon issued it and only the transcript reads it; the
+  // transcript decides what an unknown one shows.
+  | { readonly kind: "session"; readonly sessionId: string; readonly messageAnchorCursor?: string }
+  // Two arms, as Settings has: `#/workflows` names no tab, and `#/workflows/runs` names the Runs
+  // tab, with one run's page under it. A run id is a bare string because the run page decides
+  // what an unknown one shows.
+  | { readonly kind: "workflows"; readonly tab?: undefined }
+  | { readonly kind: "workflows"; readonly tab: "runs"; readonly runId?: string }
   // Two arms, not one optional member: `#/settings` carries no page, so a selection without a
   // page is a value `formatRoute` cannot write down; the split makes it unrepresentable. The
   // selection is a bare string because `settings/` sits above this module and decides what a
@@ -56,14 +61,11 @@ export function parseRoute(hash: string): AppRoute {
   }
 
   if (head === "session") {
-    const [sessionSegment] = rest;
-    const sessionId =
-      sessionSegment === undefined || rest.length > 1 ? undefined : decodeSegment(sessionSegment);
-    return sessionId === undefined ? notFound(hash) : { kind: "session", sessionId };
+    return parseSessionRoute(rest, hash);
   }
 
   if (head === "workflows") {
-    return rest.length === 0 ? { kind: "workflows" } : notFound(hash);
+    return parseWorkflowsRoute(rest, hash);
   }
 
   if (head === "settings") {
@@ -108,10 +110,20 @@ export function formatRoute(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
-    case "session":
-      return `#/session/${encodeURIComponent(route.sessionId)}`;
-    case "workflows":
-      return "#/workflows";
+    case "session": {
+      const sessionAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
+      return route.messageAnchorCursor === undefined
+        ? sessionAddress
+        : `${sessionAddress}/${encodeURIComponent(route.messageAnchorCursor)}`;
+    }
+    case "workflows": {
+      if (route.tab === undefined) {
+        return "#/workflows";
+      }
+      return route.runId === undefined
+        ? "#/workflows/runs"
+        : `#/workflows/runs/${encodeURIComponent(route.runId)}`;
+    }
     case "settings": {
       if (route.page === undefined) {
         return "#/settings";
@@ -122,7 +134,10 @@ export function formatRoute(route: AppRoute): string {
         : `${pageAddress}/${encodeURIComponent(route.selection)}`;
     }
     case "pane-harness":
-      return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
+      return (
+        `#/pane-harness/${encodeURIComponent(route.paneKind)}` +
+        `/${encodeURIComponent(route.sessionId)}`
+      );
     case "not-found":
       return route.attempted;
   }
@@ -140,6 +155,45 @@ function decodeSegment(segment: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * `#/session/<sessionId>` and `#/session/<sessionId>/<messageAnchorCursor>`, and nothing deeper.
+ */
+function parseSessionRoute(rest: readonly string[], hash: string): AppRoute {
+  const [sessionSegment, messageSegment] = rest;
+  if (sessionSegment === undefined || rest.length > 2) {
+    return notFound(hash);
+  }
+  const sessionId = decodeSegment(sessionSegment);
+  if (sessionId === undefined) {
+    return notFound(hash);
+  }
+  if (messageSegment === undefined) {
+    // The key is omitted, not set to `undefined`, so the round trip stays exact.
+    return { kind: "session", sessionId };
+  }
+  const messageAnchorCursor = decodeSegment(messageSegment);
+  return messageAnchorCursor === undefined
+    ? notFound(hash)
+    : { kind: "session", sessionId, messageAnchorCursor };
+}
+
+/** `#/workflows`, `#/workflows/runs` and `#/workflows/runs/<runId>`, and nothing deeper. */
+function parseWorkflowsRoute(rest: readonly string[], hash: string): AppRoute {
+  const [tabSegment, runSegment] = rest;
+  if (tabSegment === undefined) {
+    return { kind: "workflows" };
+  }
+  if (tabSegment !== "runs" || rest.length > 2) {
+    return notFound(hash);
+  }
+  if (runSegment === undefined) {
+    // The key is omitted, not set to `undefined`, so the round trip stays exact.
+    return { kind: "workflows", tab: "runs" };
+  }
+  const runId = decodeSegment(runSegment);
+  return runId === undefined ? notFound(hash) : { kind: "workflows", tab: "runs", runId };
 }
 
 function notFound(attempted: string): AppRoute {

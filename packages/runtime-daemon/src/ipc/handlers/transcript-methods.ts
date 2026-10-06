@@ -18,15 +18,15 @@ import {
   TRANSCRIPT_SEARCH_METHOD,
 } from "@ai-sidekicks/contracts/transcript/methods";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   TranscriptMethodName,
   TranscriptMethodRequest,
   TranscriptMethodResponse,
 } from "@ai-sidekicks/contracts/transcript/methods";
 
-import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content-read.js";
+import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content/read.js";
 import { RegistryDispatchError } from "../registry.js";
 
 // ----------------------------------------------------------------------------

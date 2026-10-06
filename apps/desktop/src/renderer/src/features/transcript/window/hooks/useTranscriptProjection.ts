@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { selectTranscript } from "@renderer/store/session/session-selectors.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { TranscriptRowRetention } from "../row-retention.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcript-window.js";
 

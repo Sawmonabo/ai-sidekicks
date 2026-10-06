@@ -9,13 +9,9 @@
 import { z } from "zod";
 
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
-import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "../session.js";
+import { GitObjectIdSchema, type GitObjectId } from "../repo/git-reads.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { ChangeRequestNumberSchema, HostHandleSchema, HostingAddressSchema } from "./shared.js";
 
 // Closed sets

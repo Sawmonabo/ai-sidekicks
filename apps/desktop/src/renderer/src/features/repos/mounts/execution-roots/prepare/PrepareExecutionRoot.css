@@ -1,0 +1,33 @@
+/*
+ * Preparing an execution root. The buttons, the branch field and the prepared line wear the
+ * shared treatments in `styles/action-buttons.css` and `styles/form.css`; here are the summary
+ * and the held line.
+ */
+
+.meridian-prepare-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-prepare-root__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-prepare-root__line {
+  color: var(--meridian-text-faint);
+}
+
+/* Why the preparation is closed, restated from the state that closed it. Muted, not red: that
+   state is already reported in its own color on this card, and a second alarm reads as two
+   problems. */
+.meridian-prepare-root__held {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

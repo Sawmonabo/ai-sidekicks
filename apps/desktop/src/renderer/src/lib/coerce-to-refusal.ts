@@ -1,10 +1,10 @@
 // A thrown or rejected value, coerced into the one refusal shape. A mutation, which has no read
-// to route through, needs the same translation as `store/reads/push-driven-read.ts`.
+// to route through, needs the same translation as `store/reads/push-driven.ts`.
 
-import { RefusalError, isRefusal, type Refusal } from "./refusal.js";
-import { normalizeWireRejection } from "./wire-rejection.js";
-import { wireRejectionToError } from "./wire-errors.js";
-import { READ_FAILED } from "./reads/read-failure-codes.js";
+import { RefusalError, isRefusal, type Refusal } from "./refusal/contract.js";
+import { normalizeWireRejection } from "./wire/rejection.js";
+import { wireRejectionToError } from "./wire/errors.js";
+import { READ_FAILED } from "./reads/failure-codes.js";
 
 /**
  * The refusal a rejection is, in the app's one refusal shape.

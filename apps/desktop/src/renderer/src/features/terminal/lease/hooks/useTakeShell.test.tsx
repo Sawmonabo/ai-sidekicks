@@ -6,7 +6,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { settle as settleReactWork } from "@test/helpers/settle.js";
+import { settle as settleReactWork } from "#test/helpers/settle.js";
 import {
   HeldLeaseCalls,
   OTHER_SESSION_ID,

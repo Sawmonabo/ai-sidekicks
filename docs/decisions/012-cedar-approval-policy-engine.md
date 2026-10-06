@@ -48,7 +48,7 @@ The rules decide only the app's own tools: workflows, messaging other sessions a
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Cedar's principal-action-resource-context model can express every action of the app's own tools without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
+| 1 | Cedar's principal-action-resource-context model can express every action of the app's own tools without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for tools that do not fit, fragmenting the engine. |
 | 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; the microsecond policy-evaluation benchmarks are **native-engine** figures — the WASM path (including JS↔WASM marshaling) has no published benchmark and stays unvalidated until the end-to-end benchmark in §Decision Validation is run. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
 | 3 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
 
@@ -66,7 +66,7 @@ The rules decide only the app's own tools: workflows, messaging other sessions a
 - **Reversal cost:** Medium. Policies and their evaluation sites are well isolated, but every approval path calls the policy engine, so replacement touches each integration.
 - **Blast radius:** Approval service, CLI/desktop approval prompts, approval records, and any runtime code that branches on approval decisions.
 - **Migration path:** Every check goes through the daemon's one permission-check service, so replacing Cedar means rewriting the `.cedar` rules for the new engine, swapping the evaluator behind that service, and passing the same reference cases, shipped in one app update.
-- **Point of no return:** The rule set grows with each approval category, so a later replacement means translating every rule.
+- **Point of no return:** The rule set grows with each of the app's own tools, so a later replacement means translating every rule.
 
 ## Consequences
 

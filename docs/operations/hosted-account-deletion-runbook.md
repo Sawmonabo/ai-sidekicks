@@ -2,9 +2,9 @@
 
 ## Purpose
 
-A break-glass procedure for the relay's owner: delete a hosted account by hand, in the relay's own Postgres database, only when the authenticated path is genuinely impossible (for example, the owner has no passkey left to verify a sign-in). The relay is the person's own, the Workers relay in their Cloudflare account or the Compose relay on their server ([ADR-019 §The Two Deployment Options](../decisions/019-v1-deployment-model-and-oss-license.md#the-two-deployment-options)), so the person who runs it is the account's owner, entitled by holding that Cloudflare account or server; both relays keep the account in Postgres, the Compose stack's own or the one the Workers relay reaches through Hyperdrive. It is never a second way to delete an account. The one way is `sidekicks delete-account`, over the control plane's `account.delete`: an owner who has lost every machine installs the command-line tool on another computer, runs `sidekicks sign-in` (the device-code sign-in), confirms it with their passkey on the device-code page in the browser, and runs `sidekicks delete-account`. The procedure does on the control plane what `account.delete` does ([Spec-020 §Erasure Paths](../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 2): it revokes every refresh-token family the account holds, then hard-deletes the account's rows across the `REFERENCES users(id)` inbound-FK closure in one Postgres transaction, anonymizing the rows that keep an independent retention basis.
+A break-glass procedure for the relay's owner: delete a hosted account by hand, in the relay's own Postgres database, only when the authenticated path is genuinely impossible (for example, the owner has no passkey left to verify a sign-in). The relay is the person's own, the Workers relay in their Cloudflare account or the Compose relay on their server ([ADR-019 §The Two Deployment Options](../decisions/019-v1-deployment-model-and-oss-license.md#the-two-deployment-options)), so the person who runs it is the account's owner, entitled by holding that Cloudflare account or server; both relays keep the account in Postgres, the Compose stack's own or the one the Workers relay reaches through Hyperdrive. It is never a second way to delete an account. The one way is `sidekicks delete-account`, over the control plane's `account.delete`: an owner who has lost every machine installs the command-line tool on another computer, runs `sidekicks sign-in` (the device-code sign-in), confirms it with their passkey on the device-code page in the browser, and runs `sidekicks delete-account`. The procedure does on the control plane what `account.delete` does ([Spec-020 §Erasure Paths](../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path 2): it revokes every refresh-token family the account holds, then hard-deletes the account's rows across the `REFERENCES users(id)` inbound-FK closure in one Postgres transaction, anonymizing the rows that keep an independent retention basis.
 
-It erases no machine. A machine's own data is erased only on that machine, with `Erase all data` or `sidekicks erase-data` ([Spec-020 §Erasure Paths](../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 1), and nothing in this procedure reaches it.
+It erases no machine. A machine's own data is erased only on that machine, with `Erase all data` or `sidekicks erase-data` ([Spec-020 §Erasure Paths](../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path 1), and nothing in this procedure reaches it.
 
 ## Symptoms
 
@@ -30,7 +30,7 @@ Establish **scope** before changing anything — separate identification from re
 
 ## Recovery Steps
 
-Revoke first, then delete in one transaction. The order is load-bearing: revoking before the rows go writes every family to the denylist, so every device is refused at its next refresh before the account's rows go, and once they are gone, the account and the machine keys its tokens are bound to with them, none of its tokens can be traded ([Spec-020 §Ordering And Atomicity](../specs/020-data-retention-and-gdpr.md#ordering-and-atomicity)). Both steps are idempotent, so a failed run is re-executed from the top.
+Revoke first, then delete in one transaction. The order is load-bearing: revoking before the rows go writes every family to the denylist, so every device is refused at its next refresh before the account's rows go, and once they are gone, the account and the machine keys its tokens are bound to with them, none of its tokens can be traded ([Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity)). Both steps are idempotent, so a failed run is re-executed from the top.
 
 ### Revoke the account's refresh families
 
@@ -45,7 +45,7 @@ Run as a **single Postgres transaction**: the whole step succeeds, or it rolls b
 1. Hard-DELETE the account's rows from the no-retention-basis tables present in your deployment:
    - **`devices`, `runtime_nodes` and `trust_statements`** — the account's linked devices and its machines' registrations, each with its public key, and its chain of signed trust statements ([shared-postgres-schema.md §Devices, Machines And The Statement Chain](../architecture/schemas/shared-postgres-schema.md#devices-machines-and-the-statement-chain-plan-025)); `DELETE FROM <table> WHERE user_id = :pid;` (safe at live-verification semantics: every machine verifies the chain it keeps itself).
    - **Plain `user_id` tables** — `webauthn_credentials` and `webauthn_challenges` (enrolled passkeys and in-flight ceremony challenges, likewise safe), `refresh_token_families` (the account's live sign-ins; step 1's revocations have already removed them, so this finds none), `revoked_token_families` (the account's revoked families, kept for the account's life): `DELETE FROM <table> WHERE user_id = :pid;`.
-2. Hard-DELETE the anchor: `DELETE FROM users WHERE id = :pid;`. This fires `ON DELETE SET NULL` on the one anonymize-class FK, `revoked_jtis.user_id` ([Spec-020 §Erasure Paths](../specs/020-data-retention-and-gdpr.md#erasure-paths) FK-safety; Plan-019 D-019-3).
+2. Hard-DELETE the anchor: `DELETE FROM users WHERE id = :pid;`. This fires `ON DELETE SET NULL` on the one anonymize-class FK, `revoked_jtis.user_id` ([Spec-020 §Erasure Paths](../specs/020-data-retention-export-and-deletion.md#erasure-paths) FK-safety; Plan-019 D-019-3).
 3. If any statement fails (FK constraint, row lock, connection loss), roll back and do not retry piecemeal. An FK violation on the `users` DELETE means a `NOT NULL NO ACTION` reference survived step 1 — a table in the closure was skipped or its predicate missed a row. Re-check Detection step 2 against the schema, then re-run this step.
 
 _Idempotency:_ a DELETE of an already-deleted row affects zero rows.
@@ -71,13 +71,13 @@ The deletion is complete when **all** of the following hold:
 
 ## Related Specs
 
-- [Spec-020 — Data Retention, Export And Deletion](../specs/020-data-retention-and-gdpr.md) — §Erasure Paths (Path 2), §PII Data Map, §Ordering And Atomicity.
-- [Spec-016 — Identity and User State](../specs/016-identity-and-user-state.md) — the hosted account, its devices and its sign-ins.
+- [Spec-020 — Data Retention, Export And Deletion](../specs/020-data-retention-export-and-deletion.md) — §Erasure Paths (Path 2), §PII Data Map, §Ordering And Atomicity.
+- [Spec-016 — Hosted Account and Identity](../specs/016-hosted-account-and-identity.md) — the hosted account, its devices and its sign-ins.
 
 ## Related Plans
 
-- [Plan-015 — Identity and User State](../plans/015-identity-and-user-state.md) — `account.delete`, which this procedure performs by hand, and the token denylist.
-- [Plan-019 — Data Retention, Export And Deletion](../plans/019-data-retention-and-gdpr.md) — the Path-2 closure `account.delete` covers (CP-019-3) and the `ON DELETE SET NULL` severance (D-019-3).
+- [Plan-015 — Hosted Account and Identity](../plans/015-hosted-account-and-identity.md) — `account.delete`, which this procedure performs by hand, and the token denylist.
+- [Plan-019 — Data Retention, Export And Deletion](../plans/019-data-retention-export-and-deletion.md) — the Path-2 closure `account.delete` covers (CP-019-3) and the `ON DELETE SET NULL` severance (D-019-3).
 
 ## Who Runs It And Where To Report
 

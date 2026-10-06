@@ -5,8 +5,8 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
-import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 
 /** One provider-attributed subagent, keyed as the orchestration contract keys it. */
 export interface SubagentIdentity {

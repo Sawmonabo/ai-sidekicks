@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { encodeBase64 } from "./base64.js";
-import { BASE64_ENCODE_STRIDE_BYTES } from "./attachment-caps.js";
+import { BASE64_ENCODE_STRIDE_BYTES } from "./caps.js";
 
 /** Decode with the platform, so the assertion is against RFC 4648 and not against us. */
 function decodeWithPlatform(encoded: string): Uint8Array<ArrayBuffer> {

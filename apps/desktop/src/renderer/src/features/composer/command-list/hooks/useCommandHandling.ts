@@ -3,17 +3,14 @@
 
 import { useCallback, useMemo } from "react";
 
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
-import type { ConsoleCommandPredicate } from "../../draft-line/send-resolutions.js";
-import { createConsoleCommandExecutor } from "../console-command-executor.js";
-import { recognizeConsoleCommand } from "../console-command-recognizer.js";
-import {
-  LINE_READING_COMMAND_IDS,
-  type ComposerCommandLineHandlers,
-} from "../composer-command-line-handlers.js";
-import { readComposerCommands } from "../composer-commands.js";
+import type { ConsoleCommandPredicate } from "../../draft-line/send/resolutions.js";
+import { createConsoleCommandExecutor } from "../console/executor.js";
+import { recognizeConsoleCommand } from "../console/recognizer.js";
+import { LINE_READING_COMMAND_IDS, type ComposerCommandLineHandlers } from "../line-handlers.js";
+import { readComposerCommands } from "../registry-view.js";
 
 /**
  * What the send bar is handed about a typed `/name`. The recognizer and executor read the same

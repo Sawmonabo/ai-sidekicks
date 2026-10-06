@@ -2,7 +2,7 @@
 
 import { createElement } from "react";
 
-import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import { SessionsFlyout } from "../SessionsFlyout.js";
 
 /** Register the sessions screen. */

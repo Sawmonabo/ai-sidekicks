@@ -3,9 +3,10 @@
 // label on a tinted ground, rows mounted and unmounted under the reader, a hover-revealed
 // control shipped without a name.
 //
-// The pane is mounted directly, not through `AppProviders`. The store is opened on the
-// scenario's own log because content delivered by scripted beats depends on how far a frozen
-// clock was advanced, so the amount of transcript under test would be an accident of the test.
+// The pane is mounted directly, not through `AppProviders`, under the window's one announcer.
+// The store is opened on the scenario's own log because content delivered by scripted beats
+// depends on how far a frozen clock was advanced, so the amount of transcript under test would be
+// an accident of the test.
 //
 // Everything else is the real composition: `SessionStore`, the projection, the
 // `@tanstack/react-virtual` instance, the registered row renderer, and the
@@ -17,22 +18,25 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, renderSettled } from "../helpers/app-harness.js";
+import { renderSettled } from "../helpers/app/harness.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
-import type { Scenario } from "../../fixtures/scenario.js";
-import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
-import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { FixtureBridgeProvider } from "../helpers/app/frame-fixtures.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
+import { TRANSCRIPT_STATES_SCENARIO } from "#fixtures/scenarios/transcript-states.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 // Imported deeply, not through the feature's `index.ts`: widening the public entry for one test
 // would be wrong.
-import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
-import { TranscriptPane } from "@renderer/features/transcript/TranscriptPane.js";
-import { transcriptPaneContext } from "@renderer/features/transcript/TranscriptPane.test-support.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
-import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
+import { registerTranscriptRows } from "#renderer/features/transcript/contributions/rows.js";
+import { TranscriptPane } from "#renderer/features/transcript/TranscriptPane.js";
+import { transcriptPaneContext } from "#renderer/features/transcript/TranscriptPane.test-support.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
+import { SessionScreenContainer } from "#renderer/features/transcript/SessionScreenContainer.js";
 
 /**
  * The cursor a scenario's log is applied on top of. Zero rather than `-1`, because
@@ -66,9 +70,11 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario })}>
-      <SessionScreenContainer>
-        <TranscriptPane context={transcriptPaneContext(sessionStore, scenario.sessionId)} />
-      </SessionScreenContainer>
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <SessionScreenContainer>
+          <TranscriptPane context={transcriptPaneContext(sessionStore, scenario.sessionId)} />
+        </SessionScreenContainer>
+      </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
   return container;
@@ -104,7 +110,7 @@ describe("accessibility — the transcript", () => {
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
 
-    it(`has no axe violation over the transcript's empty state in the ${scheme} scheme`, async () => {
+    it(`has no axe violation on the transcript's empty state in the ${scheme} scheme`, async () => {
       await emulateSystemScheme(scheme);
       const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
 

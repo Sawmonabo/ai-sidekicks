@@ -152,9 +152,10 @@ function findFusePostureViolations(
   for (const [fuse, requiredState] of requiredPosture) {
     const actualState = wire[fuse];
     if (actualState !== requiredState) {
+      const carried = actualState === undefined ? "nothing" : (FuseState[actualState] ?? "?");
       violations.push(
         `${FuseV1Options[fuse] ?? String(fuse)}: required ${FuseState[requiredState] ?? "?"}, ` +
-          `artifact carries ${actualState === undefined ? "nothing" : (FuseState[actualState] ?? "?")}`,
+          `artifact carries ${carried}`,
       );
     }
   }

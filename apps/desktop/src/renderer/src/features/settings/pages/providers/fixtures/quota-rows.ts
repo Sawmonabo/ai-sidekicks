@@ -2,7 +2,7 @@
 //
 // Pure derivations over one reading (which rows belong to this account, whether an observation
 // is behind its account, how old an observation is, how far off a re-login estimate is). Which
-// reading is current is not one of them: `store/provider-accounts/provider-account-fold.ts` is
+// reading is current is not one of them: `store/provider-accounts/fold.ts` is
 // the one implementation of quota supersession, so rows are selected here and never folded, and
 // the parameter is the readout whose `usageWindows` is the fold's superseded set. No health
 // verdict, readiness state or remedy is computed here; they arrive decided and render as came.
@@ -11,10 +11,10 @@ import type {
   ProviderAccount,
   ProviderAccountUsageWindow,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
-import type { ProviderAccountReadout } from "../provider-account-readout.js";
-import { MILLISECONDS_PER_DAY, parseInstant } from "@renderer/lib/instant.js";
+import type { ProviderAccountReadout } from "../account-readout.js";
+import { MILLISECONDS_PER_DAY, parseInstant } from "#renderer/lib/instant.js";
 
 /**
  * The current reading for one `(accountId, limitId)` pair, plus whether it is behind.

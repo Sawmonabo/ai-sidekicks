@@ -71,7 +71,7 @@ The single-device case, the person at the desktop app on the machine that runs t
 | --- | --- | --- | --- | --- |
 | Session model becomes over-complex for the common single-device flow | Med | Med | Product usage shows excessive setup and thin sessions | Keep defaults minimal: one owner, the machine it was started on, no setup step |
 | Teams still use agent or thread language inconsistently | Med | High | Spec wording and implementation names drift | Enforce glossary and domain-doc review gates |
-| Session projections become performance-heavy | Low | Med | Projection lag and large replay windows | Add compaction and projection tuning without changing session semantics |
+| Session projections become performance-heavy | Low | Med | Projection lag and large rebuild windows | Add compaction and projection tuning without changing session semantics |
 
 ## Reversibility Assessment
 

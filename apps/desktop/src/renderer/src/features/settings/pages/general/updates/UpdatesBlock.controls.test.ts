@@ -1,6 +1,7 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
-// offered before the download finishes and needs no confirmation, and the automatic-check
-// switch. The doubles are in `updates-block.test-support.tsx`.
+// offered before the download finishes and needs no confirmation, a call main does not answer is
+// drawn in the block's own words, and the automatic-check switch. The doubles are in
+// `UpdatesBlock.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -8,7 +9,7 @@ import {
   pressControl,
   renderSettled,
   updaterReporting,
-} from "./updates-block.test-support.js";
+} from "./UpdatesBlock.test-support.js";
 
 describe("the updates block — nothing downloads without a press", () => {
   it("offers the download on a found update, and downloads on a press", async () => {
@@ -49,6 +50,43 @@ describe("the updates block — nothing restarts without a press", () => {
   });
 });
 
+/** What Electron rejects a call with when main has no handler on its channel. */
+function noHandlerFor(channel: string): Error {
+  return new Error(
+    `Error invoking remote method '${channel}': Error: No handler registered for '${channel}'`,
+  );
+}
+
+describe("the updates block — a call main does not answer is drawn in the block's words", () => {
+  it("draws a refused check under the controls, never the message that crossed IPC", async () => {
+    const requestCheck = vi.fn(() => Promise.reject(noHandlerFor("update.requestCheck")));
+    const { block } = await renderSettled(updaterReporting({ status: "idle" }, { requestCheck }));
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
+
+    await pressControl(block, "Check now");
+
+    expect(requestCheck).toHaveBeenCalledTimes(1);
+    const refusal = block.querySelector("[data-refusal-code]");
+    expect(refusal?.getAttribute("data-refusal-code")).toBe("updater-control-failed");
+    expect(refusal?.textContent).toBe("Could not check for updates.");
+    expect(block.textContent).not.toContain("update.requestCheck");
+    const labels = [...block.querySelectorAll("button")].map((button) => button.textContent);
+    expect(labels).toContain("Check now");
+  });
+
+  it("draws a refused read in place of the state, never the message that crossed IPC", async () => {
+    const { block } = await renderSettled({
+      ...updaterReporting({ status: "idle" }),
+      getState: () => Promise.reject(noHandlerFor("update.getState")),
+    });
+
+    expect(block.querySelector("[data-refusal-code]")?.textContent).toBe(
+      "Could not read the update status.",
+    );
+    expect(block.textContent).not.toContain("update.getState");
+  });
+});
+
 describe("the updates block — checking on its own", () => {
   it("draws the switch on by default, and a press turns it off", async () => {
     const choose = vi.fn();
@@ -59,7 +97,7 @@ describe("the updates block — checking on its own", () => {
     expect(block.querySelector(".meridian-settings-row__label")?.textContent).toBe(
       "Check for updates automatically",
     );
-    const control = block.querySelector<HTMLElement>(".meridian-settings-row__switch");
+    const control = block.querySelector<HTMLElement>('[role="switch"]');
     expect(control?.getAttribute("aria-checked")).toBe("true");
 
     act(() => {

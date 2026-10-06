@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 
-import { requestReadOnWindowFocus, type ReadTriggerTarget } from "../read-triggers.js";
-import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
+import { requestReadOnWindowFocus, type ReadTriggerTarget } from "../triggers.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import type { TransportReconnectObservable } from "#renderer/lib/transport-reconnect.js";
 
 /**
  * The three triggers that are properties of the window rather than of a session.
@@ -19,13 +20,14 @@ export function useWindowReadTriggers(
   reader: ReadTriggerTarget,
   transportReconnect: TransportReconnectObservable,
 ): void {
+  const ownerWindow = useOwnerWindow();
   useEffect(() => {
     // In an effect, not the render body: a discarded render would otherwise call the wire for a
     // view nobody saw.
     reader.requestRead("subscribe");
   }, [reader]);
 
-  useEffect(() => requestReadOnWindowFocus(reader), [reader]);
+  useEffect(() => requestReadOnWindowFocus(reader, ownerWindow), [reader, ownerWindow]);
 
   useEffect(
     () =>

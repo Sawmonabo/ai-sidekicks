@@ -3,18 +3,15 @@
 // too. The read re-reads whenever a session store moves, so a hook latching a flag at its first
 // settlement would swallow a later coverage gap.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { refuse } from "@renderer/lib/refusal.js";
-import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import {
-  AttentionSummary,
-  type AttentionReading,
-} from "@renderer/store/attention/attention-summary.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
+import { LiveAnnouncer } from "#renderer/components/LiveAnnouncer/announcer.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { AttentionSummary, type AttentionReading } from "#renderer/store/attention/summary.js";
 import { useAttentionSettlementAnnouncement } from "./useAttentionSettlementAnnouncement.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";

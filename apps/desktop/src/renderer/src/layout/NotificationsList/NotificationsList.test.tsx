@@ -2,19 +2,19 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { settle } from "@test/helpers/settle.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { settle } from "#test/helpers/settle.js";
+import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { NotificationsList } from "./NotificationsList.js";
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
-} from "@renderer/store/attention/hooks/useAttentionProjection.js";
+} from "#renderer/store/attention/hooks/useAttentionProjection.js";
 
 function item(): AttentionItem {
   return {
@@ -54,6 +54,7 @@ describe("what makes the attention read run again", () => {
         id: "event-1",
         sessionId,
         sequence: 1,
+        cursor: "cursor-at-1",
         kind: "run.queued",
         occurredAt: "2026-01-01T10:06:00.000Z",
       },

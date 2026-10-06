@@ -1,0 +1,109 @@
+/* A mounted repository's card. Its open-changes control wears the shared action button from
+ * `styles/action-buttons.css`. */
+
+/* One mount card. A withheld card is marked by its edge, not by dimming, since its facts are
+   the ones a reader needs most. */
+.meridian-mount-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-mount-card--withheld {
+  border-color: var(--meridian-red-mark);
+}
+
+.meridian-mount-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+/* The resolved root truncates at the measure through `WireFigure`'s `--truncate` modifier,
+   requested in `MountCard.tsx`; no rule for it here. */
+.meridian-mount-card__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-mount-card__copy:hover {
+  color: var(--meridian-text);
+  border-color: var(--meridian-edge);
+}
+
+.meridian-mount-card__axes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mount-card__checked-at {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mount-card__sentence {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__withheld {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* Provenance is collapsed by default; the two status axes and the root are not. */
+.meridian-mount-card__provenance-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-mount-card__provenance-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-mount-card__provenance-list > dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mount-card__provenance-list > dd {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/* A workspace and its open-changes control are one subject, so their gap is tighter than the
+   gap between workspaces. */
+.meridian-mount-card__workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}

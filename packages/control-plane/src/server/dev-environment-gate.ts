@@ -21,6 +21,8 @@ export function checkDevEnvironment(env: DevEnvironmentEnv): GateResult {
   const observed = env.ENVIRONMENT === undefined ? "undefined" : `'${env.ENVIRONMENT}'`;
   return {
     ok: false,
-    reason: `${ENVIRONMENT_KEY} allow-list rejected ${observed} (only '${DEV_ENVIRONMENT_VALUE}' passes)`,
+    reason:
+      `${ENVIRONMENT_KEY} allow-list rejected ${observed} ` +
+      `(only '${DEV_ENVIRONMENT_VALUE}' passes)`,
   };
 }

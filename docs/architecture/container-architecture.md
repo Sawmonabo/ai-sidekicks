@@ -25,7 +25,7 @@ The system is split so that a user's devices can reach a session from anywhere w
 | `Desktop Main Process` | Windowing, native dialogs, updater flow, daemon supervision, preload bridge. |
 | `Desktop Renderer` | Session UI, orchestration UI, diff and artifact views, approvals, linked devices, and workflow authoring. |
 | `CLI Client` | Scriptable client surface over the same client SDK and daemon contract. |
-| `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, replay, and local policy enforcement. |
+| `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, rebuild, and local policy enforcement. |
 | `Control Plane` | The person's own control plane and relay: identity, the account's statement chain, the device and machine registry, machine registration, the relay between each device and each machine, delivery of push notices each machine has already sealed, and the web client. It keeps no session record. |
 | `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
 | `Shared Metadata Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration. |
@@ -74,7 +74,7 @@ The monorepo layout for implementation is:
 
 - Renderer remains open while the daemon disconnects; the working line says so once, with `Retry`, while the main process reconnects, and nothing else changes. Only a daemon outside the app's version range makes the renderer read-only.
 - Control-plane outage leaves execution on the machine available but blocks device linking and every remote device's reach to the machine.
-- Local event store corruption prevents replay until recovery tooling repairs or restores it.
+- Local event store corruption prevents rebuild until recovery tooling repairs or restores it.
 
 ## Related Domain Docs
 
@@ -85,7 +85,7 @@ The monorepo layout for implementation is:
 ## Related Specs
 
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 
 ## Related ADRs
 

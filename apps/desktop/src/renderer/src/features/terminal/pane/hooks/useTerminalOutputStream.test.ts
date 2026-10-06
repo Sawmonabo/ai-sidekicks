@@ -4,7 +4,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { terminalFixtureBridge } from "../components/TerminalPane.test-support.js";
 import { useTerminalOutputStream, type TerminalOutputStream } from "./useTerminalOutputStream.js";
 

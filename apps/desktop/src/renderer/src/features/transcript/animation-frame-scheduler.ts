@@ -7,16 +7,16 @@
 // until empty lets one lane's re-arm hold the frame open; a throw is contained so delivery does
 // not depend on submission order.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import {
   readPerformanceMeterTime,
   recordFrameTime,
   retireFrameTimeSeries,
   retireRevealDrainSeries,
-} from "@renderer/lib/performance-meters/performance-meters.js";
-import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+} from "#renderer/lib/performance-meters/registry.js";
+import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 
 /** The frame's phases in run order; a phase's index is its precedence. */
 export const ANIMATION_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;
@@ -71,7 +71,8 @@ export class AnimationFrameScheduler {
 
   public constructor(options: AnimationFrameSchedulerOptions) {
     this.#clock = options.clock;
-    this.#schedulerId = `${FRAME_TIME_METER_LABEL}#${String(AnimationFrameScheduler.#nextSchedulerOrdinal)}`;
+    this.#schedulerId =
+      `${FRAME_TIME_METER_LABEL}#` + String(AnimationFrameScheduler.#nextSchedulerOrdinal);
     AnimationFrameScheduler.#nextSchedulerOrdinal += 1;
   }
 
@@ -151,7 +152,7 @@ export class AnimationFrameScheduler {
     return pending;
   }
 
-  /** Watch quarantined tasks. No replay: a diagnostic is an event, not a state. */
+  /** Watch quarantined tasks. No resend: a diagnostic is an event, not a state. */
   public subscribeToDiagnostics(sink: (diagnostic: AnimationFrameDiagnostic) => void): Unsubscribe {
     return this.#diagnosticEmitter.subscribe(sink);
   }
@@ -236,7 +237,9 @@ export class AnimationFrameScheduler {
       this.#diagnosticEmitter.emit({
         phase,
         taskKey,
-        detail: `frame task threw and was quarantined; the phase finished: ${lossyStringify(frameTaskFailure)}`,
+        detail:
+          "frame task threw and was quarantined; the phase " +
+          `finished: ${lossyStringify(frameTaskFailure)}`,
       });
     }
   }

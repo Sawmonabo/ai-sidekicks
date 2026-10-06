@@ -41,13 +41,13 @@ describe("the settings file", () => {
     expect(parseMachineSettingsFile([]).success).toBe(false);
   });
 
-  it("refuses a branch-name pattern without exactly one {title} or with two {session}", () => {
+  it("refuses a branch-name pattern without exactly one {title}, whatever its {session}", () => {
     expect(parseMachineSettingsFile({ branchNamePattern: "sawmon/{title}" }).success).toBe(true);
     expect(parseMachineSettingsFile({ branchNamePattern: "sawmon/{session}" }).success).toBe(false);
     expect(parseMachineSettingsFile({ branchNamePattern: "{title}/{title}" }).success).toBe(false);
     expect(
       parseMachineSettingsFile({ branchNamePattern: "{session}/{session}/{title}" }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

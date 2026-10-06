@@ -4,8 +4,8 @@
 // It is not any of the app's empty states (not loaded, empty, error, not checked, unknown),
 // since what is missing is a module, not data.
 
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import type { PaneContext } from "./pane-context.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import type { PaneContext } from "./context.js";
 
 /** Props for {@link PendingPaneBody}. */
 export interface PendingPaneBodyProps {

@@ -11,7 +11,7 @@
 // A leap second (`23:59:60Z`) reads as malformed because the platform's epoch cannot represent it;
 // it fails closed, as an em dash and a row sorted last, never a wrong instant.
 
-import { lossyStringify } from "./wire-errors.js";
+import { lossyStringify } from "./wire/errors.js";
 
 /**
  * RFC 3339 section 5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case),
@@ -22,8 +22,10 @@ import { lossyStringify } from "./wire-errors.js";
  * It checks digit groups only; {@link parseInstant} checks the calendar, the clock and the
  * {@link InstantOffsetPolicy}. A `"utc-only"` reader narrows this one pattern, never a second.
  */
-const RFC_3339_DATE_TIME =
-  /^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
+const RFC_3339_DATE_TIME = new RegExp(
+  String.raw`^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})` +
+    String.raw`(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$`,
+);
 
 /**
  * Milliseconds in a second. The app does arithmetic only on epoch milliseconds, so every

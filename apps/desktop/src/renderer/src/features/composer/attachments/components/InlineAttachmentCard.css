@@ -1,0 +1,9 @@
+/* The wrapper drawn around an attachment card; it owns the card's outer spacing so the
+ * composer and the transcript can space it differently. */
+
+/* The wrapper owns the card's outer spacing so the composer and the transcript can space it
+   differently. */
+.meridian-attachment-card {
+  display: block;
+  margin-block-start: var(--meridian-space-2);
+}

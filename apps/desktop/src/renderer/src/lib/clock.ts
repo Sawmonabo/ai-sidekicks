@@ -22,23 +22,28 @@ export interface Clock {
   scheduleTimeout(callback: () => void, delayMs: number): ScheduledHandle;
   /** Cancel a frame or timeout that has not run. Idempotent. */
   cancel(handle: ScheduledHandle): void;
+  /**
+   * A clock on this one's time and timeouts whose frames come from `frames`, a window's own frame
+   * clock, so each window paces its drawing by its own paint and a minimized one pauses only its
+   * own. A clock whose frames no window paces, such as a frozen one, answers itself.
+   */
+  withFrames(frames: FrameScheduling): Clock;
 }
 
 /**
- * The two frame functions, declared rather than read off the DOM lib because `lib/` is also
- * compiled by node-context programs with no DOM. Optional: when absent, `RealClock` uses
- * timeouts.
+ * The two frame functions a window offers, declared rather than read off the DOM lib because
+ * `lib/` is also compiled by node-context programs with no DOM. Optional: when absent,
+ * `RealClock` uses timeouts.
  */
-interface FrameScheduling {
+export interface FrameScheduling {
   readonly requestAnimationFrame?: (callback: (time: number) => void) => number;
   readonly cancelAnimationFrame?: (handle: number) => void;
 }
 
-const frameScheduling = globalThis as unknown as FrameScheduling;
-
 /**
- * The real clock. Frames use `requestAnimationFrame` where the document has one and a
- * zero-delay timeout where it does not, as in a `node`-environment test project.
+ * The real clock. Frames use `frames`' `requestAnimationFrame` (by default this document's)
+ * where there is one and a zero-delay timeout where there is not, as in a `node`-environment
+ * test project.
  */
 export class RealClock implements Clock {
   /**
@@ -49,19 +54,25 @@ export class RealClock implements Clock {
    * number could cancel an unrelated timeout.
    */
   readonly #armedWorkByHandle = new Map<ScheduledHandle, ArmedWork>();
+  readonly #frames: FrameScheduling;
   #nextHandle = 1;
+
+  public constructor(frames: FrameScheduling = globalThis as FrameScheduling) {
+    this.#frames = frames;
+  }
 
   public now(): number {
     return Date.now();
   }
 
   public scheduleFrame(callback: () => void): ScheduledHandle {
-    const scheduleAnimationFrame = frameScheduling.requestAnimationFrame;
-    if (scheduleAnimationFrame === undefined) {
+    const frames = this.#frames;
+    if (frames.requestAnimationFrame === undefined) {
       return this.scheduleTimeout(callback, 0);
     }
     const handle = this.#mintHandle();
-    const platformHandle = scheduleAnimationFrame(() => {
+    // Called on its owner: a window's `requestAnimationFrame` throws when called detached.
+    const platformHandle = frames.requestAnimationFrame(() => {
       this.#armedWorkByHandle.delete(handle);
       callback();
     });
@@ -87,10 +98,14 @@ export class RealClock implements Clock {
     }
     this.#armedWorkByHandle.delete(handle);
     if (armed.isFrame) {
-      frameScheduling.cancelAnimationFrame?.(armed.platformHandle);
+      this.#frames.cancelAnimationFrame?.(armed.platformHandle);
       return;
     }
     globalThis.clearTimeout(armed.platformHandle as unknown as ReturnType<typeof setTimeout>);
+  }
+
+  public withFrames(frames: FrameScheduling): Clock {
+    return new RealClock(frames);
   }
 
   /** Work still armed; the counterpart of `ManualClock.pendingCount`. */
@@ -132,6 +147,11 @@ export class ManualClock implements Clock {
 
   public cancel(handle: ScheduledHandle): void {
     this.#entries = this.#entries.filter((entry) => entry.handle !== handle);
+  }
+
+  /** Itself: a frozen clock's frames run when a test or scenario runs them, in every window. */
+  public withFrames(): Clock {
+    return this;
   }
 
   /** Work still armed. Zero is the idle-CPU budget's precondition. */

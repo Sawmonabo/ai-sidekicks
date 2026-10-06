@@ -1,0 +1,109 @@
+// Batches re-measurement of clamped rows: several triggers in one frame (container resize,
+// webfont swap, an explicit request) run the pass once, in a clock frame rather than a
+// microtask so the pass reads settled layout.
+//
+// Carries no domain type: the scroll chokepoint imports this module, so importing its
+// vocabulary back would be a cycle. The pass is a `() => void` the caller closes over.
+
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
+import { observeElementResize } from "#renderer/lib/element-resize.js";
+
+/** Dependencies of an `OverflowMeasurementBatch`: the clock and the callbacks it drives. */
+export interface OverflowMeasurementBatchOptions {
+  readonly clock: Clock;
+  /** Run once per batched frame. Composed by the caller, opaque here. */
+  readonly runPass: () => void;
+  /**
+   * Runs synchronously on each resize observation, before the frame is armed.
+   *
+   * Re-measuring clamped rows may coalesce, but publishing the box may not: it is the only
+   * way the viewport height reaches the library's rect, and a manual clock never runs a frame
+   * unless told to, so a publication waiting on one would never arrive. A read and a notify
+   * only, and a publication of an unchanged box wakes nobody.
+   */
+  readonly publishOnResize: () => void;
+}
+
+/** Coalesces every trigger inside one frame into a single overflow re-measurement pass. */
+export class OverflowMeasurementBatch {
+  readonly #clock: Clock;
+  readonly #runPass: () => void;
+  readonly #publishOnResize: () => void;
+
+  #stopObservingResize: Unsubscribe | undefined;
+  #armedFrame: ScheduledHandle | undefined;
+  #disposed = false;
+
+  public constructor(options: OverflowMeasurementBatchOptions) {
+    this.#clock = options.clock;
+    this.#runPass = options.runPass;
+    this.#publishOnResize = options.publishOnResize;
+  }
+
+  /** Asks for a pass; every request inside one frame costs one pass. */
+  public request(): void {
+    if (this.#disposed || this.#armedFrame !== undefined) {
+      return;
+    }
+    this.#armedFrame = this.#clock.scheduleFrame(() => {
+      this.#armedFrame = undefined;
+      this.#runPass();
+    });
+  }
+
+  /** Re-runs the pass whenever the observed element resizes, until `release`. */
+  public observeResize(element: Element): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#stopObservingResize = observeElementResize(element, () => {
+      // Publish first, then arm: the window ranges against the publication, so it must not
+      // wait on a frame.
+      this.#publishOnResize();
+      this.request();
+    });
+  }
+
+  /**
+   * Re-runs the pass once the webfonts of the element's document have swapped; a clamped row's
+   * height depends on them, and each window loads its own.
+   */
+  public observeFontLoading(element: Element): void {
+    const fontLoadingDocument: FontLoadingDocument = element.ownerDocument;
+    const fonts = fontLoadingDocument.fonts;
+    if (fonts === undefined) {
+      return;
+    }
+    void fonts.ready.then(() => {
+      this.request();
+    });
+  }
+
+  /**
+   * Stops observing and cancels a frame that has not run. Repeatable and null-safe: it runs on
+   * an unmount that may follow a failed attach.
+   */
+  public release(): void {
+    this.#stopObservingResize?.();
+    this.#stopObservingResize = undefined;
+    if (this.#armedFrame !== undefined) {
+      this.#clock.cancel(this.#armedFrame);
+      this.#armedFrame = undefined;
+    }
+  }
+
+  /** Terminal. A disposed batch observes nothing and arms nothing. */
+  public dispose(): void {
+    this.release();
+    this.#disposed = true;
+  }
+}
+
+/**
+ * The part of `document.fonts` this module uses; declared optional because the unit tier's DOM
+ * shim has no font set.
+ */
+interface FontLoadingDocument {
+  readonly fonts?: { readonly ready: Promise<unknown> };
+}

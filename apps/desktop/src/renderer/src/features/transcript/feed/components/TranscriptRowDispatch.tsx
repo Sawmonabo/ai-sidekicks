@@ -1,15 +1,15 @@
 // One key of the viewport's list, dispatched to what it is: a run group header, a system message,
 // a row the window no longer holds, or a projected row for the registered row renderer.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
-import { RunGroupHeader } from "../../run-groups/components/RunGroupHeader.js";
-import { type RunGroup } from "../../run-groups/run-groups.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
+import { RunGroupHeader } from "../../runs/components/RunGroupHeader.js";
+import { type RunGroup } from "../../runs/groups.js";
 import { SystemMessage } from "../../system-messages/components/SystemMessage.js";
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
-import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { densityFor } from "../run-group-fold.js";
 import { TranscriptFeedRow } from "./TranscriptFeedRow.js";
 
@@ -67,7 +67,7 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
     );
   }
   // Through `TranscriptFeedRow` rather than straight into the row renderer: it is the memo
-  // boundary. The dispatch re-renders on every admitted event, but the four values below are
+  // boundary. The dispatch re-renders on every admitted event, but the five values below are
   // identity-stable when the row did not move, so only the lookups run, not the card.
   return (
     <TranscriptFeedRow
@@ -81,6 +81,7 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
         props.retainedRowState(projected.id)?.density ??
         densityFor(projected.id, transcriptWindow.collapsedRowIds)
       }
+      replyRowIds={transcriptWindow.replyRowIdsByFootRowId.get(projected.id)}
       renderTranscriptRow={props.renderTranscriptRow}
     />
   );

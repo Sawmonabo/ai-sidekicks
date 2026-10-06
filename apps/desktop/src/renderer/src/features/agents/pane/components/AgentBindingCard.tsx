@@ -4,14 +4,15 @@
 // resolved configuration is never re-read from the registry, whose row may have moved. `createdAt`
 // sits in the head, not the effective line, whose members are all provider axes.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime } from "@renderer/lib/wire-figures.js";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
+import "./AgentBindingCard.css";
+
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
-import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
-import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
-import { agentToolAllowlistPosition } from "../tool-allowlist.js";
+import { ToolAllowlistLine } from "../tool-allowlist/components/ToolAllowlistLine.js";
+import { agentToolAllowlistPosition } from "../tool-allowlist/position.js";
 
 /** What one agent card shows. */
 export interface AgentBindingCardProps {
@@ -29,13 +30,13 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
       <header className="meridian-agent-card__head">
         <h4 className="meridian-agent-card__name">{agent.name}</h4>
         <span className="meridian-agent-card__created">
-          <span className="meridian-agent-card__line-label">Created</span>{" "}
+          <span className="meridian-form__label">Created</span>{" "}
           <WireFigure value={formatDateTime(agent.createdAt)} title={agent.createdAt} />
         </span>
       </header>
 
       <p className="meridian-agent-card__effective">
-        <span className="meridian-agent-card__line-label">Running under</span>{" "}
+        <span className="meridian-form__label">Running under</span>{" "}
         <BindingAxis label="provider" value={binding.driverName} />
         <BindingAxis label="model" value={binding.modelId} />
         <BindingAxis
@@ -51,11 +52,10 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
         <BindingAxis label="output speed" value={binding.outputSpeed} absenceMeaning="never set" />
       </p>
 
-      <ObservedOutputSpeed agent={agent} />
       <ToolAllowlistLine position={toolAllowlist} />
 
       {agent.resolvedConfiguration === undefined ? null : (
-        <details className="meridian-agent-card__disclosure">
+        <details>
           <summary className="meridian-agent-card__disclosure-summary">
             Resolved configuration
           </summary>

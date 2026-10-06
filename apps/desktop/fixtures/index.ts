@@ -26,7 +26,8 @@ export function findScenario(scenarioId: string): Scenario {
   const scenario = SCENARIOS.find((candidate) => candidate.id === scenarioId);
   if (scenario === undefined) {
     throw new RangeError(
-      `no scenario named "${scenarioId}" (have: ${SCENARIOS.map((candidate) => candidate.id).join(", ")})`,
+      `no scenario named "${scenarioId}" (have: ` +
+        `${SCENARIOS.map((candidate) => candidate.id).join(", ")})`,
     );
   }
   return scenario;

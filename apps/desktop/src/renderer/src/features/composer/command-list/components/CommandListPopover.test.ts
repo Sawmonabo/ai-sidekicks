@@ -3,7 +3,7 @@
 // that is where an open popover exists.
 
 import { describe, expect, it } from "vitest";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import {
   type MountedComposer,
   NOT_RUNNABLE_FRAGMENT,
@@ -16,10 +16,10 @@ import {
   registeredIds,
   stepIntoList,
   typeIntoLine,
-} from "../command-list.test-support.js";
-import { agentPane } from "../../composer.test-support.js";
-import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { recordingBridge } from "../provider-command-enumeration.test-support.js";
+} from "./CommandListPopover.test-support.js";
+import { agentPane } from "../../Composer.test-support.js";
+import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { recordingBridge } from "../provider/enumeration.test-support.js";
 
 describe("CommandList — the list activates its active row", () => {
   function registerCountedConsoleCommand(): { runCount: () => number } {

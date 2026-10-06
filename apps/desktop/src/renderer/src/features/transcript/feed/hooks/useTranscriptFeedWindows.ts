@@ -5,8 +5,8 @@
 
 import { useEffect } from "react";
 
-import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
 import { useReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
@@ -24,9 +24,12 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
+import { classifyTranscriptRow } from "../../rows/kind.js";
+import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
 import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 
 /** What the window chain is derived from: the session's store and the frame's clock. */
@@ -34,6 +37,10 @@ export interface TranscriptFeedWindowsInputs {
   readonly sessionStore: SessionStore;
   /** The frame scheduler's clock, minted once by the mount that holds this chain. */
   readonly clock: Clock;
+  /** The event cursor of the message a link opened the session at, or `undefined` for none. */
+  readonly messageAnchorCursor: string | undefined;
+  /** The backward walk a linked message older than the window is reached through, if any. */
+  readonly earlierHistory: EarlierHistoryPaging | undefined;
 }
 
 /**
@@ -78,11 +85,22 @@ export function useTranscriptFeedWindows(
   // once and submits nothing to the first.
   const frameScheduler = useAnimationFrameScheduler(inputs.clock);
   const reveal = useReveal({ frameScheduler, clock: inputs.clock });
+  // Resolved from the same windows the viewport is handed, so the landing reaches it on the
+  // render that brings the row.
+  const landingRowKey = useMessageAnchorRowKey({
+    sessionStore: inputs.sessionStore,
+    messageAnchorCursor: inputs.messageAnchorCursor,
+    earlierHistory: inputs.earlierHistory,
+    unfurledWindow,
+    transcriptWindow,
+    runGroupDisclosure,
+  });
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: transcriptWindow.viewportRows,
     hasActiveTurn: transcriptWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
+    landingRowKey,
   });
 
   // Registered here, where the session id and the one binding meet, so the session diagnostics a
@@ -101,15 +119,22 @@ export function useTranscriptFeedWindows(
   );
 
   // A lane whose row this window no longer holds, or holds only inside a terminal run group, is
-  // a turn that is over, so the engine drops it. Asked of the engine's own lanes (at most one
-  // per streaming row) rather than walking the whole log on every event.
-  const retireRevealLanes = reveal.retireLanes;
+  // a turn that is over, so the engine drops it, keeping a reply row's text for its foot. Asked
+  // of the engine's own lanes (at most one per streaming row) rather than walking the whole log
+  // on every event. What a row drew is forgotten once the log's window lets the row go; a row
+  // only folded away is still held.
+  const { retireLanes: retireRevealLanes, forgetDrawnTextOutside } = reveal;
   useEffect(() => {
     retireRevealLanes(
       (laneId) =>
         !transcriptWindow.rowsByKey.has(laneId) || transcriptWindow.collapsedRowIds.has(laneId),
+      (laneId) => {
+        const row = unfurledWindow.rowsByKey.get(laneId);
+        return row !== undefined && classifyTranscriptRow(row)?.kind === "agent-message";
+      },
     );
-  }, [retireRevealLanes, transcriptWindow]);
+    forgetDrawnTextOutside((rowId) => unfurledWindow.rowsByKey.has(rowId));
+  }, [retireRevealLanes, forgetDrawnTextOutside, transcriptWindow, unfurledWindow]);
 
   // Read back off the viewport's reconciled snapshot, so find sees the window on screen; what
   // the cap took is the difference between the two.

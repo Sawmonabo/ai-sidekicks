@@ -28,7 +28,7 @@ import { ExternalPackageIconLoader, FileSystemIconLoader } from "unplugin-icons/
 import Icons from "unplugin-icons/vite";
 import type { Plugin } from "vitest/config";
 
-import { GLYPH_STROKE_WIDTH, GLYPH_VIEWBOX_SIZE } from "../src/renderer/src/styles/glyphs.js";
+import { GLYPH_STROKE_WIDTH, GLYPH_VIEWBOX_SIZE } from "#renderer/styles/glyphs.ts";
 
 /**
  * The `@svgr` JSX emitter as a value, correcting the package's mis-declaration.

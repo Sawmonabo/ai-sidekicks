@@ -4,7 +4,7 @@
 // rows and decides nothing about what a switch says about itself. The row is the list's own
 // composition and is not exported through the feature's entry.
 
-import { Switch } from "@base-ui/react/switch";
+import { Switch } from "#renderer/components/Switch/Switch.js";
 
 import type { BrowserPolicySwitchId, BrowserPolicySwitchWriter } from "../policy-switches.js";
 
@@ -24,13 +24,18 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
   "file-boundary": {
     label: "Open local files outside this session's repo mounts",
     consequence:
-      "On, a browser pane may open a file: destination anywhere on this machine. Off, it opens one only inside an admitted root of a repo mount attached to the session, and anything else is refused.",
+      "On, a browser pane may open a file: destination anywhere on " +
+      "this machine. Off, it opens one only inside an admitted root of " +
+      "a repo mount attached to the session, and anything else is " +
+      "refused.",
     defaultLabel: "Off by default",
   },
   "page-tools": {
     label: "Serve the page tool set into sessions on this node",
     consequence:
-      "Off withholds the tools from every subsequent spawn. Sessions already running keep the tool set they were spawned with, so turning this off does not reach into a run in progress.",
+      "Off withholds the tools from every subsequent spawn. Sessions " +
+      "already running keep the tool set they were spawned with, so " +
+      "turning this off does not reach into a run in progress.",
     defaultLabel: "On by default",
   },
 };
@@ -41,24 +46,21 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
  */
 export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
   const traits = BROWSER_POLICY_SWITCH_TRAITS[props.switchId];
-  const labelId = `meridian-browser-policy-${props.switchId}`;
+  const switchInputId = `meridian-browser-policy-${props.switchId}`;
 
   return (
     <li className="meridian-browser-policy__row">
-      <Switch.Root
-        className="meridian-browser-switch"
-        aria-labelledby={labelId}
+      <Switch
+        id={switchInputId}
         checked={props.enabled}
         onCheckedChange={(nextEnabled) => {
           props.onToggle(props.switchId, nextEnabled);
         }}
-      >
-        <Switch.Thumb className="meridian-browser-switch__thumb" />
-      </Switch.Root>
+      />
       <div className="meridian-browser-policy__text">
-        <span className="meridian-browser-policy__label" id={labelId}>
+        <label className="meridian-browser-policy__label" htmlFor={switchInputId}>
           {traits.label}
-        </span>
+        </label>
         <p className="meridian-browser-policy__consequence">{traits.consequence}</p>
         <span className="meridian-browser-policy__default">{traits.defaultLabel}</span>
       </div>

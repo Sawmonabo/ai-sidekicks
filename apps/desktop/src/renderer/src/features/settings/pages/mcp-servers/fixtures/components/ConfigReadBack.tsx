@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/server";
+import { SERVER_TRANSPORT_WORDS } from "../../transport-words.js";
 
 /**
  * One binding's configuration, exactly as the daemon serves it back.
@@ -22,22 +23,21 @@ export function ConfigReadBack(props: {
   const { config } = props;
   return (
     <div className="meridian-mcp__config">
-      <Chip label={config.transport} mono />
+      <Chip label={SERVER_TRANSPORT_WORDS[config.transport]} />
       {config.transport === "stdio" ? (
         <>
           <WireFigure value={config.command} />
           {renderArgumentList(config.args)}
-          {renderNameList("Environment variables read", config.envVarNames)}
+          {renderNameList("Environment variables", config.envVarNames)}
         </>
       ) : (
         <>
           <WireFigure value={config.url} />
-          {renderNameList("Query parameters set", config.urlQueryParamNames)}
-          {renderNameList("Headers sent", config.headerNames)}
+          {renderNameList("Address query", config.urlQueryParamNames)}
+          {renderNameList("Headers", config.headerNames)}
           {config.bearerTokenEnvVar === undefined ? null : (
             <span className="meridian-settings-page__aside">
-              Bearer token read from <WireFigure value={config.bearerTokenEnvVar} /> — the variable
-              name, never its value.
+              Token from the environment variable <WireFigure value={config.bearerTokenEnvVar} />
             </span>
           )}
         </>

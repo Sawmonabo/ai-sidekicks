@@ -1,9 +1,9 @@
 // The resource hook, driven through its own API, for the suites about a render pass
-// that never became a frame. Shared props: `subject-scoped-probes.test-support.ts`.
+// that never became a frame. Shared props: `probes.test-support.ts`.
 
 import { use, type ReactElement } from "react";
 
-import type { ResourceProbeProps } from "./subject-scoped-probes.test-support.js";
+import type { ResourceProbeProps } from "./probes.test-support.js";
 import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { OpenResource } from "./useSubjectScopedResource.test-support.js";
 

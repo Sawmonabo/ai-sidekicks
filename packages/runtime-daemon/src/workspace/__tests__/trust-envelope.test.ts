@@ -10,14 +10,16 @@ import { join, posix as posixPath, win32 as win32Path } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { TrustEnvelopeViolationError } from "../repo-errors.js";
+import { TrustEnvelopeViolationError } from "../repo/errors.js";
 import {
   TrustEnvelopeValidator,
+  type DirectoryReadabilityProbe,
   type PathRealpathResolver,
   type WorkspaceExecutionRootCandidate,
 } from "../trust-envelope.js";
 
-import { alwaysReadableProbe } from "./workspace.test-support.js";
+/** A readability probe that admits every directory, for resolvers over synthetic paths. */
+const alwaysReadableProbe: DirectoryReadabilityProbe = () => Promise.resolve();
 
 /**
  * Whether the filesystem under `os.tmpdir()` is case-insensitive, found by creating a directory in

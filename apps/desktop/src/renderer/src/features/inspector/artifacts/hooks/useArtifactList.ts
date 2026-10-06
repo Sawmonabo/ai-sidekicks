@@ -4,17 +4,18 @@
 // the single-flight fetch are both about one artifact), so a component reused for another
 // artifact must not keep the first artifact's bytes or its held control.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import { useCallback, useMemo } from "react";
 
-import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import type { ArtifactListReading, ArtifactRowActOutcome } from "../artifact-list-reading.js";
-import type { ArtifactOperations } from "../services/artifact-reads.js";
-import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
-import { ArtifactListReader } from "../artifact-list-reader.js";
+import { useStoreBoundReader } from "#renderer/hooks/subject-scoped/useStoreBoundReader.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import type { ArtifactListReading, ArtifactRowActOutcome } from "../list-reading.js";
+import type { ArtifactOperations } from "../services/reads.js";
+import type { ArtifactPayloadOutcome } from "#renderer/store/artifact-payload.js";
+import { ArtifactListReader } from "../list-reader.js";
 
 /** What the hook hands its component: the reading, and the acts it can put to the port. */
 export interface ArtifactListBinding {
@@ -38,6 +39,7 @@ export function useArtifactList(
   operations: ArtifactOperations,
 ): ArtifactListBinding {
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   // The reader reads the session's whole list, so the artifact id is not passed to it: the
   // key only decides whose subject-scoped state this reader holds.
   const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);
@@ -45,7 +47,7 @@ export function useArtifactList(
     subject,
     subjectArtifactId,
     sessionStore,
-    () => new ArtifactListReader({ ...operations, sessionStore, clock }),
+    () => new ArtifactListReader({ ...operations, sessionStore, ownerWindow, clock }),
   );
   const refresh = useCallback(() => {
     reader.refresh();

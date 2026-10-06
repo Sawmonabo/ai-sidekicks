@@ -1,9 +1,9 @@
 import { useId } from "react";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDate, formatPercent } from "@renderer/lib/wire-figures.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDate, formatPercent } from "#renderer/lib/wire/figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 

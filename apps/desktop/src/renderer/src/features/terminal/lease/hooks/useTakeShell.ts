@@ -1,13 +1,13 @@
 // Take the shell, and report whether that call is still out. The hook never derives the
-// holder; the fold in `lease-model.ts` owns it. The in-flight fact is scoped to the
+// holder; the fold in `model.ts` owns it. The in-flight fact is scoped to the
 // `(bridge, sessionId)` subject, so a rebound pane never inherits a disabled control, and the
 // single-flight latch is keyed on the visit, so a session visited twice starts free.
 
 import { useCallback } from "react";
 
-import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** Takes the session's one shared shell. */
 export type TerminalLeaseCall = (request: { readonly sessionId: string }) => Promise<unknown>;

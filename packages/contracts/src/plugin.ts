@@ -13,18 +13,17 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import {
-  ProviderAccountIdSchema,
-  ProviderNameSchema,
-  type ProviderAccountId,
-  type ProviderName,
-} from "./provider-account.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider/account/record.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider/driver/methods.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
-/** A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace. */
-const pluginTokenSchema = (label: string): z.ZodString =>
+/**
+ * A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace. `label` names
+ * the field in the refusal message.
+ */
+export const pluginTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
 // The plugin as a list serves it

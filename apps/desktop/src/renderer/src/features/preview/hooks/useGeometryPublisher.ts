@@ -4,15 +4,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
+import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/publisher.js";
 import type { PageHost } from "../geometry/page-host.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
-import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { type Clock } from "@renderer/lib/clock.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
+import { type AirspaceRegistry } from "#renderer/lib/airspace.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { PaneSubject } from "../types.js";
 
 /**
@@ -24,8 +25,9 @@ function createGeometryBinding(
   subject: PaneSubject,
   pageHost: PageHost,
   clock: Clock,
+  ownerDocument: Document,
 ): BoundGeometryPublisher {
-  const airspace: AirspaceRegistry = airspaceRegistryFor(document);
+  const airspace: AirspaceRegistry = airspaceRegistryFor(ownerDocument);
   return {
     ...subject,
     publisher: new PaneGeometryPublisher({ pageHost, clock, occlusion: airspace }),
@@ -85,9 +87,10 @@ export function useGeometryPublisher(
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const clock = useBridgeClock();
+  const ownerDocument = useOwnerWindow().document;
   const openBinding = useCallback(
-    () => createGeometryBinding({ bridge, paneId }, pageHost, clock),
-    [bridge, paneId, pageHost, clock],
+    () => createGeometryBinding({ bridge, paneId }, pageHost, clock, ownerDocument),
+    [bridge, paneId, pageHost, clock, ownerDocument],
   );
   // A publisher writes to one page host for life, so a new page host needs a new publisher.
   const subject = useMemo(() => ({ bridge, pageHost }), [bridge, pageHost]);

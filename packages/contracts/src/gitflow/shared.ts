@@ -2,7 +2,7 @@
 // building block of a public schema, not a contract of its own.
 import { z } from "zod";
 
-import { wireUncappedFreeFormString } from "../session.js";
+import { wireUncappedFreeFormString } from "../free-form-string.js";
 
 /** A commit's short id, git's own abbreviation, which is as long as the repository needs. */
 export const GitShortObjectIdSchema: z.ZodType<string, string> = z

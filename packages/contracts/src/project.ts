@@ -5,27 +5,24 @@
 // exactly as `Every project` is.
 //
 // `repo.projectList` is a live list: the acknowledgement is the shared `SubscribeAckResponse`,
-// and each emission carries the whole list, so a late subscriber needs no replay and a dropped
+// and each emission carries the whole list, so a late subscriber needs no resend and a dropped
 // frame costs nothing.
 //
-// This module imports nothing from `./event.js` and nothing that reaches it, because an import
-// cycle among eager Zod initializers throws at import time and `tsc` does not flag it.
+// This module imports nothing from `./event/session.js` and nothing that reaches it, because
+// an import cycle among eager Zod initializers throws at import time and `tsc` does not flag it.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
+  BranchNamePatternChangeSchema,
   BranchNamePatternSchema,
   EnvironmentRowSchema,
   type EnvironmentRow,
 } from "./machine-settings.js";
-import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
-import {
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-  FILE_PATH_MAX_LEN,
-} from "./session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo/mount.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of a project: the record beside a mount that the person names. */
@@ -216,4 +213,6 @@ export interface ProjectBranchPatternUpdateRequest {
 export const ProjectBranchPatternUpdateRequestSchema: z.ZodType<
   ProjectBranchPatternUpdateRequest,
   ProjectBranchPatternUpdateRequest
-> = z.object({ projectId: ProjectIdSchema, pattern: BranchNamePatternSchema.nullable() }).strict();
+> = z
+  .object({ projectId: ProjectIdSchema, pattern: BranchNamePatternChangeSchema.nullable() })
+  .strict();

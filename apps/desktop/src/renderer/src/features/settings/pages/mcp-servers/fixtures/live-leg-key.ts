@@ -6,7 +6,7 @@
 // goes through the tuple encoder because both members are wire strings that may contain any
 // separator.
 
-import { structuralKey } from "@renderer/lib/structural-key.js";
+import { structuralKey } from "#renderer/lib/structural-key.js";
 
 /**
  * The two members that identify one live leg.

@@ -8,7 +8,7 @@ import { StrictMode } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { RecordingPageHost } from "../geometry/geometry-publisher.test-support.js";
+import { RecordingPageHost } from "../geometry/publisher.test-support.js";
 import {
   previewPaneContext,
   chromeFor,

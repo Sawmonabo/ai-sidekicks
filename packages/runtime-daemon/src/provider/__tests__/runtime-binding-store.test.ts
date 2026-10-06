@@ -4,20 +4,17 @@
 // unsandboxed, so does a stored driver name that names no provider, the version pair holds its
 // CHECK and records the build that answered, and the resume request is rebuilt from the row.
 
-import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/provider-driver-wire";
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/methods";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
-import {
-  ProviderOutputValidationError,
-  RESUME_HANDLE_MAX_LEN,
-} from "../provider-output-validation.js";
+import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
+import { ProviderOutputValidationError, RESUME_HANDLE_MAX_LEN } from "../output-validation.js";
 import {
   composeResumeSessionParams,
   RuntimeBindingNotResumableError,
@@ -29,8 +26,8 @@ import {
   readSpawnedProviderVersion,
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
-} from "../spawned-provider-version.js";
-import type { CallbackToolResult, DriverCliVersionReport } from "../provider-driver.js";
+} from "../spawned-version.js";
+import type { CallbackToolResult, DriverCliVersionReport } from "../driver/contract.js";
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
@@ -95,9 +92,11 @@ function insertRawBinding(overrides: {
   const id: string = overrides.id ?? "raw-binding-0";
   db.prepare(
     `INSERT INTO runtime_bindings
-       (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+       (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+      `resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
      VALUES
-       (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, NULL, @spawn_config, '{}', @created_at, @created_at)`,
+       (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, ` +
+      `NULL, @spawn_config, '{}', @created_at, @created_at)`,
   ).run({
     id,
     run_id: RUN_ID,
@@ -157,7 +156,8 @@ function readRawMutableColumns(id: string): {
 } {
   const row = db
     .prepare(
-      `SELECT contract_version, resume_handle, runtime_metadata, updated_at FROM runtime_bindings WHERE id = ?`,
+      `SELECT contract_version, resume_handle, runtime_metadata, updated_at
+         FROM runtime_bindings WHERE id = ?`,
     )
     .get(id) as
     | {
@@ -453,44 +453,48 @@ describe("RuntimeBindingStore — update revalidation", () => {
     expect(after?.updatedAt).toBe(created.updatedAt);
   });
 
-  it("REFUSES an update onto a row whose stored spawn_config is unreadable, and commits NOTHING", () => {
-    // Committing a patch onto an unreadable record would make it newer, still unreadable, and
-    // stamped with an `updated_at` implying this daemon wrote it, hiding the corruption from
-    // the recovery read. So the parse runs inside the transaction before the UPDATE, and its
-    // throw rolls everything back.
-    const store = makeStore();
-    const created = store.create({
-      runId: RUN_ID,
-      driverName: DRIVER_NAME,
-      contractVersion: "1.0.0",
-      resumeHandle: "handle-before",
-      spawnConfig: FULL_SPAWN_CONFIG,
-      runtimeMetadata: { attempt: 1 },
-    });
-    corruptSpawnConfigOutOfBand(created.id, "{not json at all");
+  it(
+    "REFUSES an update onto a row whose stored " +
+      "spawn_config is unreadable, and commits NOTHING",
+    () => {
+      // Committing a patch onto an unreadable record would make it newer, still unreadable, and
+      // stamped with an `updated_at` implying this daemon wrote it, hiding the corruption from
+      // the recovery read. So the parse runs inside the transaction before the UPDATE, and its
+      // throw rolls everything back.
+      const store = makeStore();
+      const created = store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: "1.0.0",
+        resumeHandle: "handle-before",
+        spawnConfig: FULL_SPAWN_CONFIG,
+        runtimeMetadata: { attempt: 1 },
+      });
+      corruptSpawnConfigOutOfBand(created.id, "{not json at all");
 
-    const thrown = captureThrow(() => {
-      store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
-    });
+      const thrown = captureThrow(() => {
+        store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
+      });
 
-    // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
-    // provider input.
-    expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
-    expect((thrown as Error).message).toContain(created.id);
-    expect((thrown as Error).message).toContain("spawn_config");
+      // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
+      // provider input.
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
+      expect((thrown as Error).message).toContain(created.id);
+      expect((thrown as Error).message).toContain("spawn_config");
 
-    // Read raw: the store's accessors refuse this row and could not tell "rolled back" from
-    // "unreadable".
-    const raw = readRawMutableColumns(created.id);
-    expect(raw.contract_version).toBe("1.0.0");
-    expect(raw.resume_handle).toBe("handle-before");
-    expect(raw.runtime_metadata).toBe(JSON.stringify({ attempt: 1 }));
-    // `updated_at` is the sharpest witness: an UPDATE that reached the DB would have moved it
-    // from the advancing clock even if the other columns matched.
-    expect(raw.updated_at).toBe(created.updatedAt);
-    expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
-  });
+      // Read raw: the store's accessors refuse this row and could not tell "rolled back" from
+      // "unreadable".
+      const raw = readRawMutableColumns(created.id);
+      expect(raw.contract_version).toBe("1.0.0");
+      expect(raw.resume_handle).toBe("handle-before");
+      expect(raw.runtime_metadata).toBe(JSON.stringify({ attempt: 1 }));
+      // `updated_at` is the sharpest witness: an UPDATE that reached the DB would have moved it
+      // from the advancing clock even if the other columns matched.
+      expect(raw.updated_at).toBe(created.updatedAt);
+      expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
+    },
+  );
 });
 
 describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
@@ -623,7 +627,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     });
   });
 
-  it("keeps a printed version that did not parse, and refuses a parse with no printed version", () => {
+  it("keeps an unparsed printed version; refuses a parse with no printed version", () => {
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -679,10 +683,10 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 // handle at the provider.
 
 describe("RuntimeBindingStore — spawned-version carriers", () => {
-  // `spawned-provider-version.test.ts` proves the reading is taken from the dereferenced build. This proves
-  // that value is what a later reader gets back out of the database, through `create()`'s
-  // report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none of
-  // which the in-memory projection helpers exercise: the version recorded and the version run
+  // `spawned-version.test.ts` proves the reading is taken from the dereferenced build.
+  // This proves that value is what a later reader gets back out of the database, through
+  // `create()`'s report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none
+  // of which the in-memory projection helpers exercise: the version recorded and the version run
   // are one reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
   const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
@@ -707,7 +711,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
   // Injected rather than filesystem-backed: drift is "realpath answers a different path than
   // the candidate", which runs on every platform (the real-symlink fixture in
-  // `spawned-provider-version.test.ts` is posix-only).
+  // `spawned-version.test.ts` is posix-only).
   const DRIFTING_RESOLVER = {
     isExecutableFile: async (): Promise<boolean> => true,
     realpath: async (candidate: string): Promise<string> =>

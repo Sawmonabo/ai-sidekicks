@@ -1,4 +1,4 @@
-import type { SpawnRequest } from "../pty/pty-host-protocol.js";
+import type { SpawnRequest } from "../pty/host/protocol.js";
 // Rewrites a spawn request so the PTY's cwd is a stable directory instead of a worktree.
 //
 // On Windows the OS locks the cwd of a spawned process for the process's lifetime, so deleting or
@@ -32,7 +32,7 @@ export type DriverStrategy = "cd-prefix" | "cwd-env";
  *
  * Defaults to `windows-cmd` on Windows and `posix` elsewhere.
  */
-export type WrappingShell = "posix" | "windows-cmd";
+type WrappingShell = "posix" | "windows-cmd";
 
 /** Input to `translateSpawnCwd`. */
 export interface TranslateSpawnCwdInput {

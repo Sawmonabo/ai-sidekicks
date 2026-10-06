@@ -1,12 +1,12 @@
-// The transcript viewport: the virtualized feed, the reading anchor's pill, and the row box
-// every row body is mounted in. It only turns `viewport-controller.ts`'s snapshot into elements;
-// the caller owns the one binding, so the find walk and the rows read the same virtualizer.
-// Markup invariants: one scroll container (a nested scroller would rival the chokepoint's
-// `scrollTop`); the sizer and each row's transform are written by the virtualizer under
-// `directDomUpdates`, so no style here sets them; `role="feed"` is declared on the scroll
-// container and its article children by `VirtualRow`, so the relationship does not rest on
-// whatever a registered row renderer draws; the sizer is `role="presentation"`. Attention is
-// steered by luminance, never motion: the only transition is the pill's hover color.
+// The transcript viewport: the virtualized feed, the reading anchor's pill, and the row box every
+// row body is mounted in. It only turns `features/transcript/viewport/controller.ts`'s snapshot
+// into elements; the caller owns the one binding, so the find walk and the rows read the same
+// virtualizer. Markup invariants: one scroll container (a nested scroller would rival the
+// chokepoint's `scrollTop`); the sizer and each row's transform are written by the virtualizer
+// under `directDomUpdates`, so no style here sets them; `role="feed"` is declared on the scroll
+// container and its article children by `VirtualRow`, so the relationship does not rest on whatever
+// a registered row renderer draws; the sizer is `role="presentation"`. Attention is steered by
+// luminance, never motion: the only transition is the pill's hover color.
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";

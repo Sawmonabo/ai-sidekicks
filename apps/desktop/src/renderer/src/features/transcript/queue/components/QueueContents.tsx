@@ -1,13 +1,14 @@
-// What is waiting, in the daemon's order, with a way to take one back. One line per item,
-// with only what the wire supplies. The order is rendered, never reordered (`queue-order.ts`
-// keeps it), and all five states render as rows because queue rows are durable and never
-// deleted; cancel is offered only on the state that can still be taken back.
+// What is waiting, in the daemon's order, with a way to take one back. One line per item, with only
+// what the wire supplies. The order is rendered, never reordered
+// (`features/transcript/queue/order.ts` keeps it), and all five states render as rows because queue
+// rows are durable and never deleted; cancel is offered only on the state that can still be taken
+// back.
 
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
-import { findReadRefusal } from "@renderer/services/wire-reads/read-lifecycle.js";
-import type { QueueFeed } from "../queue-reading.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { findReadRefusal } from "#renderer/services/wire-reads/lifecycle.js";
+import type { QueueFeed } from "../reading.js";
 import { QueueRow } from "./QueueRow.js";
 
 import "./QueueContents.css";
@@ -50,7 +51,10 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
         kind="empty"
         placement="block"
         title="Nothing is waiting."
-        detail="The queue is empty. A message sent while a run is working lands here and is delivered in the order it arrived."
+        detail={
+          "The queue is empty. A message sent while a run is working lands " +
+          "here and is delivered in the order it arrived."
+        }
       />
     );
   }
@@ -59,7 +63,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const withheld = feed.items.length - rendered.length;
 
   return (
-    <div className="meridian-queue">
+    <div>
       <ol className="meridian-queue__rows">
         {rendered.map((item) => (
           <QueueRow
