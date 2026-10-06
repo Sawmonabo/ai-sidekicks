@@ -113,7 +113,7 @@ The following field inventory maps each intervention payload to its sources.
 
 At-rest routing: `content` rests on the durable intervention row in its `payload` column, as plain text like every other column ([Spec-003 §State And Data Implications](../specs/003-queue-steer-pause-resume.md#state-and-data-implications)), and the driver leg is handed the same text. `attachments` are references, not bodies.
 
-Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [api-payload-contracts.md §Plan-003 — Provider Driver Contract (Internal Interface)](../architecture/contracts/api-payload-contracts.md#plan-003--provider-driver-contract-internal-interface), and cited from `run.queueCreate` rather than restated.
+Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [provider-driver-payloads.md §Plan-003 — Provider Driver Contract (Internal Interface)](../architecture/contracts/provider-driver-payloads.md#plan-003--provider-driver-contract-internal-interface), and cited from `run.queueCreate` rather than restated.
 
 **`interrupt` payload:**
 

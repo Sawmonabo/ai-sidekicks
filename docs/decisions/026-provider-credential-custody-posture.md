@@ -188,7 +188,7 @@ A skeptical staff engineer objects on six grounds.
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | Credential material appearing on any event, error, log, metric, or wire **output**, or on any wire input other than the single named registration input | 0 | The no-credential-payload assertions on the provider-account contract surfaces, run against every response, notification, and error type plus every request except `providerAccount.register` | When the sign-in broker ships |
-| Wire inputs accepting credential material | Exactly 1, named | The wire-input census on `api-payload-contracts.md` §Plan-023 | Every change to that section |
+| Wire inputs accepting credential material | Exactly 1, named | The wire-input census on `provider-account-payloads.md` §Plan-023 | Every change to that section |
 | Accounts whose observed authentication mode is recorded rather than assumed | 100% of accounts that have been observed once | The registry column, non-NULL exactly when an observation exists | When the token leg ships |
 | Vendor-policy residual (assumption 2) unrealized | No enforcement or policy signal | Vendor policy-page revision date | Ongoing |
 
