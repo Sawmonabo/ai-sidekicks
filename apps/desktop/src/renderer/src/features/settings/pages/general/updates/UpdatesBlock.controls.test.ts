@@ -59,7 +59,7 @@ describe("the updates block — checking on its own", () => {
     expect(block.querySelector(".meridian-settings-row__label")?.textContent).toBe(
       "Check for updates automatically",
     );
-    const control = block.querySelector<HTMLElement>(".meridian-settings-row__switch");
+    const control = block.querySelector<HTMLElement>('[role="switch"]');
     expect(control?.getAttribute("aria-checked")).toBe("true");
 
     act(() => {

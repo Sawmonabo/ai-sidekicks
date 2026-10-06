@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
 
 function switchOf(container: HTMLElement): HTMLElement | null {
-  return container.querySelector(".meridian-settings-row__switch");
+  return container.querySelector('[role="switch"]');
 }
 
 describe("preference toggle row", () => {

@@ -1,16 +1,15 @@
 // One preference and one switch: a label, an optional sentence under it, and the control.
 // Written once for the settings pages that share it.
 //
-// The control is `@base-ui/react`'s Switch: it renders a `<span>` plus a hidden `<input>`, so
-// the row ties a real `<label>` to the input id and gets keyboard, label and focus-visible
-// behavior for free. The row never decides whether a setting may change; `checked` and
-// `isPending` come from the page.
+// The control is the app's one Switch, whose hidden `<input>` takes the row's id, so the row ties
+// a real `<label>` to it and gets keyboard, label and focus-visible behavior for free. The row
+// never decides whether a setting may change; `checked` and `isPending` come from the page.
 
 import "./preference-toggle-row.css";
 
 import { useId } from "react";
 
-import { Switch } from "@base-ui/react/switch";
+import { Switch } from "#renderer/components/Switch/Switch.js";
 
 /** Props for {@link PreferenceToggleRow}. */
 export interface PreferenceToggleRowProps {
@@ -39,18 +38,13 @@ export function PreferenceToggleRow(props: PreferenceToggleRowProps): React.JSX.
           </p>
         )}
       </div>
-      <Switch.Root
+      <Switch
         id={switchId}
-        className="meridian-settings-row__switch"
         aria-describedby={descriptionId}
         checked={props.checked}
         disabled={props.isPending ?? false}
-        onCheckedChange={(checked) => {
-          props.onCheckedChange(checked);
-        }}
-      >
-        <Switch.Thumb className="meridian-settings-row__thumb" />
-      </Switch.Root>
+        onCheckedChange={props.onCheckedChange}
+      />
     </div>
   );
 }
