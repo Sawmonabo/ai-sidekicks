@@ -4,9 +4,9 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
 import type { DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
-import { useBridgeClock } from "../platform/hooks/useClock.js";
-import { type PlatformBridge } from "../platform/bridge.js";
-import { driverCapabilityReads } from "./read-cache.js";
+import { useBridgeClock } from "../../platform/hooks/useClock.js";
+import { type PlatformBridge } from "../../platform/bridge.js";
+import { driverCapabilityReads } from "../read-cache.js";
 
 /**
  * Reads the bound drivers' declared capability flags; every consumer on one bridge shares one

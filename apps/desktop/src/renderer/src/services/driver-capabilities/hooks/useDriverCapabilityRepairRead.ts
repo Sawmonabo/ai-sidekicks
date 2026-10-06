@@ -2,9 +2,9 @@
 
 import { useSessionReadTriggers } from "#renderer/store/reads/hooks/useSessionReadTriggers.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { useBridgeClock } from "../platform/hooks/useClock.js";
-import { type PlatformBridge } from "../platform/bridge.js";
-import { driverCapabilityReads } from "./read-cache.js";
+import { useBridgeClock } from "../../platform/hooks/useClock.js";
+import { type PlatformBridge } from "../../platform/bridge.js";
+import { driverCapabilityReads } from "../read-cache.js";
 
 /**
  * Re-reads the service's declarations when a session's stream is repaired.

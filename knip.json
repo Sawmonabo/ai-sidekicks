@@ -196,7 +196,7 @@
         // everything.
         "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",
         // Reading what the providers support again once a session's stream is repaired.
-        "src/renderer/src/services/driver-capabilities/useDriverCapabilityRepairRead.ts",
+        "src/renderer/src/services/driver-capabilities/hooks/useDriverCapabilityRepairRead.ts",
         // The window's one attention read, for the rail's bell, its Notifications list and the
         // sessions list.
         "src/renderer/src/store/attention/AttentionProvider.tsx",

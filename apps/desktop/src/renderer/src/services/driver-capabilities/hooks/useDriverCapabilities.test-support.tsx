@@ -7,7 +7,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import type { PlatformBridge } from "../platform/bridge.js";
+import type { PlatformBridge } from "../../platform/bridge.js";
 import { useDriverCapabilities } from "./useDriverCapabilities.js";
 import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
 
