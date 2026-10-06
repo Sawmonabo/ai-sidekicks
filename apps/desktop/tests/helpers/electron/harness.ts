@@ -172,10 +172,14 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
   } catch (error: unknown) {
-    // No application was produced, so no cleanup verdict can carry the removal, and a bare
-    // `remove()` throwing here would replace the launch failure with a sentence about a
-    // directory.
-    throw withProfileRemoval(readinessFailure(deadline, error), removeLaunchProfile(profile));
+    // Main's standing is read before the profile holding its log is removed. No application was
+    // produced, so no cleanup verdict can carry the removal, and a bare `remove()` throwing here
+    // would replace the launch failure with a sentence about a directory.
+    const failure = mainOutput.failureWith(
+      readinessFailure(deadline, error),
+      mainOutput.standing(),
+    );
+    throw withProfileRemoval(failure, removeLaunchProfile(profile));
   } finally {
     mainOutput.stopWatching();
   }
@@ -224,7 +228,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   };
 
   try {
-    mainOutput.handedOver(application.process());
+    mainOutput.confirmHandover(application.process());
     const { window, consolePage } = await awaitPaintingAppWindow(application, deadline);
     return { application, window, consolePage, close };
   } catch (error: unknown) {

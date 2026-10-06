@@ -56,23 +56,34 @@ export class MainProcessOutput {
   }
 
   /**
-   * Main as Playwright handed it over. Throws when that is not the process whose spawn was seen,
-   * since its stderr would then be missing from a failure.
+   * Confirms the process Playwright handed over is the one whose spawn was seen. Throws when no
+   * spawn was seen, when it was another process, or when main has no stderr, since main's own
+   * words would then be missing from a failure.
    */
-  public handedOver(child: ChildProcess): void {
+  public confirmHandover(child: ChildProcess): void {
+    if (this.#child === undefined) {
+      throw new Error(`no process was seen starting with ${this.#userDataSwitch}`);
+    }
     if (this.#child !== child) {
       throw new Error(
-        `the launched main process was not the one seen spawning with ${this.#userDataSwitch}, ` +
-          "so its stderr could not be read",
+        `the launched main process was not the one seen starting with ${this.#userDataSwitch}`,
       );
+    }
+    if (child.stderr === null) {
+      throw new Error("the launched main process has no stderr to read");
     }
   }
 
   /** How main stands now. Read it before the close, which ends main and removes the profile. */
   public standing(): MainStanding {
+    if (this.#child === undefined) {
+      return {
+        exitStatus: `no process was seen starting with ${this.#userDataSwitch}`,
+        logTail: this.#readLogTail(),
+      };
+    }
     let exitStatus = "main was still running";
-    const exitCode = this.#child?.exitCode ?? null;
-    const signalCode = this.#child?.signalCode ?? null;
+    const { exitCode, signalCode } = this.#child;
     if (exitCode !== null) {
       exitStatus = `main exited with code ${String(exitCode)}`;
     } else if (signalCode !== null) {
@@ -99,12 +110,11 @@ export class MainProcessOutput {
   readonly #onChildCreated = (message: unknown): void => {
     const child = (message as { readonly process: ChildProcess }).process;
     queueMicrotask(() => {
-      const isMain = child.spawnargs.some((argument) => argument.includes(this.#userDataSwitch));
-      if (!isMain || child.stderr === null) {
+      if (!child.spawnargs.includes(this.#userDataSwitch)) {
         return;
       }
       this.#child = child;
-      child.stderr.on("data", (chunk: Buffer) => {
+      child.stderr?.on("data", (chunk: Buffer) => {
         this.#stderrTail = tailOf(Buffer.concat([this.#stderrTail, chunk]));
       });
     });

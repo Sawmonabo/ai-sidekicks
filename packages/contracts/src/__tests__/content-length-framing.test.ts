@@ -101,8 +101,8 @@ describe("FrameAccumulator", () => {
   it.each([1, 7, 4096, 100_000, 1_000_000])(
     "reads every frame whole and in order from reads of %i bytes",
     (readBytes) => {
-      // Each long body is over the accumulator's 64 KiB first size, so it grows the accumulator,
-      // and the reset after the first leaves the second to grow it again.
+      // Both long bodies are over the accumulator's 64 KiB first size, so every read size meets
+      // frames that outgrow it, the second arriving after the first has drained.
       const messages = [
         notification("first"),
         notification("x".repeat(70_000)),
@@ -124,7 +124,7 @@ describe("FrameAccumulator", () => {
   );
 
   it("grows by as many doublings as one read needs", () => {
-    // Over four times the accumulator's 64 KiB first size, so one doubling is not enough.
+    // Over four times the accumulator's 64 KiB first size, so two doublings are not enough.
     const message = notification("z".repeat(300_000));
     const frames = new FrameAccumulator(MAX_MESSAGE_BYTES);
     frames.append(encodeFrame(message));
