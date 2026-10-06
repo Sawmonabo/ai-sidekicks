@@ -35,15 +35,20 @@ const LINK_WITHIN_MS = 20_000;
 
 const trail = new TemporaryDirectoryTrail();
 let started: ServiceProcess[];
+// Every start the supervisor asked for, settled or not.
+let starts: Promise<ServiceProcess>[];
 let supervisor: DaemonSupervisor | undefined;
 
 beforeEach(() => {
   started = [];
+  starts = [];
   supervisor = undefined;
 });
 
 afterEach(async () => {
   await supervisor?.dispose();
+  // A start still running when a test fails lands its service here only once it settles.
+  await Promise.allSettled(starts);
   for (const service of started) {
     if (!service.hasExited()) {
       process.kill(service.processId, "SIGKILL");
@@ -70,8 +75,8 @@ it(
     const activeSupervisor = new DaemonSupervisor({
       link,
       connect: connectMainToDaemon,
-      startService: async () => {
-        const service = await startServiceDetached(
+      startService: () => {
+        const start = startServiceDetached(
           {
             command: process.execPath,
             args: [
@@ -82,9 +87,12 @@ it(
             ],
           },
           { ...process.env, HOME: homeDirectory, XDG_RUNTIME_DIR: runtimeDirectory },
-        );
-        started.push(service);
-        return service;
+        ).then((service) => {
+          started.push(service);
+          return service;
+        });
+        starts.push(start);
+        return start;
       },
       attachServiceProcess: attachToServiceProcess,
       log: { write: (entry) => logged.push(entry) },
@@ -114,16 +122,12 @@ it(
     );
 
     const killedAt = Date.now();
-    // Disposed as the loss lands, so the supervisor does not bring the service back.
-    const lost = stateReached(link, (state) => {
-      if (state.connection.kind !== "transient_disconnect") {
-        return false;
-      }
-      void activeSupervisor.dispose();
-      return true;
-    });
+    const lost = stateReached(link, (state) => state.connection.kind === "transient_disconnect");
     process.kill(service.processId, "SIGKILL");
     await lost;
+    // Disposed once the loss is published and before the supervisor's wait to start again runs
+    // out, so it brings no service back.
+    await activeSupervisor.dispose();
 
     expect(Date.now() - killedAt).toBeLessThan(LINK_QUIET_MS);
     expect(link.client).toBeUndefined();
