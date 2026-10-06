@@ -56,10 +56,10 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
         PtySignal::Sigterm => WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
         // Immediate hard stop: skip the console event.
         PtySignal::Sigkill => WindowsKillAction::TreeKill,
-        // SIGHUP has no fixed Windows mapping. `node-pty-host.ts` sends it down the SIGTERM path
-        // (CTRL_BREAK, then taskkill after 2 s). The sidecar goes straight to tree kill, which is
-        // where a child that ignores CTRL_BREAK ends up anyway, and needs no sidecar-side timer. To
-        // match the host, change this arm and its row in the tests.
+        // SIGHUP has no fixed Windows mapping. The daemon's `pty/host/node-pty.ts` sends it down
+        // the SIGTERM path (CTRL_BREAK, then taskkill after 2 s). The sidecar goes straight to
+        // tree kill, which is where a child that ignores CTRL_BREAK ends up anyway, and needs no
+        // sidecar-side timer. To match the host, change this arm and its row in the tests.
         PtySignal::Sighup => WindowsKillAction::TreeKill,
     }
 }

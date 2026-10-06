@@ -6,7 +6,7 @@
  */
 
 import { isPositiveFiniteNumber } from "./turn-evidence.js";
-import type { ProviderSpentRetriesSignal } from "../provider-driver.js";
+import type { ProviderSpentRetriesSignal } from "../contract.js";
 
 /** The `type` of the retry frame. */
 const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;

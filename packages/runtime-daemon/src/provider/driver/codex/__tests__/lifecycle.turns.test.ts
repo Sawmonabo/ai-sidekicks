@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
-import type { SubagentPolicy } from "../../provider-driver.js";
+import type { SubagentPolicy } from "../../contract.js";
 import {
   CodexDriverConfigError,
   CodexProviderRequestError,
@@ -32,7 +32,7 @@ import {
   threadStartResult,
   turnCompletedFrame,
   zeroTurnCompletedFrame,
-} from "./test-doubles.js";
+} from "./app-server.test-support.js";
 import { CREATE_PARAMS } from "./lifecycle.test-support.js";
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";

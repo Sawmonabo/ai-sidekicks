@@ -6,7 +6,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import { ClaudeSessionUnavailableError } from "./session/errors.js";
-import type { SubagentDefinition, SubagentPolicy } from "../provider-driver.js";
+import type { SubagentDefinition, SubagentPolicy } from "../contract.js";
 
 /**
  * Supervised postures never let commands run outside the sandbox: every level below `yolo` runs

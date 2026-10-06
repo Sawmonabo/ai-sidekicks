@@ -30,7 +30,7 @@ import {
   type OutboundTextFrame,
 } from "../../outbound-frame.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
-import { mintUuidV7 } from "../../../ids/uuid-v7.js";
+import { mintUuidV7 } from "../../../uuid-v7.js";
 import {
   CODEX_THREAD_FRAME_ROUTER_CONFIG,
   codexCompactionWaitKey,
@@ -70,12 +70,12 @@ import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
 import { CodexRunRoutes } from "./run-routes.js";
 import { CodexTextNeutralization } from "./text-neutralization.js";
 import { CodexNotificationRouting } from "./notification-routing.js";
-import { CodexProviderCommandCache } from "./provider-commands/cache.js";
+import { CodexProviderCommandCache } from "./commands.js";
 import { CodexSpawnPosture } from "./spawn-posture.js";
 import { CodexOutputSpeed, composeCodexServiceTier } from "./output-speed.js";
 import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
-import { CodexSteerDispatch } from "./steer-dispatch.js";
-import { CodexCompactionDispatch } from "./compaction-dispatch.js";
+import { CodexSteerDispatch } from "./steer.js";
+import { CodexCompactionDispatch } from "./compaction.js";
 import { CodexSessionEstablishment, releaseAbandonedConnection } from "./session/establishment.js";
 import {
   buildAuthProbeResult,
@@ -93,7 +93,7 @@ import {
   type SetSessionGoalParams,
   type DriverGoalResult,
   type StartRunParams,
-} from "../provider-driver.js";
+} from "../contract.js";
 
 // `turn/start` is believed to answer once the turn is accepted, so this matches the ordinary
 // request deadline. Separate so a wrong reading is a configuration change, not a code change.

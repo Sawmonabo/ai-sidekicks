@@ -32,7 +32,7 @@ import type {
   ResumeSessionParams,
   StartRunParams,
   SubagentPolicy,
-} from "../../provider-driver.js";
+} from "../../contract.js";
 
 /**
  * Composes the spawn-bound legs of a create or resume and the subagent gate of every spawn,

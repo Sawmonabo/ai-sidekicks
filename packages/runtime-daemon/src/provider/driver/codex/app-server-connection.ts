@@ -47,7 +47,7 @@ import {
 } from "./session/errors.js";
 import { isPlainObject } from "../../record-readers.js";
 import type { SpawnRequest } from "../../../pty/host/protocol.js";
-import type { PtyHost } from "../../../pty/host/pty-host.js";
+import type { PtyHost } from "../../../pty/host/contract.js";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 

@@ -8,7 +8,7 @@
 //   message; a default with a distinguishable code (`-32602`) would let a broken classifier pass,
 //   so that code is only a second accepted shape.
 
-import { CODEX_DRIVER_DESCRIPTOR } from "../codex-driver-descriptor.js";
+import { CODEX_DRIVER_DESCRIPTOR } from "../descriptor.js";
 
 /**
  * The Codex deserializer's unknown-variant reply: the variant it refused, then the ones it

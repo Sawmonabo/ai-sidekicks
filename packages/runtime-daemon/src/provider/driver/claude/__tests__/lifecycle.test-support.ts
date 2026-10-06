@@ -11,7 +11,7 @@ import type {
   DriverResumeResult,
   ForkConversationResult,
   ResumeSessionParams,
-} from "../../provider-driver.js";
+} from "../../contract.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import { ClaudeSessionLifecycle } from "../lifecycle.js";
 import type { ClaudeSessionLifecycleDependencies } from "../session/state.js";
@@ -26,7 +26,7 @@ import {
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
-} from "./test-doubles.js";
+} from "./transport.test-support.js";
 
 /** A lifecycle under test together with the doubles and recorders it was built over. */
 export interface LifecycleHarness {

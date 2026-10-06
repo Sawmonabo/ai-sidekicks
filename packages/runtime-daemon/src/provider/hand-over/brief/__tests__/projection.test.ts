@@ -14,7 +14,7 @@ import {
 import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptTurn,
-} from "../../../driver/provider-driver.js";
+} from "../../../driver/contract.js";
 import {
   projectionOf,
   requestFor,

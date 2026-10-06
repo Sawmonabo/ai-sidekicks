@@ -14,8 +14,8 @@ import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
-} from "../events/event-log-service.js";
-import { mintUuidV7 } from "../ids/uuid-v7.js";
+} from "../events/log-service.js";
+import { mintUuidV7 } from "../uuid-v7.js";
 
 /**
  * The durable append seam, typed against the append path's own signature. A table write that must

@@ -11,9 +11,9 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import semver from "semver";
 
 import { type CapabilityDetectionReading, isCapabilityProbeError } from "./probe.js";
-import type { DeclareDriverCapabilitiesResult } from "../driver/driver-capabilities-writer.js";
+import type { DeclareDriverCapabilitiesResult } from "../driver/capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../driver/diagnostics.js";
-import type { DriverCliVersionReport } from "../driver/provider-driver.js";
+import type { DriverCliVersionReport } from "../driver/contract.js";
 
 // The first `X.Y.Z` token in prose such as `"cli-name 2.1.245 (build 7)"`. Not `semver.coerce`,
 // which would turn `"v2"` into `2.0.0`: a partial version stays unparsed.
@@ -32,7 +32,7 @@ export function parseCliVersionReport(rawVersion: string): DriverCliVersionRepor
 /**
  * The liveness backstop for one driver's read: a read that never settles would hold the in-flight
  * slot and wedge every later refresh. It abandons the promise; only the seam's own deadline
- * (`resolveProviderExecutable` in `spawned-provider-version.ts`) can cancel provider work.
+ * (`resolveProviderExecutable` in `spawned-version.ts`) can cancel provider work.
  */
 export const CAPABILITY_REFRESH_READ_TIMEOUT_MS: number = 2 * 60 * 1000;
 

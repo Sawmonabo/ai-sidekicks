@@ -1404,7 +1404,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ### JSON-RPC Request `id` Bound
 
-**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc/message.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`, which enforces it.
+**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc/message.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-gateway.ts`, which enforces it.
 
 **Where it is enforced**: at the **request** boundary, before dispatch — an over-bound id refuses as `-32600 Invalid Request` with `data.type: "invalid_envelope"`, and that refusal carries `id: null` rather than echoing the offending value. Enforcement is two-sited and both sites are required: the envelope's id gate refuses the request, and the gateway's id-extraction helper — through which the `jsonrpc` and `method` gates build their error frames, and which answers _before_ the id gate — falls back to a null id, without which the one frame guaranteed to be small would be the one carrying the oversized echo.
 
@@ -4905,7 +4905,7 @@ interface ArtifactListResponse {
 // transport binding): the local IPC transport enforces a hard 4 MB per-frame ceiling on the declared
 // Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES, declared in
 // packages/contracts/src/jsonrpc/message.ts and enforced by
-// packages/runtime-daemon/src/ipc/local-ipc-gateway.ts, Spec-006 §Wire Format), so a payload
+// packages/runtime-daemon/src/ipc/local-gateway.ts, Spec-006 §Wire Format), so a payload
 // larger than one frame cannot cross it and a single-call shape would be
 // un-implementable on this wire. Chunks spool to a daemon-held temporary file OUTSIDE the CAS until
 // Complete; the byte bound binds three times — the transport frame ceiling, Init's declared total, and

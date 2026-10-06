@@ -41,7 +41,7 @@ import {
   type ForkConversationResult,
   type ProviderSessionHandle,
   type ResumeSessionParams,
-} from "../../provider-driver.js";
+} from "../../contract.js";
 
 /** What the establishment legs spawn through and hand an adopted channel to. */
 export interface ClaudeSessionEstablishmentDependencies {

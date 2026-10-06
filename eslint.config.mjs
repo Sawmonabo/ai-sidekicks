@@ -14,7 +14,7 @@ const DAEMON_RANDOM_UUID_PROPERTY = {
   property: "randomUUID",
   message:
     "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids " +
-    "must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), " +
+    "must mint through mintUuidV7 (packages/runtime-daemon/src/uuid-v7.ts), " +
     "which the contracts package's ID-format rule requires. An id that is " +
     "genuinely an ephemeral token — no row and no event stores it — earns an entry " +
     "in the exemption block beside this one, reviewed on the diff that adds it.",
@@ -22,7 +22,7 @@ const DAEMON_RANDOM_UUID_PROPERTY = {
 
 /**
  * The daemon's `randomUUID` import ban, hoisted for the same reason: the provider-driver
- * descriptor registry's block below restates it without the driver-folder ban.
+ * descriptor table's block below restates it without the driver-folder ban.
  */
 const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
   {
@@ -30,7 +30,7 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
     importNames: ["randomUUID"],
     message:
       "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and " +
-      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). " +
+      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/uuid-v7.ts). " +
       "node:crypto's other exports are unrestricted.",
   },
   {
@@ -38,18 +38,18 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
     importNames: ["randomUUID"],
     message:
       "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and " +
-      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). " +
+      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/uuid-v7.ts). " +
       "Use the `node:` prefix for the other builtins.",
   },
 ];
 
-/** A relative import through a provider's folder; only the descriptor registry may make one. */
+/** A relative import through a provider's folder; only the descriptor table may make one. */
 const DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN = {
   regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
   message:
     "A provider's folder is imported only by the " +
-    "provider-driver descriptor registry; shared daemon code " +
-    "reads a provider through the registry and names none.",
+    "provider-driver descriptor table; shared daemon code " +
+    "reads a provider through the table and names none.",
 };
 
 /**
@@ -443,7 +443,7 @@ const repositoryConfig = defineConfig(
   // are UUID v7 (contracts `session/id.ts` and `event/session-event.ts`), and the wire schemas
   // accept any version on purpose (control-plane rows are Postgres `gen_random_uuid()` v4), so
   // nothing downstream rejects a v4 and a factory minting one is wrong and silent. Every
-  // daemon persisted-row id and event id mints through `mintUuidV7` (`src/ids/uuid-v7.ts`).
+  // daemon persisted-row id and event id mints through `mintUuidV7` (`src/uuid-v7.ts`).
   //
   // Carried on `no-restricted-properties` and `no-restricted-imports`: the block above owns
   // `no-restricted-syntax` for this scope, and flat config replaces a rule's options at the last
@@ -471,9 +471,9 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // The descriptor registry is the one shared module that imports each driver's descriptor.
+  // The descriptor table is the one shared module that imports each driver's descriptor.
   {
-    files: ["packages/runtime-daemon/src/provider/driver/provider-driver-descriptors.ts"],
+    files: ["packages/runtime-daemon/src/provider/driver/descriptor.ts"],
     rules: {
       "no-restricted-imports": ["error", { paths: DAEMON_RANDOM_UUID_IMPORT_PATHS }],
     },
@@ -487,13 +487,13 @@ const repositoryConfig = defineConfig(
   {
     files: [
       // Scratch git-index filename, unlinked in the same call.
-      "packages/runtime-daemon/src/git/turn-snapshot/turn-snapshot-service.ts",
+      "packages/runtime-daemon/src/git/turn-snapshot/service.ts",
       // In-memory subscription id, alive for one transport connection.
       "packages/runtime-daemon/src/ipc/streaming-primitive.ts",
       // In-flight correlation token for one outbound frame.
       "packages/runtime-daemon/src/provider/outbound-frame.ts",
       // Host-local PTY handle; the Rust sidecar backend mints `s-{n}` here.
-      "packages/runtime-daemon/src/pty/node-pty-host.ts",
+      "packages/runtime-daemon/src/pty/host/node-pty.ts",
     ],
     rules: {
       "no-restricted-properties": "off",
@@ -556,7 +556,7 @@ const repositoryConfig = defineConfig(
             {
               regex:
                 "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|" +
-                "\\.\\./transform-pipeline\\.js|\\.\\./\\.\\./driver/provider-driver\\.js)$).*$",
+                "\\.\\./transform-pipeline\\.js|\\.\\./\\.\\./driver/contract\\.js)$).*$",
               message:
                 "The brief projection floor is pure: it folds an already-read " +
                 "canonical projection into a turn and persists nothing, so its " +

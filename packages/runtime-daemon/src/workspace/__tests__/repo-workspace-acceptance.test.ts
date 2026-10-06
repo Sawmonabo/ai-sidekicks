@@ -15,25 +15,24 @@ import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/repo/workspace";
 
-import { EventLogService } from "../../events/event-log-service.js";
+import { EventLogService } from "../../events/log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService } from "../../session/session-service.js";
-import { RepoMountService } from "../repo/repo-mount-service.js";
-import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import { WorkspaceService } from "../workspace-service.js";
-import { WorkspaceStaleError } from "../service-errors.js";
+import { SessionService } from "../../session/service.js";
+import { RepoMountService } from "../repo/mount-service.js";
+import { WorkspaceEventEmitter } from "../event-emitter.js";
+import { WorkspaceService } from "../service.js";
+import { WorkspaceStaleError } from "../errors.js";
 
+import { bindReadyWorkspace } from "../__fixtures__/bound-root.js";
+import { steppingClock } from "../__fixtures__/stepping-clock.js";
 import {
-  bindReadyWorkspace,
-  buildFixtureEnvironment,
   readLifecycleEnvelopes,
   readLifecycleEventTypes,
   requireMountRow,
   requireWorkspaceRow,
-  runFixtureGit,
   seedSession,
-  steppingClock,
-} from "./workspace.test-support.js";
+} from "../__fixtures__/rows.js";
+import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // Fixtures

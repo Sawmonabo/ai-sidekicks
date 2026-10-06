@@ -26,7 +26,7 @@ import {
   type StreamingPrimitiveOptions,
 } from "../streaming-primitive.js";
 
-import { passthroughSchema, rejectingSchema } from "../__fixtures__/zod-schemas.js";
+import { passthroughSchema, rejectingSchema } from "../__fixtures__/schema-doubles.js";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 interface PrimitiveFixture {

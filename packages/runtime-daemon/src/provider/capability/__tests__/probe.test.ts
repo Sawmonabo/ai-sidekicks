@@ -38,7 +38,7 @@ import {
 import {
   DriverCapabilitiesWriter,
   type DeclareDriverCapabilitiesResult,
-} from "../../driver/driver-capabilities-writer.js";
+} from "../../driver/capabilities-writer.js";
 import { makeSilentDriverDiagnostics } from "../../__fixtures__/silent-driver-diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "../../driver/claude/capabilities.js";
 import {
@@ -48,8 +48,8 @@ import {
   readCodexCapabilityDetection,
   refreshCodexCapabilities,
 } from "../../driver/codex/capabilities.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "../../driver/provider-driver-descriptors.js";
-import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../../driver/descriptor.js";
+import type { SpawnedProviderVersionReading } from "../../spawned-version.js";
 
 const DRIVERS: readonly ProviderName[] = ["claude", "codex"];
 

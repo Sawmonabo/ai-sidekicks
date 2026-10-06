@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { translateSpawnCwd } from "../spawn-cwd-translator.js";
 import type { TranslateSpawnCwdInput } from "../spawn-cwd-translator.js";
 import type { PtySignal, SpawnRequest, SpawnResponse } from "../../pty/host/protocol.js";
-import type { DrainResult, PtyHost } from "../../pty/host/pty-host.js";
+import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
 
 // ----------------------------------------------------------------------------
 // Minimal in-memory PtyHost — recording mock

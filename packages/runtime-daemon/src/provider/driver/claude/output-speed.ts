@@ -6,10 +6,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
-import {
-  CLAUDE_FAST_OUTPUT_SPEED,
-  CLAUDE_STANDARD_OUTPUT_SPEED,
-} from "./claude-driver-descriptor.js";
+import { CLAUDE_FAST_OUTPUT_SPEED, CLAUDE_STANDARD_OUTPUT_SPEED } from "./descriptor.js";
 import type { ClaudeProviderProcess } from "./session/transport.js";
 
 /** The level a carried `level` runs at: itself where the driver's table lists it, else standard. */

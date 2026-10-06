@@ -37,7 +37,7 @@ import type { CodexModelCatalogExchange } from "../capabilities.js";
 import { type CodexSessionSlotState } from "./errors.js";
 import type { CodexSessionServerRequestResponder } from "../server-requests.js";
 import { isPlainObject } from "../../../record-readers.js";
-import type { SubagentPolicy } from "../../provider-driver.js";
+import type { SubagentPolicy } from "../../contract.js";
 
 /** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */
 export const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([

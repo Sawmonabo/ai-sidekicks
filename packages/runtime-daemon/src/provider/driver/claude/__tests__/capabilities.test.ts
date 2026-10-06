@@ -12,7 +12,7 @@ import {
   claudeDefaultProbeReply,
   claudeSuccessReply,
 } from "../__fixtures__/capability-probe-replies.js";
-import type { SpawnedProviderVersionReading } from "../../../spawned-provider-version.js";
+import type { SpawnedProviderVersionReading } from "../../../spawned-version.js";
 import {
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
@@ -25,7 +25,7 @@ import {
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
   ModelCatalogUnreadableError,
-} from "../../provider-driver.js";
+} from "../../contract.js";
 
 const CLI_VERSION: DriverCliVersionReport = {
   rawVersion: "2.1.245 (Claude Code)",

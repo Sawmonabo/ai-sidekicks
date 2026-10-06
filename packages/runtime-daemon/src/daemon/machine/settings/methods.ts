@@ -23,7 +23,7 @@ import { registerDescribedMethod } from "../../../ipc/handlers/register-describe
 import type { StreamingPrimitive } from "../../../ipc/streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../../ipc/subscription-ack-barrier.js";
 
-import type { MachineSettingsFile } from "./machine-settings-file.js";
+import type { MachineSettingsFile } from "./file.js";
 
 /**
  * What the machine-settings verbs need: the settings file, the shared streaming primitive and the

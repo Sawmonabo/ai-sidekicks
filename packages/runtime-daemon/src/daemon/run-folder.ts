@@ -7,7 +7,7 @@ import * as net from "node:net";
 
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 
-import { DaemonAlreadyRunningError } from "./daemon-already-running-error.js";
+import { DaemonAlreadyRunningError } from "./already-running-error.js";
 
 /**
  * Makes the run folder ready for a bind: creates it readable by the person alone, refuses one

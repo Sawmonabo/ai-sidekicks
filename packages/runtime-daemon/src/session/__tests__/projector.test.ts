@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { rebuildSession } from "../projector.js";
-import type { DaemonSessionRecord, StoredEvent } from "../types.js";
+import type { DaemonSessionRecord, StoredEvent } from "../records.js";
 import {
   makeCreatedEvent,
   OCCURRED_AT,

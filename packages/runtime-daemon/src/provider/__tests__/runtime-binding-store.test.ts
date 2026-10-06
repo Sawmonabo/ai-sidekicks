@@ -26,8 +26,8 @@ import {
   readSpawnedProviderVersion,
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
-} from "../spawned-provider-version.js";
-import type { CallbackToolResult, DriverCliVersionReport } from "../driver/provider-driver.js";
+} from "../spawned-version.js";
+import type { CallbackToolResult, DriverCliVersionReport } from "../driver/contract.js";
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
@@ -683,7 +683,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 // handle at the provider.
 
 describe("RuntimeBindingStore — spawned-version carriers", () => {
-  // `spawned-provider-version.test.ts` proves the reading is taken from the dereferenced build.
+  // `spawned-version.test.ts` proves the reading is taken from the dereferenced build.
   // This proves that value is what a later reader gets back out of the database, through
   // `create()`'s report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none
   // of which the in-memory projection helpers exercise: the version recorded and the version run
@@ -711,7 +711,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
   // Injected rather than filesystem-backed: drift is "realpath answers a different path than
   // the candidate", which runs on every platform (the real-symlink fixture in
-  // `spawned-provider-version.test.ts` is posix-only).
+  // `spawned-version.test.ts` is posix-only).
   const DRIFTING_RESOLVER = {
     isExecutableFile: async (): Promise<boolean> => true,
     realpath: async (candidate: string): Promise<string> =>

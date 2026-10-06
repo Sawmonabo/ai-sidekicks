@@ -5,7 +5,7 @@
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
 
-import type { SessionDraftStore } from "../../../session/session-draft-store.js";
+import type { SessionDraftStore } from "../../../session/draft-store.js";
 
 import { registerDescribedMethod } from "../register-described-method.js";
 

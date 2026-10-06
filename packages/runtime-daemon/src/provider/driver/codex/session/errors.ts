@@ -5,10 +5,7 @@
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
-import {
-  boundFailureDetail,
-  DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
-} from "../../provider-driver.js";
+import { boundFailureDetail, DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE } from "../../contract.js";
 
 /** Substituted when a provider failure carries no usable message. */
 const UNSPECIFIED_PROVIDER_FAILURE_DETAIL =

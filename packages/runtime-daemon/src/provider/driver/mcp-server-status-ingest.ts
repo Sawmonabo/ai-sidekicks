@@ -3,7 +3,7 @@
 // provider-neutral.
 
 import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
-import { McpServerStatusEmissionSchema, type McpServerStatusEmission } from "./provider-driver.js";
+import { McpServerStatusEmissionSchema, type McpServerStatusEmission } from "./contract.js";
 
 /**
  * A raw row, line or notification a normalizer could not turn into a bounded emission.

@@ -40,7 +40,7 @@ import {
 } from "./transport/diagnostics.js";
 import { isPlainObject } from "../../record-readers.js";
 import type { CodexRunRoutes } from "./run-routes.js";
-import type { StartRunParams } from "../provider-driver.js";
+import type { StartRunParams } from "../contract.js";
 
 /** The lifecycle's frame machinery, its session records and the teardown a trip calls back into. */
 export interface CodexTextNeutralizationDependencies {

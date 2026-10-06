@@ -4,7 +4,7 @@
  */
 
 import { isPlainObject } from "../../record-readers.js";
-import type { ProviderUsageLimitSignal } from "../provider-driver.js";
+import type { ProviderUsageLimitSignal } from "../contract.js";
 
 /**
  * The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply).

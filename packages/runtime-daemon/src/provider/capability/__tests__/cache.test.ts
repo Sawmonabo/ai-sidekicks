@@ -12,9 +12,9 @@ import { DriverCapabilityReportSchema } from "@ai-sidekicks/contracts/provider/d
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { DriverCapabilityCache } from "../cache.js";
-import type { DriverCapabilityHydrationResult } from "../../driver/driver-capabilities-writer.js";
-import type { GetCapabilitiesResult } from "../../driver/provider-driver.js";
-import { composeStaticOutputSpeedLevels } from "../../driver/provider-driver-descriptors.js";
+import type { DriverCapabilityHydrationResult } from "../../driver/capabilities-writer.js";
+import type { GetCapabilitiesResult } from "../../driver/contract.js";
+import { composeStaticOutputSpeedLevels } from "../../driver/descriptor.js";
 
 function flagsWith(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): DriverCapabilities {
   const flags = Object.fromEntries(

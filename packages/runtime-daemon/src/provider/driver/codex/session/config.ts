@@ -9,7 +9,17 @@ import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../../spawn
 import { RUN_OPENING_FRAME_ORIGIN } from "../../../outbound-frame.js";
 import { isPlainObject } from "../../../record-readers.js";
 import { CodexDriverConfigError } from "./errors.js";
-import type { SubagentPolicy } from "../../provider-driver.js";
+import type { SubagentPolicy } from "../../contract.js";
+
+/**
+ * The item-injection method (`ThreadInjectItemsParams`, non-experimental at the pin): appends items
+ * to a loaded thread's model-visible history, one way a conversation takes changed instructions
+ * from its next turn. `items` accepts any JSON, so an unrecognized item is taken and dropped while
+ * the request still succeeds.
+ *
+ * @consumedBy the Codex leg that hands a loaded conversation changed instructions
+ */
+export const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
 
 /**
  * What this driver requires inside the untyped `CreateSessionParams.config` (this module never

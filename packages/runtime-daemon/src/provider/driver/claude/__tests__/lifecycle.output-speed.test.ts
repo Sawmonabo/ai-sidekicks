@@ -13,7 +13,7 @@ import {
   TEST_RUN_ID,
   TEST_SECOND_RUN_ID,
   TEST_SESSION_ID,
-} from "./test-doubles.js";
+} from "./transport.test-support.js";
 import {
   armRunDispatch,
   buildHarness,

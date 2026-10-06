@@ -14,7 +14,7 @@ import {
   type CallbackToolSpawnBinding,
 } from "../callback-tool-host.js";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver/diagnostics.js";
-import type { CallbackToolInvocation, CallbackToolResult } from "../driver/provider-driver.js";
+import type { CallbackToolInvocation, CallbackToolResult } from "../driver/contract.js";
 
 /** The session every harness invocation and ask names. */
 export const TEST_SESSION_ID: SessionId = "11111111-1111-4111-8111-111111111111" as SessionId;

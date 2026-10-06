@@ -7,7 +7,7 @@ import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { CLAUDE_DRIVER_NAME } from "../capabilities.js";
-import { boundFailureDetail } from "../../provider-driver.js";
+import { boundFailureDetail } from "../../contract.js";
 
 const UNDESCRIBED_FAILURE_DETAIL =
   "The Claude provider transport failed the resume with no describable detail.";

@@ -15,8 +15,8 @@
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import type { CapabilityDetectionSource } from "../driver/provider-driver.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/provider-driver-descriptors.js";
+import type { CapabilityDetectionSource } from "../driver/contract.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/descriptor.js";
 
 /** The three conjuncts an admissible probe must satisfy; a `static` entry names those that fail. */
 type ProbeAdmissibilityConjunct =

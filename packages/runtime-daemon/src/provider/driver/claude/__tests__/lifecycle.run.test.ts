@@ -6,7 +6,7 @@ import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/c
 import { describe, expect, it } from "vitest";
 
 import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
-import type { CreateSessionParams, StartRunParams } from "../../provider-driver.js";
+import type { CreateSessionParams, StartRunParams } from "../../contract.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import {
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
@@ -20,7 +20,7 @@ import {
   TEST_RUN_ID,
   TEST_SECOND_RUN_ID,
   TEST_SESSION_ID,
-} from "./test-doubles.js";
+} from "./transport.test-support.js";
 import {
   armRunDispatch,
   buildHarness,

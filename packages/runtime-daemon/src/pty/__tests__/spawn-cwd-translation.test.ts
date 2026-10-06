@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
+import { RustSidecarPtyHost } from "../sidecar/host.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
 import {
   flushMicrotasks,
@@ -11,7 +11,7 @@ import {
   makeFakeSidecarChild,
   parseFramesFromStdin,
   spawnReturning,
-} from "./pty-host.test-support.js";
+} from "../__fixtures__/child-doubles.js";
 import type { Envelope, SpawnRequest } from "../host/protocol.js";
 
 interface PathFixture {

@@ -15,13 +15,13 @@ import type {
   CapabilityProbeExchange,
   CapabilityProbeRequest,
 } from "../probe.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "../../driver/provider-driver-descriptors.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../../driver/descriptor.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
-} from "../../driver/driver-capabilities-writer.js";
-import type { CapabilityDetectionSource } from "../../driver/provider-driver.js";
+} from "../../driver/capabilities-writer.js";
+import type { CapabilityDetectionSource } from "../../driver/contract.js";
 
 /** The reply a provider gives one probe name when a test sets no override for it. */
 export type DefaultProbeReply = (probeName: string) => unknown;

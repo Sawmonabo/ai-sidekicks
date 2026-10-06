@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DriverResumeResultSchema } from "../../provider-driver.js";
+import { DriverResumeResultSchema } from "../../contract.js";
 import { ClaudeAuthenticationRequiredError } from "../session/errors.js";
 import {
   buildCreateSessionParams,
@@ -12,7 +12,7 @@ import {
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
-} from "./test-doubles.js";
+} from "./transport.test-support.js";
 import {
   buildHarness,
   createLiveSession,

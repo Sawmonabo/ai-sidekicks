@@ -10,7 +10,7 @@ import type { Database } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../../../session/migration-runner.js";
-import { SessionDraftStore } from "../../../../session/session-draft-store.js";
+import { SessionDraftStore } from "../../../../session/draft-store.js";
 import { insertStoredEvent } from "../../../../session/__tests__/stored-event.test-support.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { SessionNotFoundError } from "../../../session-errors.js";

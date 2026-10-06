@@ -2,7 +2,7 @@
 // probe-reply classifier. The negative control draws the dispatcher's name-level refusal
 // (`Unsupported control request subtype:`); any other name draws a `success`.
 
-import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
+import { CLAUDE_DRIVER_DESCRIPTOR } from "../descriptor.js";
 
 /** The Claude control-response arm for a subtype the dispatcher does not know. */
 export function claudeUnsupportedSubtypeReply(subtype: string): unknown {

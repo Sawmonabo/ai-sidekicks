@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import { ClaudeSubagentConcurrencyGate } from "../subagent-policy.js";
-import { TEST_SESSION_ID } from "./test-doubles.js";
+import { TEST_SESSION_ID } from "./transport.test-support.js";
 
 function buildGate(maxConcurrent: number): ClaudeSubagentConcurrencyGate {
   return new ClaudeSubagentConcurrencyGate({

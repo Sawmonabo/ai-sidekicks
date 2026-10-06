@@ -25,7 +25,7 @@ import {
   readCodexTerminalTurnStatus,
 } from "./session/state.js";
 import { normalizeProviderFailureDetail } from "./session/errors.js";
-import { readCodexCompactionBoundaryPosition } from "./provider-commands/wire.js";
+import { readCodexCompactionBoundaryPosition } from "./compaction.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
 
 /** The consumers the band feeds, and the per-session router and accountant it reads live. */

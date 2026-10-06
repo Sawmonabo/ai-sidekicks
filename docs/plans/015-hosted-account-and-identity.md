@@ -42,7 +42,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/control-plane/src/account/` (CREATE — T5.4 hosted-account sign-in and token family, T5.5 `account.delete` and `account.export`)
 - `packages/contracts/src/account.ts` (CREATE — T5.4 and T5.5: the hosted-account routes' request and response shapes, which the command line and the daemon read) and `packages/contracts/src/error.ts` (EXTEND — their refusal codes)
 - `packages/runtime-daemon/src/identity/paseto-daemon-credential-provider.ts` (CREATE — T5.1/T5.2 real credential provider; new Plan-015-owned `identity/` daemon subdirectory)
-- `packages/runtime-daemon/src/daemon/daemon-process.ts` (EXTEND — T5.3 composition-root injection, a wiring call into Plan-005's daemon composition root)
+- `packages/runtime-daemon/src/daemon/process.ts` (EXTEND — T5.3 composition-root injection, a wiring call into Plan-005's daemon composition root)
 - `packages/control-plane/src/users/webauthn-ceremony-service.ts` (CREATE — T6.2/T6.3 registration + authentication ceremony halves)
 - `packages/control-plane/src/users/webauthn-challenge-store.ts` (CREATE — T6.4 single-use challenge fence)
 - `packages/contracts/src/users/webauthn-ceremony.ts` (CREATE — T6.2/T6.3 ceremony request/response schemas)
@@ -236,7 +236,7 @@ PASETO wiring — the decomposition CP-015-7 schedules here: the real `DaemonCre
   - Provides: the daemon's access-token trade and refresh, on the refresh token `sidekicks sign-in` issues (T5.4)
   - Behavior: the daemon's refresh token comes from `sidekicks sign-in` (T5.4): the control plane binds it to this machine's DPoP proof key (`cnf.jkt`; the private key never leaves the machine), and the command line keeps it as its own item in the operating system's credential store, running with the service stopped. The daemon trades it for a short-lived access token whenever a caller needs one; each trade returns a new refresh token and spends the old one, and the daemon writes the new one to that item in its place. It never re-runs the interactive grant. A trade that trips reuse detection fails the mint CLOSED (the credential seam refuses, callers degrade honestly on their existing backoff) rather than retrying with a burned family, and `sidekicks daemon status` prints `Hosted account: signed out · a reused sign-in was detected; sign in again`. The access token is held in memory for its short lifetime and never stored. The proof key persists across trades so `cnf.jkt` continues to bind.
 - **T5.3 — Composition-root injection at every consuming site + runtime stub assertion.**
-  - Files: `packages/runtime-daemon/src/daemon/daemon-process.ts` (EXTEND — a wiring call into Plan-005's daemon composition root) + tests
+  - Files: `packages/runtime-daemon/src/daemon/process.ts` (EXTEND — a wiring call into Plan-005's daemon composition root) + tests
   - **Spec coverage:** Spec-016 §Required Behavior (every daemon-resident control-plane caller is credentialed), Spec-016 §Pitfalls To Avoid (an uninjected seam fails silently)
   - **Verifies invariant:** I-015-4
   - Consumes: `PasetoDaemonCredentialProvider` (T5.1); the consuming sites CP-004-6 and CP-015-7 enumerate

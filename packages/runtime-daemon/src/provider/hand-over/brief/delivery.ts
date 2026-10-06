@@ -14,7 +14,7 @@ import {
   type BriefTargetIdentity,
   UnownedBriefTargetError,
 } from "./projection.js";
-import type { CanonicalTranscriptProjection } from "../../driver/provider-driver.js";
+import type { CanonicalTranscriptProjection } from "../../driver/contract.js";
 
 /**
  * The frame handed to the gateway, minted `system_narration`; the driver owns encoding. A frame,

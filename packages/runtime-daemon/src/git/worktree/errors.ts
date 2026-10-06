@@ -33,7 +33,7 @@ type WorktreeErrorCode =
 
 /**
  * The `workspace.*` codes this module carries; the others have carriers in
- * `../../workspace/service-errors.js`.
+ * `../../workspace/errors.js`.
  */
 type WorkspaceErrorCode =
   | "workspace.branch_mismatch"

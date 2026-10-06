@@ -17,9 +17,9 @@ import {
   makeFlags,
   makeResult,
 } from "../__fixtures__/results.js";
-import { DriverCapabilitiesWriter } from "../../driver/driver-capabilities-writer.js";
-import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../provider-registry.js";
-import type { GetCapabilitiesResult, ProviderDriver } from "../../driver/provider-driver.js";
+import { DriverCapabilitiesWriter } from "../../driver/capabilities-writer.js";
+import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../driver/registry.js";
+import type { GetCapabilitiesResult, ProviderDriver } from "../../driver/contract.js";
 
 const DRIVER_NAME: ProviderName = "claude";
 

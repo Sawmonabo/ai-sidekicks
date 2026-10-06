@@ -9,7 +9,7 @@ import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import semver from "semver";
 
-import type { DriverCliVersionReport } from "./driver/provider-driver.js";
+import type { DriverCliVersionReport } from "./driver/contract.js";
 import { isPlainObject } from "./record-readers.js";
 
 /** Maximum length of a provider-owned opaque `resume_handle`; equals the SQL CHECK bound. */

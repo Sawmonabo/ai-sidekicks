@@ -6,7 +6,7 @@
 //! holds one registry, forwards `spawn`, `write`, `resize` and `kill` to it, and pumps the outbound
 //! channel to stdout.
 //!
-//! ## Design decisions
+//! ## How it works
 //!
 //! - **Ids** are `s-{n}` from an `AtomicU64` counter. The daemon treats them as opaque, so no UUID
 //!   dependency is needed.

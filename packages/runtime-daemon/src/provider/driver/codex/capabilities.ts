@@ -23,16 +23,16 @@ import { emitCapabilityDetectionDiagnostics } from "../../capability/refresh.js"
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
-} from "../driver-capabilities-writer.js";
+} from "../capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
-import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
+import type { SpawnedProviderVersionReading } from "../../spawned-version.js";
 
 import { getCodexToolMetadata } from "./tools.js";
 import {
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
   ModelCatalogUnreadableError,
-} from "../provider-driver.js";
+} from "../contract.js";
 import { isPlainObject, readNonEmptyString } from "../../record-readers.js";
 
 /** Canonical driver id for Codex: the `driver_*` table key and the registry id. */

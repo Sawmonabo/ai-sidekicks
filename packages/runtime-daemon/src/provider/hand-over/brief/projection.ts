@@ -16,7 +16,7 @@ import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../../driver/provider-driver.js";
+} from "../../driver/contract.js";
 
 /**
  * The target session a brief is delivered into, named by its provider session id alone: a resume

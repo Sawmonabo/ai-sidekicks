@@ -21,27 +21,27 @@ import { join, relative } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EventLogService } from "../../../events/event-log-service.js";
+import { EventLogService } from "../../../events/log-service.js";
 import { openDatabase } from "../../../session/migration-runner.js";
-import { SessionService } from "../../../session/session-service.js";
+import { SessionService } from "../../../session/service.js";
 import { ExecutionRootService } from "../../../workspace/execution-root-service.js";
-import { WorkspaceEventEmitter } from "../../../workspace/workspace-event-emitter.js";
+import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
+import { requireWorkspaceRow } from "../../../workspace/__fixtures__/rows.js";
 import {
   buildFixtureEnvironment,
-  requireWorkspaceRow,
   spawnFixtureGit,
   type FixtureGitResult,
-} from "../../../workspace/__tests__/workspace.test-support.js";
+} from "../../__fixtures__/command.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
-import { WorkspaceService } from "../../../workspace/workspace-service.js";
+import { WorkspaceService } from "../../../workspace/service.js";
 import {
   WorkspaceBranchMismatchError,
   WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
   WorktreeRetireConflictError,
 } from "../errors.js";
-import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
-import { WorktreeService } from "../worktree-service.js";
+import { WorktreeEventEmitter } from "../event-emitter.js";
+import { WorktreeService } from "../service.js";
 import { runGitWithExecFile } from "../../process.js";
 
 // Session, mount, workspace and run ids are parsed as branded UUIDs at the emission boundary.

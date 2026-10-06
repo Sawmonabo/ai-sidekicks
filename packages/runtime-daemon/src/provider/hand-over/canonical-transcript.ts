@@ -13,14 +13,14 @@
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { StoredEvent } from "../../session/types.js";
+import type { StoredEvent } from "../../session/records.js";
 import type {
   CanonicalReasoningDisclosure,
   CanonicalTranscriptProjection,
   CanonicalTranscriptRole,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../driver/provider-driver.js";
+} from "../driver/contract.js";
 
 /**
  * The slice of the session store the fold reads: the signature of `SessionService.readEvents`.

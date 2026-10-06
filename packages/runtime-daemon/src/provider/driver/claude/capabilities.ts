@@ -25,17 +25,17 @@ import { emitCapabilityDetectionDiagnostics } from "../../capability/refresh.js"
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
-} from "../driver-capabilities-writer.js";
+} from "../capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
-import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
+import type { SpawnedProviderVersionReading } from "../../spawned-version.js";
 
-import { composeStaticOutputSpeedLevels } from "../provider-driver-descriptors.js";
+import { composeStaticOutputSpeedLevels } from "../descriptor.js";
 import { getClaudeToolMetadata } from "./tools.js";
 import {
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
   ModelCatalogUnreadableError,
-} from "../provider-driver.js";
+} from "../contract.js";
 import { readNonEmptyString } from "../../record-readers.js";
 
 /** The registry and capability-table key: daemon-controlled identity, never provider output. */

@@ -55,7 +55,7 @@ import type {
   SetSessionGoalParams,
   DriverGoalResult,
   StartRunParams,
-} from "../provider-driver.js";
+} from "../contract.js";
 
 export { CodexAppServerConnection } from "./app-server-connection.js";
 export {

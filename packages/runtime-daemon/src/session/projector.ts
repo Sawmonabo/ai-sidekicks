@@ -1,7 +1,7 @@
 // Pure fold from a session's event stream to a `DaemonSessionRecord`. It does no I/O; the
 // caller supplies events in `sequence ASC` order and the projector trusts that order.
 
-import type { DaemonSessionRecord, StoredEvent } from "./types.js";
+import type { DaemonSessionRecord, StoredEvent } from "./records.js";
 
 /**
  * Folds a session's events into a record, or returns `null` for an empty list, since a

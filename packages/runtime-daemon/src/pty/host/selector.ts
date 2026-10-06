@@ -2,8 +2,8 @@
 // not branch on platform. Every platform gets `NodePtyHost` (in-process `node-pty`); no
 // environment variable overrides the choice.
 
-import { NodePtyHost } from "../node-pty-host.js";
-import type { PtyHost } from "./pty-host.js";
+import { NodePtyHost } from "./node-pty.js";
+import type { PtyHost } from "./contract.js";
 
 /** Picks the `PtyHost` backend for this daemon process: `NodePtyHost` on every platform. */
 export function selectPtyHost(): PtyHost {

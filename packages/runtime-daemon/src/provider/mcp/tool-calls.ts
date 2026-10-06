@@ -1,5 +1,5 @@
 // The MCP tool-call rules both drivers share: the idempotency floor for a discovered tool, and the
-// observation half of the durable task handle, which `./mcp-task-handle-recorder.ts` stores.
+// observation half of the durable task handle, which `./task-handle-recorder.ts` stores.
 //
 // - An MCP-discovered tool is always `manual_reconcile_only`, never derived from annotation hints:
 //   MCP requires a client to treat annotations as untrusted.

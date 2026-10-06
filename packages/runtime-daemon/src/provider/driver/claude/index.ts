@@ -41,7 +41,7 @@ import type {
   ResumeSessionParams,
   ForkConversationParams,
   StartRunParams,
-} from "../provider-driver.js";
+} from "../contract.js";
 
 // The public surface is listed by name, not `export *`, so a symbol added to a module does not
 // become public by accident. From `capabilities.ts` only the model-catalog type is public, because

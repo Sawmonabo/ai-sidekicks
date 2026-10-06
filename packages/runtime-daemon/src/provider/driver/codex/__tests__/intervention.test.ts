@@ -23,7 +23,7 @@ import {
   type CodexSteerRunRequest,
 } from "../intervention.js";
 import { TEXT_NEUTRALIZATION_REFUSAL_CODE } from "../../../outbound-frame.js";
-import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
+import { STEER_FALLBACK_ACTION } from "../../contract.js";
 
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
 

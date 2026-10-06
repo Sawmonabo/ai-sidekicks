@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { CreateSessionParams } from "../../provider-driver.js";
+import type { CreateSessionParams } from "../../contract.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import { CodexTransportError, type CodexModelCatalogExchange } from "../index.js";
 import {
@@ -23,7 +23,7 @@ import {
   createHarness,
   threadStartResult,
   turnCompletedFrame,
-} from "./test-doubles.js";
+} from "./app-server.test-support.js";
 import { CREATE_PARAMS, RESUME_PARAMS } from "./lifecycle.test-support.js";
 
 const FAST_TIER = "priority";

@@ -17,7 +17,7 @@ import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../driver/provider-driver.js";
+} from "../driver/contract.js";
 
 // --------------------------------------------------------------------------
 // Pipeline state and steps

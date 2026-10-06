@@ -20,7 +20,7 @@ import {
   type McpServerStatusIngestRejection,
   type McpServerStatusIngestResult,
 } from "../mcp-server-status-ingest.js";
-import type { McpServerStatusEmission } from "../provider-driver.js";
+import type { McpServerStatusEmission } from "../contract.js";
 
 /** The class an unannotated Codex tool closes to. */
 const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";

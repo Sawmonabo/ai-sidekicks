@@ -3,7 +3,7 @@
 //! It reads Content-Length-framed JSON [`Envelope`]s from stdin, dispatches each by `kind` to the
 //! [`PtySessionRegistry`], and writes responses plus async `DataFrame` and `ExitCodeNotification`
 //! events to stdout. Retries, backoff and respawn belong to
-//! the daemon (`packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`); this binary stays a
+//! the daemon (`packages/runtime-daemon/src/pty/sidecar/host.ts`); this binary stays a
 //! pure stdio actor.
 //!
 //! ## Wire shape

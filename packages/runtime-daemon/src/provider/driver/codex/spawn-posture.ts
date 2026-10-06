@@ -25,7 +25,7 @@ import type {
   ResumeSessionParams,
   StartRunParams,
   SubagentPolicy,
-} from "../provider-driver.js";
+} from "../contract.js";
 
 /** Composes what a Codex spawn, thread and turn are established under, and reports the gaps. */
 export class CodexSpawnPosture {

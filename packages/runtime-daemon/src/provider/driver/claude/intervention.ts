@@ -30,7 +30,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
-import { STEER_FALLBACK_ACTION } from "../provider-driver.js";
+import { STEER_FALLBACK_ACTION } from "../contract.js";
 import { ClaudeSessionUnavailableError } from "./session/errors.js";
 import { type ClaudeRunProcessLookup } from "./session/transport.js";
 

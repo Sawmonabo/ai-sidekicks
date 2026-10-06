@@ -27,7 +27,7 @@ import { findBranchPatternRefusal } from "../../../../git/branch-name-pattern.js
 import { mapJsonRpcError } from "../../../../ipc/jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../../../ipc/registry.js";
 import { StreamingPrimitive } from "../../../../ipc/streaming-primitive.js";
-import { MachineSettingsFile } from "../machine-settings-file.js";
+import { MachineSettingsFile } from "../file.js";
 import { registerMachineSettingsMethods } from "../methods.js";
 
 const REPAIRED_AT = new Date("2026-09-29T18:00:00.000Z");

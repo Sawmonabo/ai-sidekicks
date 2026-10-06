@@ -32,7 +32,7 @@ import type {
   McpServerStatusProducer,
   StartRunParams,
   SubagentPolicy,
-} from "../../provider-driver.js";
+} from "../../contract.js";
 
 /** Bare name: `system/init` lists `slash_commands` without the leading slash. */
 export const CLAUDE_COMPACTION_COMMAND_NAME = "compact";

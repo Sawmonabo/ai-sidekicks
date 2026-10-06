@@ -18,7 +18,7 @@ import {
 import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
 import { NegotiationError, ProtocolNegotiator } from "../protocol-negotiation.js";
 
-import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
+import { passthroughSchema } from "../__fixtures__/schema-doubles.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // A negotiator with its raw and gated registries; `daemon.hello` is registered on the gated one,

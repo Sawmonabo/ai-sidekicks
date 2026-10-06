@@ -10,7 +10,7 @@ import {
   type BriefDeliverySettlement,
   type BriefOutboundFrame,
 } from "../delivery.js";
-import type { CanonicalTranscriptProjection } from "../../../driver/provider-driver.js";
+import type { CanonicalTranscriptProjection } from "../../../driver/contract.js";
 import {
   projectionOf,
   requestFor,

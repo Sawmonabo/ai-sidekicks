@@ -254,7 +254,7 @@
       // ship with the operating system, never as a package dependency.
       "ignoreBinaries": ["scutil", "mkfifo"],
       "ignoreDependencies": [
-        // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
+        // Loaded by `import()` of a specifier held in a variable (`pty/host/node-pty.ts`), which
         // knip cannot follow; it is a hard runtime dependency.
         "node-pty",
         // The rest are libraries installed ahead of the code that imports them, each with what
@@ -307,7 +307,7 @@
         "src/ipc/handlers/presence/read.ts",
         // The input schemas of the workflow agent tools, read by their handlers once the daemon
         // serves them.
-        "src/workflow/agent-tools/workflow-agent-tool-inputs.ts"
+        "src/workflow/agent-tools/inputs.ts"
       ]
     }
   }

@@ -10,7 +10,7 @@ import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/dr
 import { bindCallbackToolsForSpawn, CallbackToolHost } from "../../../callback-tool-host.js";
 import { COMPACTION_WAIT_MS } from "../../../compaction-wait.js";
 import { DriverDiagnosticsEmitter } from "../../diagnostics.js";
-import type { CallbackToolInvocation } from "../../provider-driver.js";
+import type { CallbackToolInvocation } from "../../contract.js";
 import { createCallbackToolAskResponder } from "../callback-tool-ask-responder.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "../server-requests.js";
 import {
@@ -24,7 +24,7 @@ import {
   TURN_ID,
   createManagerHarness,
   routedAskHarness,
-} from "./test-doubles.js";
+} from "./app-server.test-support.js";
 import { CREATE_PARAMS } from "./lifecycle.test-support.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 

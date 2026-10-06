@@ -15,7 +15,7 @@ import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negoti
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 
-import { DaemonProcess, resolveDataFolder } from "./daemon/daemon-process.js";
+import { DaemonProcess, resolveDataFolder } from "./daemon/process.js";
 import {
   captureLoginShellEnvironment,
   LOGIN_SHELL_DEADLINE_MS,

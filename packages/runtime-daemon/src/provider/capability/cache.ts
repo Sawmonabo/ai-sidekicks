@@ -17,12 +17,12 @@ import type { DriverCapabilities } from "@ai-sidekicks/contracts/provider/driver
 import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import type { DriverCapabilityHydrationResult } from "../driver/driver-capabilities-writer.js";
+import type { DriverCapabilityHydrationResult } from "../driver/capabilities-writer.js";
 import {
   composeStaticOutputSpeedLevels,
   PROVIDER_DRIVER_DESCRIPTORS,
-} from "../driver/provider-driver-descriptors.js";
-import { DriverUnavailableError } from "../provider-registry.js";
+} from "../driver/descriptor.js";
+import { DriverUnavailableError } from "../driver/registry.js";
 
 /** Dependencies this cache reads through, so it holds no database handle, driver or timer. */
 export interface DriverCapabilityCacheDeps {

@@ -23,7 +23,7 @@ import {
   type McpServerStatusIngestRejection,
   type McpServerStatusIngestResult,
 } from "../mcp-server-status-ingest.js";
-import type { McpServerStatusEmission } from "../provider-driver.js";
+import type { McpServerStatusEmission } from "../contract.js";
 
 /** The class an unannotated tool takes: a repeat is for the person to judge. */
 const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";

@@ -8,10 +8,7 @@ import {
   type DirectoryReadabilityProbe,
 } from "./trust-envelope.js";
 import { type FilesystemPathProbe } from "./projector.js";
-import {
-  WorkspaceServiceInvariantError,
-  type WorkspaceServiceInvariantKind,
-} from "./service-errors.js";
+import { WorkspaceServiceInvariantError, type WorkspaceServiceInvariantKind } from "./errors.js";
 
 /**
  * Measure a path's reachability. The seam is at probe granularity so a test can return a

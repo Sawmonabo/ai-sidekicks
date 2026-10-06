@@ -1,7 +1,7 @@
 // `driver.subscribeEvents`: one run's driver events, catch up, then follow, over the streaming
-// primitive. The request/response driver verbs live in `handlers.ts`; this one is
-// separate because it allocates per-connection state and its teardown must survive wire cancel,
-// transport disconnect and internal cancellation alike.
+// primitive. The request/response driver verbs live in `requests.ts`; this one is separate
+// because it allocates per-connection state and its teardown must survive wire cancel, transport
+// disconnect and internal cancellation alike.
 //
 // The response is the shared `SubscribeAckResponse`, the opaque `subscriptionId` and nothing
 // else; values follow as `$/subscription/notify` frames. The client SDK's
@@ -29,7 +29,7 @@ import { SubscribeAckResponseSchema } from "@ai-sidekicks/contracts/jsonrpc/stre
 
 import type { StreamingPrimitive } from "../../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
-import { translateDriverError } from "./handlers.js";
+import { translateDriverError } from "./requests.js";
 
 /** Dependencies for `driver.subscribeEvents`. */
 export interface DriverSubscribeEventsDeps {

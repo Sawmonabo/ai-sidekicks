@@ -20,7 +20,7 @@ import {
   DRIVER_TOOL_CALL_ID_MAX_LEN,
   type CallbackToolInvocation,
   type CallbackToolResult,
-} from "./driver/provider-driver.js";
+} from "./driver/contract.js";
 
 /**
  * One evaluation input, shaped as the `approval.requestCreate` payload the composed `check()`

@@ -6,7 +6,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeSilentDriverDiagnostics } from "../../__fixtures__/silent-driver-diagnostics.js";
-import type { DeclareDriverCapabilitiesResult } from "../../driver/driver-capabilities-writer.js";
+import type { DeclareDriverCapabilitiesResult } from "../../driver/capabilities-writer.js";
 import {
   CAPABILITY_REFRESH_READ_TIMEOUT_MS,
   CapabilityRefresher,

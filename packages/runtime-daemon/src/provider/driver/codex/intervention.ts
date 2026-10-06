@@ -4,7 +4,7 @@
  * unsupported type is data, not an exception).
  *
  * - `steer` is gated by the `steer` capability flag, read live at dispatch with `!== true` (as in
- *   `provider-registry.ts`); `interrupt` and `cancel` have no flag. Codex declares `steer: true`,
+ *   `driver/registry.ts`); `interrupt` and `cancel` have no flag. Codex declares `steer: true`,
  *   so its degraded arm is reached only through an injected snapshot.
  * - `CodexInterventionRuntime` is a port `CodexLifecycleManager` satisfies, so this module stays
  *   testable against a fake.
@@ -30,7 +30,7 @@ import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   type CallerDeclaredFrameOrigin,
 } from "../../outbound-frame.js";
-import { STEER_FALLBACK_ACTION } from "../provider-driver.js";
+import { STEER_FALLBACK_ACTION } from "../contract.js";
 
 /** Capability flag governing each intervention type; `null` means no flag gates it. */
 const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<

@@ -11,13 +11,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ExecutionMode, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 
-import { EventLogService } from "../../events/event-log-service.js";
+import { EventLogService } from "../../events/log-service.js";
 import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
   WorktreeCreateFailedError,
 } from "../../git/worktree/errors.js";
-import type { CreateWorktreeInput, CreatedWorktree } from "../../git/worktree/worktree-service.js";
+import type { CreateWorktreeInput, CreatedWorktree } from "../../git/worktree/service.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { ExecutionRootService } from "../execution-root-service.js";
 import type { GitRunner } from "../../git/process.js";
@@ -26,12 +26,12 @@ import type {
   ExecutionRootWorktreeProvisioner,
   WorkspaceLifecyclePrimitives,
 } from "../execution-root-service.js";
-import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
+import { WorkspaceEventEmitter } from "../event-emitter.js";
 import type { FilesystemPathProbeFn } from "../row-guards.js";
-import { WorkspaceStaleError } from "../service-errors.js";
-import { WorkspaceService, type SessionExistenceReader } from "../workspace-service.js";
+import { WorkspaceStaleError } from "../errors.js";
+import { WorkspaceService, type SessionExistenceReader } from "../service.js";
 
-import { requireWorkspaceRow } from "./workspace.test-support.js";
+import { requireWorkspaceRow } from "../__fixtures__/rows.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // Real UUIDs: `deriveWorktreeBranchName` slices the last eight hex digits of the session and run

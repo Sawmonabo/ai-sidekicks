@@ -34,7 +34,7 @@ export function applyPragmas(db: DatabaseType): void {
  * re-checks inside the transaction, sees the winner's schema and commits nothing. A DEFERRED
  * transaction would let both read, then both try to write, and WAL answers
  * `SQLITE_BUSY_SNAPSHOT`, which `busy_timeout` cannot resolve. The worker-thread race test in
- * `__tests__/session-service.test.ts` pins this. The whole schema commits at once, so
+ * `__tests__/service.test.ts` pins this. The whole schema commits at once, so
  * `session_events` exists exactly when every table does.
  */
 export function applyMigrations(db: DatabaseType): void {

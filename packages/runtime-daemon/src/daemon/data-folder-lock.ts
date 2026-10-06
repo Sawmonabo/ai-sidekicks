@@ -8,7 +8,7 @@ import * as path from "node:path";
 import Database from "better-sqlite3";
 
 import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
-import { DaemonAlreadyRunningError } from "./daemon-already-running-error.js";
+import { DaemonAlreadyRunningError } from "./already-running-error.js";
 
 const LOCK_FILE_NAME = "daemon.lock";
 

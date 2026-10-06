@@ -18,7 +18,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import { assertValidContractVersion, assertValidResumeHandle } from "./output-validation.js";
-import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { mintUuidV7 } from "../uuid-v7.js";
 import { isPlainObject } from "./record-readers.js";
 import {
   type CallbackToolInvocation,
@@ -28,7 +28,7 @@ import {
   type ResumeSessionParams,
   type SubagentPolicy,
   readCliVersionColumns,
-} from "./driver/provider-driver.js";
+} from "./driver/contract.js";
 
 /**
  * The daemon-owned record of the spawn-bound configuration, persisted at every binding write.
@@ -85,7 +85,7 @@ export interface CreateRuntimeBindingInput {
 /**
  * The `create` members filled from one spawned-build reading of `resolvedExecutablePath`, never a
  * launcher symlink or `--version`, so a row never pairs one install's version with another's path.
- * `spawned-provider-version.ts` produces this through `toBindingVersionCarriers`.
+ * `spawned-version.ts` produces this through `toBindingVersionCarriers`.
  */
 export interface SpawnedVersionBindingCarriers {
   readonly cliVersion: DriverCliVersionReport;

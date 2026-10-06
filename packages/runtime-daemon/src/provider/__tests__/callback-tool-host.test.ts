@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run-tool";
 
 import { describeArgumentRefusal } from "../callback-tool-host.js";
-import type { CallbackToolInvocation } from "../driver/provider-driver.js";
+import type { CallbackToolInvocation } from "../driver/contract.js";
 import {
   bindSpawn,
   buildCallbackToolHostHarness,

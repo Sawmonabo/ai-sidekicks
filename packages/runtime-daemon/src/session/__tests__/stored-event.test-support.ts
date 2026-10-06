@@ -4,7 +4,7 @@
 
 import type { Database } from "better-sqlite3";
 
-import type { StoredEvent } from "../types.js";
+import type { StoredEvent } from "../records.js";
 
 /** The session every bootstrap fixture belongs to. */
 export const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";

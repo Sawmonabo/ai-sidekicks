@@ -5,11 +5,8 @@ import {
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
-import type { DriverCapabilityHydrationResult } from "../../driver/driver-capabilities-writer.js";
-import type {
-  DriverCliVersionReport,
-  GetCapabilitiesResult,
-} from "../../driver/provider-driver.js";
+import type { DriverCapabilityHydrationResult } from "../../driver/capabilities-writer.js";
+import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../driver/contract.js";
 
 /** The capability contract version every reading built here declares. */
 export const CONTRACT_VERSION: string = "1.2.3";

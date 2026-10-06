@@ -26,7 +26,7 @@ import {
 import type { CodexSpawnPosture } from "../spawn-posture.js";
 import { composeCodexServiceTier, type CodexOutputSpeed } from "../output-speed.js";
 import type { CodexNotificationRouting } from "../notification-routing.js";
-import type { CodexProviderCommandCache } from "../provider-commands/cache.js";
+import type { CodexProviderCommandCache } from "../commands.js";
 import type { CodexTextNeutralization } from "../text-neutralization.js";
 import type { CodexRunRoutes } from "../run-routes.js";
 import {
@@ -38,7 +38,7 @@ import {
   type ForkConversationResult,
   type ProviderSessionHandle,
   type ResumeSessionParams,
-} from "../../provider-driver.js";
+} from "../../contract.js";
 
 /**
  * Closes an abandoned connection, killing the child first under `kill-and-close`, and reports a

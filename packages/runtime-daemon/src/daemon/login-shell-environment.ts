@@ -1,13 +1,8 @@
-// The environment every provider's environment is built from, captured once at each start. On
-// macOS and Linux the daemon runs the person's login shell once as `<shell> -lic` with no input,
-// has it print its environment with `env -0` between two marker lines, and keeps only what lies
-// between them, so proxy, certificate and locale settings are there with no terminal open and a
-// provider installed later is on the path. A shell that misses the deadline, prints no markers or
-// is still running when a stop comes during the start is ended, and the start goes on with the
-// account's default environment and one line in the service log: the home, shell, user name and
-// login name its passwd entry gives, the default search path, and on macOS the account's own
-// temporary folder. The start never waits on a shell. On Windows the service starts with the
-// account's own environment.
+// The environment every provider's environment is built from, captured once per start. On macOS
+// and Linux the login shell runs once (`<shell> -lic`, printing `env -0` between two markers), so
+// proxy, certificate and locale settings and a later-installed provider are present with no
+// terminal open. A shell that stalls or prints no markers is ended and the start goes on with the
+// account's default environment: the start never waits on a shell. Windows uses the account's own.
 
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";

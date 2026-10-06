@@ -27,7 +27,7 @@ import {
   RuntimeBindingQuarantine,
 } from "../../outbound-frame.js";
 import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
-import { mintUuidV7 } from "../../../ids/uuid-v7.js";
+import { mintUuidV7 } from "../../../uuid-v7.js";
 import {
   CLAUDE_COMPACTION_COMMAND_NAME,
   ClaudeControlRequestRefusedError,
@@ -59,7 +59,7 @@ import { ClaudeHandshakeRegister } from "./handshake-register.js";
 import { ClaudeFrameRouting } from "./frame-routing.js";
 import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session/establishment.js";
-import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
+import { ClaudeCompactionDispatch } from "./compaction.js";
 import { applyClaudeOutputSpeed, resolveClaudeOutputSpeed } from "./output-speed.js";
 import {
   buildAuthProbeResult,
@@ -74,7 +74,7 @@ import {
   type ResumeSessionParams,
   type ForkConversationParams,
   type StartRunParams,
-} from "../provider-driver.js";
+} from "../contract.js";
 
 /** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
 export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {

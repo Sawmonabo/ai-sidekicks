@@ -27,7 +27,7 @@ import {
 import type { ClaudeSessionLifecycleDependencies } from "./session/state.js";
 import { describeFailure } from "./session/errors.js";
 import type { ClaudeRunRoutes } from "./run-routes.js";
-import type { StartRunParams } from "../provider-driver.js";
+import type { StartRunParams } from "../contract.js";
 
 /** The lifecycle's frame machinery and the one teardown the tripwire rulings call back into. */
 export interface ClaudeTextNeutralizationDependencies extends Pick<

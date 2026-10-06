@@ -13,7 +13,7 @@ import {
   type FakeClaudeProviderProcess,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_SESSION_ID,
-} from "./test-doubles.js";
+} from "./transport.test-support.js";
 import {
   buildHarness,
   createLiveSession,

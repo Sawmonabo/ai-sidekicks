@@ -19,12 +19,12 @@ import {
   SESSION_ID,
   makeFixture,
   storedEvent,
-} from "./transcript-log-test-doubles.js";
+} from "./canonical-transcript.test-support.js";
 import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../../driver/provider-driver.js";
+} from "../../driver/contract.js";
 
 // Fixtures
 

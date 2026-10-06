@@ -6,7 +6,7 @@ import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts/provider
 import { describe, expect, it } from "vitest";
 
 import { ClaudeInterventionDispatcher } from "../intervention.js";
-import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
+import { STEER_FALLBACK_ACTION } from "../../contract.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import { type ClaudeRunProcessLookup, type ClaudeProviderProcess } from "../session/transport.js";
 import {
@@ -14,7 +14,7 @@ import {
   buildInterruptParams,
   buildSteerParams,
   FakeClaudeProviderProcess,
-} from "./test-doubles.js";
+} from "./transport.test-support.js";
 
 class StubRunProcessLookup implements ClaudeRunProcessLookup {
   readonly channel: FakeClaudeProviderProcess | undefined;

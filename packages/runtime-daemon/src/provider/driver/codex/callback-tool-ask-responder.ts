@@ -6,7 +6,7 @@
 import type { CallbackToolHost } from "../../callback-tool-host.js";
 import { isPlainObject } from "../../record-readers.js";
 import { normalizeProviderFailureDetail } from "./session/errors.js";
-import { CallbackToolInvocationSchema, type CallbackToolInvocation } from "../provider-driver.js";
+import { CallbackToolInvocationSchema, type CallbackToolInvocation } from "../contract.js";
 import type {
   CodexServerRequestDecision,
   CodexSessionServerRequest,

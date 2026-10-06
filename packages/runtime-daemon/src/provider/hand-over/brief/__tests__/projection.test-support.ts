@@ -7,12 +7,12 @@ import {
   type BriefTargetIdentity,
 } from "../projection.js";
 import type { BriefDeliveryRequest } from "../delivery.js";
-import { RUN_ID, SESSION_ID } from "../../__tests__/transcript-log-test-doubles.js";
+import { RUN_ID, SESSION_ID } from "../../__tests__/canonical-transcript.test-support.js";
 import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../../../driver/provider-driver.js";
+} from "../../../driver/contract.js";
 
 /** The target every fixture request addresses. */
 export const TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-1" };

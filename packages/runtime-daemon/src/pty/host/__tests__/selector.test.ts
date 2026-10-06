@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { NodePtyHost } from "../../node-pty-host.js";
+import { NodePtyHost } from "../node-pty.js";
 import { selectPtyHost } from "../selector.js";
 
 describe("selectPtyHost", () => {

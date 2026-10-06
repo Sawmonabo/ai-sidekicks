@@ -11,14 +11,14 @@ import {
 import { codexDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
 import type { CapabilityDetectionReading } from "../../../capability/probe.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
-import type { SpawnedProviderVersionReading } from "../../../spawned-provider-version.js";
+import type { SpawnedProviderVersionReading } from "../../../spawned-version.js";
 import {
   CODEX_DRIVER_NAME,
   getCodexCapabilities,
   normalizeCodexModelCatalog,
   refreshCodexCapabilities,
 } from "../capabilities.js";
-import { type DriverCliVersionReport, ModelCatalogUnreadableError } from "../../provider-driver.js";
+import { type DriverCliVersionReport, ModelCatalogUnreadableError } from "../../contract.js";
 
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
   rawVersion: "0.149.1",

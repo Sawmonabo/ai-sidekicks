@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/provider-driver-descriptors.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/descriptor.js";
 import {
   ProviderSpawnEnvConflictError,
   ProviderSpawnEnvNameMatchMismatchError,

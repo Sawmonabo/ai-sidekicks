@@ -25,10 +25,7 @@ import {
   WorkspaceBranchNameRequiredError,
 } from "../git/worktree/errors.js";
 import { deriveWorktreeBranchName } from "../git/worktree/branch-name.js";
-import {
-  type CreateWorktreeInput,
-  type CreatedWorktree,
-} from "../git/worktree/worktree-service.js";
+import { type CreateWorktreeInput, type CreatedWorktree } from "../git/worktree/service.js";
 import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
@@ -41,8 +38,8 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 
 import { RepoMountNotFoundError } from "./repo/errors.js";
 import { HOLDING_RUN_ID_METADATA_PATH } from "./row-guards.js";
-import { WorkspaceBusyError, WorkspaceNotFoundError } from "./service-errors.js";
-import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { WorkspaceBusyError, WorkspaceNotFoundError } from "./errors.js";
+import { mintUuidV7 } from "../uuid-v7.js";
 
 /** A space is illegal in a git ref, so this cannot be mistaken for a real branch name. */
 const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";

@@ -21,7 +21,7 @@ import { FramingError } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "./domain-error.js";
-import { redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
+import { redactPathsFromString, sanitizeErrorMessage } from "./local-gateway.js";
 import { NegotiationError } from "./protocol-negotiation.js";
 import { RegistryDispatchError } from "./registry.js";
 import { SessionNotFoundError } from "./session-errors.js";

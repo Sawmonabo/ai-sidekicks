@@ -11,7 +11,7 @@ import {
   type CodexDiagnosticSink,
   reportDiagnosticFromDetachedFrame,
 } from "./transport/diagnostics.js";
-import { buildAuthProbeResult, type DriverAuthProbeResult } from "../provider-driver.js";
+import { buildAuthProbeResult, type DriverAuthProbeResult } from "../contract.js";
 
 /**
  * Zero-turn auth probe, which no experimental gate guards. Preferred over the `codex login

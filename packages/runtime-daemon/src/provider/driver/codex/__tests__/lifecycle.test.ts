@@ -30,7 +30,7 @@ import {
   createManagerHarness,
   createdSession,
   threadStartResult,
-} from "./test-doubles.js";
+} from "./app-server.test-support.js";
 import { CREATE_PARAMS, RESUME_PARAMS } from "./lifecycle.test-support.js";
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";

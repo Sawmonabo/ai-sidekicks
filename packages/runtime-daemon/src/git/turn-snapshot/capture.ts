@@ -7,6 +7,9 @@ import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
 import { lstat, readFile, readlink } from "node:fs/promises";
 
+/** Outside the worktree, so scratch indexes never show up in `ls-files -o` or `git status`. */
+export const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
+
 /**
  * The same bytes for every snapshot: the message is an OID input, so identity content would make
  * identical state hash differently. Trailers derived from project state keep that property.
