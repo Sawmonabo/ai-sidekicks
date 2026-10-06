@@ -8,10 +8,10 @@
 // `AttachmentIngestPort`, so a request that drops or invents a member fails to compile here.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { AttachmentIngestChunkResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { manualGate } from "./held-calls.js";
-import type { ChunkAcknowledgement } from "#renderer/features/composer/attachments/services/ingest-acknowledgement.js";
 import type { AttachmentIngestPort } from "#renderer/features/composer/attachments/services/ingest-port.js";
 import { AttachmentIngestClient } from "#renderer/features/composer/attachments/ingest-client.js";
 import {
@@ -54,7 +54,7 @@ export class ScriptedIngestPort {
    * contract makes safe: a chunk resent after a lost response is not appended twice.
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();
-  #chunkAcknowledgementOverride: ChunkAcknowledgement | undefined;
+  #chunkAcknowledgementOverride: AttachmentIngestChunkResponse | undefined;
 
   /**
    * Answer every later chunk with this acknowledgement instead of the true one.
@@ -63,7 +63,7 @@ export class ScriptedIngestPort {
    * never sends, so a case must script one to exercise the client's check. `undefined` restores
    * the truthful answer.
    */
-  public acknowledgeChunksWith(acknowledgement: ChunkAcknowledgement | undefined): void {
+  public acknowledgeChunksWith(acknowledgement: AttachmentIngestChunkResponse | undefined): void {
     this.#chunkAcknowledgementOverride = acknowledgement;
   }
 

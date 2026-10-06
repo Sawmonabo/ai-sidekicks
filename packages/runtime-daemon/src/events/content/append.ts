@@ -51,13 +51,19 @@ export function assertNoSeededContentDescription(
   }
 }
 
+// A payload's named members, without the string index a payload that keeps unknown members has:
+// that index would otherwise match the content-length key on a payload that never declares it.
+type DeclaredPayloadKey<Payload> = keyof {
+  [Member in keyof Payload as string extends Member ? never : Member]: Payload[Member];
+};
+
 // The `SessionEvent` variants whose payload declares the content-length member, derived from the
 // contracts union. `keyof` includes optional members, so an optional content-length member counts.
 type EventTypeCarryingContentDescriptor<Variant> = Variant extends {
   type: infer VariantType;
   payload: infer VariantPayload;
 }
-  ? typeof CONTENT_LENGTH_PAYLOAD_KEY extends keyof VariantPayload
+  ? typeof CONTENT_LENGTH_PAYLOAD_KEY extends DeclaredPayloadKey<VariantPayload>
     ? VariantType
     : never
   : never;

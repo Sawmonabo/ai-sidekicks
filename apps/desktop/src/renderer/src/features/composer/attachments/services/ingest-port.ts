@@ -5,8 +5,10 @@
 
 import type {
   AttachmentIngestChunkRequest,
+  AttachmentIngestChunkResponse,
   AttachmentIngestCompleteRequest,
   AttachmentIngestInitRequest,
+  AttachmentIngestInitResponse,
 } from "@ai-sidekicks/contracts/artifacts/ingest";
 import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 
@@ -16,10 +18,10 @@ import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/d
  * what the daemon derived from the bytes it spooled.
  */
 export interface AttachmentIngestPort {
-  readonly begin: (request: AttachmentIngestInitRequest) => Promise<{ readonly ingestId: string }>;
+  readonly begin: (request: AttachmentIngestInitRequest) => Promise<AttachmentIngestInitResponse>;
   readonly writeChunk: (
     request: AttachmentIngestChunkRequest,
-  ) => Promise<{ readonly ingestId: string; readonly receivedBytes: number }>;
+  ) => Promise<AttachmentIngestChunkResponse>;
   readonly complete: (
     request: AttachmentIngestCompleteRequest,
   ) => Promise<SessionAttachmentSummary>;

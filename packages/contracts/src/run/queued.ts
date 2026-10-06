@@ -8,6 +8,7 @@ import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/acc
 import { DRIVER_WIRE_HANDLE_MAX_LEN } from "../provider/driver/methods.js";
 import { RunIdSchema, type RunId } from "./id.js";
 import { wireFreeFormString } from "../free-form-string.js";
+import { OrchestrationRunConfigSchema, type OrchestrationRunConfig } from "../orchestration.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
@@ -23,23 +24,10 @@ const ChildRunProvenanceSchema: z.ZodType<ChildRunProvenance> = z.enum([
 ]);
 
 /**
- * The limits admission resolved for a run: the request's own override, else the session's
- * default, each present only where the person set one. Kept on the creation row so a
- * rebuild restores the same limits even if the session's defaults change while the run is live.
- */
-export interface EffectiveRunConfig {
-  tokenLimit?: number | undefined;
-}
-const EffectiveRunConfigSchema: z.ZodType<EffectiveRunConfig> = z
-  .object({
-    tokenLimit: z.number().int().positive().optional(),
-  })
-  .strict();
-
-/**
  * A run created and placed in the queue. It carries `agentId` (an agent already in the session)
  * or `resolvedAgent` (one minted from a saved definition with this run), never both, and neither
- * for the lead's run.
+ * for the lead's run. `effectiveRunConfig` holds the limits admission resolved, the request's own
+ * else the session's default, so a rebuild restores them even if the defaults change mid-run.
  */
 export type RunQueuedPayload = {
   sessionId: SessionId;
@@ -49,7 +37,7 @@ export type RunQueuedPayload = {
   agentId?: AgentId | undefined;
   parentRunId?: RunId | undefined;
   reachedBy?: ChildRunProvenance | undefined;
-  effectiveRunConfig?: EffectiveRunConfig | undefined;
+  effectiveRunConfig?: OrchestrationRunConfig | undefined;
   resolvedAgent?: AgentListEntry | undefined;
   admittedModelFamily?: string | undefined;
   admittedProviderAccountId?: ProviderAccountId | undefined;
@@ -64,7 +52,7 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     agentId: AgentIdSchema.optional(),
     parentRunId: RunIdSchema.optional(),
     reachedBy: ChildRunProvenanceSchema.optional(),
-    effectiveRunConfig: EffectiveRunConfigSchema.optional(),
+    effectiveRunConfig: OrchestrationRunConfigSchema.optional(),
     resolvedAgent: AgentListEntrySchema.optional(),
     admittedModelFamily: wireFreeFormString(
       DRIVER_WIRE_HANDLE_MAX_LEN,

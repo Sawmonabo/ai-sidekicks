@@ -14,6 +14,7 @@ import type {
   ApprovalReviewerDeniedPayload,
   ApprovalRuleRevokedPayload,
 } from "../approval.js";
+import type { ArtifactPublicationPayload } from "../artifacts/publication.js";
 import type { CloudTaskUpdatedPayload } from "../cloud.js";
 import type { CommandEndedPayload } from "../command.js";
 import type {
@@ -46,10 +47,12 @@ import type { GitSettledPayload } from "../gitflow/local.js";
 import type { McpServerOauthCompletedPayload } from "../mcp/governance.js";
 import type { PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload } from "../plan.js";
 import type { RunId } from "../run/id.js";
+import type { OrchestrationRejectedPayload } from "../orchestration.js";
 import type { PtyControlChangedPayload } from "../pty.js";
 import type { QuestionAskedPayload } from "../question.js";
 import type { RelayPinRefusedPayload } from "../relay.js";
-import type { RunRecoveryResolvedPayload } from "../run/control.js";
+import type { RepoMountHealthChangedPayload } from "../repo/mount.js";
+import type { RunRecoveryResolvedPayload, RunRecoveryStepsAddedPayload } from "../run/control.js";
 import type {
   RunRefusalChoiceRequestedPayload,
   RunRefusalChoiceResolvedPayload,
@@ -70,6 +73,7 @@ import type { SessionConvertedPayload } from "../session/convert.js";
 import type { SessionGoalClearedPayload, SessionGoalUpdatedPayload } from "../session/goal.js";
 import type { SessionRestoreFinishedPayload } from "../session/restore.js";
 import type {
+  SessionAdvisorChangedPayload,
   SessionLifecycleChangePayload,
   SessionMarkChangePayload,
   SessionRenamedPayload,
@@ -387,6 +391,45 @@ export type RunRecoveryResolvedEvent = SessionEventVariant<
   "run_lifecycle",
   RunRecoveryResolvedPayload
 >;
+/**
+ * Emitted when a restart found steps in the provider's own record that only read, added them to
+ * the transcript and let the run go on.
+ */
+export type RunRecoveryStepsAddedEvent = SessionEventVariant<
+  "run.recovery_steps_added",
+  "run_lifecycle",
+  RunRecoveryStepsAddedPayload
+>;
+/** Emitted when `/advisor` changes a Claude Code session's own advisor model, or turns it off. */
+export type SessionAdvisorChangedEvent = SessionEventVariant<
+  "session.advisor_changed",
+  "session_lifecycle",
+  SessionAdvisorChangedPayload
+>;
+/** Emitted on every session on a mount when the daemon's re-probe changes the mount's health. */
+export type RepoMountHealthChangedEvent = SessionEventVariant<
+  "repo.mount_health_changed",
+  "session_lifecycle",
+  RepoMountHealthChangedPayload
+>;
+/** Emitted when admission refuses an orchestration run create; no run or queue item is left. */
+export type OrchestrationRejectedEvent = SessionEventVariant<
+  "orchestration.rejected",
+  "orchestration_admission",
+  OrchestrationRejectedPayload
+>;
+/** Emitted when an artifact is published from a run; its payload keeps members it does not know. */
+export type ArtifactPublishedEvent = SessionEventVariant<
+  "artifact.published",
+  "artifact_publication",
+  ArtifactPublicationPayload
+>;
+/** Emitted when a newer version replaces an artifact; its payload keeps unknown members. */
+export type ArtifactSupersededEvent = SessionEventVariant<
+  "artifact.superseded",
+  "artifact_publication",
+  ArtifactPublicationPayload
+>;
 /** Emitted when Claude Code refuses a turn, names a fallback model and asks to retry or edit. */
 export type RunRefusalChoiceRequestedEvent = SessionEventVariant<
   "run.refusal_choice_requested",
@@ -573,6 +616,12 @@ export type SessionEvent =
   | RunStepLimitReachedEvent
   | RunTokenLimitReachedEvent
   | RunRecoveryResolvedEvent
+  | RunRecoveryStepsAddedEvent
+  | SessionAdvisorChangedEvent
+  | RepoMountHealthChangedEvent
+  | OrchestrationRejectedEvent
+  | ArtifactPublishedEvent
+  | ArtifactSupersededEvent
   | RunRefusalChoiceRequestedEvent
   | RunRefusalChoiceResolvedEvent
   | RunUsageCreditsChoiceRequestedEvent

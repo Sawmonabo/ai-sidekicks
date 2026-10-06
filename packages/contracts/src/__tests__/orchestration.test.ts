@@ -1,10 +1,12 @@
 // Run admission and the child tree are what the bridge, a workflow and the agents
-// badge rely on. These cases hold that a run names exactly one target, that no run is
-// its own parent, and that the badge's figures never exceed the total.
+// badge rely on. These cases hold that a run names exactly one target and only the limits
+// the run config defines, that a refusal names no run, that no run is its own parent, and
+// that the badge's figures never exceed the total.
 import { describe, expect, it } from "vitest";
 
 import {
   ChildRunLinkReadResponseSchema,
+  OrchestrationRejectedPayloadSchema,
   OrchestrationRunCreateRequestSchema,
 } from "../orchestration.js";
 
@@ -83,6 +85,40 @@ describe("orchestration.runCreate", () => {
     expect(OrchestrationRunCreateRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(
       false,
     );
+  });
+
+  it("accepts a run's own token limit, and refuses an unknown limit or one below a token", () => {
+    const request = { sessionId: SESSION_ID, targetAgentId: AGENT_ID };
+    expect(
+      OrchestrationRunCreateRequestSchema.safeParse({ ...request, config: { tokenLimit: 1 } })
+        .success,
+    ).toBe(true);
+    expect(
+      OrchestrationRunCreateRequestSchema.safeParse({
+        ...request,
+        config: { tokenLimit: 1, maxDepth: 3 },
+      }).success,
+    ).toBe(false);
+    expect(
+      OrchestrationRunCreateRequestSchema.safeParse({ ...request, config: { tokenLimit: 0 } })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("orchestration.rejected", () => {
+  it("records a refused create and refuses a run id, since a refusal leaves no run", () => {
+    const refusal = {
+      sessionId: SESSION_ID,
+      targetAgentId: AGENT_ID,
+      parentRunId: PARENT_RUN_ID,
+      reason: "agent.not_found",
+      detail: "No agent with that id is in the session.",
+    };
+    expect(OrchestrationRejectedPayloadSchema.safeParse(refusal).success).toBe(true);
+    expect(
+      OrchestrationRejectedPayloadSchema.safeParse({ ...refusal, runId: CHILD_RUN_ID }).success,
+    ).toBe(false);
   });
 });
 

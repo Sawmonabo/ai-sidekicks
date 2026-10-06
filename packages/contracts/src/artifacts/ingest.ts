@@ -1,13 +1,15 @@
-// The three requests that stream a caller's file into a session's artifacts: open a
-// stream, send its bytes in numbered chunks, and complete it.
+// The three calls that stream a caller's file into a session's artifacts, request and reply: open
+// a stream, send its bytes in numbered chunks, and complete it.
 //
-// Every member here is a caller's claim. The daemon derives the real media type and
-// size from the bytes it spooled, and those derived values are what reach the
-// manifest.
+// Every request member is a caller's claim. The daemon derives the real media type and size from
+// the bytes it spooled, and those derived values are what the completion answers and what reach
+// the manifest.
 import { z } from "zod";
 
+import { ArtifactIdSchema, type ArtifactId } from "./id.js";
 import { decodedByteLength } from "../internal/base64.js";
 import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
@@ -29,6 +31,8 @@ export const ARTIFACT_CHUNK_MAX_BYTES: number = 512 * 1024;
  */
 export interface AttachmentIngestInitRequest {
   sessionId: SessionId;
+  /** The run the file is for; absent when no run asked for it. */
+  runId?: RunId | undefined;
   fileName: string;
   mediaType?: string | undefined;
   declaredSizeBytes: number;
@@ -44,11 +48,29 @@ export const AttachmentIngestInitRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
+    runId: RunIdSchema.optional(),
     fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
     mediaType: z.string().min(1).optional(),
     declaredSizeBytes: countSchema,
   })
   .strict();
+
+/**
+ * The opened stream. `ingestId` is a single-use handle, bound to the session and to the stream's
+ * lifetime, that every chunk and the completion name.
+ */
+export interface AttachmentIngestInitResponse {
+  ingestId: string;
+}
+/**
+ * Parses an {@link AttachmentIngestInitResponse}.
+ *
+ * @consumedBy the daemon's attachment upload, which answers an opened stream with this reply
+ */
+export const AttachmentIngestInitResponseSchema: z.ZodType<
+  AttachmentIngestInitResponse,
+  AttachmentIngestInitResponse
+> = z.object({ ingestId: z.string().min(1) }).strict();
 
 /**
  * One chunk of an open stream. `sequenceNumber` counts from 0 with no gaps, and a
@@ -80,6 +102,24 @@ export const AttachmentIngestChunkRequestSchema: z.ZodType<
   .strict();
 
 /**
+ * One chunk's acknowledgement. `receivedBytes` is the stream's running total of decoded bytes
+ * after the chunk, so progress is the daemon's count and never the sender's.
+ */
+export interface AttachmentIngestChunkResponse {
+  ingestId: string;
+  receivedBytes: number;
+}
+/**
+ * Parses an {@link AttachmentIngestChunkResponse}.
+ *
+ * @consumedBy the daemon's attachment upload, which acknowledges each chunk with this reply
+ */
+export const AttachmentIngestChunkResponseSchema: z.ZodType<
+  AttachmentIngestChunkResponse,
+  AttachmentIngestChunkResponse
+> = z.object({ ingestId: z.string().min(1), receivedBytes: countSchema }).strict();
+
+/**
  * Completes a stream. The stream id is the only member: the daemon checks the spooled
  * bytes and commits them, and a resent completion answers with the first one's result.
  */
@@ -95,3 +135,29 @@ export const AttachmentIngestCompleteRequestSchema: z.ZodType<
   AttachmentIngestCompleteRequest,
   AttachmentIngestCompleteRequest
 > = z.object({ ingestId: z.string().min(1) }).strict();
+
+/**
+ * What the daemon committed. Every member is derived from the spooled bytes, not taken from the
+ * opening request, so a caller that declared the wrong type or size learns what was recorded.
+ * `contentHash` is the payload's SHA-256, the manifest's `digest`.
+ */
+export interface AttachmentIngestCompleteResponse {
+  artifactId: ArtifactId;
+  contentHash: string;
+  normalizedName: string;
+  derivedMediaType: string;
+  derivedSizeBytes: number;
+}
+/** Parses an {@link AttachmentIngestCompleteResponse}. */
+export const AttachmentIngestCompleteResponseSchema: z.ZodType<
+  AttachmentIngestCompleteResponse,
+  AttachmentIngestCompleteResponse
+> = z
+  .object({
+    artifactId: ArtifactIdSchema,
+    contentHash: z.string().min(1),
+    normalizedName: z.string().min(1).max(FILE_PATH_MAX_LEN),
+    derivedMediaType: z.string().min(1),
+    derivedSizeBytes: countSchema,
+  })
+  .strict();

@@ -1,8 +1,8 @@
 // Repo-mount contracts: the branded `RepoMountId` and `WorkspaceId`, the repo and workspace enums,
-// the derived `RepoMountHealth` projection, and the repo, workspace and worktree lifecycle event
-// payload with its factories. The mount methods (`repo.attach`, `repo.mountRead`, `repo.detach`)
-// are in `repo/folders.ts`. The other `repo.*` contract files import these definitions and never
-// redefine them; this module imports none of them.
+// the derived `RepoMountHealth` projection and the payload of its change, and the repo, workspace
+// and worktree lifecycle event payload with its factories. The mount methods (`repo.attach`,
+// `repo.mountRead`, `repo.detach`) are in `repo/folders.ts`. The other `repo.*` contract files
+// import these definitions and never redefine them; this module imports none of them.
 //
 // This module imports nothing that reaches `../event/session.js`: `event/session.ts`
 // imports the lifecycle payload schema from here, and a cycle among module-scope Zod initializers
@@ -83,12 +83,26 @@ export interface RepoMountHealth {
   checkedAt: string;
 }
 /** Wire schema for {@link RepoMountHealth}. */
-export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
+export const RepoMountHealthSchema: z.ZodType<RepoMountHealth, RepoMountHealth> = z
   .object({
     status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
     checkedAt: isoDateTimeSchema,
   })
   .strict();
+
+/**
+ * The `repo.mount_health_changed` payload: a mount's health after the daemon's re-probe changed
+ * it, sent on the stream of every session on that mount.
+ */
+export interface RepoMountHealthChangedPayload {
+  repoMountId: RepoMountId;
+  health: RepoMountHealth;
+}
+/** Parses a {@link RepoMountHealthChangedPayload}. */
+export const RepoMountHealthChangedPayloadSchema: z.ZodType<
+  RepoMountHealthChangedPayload,
+  RepoMountHealthChangedPayload
+> = z.object({ repoMountId: RepoMountIdSchema, health: RepoMountHealthSchema }).strict();
 
 // One payload shape serves the `workspace.*` and `worktree.*` lifecycle events. The subject is
 // whichever optional id the payload carries, and none is required, because a detach's

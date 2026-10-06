@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ArtifactListResponseSchema,
   ArtifactReadRequestSchema,
   ArtifactReadResponseSchema,
   decodeArtifactPayloadText,
@@ -57,6 +58,14 @@ describe("ArtifactReadResponseSchema", () => {
       payloadHandle: PAYLOAD_HANDLE,
     };
     expect(ArtifactReadResponseSchema.safeParse(reply).success).toBe(false);
+  });
+});
+
+describe("ArtifactListResponseSchema", () => {
+  it("keeps a manifest member it does not know rather than refusing the whole list", () => {
+    const manifest = { ...MANIFEST, addedByNewerDaemon: "kept" };
+    const reply = { artifacts: [{ manifest, title: "notes.md", versionCount: 1 }] };
+    expect(ArtifactListResponseSchema.parse(reply)).toStrictEqual(reply);
   });
 });
 

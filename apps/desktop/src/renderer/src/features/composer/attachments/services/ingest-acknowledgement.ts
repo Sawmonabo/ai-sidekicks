@@ -4,6 +4,8 @@
 // A reply for another stream, or a total that did not advance, is unusable and stops the
 // stream: a standing total would make the loop re-send the same chunk forever.
 
+import type { AttachmentIngestChunkResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
+
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import type { AttachmentIngestEntry } from "../shapes.js";
 
@@ -18,12 +20,6 @@ export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
  */
 export const CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE = "chunk-acknowledgement-unusable";
 
-/** The daemon's reply to one chunk, as this leg reads it. */
-export interface ChunkAcknowledgement {
-  readonly ingestId: string;
-  readonly receivedBytes: number;
-}
-
 /** What one acknowledgement leaves the record able to say. */
 export type ChunkAcknowledgementReading =
   | { readonly status: "acknowledged"; readonly receivedBytes: number }
@@ -37,7 +33,7 @@ export type ChunkAcknowledgementReading =
 export function readChunkAcknowledgement(
   entry: AttachmentIngestEntry,
   sentIngestId: string,
-  acknowledgement: ChunkAcknowledgement,
+  acknowledgement: AttachmentIngestChunkResponse,
 ): ChunkAcknowledgementReading {
   if (acknowledgement.ingestId !== sentIngestId) {
     return {

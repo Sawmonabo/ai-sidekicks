@@ -18,6 +18,7 @@ import {
   ApprovalReviewerDeniedPayloadSchema,
   ApprovalRuleRevokedPayloadSchema,
 } from "../approval.js";
+import { ArtifactPublicationPayloadSchema } from "../artifacts/publication.js";
 import { CloudTaskUpdatedPayloadSchema } from "../cloud.js";
 import { CommandEndedPayloadSchema } from "../command.js";
 import {
@@ -52,11 +53,18 @@ import {
 } from "../plan.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RunIdSchema } from "../run/id.js";
+import { OrchestrationRejectedPayloadSchema } from "../orchestration.js";
 import { PtyControlChangedPayloadSchema } from "../pty.js";
 import { QuestionAskedPayloadSchema } from "../question.js";
 import { RelayPinRefusedPayloadSchema } from "../relay.js";
-import { RepoWorkspaceLifecyclePayloadSchema } from "../repo/mount.js";
-import { RunRecoveryResolvedPayloadSchema } from "../run/control.js";
+import {
+  RepoMountHealthChangedPayloadSchema,
+  RepoWorkspaceLifecyclePayloadSchema,
+} from "../repo/mount.js";
+import {
+  RunRecoveryResolvedPayloadSchema,
+  RunRecoveryStepsAddedPayloadSchema,
+} from "../run/control.js";
 import {
   RunRefusalChoiceRequestedPayloadSchema,
   RunRefusalChoiceResolvedPayloadSchema,
@@ -77,6 +85,7 @@ import { SessionConvertedPayloadSchema } from "../session/convert.js";
 import {
   SessionCreatedPayloadSchema,
   SessionLifecycleChangePayloadSchema,
+  SessionAdvisorChangedPayloadSchema,
   SessionMarkChangePayloadSchema,
   SessionRenamedPayloadSchema,
 } from "../session/events.js";
@@ -130,6 +139,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.worker_shutdown": "run_lifecycle",
   "run.step_limit_reached": "run_lifecycle",
   "run.token_limit_reached": "run_lifecycle",
+  "run.recovery_steps_added": "run_lifecycle",
   "run.recovery_resolved": "run_lifecycle",
   "run.refusal_choice_requested": "run_lifecycle",
   "run.refusal_choice_resolved": "run_lifecycle",
@@ -182,6 +192,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.side_question_answered": "session_lifecycle",
   "session.spend_limit_reached": "session_lifecycle",
   "session.restore_finished": "session_lifecycle",
+  "session.advisor_changed": "session_lifecycle",
   "agent.provider_binding_changed": "session_lifecycle",
   "agent.provider_binding_change_failed": "session_lifecycle",
   "workspace.preparing": "session_lifecycle",
@@ -193,6 +204,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "worktree.dirty": "session_lifecycle",
   "worktree.merged": "session_lifecycle",
   "worktree.retired": "session_lifecycle",
+  "repo.mount_health_changed": "session_lifecycle",
   "session.branch_changed": "session_lifecycle",
   "session.swept_to_repo_root": "session_lifecycle",
   "pty.control_changed": "session_lifecycle",
@@ -547,6 +559,36 @@ const runRecoveryResolvedVariantSchema = buildSessionEventVariantSchema(
   "run_lifecycle",
   RunRecoveryResolvedPayloadSchema,
 );
+const runRecoveryStepsAddedVariantSchema = buildSessionEventVariantSchema(
+  "run.recovery_steps_added",
+  "run_lifecycle",
+  RunRecoveryStepsAddedPayloadSchema,
+);
+const sessionAdvisorChangedVariantSchema = buildSessionEventVariantSchema(
+  "session.advisor_changed",
+  "session_lifecycle",
+  SessionAdvisorChangedPayloadSchema,
+);
+const repoMountHealthChangedVariantSchema = buildSessionEventVariantSchema(
+  "repo.mount_health_changed",
+  "session_lifecycle",
+  RepoMountHealthChangedPayloadSchema,
+);
+const orchestrationRejectedVariantSchema = buildSessionEventVariantSchema(
+  "orchestration.rejected",
+  "orchestration_admission",
+  OrchestrationRejectedPayloadSchema,
+);
+const artifactPublishedVariantSchema = buildSessionEventVariantSchema(
+  "artifact.published",
+  "artifact_publication",
+  ArtifactPublicationPayloadSchema,
+);
+const artifactSupersededVariantSchema = buildSessionEventVariantSchema(
+  "artifact.superseded",
+  "artifact_publication",
+  ArtifactPublicationPayloadSchema,
+);
 const runRefusalChoiceRequestedVariantSchema = buildSessionEventVariantSchema(
   "run.refusal_choice_requested",
   "run_lifecycle",
@@ -765,6 +807,12 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   runStepLimitReachedVariantSchema,
   runTokenLimitReachedVariantSchema,
   runRecoveryResolvedVariantSchema,
+  runRecoveryStepsAddedVariantSchema,
+  sessionAdvisorChangedVariantSchema,
+  repoMountHealthChangedVariantSchema,
+  orchestrationRejectedVariantSchema,
+  artifactPublishedVariantSchema,
+  artifactSupersededVariantSchema,
   runRefusalChoiceRequestedVariantSchema,
   runRefusalChoiceResolvedVariantSchema,
   runUsageCreditsChoiceRequestedVariantSchema,
