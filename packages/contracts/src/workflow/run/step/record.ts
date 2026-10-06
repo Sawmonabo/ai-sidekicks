@@ -229,8 +229,8 @@ export interface WorkflowStep {
   childWorkflowRunId?: WorkflowRunId | undefined;
 }
 /**
- * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other
- * step does; the two instants appear only on a waiting step.
+ * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other step does;
+ * only an account wait resumes itself, and only a wait on a person carries a deadline.
  */
 export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
   .object({
@@ -285,9 +285,18 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
   )
   .refine(
     (step) =>
-      step.status === "waiting" ||
-      (step.resumeAt === undefined && step.waitDeadlineAt === undefined),
-    { path: ["resumeAt"], message: "Only a waiting step carries a resume or a deadline instant." },
+      step.resumeAt === undefined || (step.status === "waiting" && step.waitCause === "account"),
+    { path: ["resumeAt"], message: "Only a step waiting on a spent account resumes itself." },
+  )
+  .refine(
+    (step) =>
+      step.waitDeadlineAt === undefined ||
+      (step.status === "waiting" &&
+        (step.waitCause === "approval" || step.waitCause === "form" || step.waitCause === "reply")),
+    {
+      path: ["waitDeadlineAt"],
+      message: "Only a step waiting on a person's approval, form or reply carries a deadline.",
+    },
   )
   .refine(
     (step) =>

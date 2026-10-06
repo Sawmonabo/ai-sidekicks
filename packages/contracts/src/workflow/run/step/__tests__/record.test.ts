@@ -1,9 +1,8 @@
-// A run's steps cross from the daemon to the run page, the runs table and the live
-// stream. These tests hold the step record's own rules: only a waiting step names its
-// cause and its instants, only an account wait names its spent account, only a reply wait holds
-// a question and only an answered step its
-// answer, an inline payload stays under its cap, and a failure's details never travel without
-// its code, and only a failed step says how its process exited.
+// A run's steps cross from the daemon to the run page, the runs table and the live stream. These
+// tests hold the step record's own rules: only a waiting step names its cause, only an account
+// wait names its spent account and resumes itself, only a wait on a person has a deadline, only a
+// reply wait holds a question and only an answered step its answer, an inline payload stays under
+// its cap, and only a failed step says how its process exited.
 import { describe, expect, it } from "vitest";
 
 import { WorkflowStepErrorSchema } from "../../../definition/document.js";
@@ -64,9 +63,28 @@ describe("WorkflowStepSchema", () => {
     expect(WorkflowStepSchema.safeParse(heldByMemory).success).toBe(false);
   });
 
-  it("refuses a resume instant on a step that is not waiting", () => {
-    const canceled = { ...STEP, status: "canceled", resumeAt: "2026-09-29T19:00:00Z" };
+  it("refuses a resume instant anywhere but on a step waiting on a spent account", () => {
+    const resumeAt = "2026-09-29T19:00:00Z";
+    const canceled = { ...STEP, status: "canceled", resumeAt };
     expect(WorkflowStepSchema.safeParse(canceled).success).toBe(false);
+    const approving = { ...STEP, status: "waiting", waitCause: "approval", resumeAt };
+    expect(WorkflowStepSchema.safeParse(approving).success).toBe(false);
+  });
+
+  it("refuses a deadline anywhere but on a step waiting on a person", () => {
+    const waitDeadlineAt = "2026-09-30T06:00:00-04:00";
+    const parked = {
+      ...STEP,
+      status: "waiting",
+      waitCause: "account",
+      waitAccount: SPENT_ACCOUNT,
+      waitDeadlineAt,
+    };
+    expect(WorkflowStepSchema.safeParse(parked).success).toBe(false);
+    const chained = { ...STEP, status: "waiting", waitCause: "chain", waitDeadlineAt };
+    expect(WorkflowStepSchema.safeParse(chained).success).toBe(false);
+    const finished = { ...STEP, status: "succeeded", waitDeadlineAt };
+    expect(WorkflowStepSchema.safeParse(finished).success).toBe(false);
   });
 
   it("carries a question only while waiting for a reply, and an answer only once answered", () => {
