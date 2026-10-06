@@ -2,7 +2,7 @@
 // with the step that changed each, a run that changed nothing says so, and a refused read shows
 // the daemon's refusal rather than an empty change set, with a `Try again` that reads it again.
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
@@ -77,14 +77,16 @@ describe("Review over a workflow run", () => {
         to: FINISHED_RUN.to,
       },
     ]);
+    // Each mark draws the step's name alone and is read as the step that made the change.
     const reviewRow = screen.getByRole("button", { name: /reviews\/pr-412\.md/u });
-    expect(reviewRow.textContent).toContain("Review one PR");
-    expect(screen.getByRole("button", { name: /digest\/summary\.md/u }).textContent).toContain(
-      "Save the notes",
-    );
+    expect(within(reviewRow).getByText("Review one PR")).toBeDefined();
+    expect(within(reviewRow).getByText("Changed by the Review one PR step")).toBeDefined();
+    const summaryRow = screen.getByRole("button", { name: /digest\/summary\.md/u });
+    expect(within(summaryRow).getByText("Save the notes")).toBeDefined();
+    expect(within(summaryRow).getByText("Changed by the Save the notes step")).toBeDefined();
     // An edit someone else made in the checkout shows too, with no step's name on it.
     const othersEdit = screen.getByRole("button", { name: /notes\/todo\.txt/u });
-    expect(othersEdit.querySelector(".meridian-diff-files__step")).toBeNull();
+    expect(within(othersEdit).queryByText(/^Changed by the /u)).toBeNull();
     expect(screen.queryByText("This run changed no files")).toBeNull();
   });
 
@@ -117,7 +119,7 @@ describe("Review over a workflow run", () => {
         return passThrough();
       },
       () => {
-        expect(screen.getByText("Could not load what this run changed")).toBeDefined();
+        expect(screen.getByText("Could not load the changes")).toBeDefined();
       },
     );
 
@@ -131,6 +133,6 @@ describe("Review over a workflow run", () => {
       expect(screen.getByRole("button", { name: /reviews\/pr-412\.md/u })).toBeDefined();
     });
     expect(calls.filter((call) => call.method === "gitflow.diffRead")).toHaveLength(2);
-    expect(screen.queryByText("Could not load what this run changed")).toBeNull();
+    expect(screen.queryByText("Could not load the changes")).toBeNull();
   });
 });

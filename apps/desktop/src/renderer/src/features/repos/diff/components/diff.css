@@ -188,8 +188,12 @@
   font-family: var(--meridian-font-mono);
 }
 
-/* The step that changed the file, on a workflow run's comparison: a quiet mark, never a hue. */
-.meridian-diff-files__step {
+/*
+ * The step that changed the file, on a workflow run's comparison, in the file list and on the
+ * file header alike: a quiet mark, never a hue, that gives way to the path where room runs out.
+ */
+.meridian-diff__step-mark {
+  position: relative;
   flex: 0 1 auto;
   min-inline-size: 0;
   overflow: hidden;
@@ -273,11 +277,6 @@
   align-items: center;
   gap: var(--meridian-space-2);
   font-family: var(--meridian-font-mono);
-}
-
-.meridian-diff__file-step {
-  color: var(--meridian-text-muted);
-  font-family: var(--meridian-font-sans);
 }
 
 .meridian-diff__file-change {

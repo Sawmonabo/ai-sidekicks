@@ -8,6 +8,7 @@ import type { IntralineSegmentCache } from "../intraline-segment-cache.js";
 import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
+import { DiffStepMark } from "./DiffStepMark.js";
 
 /** What one virtualized diff row is drawn from. */
 export interface DiffRowViewProps {
@@ -52,9 +53,7 @@ export const DiffRowView: React.MemoExoticComponent<
         <span className="meridian-diff__file-path" role="cell" title={file?.path}>
           <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           {file?.path ?? ""}
-          {file?.stepName === undefined ? null : (
-            <span className="meridian-diff__file-step">{file.stepName}</span>
-          )}
+          {file?.stepName === undefined ? null : <DiffStepMark stepName={file.stepName} />}
           {changeNotes.length === 0 ? null : (
             <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
           )}

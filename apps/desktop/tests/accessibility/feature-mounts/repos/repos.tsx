@@ -122,7 +122,7 @@ export async function mountWorkflowRunReview(): Promise<MountedView> {
     </PlatformBridgeProvider>,
   );
   await advanceScenarioUntil(engine, () => {
-    if (container.querySelector(".meridian-diff-files__step") === null) {
+    if (container.querySelector(".meridian-diff__step-mark") === null) {
       throw new Error("the run's changed files have not rendered");
     }
   });
