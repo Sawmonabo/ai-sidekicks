@@ -15,8 +15,10 @@
 //   host other than `app` ...... forbidden
 //   NUL / malformed percent .... forbidden
 //   miss / directory ........... not-found
+//   tree or file unreadable .... unreadable  (a missing tree, `EACCES`, `ELOOP`, `EIO`)
 //
-// Refusals carry no member beyond the verdict, so a probe learns nothing about the tree. There
+// Refusals carry no member beyond the verdict, so a probe learns nothing about the tree; an
+// unreadable verdict carries the failure for main's log alone. There
 // is no `index.html` fallback: the app routes by hash, so every navigable URL is
 // `index.html` plus a fragment.
 
@@ -77,7 +79,8 @@ const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 export type RendererAssetResolution =
   | { readonly outcome: "resolved"; readonly absolutePath: string; readonly contentType: string }
   | { readonly outcome: "not-found" }
-  | { readonly outcome: "forbidden" };
+  | { readonly outcome: "forbidden" }
+  | { readonly outcome: "unreadable"; readonly failure: unknown };
 
 const FORBIDDEN: RendererAssetResolution = { outcome: "forbidden" };
 const NOT_FOUND: RendererAssetResolution = { outcome: "not-found" };
@@ -110,7 +113,8 @@ function extractRawPath(url: string): string | null {
 
 /**
  * Resolves one renderer-scheme URL to an absolute file inside `rendererRoot`. Pure apart from
- * the file system (no Electron call). Any doubt at any step answers `forbidden` with no path.
+ * the file system (no Electron call). Any doubt about the request answers `forbidden` with no
+ * path; a tree or file the system would not let main read answers `unreadable` with the failure.
  */
 export async function resolveRendererAsset(
   rendererRoot: string,
@@ -196,16 +200,16 @@ export async function resolveRendererAsset(
   let realRoot: string;
   try {
     realRoot = await realpath(resolvedRoot);
-  } catch {
+  } catch (error: unknown) {
     // The built tree is missing or unreadable: a misconfiguration, not a miss.
-    return FORBIDDEN;
+    return { outcome: "unreadable", failure: error };
   }
 
   let realCandidate: string;
   try {
     realCandidate = await realpath(candidatePath);
   } catch (error: unknown) {
-    return isMissingPath(error) ? NOT_FOUND : FORBIDDEN;
+    return isMissingPath(error) ? NOT_FOUND : { outcome: "unreadable", failure: error };
   }
 
   if (!isContainedIn(realRoot, realCandidate)) {
@@ -216,7 +220,7 @@ export async function resolveRendererAsset(
   try {
     candidateStats = await stat(realCandidate);
   } catch (error: unknown) {
-    return isMissingPath(error) ? NOT_FOUND : FORBIDDEN;
+    return isMissingPath(error) ? NOT_FOUND : { outcome: "unreadable", failure: error };
   }
   if (!candidateStats.isFile()) {
     // A directory is not an asset; there is no directory index.

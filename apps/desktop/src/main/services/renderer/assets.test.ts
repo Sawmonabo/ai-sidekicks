@@ -3,7 +3,7 @@
 // here rather than leak. No `electron` mock: the response policy those verdicts turn into is
 // asserted in `./protocol.test.ts`.
 
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -108,6 +108,41 @@ describe("resolveRendererAsset containment failure matrix", () => {
     expect(resolution.outcome).toBe("resolved");
   });
 });
+describe("a tree main cannot read", () => {
+  it("answers unreadable with the failure for a missing tree, not a refusal", async () => {
+    const resolution = await resolveRendererAsset(
+      path.join(sandboxRoot, "no-such-tree"),
+      "sidekicks-renderer://app/index.html",
+    );
+    expect(resolution).toMatchObject({ outcome: "unreadable", failure: { code: "ENOENT" } });
+  });
+
+  // Windows keeps no POSIX mode bits to lock a folder with.
+  it.skipIf(process.platform === "win32")(
+    "answers unreadable for a file under a folder main may not open, and resolves it once open",
+    async () => {
+      const lockedFolder = path.join(rendererRoot, "locked");
+      await mkdir(lockedFolder);
+      await writeFile(path.join(lockedFolder, "chunk.js"), "x", "utf8");
+      await chmod(lockedFolder, 0o000);
+      try {
+        const resolution = await resolveRendererAsset(
+          rendererRoot,
+          "sidekicks-renderer://app/locked/chunk.js",
+        );
+        expect(resolution).toMatchObject({ outcome: "unreadable", failure: { code: "EACCES" } });
+      } finally {
+        await chmod(lockedFolder, 0o700);
+      }
+      const opened = await resolveRendererAsset(
+        rendererRoot,
+        "sidekicks-renderer://app/locked/chunk.js",
+      );
+      expect(opened.outcome).toBe("resolved");
+    },
+  );
+});
+
 describe("source maps", () => {
   // Each fixture exists on disk, so a pass is the guard refusing a readable file.
   it.each(SOURCE_MAP_FIXTURES.map((fileName) => [fileName] as const))(

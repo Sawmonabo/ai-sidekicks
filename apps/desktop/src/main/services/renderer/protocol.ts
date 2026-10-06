@@ -5,16 +5,18 @@
 // `../../windows/load-failure/document.ts` (the generated failure document).
 //
 // Two entry points, so the startup order is assertable (`index.test.ts`): the scheme's one
-// registration (`RendererSchemeRegistration`, held by `main/index.ts`) at module top level, ahead
-// of every `whenReady()` consumer, and `installRendererProtocol(rendererRoot, rootStamp)` inside
-// `whenReady()` before any window exists.
+// registration (`registerRendererScheme`, called by `main/index.ts`) at module top level, ahead of
+// every `whenReady()` consumer, and `installRendererProtocol` inside `whenReady()` before any
+// window exists.
 //
-// The bundle is served over this scheme, never `file://`, because the hardening baseline
-// disables the `GrantFileProtocolExtraPrivileges` fuse. Bodies stream through `net.fetch`
-// over a `file:` URL, the pattern Electron's `protocol.handle` documentation gives, so no
-// response is buffered in main-process memory. The one exception is the console document,
-// `index.html`, read whole so the appearance record, and the safe-start mark on a load after
-// repeated renderer crashes, can be stamped on its root element (`../root-stamp.ts`).
+// The bundle is served over this scheme, never `file://`, because the app's fuses disable
+// `GrantFileProtocolExtraPrivileges`. Bodies stream through `net.fetch` over a `file:` URL, the
+// pattern Electron's `protocol.handle` documentation gives, so no response is buffered in
+// main-process memory. The one exception is the console document, `index.html`, read whole so the
+// appearance record, and the safe-start mark on a load after repeated renderer crashes, can be
+// stamped on its root element (`./root-stamp.ts`). A tree main cannot read, or an asset whose read
+// fails, answers the page with an empty refusal and is written to main's log, which never reaches
+// the page.
 
 import { net, protocol } from "electron";
 import { realpath } from "node:fs/promises";
@@ -25,43 +27,33 @@ import {
   matchLoadFailureRequest,
   renderLoadFailureDocument,
 } from "../../windows/load-failure/document.js";
-import { resolveRendererAsset } from "./assets.js";
-import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_INDEX_URL, RENDERER_SCHEME } from "./scheme.js";
+import type { MainDiagnosticLog } from "../diagnostic-log.js";
+import { describeFailure } from "../failure-message.js";
 import { isMissingPath } from "../missing-path.js";
-import { stampRootElement, type RootStamp } from "../root-stamp.js";
+import { resolveRendererAsset } from "./assets.js";
+import { stampRootElement, type RootStamp } from "./root-stamp.js";
+import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_INDEX_URL, RENDERER_SCHEME } from "./scheme.js";
 
 /** The console document's file, at the built tree's root. */
 const CONSOLE_DOCUMENT_FILE = new URL(RENDERER_INDEX_URL).pathname.slice(1);
 
-/**
- * The privileged registration of `sidekicks-renderer://`, which Electron takes once per process
- * and only before `app.ready`. `main/index.ts` holds the one instance.
- */
-export class RendererSchemeRegistration {
-  #isRegistered = false;
+/** Where a tree or an asset main could not read is recorded. */
+type RendererServingLog = Pick<MainDiagnosticLog, "write">;
 
-  /**
-   * Registers the scheme. Must run at module top level in `main/index.ts`, ahead of every
-   * `whenReady()` consumer. Throws on a second call, which would otherwise hide a startup-order
-   * regression.
-   */
-  public register(): void {
-    if (this.#isRegistered) {
-      throw new Error(
-        "The renderer scheme was registered twice. Electron accepts exactly one " +
-          "protocol.registerSchemesAsPrivileged call per process, and it must run " +
-          "before app.ready.",
-      );
-    }
-    // Set before the Electron call, so a call Electron rejects is never retried into a second.
-    this.#isRegistered = true;
-    protocol.registerSchemesAsPrivileged([
-      {
-        scheme: RENDERER_SCHEME,
-        privileges: { standard: true, secure: true, supportFetchAPI: true },
-      },
-    ]);
-  }
+const LOG_SOURCE = "main/services/renderer";
+
+/**
+ * Registers `sidekicks-renderer://` as privileged, which Electron takes once per process and only
+ * before `app.ready`. Call once, at module top level in `main/index.ts`, ahead of every
+ * `whenReady()` consumer.
+ */
+export function registerRendererScheme(): void {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: RENDERER_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true },
+    },
+  ]);
 }
 
 /** Headers every response carries, refusals included. */
@@ -82,26 +74,33 @@ function emptyResponse(status: number): Response {
 /**
  * Installs the `sidekicks-renderer://` handler over the built renderer tree. Call inside
  * `app.whenReady()` before any window exists. `rootStamp` is read each time the console document
- * is served, so it reports the record and the start kind in force then. A second call throws from
- * Electron's duplicate-handler check; this module adds no guard that would mask it.
+ * is served, so it reports the record and the start kind in force then; a read that fails is
+ * written to `log`. A second call throws from Electron's duplicate-handler check; this module adds
+ * no guard that would mask it.
  */
-export function installRendererProtocol(rendererRoot: string, rootStamp: RootStamp): void {
+export function installRendererProtocol(
+  rendererRoot: string,
+  rootStamp: RootStamp,
+  log: RendererServingLog,
+): void {
   protocol.handle(
     RENDERER_SCHEME,
     (request: Request): Promise<Response> =>
-      handleRendererRequest(rendererRoot, request.url, rootStamp),
+      handleRendererRequest(rendererRoot, request.url, rootStamp, log),
   );
 }
 
 /**
  * Answers one request. Exported so the response policy (status codes, empty refusal bodies,
  * locked headers) is asserted directly, since `resolveRendererAsset`'s verdict carries no body
- * or header.
+ * or header. A tree or an asset that could not be read is written to `log` and answered with an
+ * empty refusal naming no path.
  */
 export async function handleRendererRequest(
   rendererRoot: string,
   url: string,
   rootStamp: RootStamp,
+  log: RendererServingLog,
 ): Promise<Response> {
   // First and without touching the file system: this document exists to be servable when the
   // tree is not.
@@ -120,20 +119,42 @@ export async function handleRendererRequest(
   if (resolution.outcome === "not-found") {
     return emptyResponse(404);
   }
+  if (resolution.outcome === "unreadable") {
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message:
+        `the renderer tree could not be read for ${url}: ` + describeFailure(resolution.failure),
+    });
+    return emptyResponse(403);
+  }
 
   let fileResponse: Response;
   try {
     // Streams the body straight through; nothing is buffered in the main process.
     fileResponse = await net.fetch(pathToFileURL(resolution.absolutePath).toString());
-  } catch {
-    // The asset vanished between the realpath check and the read. Fail closed, naming no path.
+  } catch (failure) {
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message: `the renderer asset ${url} could not be read: ${describeFailure(failure)}`,
+    });
     return emptyResponse(404);
   }
   if (!fileResponse.ok) {
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message: `the renderer asset ${url} was read with status ${String(fileResponse.status)}`,
+    });
     return emptyResponse(404);
   }
 
-  if (await isConsoleDocument(rendererRoot, resolution.absolutePath)) {
+  // Only an HTML file can be the console document, so no other asset pays for the comparison.
+  if (
+    path.extname(resolution.absolutePath) === ".html" &&
+    (await isConsoleDocument(rendererRoot, resolution.absolutePath))
+  ) {
     return new Response(stampRootElement(await fileResponse.text(), rootStamp), {
       status: 200,
       headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },

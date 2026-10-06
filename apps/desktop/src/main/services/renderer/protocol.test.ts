@@ -1,5 +1,5 @@
-// Scheme registration and the response policy: statuses, empty refusal bodies, and the locked
-// headers on every response, refusals included. Verdicts are tested in
+// The response policy: statuses, empty refusal bodies, and the locked headers on every response,
+// refusals included; a tree or asset main could not read is written to main's log. Verdicts are tested in
 // `./assets.test.ts`. `electron` is mocked because its real entry point exports a
 // binary-path string outside an Electron process.
 
@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A local stub rather than the shared `tests/helpers/electron/mock/module.ts`: the module
 // under test is imported statically, so `electron` resolves before a top-level
@@ -28,8 +28,8 @@ vi.mock("electron", () => ({
 }));
 
 import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../../windows/load-failure/document.js";
-import { stampRootElement } from "../root-stamp.js";
-import { handleRendererRequest, RendererSchemeRegistration } from "./protocol.js";
+import type { MainDiagnosticEntry } from "../diagnostic-log.js";
+import { handleRendererRequest } from "./protocol.js";
 import { RENDERER_CONTENT_SECURITY_POLICY } from "./scheme.js";
 
 /** The kept appearance record, on the dark scheme. */
@@ -50,6 +50,18 @@ const CONSOLE_DOCUMENT = '<!doctype html>\n<html lang="en">\n  <head></head>\n</
 
 let sandboxRoot = "";
 let rendererRoot = "";
+
+/** Main's log as the handler writes it, emptied before each case. */
+const logged: MainDiagnosticEntry[] = [];
+const LOG = {
+  write: (entry: MainDiagnosticEntry): void => {
+    logged.push(entry);
+  },
+};
+
+beforeEach(() => {
+  logged.length = 0;
+});
 
 beforeAll(async () => {
   sandboxRoot = await mkdtemp(path.join(tmpdir(), "sidekicks-protocol-test-"));
@@ -74,6 +86,7 @@ describe("the locked response policy", () => {
       rendererRoot,
       "sidekicks-renderer://app/../outside/secret.txt",
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(403);
@@ -87,6 +100,7 @@ describe("the locked response policy", () => {
       rendererRoot,
       "sidekicks-renderer://app/nope.js",
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(404);
@@ -99,6 +113,7 @@ describe("the locked response policy", () => {
       rendererRoot,
       "sidekicks-renderer://app/bundle.js.map",
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(404);
@@ -112,6 +127,7 @@ describe("the load-failure document over the handler", () => {
       rendererRoot,
       buildLoadFailureUrl("ERR_FILE_NOT_FOUND (-6)"),
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(200);
@@ -130,6 +146,7 @@ describe("the load-failure document over the handler", () => {
       path.join(sandboxRoot, "no-such-tree"),
       buildLoadFailureUrl("ERR_FILE_NOT_FOUND (-6)"),
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(200);
@@ -141,6 +158,7 @@ describe("the load-failure document over the handler", () => {
       rendererRoot,
       `sidekicks-renderer://app${LOAD_FAILURE_PATH}/../index.html`,
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(403);
@@ -152,6 +170,7 @@ describe("the load-failure document over the handler", () => {
       rendererRoot,
       `sidekicks-renderer://evil${LOAD_FAILURE_PATH}?reason=x`,
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(403);
@@ -166,6 +185,7 @@ describe("the root stamp", () => {
       rendererRoot,
       "sidekicks-renderer://app/index.html#/sessions",
       RECORD_KEPT,
+      LOG,
     );
 
     expect(response.status).toBe(200);
@@ -187,6 +207,7 @@ describe("the root stamp", () => {
         record: { ...RECORD_KEPT.record, scheme: "system" },
         platformScheme: "dark",
       },
+      LOG,
     );
 
     expect(await response.text()).toContain(
@@ -202,6 +223,7 @@ describe("the root stamp", () => {
       rendererRoot,
       "sidekicks-renderer://app/index.html",
       { ...RECORD_KEPT, isSafeStart: true },
+      LOG,
     );
 
     expect(await response.text()).toContain(
@@ -218,17 +240,10 @@ describe("the root stamp", () => {
       rendererRoot,
       "sidekicks-renderer://app/%69ndex.html",
       RECORD_KEPT,
+      LOG,
     );
 
     expect(await response.text()).toContain('data-theme="meridian"');
-  });
-
-  it("merges a style the built tag carries into the stamped one", () => {
-    expect(stampRootElement('<html lang="en" style="color-scheme:light dark;">', RECORD_KEPT)).toBe(
-      '<html lang="en" data-theme="meridian" data-color-scheme="dark" ' +
-        'data-resolved-color-scheme="dark" ' +
-        'style="color-scheme:light dark;font-size:18px;--meridian-transcript-width:40rem">',
-    );
   });
 
   it("leaves every other document as built", async () => {
@@ -238,23 +253,52 @@ describe("the root stamp", () => {
       rendererRoot,
       "sidekicks-renderer://app/about.html",
       RECORD_KEPT,
+      LOG,
     );
 
     expect(await response.text()).toBe(CONSOLE_DOCUMENT);
   });
 });
 
-describe("the renderer scheme's registration", () => {
-  it("refuses a second registration before it reaches Electron", () => {
-    const registration = new RendererSchemeRegistration();
-    registration.register();
+describe("a read main could not make", () => {
+  it("answers a tree main cannot read with an empty 403 and writes why to main's log", async () => {
+    const response = await handleRendererRequest(
+      path.join(sandboxRoot, "no-such-tree"),
+      "sidekicks-renderer://app/index.html",
+      RECORD_KEPT,
+      LOG,
+    );
 
-    expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("");
+    expect(logged).toMatchObject([
+      { level: "error", message: expect.stringContaining("the renderer tree could not be read") },
+    ]);
+  });
 
-    expect(() => {
-      registration.register();
-    }).toThrow(/registered twice/i);
-    // The refused second call must not reach Electron.
-    expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
+  it("answers a failed asset read with an empty 404 and writes it to main's log", async () => {
+    electronMock.netFetch.mockRejectedValueOnce(new Error("EIO: i/o error"));
+
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/about.html",
+      RECORD_KEPT,
+      LOG,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+    expect(logged).toMatchObject([{ level: "error", message: expect.stringContaining("EIO") }]);
+  });
+
+  it("negative control: a refused escape writes nothing", async () => {
+    await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/../outside/secret.txt",
+      RECORD_KEPT,
+      LOG,
+    );
+
+    expect(logged).toStrictEqual([]);
   });
 });
