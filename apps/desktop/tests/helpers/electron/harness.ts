@@ -118,6 +118,12 @@ export interface LaunchAppOptions {
    * Off by default: the flag makes every read walk the heap.
    */
   readonly isPreciseHeapReadingRequired?: boolean;
+  /**
+   * Whether the window is put on screen and brought forward, for a test that presses it with the
+   * system's own pointer. Off by default: an automated launch asks for an unobtrusive window,
+   * which on macOS is never shown and never takes focus.
+   */
+  readonly isWindowOnScreen?: boolean;
 }
 
 /**
@@ -155,10 +161,11 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
         ...process.env,
         ...serviceEnvironment,
         ...options.env,
-        // Every automated launch asks for an unobtrusive window: an ordinary macOS reveal
-        // activates the application, steals focus and switches Space. A fixture build honors
-        // this; a release build cannot (`src/main/windows/reveal.ts`).
-        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
+        // An automated launch asks for an unobtrusive window: an ordinary macOS reveal activates
+        // the application, steals focus and switches Space. A fixture build honors this; a
+        // release build cannot (`src/main/windows/reveal.ts`). A launch whose test presses the
+        // window with the system's pointer needs it on screen and forward, so it asks for none.
+        [UNOBTRUSIVE_WINDOWS_ENV]: options.isWindowOnScreen === true ? "0" : "1",
       } as Record<string, string>,
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });

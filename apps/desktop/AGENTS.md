@@ -114,7 +114,7 @@ Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 - `tests/` holds only tests spanning modules or the app: `helpers/` and the tiers `browser/`, `e2e/`, `endurance/`, `accessibility/`, `budget/`, one Vitest project each, globs disjoint. A test reading one scenario's data sits beside that scenario.
 - Shared scaffolding lives once per role in `tests/helpers/`; a module one tier alone uses sits in that tier's folder; a tier hand-rolling a role another has is rejected. Helper tests sit beside their helpers in `main-unit`, except those needing the renderer's DOM: `RENDERER_TESTS_OUTSIDE_SOURCE` in `vitest/tier-projects.ts` moves them, and the scenario contract check's suite, to `renderer`.
 - A test never reimplements the rule it checks or drives a stand-in for the module under test. Every clean result has a negative control that fails.
-- A test launching Electron goes through `tests/helpers/electron/harness.ts`, `tests/helpers/smoke-probe/harness.ts` or `tests/lifecycle.gc.test-support.ts` (they set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1`). No `show()`, `showInactive()` or `focus()` outside `src/main/windows/reveal.ts`.
+- A test launching Electron goes through `tests/helpers/electron/harness.ts`, `tests/helpers/smoke-probe/harness.ts` or `tests/lifecycle.gc.test-support.ts` (they set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1`, except a launch asking `isWindowOnScreen` for a test that presses the window with the system's own pointer). No `show()`, `showInactive()` or `focus()` outside `src/main/windows/reveal.ts`.
 - A spawned child's lifetime belongs to the test (gate 5's module kills it on `onTestFinished`), and a spawner's deadline fires before its per-test budget.
 
 ## Executables and config

@@ -112,9 +112,11 @@
       "ignoreExportsUsedInFile": true,
 
       // `xdpyinfo` is an X11 host utility the Xvfb smoke helper probes for with `spawnSync`
-      // (`tests/helpers/display-readiness.ts`); it is never a package dependency, so knip is told
-      // not to expect it in a manifest.
-      "ignoreBinaries": ["xdpyinfo"],
+      // (`tests/helpers/display-readiness.ts`); `swiftc` is the Swift compiler the macOS real-click
+      // test builds its mouse-event program with (`tests/e2e/drag-region/real-clicks.test.ts`),
+      // shipped with Xcode's command line tools. Neither is a package dependency, so knip is told
+      // not to expect them in a manifest.
+      "ignoreBinaries": ["xdpyinfo", "swiftc"],
 
       // Libraries installed ahead of the code that imports them, each with what will import it.
       "ignoreDependencies": [
