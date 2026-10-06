@@ -6,16 +6,8 @@
 export const UPDATER_UNREACHABLE_DETAIL: Readonly<
   Record<"read" | "check" | "download" | "restart", string>
 > = {
-  read:
-    "The update state could not be read. The updater runs in the main process, and this " +
-    "window could not reach it.",
-  check:
-    "The update check could not start. The updater runs in the main process, and this " +
-    "window could not reach it.",
-  download:
-    "The download could not start. The updater runs in the main process, and this window " +
-    "could not reach it.",
-  restart:
-    "The app could not restart to install the update. The updater runs in the main process, " +
-    "and this window could not reach it.",
+  read: "Could not read the update status.",
+  check: "Could not check for updates.",
+  download: "Could not download the update.",
+  restart: "Could not restart to install the update.",
 };

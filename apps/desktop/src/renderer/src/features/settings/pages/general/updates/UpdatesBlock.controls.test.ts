@@ -68,10 +68,7 @@ describe("the updates block — a call main does not answer is drawn in the bloc
     expect(requestCheck).toHaveBeenCalledTimes(1);
     const refusal = block.querySelector("[data-refusal-code]");
     expect(refusal?.getAttribute("data-refusal-code")).toBe("updater-control-failed");
-    expect(refusal?.textContent).toBe(
-      "The update check could not start. The updater runs in the main process, and this " +
-        "window could not reach it.",
-    );
+    expect(refusal?.textContent).toBe("Could not check for updates.");
     expect(block.textContent).not.toContain("update.requestCheck");
     const labels = [...block.querySelectorAll("button")].map((button) => button.textContent);
     expect(labels).toContain("Check now");
@@ -84,8 +81,7 @@ describe("the updates block — a call main does not answer is drawn in the bloc
     });
 
     expect(block.querySelector("[data-refusal-code]")?.textContent).toBe(
-      "The update state could not be read. The updater runs in the main process, and this " +
-        "window could not reach it.",
+      "Could not read the update status.",
     );
     expect(block.textContent).not.toContain("update.getState");
   });

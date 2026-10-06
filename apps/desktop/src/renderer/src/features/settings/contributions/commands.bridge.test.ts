@@ -49,7 +49,7 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     expect(refusals).toHaveLength(1);
     expect(refusals[0]?.code).toBe("update-check-unavailable");
     expect(refusals[0]?.origin).toBe("palette-bridge-command");
-    expect(refusals[0]?.detail).toContain("update check could not start");
+    expect(refusals[0]?.detail).toBe("Could not check for updates.");
     expect(refusals[0]?.detail).not.toContain("No handler");
   });
 
