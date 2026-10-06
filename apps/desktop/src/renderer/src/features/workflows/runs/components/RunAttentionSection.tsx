@@ -8,10 +8,10 @@ import type {
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { AWAITING_RESUME_WORDS, runCountWords, spentAccountWords } from "../../words.js";
+import { runCountWords, spentAccountWords } from "../../words.js";
 import { partOfDayAt } from "../part-of-day.js";
 
 /**
@@ -75,15 +75,12 @@ function AttentionLine(props: {
   const { entry } = props;
   if (entry.kind === "account") {
     const runs = runCountWords(entry.affectedRunCount);
-    const verb = entry.affectedRunCount === 1 ? "is" : "are";
-    const parked = `${runs} ${verb} parked on the ${spentAccountWords(entry.account)}`;
-    const resumes =
-      entry.resumeAt === undefined
-        ? AWAITING_RESUME_WORDS
-        : `Resumes ${formatDayClock(entry.resumeAt, props.nowMs)}.`;
-    return (
-      <span>{`${parked}, which is spent — one entry, ${affectedRunWords(entry.affectedRunCount)}. ${resumes}`}</span>
-    );
+    const verb = entry.affectedRunCount === 1 ? "waits" : "wait";
+    const account = spentAccountWords(entry.account);
+    // The reset is named only where the daemon armed the instant the runs resume.
+    const until =
+      entry.resumeAt === undefined ? "" : ` until ${formatDayClock(entry.resumeAt, props.nowMs)}`;
+    return <span>{`${runs} ${verb} on the ${account}, which is spent${until}.`}</span>;
   }
   return (
     <span>
@@ -110,11 +107,6 @@ function nothingWaiting(answeredCount: number, nowMs: number): string {
   }
   const runs = runCountWords(answeredCount);
   return `Nothing waiting · you answered ${runs} this ${partOfDayAt(nowMs)}`;
-}
-
-/** `1 affected run`, `3 affected runs`. */
-function affectedRunWords(count: number): string {
-  return `${formatCount(count)} affected ${count === 1 ? "run" : "runs"}`;
 }
 
 function entryKey(entry: WorkflowRunAttentionEntry): string {

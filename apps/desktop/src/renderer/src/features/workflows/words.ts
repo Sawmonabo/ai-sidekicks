@@ -69,9 +69,6 @@ export const TRIGGER_KIND_WORDS: Readonly<Record<WorkflowTriggerKind, string>> =
   "trigger.error": "Error",
 };
 
-/** What a spent-account park reads while no resume instant is armed, never a made-up time. */
-export const AWAITING_RESUME_WORDS = "Awaiting resume — no instant is armed.";
-
 /** Who or what started a run, keyed by the started-by kind, as the screen words it. */
 const STARTED_BY_WORDS: Readonly<Record<WorkflowStartedBy["kind"], string>> = {
   user: "the user",
