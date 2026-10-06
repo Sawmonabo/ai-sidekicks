@@ -63,16 +63,17 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * lifetime (a transcript row expiring forty seconds in) can change with time. It is also handed the
  * ordinal of this answer, counted per call by the engine, so a create call mints a distinct
  * identity each time; an instant cannot, since two parked calls released by one advance read the
- * same tick. And it is handed the requests the playback has already answered for any write, held
- * by the engine, so a read reflects a write the daemon would have applied: a switched-off binding
- * reads back switched off. A stamp the request carries is read through `readRequestStamp`.
+ * same tick. And it is handed the requests the playback has already answered for any writes, held
+ * by the engine in the order they settled across the calls named, so a read reflects writes the
+ * daemon would have applied: a switched-off binding reads back switched off. A stamp the request
+ * carries is read through `readRequestStamp`.
  */
 export interface ScenarioComputedReply extends ScenarioReplyBase {
   readonly resultFor: (
     request: unknown,
     settledAtMilliseconds: number,
     computedReplyOrdinal: number,
-    answeredRequestsFor: (call: string) => readonly unknown[],
+    answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
     readRequestStamp: RequestStampReader,
   ) => unknown;
   readonly result?: never;
@@ -99,7 +100,7 @@ export interface ScenarioNotice {
   readonly afterMs: number;
   /** The frame to push, or `undefined` when a write since the reply means there is none. */
   readonly payloadAtDelivery: (
-    answeredRequestsFor: (call: string) => readonly unknown[],
+    answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
     readRequestStamp: RequestStampReader,
   ) => unknown;
 }
@@ -112,7 +113,7 @@ export interface ScenarioNotice {
 export interface ScenarioOpeningNotice {
   readonly stream: MachineNoticeStreamName;
   readonly payloadAtOpen: (
-    answeredRequestsFor: (call: string) => readonly unknown[],
+    answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
     readRequestStamp: RequestStampReader,
   ) => unknown;
 }

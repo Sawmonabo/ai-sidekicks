@@ -66,8 +66,8 @@ export class ScenarioEngine {
   readonly #notices = new Emitter<DeliveredNotice>("scenario notice");
   // How many computed answers this playback has produced for each call name.
   readonly #computedRepliesByCall = new Map<string, number>();
-  // The requests each write has been answered for, in settle order.
-  readonly #answeredRequestsByCall = new Map<string, unknown[]>();
+  // Each write answered, with the call it answered, in settle order across every call.
+  readonly #answeredWrites: { readonly call: string; readonly request: unknown }[] = [];
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
   #disposed = false;
@@ -213,17 +213,18 @@ export class ScenarioEngine {
    * {@link answeredRequests}, so a read can reflect a write the playback has already answered.
    */
   public recordAnsweredRequest(call: string, request: unknown): void {
-    const answered = this.#answeredRequestsByCall.get(call);
-    if (answered === undefined) {
-      this.#answeredRequestsByCall.set(call, [request]);
-      return;
-    }
-    answered.push(request);
+    this.#answeredWrites.push({ call, request });
   }
 
-  /** The requests the write `call` has been answered for in this playback, oldest first. */
-  public answeredRequests(call: string): readonly unknown[] {
-    return this.#answeredRequestsByCall.get(call) ?? [];
+  /**
+   * The requests the writes in `calls` have been answered for in this playback, oldest first and
+   * interleaved across the calls, so a read applies two writes that undo each other in the order
+   * they landed.
+   */
+  public answeredRequests(...calls: readonly string[]): readonly unknown[] {
+    return this.#answeredWrites
+      .filter((answered) => calls.includes(answered.call))
+      .map((answered) => answered.request);
   }
 
   /**

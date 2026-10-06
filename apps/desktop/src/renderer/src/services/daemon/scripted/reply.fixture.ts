@@ -97,7 +97,7 @@ export async function settleScriptedReply(
       request,
       engine.clock.now(),
       engine.nextComputedReplyOrdinal(call),
-      (answeredCall) => engine.answeredRequests(answeredCall),
+      (...answeredCalls) => engine.answeredRequests(...answeredCalls),
       requestStampReaderFor(call),
     );
     // A request the scenario does not answer is `unscripted`, not an empty resolution: it
@@ -225,7 +225,7 @@ export function requestStampReaderFor(call: string): RequestStampReader {
 function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: ScenarioNotice): void {
   const composeAtDelivery = (): DeliveredNotice | undefined => {
     const payload = notice.payloadAtDelivery(
-      (answeredCall) => engine.answeredRequests(answeredCall),
+      (...answeredCalls) => engine.answeredRequests(...answeredCalls),
       requestStampReaderFor(call),
     );
     if (payload === undefined) {

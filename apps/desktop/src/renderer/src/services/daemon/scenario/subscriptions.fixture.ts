@@ -59,7 +59,7 @@ export function subscribeToScenario(
     for (const opening of engine.scenario.openingNotices ?? []) {
       if (opening.stream === subscriptionName) {
         const payload = opening.payloadAtOpen(
-          (call) => engine.answeredRequests(call),
+          (...calls) => engine.answeredRequests(...calls),
           requestStampReaderFor(opening.stream),
         );
         deliver(assertNoticeOnContract(subscriptionName, opening.stream, payload));
