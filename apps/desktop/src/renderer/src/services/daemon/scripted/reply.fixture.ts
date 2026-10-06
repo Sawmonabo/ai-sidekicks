@@ -21,12 +21,12 @@ import type {
 } from "../scenario/scenario-reply.fixture.js";
 import type { DeliveredNotice, ScenarioEngine } from "../engine.fixture.js";
 import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "../refusal.fixture.js";
+import type { MachineNoticeStreamName } from "../session/event/session-event-streams.js";
 import {
   MCP_NOTICE_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
   WORKFLOW_NOTICE_STREAM,
-  type MachineNoticeStreamName,
-} from "../session/event/session-event-streams.js";
+} from "#shared/daemon/daemon-streams.js";
 
 /** The shape each machine stream registers for what it pushes, from its contract descriptor. */
 const MACHINE_NOTICE_EMISSION_SCHEMAS: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>> =

@@ -11,7 +11,7 @@ import { openObservedSubscription } from "../transport/observed-subscription.js"
 import type {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
-} from "./session/event/session-event-streams.js";
+} from "#shared/daemon/daemon-streams.js";
 
 /**
  * One daemon subscription: the stream's method name and the registered request that scopes it.

@@ -49,7 +49,7 @@ import {
 } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
-import { SESSION_EVENT_STREAM } from "../daemon/session/event/session-event-streams.js";
+import { SESSION_EVENT_STREAM } from "#shared/daemon/daemon-streams.js";
 import { readSessionId } from "../daemon/wire/identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { ReopenBackoff } from "../transport/reopen-backoff.js";

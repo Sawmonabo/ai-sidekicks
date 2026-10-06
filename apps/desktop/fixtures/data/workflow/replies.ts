@@ -10,6 +10,7 @@
 // its current state. Each act pushes a run change on `workflow.subscribe`, as the daemon's
 // projector does.
 
+import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
 import type {
   WorkflowNodeId,
   WorkflowPinnedItem,
@@ -71,8 +72,8 @@ import {
   type WorkflowPlayback,
 } from "./run/writes.js";
 
-/** The stream every run change is pushed on, spelled as `session-event-streams.ts` names it. */
-const WORKFLOW_STREAM = "workflow.subscribe";
+/** The stream every run change is pushed on, typed by its one name so a rename fails the build. */
+const WORKFLOW_STREAM: typeof WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
 
 /** How many starts wait behind the hold while it is on. */
 const STARTS_WAITING_WHILE_PAUSED = 3;

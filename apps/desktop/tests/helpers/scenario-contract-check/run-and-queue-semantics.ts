@@ -32,7 +32,7 @@ import type { ZodType } from "zod";
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
 import { projectRunStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";
 import type { ScenarioBeat } from "#fixtures/scenario.js";
-import { RUN_STATE_EVENT_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
+import { RUN_STATE_EVENT_STREAM } from "#shared/daemon/daemon-streams.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,

@@ -17,7 +17,7 @@ import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import { WORKFLOW_NOTICE_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
 import { isRunsTableRead, mountWorkflowsScreen } from "./WorkflowsScreen.test-support.js";
 
 afterEach(cleanup);

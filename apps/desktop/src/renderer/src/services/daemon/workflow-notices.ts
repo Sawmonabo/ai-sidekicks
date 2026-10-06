@@ -18,7 +18,7 @@ import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refus
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
-import { WORKFLOW_NOTICE_STREAM } from "./session/event/session-event-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
 
 /**
  * One frame of the workflow stream: a parsed notice, one that did not match the contract, word

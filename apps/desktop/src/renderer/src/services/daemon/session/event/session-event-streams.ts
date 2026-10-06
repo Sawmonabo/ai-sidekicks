@@ -1,7 +1,7 @@
 // The routing every `daemon.subscribe` stream goes through. The closed set of stream names is
 // `#shared/daemon/daemon-streams.ts`, which main opens subscriptions under and refuses every other
 // name by; this table says what each of the renderer's streams carries. The app's subscribers take
-// their stream names from here and `scenario/subscriptions.fixture.ts` routes by this table, so the
+// their stream names from that module and `scenario/subscriptions.fixture.ts` routes by this table, so the
 // fixture answers as the daemon would; a second copy would let them drift and deliver nothing to a
 // subscriber, indistinguishable from a quiet session.
 //
@@ -26,16 +26,6 @@ import {
   type MACHINE_SETTINGS_STREAM,
 } from "#shared/daemon/daemon-streams.js";
 import { RUN_QUEUE_STREAM_CARRIED_KINDS, RUN_STATE_STREAM_CARRIED_KINDS } from "./stream-kinds.js";
-
-export {
-  MCP_NOTICE_STREAM,
-  PRESENCE_EVENT_STREAM,
-  PROVIDER_ACCOUNT_NOTICE_STREAM,
-  RUN_QUEUE_EVENT_STREAM,
-  RUN_STATE_EVENT_STREAM,
-  SESSION_EVENT_STREAM,
-  WORKFLOW_NOTICE_STREAM,
-};
 
 /**
  * A stream that carries a session's whole event log. It lists no kinds because the entire census

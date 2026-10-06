@@ -17,7 +17,7 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
-import { SESSION_EVENT_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
+import { SESSION_EVENT_STREAM } from "#shared/daemon/daemon-streams.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 
 /** The fixture bridge and the engine driving its scenario. */

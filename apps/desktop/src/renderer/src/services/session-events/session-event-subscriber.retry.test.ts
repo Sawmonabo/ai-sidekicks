@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { PRESENCE_EVENT_STREAM } from "../daemon/session/event/session-event-streams.js";
+import { PRESENCE_EVENT_STREAM } from "#shared/daemon/daemon-streams.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
