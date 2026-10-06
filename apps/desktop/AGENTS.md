@@ -8,7 +8,7 @@ Binding for every change under `apps/desktop/`, on top of the [root `AGENTS.md`]
 
 ## Before pushing
 
-Run `test:changed <base-ref>` plus the files you authored, and `structure`, both under `pnpm --filter @ai-sidekicks/desktop run`. Before opening a PR, also run the root checks ([Working style](../../AGENTS.md#working-style)) and `pnpm -w exec eslint .`; every one clean. `test:changed` exits `2` with no ref or a file no project claims. `test:renderer` is the cheap headless tier; the aggregate `test` script and the Electron tiers are CI's.
+Run `test:changed <base-ref>` plus the files you authored, and `structure`, both under `pnpm --filter @ai-sidekicks/desktop run`. Before opening a PR, also run the root checks ([Working style](../../AGENTS.md#working-style)) and `pnpm -w exec eslint .`; every one clean. `test:changed` exits `2` with no ref or a file no project claims. `test:renderer` is the cheap headless tier; the aggregate `test` script and the Electron tiers it names are CI's.
 
 ## Layout
 
