@@ -1,4 +1,5 @@
-// The approval card's acts as palette rows: `Approve once` and a plain `Decline`, each sending
+// The approval card's acts as palette rows, `Approve once · <subject>` and `Decline · <subject>`,
+// named by the subject the card's own answers name and never by an id. Each sends
 // the same answer its on-screen control does with no remembered rule (a rule is made only by the
 // press whose label names it), and each reading the card's own offer rule, so the palette cannot
 // offer an act the card has withdrawn. A record with a resolve in flight contributes no rows.
@@ -37,12 +38,11 @@ export interface ApprovalCommandInput {
 }
 
 /**
- * The rows the card offers right now. The record id is in the title only when more than one is
- * waiting; category and requester ride the keywords so a row is findable by what the card says.
+ * The rows the card offers right now, each titled by the record's subject; category and requester
+ * ride the keywords so a row is findable by what the card says.
  */
 export function approvalCommandRows(input: ApprovalCommandInput): readonly ApprovalCommandRow[] {
   const rows: ApprovalCommandRow[] = [];
-  const namesTheRecord = input.pending.length > 1;
   for (const record of input.pending) {
     if (!offersAnAnswer(record, input)) {
       continue;
@@ -50,14 +50,12 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
     rows.push({
       kind: "approve",
       record,
-      title: namesTheRecord
-        ? `Approve request ${record.id} once`
-        : "Approve the pending request once",
+      title: `Approve once · ${record.subject}`,
     });
     rows.push({
       kind: "reject",
       record,
-      title: namesTheRecord ? `Decline request ${record.id}` : "Decline the pending request",
+      title: `Decline · ${record.subject}`,
     });
   }
   return rows;

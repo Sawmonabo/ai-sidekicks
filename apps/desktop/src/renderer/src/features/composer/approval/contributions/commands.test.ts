@@ -32,17 +32,30 @@ function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalComman
 }
 
 describe("the rows the approval card contributes", () => {
-  it("names the record once there are two waiting", () => {
-    const rows = approvalCommandRows(
-      inputFor({ pending: [pendingAsk(FIRST_REQUEST), pendingAsk(SECOND_REQUEST)] }),
+  it("names each record by its subject and never by its id, one waiting or several", () => {
+    const one = approvalCommandRows(inputFor());
+    const several = approvalCommandRows(
+      inputFor({
+        pending: [
+          pendingAsk(FIRST_REQUEST),
+          pendingRecord({ id: SECOND_REQUEST, subject: "pnpm test" }),
+        ],
+      }),
     );
 
-    expect(rows.map((row) => row.title)).toEqual([
-      `Approve request ${FIRST_REQUEST} once`,
-      `Decline request ${FIRST_REQUEST}`,
-      `Approve request ${SECOND_REQUEST} once`,
-      `Decline request ${SECOND_REQUEST}`,
+    expect(one.map((row) => row.title)).toEqual([
+      "Approve once · approval.ts",
+      "Decline · approval.ts",
     ]);
+    expect(several.map((row) => row.title)).toEqual([
+      "Approve once · approval.ts",
+      "Decline · approval.ts",
+      "Approve once · pnpm test",
+      "Decline · pnpm test",
+    ]);
+    for (const row of several) {
+      expect(row.title).not.toContain(row.record.id);
+    }
   });
 });
 
@@ -52,7 +65,7 @@ describe("what answering from the palette sends", () => {
     const record = pendingAsk(FIRST_REQUEST);
 
     performApprovalCommand(
-      { kind: "approve", record, title: "Approve the pending request once" },
+      { kind: "approve", record, title: "Approve once · approval.ts" },
       inputFor({ resolve }),
     );
 
@@ -68,7 +81,7 @@ describe("what answering from the palette sends", () => {
     const resolve = vi.fn();
 
     performApprovalCommand(
-      { kind: "reject", record: pendingAsk(FIRST_REQUEST), title: "Decline the pending request" },
+      { kind: "reject", record: pendingAsk(FIRST_REQUEST), title: "Decline · approval.ts" },
       inputFor({ resolve }),
     );
 

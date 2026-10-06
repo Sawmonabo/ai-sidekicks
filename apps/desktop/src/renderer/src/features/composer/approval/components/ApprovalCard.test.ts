@@ -6,12 +6,15 @@
 // together on a settled refusal. Payload assertions drive the real `onResolve`, so they check the
 // wire request.
 
-import { fireEvent, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
 import { describe, expect, it } from "vitest";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { approvalCommandRows, type ApprovalCommandInput } from "../contributions/commands.js";
 import { isAcceptedAnswer, pendingRecord } from "../record.test-support.js";
+import { ApprovalCard } from "./ApprovalCard.js";
 import { renderCard } from "./ApprovalCard.test-support.js";
 
 /** The faces of the action row, by their words, in the order they stand. */
@@ -121,6 +124,26 @@ describe("Decline's why not line", () => {
     expect(requests[1]?.declineReason).toBe("an unknown host");
     expect(requests.every(isAcceptedAnswer)).toBe(true);
   });
+
+  it("closes the line when the card moves on to the next ask, so its words never ride that one", () => {
+    // The negative control is the second-press case above: on the same ask the line is kept.
+    const requests: ApprovalResolveRequest[] = [];
+    const cardFor = (id: string): React.ReactElement =>
+      createElement(ApprovalCard, {
+        record: pendingRecord({ id }),
+        isResolving: false,
+        refusal: undefined,
+        onResolve: (request: ApprovalResolveRequest) => requests.push(request),
+      });
+    const { rerender } = render(cardFor("3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f"));
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    typeWhyNot("not this file");
+
+    rerender(cardFor("4a7c2d3e-5f60-4172-8384-0b5c6d7e8f90"));
+    expect(screen.queryByRole("textbox", { name: "why not" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(requests).toHaveLength(0);
+  });
 });
 
 describe("a press while the answer is in flight", () => {
@@ -206,7 +229,7 @@ describe("a network ask's Decline can block the host", () => {
     const requests = renderCard(
       pendingRecord({ category: "network_access", subject: "api.example.com" }),
     );
-    pressArrowRow("Other ways to decline", "Always in this project");
+    pressArrowRow("Other ways to decline", "Block api.example.com in this project");
     expect(requests[0]?.decision).toBe("rejected");
     expect(requests[0]?.rememberedScope).toStrictEqual({
       kind: "project",
@@ -225,7 +248,9 @@ describe("a network ask's Decline can block the host", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Other ways to decline" }));
-    expect(screen.queryByRole("menuitem", { name: "Always in this project" })).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Block api.example.com in this project" }),
+    ).toBeNull();
     // Negative control: the session block stays.
     expect(
       screen.getByRole("menuitem", { name: "Block api.example.com this session" }),

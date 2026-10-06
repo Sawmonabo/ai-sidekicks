@@ -99,8 +99,13 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   // the actions off the card and the same two rows out of the palette.
   const answerable = isApprovalAnswerable(record, props.refusal);
 
-  // The `why not` line's text, or `undefined` while the line is closed.
-  const [declineReason, setDeclineReason] = useState<string | undefined>(undefined);
+  // The `why not` line's text and the ask it was opened on; the line is closed for any other ask,
+  // so a card that moves on to the next ask never sends the last one's words.
+  const [openReason, setOpenReason] = useState<DeclineReasonLine | undefined>(undefined);
+  const declineReason = openReason?.approvalId === record.id ? openReason.text : undefined;
+  const setDeclineReason = (text: string): void => {
+    setOpenReason({ approvalId: record.id, text });
+  };
 
   const answer = useCallback<ApprovalAnswerPress>(
     (decision, remembered) => {
@@ -280,6 +285,12 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   );
 }
 
+/** The open `why not` line: the ask it belongs to and what is typed in it. */
+interface DeclineReasonLine {
+  readonly approvalId: string;
+  readonly text: string;
+}
+
 /** One press of the card: a decision and the rule it makes, if any. */
 type ApprovalAnswerPress = (
   decision: ApprovalDecision,
@@ -323,7 +334,7 @@ function declineArrowFor(
       ...(record.projectScopeOffered
         ? [
             {
-              label: `Always in ${RULE_SCOPE_LABELS.project}`,
+              label: `Block ${record.subject} in ${RULE_SCOPE_LABELS.project}`,
               isFacePress: false,
               onPress: () => {
                 answer("rejected", ruleFor(record, "project", "block"));
