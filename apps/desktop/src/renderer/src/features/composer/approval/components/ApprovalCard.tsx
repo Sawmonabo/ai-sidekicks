@@ -70,8 +70,6 @@ const DECLINE_FACE_CLASS = "meridian-action-button--outline meridian-action-butt
 /**
  * The `Approve once` action of the card for `approvalRequestId`, or `undefined`. The id is
  * compared as a string, never interpolated into a selector, because it is a wire value.
- *
- * @consumedBy the approval arrival announcement
  */
 export function findApprovalCardAction(
   root: ParentNode,

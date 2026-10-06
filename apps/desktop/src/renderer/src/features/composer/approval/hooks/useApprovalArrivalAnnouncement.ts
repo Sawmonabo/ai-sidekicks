@@ -17,8 +17,6 @@ const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
  * Announces a newly pending card and moves focus to its action only when the composer had it.
  * Focus lands on the arrived record's own card, found within `cardRootRef`, because the
  * announcement names that record and a document-wide query could land on an older card.
- *
- * @consumedBy the approval card's arrival focus
  */
 export function useApprovalArrivalAnnouncement(
   pending: readonly ApprovalProjectionRow[],
@@ -42,7 +40,7 @@ export function useApprovalArrivalAnnouncement(
     setAnnouncement(
       arrived.length === 1
         ? `Approval needed: ${APPROVAL_CATEGORY_LABELS[first.category]}.`
-        : `${String(arrived.length)} decisions are waiting.`,
+        : `${String(arrived.length)} approvals needed.`,
     );
     const focused = ownerDocument.activeElement;
     if (!isHTMLElement(focused) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {

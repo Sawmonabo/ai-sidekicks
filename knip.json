@@ -152,8 +152,6 @@
         "src/renderer/src/features/agents/library/body.ts",
         // Opening a child in the Sidekicks pane, which fetches that child's own rows once.
         "src/renderer/src/features/agents/pane/hooks/useChildRunDisclosure.ts",
-        // An approval card takes focus when it arrives.
-        "src/renderer/src/features/composer/approval/hooks/useApprovalArrivalAnnouncement.ts",
         // The composer's attachment strip: one chip per staged file, its size, and the refusal
         // naming a file and the limit it hit.
         "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
