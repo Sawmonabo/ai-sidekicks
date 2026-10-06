@@ -32,7 +32,7 @@ Package-local typed surfaces are **canonical in code**, not in this file. Exampl
 - `MethodRegistry` interface — `packages/contracts/src/jsonrpc/registry.ts`
 - `LocalSubscriptionProducer<T>` streaming primitive — `packages/contracts/src/jsonrpc/streaming.ts` (the client-side consumer shape is `LocalSubscriptionConsumer<T>` at `packages/client-sdk/src/transport/contract.ts`)
 - `SecureDefaults` config + effective-settings — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`
-- LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/cancel`) — `packages/contracts/src/jsonrpc/streaming.ts`
+- LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/end`, `$/subscription/cancel`) — `packages/contracts/src/jsonrpc/streaming.ts`
 - `SessionEvent` discriminated-union schema — `packages/contracts/src/event/session-event.ts`
 - The daemon's method and event map — the `DaemonMethod` union, the method-to-params and method-to-result maps (`DaemonParams`, `DaemonResult`) and the `DaemonEvent` union with its event-to-payload map (`DaemonEventPayload`), built from the contracts' own method descriptors — `packages/contracts/src/daemon/methods.ts`. The preload bridge's `daemon.call` and `daemon.subscribe` are typed by it, and the renderer's daemon client takes its types from it rather than restating them.
 
@@ -857,7 +857,9 @@ interface SessionSubscribeRequest {
   afterCursor?: EventCursor; // catch up from just after this position, then follow
 }
 // The reply is the subscription's acknowledgment and nothing else; the events then arrive as
-// `$/subscription/notify` frames keyed by `subscriptionId`, and `$/subscription/cancel` ends it.
+// `$/subscription/notify` frames keyed by `subscriptionId`. The daemon ends a stream with one
+// `$/subscription/end` frame (`completed`, or `refused` with its error); a client ends one with
+// `$/subscription/cancel`.
 type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // allocated by the daemon per subscription
 interface SessionSubscribeResponse {
   subscriptionId: SubscriptionId;
