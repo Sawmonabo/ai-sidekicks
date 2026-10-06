@@ -28,7 +28,8 @@ vi.mock("electron", () => ({
 }));
 
 import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../../windows/load-failure-document.js";
-import { handleRendererRequest, registerRendererScheme } from "./protocol.js";
+import { stampRootElement } from "../root-stamp.js";
+import { handleRendererRequest, RendererSchemeRegistration } from "./protocol.js";
 import { RENDERER_CONTENT_SECURITY_POLICY } from "./scheme.js";
 
 /** The kept appearance record, on the dark scheme. */
@@ -210,6 +211,26 @@ describe("the root stamp", () => {
     );
   });
 
+  it("is written on the console document however its path is spelled", async () => {
+    electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
+
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/%69ndex.html",
+      RECORD_KEPT,
+    );
+
+    expect(await response.text()).toContain('data-theme="meridian"');
+  });
+
+  it("merges a style the built tag carries into the stamped one", () => {
+    expect(stampRootElement('<html lang="en" style="color-scheme:light dark;">', RECORD_KEPT)).toBe(
+      '<html lang="en" data-theme="meridian" data-color-scheme="dark" ' +
+        'data-resolved-color-scheme="dark" ' +
+        'style="color-scheme:light dark;font-size:18px;--meridian-transcript-width:40rem">',
+    );
+  });
+
   it("leaves every other document as built", async () => {
     electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
 
@@ -223,16 +244,16 @@ describe("the root stamp", () => {
   });
 });
 
-// Registration is process-global state, so this block runs last and owns both calls.
-describe("registerRendererScheme", () => {
+describe("the renderer scheme's registration", () => {
   it("refuses a second registration before it reaches Electron", () => {
-    registerRendererScheme();
+    const registration = new RendererSchemeRegistration();
+    registration.register();
 
     expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
 
     expect(() => {
-      registerRendererScheme();
-    }).toThrow(/called twice/i);
+      registration.register();
+    }).toThrow(/registered twice/i);
     // The refused second call must not reach Electron.
     expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
   });

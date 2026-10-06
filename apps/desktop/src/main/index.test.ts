@@ -167,7 +167,7 @@ describe("main-process startup composition", () => {
     await import("./index.js");
 
     // Ready is not released yet, so only module-evaluation calls are recorded. A
-    // `registerRendererScheme()` moved inside `whenReady()` would drop the first entry.
+    // The scheme's registration moved inside `whenReady()` would drop the first entry.
     expect(startupSequence()).toEqual([
       "protocol.registerSchemesAsPrivileged",
       "crashReporter.start",

@@ -1,5 +1,5 @@
-// Electron main-process entrypoint. Startup order is load-bearing and `index.test.ts`
-// asserts it: `registerRendererScheme()` at module top level, before `app.ready`, then the crash
+// Electron main-process entrypoint. Startup order is load-bearing and `index.test.ts` asserts
+// it: the renderer scheme's registration at module top level, before `app.ready`, then the crash
 // reporter, then the profile keyed to the install and the single-instance lock, then the kept
 // appearance, the registry of windows and its lifecycle, so a second launch during start is heard;
 // inside `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the bridge
@@ -36,7 +36,10 @@ import {
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
 import { describeFailure } from "./services/failure-message.js";
-import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
+import {
+  installRendererProtocol,
+  RendererSchemeRegistration,
+} from "./services/renderer/protocol.js";
 import { OpenWindows } from "./windows/open-windows.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/place-file.js";
 import { installActivationPolicy } from "./windows/reveal.js";
@@ -54,7 +57,7 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
 // which hold the app's UI state.
-registerRendererScheme();
+new RendererSchemeRegistration().register();
 
 // The lock, the crash reports and the logs all live under the profile folder, so it is keyed to
 // the install first: a development build and a shipped one never share a lock or a profile.

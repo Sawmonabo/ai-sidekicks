@@ -4,9 +4,9 @@
 // CSP), `./assets.ts` (containment and resolution) and
 // `../../windows/load-failure-document.ts` (the generated failure document).
 //
-// Two entry points, so the startup order is assertable (`index.test.ts`):
-// `registerRendererScheme()` at module top level in `main/index.ts`, ahead of every
-// `whenReady()` consumer, and `installRendererProtocol(rendererRoot, rootStamp)` inside
+// Two entry points, so the startup order is assertable (`index.test.ts`): the scheme's one
+// registration (`RendererSchemeRegistration`, held by `main/index.ts`) at module top level, ahead
+// of every `whenReady()` consumer, and `installRendererProtocol(rendererRoot, rootStamp)` inside
 // `whenReady()` before any window exists.
 //
 // The bundle is served over this scheme, never `file://`, because the hardening baseline
@@ -17,6 +17,8 @@
 // repeated renderer crashes, can be stamped on its root element (`../root-stamp.ts`).
 
 import { net, protocol } from "electron";
+import { realpath } from "node:fs/promises";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -25,33 +27,41 @@ import {
 } from "../../windows/load-failure-document.js";
 import { resolveRendererAsset } from "./assets.js";
 import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_INDEX_URL, RENDERER_SCHEME } from "./scheme.js";
+import { isMissingPath } from "../missing-path.js";
 import { stampRootElement, type RootStamp } from "../root-stamp.js";
 
-// Module-scoped on purpose: it mirrors a process-global Electron constraint (one
-// `registerSchemesAsPrivileged` call per process, before `app.ready`). Set before the Electron
-// call so a call Electron rejects cannot be retried into a second registration.
-let rendererSchemeRegistered = false;
+/** The console document's file, at the built tree's root. */
+const CONSOLE_DOCUMENT_FILE = new URL(RENDERER_INDEX_URL).pathname.slice(1);
 
 /**
- * Registers `sidekicks-renderer://` as a privileged scheme. Must run at module top level in
- * `main/index.ts`, ahead of every `whenReady()` consumer. Throws on a second call, which
- * would otherwise hide a startup-order regression.
+ * The privileged registration of `sidekicks-renderer://`, which Electron takes once per process
+ * and only before `app.ready`. `main/index.ts` holds the one instance.
  */
-export function registerRendererScheme(): void {
-  if (rendererSchemeRegistered) {
-    throw new Error(
-      "registerRendererScheme() was called twice. Electron accepts exactly one " +
-        "protocol.registerSchemesAsPrivileged call per process, and it must run " +
-        "before app.ready — see apps/desktop/src/main/index.ts for the single call site.",
-    );
+export class RendererSchemeRegistration {
+  #isRegistered = false;
+
+  /**
+   * Registers the scheme. Must run at module top level in `main/index.ts`, ahead of every
+   * `whenReady()` consumer. Throws on a second call, which would otherwise hide a startup-order
+   * regression.
+   */
+  public register(): void {
+    if (this.#isRegistered) {
+      throw new Error(
+        "The renderer scheme was registered twice. Electron accepts exactly one " +
+          "protocol.registerSchemesAsPrivileged call per process, and it must run " +
+          "before app.ready.",
+      );
+    }
+    // Set before the Electron call, so a call Electron rejects is never retried into a second.
+    this.#isRegistered = true;
+    protocol.registerSchemesAsPrivileged([
+      {
+        scheme: RENDERER_SCHEME,
+        privileges: { standard: true, secure: true, supportFetchAPI: true },
+      },
+    ]);
   }
-  rendererSchemeRegistered = true;
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: RENDERER_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true },
-    },
-  ]);
 }
 
 /** Headers every response carries, refusals included. */
@@ -123,7 +133,7 @@ export async function handleRendererRequest(
     return emptyResponse(404);
   }
 
-  if (isConsoleDocument(url)) {
+  if (await isConsoleDocument(rendererRoot, resolution.absolutePath)) {
     return new Response(stampRootElement(await fileResponse.text(), rootStamp), {
       status: 200,
       headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },
@@ -136,8 +146,15 @@ export async function handleRendererRequest(
   });
 }
 
-/** Whether `url` asks for the console document itself, whatever fragment or query it carries. */
-function isConsoleDocument(url: string): boolean {
-  const requested = new URL(url);
-  return `${requested.protocol}//${requested.host}${requested.pathname}` === RENDERER_INDEX_URL;
+// By the file a request resolved to, so every spelling of it, `/%69ndex.html` among them, is
+// stamped. A tree with no console document serves none.
+async function isConsoleDocument(rendererRoot: string, absolutePath: string): Promise<boolean> {
+  try {
+    return absolutePath === (await realpath(path.join(rendererRoot, CONSOLE_DOCUMENT_FILE)));
+  } catch (error: unknown) {
+    if (isMissingPath(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
