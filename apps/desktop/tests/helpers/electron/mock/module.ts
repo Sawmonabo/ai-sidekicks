@@ -422,7 +422,6 @@ class ElectronMockImpl implements ElectronMock {
       },
       Tray: class {
         public on = vi.fn();
-        public destroy = vi.fn();
       },
       shell: {
         openExternal: vi.fn((url: string) => {

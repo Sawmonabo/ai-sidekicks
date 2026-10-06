@@ -46,7 +46,10 @@
     },
 
     "apps/desktop": {
-      // No `entry` declaration, deliberately. knip's defaults already cover the three process
+      // electron-builder's after-pack hook, which `electron-builder.yml` names and electron-builder
+      // loads itself; knip has no electron-builder plugin to read that file.
+      "entry": ["build/browser-snapshot.ts"],
+      // No other `entry` declaration, deliberately. knip's defaults already cover the three process
       // entries (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/main.tsx`) and the
       // two tool configs (`vitest.config.ts`, `electron.vite.config.ts`), and knip resolves the
       // rest from this package's manifest: a file named in a `scripts` entry is an entry, so

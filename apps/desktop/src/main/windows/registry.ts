@@ -110,7 +110,7 @@ export class OpenWindows {
   /** The widths the renderer handed for a window with no kept place; none before it hands them. */
   #defaultSizes: WindowDefaultSizes | undefined;
   /** The macOS menu-bar icon, held for the app's life: a collected `Tray` leaves the menu bar. */
-  #menuBarIcon: Pick<Tray, "destroy"> | undefined;
+  #menuBarIcon: Pick<Tray, "on"> | undefined;
 
   /** Reads the kept places, so every window opens where it was. Safe before `ready`. */
   public constructor(options: OpenWindowsOptions) {
@@ -165,8 +165,6 @@ export class OpenWindows {
         return;
       }
       this.#isQuitting = true;
-      // Gone with the windows rather than after the service's flush, which can take seconds.
-      this.#menuBarIcon?.destroy();
       // Every console window open now comes back at the next start, and only those; each one's
       // close writes the file.
       this.#keepOnlyPlacesOf(this.#windows);
@@ -196,11 +194,11 @@ export class OpenWindows {
 
   /**
    * Keeps the macOS menu-bar icon for the app's life. A click on it shows the window used last, as
-   * a second launch does, and reopens it where it was when none is open; a quit removes it.
+   * a second launch does, and reopens it where it was when none is open.
    */
-  public installMenuBarIcon(menuBarIcon: Pick<Tray, "on" | "destroy">): void {
+  public installMenuBarIcon(menuBarIcon: Pick<Tray, "on">): void {
     this.#menuBarIcon = menuBarIcon;
-    menuBarIcon.on("click", () => {
+    this.#menuBarIcon.on("click", () => {
       this.#showWindowUsedLast();
     });
   }

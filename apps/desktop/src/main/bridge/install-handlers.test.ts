@@ -1,7 +1,7 @@
 // Every bridge member's channels are answered, and refuse a frame that is not one of the app's own
 // documents. A failure reaches the page with no path in it, and main's log keeps it whole.
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -128,6 +128,10 @@ describe("the bridge's channels", () => {
   });
 
   it("answers a system failure by its code, with no path in it, and logs it whole", async () => {
+    // The pasted pictures' folder is made under the profile at install; once it is made, nothing
+    // makes the profile folder again behind the file that replaces it.
+    const { PASTED_IMAGES_FOLDER_NAME } = await import("./native/file-intake.js");
+    await vi.waitFor(() => stat(path.join(userData, PASTED_IMAGES_FOLDER_NAME)));
     // The profile folder is a file, so writing the map under it fails in the operating system.
     await rm(userData, { recursive: true, force: true });
     await writeFile(userData, "");

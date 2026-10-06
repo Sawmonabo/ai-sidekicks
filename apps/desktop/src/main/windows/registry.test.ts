@@ -284,15 +284,13 @@ describe("the windows a person sees, counted", () => {
 
     // A click on the menu-bar icon does the same: it asks for the window used last again.
     const menuBarIconClicks: (() => void)[] = [];
-    const menuBarIcon = {
+    openWindows.installMenuBarIcon({
       on: (eventName: string, listener: () => void) => {
         if (eventName === "click") {
           menuBarIconClicks.push(listener);
         }
       },
-      destroy: vi.fn(),
-    };
-    openWindows.installMenuBarIcon(menuBarIcon as never);
+    } as never);
     reopened.close();
     for (const click of menuBarIconClicks) {
       click();
@@ -301,10 +299,6 @@ describe("the windows a person sees, counted", () => {
       { channel: REOPEN_WINDOW_CHANNEL, value: "window/w-1" },
       { channel: REOPEN_WINDOW_CHANNEL, value: "window/w-1" },
     ]);
-
-    // A quit takes the icon off the menu bar at once.
-    electronMock.emitAppEvent("before-quit");
-    expect(menuBarIcon.destroy).toHaveBeenCalledOnce();
   });
 
   it.each(["linux", "darwin"] as const)(

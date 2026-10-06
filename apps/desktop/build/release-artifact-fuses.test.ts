@@ -28,7 +28,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 // Derived here so this file imports nothing from the launch helpers.
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = resolve(HERE, "..", "..");
+const PACKAGE_ROOT = resolve(HERE, "..");
 
 /** Where `electron-builder` writes its output for this package. */
 const PACKAGED_OUTPUT_DIRECTORY = join(PACKAGE_ROOT, "dist");
