@@ -3,7 +3,7 @@
 // The registry parses the request against the descriptor's schema before the handler runs, so
 // a malformed request never reaches `createSession`. A failure thrown from the deps is mapped
 // to the JSON-RPC error envelope outside this file. The descriptor is `mutating`, so the gate
-// refuses it on a connection whose `daemon.hello` has not completed.
+// refuses it on a connection whose `daemon.hello` was incompatible.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type {

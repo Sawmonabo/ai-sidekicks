@@ -19,6 +19,7 @@ import {
   DaemonHelloSchema,
   type DaemonHello,
   type DaemonHelloAck,
+  NEGOTIATION_TOKEN_INVALID_CODE,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
@@ -85,7 +86,9 @@ export async function connectToDaemon(options: DaemonConnectionOptions): Promise
     // A daemon writes its token just after it binds, so a connect in between presents the previous
     // start's token. When the file has changed since, the refused connect is made once more with
     // the new token on a new connection, since the refused one serves nothing more.
-    if (!(error instanceof JsonRpcRemoteError && error.data?.type === "auth.token_invalid")) {
+    if (
+      !(error instanceof JsonRpcRemoteError && error.data?.type === NEGOTIATION_TOKEN_INVALID_CODE)
+    ) {
       throw error;
     }
     const currentToken = await readFile(runFolder.tokenPath, "utf8");

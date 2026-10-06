@@ -10,6 +10,7 @@ import {
   JsonRpcErrorCode,
   JsonRpcErrorSchema,
   MAX_MESSAGE_BYTES,
+  TRANSPORT_UNAVAILABLE_CODE,
   type JsonRpcErrorData,
   type JsonRpcId,
   type JsonRpcNotification,
@@ -35,7 +36,7 @@ export class JsonRpcTransportUnavailableError extends Error {
     super(`The daemon's socket ${socketPath} cannot be reached: ${cause.message}`, { cause });
     this.name = "JsonRpcTransportUnavailableError";
     const reason = "code" in cause && typeof cause.code === "string" ? cause.code : cause.message;
-    this.data = { type: "transport.unavailable", fields: { reason } };
+    this.data = { type: TRANSPORT_UNAVAILABLE_CODE, fields: { reason } };
   }
 }
 

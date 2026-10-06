@@ -3,7 +3,7 @@
 // token has succeeded, and mutating methods only after a compatible one, while an unregistered
 // method on a handshaken connection still answers method_not_found.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DaemonHello, DaemonHelloAck } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
@@ -21,6 +21,24 @@ import { NegotiationError, ProtocolNegotiator } from "../protocol-negotiation.js
 import { passthroughSchema } from "../__fixtures__/schema-doubles.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
+// The versions the daemon accepts: the contract's list, unless a test widens it to two, as a build
+// one release after another would hold.
+const acceptedVersions = vi.hoisted(() => ({ widened: null as readonly string[] | null }));
+vi.mock("@ai-sidekicks/contracts/jsonrpc/negotiation", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@ai-sidekicks/contracts/jsonrpc/negotiation")>();
+  return {
+    ...actual,
+    get SUPPORTED_PROTOCOL_VERSIONS(): readonly string[] {
+      return acceptedVersions.widened ?? actual.SUPPORTED_PROTOCOL_VERSIONS;
+    },
+  };
+});
+
+afterEach(() => {
+  acceptedVersions.widened = null;
+});
+
 // A negotiator with its raw and gated registries; `daemon.hello` is registered on the gated one,
 // as bootstrap does.
 interface NegotiatorFixture {
@@ -32,8 +50,8 @@ interface NegotiatorFixture {
 // This start's token, as the daemon wrote it to its token file.
 const SESSION_TOKEN = "a".repeat(64);
 
-function makeFixture(supportedProtocolVersions?: readonly string[]): NegotiatorFixture {
-  const negotiator = new ProtocolNegotiator(SESSION_TOKEN, supportedProtocolVersions);
+function makeFixture(): NegotiatorFixture {
+  const negotiator = new ProtocolNegotiator(SESSION_TOKEN);
   const raw = new MethodRegistryImpl();
   const gated = negotiator.wrap(raw);
   negotiator.registerHandshakeMethod(gated);
@@ -78,7 +96,8 @@ describe("daemon.hello version negotiation", () => {
   );
 
   it("accepts a client offering only the previous version once the list holds two", async () => {
-    const { gated } = makeFixture(["2026-01-01", "2026-05-01"]);
+    acceptedVersions.widened = ["2026-01-01", "2026-05-01"];
+    const { gated } = makeFixture();
     const params: DaemonHello = {
       sessionToken: SESSION_TOKEN,
       protocolVersion: "2026-01-01",

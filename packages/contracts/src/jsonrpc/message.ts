@@ -115,6 +115,12 @@ export interface JsonRpcErrorData {
 }
 
 /**
+ * The error code (`error.data.type`) a client reports when the daemon cannot be reached: nothing
+ * listens on its socket, or the link to it is down. `fields.reason` says why.
+ */
+export const TRANSPORT_UNAVAILABLE_CODE = "transport.unavailable" as const;
+
+/**
  * The five numeric error codes JSON-RPC 2.0 reserves and the only ones the daemon emits;
  * domain errors ride in `error.data.type`. Shared so the daemon's mapping and the SDK's decoding
  * use one declaration.

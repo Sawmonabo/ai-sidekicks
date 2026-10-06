@@ -95,6 +95,12 @@ export const NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED =
  */
 export const NEGOTIATION_VERSION_MISMATCH_CODE = "protocol.version_mismatch" as const;
 
+/**
+ * The error code (`error.data.type`) every call is refused with on a connection whose
+ * `daemon.hello` carried no session token or the wrong one, the hello included.
+ */
+export const NEGOTIATION_TOKEN_INVALID_CODE = "auth.token_invalid" as const;
+
 /** The reasons a `DaemonHelloAck` may give for `compatible: false`. */
 export type NegotiationIncompatibleReason =
   | typeof NEGOTIATION_REASON_FLOOR_EXCEEDED
