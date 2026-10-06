@@ -77,10 +77,11 @@ export class OpenWindows {
   }
 
   /**
-   * Open the window `windowId` names, or bring it forward when it is open. Throws
+   * Open the window `windowId` names on `address`, a route hash written before anyone hears the
+   * window opened, or bring it forward, on the address it shows, when it is open. Throws
    * {@link WindowNotOpenedError} when the platform opened none.
    */
-  public open(windowId: string): OpenWindow {
+  public open(windowId: string, address?: string): OpenWindow {
     const held = this.#held.get(windowId);
     if (held !== undefined) {
       held.openWindow.window.focus();
@@ -89,6 +90,11 @@ export class OpenWindows {
     const opened = this.#options.openWindow(windowId);
     if (opened === null) {
       throw new WindowNotOpenedError(windowId);
+    }
+    // The hash alone: a blank document resolves a whole address against its opener's, which it
+    // may not take.
+    if (address !== undefined) {
+      opened.location.hash = address;
     }
     const openWindow: OpenWindow = { windowId, window: opened };
     for (const prepare of this.#documentPreparations) {

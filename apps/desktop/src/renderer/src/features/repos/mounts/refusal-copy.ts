@@ -101,8 +101,7 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.mode_unsupported": {
-    nextMove:
-      "This mount does not offer that mode. The background service's " + "message says why.",
+    nextMove: "This mount does not offer that mode. The background service's message says why.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.stale": {

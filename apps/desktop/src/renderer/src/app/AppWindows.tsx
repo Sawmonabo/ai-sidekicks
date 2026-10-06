@@ -22,7 +22,6 @@ import { useAppCommands } from "./hooks/useAppCommands.js";
 import { useAppearance } from "./hooks/useAppearance.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
-import { useOpenWindowList } from "./hooks/useOpenWindowList.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowStores } from "./hooks/useWindowStores.js";
@@ -68,14 +67,9 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   useLazyBodyIdleWarm(paneRegistry, screenRegistry);
 
-  const windows = useOpenWindowList(openWindows);
-
   // Each window's frame store, kept here so the app's commands act on the window used last.
-  const windowStores = useWindowStores(openWindows, bridge);
-  const windowStoreUsedLast = useCallback(() => {
-    const usedLast = openWindows.list()[0];
-    return usedLast === undefined ? undefined : windowStores.storeOf(usedLast.windowId);
-  }, [openWindows, windowStores]);
+  const { windowStores, windows } = useWindowStores(openWindows, bridge);
+  const windowStoreUsedLast = useCallback(() => windowStores.list()[0]?.store, [windowStores]);
   const documentUsedLast = useCallback(
     (): Document | undefined => openWindows.list()[0]?.window.document,
     [openWindows],
@@ -99,11 +93,11 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   return (
     <>
-      {windows.map((openWindow) => (
+      {windows.map(({ openWindow, store }) => (
         <AppWindow
           key={openWindow.windowId}
           openWindow={openWindow}
-          frameStore={windowStores.storeFor(openWindow)}
+          frameStore={store}
           bridge={bridge}
           appStores={appStores}
           appearance={appearance}

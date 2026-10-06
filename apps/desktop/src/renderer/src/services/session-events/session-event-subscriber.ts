@@ -283,9 +283,9 @@ export class SessionEventSubscriber {
   /**
    * A stream that ended while the session was open: opened again after its last cursor, through
    * the re-open waits when it delivered since it opened and on the returning edge when it did
-   * not. A refusal that came with no delivery is the daemon declining the stream with the wire
-   * still there, so no returning edge may come: it is also tried again after a wait, never at
-   * once. None of it is drawn.
+   * not. A refusal or a completion that came with no delivery is the daemon ending the stream with
+   * the wire still there, so no returning edge may come: it is also tried again after a wait,
+   * never at once. None of it is drawn.
    */
   #resumeEndedStream(sessionId: string, binding: StreamBinding, end: DaemonSubscriptionEnd): void {
     if (this.#disposed || this.#bindingBySessionId.get(sessionId) !== binding) {
@@ -307,7 +307,7 @@ export class SessionEventSubscriber {
       return;
     }
     this.#retry.retain(sessionId);
-    if (end.reason === "refused") {
+    if (end.reason !== "failed") {
       const backoff = this.#backoffFor(sessionId);
       backoff.skipImmediateReopen();
       backoff.schedule(() => {

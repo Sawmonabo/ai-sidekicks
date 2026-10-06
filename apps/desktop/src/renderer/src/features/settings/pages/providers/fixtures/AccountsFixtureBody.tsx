@@ -24,7 +24,6 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { BILLING_MODE_WORDS } from "#renderer/lib/account-plane-sentences.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -242,9 +241,7 @@ export function AccountsFixtureBody(props: {
           </section>
 
           <section className="meridian-settings-page__block">
-            <h3 className="meridian-settings-page__block-title">
-              Usage — {BILLING_MODE_WORDS[selected.billingMode]}
-            </h3>
+            <h3 className="meridian-settings-page__block-title">Usage</h3>
             <QuotaTable rows={accountQuotaRowsFrom(registry, selected)} />
           </section>
         </>

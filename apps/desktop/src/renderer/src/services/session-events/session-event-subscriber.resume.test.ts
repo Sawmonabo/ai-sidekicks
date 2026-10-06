@@ -203,13 +203,16 @@ describe("SessionEventSubscriber: a stream that ends while its session is open",
     subscriber.dispose();
   });
 
-  it("opens a stream the daemon refused before delivering again after a wait, drawing nothing", () => {
-    const { subscriber, registry, engine, opens } = createResumeHarness();
-
-    opens[0]?.end({
+  it.each<DaemonSubscriptionEnd>([
+    {
       reason: "refused",
       refusal: { code: JsonRpcErrorCode.InternalError, message: "The stream is not available." },
-    });
+    },
+    { reason: "completed" },
+  ])("opens a stream the daemon ended $reason before delivering again after a wait", (end) => {
+    const { subscriber, registry, engine, opens } = createResumeHarness();
+
+    opens[0]?.end(end);
     expect(opens).toHaveLength(1);
 
     // No returning edge comes, since the wire never went away: the wait alone opens it again.

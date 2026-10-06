@@ -97,25 +97,20 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
       return undefined;
     }
     const keep = (): void => {
-      const open = openWindows.list();
+      const open = windowStores.list();
       if (open.length > 0) {
         void keepWindows(
           uiStateStore,
-          open.map((openWindow) => ({
+          open.map(({ openWindow, store }) => ({
             windowId: openWindow.windowId,
-            route: windowStores.storeFor(openWindow).getState().route,
+            route: store.getState().route,
           })),
         );
       }
     };
     keep();
-    const stopHearingWindows = openWindows.subscribe(keep);
-    const stopHearingRoutes = windowStores.subscribeRoutes(keep);
-    return () => {
-      stopHearingWindows();
-      stopHearingRoutes();
-    };
-  }, [isLayoutKept, openWindows, uiStateStore, windowStores]);
+    return windowStores.subscribe(keep);
+  }, [isLayoutKept, uiStateStore, windowStores]);
 
   const reopenWindow = useCallback(
     (windowId: string) => {
@@ -140,14 +135,13 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
 
 /**
  * Open `windowId` on `route`; nothing for a window already open. The address is written before
- * anything is drawn, so the window's store starts on it. It is written as the hash alone: a blank
- * document resolves a whole address against its opener's, which it may not take.
+ * the window is announced, so the window's store starts on it.
  */
 function openAt(openWindows: OpenWindows, windowId: string, route: AppRoute): void {
   if (openWindows.list().some((openWindow) => openWindow.windowId === windowId)) {
     return;
   }
-  openWindows.open(windowId).window.location.hash = formatRoute(route);
+  openWindows.open(windowId, formatRoute(route));
 }
 
 /**

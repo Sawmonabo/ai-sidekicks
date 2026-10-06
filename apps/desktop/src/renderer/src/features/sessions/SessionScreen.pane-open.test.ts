@@ -35,7 +35,7 @@ function panesOnScreen(container: HTMLElement): readonly unknown[] {
   }));
 }
 
-/** Ask for Review over a run in the fixture session, as the run page's doors do. */
+/** Ask for Review over a run in the fixture session, as the run page's `Open in Review` does. */
 function askForRunReview(
   frameStore: WindowStore,
   workflowRunId: string,
@@ -92,7 +92,7 @@ describe("SessionScreen — a pane another screen asked for", () => {
       ]);
     });
 
-    // The approval step's door on the same run re-points the pane rather than opening another.
+    // A blocked step's `Open in Review` on the same run re-points the pane, opening no other.
     askForRunReview(frameStore, "run-1", FIRST_PAUSE);
     askForRunReview(frameStore, "run-2", END);
     const arranged = [
