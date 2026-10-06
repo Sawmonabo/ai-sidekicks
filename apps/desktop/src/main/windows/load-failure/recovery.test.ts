@@ -11,7 +11,7 @@ import {
   INDEX_URL,
   loggedMessages,
   testWindowFrame,
-} from "#test/helpers/window-harness.js";
+} from "#test/helpers/electron/mock/readers.js";
 
 const electronMock = createElectronMock();
 

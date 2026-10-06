@@ -6,6 +6,9 @@ import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
 
+/** What a call that needs the link answers while none is up. */
+export const NOT_CONNECTED_MESSAGE = "The background service is not connected.";
+
 /** Told of each new state, the current one first. */
 export type DaemonLinkListener = (state: MainProcessState) => void;
 

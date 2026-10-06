@@ -56,7 +56,6 @@ export function processCrashReporterHost(
     readTextFile: (filePath) => readFileSync(filePath, "utf8"),
     reportUnreadableSettings: (message) => {
       log.write({
-        at: new Date().toISOString(),
         level: "error",
         source: "main/crash-reporter",
         message,

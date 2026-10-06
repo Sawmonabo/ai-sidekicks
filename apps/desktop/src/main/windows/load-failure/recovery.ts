@@ -5,12 +5,20 @@
 
 import { app, type BaseWindow, type WebContents } from "electron";
 
-import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
+import {
+  reportUnwrittenDiagnostics,
+  type MainDiagnosticLog,
+} from "../../services/diagnostic-log.js";
 import { describeFailure } from "../../services/failure-message.js";
 import { buildLoadFailureUrl } from "./document.js";
 
-/** Main's log, drained before an exit so the reason is on disk when the process ends. */
-type LoadFailureLog = Pick<MainDiagnosticLog, "write" | "drain">;
+/**
+ * Main's log, drained before an exit so the reason is on disk when the process ends, and read for
+ * a write that never landed.
+ */
+type LoadFailureLog = Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
+
+const LOG_SOURCE = "main/windows/load-failure";
 
 /**
  * Exit status when a window has no document it can serve, not even the generated failure
@@ -45,7 +53,11 @@ export function loadDocument(
 ): void {
   webContents.loadURL(documentUrl).catch((error: unknown) => {
     const reason = describeLoadFailure(error);
-    writeLoadFailureEntry(log, "error", `failed to load ${documentUrl}: ${reason}`);
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message: `failed to load ${documentUrl}: ${reason}`,
+    });
     serveLoadFailureDocument(baseWindow, webContents, reason, log, revealFailure);
   });
 }
@@ -63,11 +75,13 @@ function serveLoadFailureDocument(
     // return, not `abandonUnservableWindow`: that calls `app.exit`, which runs no `before-quit`
     // or `will-quit` handler, so a normal close would skip the quit drain and report a
     // renderer failure.
-    writeLoadFailureEntry(
-      log,
-      "warning",
-      `a window closed while its load was failing (${reason}); no failure document to serve.`,
-    );
+    log.write({
+      level: "warning",
+      source: LOG_SOURCE,
+      message:
+        `a window closed while its load was failing (${reason}); ` +
+        "no failure document to serve.",
+    });
     return;
   }
 
@@ -79,11 +93,12 @@ function serveLoadFailureDocument(
   try {
     failureDocumentUrl = buildLoadFailureUrl(reason);
   } catch (urlConstructionError: unknown) {
-    writeLoadFailureEntry(
-      log,
-      "error",
-      `the load-failure URL could not be built: ${describeLoadFailure(urlConstructionError)}`,
-    );
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message:
+        "the load-failure URL could not be built: " + describeLoadFailure(urlConstructionError),
+    });
     abandonUnservableWindow(baseWindow, reason, log);
     return;
   }
@@ -94,20 +109,23 @@ function serveLoadFailureDocument(
         revealFailure();
       } catch (revealError: unknown) {
         // A failure page nobody can see is no better than none.
-        writeLoadFailureEntry(
-          log,
-          "error",
-          `the load-failure document could not be shown: ${describeLoadFailure(revealError)}`,
-        );
+        log.write({
+          level: "error",
+          source: LOG_SOURCE,
+          message:
+            "the load-failure document could not be shown: " + describeLoadFailure(revealError),
+        });
         abandonUnservableWindow(baseWindow, reason, log);
       }
     },
     (failureDocumentError: unknown) => {
-      writeLoadFailureEntry(
-        log,
-        "error",
-        `the load-failure document could not be served: ${describeLoadFailure(failureDocumentError)}`,
-      );
+      log.write({
+        level: "error",
+        source: LOG_SOURCE,
+        message:
+          "the load-failure document could not be served: " +
+          describeLoadFailure(failureDocumentError),
+      });
       abandonUnservableWindow(baseWindow, reason, log);
     },
   );
@@ -117,32 +135,28 @@ function serveLoadFailureDocument(
  * Destroys the window that has no document and exits the process. With not even the failure
  * document to show there is nothing to interact with, and exiting non-zero beats an invisible
  * placeholder a harness can only detect by timing out. The log is drained first, because a
- * queued append does not survive `app.exit`, and the window goes only then, so closing the last
- * window cannot start an ordinary quit ahead of the exit.
+ * queued append does not survive `app.exit`, and a line it could not write is said on stderr; the
+ * window goes only then, so closing the last window cannot start an ordinary quit ahead of the
+ * exit.
  */
 function abandonUnservableWindow(
   baseWindow: BaseWindow,
   reason: string,
   log: LoadFailureLog,
 ): void {
-  writeLoadFailureEntry(
-    log,
-    "error",
-    `no renderer document could be served for the hidden window (${reason}); exiting ` +
+  log.write({
+    level: "error",
+    source: LOG_SOURCE,
+    message:
+      `no renderer document could be served for the hidden window (${reason}); exiting ` +
       `${String(RENDERER_UNSERVABLE_EXIT_CODE)}.`,
-  );
-  void log.drain().then(() => {
+  });
+  void reportUnwrittenDiagnostics(log, (message) => {
+    console.error(message);
+  }).then(() => {
     if (!baseWindow.isDestroyed()) {
       baseWindow.destroy();
     }
     app.exit(RENDERER_UNSERVABLE_EXIT_CODE);
   });
-}
-
-function writeLoadFailureEntry(
-  log: LoadFailureLog,
-  level: "error" | "warning",
-  message: string,
-): void {
-  log.write({ at: new Date().toISOString(), level, source: "main/windows/load-failure", message });
 }

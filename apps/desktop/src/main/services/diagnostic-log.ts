@@ -15,13 +15,15 @@
 // still failing to start.
 //
 // A write never throws at its caller and never fails silently: it stops accepting and records
-// why (`lastWriteFailure`), which the exit path reads.
+// why (`lastWriteFailure`), which the quit and exit paths read. The file and its folder are
+// readable only by the person, as main's other files are: a line can quote a path.
 
 import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
-import { dirname } from "node:path";
+import path from "node:path";
 
 import { describeFailure } from "./failure-message.js";
 import { isMissingPath } from "./missing-path.js";
+import { OWNER_ONLY_FILE_MODE, OWNER_ONLY_FOLDER_MODE } from "./owner-only-file.js";
 
 /** How bad one entry is. Closed, and ordered most severe first. */
 export const DIAGNOSTIC_LOG_LEVELS = ["error", "warning", "notice"] as const;
@@ -29,14 +31,17 @@ export const DIAGNOSTIC_LOG_LEVELS = ["error", "warning", "notice"] as const;
 /** One level, derived so the set is declared exactly once. */
 export type DiagnosticLogLevel = (typeof DIAGNOSTIC_LOG_LEVELS)[number];
 
-/** One line of the log. */
+/** What a caller writes; the log stamps it with the time it was written. */
 export interface MainDiagnosticEntry {
-  /** When it happened, ISO-8601, from the caller's clock rather than one here. */
-  readonly at: string;
   readonly level: DiagnosticLogLevel;
   /** The main-process module that wrote it. */
   readonly source: string;
   readonly message: string;
+}
+
+/** One line of the log: an entry and when it was written, ISO-8601. */
+export interface MainDiagnosticLine extends MainDiagnosticEntry {
+  readonly at: string;
 }
 
 /** The file operations the log performs. Injected, so a test owns all four. */
@@ -58,6 +63,8 @@ export interface MainDiagnosticLogOptions {
   readonly minimumLevel: DiagnosticLogLevel;
   /** Bytes the live file may reach before it rotates. */
   readonly fileByteCeiling: number;
+  /** The clock each entry is stamped from as it is written. */
+  readonly now: () => Date;
 }
 
 /** Where the rotated file goes. One generation: the previous file, and no more. */
@@ -73,12 +80,12 @@ function levelRank(level: DiagnosticLogLevel): number {
  * One entry as one JSON line, newline-terminated. Field order is fixed, so equal entries encode
  * to equal bytes and a test can compare a written file against an expected one.
  */
-export function toLogLine(entry: MainDiagnosticEntry): string {
+export function toLogLine(line: MainDiagnosticLine): string {
   return `${JSON.stringify({
-    at: entry.at,
-    level: entry.level,
-    source: entry.source,
-    message: entry.message,
+    at: line.at,
+    level: line.level,
+    source: line.source,
+    message: line.message,
   })}\n`;
 }
 
@@ -92,6 +99,7 @@ export class MainDiagnosticLog {
   readonly #sink: DiagnosticLogFileSink;
   readonly #minimumRank: number;
   readonly #fileByteCeiling: number;
+  readonly #now: () => Date;
   #writeChain: Promise<void> = Promise.resolve();
   /** `null` until the first queued write reads the file's own size. */
   #liveFileByteCount: number | null = null;
@@ -106,17 +114,18 @@ export class MainDiagnosticLog {
     this.#sink = options.sink;
     this.#minimumRank = levelRank(options.minimumLevel);
     this.#fileByteCeiling = options.fileByteCeiling;
+    this.#now = options.now;
   }
 
   /**
-   * Write one entry, if its level passes the filter. Returns nothing so a caller never waits
-   * on the disk; `drain()` is how a test and the quit path wait.
+   * Write one entry, stamped now, if its level passes the filter. Returns nothing so a caller
+   * never waits on the disk; `drain()` is how a test and the quit and exit paths wait.
    */
   public write(entry: MainDiagnosticEntry): void {
     if (levelRank(entry.level) > this.#minimumRank || !this.#accepting) {
       return;
     }
-    const line = toLogLine(entry);
+    const line = toLogLine({ at: this.#now().toISOString(), ...entry });
     const lineByteCount = Buffer.byteLength(line, "utf8");
     this.#writeChain = this.#writeChain.then(async () => {
       if (!this.#accepting) {
@@ -169,7 +178,7 @@ export class MainDiagnosticLog {
     this.#liveFileByteCount = 0;
   }
 
-  /** Settle every write issued so far. The quit path and every test await this. */
+  /** Settle every write issued so far. The quit and exit paths and every test await this. */
   public async drain(): Promise<void> {
     await this.#writeChain;
   }
@@ -226,12 +235,13 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
    * set, so a sink handed a second path still creates that path's directory without growing.
    */
   public async appendUtf8(filePath: string, text: string): Promise<void> {
-    const directory = dirname(filePath);
+    const directory = path.dirname(filePath);
     if (this.#ensuredDirectory !== directory) {
-      await mkdir(directory, { recursive: true });
+      await mkdir(directory, { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
       this.#ensuredDirectory = directory;
     }
-    await appendFile(filePath, text, "utf8");
+    // The mode applies when the append creates the file.
+    await appendFile(filePath, text, { encoding: "utf8", mode: OWNER_ONLY_FILE_MODE });
   }
 
   public async replace(fromPath: string, toPath: string): Promise<void> {
@@ -261,10 +271,11 @@ export const MAIN_DIAGNOSTIC_LOG_FILE_NAME = "main.jsonl";
  */
 export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog {
   return new MainDiagnosticLog({
-    filePath: `${logDirectory}/${MAIN_DIAGNOSTIC_LOG_FILE_NAME}`,
+    filePath: path.join(logDirectory, MAIN_DIAGNOSTIC_LOG_FILE_NAME),
     sink: createFileSystemDiagnosticLogSink(),
     minimumLevel: "notice",
     fileByteCeiling: MAIN_DIAGNOSTIC_LOG_BYTE_CEILING,
+    now: () => new Date(),
   });
 }
 
@@ -277,7 +288,7 @@ export type DiagnosticLogFailureReporter = (message: string) => void;
  * reporter rather than reaching for `console` so a test reads what was reported.
  */
 export async function reportUnwrittenDiagnostics(
-  log: MainDiagnosticLog,
+  log: Pick<MainDiagnosticLog, "drain" | "lastWriteFailure">,
   reportFailure: DiagnosticLogFailureReporter,
 ): Promise<void> {
   await log.drain();

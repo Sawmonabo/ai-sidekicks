@@ -320,7 +320,6 @@ export function supervisorOverScriptedService(): SupervisorUnderTest {
     startService: service.startService,
     attachServiceProcess: service.attachServiceProcess,
     log,
-    now: () => new Date(),
   });
   return { service, link, log, supervisor, connections };
 }

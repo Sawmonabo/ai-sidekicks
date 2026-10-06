@@ -19,6 +19,7 @@ import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
 import { describeFailure } from "../../services/failure-message.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import { writeOwnerOnlyJsonFileSync } from "../../services/owner-only-file.js";
+import { isPlainObject } from "../../services/plain-object.js";
 
 /** The file's name inside the app's user-data folder. */
 export const WINDOW_PLACES_FILE_NAME = "window-places.json";
@@ -39,6 +40,8 @@ export interface KeptWindowPlaces {
   readonly windowUsedLast: string | undefined;
   readonly places: ReadonlyMap<string, WindowPlace>;
 }
+
+const LOG_SOURCE = "main/windows/places/file";
 
 const windowPlaceSchema: z.ZodMiniType<WindowPlace> = z.strictObject({
   x: z.int(),
@@ -69,7 +72,11 @@ export class WindowPlaceFile {
       fileText = readFileSync(this.#filePath, "utf8");
     } catch (error) {
       if (!isMissingPath(error)) {
-        this.#record("warning", `the window places were unreadable: ${describeFailure(error)}`);
+        this.#log.write({
+          level: "warning",
+          source: LOG_SOURCE,
+          message: `the window places were unreadable: ${describeFailure(error)}`,
+        });
       }
       return nothingKept();
     }
@@ -82,10 +89,10 @@ export class WindowPlaceFile {
         `the window places file is not JSON: ${describeFailure(error)}`,
       );
     }
-    if (!isRecord(fileJson)) {
+    if (!isPlainObject(fileJson)) {
       return this.#repairSync(nothingKept(), "the window places file is not an object");
     }
-    const keptPlaces = isRecord(fileJson["places"]) ? fileJson["places"] : {};
+    const keptPlaces = isPlainObject(fileJson["places"]) ? fileJson["places"] : {};
     const places = new Map<string, WindowPlace>();
     for (const [placeKey, entry] of Object.entries(keptPlaces)) {
       const parsed = windowPlaceSchema.safeParse(entry);
@@ -99,7 +106,7 @@ export class WindowPlaceFile {
       places,
     };
     const isWhole =
-      isRecord(fileJson["places"]) &&
+      isPlainObject(fileJson["places"]) &&
       places.size === Object.keys(keptPlaces).length &&
       (keptWindowUsedLast === undefined || kept.windowUsedLast !== undefined) &&
       Object.keys(fileJson).every((key) => key === "places" || key === "windowUsedLast");
@@ -119,32 +126,24 @@ export class WindowPlaceFile {
 
   /** Rewrites the file as `kept`, recording why; a failed rewrite is recorded and `kept` stands. */
   #repairSync(kept: KeptWindowPlaces, why: string): KeptWindowPlaces {
-    this.#record("warning", `${why}; rewriting it with what it holds that is valid`);
+    this.#log.write({
+      level: "warning",
+      source: LOG_SOURCE,
+      message: `${why}; rewriting it with what it holds that is valid`,
+    });
     try {
       this.writeSync(kept);
     } catch (error) {
-      this.#record(
-        "error",
-        `the window places file could not be rewritten: ${describeFailure(error)}`,
-      );
+      this.#log.write({
+        level: "error",
+        source: LOG_SOURCE,
+        message: `the window places file could not be rewritten: ${describeFailure(error)}`,
+      });
     }
     return kept;
-  }
-
-  #record(level: "error" | "warning", message: string): void {
-    this.#log.write({
-      at: new Date().toISOString(),
-      level,
-      source: "main/windows/places/file",
-      message,
-    });
   }
 }
 
 function nothingKept(): KeptWindowPlaces {
   return { windowUsedLast: undefined, places: new Map() };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

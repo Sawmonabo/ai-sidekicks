@@ -40,6 +40,8 @@ import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer/scheme.js";
 /** Where a refused navigation or an outside address that did not open is recorded. */
 type NavigationLog = Pick<MainDiagnosticLog, "write">;
 
+const LOG_SOURCE = "main/windows/navigation";
+
 /**
  * One in-window origin: a scheme and an authority. A pair rather than an origin string because
  * `URL.origin` is `"null"` for every non-special scheme, and `sidekicks-renderer:` is
@@ -119,20 +121,12 @@ export async function openExternalUrl(targetUrl: string): Promise<void> {
  */
 function openExternalFromWindow(targetUrl: string, log: NavigationLog): void {
   openExternalUrl(targetUrl).catch((error: unknown) => {
-    writeNavigationEntry(
-      log,
-      "error",
-      `an outside address was not opened: ${describeFailure(error)}`,
-    );
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message: `an outside address was not opened: ${describeFailure(error)}`,
+    });
   });
-}
-
-function writeNavigationEntry(
-  log: NavigationLog,
-  level: "error" | "warning",
-  message: string,
-): void {
-  log.write({ at: new Date().toISOString(), level, source: "main/windows/navigation", message });
 }
 
 /**
@@ -151,7 +145,7 @@ export function devServerUrl(): URL | undefined {
 /**
  * The origins a window may navigate within, evaluated per navigation because the dev branch
  * reads the environment and a window outlives its construction. The renderer scheme is always
- * in the set; the dev server's origin joins when `./window.ts` loads it.
+ * in the set; the dev server's origin joins when `./factory.ts` loads it.
  */
 export function inWindowOrigins(): readonly InWindowOrigin[] {
   const origins: InWindowOrigin[] = [{ protocol: `${RENDERER_SCHEME}:`, host: RENDERER_HOST }];
@@ -185,7 +179,11 @@ function decideNavigation(
     openExternalFromWindow(targetUrl, log);
     return;
   }
-  writeNavigationEntry(log, "warning", `refused a ${seam}: ${verdict.reason}`);
+  log.write({
+    level: "warning",
+    source: LOG_SOURCE,
+    message: `refused a ${seam}: ${verdict.reason}`,
+  });
 }
 
 /**
@@ -231,7 +229,11 @@ export function installNavigationPolicy(
     if (verdict.kind === "external") {
       openExternalFromWindow(url, log);
     } else if (verdict.kind === "refused") {
-      writeNavigationEntry(log, "warning", `refused a popup: ${verdict.reason}`);
+      log.write({
+        level: "warning",
+        source: LOG_SOURCE,
+        message: `refused a popup: ${verdict.reason}`,
+      });
     }
     return { action: "deny" };
   });

@@ -39,7 +39,7 @@ export interface WindowGround {
   /** Answers the renderer's own `window.open` from this window's document. */
   readonly openChildWindow: ChildWindowOpener;
   /** Main's diagnostic log, where the window's refusals and failures are recorded. */
-  readonly log: Pick<MainDiagnosticLog, "write" | "drain">;
+  readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
 }
 
 /** Where a window a person sees opens, the state it is revealed into, and its ground. */

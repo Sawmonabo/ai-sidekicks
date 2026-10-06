@@ -53,7 +53,7 @@ export interface OpenWindowsOptions {
   readonly screen: Pick<Screen, "getDisplayMatching" | "getPrimaryDisplay">;
   readonly appearance: Pick<KeptAppearance, "ground" | "record" | "subscribe">;
   /** Main's diagnostic log, where a window's failures are recorded. */
-  readonly log: Pick<MainDiagnosticLog, "write" | "drain">;
+  readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
   readonly platform?: NodeJS.Platform;
 }
 
@@ -447,7 +447,6 @@ export class OpenWindows {
     const reload = this.#crashes.count();
     const lost = [...this.#windows];
     this.#log.write({
-      at: new Date().toISOString(),
       level: "error",
       source: "main/windows/registry",
       message:
@@ -510,7 +509,6 @@ export class OpenWindows {
       // A close has no caller to answer; the log is the record, and the window still closes, at
       // its old place next time.
       this.#log.write({
-        at: new Date().toISOString(),
         level: "error",
         source: "main/windows/registry",
         message: `the window places were not kept: ${describeFailure(error)}`,

@@ -53,7 +53,6 @@ async function connectWindowBridge() {
     file: new AppearanceRecordFile({
       filePath: appearanceFilePath,
       log: { write: vi.fn() },
-      now: () => new Date(),
     }),
     nativeTheme,
   });

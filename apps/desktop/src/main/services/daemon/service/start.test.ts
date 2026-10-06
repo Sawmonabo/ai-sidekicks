@@ -88,7 +88,6 @@ it(
       },
       attachServiceProcess: attachToServiceProcess,
       log: { write: (entry) => logged.push(entry) },
-      now: () => new Date(),
     });
     supervisor = activeSupervisor;
 

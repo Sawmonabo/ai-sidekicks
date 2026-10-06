@@ -1,7 +1,8 @@
 // A quit held for the background service's flush: it goes ahead at once when the flush answers and
 // at 10 seconds when it never does, a failed flush is recorded and the app still quits, a second
 // quit while the flush runs waits on that one flush, and the quit asked for again passes through
-// once while a quit a peer cancels flushes again.
+// once while a quit a peer cancels flushes again. Main's log drains before the quit goes on, and a
+// log that stopped writing is reported.
 
 import { EventEmitter } from "node:events";
 
@@ -36,11 +37,21 @@ function quittingApp(): {
   return { app, emitter, quit, emitBeforeQuit };
 }
 
-let log: { write: Mock<MainDiagnosticLog["write"]> };
+let log: {
+  write: Mock<MainDiagnosticLog["write"]>;
+  drain: Mock<MainDiagnosticLog["drain"]>;
+  lastWriteFailure: string | null;
+};
+let unwrittenReports: string[];
 
 beforeEach(() => {
   vi.useFakeTimers({ now: 0 });
-  log = { write: vi.fn<MainDiagnosticLog["write"]>() };
+  log = {
+    write: vi.fn<MainDiagnosticLog["write"]>(),
+    drain: vi.fn<MainDiagnosticLog["drain"]>(() => Promise.resolve()),
+    lastWriteFailure: null,
+  };
+  unwrittenReports = [];
 });
 
 afterEach(() => {
@@ -48,7 +59,12 @@ afterEach(() => {
 });
 
 function install(app: Parameters<typeof installQuitFlush>[0], flush: () => Promise<void>): void {
-  installQuitFlush(app, flush, { log, now: () => new Date() });
+  installQuitFlush(app, flush, {
+    log,
+    reportUnwrittenLog: (message) => {
+      unwrittenReports.push(message);
+    },
+  });
 }
 
 describe("a quit held for the service's flush", () => {
@@ -144,5 +160,30 @@ describe("a quit held for the service's flush", () => {
 
     expect(flush).toHaveBeenCalledTimes(2);
     expect(quit).toHaveBeenCalledTimes(2);
+  });
+
+  it("quits only once main's log has drained, and reports a log that stopped writing", async () => {
+    const { app, quit, emitBeforeQuit } = quittingApp();
+    let settleDrain: () => void = () => undefined;
+    log.drain.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settleDrain = resolve;
+        }),
+    );
+    log.lastWriteFailure = "no space left on device";
+    install(app, () => Promise.reject(new Error("the link closed")));
+
+    emitBeforeQuit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(log.drain).toHaveBeenCalledOnce();
+    expect(quit).not.toHaveBeenCalled();
+    settleDrain();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(quit).toHaveBeenCalledOnce();
+    expect(unwrittenReports).toStrictEqual([
+      "[ai-sidekicks/desktop] the diagnostic log stopped accepting: no space left on device",
+    ]);
   });
 });

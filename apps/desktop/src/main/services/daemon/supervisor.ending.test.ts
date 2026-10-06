@@ -1,6 +1,6 @@
 // The supervisor's ending of the service over a scripted service and a fake clock. A quit sends
-// `daemon.flush` alone, signals nothing, waits for a service a `Stop` is ending and starts nothing
-// while it waits, a restart's new service included. The person's `Stop` and `Restart` flush first,
+// `daemon.flush` alone, signals nothing, waits for a service a `Stop` is ending, whatever its flush
+// did, and starts nothing while it waits, a restart's new service included. The person's `Stop` and `Restart` flush first,
 // at most 10 seconds and taking a refusal as the answer, then ask, then end the service of either
 // kind, counting its drain from the request, and a restart's next start waits for it to exit. A
 // loss before the stop's answer reads as stopped and ends a service that fell silent, and a refusal
@@ -249,6 +249,27 @@ describe("the quit", () => {
     await vi.advanceTimersByTimeAsync(1);
 
     await quitting;
+    expect(isSettled).toBe(true);
+  });
+
+  it("waits for a service a Stop is ending even when the quit's flush fails", async () => {
+    supervisor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await supervisor.endService("daemon.stop");
+    service.flushAnswer = "silent";
+
+    let isSettled = false;
+    const quitting = supervisor.flushAtQuit().finally(() => {
+      isSettled = true;
+    });
+    const quitOutcome = expect(quitting).rejects.toBeInstanceOf(JsonRpcTransportClosedError);
+    // The stopping service closes the link under the quit's flush, which fails it.
+    service.links[0]?.closeWith(new JsonRpcTransportPeerClosedError());
+    await vi.advanceTimersByTimeAsync(999);
+    expect(isSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await quitOutcome;
     expect(isSettled).toBe(true);
   });
 

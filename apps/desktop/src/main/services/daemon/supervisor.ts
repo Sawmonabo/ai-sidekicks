@@ -43,7 +43,7 @@ import type {
 } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { describeFailure } from "../failure-message.js";
-import { unlinkedState, type DaemonLink } from "./link/status.js";
+import { NOT_CONNECTED_MESSAGE, unlinkedState, type DaemonLink } from "./link/status.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";
 
@@ -68,6 +68,8 @@ export const SERVICE_FLUSH_WAIT_MS = 10_000;
  * Main forwards each value as it arrives, so the queue holds only what lands during one send.
  */
 const MAIN_SUBSCRIPTION_QUEUE_LIMIT = 256;
+
+const LOG_SOURCE = "main/services/daemon";
 
 /** The first pause between connects while a just-started service binds its socket. */
 const SOCKET_WAIT_FIRST_PAUSE_MS = 50;
@@ -94,7 +96,6 @@ export interface DaemonSupervisorOptions {
   /** The service process with `identity`, for a service main found running rather than started. */
   readonly attachServiceProcess: (identity: ProcessIdentity) => ServiceProcess;
   readonly log: Pick<MainDiagnosticLog, "write">;
-  readonly now: () => Date;
 }
 
 /**
@@ -139,7 +140,6 @@ export class DaemonSupervisor {
   readonly #startService: () => Promise<ServiceProcess>;
   readonly #attachServiceProcess: (identity: ProcessIdentity) => ServiceProcess;
   readonly #log: Pick<MainDiagnosticLog, "write">;
-  readonly #now: () => Date;
   #phase: SupervisorPhase = "idle";
   #current: CurrentLink | undefined;
   /** The service this app started, while it has not been seen to exit. */
@@ -163,7 +163,6 @@ export class DaemonSupervisor {
     this.#startService = options.startService;
     this.#attachServiceProcess = options.attachServiceProcess;
     this.#log = options.log;
-    this.#now = options.now;
   }
 
   /** Look for the service, starting it when none answers. Called once, at startup. */
@@ -205,7 +204,7 @@ export class DaemonSupervisor {
   public async endService(method: ServiceEndingMethod): Promise<DaemonLifecycleAccepted> {
     const current = this.#current;
     if (current === undefined) {
-      throw new Error("The background service is not connected.");
+      throw new Error(NOT_CONNECTED_MESSAGE);
     }
     const { client } = current.connection;
     // Set before anything is sent, so a loss that lands before an answer reads as the stop.
@@ -213,11 +212,13 @@ export class DaemonSupervisor {
     try {
       const flushOutcome = await settleWithin(flushService(client), SERVICE_FLUSH_WAIT_MS);
       if (!flushOutcome.isSettled) {
-        this.#record(
-          "warning",
-          `The background service's flush did not answer within ` +
+        this.#log.write({
+          level: "warning",
+          source: LOG_SOURCE,
+          message:
+            `The background service's flush did not answer within ` +
             `${String(SERVICE_FLUSH_WAIT_MS / 1000)} seconds; ${method} went ahead without it.`,
-        );
+        });
       }
       const ending = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS[method];
       // The service's drain runs from this request, so its bound is counted from the send.
@@ -264,11 +265,20 @@ export class DaemonSupervisor {
       if (client !== undefined) {
         await flushService(client);
       }
-      // The ending's signals are due while main runs; a quit before them would leave a hung
-      // service running.
-      await this.#endingService?.whenExited();
     } finally {
-      await this.dispose();
+      try {
+        // The ending's signals are due while main runs, whatever the flush did; a quit before
+        // them would leave a hung service running.
+        await this.#endingService?.whenExited();
+      } catch (failure) {
+        this.#log.write({
+          level: "error",
+          source: LOG_SOURCE,
+          message: `Waiting for the background service to exit failed: ${describeFailure(failure)}`,
+        });
+      } finally {
+        await this.dispose();
+      }
     }
   }
 
@@ -299,10 +309,11 @@ export class DaemonSupervisor {
         await ending.whenExited();
       } catch (failure) {
         // The start goes ahead; a service still holding the data folder fails it, as a start.
-        this.#record(
-          "error",
-          `Waiting for the background service to exit failed: ${describeFailure(failure)}`,
-        );
+        this.#log.write({
+          level: "error",
+          source: LOG_SOURCE,
+          message: `Waiting for the background service to exit failed: ${describeFailure(failure)}`,
+        });
       }
       this.#endingService = undefined;
       if (this.#isLettingGo()) {
@@ -407,11 +418,13 @@ export class DaemonSupervisor {
       if (opened.hello.compatible) {
         throw failure;
       }
-      this.#record(
-        "warning",
-        "The background service on another protocol did not name its process: " +
+      this.#log.write({
+        level: "warning",
+        source: LOG_SOURCE,
+        message:
+          "The background service on another protocol did not name its process: " +
           describeFailure(failure),
-      );
+      });
       return isStartedByApp ? started : undefined;
     }
     return started !== undefined && started.processId === identity.processId && !started.hasExited()
@@ -507,7 +520,11 @@ export class DaemonSupervisor {
   #linkEvents(currentConnection: () => DaemonClientConnection | undefined): LinkEvents {
     return {
       connected: () => {
-        this.#record("notice", "The link to the background service is up.");
+        this.#log.write({
+          level: "notice",
+          source: LOG_SOURCE,
+          message: "The link to the background service is up.",
+        });
       },
       quiet: () => {
         const client = currentConnection()?.client;
@@ -517,7 +534,11 @@ export class DaemonSupervisor {
       },
       errored: (message) => {
         this.#lastError = message;
-        this.#record("error", `The link to the background service failed: ${message}`);
+        this.#log.write({
+          level: "error",
+          source: LOG_SOURCE,
+          message: `The link to the background service failed: ${message}`,
+        });
       },
       lost: (cause) => {
         this.#linkLost(cause);
@@ -538,17 +559,22 @@ export class DaemonSupervisor {
         ) {
           return;
         }
-        this.#record(
-          "error",
-          `The ping to the background service failed: ${describeFailure(failure)}`,
-        );
+        this.#log.write({
+          level: "error",
+          source: LOG_SOURCE,
+          message: `The ping to the background service failed: ${describeFailure(failure)}`,
+        });
       });
   }
 
   #linkLost(cause: LinkLossCause): void {
     const lost = this.#current;
     this.#current = undefined;
-    this.#record("warning", `The link to the background service was lost (${cause.kind}).`);
+    this.#log.write({
+      level: "warning",
+      source: LOG_SOURCE,
+      message: `The link to the background service was lost (${cause.kind}).`,
+    });
     if (this.#isLettingGo() || cause.kind === "closedByMain") {
       return;
     }
@@ -577,7 +603,11 @@ export class DaemonSupervisor {
     }
     this.#endingService = service;
     service.end(ending).catch((failure: unknown) => {
-      this.#record("error", `Ending the background service failed: ${describeFailure(failure)}`);
+      this.#log.write({
+        level: "error",
+        source: LOG_SOURCE,
+        message: `Ending the background service failed: ${describeFailure(failure)}`,
+      });
     });
   }
 
@@ -587,7 +617,11 @@ export class DaemonSupervisor {
     }
     this.#consecutiveFailedStarts += 1;
     this.#lastError = describeFailure(failure);
-    this.#record("error", `The background service did not start: ${this.#lastError}`);
+    this.#log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message: `The background service did not start: ${this.#lastError}`,
+    });
     if (this.#consecutiveFailedStarts >= SERVICE_START_BACKOFF_MS.length) {
       this.#phase = "degraded";
       this.#reportUnlinked({
@@ -648,15 +682,6 @@ export class DaemonSupervisor {
   // narrowing an await crossed does not stick.
   #isLettingGo(): boolean {
     return this.#phase === "quitting" || this.#phase === "disposed";
-  }
-
-  #record(level: "error" | "warning" | "notice", message: string): void {
-    this.#log.write({
-      at: this.#now().toISOString(),
-      level,
-      source: "main/services/daemon",
-      message,
-    });
   }
 }
 

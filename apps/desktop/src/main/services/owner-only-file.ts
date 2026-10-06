@@ -17,8 +17,11 @@ import {
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
-const OWNER_ONLY_FILE_MODE = 0o600;
-const OWNER_ONLY_FOLDER_MODE = 0o700;
+/** The mode of a file main writes: read and written by the person alone. */
+export const OWNER_ONLY_FILE_MODE = 0o600;
+
+/** The mode of a folder main makes: opened by the person alone. */
+export const OWNER_ONLY_FOLDER_MODE = 0o700;
 
 /**
  * Write `value` as pretty-printed JSON to `filePath`, atomically and readable only by the

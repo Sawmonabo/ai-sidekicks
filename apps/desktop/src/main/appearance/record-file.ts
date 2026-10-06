@@ -55,23 +55,22 @@ const appearanceRecordSchema: z.ZodMiniType<AppearanceRecord> = z.strictObject({
   grounds: appearanceGroundsSchema,
 });
 
+const LOG_SOURCE = "main/appearance";
+
 /** Where the record lives, and where a file that could not be read or repaired is reported. */
 export interface AppearanceRecordFileOptions {
   readonly filePath: string;
   readonly log: Pick<MainDiagnosticLog, "write">;
-  readonly now: () => Date;
 }
 
 /** Main's reader and writer for the appearance record. */
 export class AppearanceRecordFile {
   readonly #filePath: string;
   readonly #log: AppearanceRecordFileOptions["log"];
-  readonly #now: () => Date;
 
   public constructor(options: AppearanceRecordFileOptions) {
     this.#filePath = options.filePath;
     this.#log = options.log;
-    this.#now = options.now;
   }
 
   /**
@@ -84,7 +83,13 @@ export class AppearanceRecordFile {
       fileText = readFileSync(this.#filePath, "utf8");
     } catch (error) {
       if (!isMissingPath(error)) {
-        this.#report("warning", "could not be read, so the defaults are in force", error);
+        this.#log.write({
+          level: "warning",
+          source: LOG_SOURCE,
+          message:
+            "the appearance record could not be read, so the defaults are in force: " +
+            describeFailure(error),
+        });
       }
       return DEFAULT_APPEARANCE_RECORD;
     }
@@ -107,24 +112,20 @@ export class AppearanceRecordFile {
     try {
       writeOwnerOnlyJsonFileSync(this.#filePath, DEFAULT_APPEARANCE_RECORD);
     } catch (error) {
-      this.#report(
-        "error",
-        "was broken and could not be rewritten; the defaults are in force",
-        error,
-      );
+      this.#log.write({
+        level: "error",
+        source: LOG_SOURCE,
+        message:
+          "the appearance record was broken and could not be rewritten; the defaults are in " +
+          `force: ${describeFailure(error)}`,
+      });
       return DEFAULT_APPEARANCE_RECORD;
     }
-    this.#report("warning", "was broken and was rewritten as the defaults");
-    return DEFAULT_APPEARANCE_RECORD;
-  }
-
-  #report(level: "error" | "warning", what: string, failure?: unknown): void {
-    const cause = failure === undefined ? "" : `: ${describeFailure(failure)}`;
     this.#log.write({
-      at: this.#now().toISOString(),
-      level,
-      source: "main/appearance",
-      message: `the appearance record ${what}${cause}`,
+      level: "warning",
+      source: LOG_SOURCE,
+      message: "the appearance record was broken and was rewritten as the defaults",
     });
+    return DEFAULT_APPEARANCE_RECORD;
   }
 }
