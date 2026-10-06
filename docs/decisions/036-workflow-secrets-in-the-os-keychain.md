@@ -160,7 +160,7 @@ The decision has six parts.
 ### Negative (accepted trade-offs)
 
 - A locked keychain fails a step that needs a secret, and the person has to unlock and retry. Accepted: the alternative moves the value into a weaker store.
-- On a Linux host with no Secret Service, a secret is protected by file permissions alone. Accepted: it is how `gh` and Codex keep theirs there, and the person can see where it is kept.
+- On a Linux host with no Secret Service, and on a Mac whose service runs while the person is logged out, a secret is protected by file permissions alone. Accepted: it is how `gh` and Codex keep theirs there, and the person can see where it is kept.
 - A secret cannot be composed into free text through an expression. Accepted: that is the path that leaks it.
 
 ### Unknowns

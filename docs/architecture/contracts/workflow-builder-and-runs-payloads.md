@@ -636,7 +636,7 @@ interface WorkflowWebhookListenerReadResponse {
   state: "listening" | "port_taken";
 }
 
-// ---- Workflow secrets. A secret's value is sealed in the operating system's keychain (ADR-036) and is
+// ---- Workflow secrets. A secret's value is sealed in the keychain, or secrets.json (ADR-036), and is
 // written to no document, step record, reply, event, log or error: `secretValue` is write-only and no read
 // carries it. A secret's scope is `project` or `shared`, never a session. Its name is lowercase letters,
 // digits and hyphens, starting with a letter or digit, at most 64 characters, and a sensitive param
@@ -663,12 +663,12 @@ interface WorkflowSecretListResponse {
   secrets: WorkflowSecretSummary[];
 }
 
-// WorkflowSecretCreate — workflow.secretCreate. Seals a new secret's value in the keychain, then commits
-// its record, so a record never names a value the keychain does not hold. It answers with the new
+// WorkflowSecretCreate — workflow.secretCreate. Seals a new secret's value in its store, then commits
+// its record, so a record never names a value its store does not hold. It answers with the new
 // secret's `WorkflowSecretSummary`.
 type WorkflowSecretCreateRequest = { name: string; secretValue: string } & WorkflowSecretPlace;
 
-// WorkflowSecretReplace — workflow.secretReplace. Replaces a secret's value, sealed in the keychain before
+// WorkflowSecretReplace — workflow.secretReplace. Replaces a secret's value, sealed in its store before
 // the record's change commits.
 interface WorkflowSecretReplaceRequest {
   secretId: WorkflowSecretId;

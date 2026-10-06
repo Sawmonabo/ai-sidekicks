@@ -105,7 +105,8 @@ type ProviderAuthMode =
 // `ProviderAccount` itself still carries none — tokens for interactively-authenticated accounts
 // live in the per-account credential home written by the provider's own tooling, the daemon
 // brokers refresh without holding values, and the ADR-026 D2 token is sealed in the operating
-// system's keychain rather than in any column or on any payload here.
+// system's credential store, or in the daemon's secrets.json where that store cannot be used,
+// rather than in any column or on any payload here.
 type ProviderAccountHealthState =
   | "authenticated"
   | "reauth_required"
@@ -293,8 +294,9 @@ interface ProviderAccountRegisterRequest {
   // Kept as its own item in the operating system's credential store, verified by
   // write-probe-read-delete, and nowhere else. Every entry opens its store explicitly — the Secret
   // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service answers,
-  // the daemon keeps its items in one file in its own data folder, readable by this account alone
-  // (mode `0600`). Where the store cannot take it, registration refuses with `provideraccount.credential_seal_refused`
+  // and on a Mac whose service runs while the person is logged out, the daemon keeps its items in
+  // one file in its own data folder, readable by this account alone (mode `0600`).
+  // Where the store cannot take it, registration refuses with `provideraccount.credential_seal_refused`
   // carrying `cause: "locked" | "unavailable"` and nothing is stored anywhere. Where the registration-time
   // status observation reports no signed-in mode for it, registration refuses with
   // `provideraccount.token_not_accepted` and nothing is registered, sealed or replaced. It is NOT written into
