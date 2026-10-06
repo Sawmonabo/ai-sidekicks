@@ -78,9 +78,9 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
   });
 
 /**
- * The `question.asked` payload. Exactly one of `runId` (an agent's or a tool server's question)
+ * The `question.asked` payload: exactly one of `runId` (an agent's or a tool server's question)
  * and `waitId` (a workflow step's) names what is waiting. `questions` holds every question of the
- * record, one per page in order, so a rebuilt card pages through them with no further read.
+ * record in page order, so a rebuilt card pages through them with no further read.
  */
 export type QuestionAskedPayload = {
   questionId: QuestionId;

@@ -12,27 +12,33 @@
 // at load time.
 import { z } from "zod";
 
+import { wireUncappedFreeFormString } from "../../free-form-string.js";
 import { brandedUuidIdSchema } from "../../internal/branded.js";
 import { composedTextSchema, countSchema } from "../../internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../../jsonrpc/streaming.js";
-import { McpServerNameSchema } from "../../mcp/server.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../../method-descriptor.js";
-import { defineMethodDescriptors } from "../../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
-import { MCP_SERVER_STATUS_SEVERITY_ORDER, type McpServerStatus } from "../../mcp/server.js";
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/length-limits.js";
+import {
+  MCP_SERVER_STATUS_SEVERITY_ORDER,
+  McpServerNameSchema,
+  type McpServerStatus,
+} from "../../mcp/server.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "../../method-descriptor.js";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
 } from "../../provider/driver/commands.js";
-import { wireUncappedFreeFormString } from "../../free-form-string.js";
-import { SessionIdSchema, type SessionId } from "../id.js";
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/length-limits.js";
+import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
 import {
   OrchestrationBudgetStateSchema,
   TokensPerRunSchema,
   UsdMicrosSchema,
   type OrchestrationBudgetState,
 } from "../cost.js";
+import { SessionIdSchema, type SessionId } from "../id.js";
 
 /** The one input every session read takes: the session. */
 export interface SessionAddressedRequest {
@@ -303,9 +309,7 @@ export const SideQuestionIdSchema: z.ZodType<SideQuestionId, SideQuestionId> =
   brandedUuidIdSchema<SideQuestionId>("SideQuestionId");
 
 /** A side question's text: a message sent into a provider turn, uncapped like any other message. */
-export const sideQuestionTextSchema: z.ZodString = wireUncappedFreeFormString(
-  "SessionSideQuestionAskRequest.question",
-);
+export const sideQuestionTextSchema: z.ZodString = wireUncappedFreeFormString("side question");
 
 /** Asks a side question in a throwaway copy of the conversation. */
 export interface SessionSideQuestionAskRequest {

@@ -4223,7 +4223,7 @@ interface ApprovalProjectionReadResponse {
     // whether the remembering answer (`Always allow <subject> this session`) is offered
     standingAllowOffered: boolean;
     // whether that answer's project scope (`Always in this project`) is offered: never in a chat,
-    // never on a card the daemon raises itself
+    // never on a workflow command step's card, which the daemon raises with no provider's ask
     projectScopeOffered: boolean;
     state: ApprovalState;
     createdAt: string;

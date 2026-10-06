@@ -1,5 +1,6 @@
-// The payloads of the flow rows a session's controls write, and the live frame of Codex's safety
-// hold on a turn.
+// A session's notices and flow rows: the rows its controls write, the notices about its provider
+// (its build, its warnings, a level an account lacks), Codex's reviewer flag, and the live frame
+// of Codex's safety hold on a turn.
 //
 // Must not import `../../event/session.js`: it registers the payloads below as event
 // variants, so an import back closes a module-scope cycle that throws at load time.
@@ -78,9 +79,8 @@ export const SessionSpendLimitReachedPayloadSchema: z.ZodType<SessionSpendLimitR
   .strict();
 
 /**
- * The `run.token_limit_reached` payload: the run passed its `Tokens per run` and ended. The next
- * message starts a new run with a fresh count. `tokenLimit` is the limit, drawn beside
- * `Raise limit`.
+ * The `run.token_limit_reached` payload: the run passed its `Tokens per run` and ended, and the
+ * next message starts a new run. `tokenLimit` is the limit, drawn beside `Raise limit`.
  */
 export type RunTokenLimitReachedPayload = {
   sessionId: SessionId;
@@ -93,9 +93,8 @@ export const RunTokenLimitReachedPayloadSchema: z.ZodType<RunTokenLimitReachedPa
   .strict();
 
 /**
- * Codex's safety hold on a turn: Codex is holding the turn for a safety check (`active`), or has
- * released it. `fasterModel` is the model Codex names, as it sent it. It is relayed live on the
- * run's state stream and never kept in the session's history, so a re-opened session does not
+ * Codex's safety hold on a turn (`active`) or its release, with the faster model Codex names, as
+ * sent. Relayed live on the run's state stream and never kept, so a re-opened session does not
  * show it again.
  */
 export type RunSafetyBufferingUpdatedPayload = {

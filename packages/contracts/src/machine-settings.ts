@@ -310,7 +310,7 @@ export function branchPatternPlaceholderRefusal(
  */
 export const BranchNamePatternChangeSchema: z.ZodType<string, string> = wireFreeFormString(
   BRANCH_NAME_PATTERN_MAX_LEN,
-  "MachineSettings.branchNamePattern",
+  "branch-name pattern",
 );
 
 /**

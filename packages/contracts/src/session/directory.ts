@@ -3,9 +3,8 @@
 // project (its shapes in `session/convert.ts`), forking a session, moving its working folder,
 // and the `session.*` method table for these verbs and for `session.subscribe`.
 //
-// These shapes name repositories, worktrees, providers, agent definitions and the session event
-// union, all of which import `session/methods.ts` at load, so the shapes that need them live here
-// and `session/methods.ts` keeps only what they build on.
+// The subscribe shapes name the session event union, which imports `session/methods.ts` at load,
+// so they cannot live there.
 import { z } from "zod";
 
 import {
@@ -18,26 +17,30 @@ import {
 } from "../agent/definition.js";
 import { SessionEventSchema } from "../event/session.js";
 import type { SessionEvent } from "../event/variant-types.js";
+import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { SubscriptionIdSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import {
   ExecutionModeSchema,
   RepoMountIdSchema,
   type ExecutionMode,
   type RepoMountId,
 } from "../repo/mount.js";
+import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import {
   SessionConvertRequestSchema,
   SessionConvertResponseSchema,
   type SessionConvertRequest,
   type SessionConvertResponse,
 } from "./convert.js";
+import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
 import {
   SESSION_NAME_MAX_LEN,
   SessionShapeSchema,
@@ -51,10 +54,6 @@ import {
   type SessionSubscribeRequest,
   type SessionSubscribeResponse,
 } from "./methods.js";
-import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
-import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
-import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
-import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
  * What a session is doing, as the daemon derives it: exactly one of five, and no client

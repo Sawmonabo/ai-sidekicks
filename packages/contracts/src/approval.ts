@@ -2,8 +2,8 @@
 // revoke the remembered rules, and allow once an action the provider's own reviewer blocked,
 // with the payloads of the `approval.*` events the daemon records for each.
 //
-// The daemon raises every ask itself from a provider's callback, so no client creates one. An
-// ask is held with no timer until it is answered or its run ends, so nothing here names an
+// The daemon raises every ask, from a provider's callback or from a workflow's command step, so
+// no client creates one. An ask is held with no timer until it is answered or its run ends, so nothing here names an
 // expiry.
 //
 // A remembered rule is handed to the provider that runs the session, which keeps it: for this
@@ -15,15 +15,15 @@
 // below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
-import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
+import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
-import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * An ask's target scope, free text such as a command or a path. Bounded by the longest wire
@@ -293,8 +293,8 @@ export interface ApprovalProjectionRow {
   standingAllowOffered: boolean;
   /**
    * Whether that standing allow may also be written for the whole project: false on a chat, which
-   * has no project, and on an ask the daemon raised itself. Never true without
-   * `standingAllowOffered`.
+   * has no project, and on a workflow command step's ask, which no provider relayed. Never true
+   * without `standingAllowOffered`.
    */
   projectScopeOffered: boolean;
   state: ApprovalState;
