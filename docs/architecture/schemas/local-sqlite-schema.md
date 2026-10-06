@@ -906,7 +906,7 @@ CREATE TABLE workflow_steps (
                     CHECK(json_valid(output_ref)),
   log_ref           TEXT NOT NULL
                     CHECK(json_valid(log_ref)),
-  cost_usd_micros   INTEGER,                     -- integer micro-dollars; NULL = never billed, which is a different fact from a cost of zero and renders as no figure at all
+  cost_usd_micros   INTEGER,                     -- integer micro-dollars; NULL = never billed; the step still reads `$0.00` and names no account
   cost_account_id   TEXT,                          -- the provider account that paid; deliberately no foreign key, for the reason agent_definitions states
   error_json        TEXT                           -- JSON: the typed step error (message plus the node it belongs to); NULL on every non-failed status
                     CHECK(error_json IS NULL OR json_valid(error_json)),

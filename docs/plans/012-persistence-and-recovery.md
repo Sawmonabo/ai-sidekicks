@@ -39,7 +39,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 - `packages/runtime-daemon/src/recovery/startup-recovery-service.ts`
 - `packages/runtime-daemon/src/recovery/projection-rebuild-service.ts` (CREATE)
 - `packages/runtime-daemon/src/provider/runtime-binding-store.ts`
-- `packages/runtime-daemon/src/ipc/handlers/daemon-status-read.ts` (EXTEND — Plan-005-owned; the `recovery` field)
+- `packages/runtime-daemon/src/daemon/status-methods.ts` (EXTEND — Plan-005-owned; the `recovery` field)
 
 ## Data And Storage Changes
 
@@ -151,7 +151,7 @@ Plan-012 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 - **T15.4 — Expose the recovery state for degraded or blocked startup conditions.**
   - Add the `recovery` field to `daemon.status.read` (Plan-005 T-005r-1-3's handler, which Settings › Runtime and `sidekicks daemon status` already call), reporting healthy / rebuilding / degraded / blocked states with machine-readable failure category + recovery condition — a divergence-halt or failed-resume session entry additionally carries its `haltedRuns` sublist naming the affected runs, so a session with several runs names the one that needs the person's answer. The person meets a halt in the session itself, as T15.5's restart question and Spec-011's `run.blocked` row; this plan draws no screen. Block mutable operations when the local durable store is unavailable. Map `RunFailureCategory.projection failure` → recovery state `degraded`; `RunFailureCategory.local persistence failure` → state `blocked`, per [Spec-013 §Default Behavior](../specs/013-persistence-and-recovery.md#default-behavior), [Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior).
-  - **Target paths:** the `daemon.status.read` result schema in `packages/contracts` (EXTEND); `packages/runtime-daemon/src/ipc/handlers/daemon-status-read.ts` (EXTEND)
+  - **Target paths:** the `daemon.status.read` result schema in `packages/contracts` (EXTEND); `packages/runtime-daemon/src/daemon/status-methods.ts` (EXTEND)
   - **Spec coverage:** [Spec-013 §Default Behavior](../specs/013-persistence-and-recovery.md#default-behavior) (local mutable operations blocked when the durable store is unavailable); [Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior) (degraded read-only mode exposing repair signals); [Spec-013 §Interfaces And Contracts](../specs/013-persistence-and-recovery.md#interfaces-and-contracts) (the `recovery` field on `daemon.status.read` states healthy/rebuilding/degraded/blocked); [Spec-013 §Acceptance Criteria](../specs/013-persistence-and-recovery.md#acceptance-criteria) (mutable work blocked when canonical local persistence is unavailable; recovery failure visible and auditable rather than silent).
   - **Verifies invariant:** I-012-3
   - **Consumes (by SHAPE):**

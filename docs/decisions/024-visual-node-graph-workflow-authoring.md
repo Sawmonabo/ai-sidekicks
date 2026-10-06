@@ -23,7 +23,7 @@ How should the visual workflow-authoring surface be built, and what exactly shou
 
 ### Trigger
 
-The product requires a node-graph workflow editor and a cross-project reusable definition tier, both specified in Spec-015. Two of the three sub-decisions are hard to reverse once definitions exist on a person's machine — the persisted definition/layout contract and the graph-to-execution mapping — so they hold from the first definition.
+The product requires a node-graph workflow editor, specified in Spec-015. Two of the three sub-decisions are hard to reverse once definitions exist on a person's machine — the persisted definition/layout contract and the graph-to-execution mapping — so they hold from the first definition.
 
 ## Decision
 
