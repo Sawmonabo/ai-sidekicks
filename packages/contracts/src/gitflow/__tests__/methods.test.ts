@@ -1,12 +1,15 @@
-// The git-flow contract as the daemon and the desktop both parse it: a diff file carries its old
-// path exactly when it was renamed, and a hosting address the desktop opens is only a web
-// address.
+// The git-flow contract as the daemon and the desktop both parse it: a workflow run's diff names
+// an approval pause counted from 1, a diff file carries its old path exactly when it was renamed,
+// and a hosting address the desktop opens is only a web address.
 import { describe, it } from "vitest";
 
 import { GITFLOW_METHOD_DESCRIPTORS } from "../methods.js";
+import { WorkflowStepReviewPauseSchema } from "../../workflow/run/run.js";
 import { accepts, refuses } from "../../__tests__/safe-parse.test-support.js";
 
 const AGENT_ID = "6ba7b811-9dad-41d1-80b4-00c04fd430c8";
+const SESSION_ID = "6ba7b812-9dad-41d1-80b4-00c04fd430c8";
+const WORKFLOW_RUN_ID = "6ba7b813-9dad-41d1-80b4-00c04fd430c8";
 const COMMIT_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const BLOB_ID = "0123456789abcdef0123456789abcdef01234567";
 const AT = "2026-09-29T12:00:00.000Z";
@@ -39,6 +42,21 @@ describe("gitflow.diffRead", () => {
         agent: { agentId: AGENT_ID, name: "reviewer" },
       },
     ],
+  });
+
+  it("names an approval pause counted from 1, as the step's review pause does", () => {
+    const request = (pauseNumber: number) => ({
+      sessionId: SESSION_ID,
+      scope: "workflow_run",
+      workflowRunId: WORKFLOW_RUN_ID,
+      from: { epoch: 0, point: "start" },
+      to: { epoch: 0, point: "pause", pauseNumber },
+    });
+    accepts(diff.requestSchema, request(1));
+    refuses(diff.requestSchema, request(0));
+    // The step hands its pinned review pause to this request, so both refuse the same numbers.
+    accepts(WorkflowStepReviewPauseSchema, { state: "pinned", epoch: 0, pauseNumber: 1 });
+    refuses(WorkflowStepReviewPauseSchema, { state: "pinned", epoch: 0, pauseNumber: 0 });
   });
 
   it("carries the old path exactly when a file was renamed", () => {

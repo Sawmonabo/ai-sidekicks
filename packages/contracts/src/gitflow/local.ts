@@ -172,8 +172,8 @@ export const GitflowBranchContextReadResponseSchema: z.ZodType<GitflowBranchCont
 // The diff
 
 /**
- * One of a workflow run's snapshot points: its start, an approval pause, or its end,
- * within one execution of the run (each re-execution opens the next epoch).
+ * One of a workflow run's snapshot points: its start, an approval pause (counted from 1), or its
+ * end, within one execution of the run (each re-execution opens the next epoch, counted from 0).
  */
 export type WorkflowRunSnapshotPoint =
   | { epoch: number; point: "start" }
@@ -189,7 +189,7 @@ const WorkflowRunSnapshotPointSchema: z.ZodType<
     .object({
       epoch: epochSchema,
       point: z.literal("pause"),
-      pauseNumber: countSchema,
+      pauseNumber: z.number().int().positive(),
     })
     .strict(),
   z.object({ epoch: epochSchema, point: z.literal("end") }).strict(),
