@@ -1,7 +1,7 @@
 // Every bridge member's channels are answered, and refuse a frame that is not one of the app's own
 // documents. A failure reaches the page with no path in it, and main's log keeps it whole.
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -22,6 +22,8 @@ const electronMock = createElectronMock();
 vi.mock("electron", () => electronMock.moduleExports);
 
 let userData: string;
+/** The pasted pictures' folder under `userData`. */
+let pastedImagesFolder: string;
 let log: { readonly write: Mock<MainDiagnosticLog["write"]> };
 
 beforeEach(async () => {
@@ -36,8 +38,9 @@ beforeEach(async () => {
   const link = new DaemonLink();
   log = { write: vi.fn<MainDiagnosticLog["write"]>() };
   const filePathRefs = new FilePathRefs();
+  pastedImagesFolder = path.join(userData, PASTED_IMAGES_FOLDER_NAME);
   const pastedImages = new PastedImages({
-    folder: path.join(userData, PASTED_IMAGES_FOLDER_NAME),
+    folder: pastedImagesFolder,
     filePathRefs,
     log,
   });
@@ -128,6 +131,9 @@ describe("the bridge's channels", () => {
   });
 
   it("answers a system failure by its code, with no path in it, and logs it whole", async () => {
+    // The `PastedImages` constructor makes its folder under the profile; once it is made, nothing
+    // makes the profile folder again behind the file that replaces it.
+    await vi.waitFor(() => stat(pastedImagesFolder));
     // The profile folder is a file, so writing the map under it fails in the operating system.
     await rm(userData, { recursive: true, force: true });
     await writeFile(userData, "");

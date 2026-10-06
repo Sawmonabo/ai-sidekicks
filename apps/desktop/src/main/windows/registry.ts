@@ -7,11 +7,12 @@
 // when one closes, and kept for the console windows open now, the last one closed and one place per
 // pane kind), and the app's answers to the platform's window events. The hidden window never
 // closes, so Electron's `window-all-closed` never fires: the registry counts the windows a person
-// sees, and the last of them closing drives the platform's last-window behavior. A Dock click or a
-// second launch with none open asks the console document to reopen the console window used last;
-// the renderer's process going away builds the hidden window again, the third loss in a row as a
-// safe start that leaves every kept place as it is until the console document ends it. The
-// registry carries the `window` pushes to the console document, the one document with the bridge.
+// sees, and the last of them closing drives the platform's last-window behavior. A Dock click, a
+// click on the macOS menu-bar icon (held here for the app's life) or a second launch with none open
+// asks the console document to reopen the console window used last; the renderer's process going
+// away builds the hidden window again, the third loss in a row as a safe start that leaves every
+// kept place as it is until the console document ends it. The registry carries the `window`
+// pushes to the console document, the one document with the bridge.
 
 import { randomUUID } from "node:crypto";
 
@@ -21,6 +22,7 @@ import type {
   RenderProcessGoneDetails,
   Rectangle,
   Screen,
+  Tray,
   WebContents,
 } from "electron";
 
@@ -107,6 +109,8 @@ export class OpenWindows {
   #isQuitting = false;
   /** The widths the renderer handed for a window with no kept place; none before it hands them. */
   #defaultSizes: WindowDefaultSizes | undefined;
+  /** The macOS menu-bar icon, held for the app's life: a collected `Tray` leaves the menu bar. */
+  #menuBarIcon: Pick<Tray, "on"> | undefined;
 
   /** Reads the kept places, so every window opens where it was. Safe before `ready`. */
   public constructor(options: OpenWindowsOptions) {
@@ -128,7 +132,8 @@ export class OpenWindows {
   /**
    * Builds the hidden window at start, loading the console document handed the console window used
    * last, which it opens first. The registry builds it again after the renderer's process went,
-   * and on a Dock click or a second launch once a person closed it showing the load-failure page.
+   * and on a Dock click, a menu-bar icon click or a second launch once a person closed it showing
+   * the load-failure page.
    */
   public openHiddenWindow(options: HiddenWindowStart): RendererWindow {
     this.#hiddenWindowArguments = options.additionalArguments;
@@ -148,11 +153,12 @@ export class OpenWindows {
   /**
    * Installs the app's window lifecycle; call it before `ready`, so a second launch that arrives
    * while the app starts is heard. Closing the last window a person sees quits on Windows and
-   * Linux and leaves the app running on macOS, where a Dock click opens a window again; a second
-   * launch brings the window used last forward. A quit closes the hidden window first and the
-   * windows a person sees once its document is gone, so the console document never hears them
-   * close one by one as a person would close them. During a quit, and before start has built the
-   * hidden window, neither a Dock click nor a second launch opens a window.
+   * Linux and leaves the app running on macOS, where a Dock click or a menu-bar icon click opens a
+   * window again; a second launch or a menu-bar icon click brings the window used last forward. A
+   * quit closes the hidden window first and the windows a person sees once its document is gone,
+   * so the console document never hears them close one by one as a person would close them.
+   * During a quit, and before start has built the hidden window, no Dock click, menu-bar icon click
+   * or second launch opens a window.
    */
   public installLifecycle(app: Pick<App, "on" | "quit">): void {
     this.#app = app;
@@ -184,15 +190,18 @@ export class OpenWindows {
       }
     });
     app.on("second-instance", () => {
-      if (this.#isQuitting) {
-        return;
-      }
-      const lastUsed = this.#windows[0];
-      if (lastUsed === undefined) {
-        this.#reopenWindowUsedLast();
-      } else {
-        bringWindowForward(lastUsed.rendererWindow.baseWindow, this.#platform);
-      }
+      this.#showWindowUsedLast();
+    });
+  }
+
+  /**
+   * Keeps the macOS menu-bar icon for the app's life. A click on it shows the window used last, as
+   * a second launch does, and reopens it where it was when none is open.
+   */
+  public installMenuBarIcon(menuBarIcon: Pick<Tray, "on">): void {
+    this.#menuBarIcon = menuBarIcon;
+    this.#menuBarIcon.on("click", () => {
+      this.#showWindowUsedLast();
     });
   }
 
@@ -232,9 +241,26 @@ export class OpenWindows {
   }
 
   /**
-   * A Dock click or a second launch with no window a person sees: the console document, kept since
-   * start, opens the console window used last again. The hidden window is built again only when a
-   * person closed it, and when it shows the load-failure page that page comes forward instead.
+   * A second launch or a menu-bar icon click: the window used last comes forward, or, with none
+   * open, the console document opens it again. During a quit nothing opens.
+   */
+  #showWindowUsedLast(): void {
+    if (this.#isQuitting) {
+      return;
+    }
+    const lastUsed = this.#windows[0];
+    if (lastUsed === undefined) {
+      this.#reopenWindowUsedLast();
+    } else {
+      bringWindowForward(lastUsed.rendererWindow.baseWindow, this.#platform);
+    }
+  }
+
+  /**
+   * A Dock click, a menu-bar icon click or a second launch with no window a person sees: the
+   * console document, kept since start, opens the console window used last again. The hidden window
+   * is built again only when a person closed it, and when it shows the load-failure page that page
+   * comes forward instead.
    */
   #reopenWindowUsedLast(): void {
     const hiddenWindow = this.#hiddenWindow;

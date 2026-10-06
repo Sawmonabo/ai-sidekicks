@@ -6,12 +6,13 @@
 //   2. never reveals the window on macOS, where `show()` would activate even an accessory app, and
 //      reveals it with `showInactive()` elsewhere;
 //   3. switches background throttling off, so a hidden or occluded window keeps drawing frames and
-//      a measurement describes an unthrottled renderer.
+//      a measurement describes an unthrottled renderer;
+//   4. puts no menu-bar icon up on macOS, where each launch would add one to the person's menu bar.
 //
 // The split in (2) is measured: with throttling off, Electron keeps frames running for a hidden
 // window on macOS but not on Windows (electron/electron#31016). Linux runs under Xvfb and takes
 // the inactive reveal. `tests/helpers/launch/readiness.ts` checks on every launch that the
-// document stays visible and draws. A release bundle carries none of this: all three sit behind
+// document stays visible and draws. A release bundle carries none of this: all four sit behind
 // the compile-time build flag.
 
 import type { App, BaseWindow, WebContents } from "electron";
@@ -163,4 +164,18 @@ export function installActivationPolicy(
   if (change !== null) {
     app.setActivationPolicy(change);
   }
+}
+
+/**
+ * Whether this launch puts the menu-bar icon up: on macOS, unless a test build was asked to keep
+ * out of the way.
+ */
+export function isMenuBarIconShown(platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== "darwin") {
+    return false;
+  }
+  if (__TEST_TIER_BUILD__) {
+    return resolveWindowRevealMode(true, process.env, platform) === "active";
+  }
+  return true;
 }

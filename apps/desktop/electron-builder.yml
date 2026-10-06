@@ -1,0 +1,62 @@
+# Packages the desktop app. `package` builds the bundles with electron-vite and packages them, from
+# `out/`, into an unsigned macOS app in `dist/`. The archive holds the bundles and the
+# `dependencies`, which the bundles leave for main to load at run time; everything the bundles
+# carry is a devDependency.
+appId: io.github.sawmonabo.ai-sidekicks
+files:
+  - out/**
+  # The renderer's type-check output, which the app never loads.
+  - "!out/tsc-renderer/**"
+  # The hidden source maps, read only to symbolicate a crash report off the machine.
+  - "!out/**/*.map"
+  # The renderer build's chunk manifest, which only the bundle budget reads.
+  - "!out/renderer/.vite/**"
+  # `notify-status` loads the binary in its own folder for this system and processor first, so its
+  # per-platform packages and the binaries for other targets never load.
+  - "!node_modules/notify-status-*/**"
+  - "!node_modules/notify-status/!(notify-status.${platform}-${arch}*).node"
+# Copies Electron's V8 snapshot as the main process's own, which the snapshot fuse below needs.
+afterPack: ./build/browser-snapshot.ts
+# The hardened fuse wire every packaged app carries. `WasmTrapHandlers` is left at Electron's
+# default, which is on; electron-builder has no setting for it.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: true
+  grantFileProtocolExtraPrivileges: false
+  # Flipping a fuse breaks the binary's ad-hoc signature, which Apple silicon refuses to launch; an
+  # unsigned package needs it signed ad hoc again. A signed build replaces it with its own.
+  resetAdHocDarwinSignature: true
+# Each platform puts the `resources/` files its installed app reads at run time beside the archive,
+# where `process.resourcesPath` finds them.
+mac:
+  # No signing identity: electron-builder signs nothing, and the fuse step above signs the app ad
+  # hoc.
+  identity: null
+  # The menu-bar icon's resting face.
+  extraResources:
+    - from: resources
+      to: .
+      filter:
+        - menu-bar-idleTemplate.png
+        - menu-bar-idleTemplate@2x.png
+  # The Icon Composer document: electron-builder compiles it with Xcode's `actool` into the
+  # bundle's asset catalog, and into an `.icns` for macOS before 26.
+  icon: build/icon.icon
+# The About panel's icon.
+win:
+  extraResources:
+    - from: resources
+      to: .
+      filter:
+        - icon.png
+linux:
+  extraResources:
+    - from: resources
+      to: .
+      filter:
+        - icon.png

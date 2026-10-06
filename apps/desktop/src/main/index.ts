@@ -2,16 +2,25 @@
 // registration at module top level, before `app.ready`, then the profile keyed to the install,
 // main's log, the crash reporter and the single-instance lock, then the kept appearance, the
 // registry of windows and its lifecycle, so a second launch during start is heard; inside
-// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the bridge
-// handlers, the hidden window, whose console document opens every window a person sees, and the
-// background service's start and watch. `index.test.ts` asserts the order of these Electron calls,
-// all but the profile's, which a packaged build skips. Electron refuses a scheme registered after
-// ready, and a window created before the handler is installed loads against an unhandled scheme.
+// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the Dock icon of a
+// development run, the macOS menu-bar icon, the bridge handlers, the hidden window, whose console
+// document opens every window a person sees, and the background service's start and watch.
+// `index.test.ts` asserts the order of these Electron calls, all but the profile's, which a
+// packaged build skips, and the two icons'. Electron refuses a scheme registered after ready, and a
+// window created before the handler is installed loads against an unhandled scheme.
 
 import { homedir, totalmem } from "node:os";
 import path from "node:path";
 
-import { app, crashReporter, nativeTheme, screen } from "electron";
+import {
+  app,
+  crashReporter,
+  nativeImage,
+  nativeTheme,
+  screen,
+  Tray,
+  type NativeImage,
+} from "electron";
 import { appFactsSwitches, supportedArch, supportedPlatform } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
@@ -40,9 +49,10 @@ import {
 import { keyProfileToInstall } from "./services/install-profile.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
+import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
 import { OpenWindows } from "./windows/registry.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
-import { installActivationPolicy } from "./windows/reveal.js";
+import { installActivationPolicy, isMenuBarIconShown } from "./windows/reveal.js";
 
 /** Where main records a line while it has no log of its own: the startup is failing then. */
 const STDERR_LOG: Pick<MainDiagnosticLog, "write"> = {
@@ -53,6 +63,13 @@ const STDERR_LOG: Pick<MainDiagnosticLog, "write"> = {
 
 // The build writes the main bundle to `out/main/` and the renderer to `out/renderer/`.
 const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
+
+// The app icon at the Dock's size, inset by the system's icon margin, for a development run.
+const DOCK_ICON_FILE = "dock-icon.png";
+
+// The macOS menu-bar icon's resting face. The `Template` suffix makes macOS draw it in the menu
+// bar's own color, and the image loads with its `@2x` beside it.
+const MENU_BAR_IDLE_FACE_FILE = "menu-bar-idleTemplate.png";
 
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
@@ -121,6 +138,16 @@ function openMainLog(): { readonly log: MainDiagnosticLog } | { readonly failure
   }
 }
 
+/** An image from the package's `resources/` folder; throws when it is missing or not an image. */
+function readResourceImage(fileName: string, location: InstallLocation): NativeImage {
+  const imagePath = resolveResourceFile(fileName, location);
+  const image = nativeImage.createFromPath(imagePath);
+  if (image.isEmpty()) {
+    throw new Error(`the image at ${imagePath} could not be read`);
+  }
+  return image;
+}
+
 /**
  * Start the application once Electron is ready. A failed start is recorded and exits with 1;
  * the record is best-effort and the exit is the contract.
@@ -159,6 +186,11 @@ function startApplication(): void {
   });
   Promise.all([windowsReading, app.whenReady()])
     .then(async ([{ log, appearance, openWindows }]) => {
+      const installLocation: InstallLocation = {
+        isPackaged: app.isPackaged,
+        mainBundleFolder: import.meta.dirname,
+        resourcesPath: process.resourcesPath,
+      };
       // First, so a launch this build cannot play stops before anything is installed.
       const fixtureLaunch = await resolveFixtureLaunch();
 
@@ -183,20 +215,25 @@ function startApplication(): void {
         },
         log,
       );
-      installApplicationMenu(appearance, log, openWindows);
+      installApplicationMenu(appearance, log, openWindows, installLocation);
+      // A development run is the stock Electron app, whose bundle shows Electron's icon in the
+      // Dock; an installed app's bundle carries its own. `dock` exists only on macOS.
+      if (!app.isPackaged && app.dock !== undefined) {
+        app.dock.setIcon(readResourceImage(DOCK_ICON_FILE, installLocation));
+      }
+      // On macOS the menu-bar icon stays when the last window closes, and a click on it brings
+      // the window used last back.
+      if (isMenuBarIconShown()) {
+        openWindows.installMenuBarIcon(
+          new Tray(readResourceImage(MENU_BAR_IDLE_FACE_FILE, installLocation)),
+        );
+      }
       const daemonLink = new DaemonLink();
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
         connect: connectMainToDaemon,
         startService: () =>
-          startServiceDetached(
-            resolveServiceProgram({
-              isPackaged: app.isPackaged,
-              mainBundleFolder: import.meta.dirname,
-              resourcesPath: process.resourcesPath,
-            }),
-            process.env,
-          ),
+          startServiceDetached(resolveServiceProgram(installLocation), process.env),
         attachServiceProcess: attachToServiceProcess,
         log,
       });

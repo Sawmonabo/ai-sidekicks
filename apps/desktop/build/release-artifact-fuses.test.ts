@@ -6,9 +6,9 @@
 // The end-to-end tier cannot answer this: it drives the smoke build, which leaves
 // `EnableNodeCliInspectArguments` on so a harness can attach.
 //
-// `electron-builder` is not a dependency of this package, so `dist/` holds no packaged root and the
-// fuse-wire case skips. The case before it fails on a `dist/` tree in a shape it does not
-// recognize or a packaged root with no binary, so the skip means only that no artifact exists.
+// With no packaged root in `dist/`, the fuse-wire case skips. The case before it fails on a `dist/`
+// tree in a shape it does not recognize or a packaged root with no binary, so the skip means only
+// that no artifact exists.
 
 import {
   existsSync,
@@ -28,7 +28,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 // Derived here so this file imports nothing from the launch helpers.
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = resolve(HERE, "..", "..");
+const PACKAGE_ROOT = resolve(HERE, "..");
 
 /** Where `electron-builder` writes its output for this package. */
 const PACKAGED_OUTPUT_DIRECTORY = join(PACKAGE_ROOT, "dist");
@@ -72,8 +72,7 @@ const REQUIRED_RELEASE_FUSE_POSTURE: ReadonlyMap<FuseV1Options, FuseState> = new
 
 /** The one reason a missing artifact is admissible, stated once and asserted below. */
 const NO_PACKAGING_STEP_REASON =
-  "no packaging step has produced an unpacked application: `electron-builder` is not a " +
-  "dependency of this package, so `dist/` holds no packaged root";
+  "no packaging step has produced an unpacked application, so `dist/` holds no packaged root";
 
 /** What a discovery pass found, or the reason it found nothing. */
 type ArtifactDiscovery =

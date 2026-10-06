@@ -69,6 +69,10 @@ allowBuilds:
   #   own. Required on every dev and CI platform that builds or runs the desktop shell; without the
   #   binary `electron-vite` and `electron .` cannot launch.
   electron: true
+  # - electron-winstaller: denied. `electron-builder` pulls it in for the Squirrel.Windows target,
+  #   which this app does not build (Windows ships an NSIS installer); its install script only copies
+  #   the host's 7-Zip `.exe` and `.dll` into place for that target.
+  electron-winstaller: false
   # The endurance tier's heap-snapshot reader
   # (`apps/desktop/tests/endurance/heap-snapshot-analysis.ts`) calls memlab's `getHeapFromFile` on a
   # `.heapsnapshot` this repo captures itself over Electron's own CDP session. Denied, all four,

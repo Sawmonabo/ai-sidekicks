@@ -416,6 +416,13 @@ class ElectronMockImpl implements ElectronMock {
           this.record("Menu.setApplicationMenu");
         }),
       },
+      // The macOS menu-bar icon main builds at start, over an image that always reads.
+      nativeImage: {
+        createFromPath: vi.fn(() => ({ isEmpty: () => false })),
+      },
+      Tray: class {
+        public on = vi.fn();
+      },
       shell: {
         openExternal: vi.fn((url: string) => {
           this.externalOpens.push(url);
