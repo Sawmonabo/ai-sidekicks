@@ -140,7 +140,7 @@ The lifecycle regression test we ship in `apps/desktop/tests/lifecycle.gc.test.t
 
 ### Unknowns
 
-- Whether `BaseWindow::self_ref_` will retain its current strong-anchor semantics in Electron 42+. This is the load-bearing assumption for the "empirical no-op" framing above.
+- Whether `BaseWindow::self_ref_` keeps its strong-anchor semantics in Electron releases after the 44.5.1 pin. The source was read at 41.6.1 and the lifecycle guard passes on 44.5.1 on macOS, so the semantics hold on the pin; a later Electron is the load-bearing assumption for the "empirical no-op" framing above.
 - Whether any window the app builds is user-anchor-dependent for some reason we have not yet found. Every window is a `BaseWindow`, built either at start or by main's window-open handler around the renderer's `window.open`, and each is held by the registry and anchored by `BaseWindow::self_ref_`; the lifecycle guard covers every window, and a new way of building a window is read against the same Electron sources when it lands.
 
 ---
