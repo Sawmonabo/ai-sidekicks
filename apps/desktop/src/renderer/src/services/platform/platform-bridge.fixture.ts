@@ -5,7 +5,8 @@
 // the real dialog. The `app` meta is fixed so a rendered view does not shift with the machine. The
 // keyboard map is held in memory: the first read is empty and a write is read back, which is the
 // Keyboard page's whole contract with main. The appearance record is held the same way: the default
-// appearance at first, and a chosen one reaches every subscriber, as main carries it to every window.
+// appearance at first, and a chosen one reaches every subscriber, as main carries it to every
+// window.
 
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
@@ -129,6 +130,11 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       setDefaultSizes: async () => {
         // Nothing reads the sizes back, and the harness sizes the fixture window itself.
       },
+      endSafeStart: async () => {
+        // A fixture runs no main, so no window place is kept for it to resume.
+      },
+      // A fixture runs no main to ask for a window; the harness opens every one itself.
+      subscribeToReopenRequest: (): Unsubscribe => () => undefined,
     },
     app: FIXTURE_APP_META,
     transportReconnect: new TransportReconnectSignal(),

@@ -1,12 +1,15 @@
-// Main's registry of windows: the hidden console window built at start with the window used last;
+// Main's registry of windows: the hidden window built at start with the console window used last;
 // the windows a person sees counted, the last of them closing driving the platform's answer while a
-// quit or a lost renderer closing them does not; a Dock click and a second launch, before start and
-// after it; the renderer's process going away, answered on a later task by building the console
-// window again, the third loss in a row a safe start and the count clearing after five quiet
-// minutes; the window the console document's `window.open` gets (main's own options and kept
-// place, never the page's, centered or cascaded when none is kept) and found again by the id its
-// frame name carries; the pushes to the console document; and the window-place file across a close
-// and a restart. `electron` is mocked; the place file is real, in a temporary folder.
+// quit or a lost renderer closing them does not, and a person closing the load-failure page
+// counting as the last; a quit closing the hidden window first and the rest once its document is
+// gone; a Dock click and a second launch, before start, after it and during a quit, asking the kept
+// console document to reopen the window used last; the renderer's process going away, answered on
+// a later task by building the hidden window again, the third loss in a row a safe start the
+// console document ends, and the count clearing after five quiet minutes; the window the console
+// document's `window.open` gets (main's own options and kept place, never the page's, centered or
+// cascaded when none is kept) and found again by the id its frame name carries; the pushes to the
+// console document; and the window-place file across a close and a restart. `electron` is mocked;
+// the place file is real, in a temporary folder.
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,7 +23,7 @@ import {
   MERIDIAN_GROUNDS,
   type AppearanceRecord,
 } from "#shared/appearance.js";
-import { APPEARANCE_VALUE_CHANNEL } from "#shared/bridge-channels.js";
+import { APPEARANCE_VALUE_CHANNEL, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import type { MockBaseWindow } from "#test/helpers/electron/mock/window.js";
 import {
@@ -39,16 +42,16 @@ vi.mock("electron", () => electronMock.moduleExports);
 /** The one display the mock reports. */
 const PRIMARY_WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
 
-/** The widths the renderer hands for a window with no kept place. */
-const HANDED_SIZES = { consoleWindowWidth: 1000, paneWidths: { terminal: 480 } };
+/** The widths the renderer hands for a pane's own window with no kept place. */
+const HANDED_SIZES = { paneWidths: { terminal: 480 } };
 
 /**
- * Where a window of session views with no kept place opens on it: the handed width, and the work
- * area's height less one 30 px cascade step above and below.
+ * Where a window of session views with no kept place opens on it: the work area less one 30 px
+ * cascade step on every side.
  */
-const CENTERED_ON_PRIMARY = { x: 220, y: 55, width: 1000, height: 815 };
+const CENTERED_ON_PRIMARY = { x: 30, y: 55, width: 1380, height: 815 };
 
-/** The app facts the console window is started with, so the preload can be built over them. */
+/** The app facts the hidden window is started with, so the preload can be built over them. */
 const APP_FACTS_SWITCHES = appFactsSwitches({
   version: "0.0.0",
   platform: "darwin",
@@ -99,7 +102,7 @@ function changingAppearance(): ChangingAppearance {
   };
 }
 
-/** A registry over the place file in this case's folder, for one platform, and the log it writes. */
+/** A registry over the place file in this case's folder, for one platform, and its log. */
 async function createRegistry(
   platform: NodeJS.Platform,
   appearance: ChangingAppearance = changingAppearance(),
@@ -135,21 +138,26 @@ async function startedRegistry(platform: NodeJS.Platform) {
   return { openWindows, app };
 }
 
-/** Every console window built so far, oldest first: the windows that loaded the renderer. */
-function consoleWindows(): MockBaseWindow[] {
+/** Every hidden window built so far, oldest first: the windows that loaded the renderer. */
+function hiddenWindows(): MockBaseWindow[] {
   return electronMock.constructed.filter(
     (built) => built.contentView.children[0]?.options.webContents === undefined,
   );
 }
 
-/** The console window built last. */
-function latestConsoleWindow(): MockBaseWindow {
-  return consoleWindows().at(-1) ?? expect.fail("a console window was built");
+/** The hidden window built last. */
+function latestHiddenWindow(): MockBaseWindow {
+  return hiddenWindows().at(-1) ?? expect.fail("a hidden window was built");
 }
 
-/** The renderer switches the console window built `index`th was started with. */
-function consoleSwitches(index: number): string[] {
-  return consoleWindows()[index]?.contentView.children[0]?.options.webPreferences[
+/** What main sent the console document the hidden window built last holds. */
+function sentToConsoleDocument(): readonly { channel: string; value: unknown }[] {
+  return latestHiddenWindow().contentView.children[0]?.webContents.sent ?? [];
+}
+
+/** The renderer switches the hidden window built `index`th was started with. */
+function hiddenWindowSwitches(index: number): string[] {
+  return hiddenWindows()[index]?.contentView.children[0]?.options.webPreferences[
     "additionalArguments"
   ] as string[];
 }
@@ -157,28 +165,17 @@ function consoleSwitches(index: number): string[] {
 /** The window used last that the preload hands the `index`th console document. */
 async function lastUsedWindowIdOf(index: number): Promise<string> {
   const { createPreloadApi } = await import("#preload/api.js");
-  return createPreloadApi(consoleSwitches(index)).window.lastUsedWindowId;
+  return createPreloadApi(hiddenWindowSwitches(index)).window.lastUsedWindowId;
 }
 
 /** Opens a window under `frameName` from the console document, as its `window.open` does. */
 function openChildWindow(frameName: string): MockBaseWindow {
   const answer = windowOpenHandlerOf({
-    baseWindow: latestConsoleWindow(),
-    view: latestConsoleWindow().contentView.children[0],
+    baseWindow: latestHiddenWindow(),
+    view: latestHiddenWindow().contentView.children[0],
   })({ url: "about:blank", frameName }) as { createWindow: (options: object) => unknown };
   answer.createWindow({ webContents: handedDocument() });
   return electronMock.constructed.at(-1) ?? expect.fail("the window was built");
-}
-
-/**
- * A quit as Electron runs it: `before-quit`, then each window still open closes, as the console
- * document's children close with it.
- */
-function quit(openChildren: readonly MockBaseWindow[]): void {
-  electronMock.emitAppEvent("before-quit");
-  for (const child of openChildren) {
-    child.close();
-  }
 }
 
 /** The window-place file as main last wrote it. */
@@ -198,7 +195,7 @@ async function readPlaceFileText(): Promise<string> {
 
 /** The renderer's process goes, as the console document reports, and the later task answers it. */
 function loseTheRenderer(): void {
-  latestConsoleWindow().contentView.children[0]?.webContents.emit(
+  latestHiddenWindow().contentView.children[0]?.webContents.emit(
     "render-process-gone",
     {},
     { reason: "crashed" },
@@ -210,14 +207,14 @@ describe("the console window", () => {
   it("is built hidden at start, its document handed the window used last", async () => {
     const openWindows = await createOpenWindows("darwin");
 
-    const consoleWindow = asMockWindow(
-      openWindows.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES }),
+    const hiddenWindow = asMockWindow(
+      openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES }),
     );
-    consoleWindow.document.emit("did-finish-load");
+    hiddenWindow.document.emit("did-finish-load");
 
-    expect(consoleWindow.baseWindow.showCount).toBe(0);
-    expect(consoleWindow.document.loadedUrls).toEqual([INDEX_URL]);
-    expect(openWindows.isConsoleDocument(consoleWindow.document as never)).toBe(true);
+    expect(hiddenWindow.baseWindow.showCount).toBe(0);
+    expect(hiddenWindow.document.loadedUrls).toEqual([INDEX_URL]);
+    expect(openWindows.isConsoleDocument(hiddenWindow.document as never)).toBe(true);
     // A first launch mints the id the console document opens its first window under.
     expect(await lastUsedWindowIdOf(0)).toMatch(/^window\/[\w-]+$/);
   });
@@ -228,7 +225,7 @@ describe("the windows a person sees, counted", () => {
     "quit the app on %s when the last one closes, and not before",
     async (platform) => {
       const { openWindows, app } = await startedRegistry(platform);
-      openWindows.openConsoleWindow({ additionalArguments: [] });
+      openWindows.openHiddenWindow({ additionalArguments: [] });
       const first = openChildWindow("window/w-1");
       const second = openChildWindow("window/w-2");
       const lastPlace = { x: 40, y: 65, width: 1000, height: 700 };
@@ -239,8 +236,8 @@ describe("the windows a person sees, counted", () => {
       second.close();
 
       expect(app.quit).toHaveBeenCalledTimes(1);
-      // The console window stays: it is never one of the windows counted.
-      expect(latestConsoleWindow().isDestroyed()).toBe(false);
+      // The hidden window stays: it is never one of the windows counted.
+      expect(latestHiddenWindow().isDestroyed()).toBe(false);
       // Written before the process could end, so the next start opens it there.
       expect(Object.values((await readPlaceFile()).places)).toEqual([
         { ...lastPlace, isMaximized: false, isFullScreen: false },
@@ -248,9 +245,9 @@ describe("the windows a person sees, counted", () => {
     },
   );
 
-  it("leave the app running on macOS, where a Dock click builds the console window again", async () => {
+  it("leave the app running on macOS, where a Dock click asks the kept document to reopen one", async () => {
     const { openWindows, app } = await startedRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
     const only = openChildWindow("window/w-1");
     const lastPlace = { x: 40, y: 65, width: 1000, height: 700 };
     only.setBounds(lastPlace);
@@ -263,33 +260,72 @@ describe("the windows a person sees, counted", () => {
 
     electronMock.emitAppEvent("activate");
 
-    // Built again with start's switches and the window used last, which its document reopens at
-    // its place; the console window it replaces is gone.
-    expect(consoleWindows()).toHaveLength(2);
-    expect(consoleWindows()[0]?.isDestroyed()).toBe(true);
-    expect(consoleSwitches(1).slice(0, -1)).toEqual(APP_FACTS_SWITCHES);
-    expect(await lastUsedWindowIdOf(1)).toBe("window/w-1");
+    // The console document kept since start is asked for the window used last, which it reopens
+    // at its place; nothing is rebuilt.
+    expect(hiddenWindows()).toHaveLength(1);
+    expect(sentToConsoleDocument()).toEqual([
+      { channel: REOPEN_WINDOW_CHANNEL, value: "window/w-1" },
+    ]);
     expect(openChildWindow("window/w-1").options).toMatchObject(lastPlace);
   });
 
-  it("quit nothing more when a quit closes them, the console window first", async () => {
+  it.each(["linux", "darwin"] as const)(
+    "on %s, count the load-failure page a person closes as the last window",
+    async (platform) => {
+      const { openWindows, app } = await startedRegistry(platform);
+      electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
+      openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
+      const failurePage = latestHiddenWindow();
+      // Shown only with the load-failure document; a Dock click brings it forward.
+      await vi.waitFor(() => {
+        expect(failurePage.isVisible()).toBe(true);
+      });
+      electronMock.emitAppEvent("activate");
+      expect(failurePage.focusCount).toBe(1);
+      expect(sentToConsoleDocument()).toEqual([]);
+
+      failurePage.close();
+
+      expect(app.quit).toHaveBeenCalledTimes(platform === "darwin" ? 0 : 1);
+      // On macOS the app stays, and a Dock click builds the hidden window again.
+      electronMock.emitAppEvent("activate");
+      expect(hiddenWindows()).toHaveLength(2);
+      expect(hiddenWindowSwitches(1).slice(0, -1)).toEqual(APP_FACTS_SWITCHES);
+      // A page that cannot be served is destroyed, and the exit that follows is the answer.
+      latestHiddenWindow().destroy();
+      expect(app.quit).toHaveBeenCalledTimes(platform === "darwin" ? 0 : 1);
+    },
+  );
+
+  it("close at a quit once the hidden window's document is gone, and quit nothing more", async () => {
     const { openWindows, app } = await startedRegistry("linux");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    const hiddenDocument = latestHiddenWindow().contentView.children[0]?.webContents;
     const first = openChildWindow("window/w-1");
     const second = openChildWindow("window/w-2");
+    const isDocumentGoneAtEachClose: boolean[] = [];
+    for (const child of [first, second]) {
+      child.on("close", () =>
+        isDocumentGoneAtEachClose.push(hiddenDocument?.isDestroyed() === true),
+      );
+    }
 
     electronMock.emitAppEvent("before-quit");
-    expect(latestConsoleWindow().isDestroyed()).toBe(true);
-    first.close();
-    second.close();
 
+    expect([latestHiddenWindow(), first, second].every((each) => each.isDestroyed())).toBe(true);
+    // Never while the console document could hear a close as a person's and prune its layout.
+    expect(isDocumentGoneAtEachClose).toEqual([true, true]);
     // The quit under way is the only one: a second would hold it for another flush.
     expect(app.quit).not.toHaveBeenCalled();
+    // A Dock click or a second launch during the quit's flush opens nothing.
+    electronMock.emitAppEvent("activate");
+    electronMock.emitAppEvent("second-instance");
+    expect(hiddenWindows()).toHaveLength(1);
 
-    // A console window already closed, as closing every window does, is left as it is.
+    // A hidden window already closed, as a probe closing every window does, is left as it is.
     const { openWindows: again } = await startedRegistry("linux");
-    again.openConsoleWindow({ additionalArguments: [] });
-    latestConsoleWindow().close();
+    again.openHiddenWindow({ additionalArguments: [] });
+    latestHiddenWindow().close();
     expect(() => electronMock.emitAppEvent("before-quit")).not.toThrow();
     expect(Object.keys((await readPlaceFile()).places).sort()).toEqual([
       "window/w-1",
@@ -307,18 +343,22 @@ describe("a second launch", () => {
     electronMock.emitAppEvent("activate");
     expect(electronMock.constructed).toHaveLength(0);
 
-    openWindows.openConsoleWindow({ additionalArguments: [] });
-    const usedLast = openChildWindow("window/w-1");
+    openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    const usedLastId = await lastUsedWindowIdOf(0);
+    const usedLast = openChildWindow(usedLastId);
     const focusesBefore = usedLast.focusCount;
     electronMock.emitAppEvent("second-instance");
 
-    expect(consoleWindows()).toHaveLength(1);
+    expect(hiddenWindows()).toHaveLength(1);
     expect(usedLast.focusCount).toBe(focusesBefore + 1);
 
-    // With no window a person sees, it builds the console window again, as a Dock click does.
+    // With no window a person sees, it asks the console document to reopen it, as a Dock click.
     usedLast.close();
     electronMock.emitAppEvent("second-instance");
-    expect(consoleWindows()).toHaveLength(2);
+    expect(hiddenWindows()).toHaveLength(1);
+    expect(sentToConsoleDocument()).toEqual([
+      { channel: REOPEN_WINDOW_CHANNEL, value: usedLastId },
+    ]);
   });
 });
 
@@ -328,10 +368,10 @@ describe("the renderer's process going away", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   });
 
-  it("builds the console window again on a later task and closes the windows that lost it", async () => {
+  it("builds the hidden window again on a later task and closes the windows that lost it", async () => {
     const { openWindows, app } = await startedRegistry("linux");
-    openWindows.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES });
-    const lostConsole = latestConsoleWindow();
+    openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    const lostHiddenWindow = latestHiddenWindow();
     const first = openChildWindow("window/w-1");
     const second = openChildWindow("window/w-2");
     const pane = openChildWindow("pane/terminal/s-1");
@@ -339,23 +379,23 @@ describe("the renderer's process going away", () => {
     second.setBounds(secondPlace);
     second.emit("focus");
 
-    lostConsole.contentView.children[0]?.webContents.emit(
+    lostHiddenWindow.contentView.children[0]?.webContents.emit(
       "render-process-gone",
       {},
       { reason: "crashed", exitCode: 11 },
     );
 
     // Nothing is reloaded or closed inside the handler.
-    expect(consoleWindows()).toHaveLength(1);
+    expect(hiddenWindows()).toHaveLength(1);
     expect(first.isDestroyed()).toBe(false);
     vi.advanceTimersByTime(0);
 
-    // The console window built again, with start's switches and the window used last.
-    expect(consoleWindows()).toHaveLength(2);
-    expect(consoleSwitches(1).slice(0, -1)).toEqual(consoleSwitches(0).slice(0, -1));
+    // The hidden window built again, with start's switches and the window used last.
+    expect(hiddenWindows()).toHaveLength(2);
+    expect(hiddenWindowSwitches(1).slice(0, -1)).toEqual(hiddenWindowSwitches(0).slice(0, -1));
     expect(await lastUsedWindowIdOf(1)).toBe("window/w-2");
-    expect([lostConsole, first, second, pane].every((lost) => lost.isDestroyed())).toBe(true);
-    expect(latestConsoleWindow().isDestroyed()).toBe(false);
+    expect([lostHiddenWindow, first, second, pane].every((lost) => lost.isDestroyed())).toBe(true);
+    expect(latestHiddenWindow().isDestroyed()).toBe(false);
     // Every window a person saw closed, but a lost renderer is no last window closing.
     expect(app.quit).not.toHaveBeenCalled();
     // Every lost window's place is kept for the reloaded renderer to reopen it at.
@@ -368,8 +408,8 @@ describe("the renderer's process going away", () => {
 
   it("closes the windows a replaced console document drew, keeping their places, on no quit", async () => {
     const { openWindows, app } = await startedRegistry("linux");
-    openWindows.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES });
-    const consoleDocument = latestConsoleWindow().contentView.children[0]?.webContents;
+    openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    const consoleDocument = latestHiddenWindow().contentView.children[0]?.webContents;
     const first = openChildWindow("window/w-1");
     const pane = openChildWindow("pane/terminal/s-1");
 
@@ -381,7 +421,7 @@ describe("the renderer's process going away", () => {
     consoleDocument?.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
 
     expect([first, pane].every((drawn) => drawn.isDestroyed())).toBe(true);
-    expect(latestConsoleWindow().isDestroyed()).toBe(false);
+    expect(latestHiddenWindow().isDestroyed()).toBe(false);
     expect(app.quit).not.toHaveBeenCalled();
     expect(Object.keys((await readPlaceFile()).places).sort()).toEqual(
       ["window/w-1", "pane/terminal"].sort(),
@@ -393,9 +433,9 @@ describe("the renderer's process going away", () => {
 
   it("logs the loss with its reason and exit code", async () => {
     const { openWindows, log } = await createRegistry("linux");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
 
-    latestConsoleWindow().contentView.children[0]?.webContents.emit(
+    latestHiddenWindow().contentView.children[0]?.webContents.emit(
       "render-process-gone",
       {},
       { reason: "oom", exitCode: 11 },
@@ -407,7 +447,7 @@ describe("the renderer's process going away", () => {
 
   it("reloads twice from the kept layout, then as a safe start that keeps every place", async () => {
     const { openWindows } = await startedRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
     openChildWindow("window/w-2").setBounds({ x: 200, y: 125, width: 900, height: 600 });
     for (const crash of [1, 2]) {
       loseTheRenderer();
@@ -422,21 +462,47 @@ describe("the renderer's process going away", () => {
     loseTheRenderer();
 
     expect(openWindows.isSafeStart).toBe(true);
-    // The safe start builds the console window alone; every window that lost its document closed.
+    // The safe start builds the hidden window alone; every window that lost its document closed.
     expect(electronMock.constructed.filter((built) => !built.isDestroyed())).toEqual([
-      latestConsoleWindow(),
+      latestHiddenWindow(),
     ]);
-    // Neither the loss, nor closing the safe start's window, nor quitting changes a kept place.
+    // Neither the loss, a reload of the safe start's document, closing the safe start's window,
+    // nor quitting changes a kept place.
     const safeStartWindow = openChildWindow("window/w-2");
     safeStartWindow.setBounds({ x: 300, y: 225, width: 800, height: 500 });
-    quit([safeStartWindow]);
+    latestHiddenWindow().contentView.children[0]?.webContents.emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    expect(safeStartWindow.isDestroyed()).toBe(true);
+    openChildWindow("window/w-2").setBounds({ x: 320, y: 245, width: 800, height: 500 });
+    electronMock.emitAppEvent("before-quit");
     expect(await readPlaceFileText()).toBe(keptBefore);
+  });
+
+  it("keeps places again once the console document ends the safe start", async () => {
+    const { openWindows } = await startedRegistry("darwin");
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    for (const _crash of [1, 2, 3]) {
+      loseTheRenderer();
+    }
+    expect(openWindows.isSafeStart).toBe(true);
+
+    // `Restore windows` reopened the kept windows.
+    openWindows.endSafeStart();
+    const restored = openChildWindow("window/w-2");
+    const movedPlace = { x: 300, y: 225, width: 800, height: 500 };
+    restored.setBounds(movedPlace);
+    restored.close();
+
+    expect(openWindows.isSafeStart).toBe(false);
+    expect((await readPlaceFile()).places).toMatchObject({ "window/w-2": movedPlace });
   });
 
   it("reloads nothing once a quit has begun before the later task", async () => {
     const { openWindows } = await startedRegistry("linux");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
-    latestConsoleWindow().contentView.children[0]?.webContents.emit(
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    latestHiddenWindow().contentView.children[0]?.webContents.emit(
       "render-process-gone",
       {},
       { reason: "crashed" },
@@ -445,13 +511,13 @@ describe("the renderer's process going away", () => {
     electronMock.emitAppEvent("before-quit");
     vi.advanceTimersByTime(0);
 
-    expect(consoleWindows()).toHaveLength(1);
+    expect(hiddenWindows()).toHaveLength(1);
   });
 
   it("clears the count once a reloaded renderer runs five minutes without a loss", async () => {
     const { CRASH_COUNT_CLEARS_AFTER_MS } = await import("./renderer-crashes.js");
     const { openWindows } = await createRegistry("linux");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
     loseTheRenderer();
     loseTheRenderer();
 
@@ -473,11 +539,11 @@ describe("the renderer's process going away", () => {
 describe("a window the console document opens", () => {
   it("is main's own window around the handed document, never the page's options", async () => {
     const openWindows = await createOpenWindows("darwin");
-    const consoleWindow = openWindows.openConsoleWindow({ additionalArguments: [] });
+    const hiddenWindow = openWindows.openHiddenWindow({ additionalArguments: [] });
     openWindows.setDefaultSizes(HANDED_SIZES);
     const handed = handedDocument();
 
-    const answer = windowOpenHandlerOf(consoleWindow)({
+    const answer = windowOpenHandlerOf(hiddenWindow)({
       url: "about:blank",
       frameName: "window/w-1",
     }) as {
@@ -505,53 +571,52 @@ describe("a window the console document opens", () => {
       x: CENTERED_ON_PRIMARY.x + 30,
       y: CENTERED_ON_PRIMARY.y + 30,
     });
-    // Cascaded off the first again, it steps past the window already sitting there.
+    // Cascaded off the first again, it steps past the window already sitting there, giving up what
+    // would pass the work area's edges rather than landing back over it.
     first.emit("focus");
-    expect(openChildWindow("window/w-3").options).toMatchObject({ x: CENTERED_ON_PRIMARY.x + 60 });
+    expect(openChildWindow("window/w-3").options).toMatchObject({
+      x: CENTERED_ON_PRIMARY.x + 60,
+      y: CENTERED_ON_PRIMARY.y + 60,
+      width: CENTERED_ON_PRIMARY.width - 30,
+      height: CENTERED_ON_PRIMARY.height - 30,
+    });
     expect(electronMock.constructedViews[1]?.options).toMatchObject({
       webContents: handed,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
   });
 
-  it("opens with no kept place at the handed width and a step short of the work area's height", async () => {
+  it("opens a pane's own window with no kept place at the handed width and the work area's height", async () => {
     const openWindows = await createOpenWindows("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
     openWindows.setDefaultSizes(HANDED_SIZES);
     const pane = openChildWindow("pane/terminal/s-1");
     pane.close();
 
-    // A pane window at its kind's width; as tall as the work area less a 30 px step above and below.
-    const steppedHeight = PRIMARY_WORK_AREA.height - 2 * 30;
-    expect(pane.options).toMatchObject({ x: 480, y: 55, width: 480, height: steppedHeight });
+    expect(pane.options).toMatchObject({ ...PRIMARY_WORK_AREA, x: 480, width: 480 });
 
-    // A larger text size hands wider windows; one wider than the display is held to it.
-    openWindows.setDefaultSizes({ consoleWindowWidth: 5000, paneWidths: { terminal: 480 } });
-    expect(openChildWindow("window/w-1").options).toMatchObject({
-      x: PRIMARY_WORK_AREA.x,
-      y: PRIMARY_WORK_AREA.y + 30,
-      width: PRIMARY_WORK_AREA.width,
-      height: steppedHeight,
-    });
+    // A pane wider than the display is held to it.
+    openWindows.setDefaultSizes({ paneWidths: { inspector: 5000 } });
+    expect(openChildWindow("pane/inspector/s-1").options).toMatchObject(PRIMARY_WORK_AREA);
   });
 
   it("is refused under a name main builds nothing for, or for a non-blank document", async () => {
     const openWindows = await createOpenWindows("darwin");
-    const consoleWindow = openWindows.openConsoleWindow({ additionalArguments: [] });
+    const hiddenWindow = openWindows.openHiddenWindow({ additionalArguments: [] });
 
-    expect(windowOpenHandlerOf(consoleWindow)({ url: "about:blank", frameName: "_blank" })).toEqual(
-      { action: "deny" },
-    );
+    expect(windowOpenHandlerOf(hiddenWindow)({ url: "about:blank", frameName: "_blank" })).toEqual({
+      action: "deny",
+    });
     // A second console document would be a second renderer with stores of its own.
-    expect(windowOpenHandlerOf(consoleWindow)({ url: INDEX_URL, frameName: "window/w-3" })).toEqual(
-      { action: "deny" },
-    );
+    expect(windowOpenHandlerOf(hiddenWindow)({ url: INDEX_URL, frameName: "window/w-3" })).toEqual({
+      action: "deny",
+    });
     expect(electronMock.constructed).toHaveLength(1);
   });
 
   it("is found by its window id, the frame name it was opened under, and by nothing else", async () => {
     const openWindows = await createOpenWindows("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
     const second = openChildWindow("window/w-2");
     const pane = openChildWindow("pane/terminal/s-1");
 
@@ -574,7 +639,7 @@ describe("the pushes to the console document", () => {
   it("carry appearance to it alone, and repaint every ground", async () => {
     const appearance = changingAppearance();
     const { openWindows } = await createRegistry("darwin", appearance);
-    const consoleWindow = asMockWindow(openWindows.openConsoleWindow({ additionalArguments: [] }));
+    const hiddenWindow = asMockWindow(openWindows.openHiddenWindow({ additionalArguments: [] }));
     const child = openChildWindow("window/w-2");
     const pane = openChildWindow("pane/terminal/s-1");
 
@@ -584,11 +649,11 @@ describe("the pushes to the console document", () => {
     // The platform's scheme moving repaints, and pushes no record that did not change.
     appearance.announce();
 
-    expect(consoleWindow.document.sent).toEqual([
+    expect(hiddenWindow.document.sent).toEqual([
       { channel: APPEARANCE_VALUE_CHANNEL, value: appearance.record },
     ]);
     expect(child.contentView.children[0]?.webContents.sent).toEqual([]);
-    for (const window of [consoleWindow.baseWindow, child, pane]) {
+    for (const window of [hiddenWindow.baseWindow, child, pane]) {
       expect(window.backgroundColor).toBe(MERIDIAN_GROUNDS.dark);
       expect(window.contentView.children[0]?.backgroundColor).toBe(MERIDIAN_GROUNDS.dark);
     }
@@ -598,7 +663,7 @@ describe("the pushes to the console document", () => {
 describe("the window-place file", () => {
   it("hands the console document the id it keeps the window under, a new one on a first launch", async () => {
     const firstLaunch = await createOpenWindows("darwin");
-    firstLaunch.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    firstLaunch.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
     const mintedId = await lastUsedWindowIdOf(0);
     const first = openChildWindow(mintedId);
     const firstPlace = { x: 40, y: 65, width: 1000, height: 700 };
@@ -611,7 +676,7 @@ describe("the window-place file", () => {
 
     electronMock.reset();
     const nextStart = await createOpenWindows("darwin");
-    nextStart.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    nextStart.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
 
     // The same id comes back, and its window opens at the place kept under it.
     expect(await lastUsedWindowIdOf(0)).toBe(mintedId);
@@ -620,7 +685,7 @@ describe("the window-place file", () => {
 
   it("hands the window used last at a quit to the next start, opened at its own place", async () => {
     const { openWindows } = await startedRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
     const first = openChildWindow("window/w-1");
     const second = openChildWindow("window/w-2");
     const secondPlace = { x: 200, y: 125, width: 900, height: 600 };
@@ -628,14 +693,14 @@ describe("the window-place file", () => {
     second.emit("focus");
 
     // Focus lands on each window left as the quit closes them.
+    second.on("close", () => {
+      first.emit("focus");
+    });
     electronMock.emitAppEvent("before-quit");
-    second.close();
-    first.emit("focus");
-    first.close();
 
     electronMock.reset();
     const after = await createOpenWindows("darwin");
-    after.openConsoleWindow({ additionalArguments: APP_FACTS_SWITCHES });
+    after.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
 
     expect(await lastUsedWindowIdOf(0)).toBe("window/w-2");
     expect(openChildWindow("window/w-2").options).toMatchObject(secondPlace);
@@ -643,8 +708,8 @@ describe("the window-place file", () => {
 
   it("keeps only the windows open at a quit, dropping one closed while others stay", async () => {
     const { openWindows } = await startedRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
-    const first = openChildWindow("window/w-1");
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    openChildWindow("window/w-1");
     const second = openChildWindow("window/w-2");
     const third = openChildWindow("window/w-3");
     third.emit("focus");
@@ -653,7 +718,7 @@ describe("the window-place file", () => {
     // Closed while two stay open: its entry goes at once, and the one used before it is used last.
     second.close();
     expect(Object.keys((await readPlaceFile()).places)).not.toContain("window/w-2");
-    quit([third, first]);
+    electronMock.emitAppEvent("before-quit");
 
     const atQuit = await readPlaceFile();
     expect(Object.keys(atQuit.places).sort()).toEqual(["window/w-1", "window/w-3"]);
@@ -662,21 +727,21 @@ describe("the window-place file", () => {
 
   it("keeps a pane kind's place when its window closes, and across a quit", async () => {
     const { openWindows } = await startedRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
-    const first = openChildWindow("window/w-1");
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    openChildWindow("window/w-1");
     const pane = openChildWindow("pane/terminal/s-1");
     const panePlace = { x: 300, y: 100, width: 600, height: 875 };
     pane.setBounds(panePlace);
 
     pane.close();
-    quit([first]);
+    electronMock.emitAppEvent("before-quit");
 
     expect((await readPlaceFile()).places).toMatchObject({ "pane/terminal": panePlace });
   });
 
   it("puts a window back where it closed, pulled onto a display it is off", async () => {
     const before = await createOpenWindows("darwin");
-    before.openConsoleWindow({ additionalArguments: [] });
+    before.openHiddenWindow({ additionalArguments: [] });
     const first = openChildWindow("window/w-1");
     // Moved onto a second display, then that display is detached before the next start.
     first.setFullScreen(true);
@@ -688,7 +753,7 @@ describe("the window-place file", () => {
     electronMock.reset();
     electronMock.setDisplayWorkAreas([PRIMARY_WORK_AREA]);
     const after = await createOpenWindows("darwin");
-    after.openConsoleWindow({ additionalArguments: [] });
+    after.openHiddenWindow({ additionalArguments: [] });
     const reopened = openChildWindow("window/w-1");
 
     // Shrunk to the one display left, moved wholly onto it, and fullscreen again.
@@ -701,13 +766,9 @@ describe("the window-place file", () => {
     await writeFile(path.join(userData, WINDOW_PLACES_FILE_NAME), "{ not json", "utf8");
 
     const { openWindows, log } = await createRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
 
-    // No width handed yet: as wide as the work area.
-    expect(openChildWindow("window/w-1").options).toMatchObject({
-      x: PRIMARY_WORK_AREA.x,
-      width: PRIMARY_WORK_AREA.width,
-    });
+    expect(openChildWindow("window/w-1").options).toMatchObject(CENTERED_ON_PRIMARY);
     expect(await readPlaceFile()).toEqual({ places: {} });
     expect(loggedMessages(log)).toEqual([expect.stringContaining("is not JSON")]);
   });
@@ -728,7 +789,7 @@ describe("the window-place file", () => {
     );
 
     const { openWindows, log } = await createRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
 
     expect(openChildWindow("window/w-1").options).toMatchObject({ x: 40, y: 65, width: 1000 });
     expect(await readPlaceFile()).toEqual({
@@ -741,7 +802,7 @@ describe("the window-place file", () => {
   it("records a place it could not write in main's log, and the window still closes", async () => {
     const { WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
     const { openWindows, log } = await createRegistry("darwin");
-    openWindows.openConsoleWindow({ additionalArguments: [] });
+    openWindows.openHiddenWindow({ additionalArguments: [] });
     const first = openChildWindow("window/w-1");
     // A folder where the file goes: the rename over it fails.
     await mkdir(path.join(userData, WINDOW_PLACES_FILE_NAME));

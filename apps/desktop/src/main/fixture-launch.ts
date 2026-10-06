@@ -58,7 +58,7 @@ export function parseFixtureLaunch(argv: readonly string[]): FixtureLaunch | und
  * scenario does not hold.
  */
 export async function checkFixtureLaunchAgainstCatalog(launch: FixtureLaunch): Promise<void> {
-  const { findScenario } = await import("../../fixtures/index.js");
+  const { findScenario } = await import("#fixtures/index.js");
   // Throws, naming every scenario the catalog holds, for an unknown one.
   const scenario = findScenario(launch.scenarioId);
   if (launch.sessionId !== undefined && launch.sessionId !== scenario.sessionId) {

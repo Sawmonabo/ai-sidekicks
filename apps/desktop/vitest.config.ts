@@ -9,12 +9,12 @@
 // library here, not a second runner: browser mode drives it for the page tiers, and
 // `tests/helpers/electron/harness.ts` drives it for the window tiers.
 
-import { configDefaults, defineConfig } from "vitest/config";
+import { configDefaults, defineConfig, type ViteUserConfig } from "vitest/config";
 
-import { sharedCoverageOptions } from "../../vitest.shared";
-import { RENDERER_TESTS_OUTSIDE_SOURCE, TIER_PROJECTS } from "./vitest/tier-projects";
+import { sharedCoverageOptions } from "../../vitest.shared.js";
+import { RENDERER_TESTS_OUTSIDE_SOURCE, TIER_PROJECTS } from "./vitest/tier-projects.js";
 
-export default defineConfig({
+const config: ViteUserConfig = defineConfig({
   test: {
     // Coverage is root-only in Vitest 4 when `projects` are declared, so this block sits beside
     // `projects`, not inside one.
@@ -107,3 +107,5 @@ export default defineConfig({
     ],
   },
 });
+
+export default config;

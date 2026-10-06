@@ -125,15 +125,33 @@ async function scrollOnCanvas(container: HTMLElement): Promise<void> {
   });
 }
 
+async function emulateReducedMotion(): Promise<void> {
+  await cdp().send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: "reduce" }],
+  });
+}
+
 afterEach(async () => {
   await cdp().send("Emulation.setEmulatedMedia", { features: [] });
 });
 
 describe("browser — the run graph's follow of the live step", () => {
+  // The negative control for the hold below: with nobody scrolling, the same move of the run has
+  // moved the view by the time it settles, so a held view there proves the scroll stopped it.
+  it("moves the view to the next live step when nobody has moved it", async () => {
+    await emulateReducedMotion();
+    const { container, moveRunOn } = await mountRunningGraph();
+    const followedTransform = viewportTransform(container);
+
+    await moveRunOn();
+    expect(viewportTransform(container), "the view stayed as the run moved on").not.toBe(
+      followedTransform,
+    );
+    expect(nowChip(container), "the chip stood while the view followed").toBeNull();
+  });
+
   it("stops on a scroll, holds as the run moves on, and the now chip restarts it", async () => {
-    await cdp().send("Emulation.setEmulatedMedia", {
-      features: [{ name: "prefers-reduced-motion", value: "reduce" }],
-    });
+    await emulateReducedMotion();
     const { container, moveRunOn } = await mountRunningGraph();
     expect(nowChip(container), "the chip stood while the view was on the live step").toBeNull();
 

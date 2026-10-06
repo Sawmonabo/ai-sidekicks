@@ -12,7 +12,7 @@
 import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
-import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
@@ -50,6 +50,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
         });
       const windowed = await readRail(appWindow);
 
+      // CI runs on Linux, so the macOS half below runs only on a local Mac.
       if (process.platform !== "darwin") {
         expect(windowed.isOverlayVisible, "a title-bar overlay off macOS").toBe(false);
         expect(windowed.paddingTop, "the rail carries an inset off macOS").toBe(
@@ -163,10 +164,13 @@ async function readRail(appWindow: Page): Promise<RailReading> {
   });
 }
 
-/** Puts the window a person sees into or out of fullscreen and waits for the platform's event. */
+/**
+ * Puts the window a person sees into or out of fullscreen and waits for the platform's event,
+ * failing with its own sentence when the event does not come within one in-window step.
+ */
 async function setFullScreen(appUnderTest: AppUnderTest, isFullScreen: boolean): Promise<void> {
   await appUnderTest.application.evaluate(
-    async ({ BaseWindow, WebContentsView }, wantsFullScreen) => {
+    async ({ BaseWindow, WebContentsView }, { wantsFullScreen, timeoutMs }) => {
       const shown = BaseWindow.getAllWindows().filter((baseWindow) =>
         baseWindow.contentView.children.some(
           (child) =>
@@ -178,16 +182,32 @@ async function setFullScreen(appUnderTest: AppUnderTest, isFullScreen: boolean):
       if (shown.length !== 1 || baseWindow === undefined) {
         throw new Error(`Expected one window a person sees, found ${String(shown.length)}.`);
       }
-      const settled = new Promise<void>((resolve) => {
+      let timer: NodeJS.Timeout | undefined;
+      const settled = new Promise<void>((resolve, reject) => {
         if (wantsFullScreen) {
           baseWindow.once("enter-full-screen", resolve);
         } else {
           baseWindow.once("leave-full-screen", resolve);
         }
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `the window did not ${wantsFullScreen ? "enter" : "leave"} fullscreen within ` +
+                `${String(timeoutMs)} ms`,
+            ),
+          );
+        }, timeoutMs);
       });
       baseWindow.setFullScreen(wantsFullScreen);
-      await settled;
+      try {
+        await settled;
+      } finally {
+        clearTimeout(timer);
+      }
     },
-    isFullScreen,
+    {
+      wantsFullScreen: isFullScreen,
+      timeoutMs: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+    },
   );
 }

@@ -24,15 +24,6 @@ const DAEMON_RANDOM_UUID_PROPERTY = {
  * The daemon's `randomUUID` import ban, hoisted for the same reason: the provider-driver
  * descriptor registry's block below restates it without the driver-folder ban.
  */
-/** A relative import through a provider's folder; only the descriptor registry may make one. */
-const DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN = {
-  regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
-  message:
-    "A provider's folder is imported only by the " +
-    "provider-driver descriptor registry; shared daemon code " +
-    "reads a provider through the registry and names none.",
-};
-
 const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
   {
     name: "node:crypto",
@@ -51,6 +42,15 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
       "Use the `node:` prefix for the other builtins.",
   },
 ];
+
+/** A relative import through a provider's folder; only the descriptor registry may make one. */
+const DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN = {
+  regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
+  message:
+    "A provider's folder is imported only by the " +
+    "provider-driver descriptor registry; shared daemon code " +
+    "reads a provider through the registry and names none.",
+};
 
 /**
  * The enum ban, exported so a package config that sets `no-restricted-syntax` for its own

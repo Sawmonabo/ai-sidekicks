@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { onTestFinished } from "vitest";
 
 import { spawnManagedElectronChild } from "./electron/child/child.js";
 import { PACKAGE_ROOT } from "./fixture/bundle.js";
@@ -43,7 +44,8 @@ export interface IsolatedService {
 /**
  * Starts a service in a fresh home and run folder and resolves once it answers, within
  * `readyWithinMs`. Must run inside a test: the service is killed and its folders removed when the
- * test settles. Throws when the service is not built, exits, or is not ready in time.
+ * test settles. Throws when the service is not built, exits, or is not ready in time, and fails
+ * the test when the service exits before the test settles.
  */
 export async function startIsolatedService(readyWithinMs: number): Promise<IsolatedService> {
   if (!existsSync(SERVICE_ENTRY_PATH)) {
@@ -69,27 +71,43 @@ export async function startIsolatedService(readyWithinMs: number): Promise<Isola
     },
   });
 
+  // Before ready, stderr is read for the ready line and an exit fails the start. After it, the
+  // reader goes, and an exit before the test settles fails the test: main's supervisor would
+  // otherwise start a detached service of its own under this home.
+  let exitAfterReady: string | undefined;
   await new Promise<void>((resolve, reject) => {
     let output = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`The isolated service was not ready within ${String(readyWithinMs)} ms`));
-    }, readyWithinMs);
-    managed.child.stderr.on("data", (chunk: Buffer) => {
+    let isReady = false;
+    const readReadyLine = (chunk: Buffer): void => {
       output += chunk.toString("utf8");
       if (output.includes(DAEMON_READY_LINE)) {
+        isReady = true;
         clearTimeout(timer);
+        managed.child.stderr.off("data", readReadyLine);
         resolve();
       }
-    });
+    };
+    const timer = setTimeout(() => {
+      managed.child.stderr.off("data", readReadyLine);
+      reject(new Error(`The isolated service was not ready within ${String(readyWithinMs)} ms`));
+    }, readyWithinMs);
+    managed.child.stderr.on("data", readReadyLine);
     managed.child.once("exit", (code, signal) => {
+      const exit = `code ${String(code)}, signal ${String(signal)}`;
+      if (isReady) {
+        exitAfterReady = exit;
+        return;
+      }
       clearTimeout(timer);
-      reject(
-        new Error(
-          `The isolated service exited before it was ready (code ${String(code)}, signal ` +
-            `${String(signal)}): ${output}`,
-        ),
-      );
+      reject(new Error(`The isolated service exited before it was ready (${exit}): ${output}`));
     });
+  });
+  // Registered after the spawner's teardown, so it runs first and the teardown's own kill is
+  // never read as the service dying.
+  onTestFinished(() => {
+    if (exitAfterReady !== undefined) {
+      throw new Error(`The isolated service exited while the test was running (${exitAfterReady})`);
+    }
   });
   return { environment };
 }

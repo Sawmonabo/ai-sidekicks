@@ -8,7 +8,6 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -30,9 +29,7 @@ import {
 import { startServiceDetached } from "./start.js";
 
 const DAEMON_SOURCE = path.resolve(PACKAGE_ROOT, "../../packages/runtime-daemon/src");
-const SOURCE_LOADER = pathToFileURL(
-  path.join(DAEMON_SOURCE, "__tests__", "typescript-source-loader.mjs"),
-).href;
+const SOURCE_LOADER = import.meta.resolve("@ai-sidekicks/runtime-daemon/typescript-source-loader");
 // The daemon's start runs the login shell under its own 5 s deadline before it binds its socket.
 const LINK_WITHIN_MS = 20_000;
 

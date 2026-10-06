@@ -84,7 +84,7 @@ export function asMockWindow(rendererWindow: unknown): MockRendererWindow {
 
 /**
  * A document Chromium hands `createWindow` for a `window.open` child, reporting to no mock: no case
- * reads what it records.
+ * reads what it records. Each has an id of its own, as Electron's documents do.
  */
 export function handedDocument(): MockWebContents {
   return createMockWebContents({
@@ -92,10 +92,21 @@ export function handedDocument(): MockWebContents {
     recordConstruction: () => undefined,
     recordView: () => undefined,
     forgetWindow: () => undefined,
-    mintId: () => 500,
+    mintId: () => handedDocumentIds.mint(),
     loadFailureFor: () => undefined,
   });
 }
+
+/** Ids for handed documents, counted from far past any the Electron mock mints in one suite. */
+class HandedDocumentIds {
+  #nextId = 10_000;
+
+  public mint(): number {
+    return this.#nextId++;
+  }
+}
+
+const handedDocumentIds = new HandedDocumentIds();
 
 /** A navigation listener as a case invokes it. */
 export type NavigationListener = (event: { preventDefault: () => void }, url: string) => void;
@@ -117,7 +128,7 @@ export function navigationListenerOf(
   rendererWindow: unknown,
   eventName: "will-navigate" | "will-redirect",
 ): NavigationListener {
-  const handler = asMockWindow(rendererWindow).document.handlers.get(eventName);
-  expect(handler).toBeDefined();
-  return handler as unknown as NavigationListener;
+  const listeners = asMockWindow(rendererWindow).document.listenersOf(eventName);
+  expect(listeners).toHaveLength(1);
+  return listeners[0] as unknown as NavigationListener;
 }

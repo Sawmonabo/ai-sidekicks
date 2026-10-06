@@ -3,7 +3,7 @@
 // reporter, then the profile keyed to the install and the single-instance lock, then the kept
 // appearance, the registry of windows and its lifecycle, so a second launch during start is heard;
 // inside `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the bridge
-// handlers, the hidden console window, whose document opens every window a person sees, and the
+// handlers, the hidden window, whose console document opens every window a person sees, and the
 // background service's start and watch. Electron refuses a scheme registered after ready, and a
 // window created before the handler is installed loads against an unhandled scheme.
 
@@ -232,12 +232,12 @@ function startApplication(): void {
       // Both conditions must hold: the compile-time smoke flag and the runtime opt-in.
       const smokeProbeRequested = __SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
 
-      // Sampled before the console window, which starts the load being timed.
+      // Sampled before the hidden window, which starts the load being timed.
       const probeStartedAt = Date.now();
 
       // `did-finish-load` is registered in `beforeLoad` because the load starts inside the
       // factory; a listener attached afterward would depend on Electron's event timing.
-      openWindows.openConsoleWindow({
+      openWindows.openHiddenWindow({
         // The app's facts and any fixture launch reach the console document as renderer switches,
         // which the preload reads once, before the page's first render.
         additionalArguments:

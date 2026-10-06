@@ -13,7 +13,8 @@
       "@ai-sidekicks/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./typescript-source-loader": "./src/__tests__/typescript-source-loader.mjs"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

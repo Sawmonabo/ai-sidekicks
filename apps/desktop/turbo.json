@@ -52,6 +52,7 @@
     "typecheck": {
       // `scripts/**` is an input because the harnesses there are TypeScript that
       // `tsconfig.scripts.json` typechecks, so a change to one must invalidate this task.
+      // The Vitest config and the root module it imports are typechecked by `tsconfig.test.json`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -59,7 +60,10 @@
         "build/**",
         "scripts/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "vitest.config.ts",
+        "vitest/**",
+        "$TURBO_ROOT$/vitest.shared.ts"
       ],
       "outputs": [".tsbuildinfo"]
     },
@@ -154,7 +158,9 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": ["coverage/**"],
       "cache": false
@@ -165,8 +171,9 @@
       "dependsOn": ["build:smoke", "@ai-sidekicks/runtime-daemon#build"],
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.
-      // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
-      // pull the budget harnesses in with it.
+      // `scripts/materialize-electron.ts` is named because this task runs it, and
+      // `scripts/budget/**` because the config reads the launch budgets through it; `scripts/**`
+      // would pull every other script in with them.
       "inputs": [
         "tests/*.test.ts",
         "tests/helpers/**",
@@ -175,7 +182,9 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -186,6 +195,9 @@
     // Each tier is its own task so it can be run, cached and gated alone. `cache: false`
     // throughout, as above: these assert against a tree state, and a cached pass would report on a
     // tree that is no longer there.
+    //
+    // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`), so each
+    // lists `tests/budget/budgets.json` and the `scripts/budget/**` reader that loads it.
 
     "test:renderer": {
       "dependsOn": ["^build"],
@@ -200,7 +212,9 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
-        "package.json"
+        "package.json",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -209,12 +223,16 @@
       "dependsOn": ["^build"],
       "inputs": [
         "src/renderer/src/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/browser/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "package.json"
+        "package.json",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -223,12 +241,16 @@
       "dependsOn": ["^build"],
       "inputs": [
         "src/renderer/src/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/accessibility/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "package.json"
+        "package.json",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -265,13 +287,17 @@
       "inputs": [
         "src/renderer/src/**",
         "src/main/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/e2e/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "out/**"
+        "out/**",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false
@@ -284,13 +310,17 @@
       "inputs": [
         "src/renderer/src/**",
         "src/main/**",
+        "src/shared/**",
+        "fixtures/**",
         "tests/endurance/**",
         "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "out/**"
+        "out/**",
+        "tests/budget/budgets.json",
+        "scripts/budget/**"
       ],
       "outputs": [],
       "cache": false

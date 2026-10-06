@@ -38,7 +38,7 @@ import type { SessionDiagnostics } from "#renderer/services/session-events/sessi
 import { type ScenarioFixtureHandle } from "#renderer/services/daemon/selection.fixture.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript/window-read.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 
 /**
  * How every launch in this tier is asked for: the given script and the tier's own body

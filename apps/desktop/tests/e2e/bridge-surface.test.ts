@@ -14,16 +14,27 @@ import {
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import type { AppFacts } from "../../src/shared/app-facts.js";
-import type { MainProcessState } from "../../src/shared/daemon/daemon-status-topic.js";
-import { createStubBridge, type PreloadApi } from "../../src/shared/preload-api.js";
+import type { AppFacts } from "#shared/app-facts.js";
+import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import { createStubBridge, type PreloadApi } from "#shared/preload-api.js";
 import { withLaunchedApp } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch/body.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 /** The names a bridge member carrying auth material would have. */
 const AUTH_MATERIAL_NAME = /token|dpop|secret/i;
+
+/** Every key, at any depth, of `value` that is named for auth material. */
+function authMaterialNames(value: unknown): string[] {
+  const names: string[] = [];
+  JSON.stringify(value, (name: string, member: unknown) => {
+    names.push(name);
+    return member;
+  });
+  return names.filter((name) => AUTH_MATERIAL_NAME.test(name));
+}
 
 /**
  * A `JSON.stringify` replacer that keeps every object and writes each other member as its kind,
@@ -61,12 +72,12 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
       expect(JSON.parse(pageSurface)).toStrictEqual(
         JSON.parse(JSON.stringify(createStubBridge(SAMPLE_APP_FACTS, ""), memberKind)),
       );
-      const memberNames: string[] = [];
-      JSON.parse(pageSurface, (name: string, value: unknown) => {
-        memberNames.push(name);
-        return value;
-      });
-      expect(memberNames.filter((name) => AUTH_MATERIAL_NAME.test(name))).toEqual([]);
+      const surface = JSON.parse(pageSurface) as { daemon: object };
+      expect(authMaterialNames(surface)).toEqual([]);
+      // The control: the same walk finds a name planted inside one of the surface's members.
+      expect(
+        authMaterialNames({ ...surface, daemon: { ...surface.daemon, sessionToken: "string" } }),
+      ).toEqual(["sessionToken"]);
 
       const connected = await appUnderTest.consolePage.evaluate(
         async (timeoutMs) =>
@@ -92,16 +103,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
               },
             );
           }),
-        appUnderTest.bodyAllowance.remainingMs(),
+        appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
       );
 
       expect(connected.connection).toEqual({ kind: "connected" });
-      const deliveredKeys: string[] = [];
-      JSON.stringify(connected, (key: string, value: unknown) => {
-        deliveredKeys.push(key);
-        return value;
-      });
-      expect(deliveredKeys.filter((key) => AUTH_MATERIAL_NAME.test(key))).toEqual([]);
+      expect(authMaterialNames(connected)).toEqual([]);
 
       const reading = await appUnderTest.consolePage.evaluate(
         async (): Promise<MachineSettingsReading> =>

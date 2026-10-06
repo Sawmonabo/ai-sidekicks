@@ -1,12 +1,13 @@
 {
   "schemaVersion": 3,
   "description": "The single source of truth for every numeric budget the app is gated on. Rows carry a `scope`. A `product` row is one of the app's own product figures: every one of them appears here exactly once, whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound with no product figure behind it — whether the scaffolding applies it to itself or this harness applies it to a shipped artifact the product list does not bound in that unit — so its `specTarget` states the bound in its own terms while `harnessBudgetDerivation` states, once for the whole set, why those figures and not others. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
-  "harnessBudgetDerivation": "A `harness` row has no product figure behind it, so this field says, once for the whole set, where its number comes from; a derivation copied into each row would have as many places to drift as there are rows. There are two groups. THE FIVE `launch-*` AND `endurance-body` ROWS are the slices of ONE tier timeout. Three bound the launch: `launch-deadline.ts` mints one deadline per launch and divides it into readiness, the frame paint probe and cleanup, so a launch that overruns produces its own diagnostic instead of Vitest's undiagnosable kill. The other two bound the caller's test body between a settled launch and its cleanup, so Vitest never kills a body mid-poll, before the poll's own message or the cleanup settles, leaving an Electron alive. A launching tier's `testTimeout` is derived from these rows rather than written as a literal: `tierTimeoutFor()` in `launch-deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside these rows and not a row among them, since every row here is a ceiling. The `launch-cleanup` row is reserved TWICE inside the launch budget (`CLEANUP_PHASES` in `launch-deadline.ts`), because one cleanup spends it in two phases: the close it races, and then the termination loop that restarts the same figure when the close had to be abandoned. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails inside its own bound rather than quietly under Vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation. THE `renderer-initial-fonts` ROW bounds a shipped artifact rather than the scaffolding. It sits in this scope because the product list names eight rows and no font row, so a ninth `product` id would break the one claim that list is checkable by — that it names these and nothing else — while the bytes still need a ceiling. Its figure is derived from the faces rather than picked. `src/renderer/src/styles/typeface.ts` declares ONE VARIABLE FILE PER FAMILY AND STYLE — the Roman and Italic Latin-1 splits of `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`, which the app's typography rules require — measuring 68 988 B and 80 188 B for the sans and 32 576 B and 38 688 B for the mono, 220 440 B in total. Italic runs need their own faces because a family declaring only its upright face renders them as a browser-synthesized oblique, a shear of the upright outlines, which those rules do not admit. 232 000 B leaves 11 560 B — about 5.2 % — for a re-subset or a foundry version bump while still refusing a FIFTH font file on the initial graph: the smallest split either package publishes at these pins is 13 300 B (`IBM Plex Mono Var-Roman-Latin3.woff2`, the row's `refusalControlBytes`), so any fifth file takes the total to at least 233 740 B, which is over. Refusing that file is the property the figure is chosen for, which is why it is not rounded up to the next convenient number, and why the headroom is 5.2 % rather than ten percent: ten percent of 220 440 B is 22 044 B, larger than the smallest file either package publishes, so a ten-percent ceiling would admit a fifth face and the refusal would stop holding. THE CEILING MOVES WITH ITS SUBJECT, IN EITHER DIRECTION, AND ONLY WITH IT: when the faces the design ships change, the figure is re-derived over the files it then ships, and it is never widened to admit a reading that failed.",
+  "harnessBudgetDerivation": "A `harness` row has no product figure behind it, so this field says, once for the whole set, where its number comes from; a derivation copied into each row would have as many places to drift as there are rows. There are three groups. THE FIVE `launch-*` AND `endurance-body` ROWS are the slices of ONE tier timeout. Three bound the launch: `launch-deadline.ts` mints one deadline per launch and divides it into readiness, the frame paint probe and cleanup, so a launch that overruns produces its own diagnostic instead of Vitest's undiagnosable kill. The other two bound the caller's test body between a settled launch and its cleanup, so Vitest never kills a body mid-poll, before the poll's own message or the cleanup settles, leaving an Electron alive. A launching tier's `testTimeout` is derived from these rows rather than written as a literal: `tierTimeoutFor()` in `launch-deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside these rows and not a row among them, since every row here is a ceiling. The `launch-cleanup` row is reserved TWICE inside the launch budget (`CLEANUP_PHASES` in `launch-deadline.ts`), because one cleanup spends it in two phases: the close it races, and then the termination loop that restarts the same figure when the close had to be abandoned. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails inside its own bound rather than quietly under Vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation. THE FOUR ENDURANCE DETECTION ROWS (`steady-heap-growth`, `detached-node-retention`, `transcript-fold-cost-ratio` and `transcript-fold-retention`) bound what the endurance tier reads off the app over a workload no product figure names: a growth, a retention or a cost ratio rather than a product ceiling. Each sits below what the defect it hunts would produce and above the noise a clean run carries, and its row's `notes` says how. THE `renderer-initial-fonts` ROW bounds a shipped artifact rather than the scaffolding. It sits in this scope because the product list names eight rows and no font row, so a ninth `product` id would break the one claim that list is checkable by — that it names these and nothing else — while the bytes still need a ceiling. Its figure is derived from the faces rather than picked. `src/renderer/src/styles/typeface.ts` declares ONE VARIABLE FILE PER FAMILY AND STYLE — the Roman and Italic Latin-1 splits of `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`, which the app's typography rules require — measuring 68 988 B and 80 188 B for the sans and 32 576 B and 38 688 B for the mono, 220 440 B in total. Italic runs need their own faces because a family declaring only its upright face renders them as a browser-synthesized oblique, a shear of the upright outlines, which those rules do not admit. 232 000 B leaves 11 560 B — about 5.2 % — for a re-subset or a foundry version bump while still refusing a FIFTH font file on the initial graph: the smallest split either package publishes at these pins is 13 300 B (`IBM Plex Mono Var-Roman-Latin3.woff2`, the row's `refusalControlBytes`), so any fifth file takes the total to at least 233 740 B, which is over. Refusing that file is the property the figure is chosen for, which is why it is not rounded up to the next convenient number, and why the headroom is 5.2 % rather than ten percent: ten percent of 220 440 B is 22 044 B, larger than the smallest file either package publishes, so a ten-percent ceiling would admit a fifth face and the refusal would stop holding. THE CEILING MOVES WITH ITS SUBJECT, IN EITHER DIRECTION, AND ONLY WITH IT: when the faces the design ships change, the figure is re-derived over the files it then ships, and it is never widened to admit a reading that failed.",
   "unitConventions": {
     "kB": "1000 bytes (SI). The spec writes `kB`; the SI reading is also the stricter one (450 kB = 450000 B, against 450 KiB = 460800 B), so taking it costs the budget nothing and cannot make a passing measurement out of a failing one.",
     "MB": "1000000 bytes (SI), by the same reading and the same reasoning (120 MB = 120000000 B, against 120 MiB = 125829120 B).",
     "MiB": "1048576 bytes (binary). The spec writes `MiB` for the terminal budget explicitly, so this one is not an interpretation.",
     "ms": "milliseconds",
+    "ratio": "a plain quotient of two readings taken in the same unit",
     "percentOfOneCore": "percent of a single core, averaged over the window the budget's `specTarget` names"
   },
   "measurementProtocol": {
@@ -239,19 +240,19 @@
       "id": "launch-body",
       "label": "App launch test-body allowance",
       "subject": "The wall time a test body gets between a settled launch and its cleanup — the interval `withLaunchedApp` runs the caller's own function in, and the default for a tier that states no allowance of its own.",
-      "specTarget": "≤ 70 000 ms between a settled launch and its cleanup",
+      "specTarget": "≤ 80 500 ms between a settled launch and its cleanup",
       "limit": {
         "comparison": "<=",
-        "value": 70000,
+        "value": 80500,
         "unit": "ms",
-        "canonicalValue": 70000,
+        "canonicalValue": 80500,
         "canonicalUnit": "ms"
       },
       "scope": "harness",
       "status": "enforced",
       "measuredBy": "apps/desktop/tests/helpers/launch/body.ts",
       "subjectSymbol": "BodyAllowance",
-      "notes": "Counted from the worst body in the tree rather than chosen, with every wait in that body drawing on this allowance. `e2e/color-scheme/lost-on-reload.test.ts` declares, in order: the palette overlay opening at 10 000 ms; three 10 000 ms `expect.poll` waits, on the applied attribute, on the durable write, and on the attribute after a reload — 30 000 ms in all; and the reload, whose navigation and the frame element it must produce share ONE 30 000 ms clock, because the renderer boot they perform between them is the same subject `launch-readiness` bounds. 10 000 + 30 000 + 30 000 is this figure. A bound under a body's own declared waits would fire first and replace that body's message (\"the scheme did not change\") with a sentence about a clock, which is the inversion the launch deadline exists to undo. A body is handed what is LEFT of this allowance and asks for `boundedMs(<its own bound>)`, the smaller of the two, so the first wait that cannot fit fails with ITS sentence rather than the generic overrun. That every bounded wait in a launching tier draws on the allowance is a reviewer's check — `apps/desktop/AGENTS.md` states it — rather than a source scan. The derivation these rows share is stated once in `harnessBudgetDerivation`. Applied by `BodyAllowance`, which every launching tier's body draws on."
+      "notes": "Counted from the worst body in the tree rather than chosen, with every wait in that body drawing on this allowance. `e2e/several-windows.test.ts` declares, in order: a 10 000 ms `expect.poll` for the window layout the console keeps; the reload, whose navigation, the windows it reopens and their frame elements share ONE 30 000 ms clock, because the renderer boot they perform between them is the same subject `launch-readiness` bounds; closing one window and minimizing another, 10 000 ms each; a 500 ms frame count; and two 10 000 ms `expect.poll` waits, on the View menu's scheme reaching each window still open — 20 000 ms in all. 10 000 + 30 000 + 20 000 + 500 + 20 000 is this figure. A bound under a body's own declared waits would fire first and replace that body's message (\"the scheme did not change\") with a sentence about a clock, which is the inversion the launch deadline exists to undo. A body is handed what is LEFT of this allowance and asks for `boundedMs(<its own bound>)`, the smaller of the two, so the first wait that cannot fit fails with ITS sentence rather than the generic overrun. That every bounded wait in a launching tier draws on the allowance is a reviewer's check — `apps/desktop/AGENTS.md` states it — rather than a source scan. The derivation these rows share is stated once in `harnessBudgetDerivation`. Applied by `BodyAllowance`, which every launching tier's body draws on."
     },
     {
       "id": "endurance-body",
@@ -270,6 +271,78 @@
       "measuredBy": "apps/desktop/tests/helpers/launch/budgets.ts",
       "subjectSymbol": "ENDURANCE_BODY_ALLOWANCE_MS",
       "notes": "A separate figure because the endurance body is a different subject from an end-to-end one, not a slower version of it: `steady-state.test.ts` drives 200 churn cycles twice over with settling heap samples either side, which its own count comment measures at roughly 50 ms a cycle — well under a minute warm, and the reason that tier carries a patience an order of magnitude past the end-to-end one. Nine minutes puts the derived tier timeout at 607 000 ms, which is `tierTimeoutFor(540 000)` read off its own constants: `LAUNCH_BUDGET_MS` of 65 000 — 30 000 readiness plus 15 000 frame paint probe plus `CLEANUP_PHASES` × 10 000 cleanup — then this allowance, then the 2 000 ms settlement residual. Its own waits draw on this allowance through the same `boundedMs` the end-to-end bodies use, but this FIGURE is deliberately not counted from them: a churn cycle's declared bounds are ceilings for a wedged app rather than intervals a run spends, and 200 of them summed would describe no run this tier performs. The derivation these rows share is stated once in `harnessBudgetDerivation`."
+    },
+    {
+      "id": "steady-heap-growth",
+      "label": "Steady-state heap growth across route churn",
+      "subject": "How much the renderer heap grows between the settled reading after warm-up and the settled reading after the endurance tier's churn cycles over the concurrent-streaming workload, each behind a forced collection.",
+      "specTarget": "≤ 8 MiB of growth across the run",
+      "limit": {
+        "comparison": "<=",
+        "value": 8,
+        "unit": "MiB",
+        "canonicalValue": 8388608,
+        "canonicalUnit": "bytes"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "measuredBy": "apps/desktop/tests/endurance/steady-state.test.ts",
+      "subjectSymbol": "RendererHeapProbe",
+      "notes": "Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run. Not a percentage, because a percentage of a large baseline is a large absolute allowance and a leak's size does not depend on the application's. Over the run's 200 cycles a leak of about 40 kB a cycle reaches it; a smaller leak is below what this instrument can see. It bounds a difference of two readings, never the heap itself: the ceiling at rest is `renderer-heap-at-rest`'s and the thirty-minute slope is `steady-heap-concurrent-streaming`'s, so no number has two owners."
+    },
+    {
+      "id": "detached-node-retention",
+      "label": "Detached DOM retained across route churn",
+      "subject": "The bytes the renderer heap retains in `Detached HTMLDivElement` nodes after a quarter of `steady-heap-growth`'s churn cycles, read by constructor from one heap snapshot taken behind a forced collection.",
+      "specTarget": "≤ 4 MiB of detached nodes after the churn",
+      "limit": {
+        "comparison": "<=",
+        "value": 4,
+        "unit": "MiB",
+        "canonicalValue": 4194304,
+        "canonicalUnit": "bytes"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "measuredBy": "apps/desktop/tests/endurance/steady-state.test.ts",
+      "subjectSymbol": "RendererHeapProbe",
+      "notes": "Well above the transient detachment a React unmount leaves for the next collection and far below a frame that retained one route's subtree per cycle; at this many cycles the smallest per-cycle retention it can see is about 80 kB, and a clean run on macOS reads 0 kB. Not derived from `steady-heap-growth`: that bounds a difference of two readings over the whole application, this an absolute retention of one constructor. The same snapshot's `Map`, `Array` and attached `HTMLDivElement` readings are its controls, so a snapshot that was never parsed, or that spells DOM nodes differently, fails instead of reading zero."
+    },
+    {
+      "id": "transcript-fold-cost-ratio",
+      "label": "Transcript fold cost over a four times longer log",
+      "subject": "How many times longer the transcript's fold, `deriveTranscriptWindow`, takes over a generated ten-thousand-row session than over a quarter of it, each the fastest of several passes.",
+      "specTarget": "≤ 8 times the cost for a log four times as long",
+      "limit": {
+        "comparison": "<=",
+        "value": 8,
+        "unit": "ratio",
+        "canonicalValue": 8,
+        "canonicalUnit": "ratio"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "measuredBy": "apps/desktop/tests/endurance/transcript/endurance.test.ts",
+      "subjectSymbol": "deriveTranscriptWindow",
+      "notes": "A ratio between two sizes rather than a wall-clock ceiling, so a slower machine does not break it. The step is four times, so a linear fold lands near 4 and a quadratic one near 16. Measured at about 4.4 (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core laptop); 8 leaves room over noise while sitting half way to the quadratic figure. Fixed per-call overhead can only push the ratio down, so it cannot manufacture a failure."
+    },
+    {
+      "id": "transcript-fold-retention",
+      "label": "Transcript fold retention",
+      "subject": "What twenty folds of a generated ten-thousand-row session add to the heap of the process running the fold, `deriveTranscriptWindow`, read behind a forced collection.",
+      "specTarget": "≤ 2 MiB retained after twenty folds",
+      "limit": {
+        "comparison": "<=",
+        "value": 2,
+        "unit": "MiB",
+        "canonicalValue": 2097152,
+        "canonicalUnit": "bytes"
+      },
+      "scope": "harness",
+      "status": "enforced",
+      "measuredBy": "apps/desktop/tests/endurance/transcript/endurance.test.ts",
+      "subjectSymbol": "deriveTranscriptWindow",
+      "notes": "Not zero, because V8 keeps code objects, inline caches and deoptimization data alive across a run. Not a fraction of the baseline, since a leak's size does not depend on how large the process was. Bounded from both sides: one held window over this log measures ~3.9 MB, so a ceiling above that could not catch a fold keeping a single one of its twenty outputs; 2 MiB sits under one window and two orders of magnitude above the ~21 kB twenty clean folds retain. A Node heap reading is honest here because the subject is the fold's own retained structures, which live in whatever process runs it; it states no renderer ceiling."
     }
   ]
 }

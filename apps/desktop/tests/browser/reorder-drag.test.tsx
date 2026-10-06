@@ -30,7 +30,7 @@ import {
 import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
 import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
-import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 
 const frames = new FrameWindows();
 

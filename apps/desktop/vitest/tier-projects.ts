@@ -11,8 +11,8 @@
 
 import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
-import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../tests/helpers/launch/budgets.js";
-import { tierTimeoutFor } from "../tests/helpers/launch/launch-deadline.js";
+import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "#test/helpers/launch/budgets.ts";
+import { tierTimeoutFor } from "#test/helpers/launch/launch-deadline.ts";
 import {
   browserModeOptions,
   BROWSER_MODE_DEDUPE,

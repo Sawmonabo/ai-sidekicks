@@ -47,24 +47,24 @@ vi.mock("./services/daemon/daemon-supervisor.js", () => ({
 }));
 
 /** Why a failing startup's ready continuation rejects: the last step, so most of it is done. */
-const STARTUP_FAILURE = new Error("the console window could not be created");
+const STARTUP_FAILURE = new Error("the hidden window could not be created");
 
-/** Whether the console window throws `STARTUP_FAILURE` on the case currently running. */
-let isConsoleWindowFailing = false;
+/** Whether the hidden window throws `STARTUP_FAILURE` on the case currently running. */
+let isHiddenWindowFailing = false;
 
-const openConsoleWindow = vi.fn();
+const openHiddenWindow = vi.fn();
 
 vi.mock("./windows/window.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./windows/window.js")>();
-  openConsoleWindow.mockImplementation(
-    (...options: Parameters<typeof original.openConsoleWindow>) => {
-      if (isConsoleWindowFailing) {
+  openHiddenWindow.mockImplementation(
+    (...options: Parameters<typeof original.openHiddenWindow>) => {
+      if (isHiddenWindowFailing) {
         throw STARTUP_FAILURE;
       }
-      return original.openConsoleWindow(...options);
+      return original.openHiddenWindow(...options);
     },
   );
-  return { ...original, openConsoleWindow };
+  return { ...original, openHiddenWindow };
 });
 
 /** Entries the startup log was handed, kept in memory. */
@@ -147,8 +147,8 @@ beforeEach(() => {
   vi.resetModules();
   writtenEntries.length = 0;
   reportUnwrittenDiagnosticsOutcome = async () => {};
-  isConsoleWindowFailing = false;
-  openConsoleWindow.mockClear();
+  isHiddenWindowFailing = false;
+  openHiddenWindow.mockClear();
   // The crash reporter reads the machine settings file under the home folder at import; one
   // that does not exist reads as the defaults, so the person's own settings never decide this
   // suite.
@@ -202,7 +202,7 @@ describe("main-process startup composition", () => {
 
 describe("a failed startup exits, whatever the record of it does first", () => {
   beforeEach(() => {
-    isConsoleWindowFailing = true;
+    isHiddenWindowFailing = true;
     // Every case deliberately logs a failure; keep the run output clean.
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -248,7 +248,7 @@ describe("a failed startup exits, whatever the record of it does first", () => {
       process.argv = launchArguments;
     }
 
-    expect(openConsoleWindow).not.toHaveBeenCalled();
+    expect(openHiddenWindow).not.toHaveBeenCalled();
     expect(writtenEntries[0]?.message).toContain("--fixture");
     expect(electronMock.exitCodes).toEqual([1]);
   });

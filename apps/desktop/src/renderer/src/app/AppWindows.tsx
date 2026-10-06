@@ -1,14 +1,16 @@
 // Every window a person sees, drawn from the console document. The console document is never
 // shown; it keeps what every window shares (the session stores, the UI-state store, the drafts, the
 // appearance and the app's commands) and opens each window with `window.open`: the window used last
-// first, on the address the launch named, then the rest from the kept window layout. A safe start
-// opens that one window on the sessions list, reads no kept layout and leaves it as it was, and says
-// so in a line whose `Restore windows` reopens the kept windows.
+// first, on the address the launch named, then the rest from the kept window layout, and reopens
+// the window main asks for when none is open. A safe start opens that one window on the sessions
+// list, reads no kept layout and leaves it as it was, and says so in a line whose `Restore
+// windows` reopens the kept windows and ends the safe start.
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { parseRoute, formatRoute, DEFAULT_ROUTE, type AppRoute } from "#renderer/routing/routes.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { useWindowRestore } from "#renderer/services/window/hooks/useWindowRestore.js";
 import { type OpenWindow, type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { DraftStore } from "#renderer/store/draft-store.js";
@@ -179,14 +181,23 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
     return openWindows.subscribe(keep);
   }, [isLayoutKept, openWindows, uiStateStore]);
 
+  const reopenWindow = useCallback(
+    (windowId: string) => {
+      openAt(openWindows, windowId, DEFAULT_ROUTE);
+    },
+    [openWindows],
+  );
+  const endSafeStart = useWindowRestore(bridge.window, reopenWindow);
+
   const restoreWindows = useCallback(() => {
     void readKeptWindowIds(uiStateStore).then((keptWindowIds) => {
       for (const windowId of keptWindowIds) {
         openAt(openWindows, windowId, DEFAULT_ROUTE);
       }
       setLayoutKept(true);
+      return endSafeStart();
     });
-  }, [openWindows, uiStateStore]);
+  }, [openWindows, uiStateStore, endSafeStart]);
 
   return (
     <>

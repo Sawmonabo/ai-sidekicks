@@ -1,7 +1,7 @@
 // The machine's workflow runs as the fixture daemon holds them: five saved workflows and the runs
 // they made in every status a run can stand in, a run waiting on a chat reply and a chain held
-// behind its question among them. `run-writes.ts` applies the writes the playback has
-// answered over them and `replies.ts` answers the calls from that state.
+// behind its question among them. `writes.ts` applies the writes the playback has answered over
+// them and `replies.ts` answers the calls from that state.
 //
 // Every instant is a whole number of minutes before the scenario's start, built from the epoch
 // rather than parsed, so no stamp depends on the host's zone.

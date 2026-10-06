@@ -34,6 +34,7 @@ import { webAddressFault } from "@ai-sidekicks/contracts/web-address";
 import { app, shell, type WebContents } from "electron";
 
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
+import { describeFailure } from "../services/failure-message.js";
 import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer/scheme.js";
 
 /** Where a refused navigation or an outside address that did not open is recorded. */
@@ -121,7 +122,7 @@ function openExternalFromWindow(targetUrl: string, log: NavigationLog): void {
     writeNavigationEntry(
       log,
       "error",
-      `an outside address was not opened: ${error instanceof Error ? error.message : String(error)}`,
+      `an outside address was not opened: ${describeFailure(error)}`,
     );
   });
 }

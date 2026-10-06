@@ -16,6 +16,7 @@ import * as z from "zod/mini";
 import { isConsoleWindowId } from "#shared/window/frame-name.js";
 
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
+import { describeFailure } from "../../services/failure-message.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import { writeOwnerOnlyJsonFileSync } from "../../services/owner-only-file.js";
 
@@ -68,7 +69,7 @@ export class WindowPlaceFile {
       fileText = readFileSync(this.#filePath, "utf8");
     } catch (error) {
       if (!isMissingPath(error)) {
-        this.#record("warning", `the window places were unreadable: ${describe(error)}`);
+        this.#record("warning", `the window places were unreadable: ${describeFailure(error)}`);
       }
       return nothingKept();
     }
@@ -78,7 +79,7 @@ export class WindowPlaceFile {
     } catch (error) {
       return this.#repairSync(
         nothingKept(),
-        `the window places file is not JSON: ${describe(error)}`,
+        `the window places file is not JSON: ${describeFailure(error)}`,
       );
     }
     if (!isRecord(fileJson)) {
@@ -122,7 +123,10 @@ export class WindowPlaceFile {
     try {
       this.writeSync(kept);
     } catch (error) {
-      this.#record("error", `the window places file could not be rewritten: ${describe(error)}`);
+      this.#record(
+        "error",
+        `the window places file could not be rewritten: ${describeFailure(error)}`,
+      );
     }
     return kept;
   }
@@ -143,8 +147,4 @@ function nothingKept(): KeptWindowPlaces {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

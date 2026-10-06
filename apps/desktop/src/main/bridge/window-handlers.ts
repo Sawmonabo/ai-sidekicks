@@ -1,9 +1,10 @@
 // The bridge's `window` members main answers: the appearance the renderer chose, the current
 // appearance record a subscription starts from, a window's minimum size, held within the work area
-// of the display the window is on, and the widths a window with no kept place opens at. Only the
-// console document asks, and it names the window by the id its frame name carries. The pushes that
-// follow a subscription's first delivery come from main's registry of windows
-// (`../windows/open-windows.ts`), which owns every window and the console document.
+// of the display the window is on, the widths a window with no kept place opens at, and the end of
+// a safe start. Only the console document asks, and it names the window by the id its frame name
+// carries. The pushes that follow a subscription's first delivery, and main's ask to reopen a
+// window, come from main's registry of windows (`../windows/open-windows.ts`), which owns every
+// window and the console document.
 
 import { screen, type IpcMainInvokeEvent } from "electron";
 import * as z from "zod/mini";
@@ -21,7 +22,7 @@ export interface WindowHandlerContext {
   readonly appearance: Pick<KeptAppearance, "choose" | "record">;
   readonly openWindows: Pick<
     OpenWindows,
-    "windowWithId" | "isConsoleDocument" | "windowUsedLast" | "setDefaultSizes"
+    "windowWithId" | "isConsoleDocument" | "windowUsedLast" | "setDefaultSizes" | "endSafeStart"
   >;
 }
 
@@ -33,7 +34,8 @@ type WindowChannel =
   | typeof BRIDGE_CHANNELS.setAppearance
   | typeof BRIDGE_CHANNELS.readAppearance
   | typeof BRIDGE_CHANNELS.setMinimumSize
-  | typeof BRIDGE_CHANNELS.setDefaultSizes;
+  | typeof BRIDGE_CHANNELS.setDefaultSizes
+  | typeof BRIDGE_CHANNELS.endSafeStart;
 
 const appearanceRequestSchema = z.strictObject({
   choice: appearanceChoiceSchema,
@@ -46,7 +48,6 @@ const windowSizeSchema: z.ZodMiniType<WindowSize> = z.strictObject({
 });
 
 const defaultSizesSchema: z.ZodMiniType<WindowDefaultSizes> = z.strictObject({
-  consoleWindowWidth: z.number().check(z.positive()),
   paneWidths: z.record(z.string(), z.number().check(z.positive())),
 });
 
@@ -64,24 +65,27 @@ export function windowAnswers(
       throw new Error("Only the console document asks about a window.");
     }
   };
-  const namedWindow = (event: IpcMainInvokeEvent, windowId: unknown) => {
-    requireConsoleDocument(event);
-    const baseWindow =
-      typeof windowId === "string" ? context.openWindows.windowWithId(windowId) : undefined;
+  const namedWindow = (windowId: string) => {
+    const baseWindow = context.openWindows.windowWithId(windowId);
     if (baseWindow === undefined) {
       throw new Error("No open window has that id.");
     }
     return baseWindow;
   };
   return {
-    [BRIDGE_CHANNELS.setAppearance]: (_event, request) => {
+    [BRIDGE_CHANNELS.setAppearance]: (event, request) => {
+      requireConsoleDocument(event);
       const { choice, grounds } = appearanceRequestSchema.parse(request);
       return context.appearance.choose(choice, grounds);
     },
-    [BRIDGE_CHANNELS.readAppearance]: (): AppearanceRecord => context.appearance.record,
+    [BRIDGE_CHANNELS.readAppearance]: (event): AppearanceRecord => {
+      requireConsoleDocument(event);
+      return context.appearance.record;
+    },
     [BRIDGE_CHANNELS.setMinimumSize]: (event, request) => {
+      requireConsoleDocument(event);
       const { windowId, size } = minimumSizeRequestSchema.parse(request);
-      const baseWindow = namedWindow(event, windowId);
+      const baseWindow = namedWindow(windowId);
       // A floor past the display's work area would leave the window larger than its display.
       const { workArea } = screen.getDisplayMatching(baseWindow.getBounds());
       // The platform takes whole pixels; rounding up keeps the floor from cutting a part off.
@@ -93,6 +97,10 @@ export function windowAnswers(
     [BRIDGE_CHANNELS.setDefaultSizes]: (event, request) => {
       requireConsoleDocument(event);
       context.openWindows.setDefaultSizes(defaultSizesSchema.parse(request));
+    },
+    [BRIDGE_CHANNELS.endSafeStart]: (event) => {
+      requireConsoleDocument(event);
+      context.openWindows.endSafeStart();
     },
   };
 }

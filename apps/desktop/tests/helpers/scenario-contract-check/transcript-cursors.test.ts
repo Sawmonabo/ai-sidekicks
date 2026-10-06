@@ -1,10 +1,12 @@
 // Every transcript cursor a scenario's session read hands out names a row its stream delivers: a
 // subscription opened after it catches up on exactly the rows behind it, none lost or doubled, and
-// is never refused. Each case drives the real fixture bridge and engine.
+// is never refused, while a cursor the log never held is. Each case drives the real fixture bridge
+// and engine.
 
 import { describe, expect, it } from "vitest";
 
 import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon/methods";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
 
@@ -34,6 +36,11 @@ const SCENARIOS_HANDING_OUT_CURSORS = SCENARIOS.filter(
 );
 
 describe("scenario transcript cursors — each one resumes the scenario's stream", () => {
+  // `it.each` over no scenarios makes no case, so the check would pass over an empty catalog.
+  it("has scenarios that hand cursors out", () => {
+    expect(SCENARIOS_HANDING_OUT_CURSORS.length).toBeGreaterThan(0);
+  });
+
   it.each(SCENARIOS_HANDING_OUT_CURSORS.map((scenario) => [scenario.id, scenario] as const))(
     "%s: a subscription after each handed-out cursor delivers exactly the rows behind it",
     async (_scenarioId, scenario) => {
@@ -41,6 +48,13 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
       fixture.engine.advance(lastScriptedBeatMs(scenario) + 1);
       const read = await readTranscriptCursors(fixture);
       const loggedSequences = scenario.beats.map((beat) => beat.event.sequence);
+
+      // The negative control: a cursor the log never held is refused and delivers nothing.
+      const afterUnknown = await resumeAfter(fixture, "cursor-the-log-never-held");
+      expect(afterUnknown.events).toStrictEqual([]);
+      expect(afterUnknown.ends).toMatchObject([
+        { reason: "refused", refusal: { data: { type: EVENT_CURSOR_UNRESOLVABLE_CODE } } },
+      ]);
 
       // The newest row has nothing behind it, and the stream says so by delivering nothing.
       const afterLatest = await resumeAfter(fixture, read.latest);
@@ -75,12 +89,15 @@ async function readTranscriptCursors(
     .transcriptCursors;
 }
 
-/** Open the whole-session stream after one cursor and collect what it delivers and how it ends. */
+/**
+ * Open the whole-session stream after one cursor, collect what it delivers and how it ends, and
+ * close it.
+ */
 async function resumeAfter(fixture: FixtureUnderTest, afterCursor: string): Promise<ResumedStream> {
   const events: EventEnvelope[] = [];
   const ends: DaemonSubscriptionEnd[] = [];
   const request = { sessionId: fixture.engine.scenario.sessionId, afterCursor };
-  fixture.bridge.daemon.subscribe(
+  const unsubscribe = fixture.bridge.daemon.subscribe(
     SESSION_EVENT_STREAM as DaemonEvent,
     request as DaemonSubscribeParams<DaemonEvent>,
     (frame: unknown) => {
@@ -96,5 +113,6 @@ async function resumeAfter(fixture: FixtureUnderTest, afterCursor: string): Prom
   await new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });
+  unsubscribe();
   return { events, ends };
 }

@@ -23,6 +23,7 @@ import {
   type AppearanceRecord,
 } from "#shared/appearance.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
+import { describeFailure } from "../services/failure-message.js";
 import { isMissingPath } from "../services/missing-path.js";
 import { writeOwnerOnlyJsonFileSync, writeOwnerOnlyJsonFile } from "../services/owner-only-file.js";
 
@@ -118,10 +119,7 @@ export class AppearanceRecordFile {
   }
 
   #report(level: "error" | "warning", what: string, failure?: unknown): void {
-    const cause =
-      failure === undefined
-        ? ""
-        : `: ${failure instanceof Error ? failure.message : String(failure)}`;
+    const cause = failure === undefined ? "" : `: ${describeFailure(failure)}`;
     this.#log.write({
       at: this.#now().toISOString(),
       level,

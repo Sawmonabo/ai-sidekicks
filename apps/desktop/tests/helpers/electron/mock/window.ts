@@ -1,7 +1,8 @@
 // The window stand-ins the one `electron` mock hands to production code: `BaseWindow`, the
 // `WebContentsView` it hosts, and the view's `webContents`. Each records what a test reads (URLs
 // loaded, pushes sent, listeners registered) and does what the code under test relies on: a close
-// fires `close` then `closed`, a destroyed `webContents` fires `destroyed`. `electron-mock.ts` owns
+// fires `close` then `closed`, a destroyed `webContents` fires `destroyed`, and every listener on
+// an event runs, a `once` one only the first time, as Electron's emitters do. `electron-mock.ts` owns
 // the rest of the `electron` module.
 
 import { vi } from "vitest";
@@ -36,11 +37,6 @@ export interface MockWindowOpenDetails {
 /** The `webContents` members the main process touches. */
 export interface MockWebContents {
   readonly id: number;
-  /**
-   * Every listener registered through `on` / `once`, by event name; the last one registered wins.
-   * Lets a test invoke the listener production code registered instead of re-deriving it.
-   */
-  readonly handlers: Map<string, (...args: never[]) => unknown>;
   readonly on: ReturnType<typeof vi.fn>;
   readonly once: ReturnType<typeof vi.fn>;
   readonly setWindowOpenHandler: ReturnType<typeof vi.fn>;
@@ -54,8 +50,13 @@ export interface MockWebContents {
   windowOpenHandler: ((details: MockWindowOpenDetails) => unknown) | undefined;
   loadURL(url: string): Promise<void>;
   send(channel: string, value: unknown): void;
-  /** Fire one registered listener with `args`, as Electron would emit the event. */
+  /** Fire every listener registered for `eventName` with `args`, as Electron would emit it. */
   emit(eventName: string, ...args: unknown[]): void;
+  /**
+   * The listeners registered for `eventName` and not yet spent, so a test can invoke the one
+   * production code registered instead of re-deriving it.
+   */
+  listenersOf(eventName: string): readonly ((...args: never[]) => unknown)[];
   /** Destroys this document and fires `destroyed`, as a page's own `window.close()` does. */
   close(): void;
   isDestroyed(): boolean;
@@ -99,13 +100,15 @@ export interface MockBaseWindow {
   isMaximized(): boolean;
   isFullScreen(): boolean;
   isMinimized(): boolean;
+  /** Whether the window was shown and has not closed since. */
+  isVisible(): boolean;
   setTitle(title: string): void;
   setBackgroundColor(color: string): void;
   setMinimumSize(width: number, height: number): void;
   setBounds(bounds: MockRectangle): void;
   getContentBounds(): MockRectangle;
   getNormalBounds(): MockRectangle;
-  /** Fires `close`, then `closed`, and leaves the window destroyed; throws once it is, as Electron. */
+  /** Fires `close`, then `closed`, and leaves the window destroyed; throws once it is destroyed. */
   close(): void;
   /** Fires `closed` without `close`, as Electron's `destroy` does. */
   destroy(): void;
@@ -125,26 +128,62 @@ export interface MockWindowOwner {
   loadFailureFor(url: string): Error | undefined;
 }
 
+/**
+ * The listeners of one emitter, by event name. Every listener on an event runs, in the order it was
+ * added, and one added with `once` is removed before it runs, as Node's `EventEmitter` does.
+ */
+export class MockEventListeners {
+  readonly #listeners = new Map<string, ((...args: never[]) => unknown)[]>();
+
+  /** Adds `listener` for every later `eventName`. */
+  public on(eventName: string, listener: (...args: never[]) => unknown): void {
+    this.#listeners.set(eventName, [...this.listenersOf(eventName), listener]);
+  }
+
+  /** Adds `listener` for the next `eventName` only. */
+  public once(eventName: string, listener: (...args: never[]) => unknown): void {
+    const onceListener = (...args: never[]): unknown => {
+      this.#listeners.set(
+        eventName,
+        this.listenersOf(eventName).filter((each) => each !== onceListener),
+      );
+      return listener(...args);
+    };
+    this.on(eventName, onceListener);
+  }
+
+  /** Runs every listener for `eventName` with `args`. */
+  public emit(eventName: string, ...args: unknown[]): void {
+    for (const listener of this.listenersOf(eventName)) {
+      (listener as (...listenerArgs: unknown[]) => unknown)(...args);
+    }
+  }
+
+  /** The listeners for `eventName` not yet spent. */
+  public listenersOf(eventName: string): readonly ((...args: never[]) => unknown)[] {
+    return this.#listeners.get(eventName) ?? [];
+  }
+}
+
 /** Builds one mocked `webContents`, for a view or for a `window.open` child a test hands main. */
 export function createMockWebContents(owner: MockWindowOwner): MockWebContents {
-  const handlers = new Map<string, (...args: never[]) => unknown>();
+  const listeners = new MockEventListeners();
   const loadedUrls: string[] = [];
   const sent: { channel: string; value: unknown }[] = [];
   let isDestroyed = false;
-  const register =
-    (verb: string) =>
-    (eventName: string, handler: (...args: never[]) => unknown): void => {
-      handlers.set(eventName, handler);
-      owner.record(`webContents.${verb}:${eventName}`);
-    };
   const webContents: MockWebContents = {
     id: owner.mintId(),
-    handlers,
     loadedUrls,
     sent,
     windowOpenHandler: undefined,
-    on: vi.fn(register("on")),
-    once: vi.fn(register("once")),
+    on: vi.fn((eventName: string, listener: (...args: never[]) => unknown) => {
+      listeners.on(eventName, listener);
+      owner.record(`webContents.on:${eventName}`);
+    }),
+    once: vi.fn((eventName: string, listener: (...args: never[]) => unknown) => {
+      listeners.once(eventName, listener);
+      owner.record(`webContents.once:${eventName}`);
+    }),
     setWindowOpenHandler: vi.fn((handler: (details: MockWindowOpenDetails) => unknown) => {
       webContents.windowOpenHandler = handler;
       owner.record("webContents.setWindowOpenHandler");
@@ -161,8 +200,9 @@ export function createMockWebContents(owner: MockWindowOwner): MockWebContents {
       sent.push({ channel, value });
     },
     emit: (eventName, ...args) => {
-      (handlers.get(eventName) as ((...listenerArgs: unknown[]) => unknown) | undefined)?.(...args);
+      listeners.emit(eventName, ...args);
     },
+    listenersOf: (eventName) => listeners.listenersOf(eventName),
     close: () => {
       if (isDestroyed) {
         return;
@@ -214,7 +254,7 @@ export class MockBaseWindowImpl implements MockBaseWindow {
     addChildView(view: MockWebContentsView): void;
   };
   readonly #owner: MockWindowOwner;
-  readonly #listeners = new Map<string, ((...args: never[]) => unknown)[]>();
+  readonly #listeners = new MockEventListeners();
   #bounds: MockRectangle;
   #title = "";
   #backgroundColor: string | undefined;
@@ -264,25 +304,17 @@ export class MockBaseWindowImpl implements MockBaseWindow {
   }
 
   public on(eventName: string, listener: (...args: never[]) => unknown): MockBaseWindow {
-    this.#listeners.set(eventName, [...(this.#listeners.get(eventName) ?? []), listener]);
+    this.#listeners.on(eventName, listener);
     return this;
   }
 
   public once(eventName: string, listener: (...args: never[]) => unknown): MockBaseWindow {
-    const onceListener = (): void => {
-      this.#listeners.set(
-        eventName,
-        (this.#listeners.get(eventName) ?? []).filter((each) => each !== onceListener),
-      );
-      (listener as () => unknown)();
-    };
-    return this.on(eventName, onceListener);
+    this.#listeners.once(eventName, listener);
+    return this;
   }
 
   public emit(eventName: string): void {
-    for (const listener of this.#listeners.get(eventName) ?? []) {
-      (listener as () => unknown)();
-    }
+    this.#listeners.emit(eventName);
   }
 
   public show(): void {
@@ -324,6 +356,10 @@ export class MockBaseWindowImpl implements MockBaseWindow {
 
   public isMinimized(): boolean {
     return false;
+  }
+
+  public isVisible(): boolean {
+    return this.#showCount > 0 && !this.#isDestroyed;
   }
 
   public setTitle(title: string): void {

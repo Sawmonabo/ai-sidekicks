@@ -1,7 +1,9 @@
 // The `window` members end to end, from the preload's object through Electron's IPC (mocked, with
 // its structured cloning) to main's answers: a chosen appearance is kept and comes back as the
 // first delivery of a subscription, and a request the schema refuses changes nothing; a member
-// naming one window acts on that window alone, and only for the console document.
+// naming one window acts on that window alone; the end of a safe start reaches main's registry;
+// main's ask to reopen a window reaches the page; and every member answers the console document
+// alone.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +12,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
+import { BRIDGE_CHANNELS, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 
 const electronMock = createElectronMock();
@@ -29,6 +32,10 @@ let appearanceFilePath: string;
 let minimumSizes: [number, number][];
 /** Whether the asking document is the console document. */
 let isAskedFromTheConsole: boolean;
+/** How many times main's registry was told the safe start ended. */
+let safeStartEnds: number;
+/** The listeners the preload put on each channel main pushes on. */
+let pushListeners: Map<string, (event: unknown, ...args: unknown[]) => void>;
 
 /** The preload's `window` member over the mocked IPC, answered by main's real handlers. */
 async function connectWindowBridge() {
@@ -65,6 +72,9 @@ async function connectWindowBridge() {
           windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
         windowUsedLast: () => undefined,
         setDefaultSizes: () => undefined,
+        endSafeStart: () => {
+          safeStartEnds += 1;
+        },
       },
     }),
   )) {
@@ -73,8 +83,7 @@ async function connectWindowBridge() {
   return createWindowBridge(
     {
       invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-      // No test here pushes to the page, so the preload's listeners are never called.
-      on: () => undefined,
+      on: (channel, listener) => pushListeners.set(channel, listener),
     },
     OPEN_WINDOW_ID,
   );
@@ -87,6 +96,8 @@ beforeEach(async () => {
   appearanceFilePath = path.join(userData, "appearance.json");
   minimumSizes = [];
   isAskedFromTheConsole = true;
+  safeStartEnds = 0;
+  pushListeners = new Map();
 });
 
 afterEach(async () => {
@@ -140,18 +151,50 @@ describe("the window members", () => {
     await expect(
       windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: Number.NaN, height: 480 }),
     ).rejects.toThrow();
-    // A window no open frame name carries, and a document other than the console's.
+    // A window no open frame name carries.
     await expect(
       windowBridge.setMinimumSize("window/w-9", { width: 640, height: 480 }),
     ).rejects.toThrow("No open window has that id");
-    isAskedFromTheConsole = false;
-    await expect(
-      windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 640, height: 480 }),
-    ).rejects.toThrow("Only the console document asks");
 
     expect(minimumSizes).toStrictEqual([
       [641, 480],
       [WORK_AREA.width, WORK_AREA.height],
     ]);
+  });
+
+  it("end a safe start, and hand the page main's ask to reopen a window", async () => {
+    const windowBridge = await connectWindowBridge();
+    const reopened: string[] = [];
+    const stopHearing = windowBridge.subscribeToReopenRequest((windowId) =>
+      reopened.push(windowId),
+    );
+
+    await windowBridge.endSafeStart();
+    pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, OPEN_WINDOW_ID);
+    stopHearing();
+    pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, "window/w-9");
+
+    expect(safeStartEnds).toBe(1);
+    expect(reopened).toStrictEqual([OPEN_WINDOW_ID]);
+  });
+
+  it("answer no document but the console's, on every member", async () => {
+    const windowBridge = await connectWindowBridge();
+    isAskedFromTheConsole = false;
+    const refusal = "Only the console document asks";
+
+    await expect(windowBridge.setAppearance(CHOICE, GROUNDS)).rejects.toThrow(refusal);
+    await expect(
+      windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 640, height: 480 }),
+    ).rejects.toThrow(refusal);
+    await expect(windowBridge.setDefaultSizes({ paneWidths: {} })).rejects.toThrow(refusal);
+    await expect(windowBridge.endSafeStart()).rejects.toThrow(refusal);
+    const { ipcRenderer } = (await import("electron")) as unknown as {
+      ipcRenderer: { invoke(channel: string): Promise<unknown> };
+    };
+    await expect(ipcRenderer.invoke(BRIDGE_CHANNELS.readAppearance)).rejects.toThrow(refusal);
+
+    expect(safeStartEnds).toBe(0);
+    await expect(readFile(appearanceFilePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

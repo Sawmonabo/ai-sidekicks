@@ -7,11 +7,9 @@ export interface WindowSize {
 }
 
 /**
- * The widths a window with no kept place opens at, which the renderer sums from tokens: a window
- * of session views (its floor and one side pane's default width), and each pane kind's own
- * window, keyed by the pane kind as its frame name carries it.
+ * The widths a pane's own window with no kept place opens at, which the renderer reads from its
+ * tokens, keyed by the pane kind as its frame name carries it.
  */
 export interface WindowDefaultSizes {
-  readonly consoleWindowWidth: number;
   readonly paneWidths: Readonly<Record<string, number>>;
 }

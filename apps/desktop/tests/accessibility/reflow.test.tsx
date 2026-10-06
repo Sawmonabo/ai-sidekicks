@@ -22,7 +22,7 @@ import {
   narrowTesterViewportTo,
   restoreTesterViewport,
 } from "./reflow.js";
-import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { routeForDestination } from "#renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";

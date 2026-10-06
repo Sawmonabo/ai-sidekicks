@@ -2,13 +2,15 @@
 // shells keep running. It holds at `before-quit`, which Electron emits before the app starts
 // closing its windows. The event is synchronous, so the handler cancels the quit, runs the flush,
 // and quits again on the next tick; the one-shot guard lets that second `before-quit` through and
-// clears itself, so if another listener cancels that quit the next attempt flushes again. The flush
-// is raced against the quit's wait, so a service that never answers cannot keep the app open; the
-// timer is `unref()`'d so it never keeps the event loop alive.
+// clears itself, so if another listener cancels that quit the next attempt flushes again. A quit
+// asked for while the flush runs waits on that same flush. The flush is raced against the quit's
+// wait, so a service that never answers cannot keep the app open; the wait's timer is cleared once
+// the race settles and is `unref()`'d so it never keeps the event loop alive.
 
 import type { App } from "electron";
 
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
+import { describeFailure } from "../failure-message.js";
 import { SERVICE_FLUSH_WAIT_MS } from "./daemon-supervisor.js";
 
 /** Where a flush that failed or ran out of time is recorded. */
@@ -28,6 +30,7 @@ export function installQuitFlush(
   options: QuitFlushOptions,
 ): void {
   let isFlushed = false;
+  let isFlushing = false;
   const record = (message: string): void => {
     options.log.write({
       at: options.now().toISOString(),
@@ -43,11 +46,16 @@ export function installQuitFlush(
       return;
     }
     event.preventDefault();
+    if (isFlushing) {
+      return;
+    }
+    isFlushing = true;
 
     void (async (): Promise<void> => {
+      let waitTimer: NodeJS.Timeout | undefined;
       try {
         const waitEnded = new Promise<"wait-ended">((resolve) => {
-          setTimeout(() => {
+          waitTimer = setTimeout(() => {
             resolve("wait-ended");
           }, SERVICE_FLUSH_WAIT_MS).unref();
         });
@@ -58,11 +66,10 @@ export function installQuitFlush(
           );
         }
       } catch (failure: unknown) {
-        record(
-          `The background service's flush failed at quit: ` +
-            `${failure instanceof Error ? failure.message : String(failure)}`,
-        );
+        record(`The background service's flush failed at quit: ${describeFailure(failure)}`);
       } finally {
+        clearTimeout(waitTimer);
+        isFlushing = false;
         // Set before the quit is asked for again, which emits `before-quit` once more.
         isFlushed = true;
         process.nextTick(() => {

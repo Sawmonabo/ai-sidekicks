@@ -6,8 +6,11 @@
 // A run's page draws its graph from a lazily loaded chunk, so every row is settled through the
 // shared readiness helper before axe runs; the helper tells "no graph here" from "the graph has
 // not arrived", so no row needs an exception. A run's page on a form wait carries the step
-// panel's form, drawn from the step's fields.
+// panel's form, drawn from the step's fields; it is audited as it opens and again once a person
+// has added an entry to its repeated field and pressed Submit with answers the form refuses, the
+// state that draws each entry's group and marks every refused control invalid.
 
+import { fireEvent, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
@@ -34,6 +37,8 @@ const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<HTMLElement>;
   readonly drawnWords: readonly string[];
+  /** What a person does on the mounted view before it is audited, asserting what it drew. */
+  readonly arrange?: (mounted: HTMLElement) => void;
 }[] = [
   {
     label: "the Runs tab",
@@ -45,6 +50,12 @@ const AUDITED_VIEWS: readonly {
     label: "a run's page waiting on a form",
     mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm)).element,
     drawnWords: ["Submit"],
+  },
+  {
+    label: "a run's page waiting on a form, an entry added and the answers refused",
+    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm)).element,
+    drawnWords: ["Submit"],
+    arrange: addEntryAndSubmitRefused,
   },
   {
     label: "a run's page that failed",
@@ -96,9 +107,26 @@ describe("accessibility — the workflows views", () => {
         for (const words of view.drawnWords) {
           expect(mounted.textContent).toContain(words);
         }
+        view.arrange?.(mounted);
 
         expect(describeViolations(await runTierAxe(mounted))).toStrictEqual([]);
       });
     }
   }
 });
+
+/**
+ * Add one entry to the form's repeated field, then press Submit with the required answers empty.
+ * Each is asserted as drawn, since an audit of a form with no entry and no refusal covers neither.
+ */
+function addEntryAndSubmitRefused(mounted: HTMLElement): void {
+  const form = within(mounted);
+  fireEvent.click(form.getByRole("button", { name: "Add Highlight" }));
+  fireEvent.click(form.getByRole("button", { name: "Submit" }));
+
+  const entry = form.getByRole("group", { name: "Highlight 1" });
+  const summary = within(entry).getByRole("textbox", { name: /^Summary/u });
+  expect(summary.getAttribute("aria-invalid")).toBe("true");
+  const version = form.getByRole("textbox", { name: /^Version/u });
+  expect(version.getAttribute("aria-invalid")).toBe("true");
+}

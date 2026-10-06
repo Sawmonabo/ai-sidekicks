@@ -614,6 +614,37 @@ jobs:
           echo "DBUS_SESSION_BUS_ADDRESS=disabled:" >> "$GITHUB_ENV"
           echo "NO_AT_BRIDGE=1" >> "$GITHUB_ENV"
 
+      # A window manager on that display, for the leg that runs the end-to-end and endurance
+      # tiers. Bare Xvfb has none, and without one a window never minimizes, so the end-to-end check
+      # that minimizes a window could only fail here. Openbox is one small package. Readiness comes
+      # from openbox itself: it runs its `--startup` command once it manages the display, which
+      # writes the file waited on.
+      - name: Start a window manager on the display (Linux, end-to-end leg)
+        if: runner.os == 'Linux' && contains(matrix.tier, 'e2e')
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends openbox
+          ready_file="${RUNNER_TEMP}/window-manager-ready"
+          wm_log="${RUNNER_TEMP}/openbox.log"
+          openbox --startup "touch ${ready_file}" >"$wm_log" 2>&1 &
+          wm_pid=$!
+          for attempt in $(seq 1 60); do
+            if [ -f "$ready_file" ]; then
+              echo "openbox managing ${DISPLAY} after ${attempt} attempt(s)"
+              exit 0
+            fi
+            if ! kill -0 "$wm_pid" 2>/dev/null; then
+              echo "::error::openbox exited before managing the display"
+              cat "$wm_log" || true
+              exit 1
+            fi
+            sleep 0.25
+          done
+          echo "::error::openbox did not manage the display within 15s"
+          cat "$wm_log" || true
+          exit 1
+
       - name: Build (excluding control-plane, which the desktop does not use)
         run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 

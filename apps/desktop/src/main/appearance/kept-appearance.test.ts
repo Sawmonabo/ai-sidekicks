@@ -2,13 +2,14 @@
 // before the next start's first window, and drives the platform scheme, the first frame's ground
 // and the stamp on the served document's root. A missing, unreadable or broken file reads as the
 // default appearance and never stops a start; a broken one is rewritten as it. A choice is in
-// force only once written, and the choices made during one write are written as their last.
+// force only once written, the choices made during one write are written as their last, a View-menu
+// pick never carries in a choice whose write failed, and a listener that throws stops nothing.
 
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_APPEARANCE_RECORD,
@@ -41,6 +42,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await chmod(userData, 0o700);
   await rm(userData, { recursive: true, force: true });
 });
@@ -232,5 +234,47 @@ describe("a choice", () => {
     writes[1]?.land();
     await next;
     expect(appearance.scheme).toBe("light");
+  });
+
+  it("picked from the View menu during a write that fails is kept without the failed choice", async () => {
+    const { appearance, writes } = startOverHeldWrites();
+
+    const refused = appearance.choose({ ...CHOICE, textSize: 20 }, GROUNDS);
+    const picked = appearance.chooseScheme("light");
+    writes[0]?.fail(new Error("no space left on device"));
+    await expect(refused).rejects.toThrow("no space left on device");
+
+    // Built over the record kept, not over the choice the disk refused.
+    const pickedRecord = { ...DEFAULT_APPEARANCE_RECORD, scheme: "light" };
+    expect(writes[1]?.record).toStrictEqual(pickedRecord);
+    writes[1]?.land();
+    await picked;
+    expect(appearance.record).toStrictEqual(pickedRecord);
+  });
+
+  it("is kept and heard by every listener when one listener throws", async () => {
+    const { appearance, writes, changeCount } = startOverHeldWrites();
+    const thrownLater: (() => void)[] = [];
+    vi.spyOn(globalThis, "queueMicrotask").mockImplementation((callback) => {
+      thrownLater.push(callback);
+    });
+    const listenerFailure = new Error("a window was already gone");
+    appearance.subscribe(() => {
+      throw listenerFailure;
+    });
+    let heardAfter = 0;
+    appearance.subscribe(() => {
+      heardAfter += 1;
+    });
+
+    const kept = appearance.choose(CHOICE, GROUNDS);
+    writes[0]?.land();
+
+    await expect(kept).resolves.toBeUndefined();
+    expect(appearance.record).toStrictEqual({ ...CHOICE, grounds: GROUNDS });
+    expect([changeCount(), heardAfter]).toStrictEqual([1, 1]);
+    // The failure is not dropped: it is thrown again on its own task.
+    expect(thrownLater).toHaveLength(1);
+    expect(() => thrownLater[0]?.()).toThrow(listenerFailure);
   });
 });

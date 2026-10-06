@@ -3,7 +3,7 @@
 // `ELECTRON_RENDERER_URL` set), since a packaged build that inherited a stray variable would load
 // remote content into a locked window; the factory routes through the locked `webPreferences` at
 // runtime; `beforeLoad` runs after the window's own listeners and before `loadURL`, an order
-// rather than two facts; the console window stays hidden and unthrottled, and a window a person
+// rather than two facts; the hidden window stays unshown and unthrottled, and a window a person
 // sees is revealed as it is built; the window takes its document's title; and the window and its
 // document close together, from either side.
 // `./window.navigation.test.ts` and `./window-load-failure.test.ts` own the rest. `electron` is
@@ -34,12 +34,12 @@ async function loadWindowModule(): Promise<WindowModule> {
   return import("./window.js");
 }
 
-/** Opens a console window with the test frame and no switches. */
+/** Opens the hidden window with the test frame and no switches. */
 async function openTestWindow(
-  beforeLoad?: Parameters<WindowModule["openConsoleWindow"]>[0]["beforeLoad"],
-): Promise<ReturnType<WindowModule["openConsoleWindow"]>> {
-  const { openConsoleWindow } = await loadWindowModule();
-  return openConsoleWindow({
+  beforeLoad?: Parameters<WindowModule["openHiddenWindow"]>[0]["beforeLoad"],
+): Promise<ReturnType<WindowModule["openHiddenWindow"]>> {
+  const { openHiddenWindow } = await loadWindowModule();
+  return openHiddenWindow({
     ...testWindowFrame(),
     additionalArguments: [],
     ...(beforeLoad === undefined ? {} : { beforeLoad }),
@@ -148,13 +148,13 @@ describe("the window factory", () => {
     });
   });
 
-  it("keeps the console window hidden and unthrottled, and reveals a window a person sees", async () => {
-    const consoleWindow = asMockWindow(await openTestWindow());
-    consoleWindow.document.emit("did-finish-load");
+  it("keeps the hidden window unshown and unthrottled, and reveals a window a person sees", async () => {
+    const hiddenWindow = asMockWindow(await openTestWindow());
+    hiddenWindow.document.emit("did-finish-load");
 
-    expect(consoleWindow.baseWindow.showCount).toBe(0);
+    expect(hiddenWindow.baseWindow.showCount).toBe(0);
     // Its document draws every window a person sees, so its timers never slow.
-    expect(consoleWindow.document.setBackgroundThrottling).toHaveBeenCalledWith(false);
+    expect(hiddenWindow.document.setBackgroundThrottling).toHaveBeenCalledWith(false);
 
     const { adoptRendererChild } = await import("./window.js");
     const child = adoptRendererChild(testWindowFrame(), handedDocument() as never);

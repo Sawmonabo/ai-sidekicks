@@ -13,6 +13,7 @@
 import type { FunctionComponent } from "react";
 
 import { act } from "@testing-library/react";
+import { onTestFinished } from "vitest";
 
 import { renderSettled } from "../../helpers/app/harness.js";
 import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
@@ -75,6 +76,13 @@ function probeSessionStore(): SessionStore {
   return new SessionStore({ sessionId: PROBE_SESSION_ID, projectors: COMPOSED_ENTITY_PROJECTORS });
 }
 
+/** The UI-state store over the page's database a mount hands its view, closed when the test ends. */
+function openUiStateStore(): UiStateStore {
+  const store = UiStateStore.opening();
+  onTestFinished(async () => store.close());
+  return store;
+}
+
 /**
  * Find the one region a workflows pane renders as, by its current crumb.
  *
@@ -122,7 +130,7 @@ function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
     }),
     // The board the screen opens panes from; the pane helper above mounts bodies from the same one.
     paneRegistry: workflowPaneRegistry(),
-    uiStateStore: UiStateStore.opening(),
+    uiStateStore: openUiStateStore(),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     chooseScheme: () => undefined,
   };
@@ -213,7 +221,7 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
             bridge,
             sessionStore: probeSessionStore(),
             // The builder hands its canvas the UI-state store, node layout's home, so it answers.
-            uiStateStore: UiStateStore.opening(),
+            uiStateStore: openUiStateStore(),
           },
         )}
       />

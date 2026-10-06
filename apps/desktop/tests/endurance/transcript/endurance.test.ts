@@ -33,6 +33,8 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/ent
 import { HeapSampler, retainedGrowthBytes } from "../heap/sampling.js";
 import { createTranscriptEnduranceFixture } from "./endurance.test-support.js";
 import { deriveTranscriptWindow } from "#renderer/features/transcript/window/transcript-window.js";
+import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 /**
  * The length of log this tier measures the transcript at.
@@ -45,30 +47,16 @@ const ENDURANCE_ROW_COUNT = 10_000;
 /** A quarter of it, so the cost ratio below is read across a 4× step. */
 const LINEARITY_PROBE_ROW_COUNT = 2_500;
 
-/**
- * How much larger the long fold may be than the short one.
- *
- * The step is 4x, so a linear fold lands near 4 and a quadratic one near 16. The measured ratio
- * is about 4.4 (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core
- * laptop), and 8 leaves room over noise while sitting half way to the quadratic figure. Fixed
- * per-call overhead can only push the ratio down, so it cannot manufacture a failure.
- */
-const SUPERLINEAR_COST_RATIO_CEILING = 8;
+const registry = BudgetRegistry.load();
+
+/** How much costlier the long fold may be than the short one; its row says why that figure. */
+const foldCostRatioBudget = registry.requireBudget("transcript-fold-cost-ratio");
 
 /** How many times the fold is repeated when looking for what it keeps. */
 const REPEATED_FOLD_COUNT = 20;
 
-/**
- * What twenty folds of a ten-thousand-row log may add to the heap and still pass.
- *
- * Not zero, because V8 keeps code objects, inline caches and deoptimization data alive across a
- * run. Not a fraction of the baseline, since a leak's size does not depend on how large the
- * process was. It is bounded from both sides: one held window over this log measures ~3.9 MB,
- * so a ceiling above that could not catch a fold keeping a single
- * one of its twenty outputs. Two megabytes sits under one window and two orders of magnitude
- * above the ~21 kB twenty clean folds retain.
- */
-const REPEATED_FOLD_RETENTION_CEILING_BYTES = 2 * 1024 * 1024;
+/** What the repeated folds may add to the heap and still pass; its row says why that figure. */
+const foldRetentionBudget = registry.requireBudget("transcript-fold-retention");
 
 /** Timing passes per measurement. The fastest is taken; more only sharpens it. */
 const MEASUREMENT_SAMPLE_COUNT = 5;
@@ -144,10 +132,14 @@ describe("endurance — the transcript's fold over a long session", () => {
       `[endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${longFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(ENDURANCE_ROW_COUNT)} rows — ${costRatio.toFixed(2)}× over a 4× log ` +
-        `(ceiling ${String(SUPERLINEAR_COST_RATIO_CEILING)}×)\n`,
+        `(ceiling ${String(foldCostRatioBudget.limit.canonicalValue)}×)\n`,
     );
 
-    expect(costRatio).toBeLessThanOrEqual(SUPERLINEAR_COST_RATIO_CEILING);
+    expect(
+      evaluateBudget(foldCostRatioBudget, costRatio).withinBudget,
+      `${foldCostRatioBudget.label}: ${costRatio.toFixed(2)}× against a ` +
+        `${String(foldCostRatioBudget.limit.canonicalValue)}× ceiling`,
+    ).toBe(true);
   });
 
   it("retains nothing of the folds it has already produced", async () => {
@@ -172,10 +164,14 @@ describe("endurance — the transcript's fold over a long session", () => {
     process.stdout.write(
       `[endurance] transcript fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
         `over ${String(REPEATED_FOLD_COUNT)} folds of ${String(ENDURANCE_ROW_COUNT)} rows ` +
-        `(ceiling ${String(Math.round(REPEATED_FOLD_RETENTION_CEILING_BYTES / 1024))} kB)\n`,
+        `(ceiling ${String(Math.round(foldRetentionBudget.limit.canonicalValue / 1024))} kB)\n`,
     );
 
-    expect(retainedBytes).toBeLessThanOrEqual(REPEATED_FOLD_RETENTION_CEILING_BYTES);
+    expect(
+      evaluateBudget(foldRetentionBudget, retainedBytes).withinBudget,
+      `${foldRetentionBudget.label}: ${String(retainedBytes)} B against a ` +
+        `${String(foldRetentionBudget.limit.canonicalValue)} B ceiling`,
+    ).toBe(true);
   });
 });
 

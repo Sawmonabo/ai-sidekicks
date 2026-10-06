@@ -13,17 +13,17 @@
 import process from "node:process";
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../scripts/budget/evaluation.mts";
-import { formatUnavailableBudgetReport } from "../../scripts/budget/report.mts";
-import { type Budget } from "../../scripts/budget/budget-document.mts";
+import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
+import { formatUnavailableBudgetReport } from "#scripts/budget/report.mts";
+import { type Budget } from "#scripts/budget/budget-document.mts";
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,
   RENDERER_BUNDLE_GATES,
   RendererBundleMeasurer,
   RendererBundleOutputMissingError,
   type RendererBundleMeasurement,
-} from "../../scripts/budget/measure-bundle.mts";
+} from "#scripts/budget/measure-bundle.mts";
 
 const registry = BudgetRegistry.load();
 

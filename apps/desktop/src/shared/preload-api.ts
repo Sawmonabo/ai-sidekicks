@@ -434,7 +434,7 @@ export interface PreloadApi {
 
   /**
    * The windows a person sees, each named by its window id, the frame name the console document
-   * opened it under: the one used last, the appearance, and each one's minimum size.
+   * opened it under: the one used last, the appearance, each one's minimum size, and main's asks.
    */
   readonly window: {
     /**
@@ -452,10 +452,20 @@ export interface PreloadApi {
     /** The smallest size one window may shrink to. */
     setMinimumSize(windowId: string, size: WindowSize): Promise<void>;
     /**
-     * The widths a window with no kept place opens at, handed before the first window opens and
-     * again when the text size changes.
+     * The widths a pane's own window with no kept place opens at, handed before the first window
+     * opens and again when the text size changes.
      */
     setDefaultSizes(sizes: WindowDefaultSizes): Promise<void>;
+    /**
+     * Ends a safe start once `Restore windows` reopened the kept windows, so main keeps each
+     * window's place again.
+     */
+    endSafeStart(): Promise<void>;
+    /**
+     * Main's ask to open a window again, by its id, when none a person sees is open: a Dock click
+     * or a second launch.
+     */
+    subscribeToReopenRequest(handler: (windowId: string) => void): Unsubscribe;
   };
 
   readonly app: AppFacts;
@@ -521,6 +531,8 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
       setMinimumSize: () => stubThrow("window.setMinimumSize"),
       setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
+      endSafeStart: () => stubThrow("window.endSafeStart"),
+      subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),
     },
     app,
   };

@@ -113,7 +113,10 @@ export interface ElectronMock {
    * silently replaced it would hide that startup defect.
    */
   readonly ipcHandlers: ReadonlyMap<string, (event: unknown, ...args: never[]) => unknown>;
-  /** Every `ipcMain.on` listener, by channel: the synchronous channels. */
+  /**
+   * The `ipcMain.on` listeners, by channel: the synchronous channels. Each entry runs every
+   * listener registered on its channel, as Electron's emitter does.
+   */
   readonly ipcListeners: ReadonlyMap<string, (event: MockIpcMainEvent, ...args: never[]) => void>;
 
   /**
@@ -189,6 +192,7 @@ class ElectronMockImpl implements ElectronMock {
   #displayWorkAreas: readonly MockRectangle[] = [MOCK_PRIMARY_WORK_AREA];
   #isSystemDark = false;
   readonly #rendererListeners = new Map<string, ((event: unknown, ...args: unknown[]) => void)[]>();
+  readonly #ipcListenerLists = new Map<string, ((event: MockIpcMainEvent) => void)[]>();
   #releaseReady: () => void = () => {};
   #readyPromise: Promise<void>;
 
@@ -254,6 +258,7 @@ class ElectronMockImpl implements ElectronMock {
     this.installedMenuTemplates.length = 0;
     this.ipcHandlers.clear();
     this.ipcListeners.clear();
+    this.#ipcListenerLists.clear();
     this.#rendererListeners.clear();
     this.#loadFailures.length = 0;
     this.#pathLookupFailures.clear();
@@ -317,7 +322,8 @@ class ElectronMockImpl implements ElectronMock {
       return this.#readyPromise;
     };
     // The one page the mocked `ipcRenderer` speaks for. What main sends it reaches the listeners
-    // the page registered, structured-cloned as Electron's IPC clones it.
+    // the page registered, structured-cloned as Electron's IPC clones it. The page is never torn
+    // down here, so main's own listeners on it are never called.
     const rendererPage = {
       id: 1,
       send: (channel: string, ...args: unknown[]): void => {
@@ -430,7 +436,13 @@ class ElectronMockImpl implements ElectronMock {
           this.record(`ipcMain.handle:${channel}`);
         }),
         on: vi.fn((channel: string, listener: (event: MockIpcMainEvent) => void) => {
-          this.ipcListeners.set(channel, listener);
+          const listeners = [...(this.#ipcListenerLists.get(channel) ?? []), listener];
+          this.#ipcListenerLists.set(channel, listeners);
+          this.ipcListeners.set(channel, (event, ...args) => {
+            for (const each of listeners) {
+              (each as (event: MockIpcMainEvent, ...args: unknown[]) => void)(event, ...args);
+            }
+          });
         }),
       },
       // The page's side of IPC, answered by the handlers registered above. Arguments and answers

@@ -142,6 +142,7 @@ export async function bridgeOverLink(
         isConsoleDocument: vi.fn(),
         windowUsedLast: vi.fn(),
         setDefaultSizes: vi.fn(),
+        endSafeStart: vi.fn(),
       },
     },
   });

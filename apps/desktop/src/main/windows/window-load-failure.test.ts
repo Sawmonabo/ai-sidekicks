@@ -50,10 +50,10 @@ describe("a rejected document load", () => {
 
   it("serves the generated failure document carrying the reason, and shows it", async () => {
     electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
-    const { openConsoleWindow } = await loadWindowModule();
+    const { openHiddenWindow } = await loadWindowModule();
     const frame = testWindowFrame();
 
-    const rendererWindow = openConsoleWindow({ ...frame, additionalArguments: [] });
+    const rendererWindow = openHiddenWindow({ ...frame, additionalArguments: [] });
 
     await vi.waitFor(() => {
       expect(asMockWindow(rendererWindow).document.loadedUrls).toHaveLength(2);
@@ -62,7 +62,7 @@ describe("a rejected document load", () => {
     expect(failureUrl).toContain("/-/load-failure");
     expect(failureUrl).toContain(encodeURIComponent("ERR_FILE_NOT_FOUND (-6)"));
     expect(rendererWindow.baseWindow.isDestroyed()).toBe(false);
-    // The console window is never shown, but the failure is: a person would see nothing else.
+    // The hidden window is never shown, but the failure is: a person would see nothing else.
     await vi.waitFor(() => {
       expect(asMockWindow(rendererWindow).baseWindow.showCount).toBe(1);
     });
@@ -72,7 +72,7 @@ describe("a rejected document load", () => {
     ]);
   });
 
-  it("destroys the console window and exits non-zero when no document can be served", async () => {
+  it("destroys the hidden window and exits non-zero when no document can be served", async () => {
     electronMock.failLoadsContaining("sidekicks-renderer://app", new Error("handler missing"));
     const { windowModule, loadFailureModule } = await loadWindowAndFailureModules();
     const frame = testWindowFrame();
@@ -82,7 +82,7 @@ describe("a rejected document load", () => {
       return Promise.resolve();
     });
 
-    const rendererWindow = windowModule.openConsoleWindow({ ...frame, additionalArguments: [] });
+    const rendererWindow = windowModule.openHiddenWindow({ ...frame, additionalArguments: [] });
 
     await vi.waitFor(() => {
       expect(electronMock.exitCodes).toEqual([loadFailureModule.RENDERER_UNSERVABLE_EXIT_CODE]);
@@ -94,15 +94,33 @@ describe("a rejected document load", () => {
     expect(exitsWhenTheLogDrained).toBe(0);
   });
 
+  it("gives up the same way when the failure document loads but cannot be shown", async () => {
+    electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
+    const { windowModule, loadFailureModule } = await loadWindowAndFailureModules();
+    const frame = testWindowFrame();
+
+    const rendererWindow = windowModule.openHiddenWindow({ ...frame, additionalArguments: [] });
+    vi.spyOn(rendererWindow.baseWindow, "show").mockImplementation(() => {
+      throw new TypeError("Object has been destroyed");
+    });
+
+    await vi.waitFor(() => {
+      expect(electronMock.exitCodes).toEqual([loadFailureModule.RENDERER_UNSERVABLE_EXIT_CODE]);
+    });
+    expect(loggedMessages(frame.log).join(" ")).toContain(
+      "the load-failure document could not be shown: Object has been destroyed",
+    );
+  });
+
   // The ordinary case, which must not reach `app.exit`: the window is destroyed right after the
   // factory returns, so the rejection handler runs against a window that is gone.
   describe("a window closed while its load was failing", () => {
     it("serves no document, and does not exit the process", async () => {
       electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_ABORTED (-3)"));
-      const { openConsoleWindow } = await loadWindowModule();
+      const { openHiddenWindow } = await loadWindowModule();
       const frame = testWindowFrame();
 
-      const rendererWindow = openConsoleWindow({ ...frame, additionalArguments: [] });
+      const rendererWindow = openHiddenWindow({ ...frame, additionalArguments: [] });
       // Synchronous: `loadURL`'s rejection arrives on a later microtask.
       rendererWindow.baseWindow.destroy();
 

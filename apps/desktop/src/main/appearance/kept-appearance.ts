@@ -6,7 +6,9 @@
 // renderer's subscription), so nothing shows a choice a restart would lose. One write runs at a
 // time, so a later choice is never overwritten on disk by an earlier one finishing last, and the
 // choices made while it runs are written as their last alone: a slider dragged through forty
-// positions writes its first and its last, not forty files.
+// positions writes its first and its last, not forty files. A View-menu pick changes the scheme
+// alone, over whatever is kept when its turn to be written comes, so a choice whose write failed
+// never rides in on it. A listener that throws stops neither the others nor the writes.
 
 import type { NativeTheme } from "electron";
 
@@ -32,9 +34,13 @@ interface PendingChoice {
   readonly reject: (failure: unknown) => void;
 }
 
-/** The record waiting to be written next, and every caller its write settles. */
+/**
+ * What is written next, and every caller its write settles: the renderer's latest whole record, if
+ * one waits, and the View menu's latest scheme, if one waits, over that record or the kept one.
+ */
 interface QueuedRecord {
-  readonly record: AppearanceRecord;
+  readonly record: AppearanceRecord | undefined;
+  readonly scheme: SchemePreference | undefined;
   readonly waiting: readonly PendingChoice[];
 }
 
@@ -44,8 +50,8 @@ export class KeptAppearance {
   readonly #nativeTheme: KeptAppearanceOptions["nativeTheme"];
   readonly #listeners = new Set<() => void>();
   #record: AppearanceRecord;
-  /** The record being written now, until its write settles. */
-  #writing: AppearanceRecord | undefined;
+  /** Whether a write runs now. */
+  #isWriting = false;
   #queued: QueuedRecord | undefined;
 
   /** Reads the kept record and sets the platform scheme from it. */
@@ -80,16 +86,15 @@ export class KeptAppearance {
    * write failure, and the record stays as it was.
    */
   public choose(choice: AppearanceChoice, grounds: AppearanceGrounds): Promise<void> {
-    return this.#keep({ ...choice, grounds });
+    return this.#keep({ record: { ...choice, grounds }, scheme: undefined });
   }
 
   /**
-   * The View menu's scheme pick, over the latest choice made, in force once written. Rejects with
-   * the file's write failure, and the record stays as it was.
+   * The View menu's scheme pick, over the choice waiting to be written or else the kept record, in
+   * force once written. Rejects with the file's write failure, and the record stays as it was.
    */
   public chooseScheme(scheme: SchemePreference): Promise<void> {
-    const latest = this.#queued?.record ?? this.#writing ?? this.#record;
-    return this.#keep({ ...latest, scheme });
+    return this.#keep({ record: this.#queued?.record, scheme });
   }
 
   /** Calls `listener` after every change to the record or to the platform's scheme. */
@@ -100,37 +105,42 @@ export class KeptAppearance {
     };
   }
 
-  #keep(record: AppearanceRecord): Promise<void> {
+  #keep(change: Pick<QueuedRecord, "record" | "scheme">): Promise<void> {
     return new Promise((resolve, reject) => {
       // Replaces a choice still waiting, whose caller now settles with this one.
-      this.#queued = { record, waiting: [...(this.#queued?.waiting ?? []), { resolve, reject }] };
-      if (this.#writing === undefined) {
+      this.#queued = {
+        ...change,
+        waiting: [...(this.#queued?.waiting ?? []), { resolve, reject }],
+      };
+      if (!this.#isWriting) {
         void this.#writeQueued();
       }
     });
   }
 
   async #writeQueued(): Promise<void> {
+    this.#isWriting = true;
     for (let next = this.#queued; next !== undefined; next = this.#queued) {
       this.#queued = undefined;
-      this.#writing = next.record;
+      // Built now, over the record kept once the write before it settled.
+      const base = next.record ?? this.#record;
+      const record = next.scheme === undefined ? base : { ...base, scheme: next.scheme };
       try {
-        await this.#file.write(next.record);
-        this.#record = next.record;
-        this.#nativeTheme.themeSource = next.record.scheme;
-        this.#notify();
+        await this.#file.write(record);
       } catch (failure) {
         for (const choice of next.waiting) {
           choice.reject(failure);
         }
         continue;
-      } finally {
-        this.#writing = undefined;
       }
+      this.#record = record;
+      this.#nativeTheme.themeSource = record.scheme;
       for (const choice of next.waiting) {
         choice.resolve();
       }
+      this.#notify();
     }
+    this.#isWriting = false;
   }
 
   #resolvedScheme(): ColorScheme {
@@ -139,7 +149,15 @@ export class KeptAppearance {
 
   #notify(): void {
     for (const listener of this.#listeners) {
-      listener();
+      try {
+        listener();
+      } catch (failure) {
+        // Thrown again on its own task, where main's uncaught-error handling reports it, so the
+        // other listeners still hear the change and the choice stays kept.
+        queueMicrotask(() => {
+          throw failure;
+        });
+      }
     }
   }
 }

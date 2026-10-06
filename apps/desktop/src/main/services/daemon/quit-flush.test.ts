@@ -1,6 +1,7 @@
 // A quit held for the background service's flush: it goes ahead at once when the flush answers and
-// at 10 seconds when it never does, a failed flush is recorded and the app still quits, and the
-// quit asked for again passes through once while a quit a peer cancels flushes again.
+// at 10 seconds when it never does, a failed flush is recorded and the app still quits, a second
+// quit while the flush runs waits on that one flush, and the quit asked for again passes through
+// once while a quit a peer cancels flushes again.
 
 import { EventEmitter } from "node:events";
 
@@ -63,6 +64,29 @@ describe("a quit held for the service's flush", () => {
     expect(quit).toHaveBeenCalledOnce();
     expect(flush).toHaveBeenCalledOnce();
     expect(log.write).not.toHaveBeenCalled();
+  });
+
+  it("holds a second quit asked for during the flush on that same flush", async () => {
+    const { app, quit, emitBeforeQuit } = quittingApp();
+    let answer: () => void = () => undefined;
+    const flush = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    install(app, flush);
+
+    expect(emitBeforeQuit()).toBe(true);
+    // A second ⌘Q while the first flush runs.
+    expect(emitBeforeQuit()).toBe(true);
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(flush).toHaveBeenCalledOnce();
+    expect(quit).toHaveBeenCalledOnce();
+    // The wait's timer went with the answer, so nothing fires at 10 seconds.
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("quits at 10 seconds when the flush never answers, and records it", async () => {

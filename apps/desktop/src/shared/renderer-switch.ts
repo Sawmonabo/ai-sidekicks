@@ -8,7 +8,9 @@ export function readSwitchValue(argv: readonly string[], prefix: string): string
   return argument === undefined ? undefined : decodeURIComponent(argument.slice(prefix.length));
 }
 
-/** The decoded value of the switch `prefix` names. Throws when the window was started without it. */
+/**
+ * The decoded value of the switch `prefix` names. Throws when the window was started without it.
+ */
 export function readRequiredSwitchValue(argv: readonly string[], prefix: string): string {
   const value = readSwitchValue(argv, prefix);
   if (value === undefined) {

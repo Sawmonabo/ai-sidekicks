@@ -100,24 +100,33 @@ async function awaitWindowOfSessionViews(
   application: ElectronApplication,
   deadline: LaunchDeadline,
 ): Promise<Page> {
-  for (;;) {
-    // Armed before the scan: a window opening while a frame name is read would otherwise be missed.
-    const nextWindow = application.waitForEvent("window", {
-      timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
-    });
-    // Settled by the return below or by the next turn's wait; never left to reject unheard.
-    nextWindow.catch(() => undefined);
-    for (const page of application.windows()) {
-      const frameName = await deadline.settleWithin(
-        page.evaluate(() => window.name),
-        "a window's frame name read",
-        POST_READINESS_RESERVE_MS,
-      );
-      if (isConsoleWindowId(frameName)) {
-        return page;
+  // Aborted on return, so the wait armed for a window that never had to come does not stay armed
+  // for the rest of the readiness budget.
+  const abandonedWait = new AbortController();
+  try {
+    for (;;) {
+      // Armed before the scan: a window opening while a frame name is read would otherwise be
+      // missed.
+      const nextWindow = application.waitForEvent("window", {
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+        signal: abandonedWait.signal,
+      });
+      // Settled by the abort below or by the next turn's wait; never left to reject unheard.
+      nextWindow.catch(() => undefined);
+      for (const page of application.windows()) {
+        const frameName = await deadline.settleWithin(
+          page.evaluate(() => window.name),
+          "a window's frame name read",
+          POST_READINESS_RESERVE_MS,
+        );
+        if (isConsoleWindowId(frameName)) {
+          return page;
+        }
       }
+      await nextWindow;
     }
-    await nextWindow;
+  } finally {
+    abandonedWait.abort();
   }
 }
 

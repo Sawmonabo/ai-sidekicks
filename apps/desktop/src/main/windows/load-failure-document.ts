@@ -5,6 +5,9 @@
 // bundle: a fallback living in the tree that just failed is missing exactly when needed. This
 // path never reaches the asset resolver, so no file system call happens on it.
 //
+// On macOS the window has no system title strip, so the whole page is the window's drag region,
+// all but the reason, which stays selectable so it can be copied.
+//
 // It carries no script (the CSP would refuse an inline one), no link out, and no reload
 // control: a retry needs a renderer-to-main channel that does not exist, and a control that
 // claims a capability nothing implements is what the app's copy rules forbid. It is split
@@ -108,12 +111,12 @@ export function renderLoadFailureDocument(reason: string): string {
     "<style>",
     "html{color-scheme:light dark}",
     "body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;",
-    "font:14px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;padding:2rem}",
+    "font:14px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;padding:2rem;app-region:drag}",
     "main{max-width:38rem}",
     "h1{font-size:1.125rem;font-weight:600;margin:0 0 .5rem}",
     "p{margin:0 0 .75rem}",
     "code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;",
-    "overflow-wrap:anywhere}",
+    "overflow-wrap:anywhere;app-region:no-drag}",
     "</style>",
     "</head>",
     "<body>",

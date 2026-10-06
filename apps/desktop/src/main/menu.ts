@@ -10,6 +10,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appeara
 
 import type { KeptAppearance } from "./appearance/kept-appearance.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
+import { describeFailure } from "./services/failure-message.js";
 
 const IS_MACOS = process.platform === "darwin";
 
@@ -46,7 +47,7 @@ export function installApplicationMenu(
         source: "main/menu",
         message:
           `the View menu's ${scheme} color scheme was not kept, so ${appearance.scheme} stays: ` +
-          `${failure instanceof Error ? failure.message : String(failure)}`,
+          describeFailure(failure),
       });
       install();
     });

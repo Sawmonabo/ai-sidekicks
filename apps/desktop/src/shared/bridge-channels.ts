@@ -25,6 +25,7 @@ export const BRIDGE_CHANNELS = {
   readAppearance: "window.readAppearance",
   setMinimumSize: "window.setMinimumSize",
   setDefaultSizes: "window.setDefaultSizes",
+  endSafeStart: "window.endSafeStart",
 } as const;
 
 /** A channel main answers through `ipcMain.handle`. */
@@ -40,11 +41,14 @@ export const OPEN_DAEMON_SUBSCRIPTION_CHANNEL = "daemon.subscribe";
 /** The channel main pushes each daemon subscription's values on, tagged with the subscription. */
 export const DAEMON_SUBSCRIPTION_VALUE_CHANNEL = "daemon.subscriptionValue";
 
-/** The channel main tells a page one of its subscriptions ended on, tagged with the subscription. */
+/** The channel main tells a page one of its subscriptions ended on, tagged with it. */
 export const DAEMON_SUBSCRIPTION_END_CHANNEL = "daemon.subscriptionEnd";
 
 /** The channel main pushes the appearance record on, to the console document. */
 export const APPEARANCE_VALUE_CHANNEL = "window.appearance";
+
+/** The channel main asks the console document on to open a window again, carrying its id. */
+export const REOPEN_WINDOW_CHANNEL = "window.reopen";
 
 /**
  * Every bridge member a page calls, as `namespace.member`. The build facts and the window used
@@ -100,4 +104,7 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.subscribeAppearance": [BRIDGE_CHANNELS.readAppearance],
   "window.setMinimumSize": [BRIDGE_CHANNELS.setMinimumSize],
   "window.setDefaultSizes": [BRIDGE_CHANNELS.setDefaultSizes],
+  "window.endSafeStart": [BRIDGE_CHANNELS.endSafeStart],
+  // Pushed by main alone, on `REOPEN_WINDOW_CHANNEL`: the page asks nothing.
+  "window.subscribeToReopenRequest": [],
 };

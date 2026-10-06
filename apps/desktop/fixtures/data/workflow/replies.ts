@@ -407,6 +407,13 @@ function answerFormRead(
         ],
       },
       { id: "notes", label: "Notes", type: "text", required: true },
+      {
+        id: "highlights",
+        label: "Highlight",
+        type: "collection",
+        multiple: true,
+        fields: [{ id: "summary", label: "Summary", type: "string", required: true }],
+      },
       { id: "rollout", label: "Rollout percent", type: "number", help: "From 1 to 100." },
       { id: "announce", label: "Announce in chat", type: "boolean", default: false },
       {

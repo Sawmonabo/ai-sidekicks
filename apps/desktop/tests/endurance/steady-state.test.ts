@@ -49,9 +49,11 @@ import {
 } from "./workload.js";
 import { readTranscriptWindow } from "./transcript/window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrument.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 // The viewport's own overscan, so the bound below is not a figure kept in step by hand.
 import { TRANSCRIPT_OVERSCAN_ROWS } from "#renderer/features/transcript/viewport/constants.js";
+import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -59,19 +61,18 @@ const bundleIsBuilt = fixtureBundleExists();
  * How many settle-and-churn cycles the run performs.
  *
  * A cycle costs roughly 50 ms of driven interaction, so this keeps the tier under a minute
- * while a leak of ~40 kB per cycle reaches the ceiling below. A smaller leak is below what this
- * instrument can see.
+ * while a leak of ~40 kB per cycle reaches the `steady-heap-growth` ceiling. A smaller leak is
+ * below what this instrument can see.
  */
 const CHURN_CYCLE_COUNT = 200;
 
-/**
- * The growth a run may show and still pass.
- *
- * Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run.
- * Not a percentage, because a percentage of a large baseline is a large absolute allowance and
- * a leak's size does not depend on the application's.
- */
-const STEADY_HEAP_GROWTH_CEILING_BYTES = 8 * 1024 * 1024;
+const registry = BudgetRegistry.load();
+
+/** The growth a run may show and still pass; its row says why that figure. */
+const steadyHeapGrowthBudget = registry.requireBudget("steady-heap-growth");
+
+/** What the detached-node reading may reach and still pass; its row says why that figure. */
+const detachedNodeRetentionBudget = registry.requireBudget("detached-node-retention");
 
 /**
  * The constructors the snapshot case reads, and why each is in the list.
@@ -91,16 +92,6 @@ const RETAINED_READING_CONSTRUCTORS = [
   "Map",
   "Array",
 ] as const;
-
-/**
- * What the detached-node reading may reach and still pass: four megabytes.
- *
- * Well above the transient detachment a React unmount leaves for the next collection and far
- * below a frame that retained one route's subtree per cycle. Not derived from
- * `STEADY_HEAP_GROWTH_CEILING_BYTES`: that bounds a difference of two readings over the whole
- * application, this an absolute retention of one constructor.
- */
-const DETACHED_NODE_RETENTION_CEILING_BYTES = 4 * 1024 * 1024;
 
 /**
  * How many cycles the snapshot case churns.
@@ -223,7 +214,12 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         expect(beatsDelivered).not.toBeNull();
         expect(Number(beatsDelivered)).toBeGreaterThan(Number(beatsAfterWarmUp));
 
-        expect(growthBytes).toBeLessThanOrEqual(STEADY_HEAP_GROWTH_CEILING_BYTES);
+        const growthVerdict = evaluateBudget(steadyHeapGrowthBudget, growthBytes);
+        expect(
+          growthVerdict.withinBudget,
+          `${steadyHeapGrowthBudget.label}: ${String(growthBytes)} B against a ` +
+            `${String(growthVerdict.limitCanonicalValue)} B ceiling`,
+        ).toBe(true);
 
         // Beats delivered are not events reaching a store. Absence fails here, as for the
         // tripwire registry below, since a build without the handle would make this vacuous.
@@ -373,11 +369,12 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
               "HTMLDivElement` subject below is a name nothing in this heap can match",
           ).toBeGreaterThan(0);
 
+          const detachedBytes = retainedBytesOf("Detached HTMLDivElement");
           expect(
-            retainedBytesOf("Detached HTMLDivElement"),
-            "the app is retaining detached DOM subtrees across route churn — " +
-              "a frame or a store is holding a reference into a tree it unmounted",
-          ).toBeLessThanOrEqual(DETACHED_NODE_RETENTION_CEILING_BYTES);
+            evaluateBudget(detachedNodeRetentionBudget, detachedBytes).withinBudget,
+            `the app is retaining ${String(detachedBytes)} B of detached DOM subtrees across ` +
+              "route churn — a frame or a store is holding a reference into a tree it unmounted",
+          ).toBe(true);
         } finally {
           await heapProbe.detach();
         }

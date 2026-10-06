@@ -6,6 +6,7 @@
 import { app, type BaseWindow, type WebContents } from "electron";
 
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
+import { describeFailure } from "../services/failure-message.js";
 import { buildLoadFailureUrl } from "./load-failure-document.js";
 
 /** Main's log, drained before an exit so the reason is on disk when the process ends. */
@@ -24,8 +25,7 @@ export const RENDERER_UNSERVABLE_EXIT_CODE = 5;
  * log line.
  */
 export function describeLoadFailure(error: unknown): string {
-  const text = error instanceof Error ? error.message : String(error);
-  return text.replace(/\s+/g, " ").trim();
+  return describeFailure(error).replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -88,14 +88,29 @@ function serveLoadFailureDocument(
     return;
   }
 
-  webContents.loadURL(failureDocumentUrl).then(revealFailure, (failureDocumentError: unknown) => {
-    writeLoadFailureEntry(
-      log,
-      "error",
-      `the load-failure document could not be served: ${describeLoadFailure(failureDocumentError)}`,
-    );
-    abandonUnservableWindow(baseWindow, reason, log);
-  });
+  webContents.loadURL(failureDocumentUrl).then(
+    () => {
+      try {
+        revealFailure();
+      } catch (revealError: unknown) {
+        // A failure page nobody can see is no better than none.
+        writeLoadFailureEntry(
+          log,
+          "error",
+          `the load-failure document could not be shown: ${describeLoadFailure(revealError)}`,
+        );
+        abandonUnservableWindow(baseWindow, reason, log);
+      }
+    },
+    (failureDocumentError: unknown) => {
+      writeLoadFailureEntry(
+        log,
+        "error",
+        `the load-failure document could not be served: ${describeLoadFailure(failureDocumentError)}`,
+      );
+      abandonUnservableWindow(baseWindow, reason, log);
+    },
+  );
 }
 
 /**
@@ -113,7 +128,7 @@ function abandonUnservableWindow(
   writeLoadFailureEntry(
     log,
     "error",
-    `no renderer document could be served for the console window (${reason}); exiting ` +
+    `no renderer document could be served for the hidden window (${reason}); exiting ` +
       `${String(RENDERER_UNSERVABLE_EXIT_CODE)}.`,
   );
   void log.drain().then(() => {

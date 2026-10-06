@@ -52,6 +52,7 @@ beforeEach(async () => {
         isConsoleDocument: vi.fn(),
         windowUsedLast: vi.fn(),
         setDefaultSizes: vi.fn(),
+        endSafeStart: vi.fn(),
       },
     },
   });

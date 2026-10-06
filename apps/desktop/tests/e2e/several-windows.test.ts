@@ -198,6 +198,55 @@ async function countFramesFromConsole(
   );
 }
 
+/** What main says of a window once a step has been taken on it. */
+interface WindowStepReading {
+  readonly isOpen: boolean;
+  readonly isMinimized: boolean;
+}
+
+/**
+ * Close or minimize the window drawn under frame `name`, in main, and read it once the step's
+ * event arrives or one in-window step has passed. Both finish after the call returns, so the
+ * reading waits for the event.
+ */
+async function stepWindowInMain(
+  appUnderTest: AppUnderTest,
+  name: string,
+  step: "close" | "minimize",
+): Promise<WindowStepReading> {
+  return await appUnderTest.application.evaluate(
+    async ({ BaseWindow, WebContentsView }, { frameName, windowStep, stepDeadlineMs }) => {
+      const byName = (): Electron.BaseWindow | undefined =>
+        BaseWindow.getAllWindows().find((baseWindow) =>
+          baseWindow.contentView.children.some(
+            (child) =>
+              child instanceof WebContentsView && child.webContents.mainFrame.name === frameName,
+          ),
+        );
+      const target = byName();
+      return await new Promise<WindowStepReading>((resolve) => {
+        const read = (): void => {
+          const current = byName();
+          resolve({ isOpen: current !== undefined, isMinimized: current?.isMinimized() ?? false });
+        };
+        if (windowStep === "close") {
+          target?.once("closed", read);
+          target?.close();
+        } else {
+          target?.once("minimize", read);
+          target?.minimize();
+        }
+        setTimeout(read, stepDeadlineMs);
+      });
+    },
+    {
+      frameName: name,
+      windowStep: step,
+      stepDeadlineMs: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+    },
+  );
+}
+
 describe.skipIf(!bundleIsBuilt)("end-to-end — several windows", () => {
   it("keeps drawing the windows left open after one closes and one minimizes", async () => {
     await withLaunchedApp({}, async (appUnderTest) => {
@@ -216,47 +265,16 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — several windows", () => {
         throw new Error("the reopened windows went missing");
       }
 
-      // Close the first window and minimize the second, each found by its frame name.
-      const reading = await appUnderTest.application.evaluate(
-        async ({ BaseWindow, WebContentsView }, names) => {
-          const byName = (name: string): Electron.BaseWindow | undefined =>
-            BaseWindow.getAllWindows().find((baseWindow) =>
-              baseWindow.contentView.children.some(
-                (child) =>
-                  child instanceof WebContentsView && child.webContents.mainFrame.name === name,
-              ),
-            );
-          const firstWindow = byName(names.first);
-          await new Promise<void>((resolve) => {
-            firstWindow?.once("closed", () => {
-              resolve();
-            });
-            firstWindow?.close();
-            setTimeout(resolve, names.stepDeadlineMs);
-          });
-          const secondWindow = byName(names.second);
-          // Minimizing finishes after the call returns, so the answer is read on its event.
-          return await new Promise<{ isFirstOpen: boolean; isSecondMinimized: boolean }>(
-            (resolve) => {
-              const read = (): void => {
-                resolve({
-                  isFirstOpen: byName(names.first) !== undefined,
-                  isSecondMinimized: secondWindow?.isMinimized() ?? false,
-                });
-              };
-              secondWindow?.once("minimize", read);
-              secondWindow?.minimize();
-              setTimeout(read, names.stepDeadlineMs);
-            },
-          );
-        },
-        {
-          first: firstWindowId,
-          second: SECOND_WINDOW_ID,
-          stepDeadlineMs: stepTimeout(),
-        },
-      );
-      expect(reading).toStrictEqual({ isFirstOpen: false, isSecondMinimized: true });
+      // Close the first window, then minimize the second. On Linux a window minimizes only under
+      // a window manager, which CI starts beside its X server.
+      expect(await stepWindowInMain(appUnderTest, firstWindowId, "close")).toStrictEqual({
+        isOpen: false,
+        isMinimized: false,
+      });
+      expect(await stepWindowInMain(appUnderTest, SECOND_WINDOW_ID, "minimize")).toStrictEqual({
+        isOpen: true,
+        isMinimized: true,
+      });
 
       // The console still draws the third window: its tree is mounted and its frames arrive.
       expect(await third.locator(".meridian-frame").count()).toBe(1);

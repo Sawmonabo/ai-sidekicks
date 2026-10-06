@@ -43,7 +43,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
-import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mts";
+import { DESKTOP_PACKAGE_ROOT } from "#scripts/budget/budget-registry.mts";
 import { FIXTURE_GLOBAL_NAMES } from "#renderer/app/fixture/global-names.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "#shared/fixture-launch.js";
 import { type PerformanceMeterKind } from "#renderer/lib/performance-meters/performance-meters.js";

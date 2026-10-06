@@ -3,7 +3,7 @@
 // refuses a window or view built anywhere else under `src/main/` and a security setting written as
 // anything but its hardened literal.
 //
-// Two kinds of window come out of it. The hidden console window loads the renderer document, with
+// Two kinds of window come out of it. The hidden window loads the renderer's console document, with
 // the preload, and is never shown: one renderer drives every window from it. Every window a person
 // sees adopts the `webContents` Chromium made for that document's own `window.open`, which keeps
 // the renderer's sandbox, context isolation and CSP and carries no preload of its own.
@@ -48,7 +48,7 @@ export interface WindowFrame extends WindowGround {
   readonly reveal: RevealState;
 }
 
-/** How a window is built: its rectangle and ground, and either its switches or a document to adopt. */
+/** How a window is built: its rectangle, its ground, and its switches or a document to adopt. */
 interface LockedWindowOptions extends WindowGround {
   readonly bounds: Rectangle;
   /** Appended to the renderer's command line, where the preload reads them. */
@@ -57,12 +57,12 @@ interface LockedWindowOptions extends WindowGround {
 }
 
 /**
- * The hidden console window's rectangle. It is never shown, so the size only gives the document a
+ * The hidden window's rectangle. It is never shown, so the size only gives the document a
  * viewport; every window a person sees has its own place.
  */
-const CONSOLE_WINDOW_BOUNDS: Rectangle = { x: 0, y: 0, width: 800, height: 600 };
+const HIDDEN_WINDOW_BOUNDS: Rectangle = { x: 0, y: 0, width: 800, height: 600 };
 
-/** The state the console window is revealed into when it shows its load-failure document. */
+/** The state the hidden window is revealed into when it shows its load-failure document. */
 const FAILURE_REVEAL: RevealState = { isMaximized: false, isFullScreen: false };
 
 /**
@@ -138,7 +138,7 @@ function pairCloses(baseWindow: BaseWindow, webContents: WebContents): void {
 }
 
 /**
- * The document the console window loads: the dev server under `electron-vite dev`, so hot reload
+ * The document the hidden window loads: the dev server under `electron-vite dev`, so hot reload
  * works, and otherwise the built bundle over the renderer scheme. The two origins have separate
  * browser-storage partitions; that store holds UI state only, so a split can cost a window its
  * layout and never a draft.
@@ -147,11 +147,11 @@ function resolveRendererDocumentUrl(): string {
   return devServerUrl()?.href ?? RENDERER_INDEX_URL;
 }
 
-/** How the console window is built: its ground, its renderer switches, and the caller's load hook. */
-export interface ConsoleWindowOptions extends WindowGround {
+/** How the hidden window is built: its ground, its renderer switches and the caller's load hook. */
+export interface HiddenWindowOptions extends WindowGround {
   /**
-   * The renderer switches: the app's facts, the window used last, and on a fixture launch its
-   * scenario (`#shared/fixture-launch.ts`).
+   * The renderer switches: the app's facts, the console window used last, and on a fixture launch
+   * its scenario (`#shared/fixture-launch.ts`).
    */
   readonly additionalArguments: readonly string[];
   /**
@@ -159,26 +159,26 @@ export interface ConsoleWindowOptions extends WindowGround {
    * `did-finish-load`, `did-fail-load` or `dom-ready` registered inside it cannot be late. A throw
    * destroys the window rather than leaving one with no document behind, and is rethrown.
    */
-  readonly beforeLoad?: (consoleWindow: RendererWindow) => void;
+  readonly beforeLoad?: (hiddenWindow: RendererWindow) => void;
 }
 
 /**
- * Builds the hidden console window, which loads the renderer document and is never shown. Its
+ * Builds the hidden window, which loads the console document and is never shown. Its
  * background throttling is off, because every window a person sees is drawn by its document's
  * script and timers. It is shown only when its document will not load and it shows the
  * load-failure document instead, so the failure is seen.
  */
-export function openConsoleWindow(options: ConsoleWindowOptions): RendererWindow {
-  const consoleWindow = constructLockedWindow({
+export function openHiddenWindow(options: HiddenWindowOptions): RendererWindow {
+  const hiddenWindow = constructLockedWindow({
     ...options,
-    bounds: CONSOLE_WINDOW_BOUNDS,
+    bounds: HIDDEN_WINDOW_BOUNDS,
     adoptedWebContents: undefined,
   });
-  const { baseWindow, view } = consoleWindow;
+  const { baseWindow, view } = hiddenWindow;
   view.webContents.setBackgroundThrottling(false);
 
   try {
-    options.beforeLoad?.(consoleWindow);
+    options.beforeLoad?.(hiddenWindow);
   } catch (error: unknown) {
     if (!baseWindow.isDestroyed()) {
       baseWindow.destroy();
@@ -189,7 +189,7 @@ export function openConsoleWindow(options: ConsoleWindowOptions): RendererWindow
   loadDocument(baseWindow, view.webContents, resolveRendererDocumentUrl(), options.log, () => {
     revealWindow(baseWindow, FAILURE_REVEAL);
   });
-  return consoleWindow;
+  return hiddenWindow;
 }
 
 /**

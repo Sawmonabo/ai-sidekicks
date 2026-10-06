@@ -45,8 +45,8 @@ describe("the navigation policy", () => {
 
   describe.each(NAVIGATION_SEAMS)("on %s", (seam) => {
     it("stops a remote origin and opens it externally instead", async () => {
-      const { openConsoleWindow } = await loadWindowModule();
-      const rendererWindow = openConsoleWindow({ ...testWindowFrame(), additionalArguments: [] });
+      const { openHiddenWindow } = await loadWindowModule();
+      const rendererWindow = openHiddenWindow({ ...testWindowFrame(), additionalArguments: [] });
       const preventDefault = vi.fn();
 
       navigationListenerOf(rendererWindow, seam)({ preventDefault }, "https://example.test/docs");
@@ -58,9 +58,9 @@ describe("the navigation policy", () => {
     });
 
     it("stops a scheme outside the allowlist and opens nothing", async () => {
-      const { openConsoleWindow } = await loadWindowModule();
+      const { openHiddenWindow } = await loadWindowModule();
       const frame = testWindowFrame();
-      const rendererWindow = openConsoleWindow({ ...frame, additionalArguments: [] });
+      const rendererWindow = openHiddenWindow({ ...frame, additionalArguments: [] });
       const preventDefault = vi.fn();
 
       navigationListenerOf(rendererWindow, seam)({ preventDefault }, "file:///etc/passwd");
@@ -75,8 +75,8 @@ describe("the navigation policy", () => {
     it("refuses the dev-server origin in a packaged build", async () => {
       electronMock.setPackaged(true);
       process.env["ELECTRON_RENDERER_URL"] = DEV_SERVER_URL;
-      const { openConsoleWindow } = await loadWindowModule();
-      const rendererWindow = openConsoleWindow({ ...testWindowFrame(), additionalArguments: [] });
+      const { openHiddenWindow } = await loadWindowModule();
+      const rendererWindow = openHiddenWindow({ ...testWindowFrame(), additionalArguments: [] });
       const preventDefault = vi.fn();
 
       navigationListenerOf(rendererWindow, seam)(
@@ -95,8 +95,8 @@ describe("the navigation policy", () => {
   });
 
   it("denies a popup under a name main builds no window for, same origin included", async () => {
-    const { openConsoleWindow } = await loadWindowModule();
-    const rendererWindow = openConsoleWindow({ ...testWindowFrame(), additionalArguments: [] });
+    const { openHiddenWindow } = await loadWindowModule();
+    const rendererWindow = openHiddenWindow({ ...testWindowFrame(), additionalArguments: [] });
 
     expect(windowOpenHandlerOf(rendererWindow)({ url: INDEX_URL, frameName: "" })).toEqual({
       action: "deny",

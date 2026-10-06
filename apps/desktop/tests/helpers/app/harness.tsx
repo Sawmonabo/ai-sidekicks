@@ -10,6 +10,7 @@ import { onTestFinished } from "vitest";
 
 import { AppProviders } from "#renderer/app/AppProviders.js";
 import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
+import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { FrameWindows } from "../frame-windows.js";
 import { crossMacrotaskBoundary } from "../macrotask-boundary.js";
@@ -98,17 +99,20 @@ export async function renderSettled(element: ReactElement): Promise<AppMount> {
 }
 
 /**
- * Mounts the app playing `scenarioId`, its windows opened as iframes over the whole page, and lets
- * every settled promise land; answers the window the app opened first, on the page's address. The
- * windows are removed when the test finishes.
+ * Mounts the app playing `scenarioId`, its windows opened as iframes over the whole page into
+ * `frames`, which a caller passes to read every window the app opens, and lets every settled
+ * promise land; answers the window the app opened first, on the page's address. The windows are
+ * removed when the test finishes. A caller standing in for main wraps the scenario's composition
+ * through `composition`.
  */
-export async function renderAppSettled(scenarioId: string): Promise<Window> {
-  const frames = new FrameWindows();
+export async function renderAppSettled(
+  scenarioId: string,
+  frames: FrameWindows = new FrameWindows(),
+  composition: BridgeComposition = createFixtureComposition(scenarioId),
+): Promise<Window> {
   onTestFinished(() => {
     frames.removeAll();
   });
-  await renderSettled(
-    <AppProviders composition={createFixtureComposition(scenarioId)} openWindow={frames.open} />,
-  );
+  await renderSettled(<AppProviders composition={composition} openWindow={frames.open} />);
   return frames.windowNamed(FIXTURE_WINDOW_ID);
 }
