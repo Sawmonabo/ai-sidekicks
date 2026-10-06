@@ -6,22 +6,24 @@ import { z } from "zod";
 import { wireFreeFormString } from "../../free-form-string.js";
 import { DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN } from "./caps.js";
 
+const IDEMPOTENCY_CLASS_VALUES = ["idempotent", "compensable", "manual_reconcile_only"] as const;
+
 /**
  * A tool's declared idempotency: safe to repeat, undoable, or needing a person to reconcile.
  * Shown per tool on Settings › MCP servers; a daemon restart runs no call again, whatever its
  * class.
  */
-export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
+export type IdempotencyClass = (typeof IDEMPOTENCY_CLASS_VALUES)[number];
+
+/** Every {@link IdempotencyClass}, safest to repeat first. */
+export const IDEMPOTENCY_CLASSES: readonly IdempotencyClass[] = IDEMPOTENCY_CLASS_VALUES;
 
 /**
  * Validates an {@link IdempotencyClass}. Typed double-`T` so its input stays the class, not
  * `unknown`, when `ProviderToolMetadataSchema` composes it with a default.
  */
-export const IdempotencyClassSchema: z.ZodType<IdempotencyClass, IdempotencyClass> = z.enum([
-  "idempotent",
-  "compensable",
-  "manual_reconcile_only",
-]);
+export const IdempotencyClassSchema: z.ZodType<IdempotencyClass, IdempotencyClass> =
+  z.enum(IDEMPOTENCY_CLASS_VALUES);
 
 /**
  * Ingress shape of a tool a driver declares via `getCapabilities()`. `idempotency_class` is

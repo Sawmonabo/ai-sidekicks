@@ -1,10 +1,11 @@
 // The `mcp.*` wire the settings page and the daemon share. A binding names a folder exactly at
 // the scopes that have one, on both providers; every scope takes the values the person typed; a
-// server address carries no credentials; a tool override sets something; and a read-back never
-// invents facts the binding store did not answer.
+// server address carries no credentials; a tool override sets something and a clear names the one
+// facet it clears; and a read-back never invents facts the binding store did not answer.
 import { describe, expect, it } from "vitest";
 
 import {
+  McpClearToolOverrideRequestSchema,
   McpGetResponseSchema,
   McpOauthLoginResponseSchema,
   McpRemoveServerRequestSchema,
@@ -112,6 +113,19 @@ describe("mcp.setToolOverride", () => {
   });
 });
 
+describe("mcp.clearToolOverride", () => {
+  it("clears one named facet, and refuses a clear that names none", () => {
+    const request = { ...PROJECT_BINDING, clientIdempotencyKey: PRESS_ID, toolName: "search" };
+    expect(McpClearToolOverrideRequestSchema.safeParse(request).success).toBe(false);
+    expect(
+      McpClearToolOverrideRequestSchema.safeParse({ ...request, facet: "approvalMode" }).success,
+    ).toBe(true);
+    expect(
+      McpClearToolOverrideRequestSchema.safeParse({ ...request, facet: "toolName" }).success,
+    ).toBe(false);
+  });
+});
+
 describe("the inventory entry", () => {
   const base = {
     ...PROJECT_BINDING,
@@ -128,6 +142,23 @@ describe("the inventory entry", () => {
       McpGetResponseSchema.safeParse({ server: { ...base, bindingStoreUnavailable: true } })
         .success,
     ).toBe(true);
+  });
+
+  it("carries the server's own value beside an override, and only the floor as a server's class", () => {
+    const tool = {
+      toolName: "search",
+      enabled: { value: true, source: "server" },
+      approvalMode: { value: "prompt", source: "override", serverValue: "auto" },
+      idempotencyClass: { value: "manual_reconcile_only", source: "server" },
+    };
+    const parse = (reading: object) =>
+      McpGetResponseSchema.safeParse({ server: { ...base, ...answered, tools: [reading] } })
+        .success;
+    expect(parse(tool)).toBe(true);
+    expect(parse({ ...tool, approvalMode: { value: "prompt", source: "override" } })).toBe(false);
+    expect(parse({ ...tool, idempotencyClass: { value: "idempotent", source: "server" } })).toBe(
+      false,
+    );
   });
 
   it("refuses tool readings on an entry whose binding store did not answer", () => {

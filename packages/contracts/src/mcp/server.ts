@@ -14,7 +14,7 @@
 import { z } from "zod";
 
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import { IdempotencyClassSchema, type IdempotencyClass } from "../provider/driver/tools.js";
+import type { IdempotencyClass } from "../provider/driver/tools.js";
 import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
@@ -70,11 +70,7 @@ const MCP_APPROVAL_MODE_VALUES = ["auto", "prompt", "writes", "approve"] as cons
 
 /** The normalized approval vocabulary a tool override may pin. */
 export type McpApprovalMode = (typeof MCP_APPROVAL_MODE_VALUES)[number];
-/**
- * Every {@link McpApprovalMode}.
- *
- * @consumedBy the MCP servers page's per-tool control for whether a tool asks before running
- */
+/** Every {@link McpApprovalMode}, in the order the per-tool control offers them. */
 export const MCP_APPROVAL_MODES: readonly McpApprovalMode[] = MCP_APPROVAL_MODE_VALUES;
 /** Parses an {@link McpApprovalMode}. */
 export const McpApprovalModeSchema: z.ZodType<McpApprovalMode, McpApprovalMode> =
@@ -83,11 +79,12 @@ export const McpApprovalModeSchema: z.ZodType<McpApprovalMode, McpApprovalMode> 
 const MCP_BINDING_SCOPE_VALUES = ["user", "project", "local", "plugin"] as const;
 
 /**
- * Where a server binding applies: `user` on this machine in every project, `project` in one
- * project and saved with its repository, `local` in one project on this machine only, and
- * `plugin` for a server an installed plugin carries. The first three are writable on both
- * providers; Codex has no private per-project layer, so the daemon emulates `local` there with a
- * user entry that is off by default and switched on in that project's sessions.
+ * Where a server binding applies: `user` in all projects, `project` in one project with its
+ * declaration in the repository, `local` in one project with its declaration outside the
+ * repository, and `plugin` for a server an installed plugin carries. The first three are writable
+ * on both providers; Codex has no per-project layer outside the repository, so the daemon emulates
+ * `local` there with a user entry that is off by default and switched on in that project's
+ * sessions.
  */
 export type McpBindingScope = (typeof MCP_BINDING_SCOPE_VALUES)[number];
 /** Parses an {@link McpBindingScope}, as an event that carries no `scopeRef` names it. */
@@ -240,6 +237,13 @@ const MCP_SERVER_FAILED_REASON_VALUES = ["commandNotRunnable"] as const;
 export type McpServerFailedReason = (typeof MCP_SERVER_FAILED_REASON_VALUES)[number];
 
 /**
+ * The interrupted-call classes a person can assign to a tool. The third class,
+ * `manual_reconcile_only`, is the floor a tool reads with no assignment, so it is cleared to, never
+ * set.
+ */
+export type McpAssignableIdempotencyClass = Exclude<IdempotencyClass, "manual_reconcile_only">;
+
+/**
  * One tool's override as `mcp.setToolOverride` sets it, by facet; at least one facet is present,
  * and an absent facet is left as it stands. What a tool reads in force is its
  * {@link McpToolReading}.
@@ -248,31 +252,41 @@ export interface McpToolOverride {
   toolName: string;
   enabled?: boolean | undefined;
   approvalMode?: McpApprovalMode | undefined;
-  idempotencyClass?: "idempotent" | "compensable" | undefined;
+  idempotencyClass?: McpAssignableIdempotencyClass | undefined;
 }
 
-const MCP_TOOL_SETTING_SOURCE_VALUES = ["server", "override"] as const;
+const MCP_TOOL_OVERRIDE_FACET_VALUES = ["enabled", "approvalMode", "idempotencyClass"] as const;
+
+/** One facet of a tool override, as `mcp.clearToolOverride` names the one it clears. */
+export type McpToolOverrideFacet = (typeof MCP_TOOL_OVERRIDE_FACET_VALUES)[number];
+/** Every {@link McpToolOverrideFacet}, in the order above. */
+export const MCP_TOOL_OVERRIDE_FACETS: readonly McpToolOverrideFacet[] =
+  MCP_TOOL_OVERRIDE_FACET_VALUES;
+
+/**
+ * One per-tool value in force, as the daemon resolved it, and where it came from. Under an
+ * override it also carries `serverValue`, the server's own value that clearing the override
+ * returns to, so a client choosing that value clears the facet rather than setting it.
+ */
+export type McpToolSetting<OverrideValue, ServerValue = OverrideValue> =
+  | { source: "server"; value: ServerValue }
+  | { source: "override"; value: OverrideValue; serverValue: ServerValue };
 
 /** Where a tool's value in force comes from: the server's own, or an override set on the page. */
-export type McpToolSettingSource = (typeof MCP_TOOL_SETTING_SOURCE_VALUES)[number];
-
-/** One per-tool value in force, as the daemon resolved it, and where it came from. */
-export interface McpToolSetting<Value> {
-  value: Value;
-  source: McpToolSettingSource;
-}
+export type McpToolSettingSource = McpToolSetting<unknown>["source"];
 
 /**
  * One tool a binding's server offers, each setting in force and where it came from. The daemon
  * resolves each one from the server's own declaration and the person's override, so a client
  * draws them and works none of them out: an unset approval mode reads the provider's default in
- * the normalized vocabulary, and an unset interrupted-call class reads `manual_reconcile_only`.
+ * the normalized vocabulary, and an unset interrupted-call class reads `manual_reconcile_only`,
+ * the only class a server's own reading holds.
  */
 export interface McpToolReading {
   toolName: string;
   enabled: McpToolSetting<boolean>;
   approvalMode: McpToolSetting<McpApprovalMode>;
-  idempotencyClass: McpToolSetting<IdempotencyClass>;
+  idempotencyClass: McpToolSetting<McpAssignableIdempotencyClass, "manual_reconcile_only">;
 }
 
 /**
@@ -285,6 +299,13 @@ interface McpServerInventoryFacts {
   legs?: McpServerLegStatus[] | undefined;
   observedAt?: string | undefined;
   requiredServer?: boolean | undefined;
+  /**
+   * The project roots in which another binding of this provider and server name takes this one's
+   * place, by the provider's order: a project's `local` binding over its `project` one, either
+   * over the `user` one. The daemon sends a project's sessions only the binding in force there, so
+   * the page names where this one goes unused; absent where it is used wherever it applies.
+   */
+  supersededIn?: string[] | undefined;
   /**
    * Why a `failed` server failed, where the daemon knows a reason the person can
    * act on. `commandNotRunnable`: after the service moved between Windows and a WSL
@@ -502,13 +523,18 @@ export const McpToolNameSchema: z.ZodString = wireFreeFormString(
   "McpToolOverride.toolName",
 );
 
+const McpAssignableIdempotencyClassSchema: z.ZodType<
+  McpAssignableIdempotencyClass,
+  McpAssignableIdempotencyClass
+> = z.enum(["idempotent", "compensable"]);
+
 /** Parses an {@link McpToolOverride}; an override that sets no facet is refused. */
 export const McpToolOverrideSchema: z.ZodType<McpToolOverride, McpToolOverride> = z
   .object({
     toolName: McpToolNameSchema,
     enabled: z.boolean().optional(),
     approvalMode: McpApprovalModeSchema.optional(),
-    idempotencyClass: z.enum(["idempotent", "compensable"]).optional(),
+    idempotencyClass: McpAssignableIdempotencyClassSchema.optional(),
   })
   .strict()
   .refine(
@@ -530,16 +556,24 @@ export const McpSetToolOverrideRequestSchema: z.ZodType<
   McpSetToolOverrideRequest
 > = bindingAddressed({ clientIdempotencyKey: z.uuid(), override: McpToolOverrideSchema });
 
-/** Clears one tool's override, returning every facet to the server's own value. */
+/**
+ * Clears one facet of one tool's override, returning that facet to the server's own value and
+ * leaving the tool's other facets as they stand.
+ */
 export type McpClearToolOverrideRequest = McpServerBindingRef & {
   clientIdempotencyKey: string;
   toolName: string;
+  facet: McpToolOverrideFacet;
 };
-/** Parses an {@link McpClearToolOverrideRequest}. */
+/** Parses an {@link McpClearToolOverrideRequest}; a request naming no facet is refused. */
 export const McpClearToolOverrideRequestSchema: z.ZodType<
   McpClearToolOverrideRequest,
   McpClearToolOverrideRequest
-> = bindingAddressed({ clientIdempotencyKey: z.uuid(), toolName: McpToolNameSchema });
+> = bindingAddressed({
+  clientIdempotencyKey: z.uuid(),
+  toolName: McpToolNameSchema,
+  facet: z.enum(MCP_TOOL_OVERRIDE_FACET_VALUES),
+});
 
 /**
  * Signs out of one server: the daemon's single sign-in for it, which both
@@ -641,17 +675,27 @@ const inventoryFactsShape = {
   legs: z.array(McpServerLegStatusSchema).optional(),
   observedAt: isoDateTimeSchema.optional(),
   requiredServer: z.boolean().optional(),
+  supersededIn: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)).min(1).optional(),
   failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
 };
-const McpToolSettingSourceSchema = z.enum(MCP_TOOL_SETTING_SOURCE_VALUES);
-const toolSettingSchema = <Value extends z.ZodType>(value: Value) =>
-  z.object({ value, source: McpToolSettingSourceSchema }).strict();
+// One setting's two arms: the server's own value, or an override with the server's value beside it.
+const toolSettingSchema = <OverrideValue extends z.ZodType, ServerValue extends z.ZodType>(
+  value: OverrideValue,
+  serverValue: ServerValue,
+) =>
+  z.discriminatedUnion("source", [
+    z.object({ source: z.literal("server"), value: serverValue }).strict(),
+    z.object({ source: z.literal("override"), value, serverValue }).strict(),
+  ]);
 const McpToolReadingSchema: z.ZodType<McpToolReading> = z
   .object({
     toolName: McpToolNameSchema,
-    enabled: toolSettingSchema(z.boolean()),
-    approvalMode: toolSettingSchema(McpApprovalModeSchema),
-    idempotencyClass: toolSettingSchema(IdempotencyClassSchema),
+    enabled: toolSettingSchema(z.boolean(), z.boolean()),
+    approvalMode: toolSettingSchema(McpApprovalModeSchema, McpApprovalModeSchema),
+    idempotencyClass: toolSettingSchema(
+      McpAssignableIdempotencyClassSchema,
+      z.literal("manual_reconcile_only"),
+    ),
   })
   .strict();
 const storeAnsweredEntryShape = {

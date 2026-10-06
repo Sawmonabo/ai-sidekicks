@@ -405,7 +405,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `mcp.clearToolOverride` | Clear a per-tool override | [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) | [Plan-022](../../plans/022-mcp-server-configuration-and-governance.md) T28.4.3 |
+| `mcp.clearToolOverride` | Clear one facet of a per-tool override | [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) | [Plan-022](../../plans/022-mcp-server-configuration-and-governance.md) T28.4.3 |
 | `mcp.get` | Read one server | [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) | [Plan-022](../../plans/022-mcp-server-configuration-and-governance.md) T28.2.4 |
 | `mcp.list` | List MCP servers | [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) | [Plan-022](../../plans/022-mcp-server-configuration-and-governance.md) T28.2.4 |
 | a `mcp.list` and `mcp.get` server entry reading `failed` carries `failedReason: commandNotRunnable` | A tool server whose command cannot run after a move | [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) | [Plan-022](../../plans/022-mcp-server-configuration-and-governance.md) T28.2.4 |
@@ -8263,7 +8263,7 @@ Governed by [Spec-024](../../specs/024-mcp-server-configuration-and-governance.m
 ```ts
 // ---- Primitives (Spec-024) ----
 type McpProvider = "claude" | "codex";
-type McpBindingScope = "user" | "project" | "local" | "plugin"; // scope axis of the binding identity; the first three are writable on both providers, and `plugin` names a server an installed plugin carries: user = the provider's own user configuration, every project on this machine; project = the project's own file, saved with the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`); local = this project on this machine only (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions). Scope-applicability is PER OPERATION (see the operations block)
+type McpBindingScope = "user" | "project" | "local" | "plugin"; // scope axis of the binding identity; the first three are writable on both providers, and `plugin` names a server an installed plugin carries: user = the provider's own user configuration, read on the page as `All projects`; project = the project's own file in the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`), `This project · in the repo`; local = one project, declared outside the repository (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions), `This project · not in the repo`. Scope-applicability is PER OPERATION (see the operations block)
 type McpApplicationGrade = "live_reconcile" | "user_config_write" | "next_run" | "daemon_enforced"; // when/where a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly): live session set / provider config store (subsequent runs) / next-run composed config / daemon decision layer (immediate)
 type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native vocabulary adopted as the normalized set; Claude-side enforcement is daemon-owned (Spec-024 §Tool-Level Overrides)
 
@@ -8411,6 +8411,7 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
+  supersededIn?: string[]; // the project roots where another binding of this provider and serverName is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one); the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads each one as `Not used in <project>: its own <name> takes its place.` Absent where the binding is used wherever it applies; never empty
 } & (
     | {
         bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
@@ -8425,18 +8426,21 @@ type McpServerInventoryEntry = McpServerBindingRef & {
 
 // One tool's settings as the page draws them, every per-tool value saying where it came from: each
 // facet's value IN FORCE, resolved by the daemon from the server's own declaration and the person's
-// override row, and its source — "server" (`The server's own`) or "override" (`Set here`). The
-// client draws both and derives neither.
-type McpToolSettingSource = "server" | "override";
-interface McpToolSetting<Value> {
-  value: Value;
-  source: McpToolSettingSource;
-}
+// override row, and its source — "server" (`The server's own`) or "override" (`Set here`). Under an
+// override the setting also carries `serverValue`, the server's own value a clear returns to (for
+// Codex, the preserved native baseline), so the page's control lists only the facet's values and
+// choosing the server's own one sends mcp.clearToolOverride for that facet instead of a set. The
+// client draws all of it and derives none.
+type McpToolSetting<OverrideValue, ServerValue = OverrideValue> =
+  | { source: "server"; value: ServerValue }
+  | { source: "override"; value: OverrideValue; serverValue: ServerValue };
+type McpToolSettingSource = McpToolSetting<unknown>["source"];
+type McpAssignableIdempotencyClass = "idempotent" | "compensable"; // the classes a person assigns; manual_reconcile_only is the floor a clear returns to, never set
 interface McpToolReading {
   toolName: string;
   enabled: McpToolSetting<boolean>; // with no override: the provider config (for Codex, the preserved native baseline)
   approvalMode: McpToolSetting<McpApprovalMode>; // with no override: the provider default, in the normalized vocabulary
-  idempotencyClass: McpToolSetting<IdempotencyClass>; // with no override: the manual_reconcile_only floor
+  idempotencyClass: McpToolSetting<McpAssignableIdempotencyClass, "manual_reconcile_only">; // with no override: the manual_reconcile_only floor, the only class a server's own reading holds
 }
 
 // The override REQUEST shape (mcp.setToolOverride): the facets the request touches; an absent facet
@@ -8448,8 +8452,12 @@ interface McpToolOverride {
   toolName: string;
   enabled?: boolean;
   approvalMode?: McpApprovalMode;
-  idempotencyClass?: "idempotent" | "compensable";
+  idempotencyClass?: McpAssignableIdempotencyClass;
 }
+
+// The facet mcp.clearToolOverride clears. One per request: the page clears the one facet the person
+// returned to the server's own value, and the tool's other facets stand.
+type McpToolOverrideFacet = "enabled" | "approvalMode" | "idempotencyClass";
 
 // Per-facet application grades for override mutations (Spec-024 §Tool-Level Overrides): Codex
 // enabled/approvalMode materialize into native config fields (user_config_write) in the file that
@@ -8494,7 +8502,7 @@ interface McpLiveApplicationResult {
 //   mcp.removeServer      McpWritableBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server removes every approval rule over its tools from the provider's file that holds it, in the same transaction
 //   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
-//   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
+//   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string, facet: McpToolOverrideFacet} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // clears that one facet back to the server's own value (a Codex facet restored from the binding's baseline) and leaves the tool's other facets set; clearing a tool's last set facet drops its override row; `applied` carries the cleared facet's grade alone
 //   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key
 //   mcp.oauthLogout       {serverId: string, clientIdempotencyKey: string} → EmptyPayload // `Sign out of this server`. `serverId` is the server's address, not a scope-qualified binding: the daemon holds one sign-in per server, used by both providers and every binding that names it, and each of those bindings' change after the sign-out arrives as its status notice on mcp.subscribe. It deletes the daemon's refresh token for the server, and its signing key where the server demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's next call to that server carries no token and the server reads needs-auth in every session on both providers until the next sign-in
 //   mcp.reconnect         McpServerBindingRef & {sessionId?: SessionId, bindingId?: string} → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s), LEG-ADDRESSABLE — exactly one leg when bindingId is given (with sessionId, both must name the same leg), every live leg of one session when only sessionId is given, every live leg otherwise; per-leg post-reconnect statuses, honest per leg
