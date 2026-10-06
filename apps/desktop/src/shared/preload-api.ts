@@ -389,7 +389,9 @@ export interface PreloadApi {
     listEditors(): Promise<EditorEntry[]>;
     /** The operating system's notification permission for this app. */
     getNotificationPermission(): Promise<NotificationPermission>;
-    /** Put the text, with its formatted flavor where one is given, on the clipboard in one write. */
+    /**
+     * Put the text, with its formatted flavor where one is given, on the clipboard in one write.
+     */
     copyToClipboard(content: ClipboardContent): Promise<void>;
     /** Show a file or folder selected in the platform's file manager. */
     revealInFileExplorer(ref: FilePathRef): Promise<void>;

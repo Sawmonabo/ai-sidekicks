@@ -15,6 +15,7 @@ import {
 import type { CrashReporter } from "electron";
 
 import type { MainDiagnosticLog } from "./diagnostic-log.js";
+import { describeFailure } from "./failure-message.js";
 import { isMissingPath } from "./missing-path.js";
 
 /** What the crash reporter reads the settings file through and starts Crashpad with. */
@@ -73,7 +74,7 @@ function readKeepCrashReports(host: CrashReporterHost): boolean {
     if (!isMissingPath(readFailure)) {
       host.reportUnreadableSettings(
         `The machine's settings file could not be read, so crash reports are kept: ` +
-          `${readFailure instanceof Error ? readFailure.message : String(readFailure)}`,
+          describeFailure(readFailure),
       );
     }
     return MACHINE_SETTINGS_DEFAULTS.keepCrashReports;
@@ -81,10 +82,20 @@ function readKeepCrashReports(host: CrashReporterHost): boolean {
   let fileJson: unknown;
   try {
     fileJson = JSON.parse(fileText);
-  } catch {
+  } catch (parseFailure) {
     // A broken file reads as the defaults; the service repairs it when it starts.
+    host.reportUnreadableSettings(
+      `The machine's settings file is not JSON, so crash reports are kept: ` +
+        describeFailure(parseFailure),
+    );
     return MACHINE_SETTINGS_DEFAULTS.keepCrashReports;
   }
   const parsed = parseMachineSettingsFile(fileJson);
-  return parsed.success ? parsed.data.keepCrashReports : MACHINE_SETTINGS_DEFAULTS.keepCrashReports;
+  if (!parsed.success) {
+    host.reportUnreadableSettings(
+      "The machine's settings file does not match its schema, so crash reports are kept.",
+    );
+    return MACHINE_SETTINGS_DEFAULTS.keepCrashReports;
+  }
+  return parsed.data.keepCrashReports;
 }

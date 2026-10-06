@@ -26,6 +26,7 @@ import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
 import type { DaemonSupervisor } from "../services/daemon/daemon-supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
+import { describeFailure } from "../services/failure-message.js";
 import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/file-path-refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
@@ -42,6 +43,7 @@ import { machineSettingsAnswers } from "./machine-settings.js";
 import { PastedImages, refForDroppedFile } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
 import { showOpenDialog } from "./native/open-dialog.js";
+import { pageSafeFailure, pageSafeMessage } from "./page-safe-message.js";
 import { windowAnswers, type WindowHandlerContext } from "./window-handlers.js";
 
 /** One channel's answer, given the asking event and the one request it carried. */
@@ -82,11 +84,25 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
   });
 
   // A synchronous channel answers through `returnValue` and must always set it, or the page
-  // waits forever, so a refused frame gets an answer rather than a throw.
+  // waits forever, so a refused frame and a failed opening get an answer rather than a throw.
   ipcMain.on(OPEN_DAEMON_SUBSCRIPTION_CHANNEL, (event, request: unknown) => {
-    const opening: DaemonSubscriptionOpening = isAppRendererFrame(event)
-      ? daemonForwarding.open(event.sender, request)
-      : { outcome: "failed", message: refusedFrameMessage(OPEN_DAEMON_SUBSCRIPTION_CHANNEL) };
+    let opening: DaemonSubscriptionOpening;
+    if (!isAppRendererFrame(event)) {
+      opening = {
+        outcome: "failed",
+        message: refusedFrameMessage(OPEN_DAEMON_SUBSCRIPTION_CHANNEL),
+      };
+    } else {
+      try {
+        opening = daemonForwarding.open(event.sender, request);
+      } catch (failure) {
+        recordFailure(log, OPEN_DAEMON_SUBSCRIPTION_CHANNEL, failure);
+        opening = {
+          outcome: "failed",
+          message: pageSafeMessage(OPEN_DAEMON_SUBSCRIPTION_CHANNEL, failure),
+        };
+      }
+    }
     event.returnValue = opening;
   });
   // Keyed by every channel main invokes on, so a channel with no answer fails the build.
@@ -163,7 +179,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     ...windowAnswers(windowContext),
   };
   for (const [channel, answer] of Object.entries(answers)) {
-    handleFromAppRenderer(channel, answer);
+    handleFromAppRenderer(channel, answer, log);
   }
 }
 
@@ -178,12 +194,31 @@ function isAppRendererFrame(event: Pick<IpcMainInvokeEvent, "senderFrame">): boo
   );
 }
 
-function handleFromAppRenderer(channel: string, answer: ChannelAnswer): void {
-  ipcMain.handle(channel, (event, request: unknown) => {
+// A failure is logged whole and crosses with no path or program in its message.
+function handleFromAppRenderer(
+  channel: string,
+  answer: ChannelAnswer,
+  log: BridgeHandlerServices["log"],
+): void {
+  ipcMain.handle(channel, async (event, request: unknown) => {
     if (!isAppRendererFrame(event)) {
       throw new Error(refusedFrameMessage(channel));
     }
-    return answer(event, request);
+    try {
+      return await answer(event, request);
+    } catch (failure) {
+      recordFailure(log, channel, failure);
+      throw pageSafeFailure(channel, failure);
+    }
+  });
+}
+
+function recordFailure(log: BridgeHandlerServices["log"], channel: string, failure: unknown): void {
+  log.write({
+    at: new Date().toISOString(),
+    level: "warning",
+    source: "main/bridge",
+    message: `${channel} failed: ${describeFailure(failure)}`,
   });
 }
 

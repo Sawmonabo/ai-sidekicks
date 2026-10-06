@@ -1,8 +1,8 @@
 // What main writes onto the served console document's root element, so the first paint is right
 // with no script and no read: the appearance record's root (`composeRootAppearance`), its
 // attributes, the scheme resolved to light or dark among them, and an inline style, and the
-// safe-start mark on a load after repeated renderer crashes. Every value comes from the schema-checked record, an enum or a positive number, so
-// none needs escaping.
+// safe-start mark on a load after repeated renderer crashes. Every value comes from the
+// schema-checked record, an enum or a positive number, so none needs escaping.
 
 import {
   composeRootAppearance,

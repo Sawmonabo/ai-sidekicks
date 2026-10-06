@@ -1,11 +1,11 @@
 // Every bridge member's channels are answered, and refuse a frame that is not one of the app's own
-// documents.
+// documents. A failure reaches the page with no path in it, and main's log keeps it whole.
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   BRIDGE_CHANNELS,
@@ -14,12 +14,14 @@ import {
 } from "#shared/bridge-channels.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 
 const electronMock = createElectronMock();
 
 vi.mock("electron", () => electronMock.moduleExports);
 
 let userData: string;
+let log: { readonly write: Mock<MainDiagnosticLog["write"]> };
 
 beforeEach(async () => {
   electronMock.reset();
@@ -30,7 +32,7 @@ beforeEach(async () => {
   const { DaemonLink } = await import("../services/daemon/daemon-link.js");
   const { FilePathRefs } = await import("./file-path/file-path-refs.js");
   const link = new DaemonLink();
-  const log = { write: vi.fn() };
+  log = { write: vi.fn<MainDiagnosticLog["write"]>() };
   const filePathRefs = new FilePathRefs();
   installBridgeHandlers({
     userData,
@@ -62,6 +64,9 @@ afterEach(async () => {
   await rm(userData, { recursive: true, force: true });
 });
 
+/** The app's own console document, which every channel answers. */
+const APP_DOCUMENT = "sidekicks-renderer://app/index.html";
+
 /** Call a registered channel as a frame at `frameUrl` would. */
 function invokeFrom(frameUrl: string | undefined, channel: string, request?: unknown): unknown {
   const handler = electronMock.ipcHandlers.get(channel) as
@@ -77,17 +82,17 @@ function invokeFrom(frameUrl: string | undefined, channel: string, request?: unk
 }
 
 describe("the bridge's channels", () => {
-  it("answers every member's channels, refusing an outside origin and a frame with no document", () => {
+  it("answers every member's channels, refusing an outside origin and a frame with no document", async () => {
     const invokedChannels = new Set(
       Object.values(BRIDGE_MEMBER_CHANNELS)
         .flat()
         .filter((channel) => channel !== OPEN_DAEMON_SUBSCRIPTION_CHANNEL),
     );
     for (const channel of invokedChannels) {
-      expect(() => invokeFrom("https://example.com/", channel)).toThrow(
+      await expect(invokeFrom("https://example.com/", channel)).rejects.toThrow(
         `${channel} answers only the app's own renderer documents.`,
       );
-      expect(() => invokeFrom(undefined, channel)).toThrow(
+      await expect(invokeFrom(undefined, channel)).rejects.toThrow(
         `${channel} answers only the app's own renderer documents.`,
       );
     }
@@ -118,13 +123,55 @@ describe("the bridge's channels", () => {
   });
 
   it("refuses a map that is not one before writing it", async () => {
-    expect(() =>
+    await expect(
       invokeFrom("sidekicks-renderer://app/index.html", BRIDGE_CHANNELS.writeKeyboardMap, {
         "frame.goToSessions": 7,
       }),
-    ).toThrow();
+    ).rejects.toThrow();
     await expect(
       invokeFrom("sidekicks-renderer://app/index.html", BRIDGE_CHANNELS.readKeyboardMap),
     ).resolves.toStrictEqual({ map: {} });
+  });
+
+  it("answers a system failure by its code, with no path in it, and logs it whole", async () => {
+    // The profile folder is a file, so writing the map under it fails in the operating system.
+    await rm(userData, { recursive: true, force: true });
+    await writeFile(userData, "");
+
+    const writing = invokeFrom(
+      APP_DOCUMENT,
+      BRIDGE_CHANNELS.writeKeyboardMap,
+      {},
+    ) as Promise<unknown>;
+
+    await expect(writing).rejects.toThrow(
+      new RegExp(`^${BRIDGE_CHANNELS.writeKeyboardMap} failed \\(E[A-Z]+\\)\\.$`),
+    );
+    await writing.catch((failure: unknown) => {
+      expect(String(failure)).not.toContain(userData);
+    });
+    expect(JSON.stringify(log.write.mock.calls)).toContain(userData);
+  });
+
+  it("answers a failed opening on the synchronous channel rather than leaving the page waiting", () => {
+    const openSubscription = electronMock.ipcListeners.get(OPEN_DAEMON_SUBSCRIPTION_CHANNEL);
+    if (openSubscription === undefined) {
+      throw new Error(`nothing answers ${OPEN_DAEMON_SUBSCRIPTION_CHANNEL}`);
+    }
+    // A sender that cannot be sent to throws as the status topic delivers its first state.
+    const event = {
+      senderFrame: { url: APP_DOCUMENT },
+      sender: {},
+      returnValue: undefined as unknown,
+    };
+    const request = {
+      subscriptionId: "6c1f3b1e-8a39-4f43-9d1e-2b6f0a4c5d7e",
+      event: "daemon.status",
+      params: {},
+    };
+    openSubscription(event as never, request as never);
+
+    expect(event.returnValue).toMatchObject({ outcome: "failed" });
+    expect(log.write).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,7 +3,7 @@
 // A page's subscriptions are canceled on the daemon when it loads a new document or goes, and one
 // that ends while the page holds it is told to the page. The status topic speaks with no service
 // linked. A call that ends work goes only over a link that reads connected with a compatible
-// handshake.
+// handshake. A failure the operating system raised crosses by its code, with no path in it.
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
@@ -207,6 +207,25 @@ describe("the daemon's wire through main", () => {
     for (const crossed of [refused, failed]) {
       expect(inspect(crossed, { depth: null, showHidden: true })).not.toContain(SESSION_TOKEN);
     }
+  });
+
+  it("says a link the operating system broke by its code, naming no path", async () => {
+    const connection = scriptedConnection(() => ({ result: NO_DEVICES }));
+    const bridge = await bridgeOver(connection);
+    const socketPath = "/Users/someone/Library/Application Support/sidekicks/daemon.sock";
+
+    connection.closeWith(
+      Object.assign(new Error(`read ECONNRESET ${socketPath}`), {
+        syscall: "read",
+        code: "ECONNRESET",
+      }),
+    );
+    const failed = await rejectionOf(bridge.daemon.call("presence.read", {}));
+
+    expect(normalizeWireRejection("daemon-call", failed).detail).toBe(
+      "presence.read failed (ECONNRESET).",
+    );
+    expect(inspect(failed, { depth: null, showHidden: true })).not.toContain(socketPath);
   });
 
   it("cancels a page's subscriptions on the daemon when it navigates or goes", async () => {

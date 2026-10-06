@@ -35,6 +35,7 @@ import {
   type MainDiagnosticLog,
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
+import { describeFailure } from "./services/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { OpenWindows } from "./windows/open-windows.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/place-file.js";
@@ -299,9 +300,7 @@ function startApplication(): void {
           at: new Date().toISOString(),
           level: "error",
           source: "main/index",
-          message:
-            `startup failed: ` +
-            `${startupFailure instanceof Error ? startupFailure.message : String(startupFailure)}`,
+          message: `startup failed: ${describeFailure(startupFailure)}`,
         });
         await reportUnwrittenDiagnostics(startupLog, (message) => {
           console.error(message);

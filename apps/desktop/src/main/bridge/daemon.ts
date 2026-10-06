@@ -45,8 +45,10 @@ import type {
   ServiceEndingMethod,
 } from "../services/daemon/daemon-supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
+import { describeFailure } from "../services/failure-message.js";
 import { mintTokensForPaths, swapTokensForPaths } from "./file-path/relay.js";
 import type { FilePathRefOwner, FilePathRefs } from "./file-path/file-path-refs.js";
+import { pageSafeMessage } from "./page-safe-message.js";
 
 /**
  * The page a subscription delivers to: its id, the pushes its values and its end ride on, and the
@@ -160,7 +162,7 @@ export class DaemonForwarding {
     try {
       sendable = swapTokensForPaths(this.#filePathRefs, page, method, params);
     } catch (failure) {
-      return { outcome: "failed", message: messageOf(failure) };
+      return { outcome: "failed", message: describeFailure(failure) };
     }
     const client = this.#link.client;
     if (client === undefined) {
@@ -179,7 +181,7 @@ export class DaemonForwarding {
         ? { outcome: "served", value }
         : { outcome: "served", value, fileRefs };
     } catch (failure) {
-      return unservedOutcomeOf(failure);
+      return unservedOutcomeOf(method, failure);
     }
   }
 
@@ -188,7 +190,7 @@ export class DaemonForwarding {
     try {
       return { outcome: "served", value: await this.#supervisor.endService(method) };
     } catch (failure) {
-      return unservedOutcomeOf(failure);
+      return unservedOutcomeOf(method, failure);
     }
   }
 
@@ -213,7 +215,7 @@ export class DaemonForwarding {
       );
       return { outcome: "served", value };
     } catch (failure) {
-      return unservedOutcomeOf(failure);
+      return unservedOutcomeOf(contract.method, failure);
     }
   }
 
@@ -348,12 +350,12 @@ export class DaemonForwarding {
         at: this.#now().toISOString(),
         level: "error",
         source: "main/bridge/daemon",
-        message: `The daemon subscription ${event} failed: ${messageOf(failure)}`,
+        message: `The daemon subscription ${event} failed: ${describeFailure(failure)}`,
       });
       end =
         failure instanceof JsonRpcRemoteError
           ? { reason: "refused", refusal: wireErrorOf(failure) }
-          : { reason: "failed", message: messageOf(failure) };
+          : { reason: "failed", message: pageSafeMessage(event, failure) };
     }
     if (isHeld()) {
       this.#subscriptionsByPage.get(page.id)?.delete(subscriptionId);
@@ -387,11 +389,14 @@ function workEndingRefusal(link: DaemonLink): JsonRpcError | undefined {
   };
 }
 
-/** A call that threw: the daemon's refusal, or a failure on main's side by its message. */
-function unservedOutcomeOf(failure: unknown): DaemonCallOutcome {
+/**
+ * A call to `method` that threw: the daemon's refusal, or a failure on main's side by a message
+ * that names no path.
+ */
+function unservedOutcomeOf(method: string, failure: unknown): DaemonCallOutcome {
   return failure instanceof JsonRpcRemoteError
     ? { outcome: "refused", refusal: wireErrorOf(failure) }
-    : { outcome: "failed", message: messageOf(failure) };
+    : { outcome: "failed", message: pageSafeMessage(method, failure) };
 }
 
 /** The refusal as the wire sent it: its code, message and data, and nothing else. */
@@ -405,10 +410,6 @@ function wireErrorOf(remote: JsonRpcRemoteError): JsonRpcError {
     message: remote.message,
     data: fields === undefined ? { type } : { type, fields },
   };
-}
-
-function messageOf(failure: unknown): string {
-  return failure instanceof Error ? failure.message : String(failure);
 }
 
 function closeEvery(subscriptions: Map<string, OpenSubscription>): void {

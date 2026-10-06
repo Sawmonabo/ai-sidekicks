@@ -64,16 +64,18 @@ describe("the crash reporter", () => {
     expect(host.start).not.toHaveBeenCalled();
   });
 
-  it("reads a broken file as the defaults, which keep reports", async () => {
+  it("reads a broken file as the defaults, which keep reports, and reports it", async () => {
     await writeSettingsFile("{ not json");
     const brokenHost = hostOverHome();
     startCrashReporter(brokenHost);
     expect(brokenHost.start).toHaveBeenCalledExactlyOnceWith({ uploadToServer: false });
+    expect(brokenHost.reported).toEqual([expect.stringContaining("is not JSON")]);
 
     await writeSettingsFile(JSON.stringify({ keepCrashReports: "no" }));
     const malformedHost = hostOverHome();
     startCrashReporter(malformedHost);
     expect(malformedHost.start).toHaveBeenCalledExactlyOnceWith({ uploadToServer: false });
+    expect(malformedHost.reported).toEqual([expect.stringContaining("does not match its schema")]);
   });
 
   it("reports a settings file that exists and cannot be read, and keeps reports", () => {

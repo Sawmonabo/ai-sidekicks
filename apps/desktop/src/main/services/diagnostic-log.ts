@@ -20,6 +20,7 @@
 import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import { describeFailure } from "./failure-message.js";
 import { isMissingPath } from "./missing-path.js";
 
 /** How bad one entry is. Closed, and ordered most severe first. */
@@ -135,8 +136,7 @@ export class MainDiagnosticLog {
         // per line and spend the quit budget.
         this.#accepting = false;
         this.#writeFailureCount += 1;
-        this.#lastWriteFailure =
-          writeFailure instanceof Error ? writeFailure.message : "unknown failure";
+        this.#lastWriteFailure = describeFailure(writeFailure);
       }
     });
   }

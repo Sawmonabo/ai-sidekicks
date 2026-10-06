@@ -42,6 +42,7 @@ import type {
   MainProcessState,
 } from "#shared/daemon/daemon-status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
+import { describeFailure } from "../failure-message.js";
 import type { DaemonLink } from "./daemon-link.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link-lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/service-process.js";
@@ -300,7 +301,7 @@ export class DaemonSupervisor {
         // The start goes ahead; a service still holding the data folder fails it, as a start.
         this.#record(
           "error",
-          `Waiting for the background service to exit failed: ${messageOf(failure)}`,
+          `Waiting for the background service to exit failed: ${describeFailure(failure)}`,
         );
       }
       this.#endingService = undefined;
@@ -408,7 +409,8 @@ export class DaemonSupervisor {
       }
       this.#record(
         "warning",
-        `The background service on another protocol did not name its process: ${messageOf(failure)}`,
+        "The background service on another protocol did not name its process: " +
+          describeFailure(failure),
       );
       return isStartedByApp ? started : undefined;
     }
@@ -536,7 +538,10 @@ export class DaemonSupervisor {
         ) {
           return;
         }
-        this.#record("error", `The ping to the background service failed: ${messageOf(failure)}`);
+        this.#record(
+          "error",
+          `The ping to the background service failed: ${describeFailure(failure)}`,
+        );
       });
   }
 
@@ -572,7 +577,7 @@ export class DaemonSupervisor {
     }
     this.#endingService = service;
     service.end(ending).catch((failure: unknown) => {
-      this.#record("error", `Ending the background service failed: ${messageOf(failure)}`);
+      this.#record("error", `Ending the background service failed: ${describeFailure(failure)}`);
     });
   }
 
@@ -581,7 +586,7 @@ export class DaemonSupervisor {
       return;
     }
     this.#consecutiveFailedStarts += 1;
-    this.#lastError = messageOf(failure);
+    this.#lastError = describeFailure(failure);
     this.#record("error", `The background service did not start: ${this.#lastError}`);
     if (this.#consecutiveFailedStarts >= SERVICE_START_BACKOFF_MS.length) {
       this.#phase = "degraded";
@@ -744,8 +749,4 @@ function pause(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
-}
-
-function messageOf(failure: unknown): string {
-  return failure instanceof Error ? failure.message : String(failure);
 }

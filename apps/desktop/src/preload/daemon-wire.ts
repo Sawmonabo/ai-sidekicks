@@ -27,7 +27,10 @@ export interface DaemonWireIpc {
   on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): unknown;
 }
 
-/** The `daemon` member the preload exposes, carried over `ipc`, its subscriptions opened through `subscriptions`. */
+/**
+ * The `daemon` member the preload exposes, carried over `ipc`, its subscriptions opened through
+ * `subscriptions`.
+ */
 export function createDaemonWire(
   ipc: DaemonWireIpc,
   subscriptions: DaemonSubscriptions,
