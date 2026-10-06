@@ -44,7 +44,6 @@ async function renderReadList(
         operations={operations}
         onCopy={() => undefined}
         onRequestRead={() => undefined}
-        onSelect={() => undefined}
         onOpenDiff={onOpenDiff}
       />
     </LiveAnnouncerProvider>,

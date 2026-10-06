@@ -15,7 +15,6 @@ import {
   type VcsType,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/repo";
-import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 /**
  * One synchronous filesystem measurement, handed in by the service layer. Every projection checks
@@ -167,6 +166,16 @@ export function computeWorkspaceHealth(
 // The matrix is keyed by `vcs_type` alone: worktree availability is not probed at read time, and a
 // mode that cannot be prepared fails at preparation.
 
+/**
+ * The modes a mount's workspace may take, its default, and a reason for each mode it may not take.
+ * `restrictions` is omitted when nothing is restricted.
+ */
+interface ExecutionModeCapabilities {
+  readonly availableModes: ExecutionMode[];
+  readonly defaultMode: ExecutionMode;
+  readonly restrictions?: Partial<Record<ExecutionMode, string>>;
+}
+
 /** One mode's standing for one kind of mount; the unavailable arm requires a reason. */
 type ExecutionModeVerdict =
   | { readonly available: true }
@@ -210,7 +219,7 @@ export interface ExecutionModeCapabilityRow {
 /** Projects a mount's allowed execution modes, with a reason for each mode it does not allow. */
 export function computeExecutionModeCapabilities(
   mountRow: ExecutionModeCapabilityRow,
-): WorkspaceExecutionModeCapabilitiesReadResponse {
+): ExecutionModeCapabilities {
   return projectCapabilityProfile(capabilityProfileFor(mountRow.vcsType));
 }
 
@@ -234,9 +243,7 @@ function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
   }
 }
 
-function projectCapabilityProfile(
-  profile: VcsTypeCapabilityProfile,
-): WorkspaceExecutionModeCapabilitiesReadResponse {
+function projectCapabilityProfile(profile: VcsTypeCapabilityProfile): ExecutionModeCapabilities {
   // Built fresh per call: a shared array is one caller's `.push` from corrupting later responses.
   const availableModes: ExecutionMode[] = [];
   const restrictions: Partial<Record<ExecutionMode, string>> = {};

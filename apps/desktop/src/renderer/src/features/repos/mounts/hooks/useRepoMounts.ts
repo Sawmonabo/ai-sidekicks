@@ -4,8 +4,6 @@
 
 import { useCallback, useMemo } from "react";
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
-
 import { useStoreBoundReader } from "#renderer/hooks/subject-scoped/useStoreBoundReader.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -15,10 +13,9 @@ import type { RepoOperations } from "../../repo-operations.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
 import type { RepoMountsReading } from "../repo-mounts-model.js";
 
-/** What the hook hands a section: the reading, the picker's mutation, and the re-read. */
+/** What the hook hands a section: the reading and the re-read. */
 export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
-  readonly requestModeSelection: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /**
    * Read the section again because a user's own act changed what it holds. Sent as
    * `user-request`: an attach or re-attach mints a mount no lifecycle frame announces, and the
@@ -45,14 +42,8 @@ export function useRepoMounts(
     sessionStore,
     () => new RepoMountsReader({ operations, sessionStore, ownerWindow, clock }),
   );
-  const requestModeSelection = useCallback(
-    (workspaceId: WorkspaceId, executionMode: ExecutionMode) => {
-      void reader.requestModeSelection(workspaceId, executionMode);
-    },
-    [reader],
-  );
   const requestRead = useCallback(() => {
     reader.requestRead("user-request");
   }, [reader]);
-  return { reading, requestModeSelection, requestRead };
+  return { reading, requestRead };
 }

@@ -11,11 +11,9 @@ import { type ProjectedSessionEvent } from "#renderer/store/session/entities/ent
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { initializedStore } from "#test/helpers/session/store/fixtures.js";
 import {
-  ALL_MODES_CAPABILITIES,
   CANONICAL_ROOT,
   DRIFTED_MOUNT_ID,
   HEALTHY_MOUNT_ID,
-  HEALTHY_WORKSPACE_ID,
   SESSION_ID,
   UNREACHABLE_MOUNT_ID,
   WORKSPACES,
@@ -73,36 +71,6 @@ describe("RepoMountsReader — the read", () => {
     await settle(clock, reader);
 
     expect(reader.snapshot.status).toBe("not-read");
-  });
-
-  it("reads each workspace's own execution-mode capabilities", async () => {
-    // Each workspace answers a different default, so an answer filed under another workspace's
-    // id shows.
-    const clock = new ManualClock();
-    const reader = openReader(
-      sessionOperations({
-        readWorkspaceExecutionModes: (workspaceId) =>
-          Promise.resolve({
-            ...ALL_MODES_CAPABILITIES,
-            defaultMode:
-              workspaceId === HEALTHY_WORKSPACE_ID ? "provisioned-worktree" : "bound-root",
-          }),
-      }),
-      clock,
-    );
-    reader.start();
-    await settle(clock, reader);
-
-    const reading = reader.snapshot;
-    // One answer per workspace, keyed by the list's own ids.
-    expect(Object.keys(reading.capabilitiesByWorkspaceId).sort()).toStrictEqual(
-      reading.workspaces.map((row) => row.id).sort(),
-    );
-    for (const row of reading.workspaces) {
-      expect(reading.capabilitiesByWorkspaceId[row.id]?.defaultMode).toBe(
-        row.id === HEALTHY_WORKSPACE_ID ? "provisioned-worktree" : "bound-root",
-      );
-    }
   });
 
   it("reads a mount two workspaces share once, and lists it once", async () => {

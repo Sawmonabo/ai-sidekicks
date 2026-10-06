@@ -2,14 +2,12 @@
 // an abort signal and the acts do not: a view may go away before a read lands, but an act that
 // reached the daemon has happened, and abandoning it would leave the view saying it did not.
 
-import type { ExecutionMode, RepoMountId, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
 import type {
-  ExecutionModeSelectResponse,
   ExecutionRootPrepareRequest,
   ExecutionRootPrepareResponse,
   WorktreeRetireRequest,
   WorktreeRetireResponse,
-  WorktreeReuseCheckResponse,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts/worktree/worktree";
 import type {
@@ -20,7 +18,6 @@ import type {
 import type {
   WorkspaceBindRequest,
   WorkspaceBindResponse,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/workspace";
 
@@ -36,21 +33,6 @@ export interface RepoOperations {
     sessionId: string,
     signal: AbortSignal,
   ) => Promise<WorkspaceListResponse>;
-  /** Which modes this workspace may take now. */
-  readonly readWorkspaceExecutionModes: (
-    workspaceId: WorkspaceId,
-    signal: AbortSignal,
-  ) => Promise<WorkspaceExecutionModeCapabilitiesReadResponse>;
-  /** What a workspace on this mount could be bound as. The pre-bind arm of the same read. */
-  readonly readMountExecutionModes: (
-    repoMountId: RepoMountId,
-    signal: AbortSignal,
-  ) => Promise<WorkspaceExecutionModeCapabilitiesReadResponse>;
-  /** Record one explicit mode switch. Exactly one mutation per switch. */
-  readonly selectExecutionMode: (
-    workspaceId: WorkspaceId,
-    executionMode: ExecutionMode,
-  ) => Promise<ExecutionModeSelectResponse>;
   /** The worktrees of the project whose folder this is, in one read. */
   readonly readWorktreeStatus: (
     repoMountId: RepoMountId,
@@ -64,12 +46,6 @@ export interface RepoOperations {
   readonly prepareExecutionRoot: (
     request: ExecutionRootPrepareRequest,
   ) => Promise<ExecutionRootPrepareResponse>;
-  /** Ask whether one branch already has a live checkout on this mount. */
-  readonly checkWorktreeReuse: (
-    repoMountId: RepoMountId,
-    branchName: string,
-    signal: AbortSignal,
-  ) => Promise<WorktreeReuseCheckResponse>;
   /**
    * Remove one worktree. `discard: false` is the ordinary removal, which removes nothing
    * the confirm did not show; `discard: true` is sent only from the discard confirm.

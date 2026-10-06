@@ -1,7 +1,7 @@
 /*
  * Preparing an execution root. The buttons, the branch field and the prepared line wear the
- * shared treatments in `styles/action-buttons.css` and `styles/form.css`; here are the reuse
- * verdict's toned readings.
+ * shared treatments in `styles/action-buttons.css` and `styles/form.css`; here are the summary
+ * and the held line.
  */
 
 .meridian-prepare-root {
@@ -21,43 +21,6 @@
 
 .meridian-prepare-root__line {
   color: var(--meridian-text-faint);
-}
-
-.meridian-prepare-root__verdict {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-prepare-root__verdict p {
-  margin: 0;
-}
-
-/* Only the verdicts that change what a press does are toned: a dirty candidate is a consent
-   about to be given and an incompatible one cannot be pressed. `none` and `reusable` are plain. */
-.meridian-prepare-root__verdict--dirty {
-  color: var(--meridian-amber-text);
-}
-
-.meridian-prepare-root__verdict--incompatible {
-  color: var(--meridian-red-text);
-}
-
-.meridian-prepare-root__candidate,
-.meridian-prepare-root__reason {
-  min-width: 0;
-}
-
-.meridian-prepare-root__consent {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--meridian-space-2);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text);
-  cursor: pointer;
 }
 
 /* Why the preparation is closed, restated from the state that closed it. Muted, not red: that

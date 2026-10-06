@@ -10,9 +10,7 @@
 // The state is not in the session store because a mount read is a probe, not an event
 // projection.
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -30,10 +28,6 @@ import { SessionRefreshTriggers } from "#renderer/store/reads/session-refresh-tr
 import { type ReadRound } from "#renderer/lib/reads/read-scope.js";
 import { type ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
 import { type SessionStore } from "#renderer/store/session/session-store.js";
-import {
-  ExecutionModeSelections,
-  type RepoMountsReadingPublisher,
-} from "./execution-mode/execution-mode-selection.js";
 import { REPO_MOUNTS_NOT_READ, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../lifecycle-events.js";
@@ -43,7 +37,7 @@ const REPO_MOUNTS_READ_ORIGIN = "repo-mounts";
 
 /** What one section reader collaborates with. */
 export interface RepoMountsReaderOptions {
-  /** The reads and the mode switch this section makes; nothing else reaches the daemon. */
+  /** The reads this section makes; nothing else reaches the daemon. */
   readonly operations: RepoOperations;
   /**
    * The session being read and two of the three reasons to read again. A store, not a bare id:
@@ -61,7 +55,7 @@ export interface RepoMountsReaderOptions {
   readonly clock: Clock;
 }
 
-/** Reads a session's mounts, workspaces and roots, and owns the mode switch. */
+/** Reads a session's mounts, workspaces and roots. */
 export class RepoMountsReader implements ReadTriggerTarget {
   /**
    * The frames whose arrival owes this section a fresh read. Declared here so two readers of one
@@ -76,7 +70,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
   readonly #clock: Clock;
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: SessionRefreshTriggers;
-  readonly #selections: ExecutionModeSelections;
   readonly #changes = new Emitter<RepoMountsReading>("repo mounts reading");
 
   #reading: RepoMountsReading = REPO_MOUNTS_NOT_READ;
@@ -100,10 +93,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
       target: this,
       sessionStore: options.sessionStore,
       ownerWindow: options.ownerWindow,
-    });
-    this.#selections = new ExecutionModeSelections({
-      operations: options.operations,
-      publisher: this.#readingPublisher(),
     });
   }
 
@@ -159,14 +148,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#scheduler.request(reason);
   }
 
-  /** Record one explicit mode switch. `ExecutionModeSelections` owns what that means. */
-  public async requestModeSelection(
-    workspaceId: WorkspaceId,
-    executionMode: ExecutionMode,
-  ): Promise<void> {
-    await this.#selections.request(workspaceId, executionMode);
-  }
-
   /**
    * Terminal. No later event can re-arm a read behind a section that unmounted, and the window
    * no longer depends on this read, so a failure it recorded is forgotten.
@@ -176,21 +157,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#sessionStore.failedDependentReads.forget(this);
     this.#scheduler.dispose();
     this.#triggers.dispose();
-    this.#selections.dispose();
     this.#changes.clear();
-  }
-
-  /** The three operations a mode switch needs from the half that reads, and no more. */
-  #readingPublisher(): RepoMountsReadingPublisher {
-    return {
-      currentReading: () => this.#reading,
-      publish: (reading: RepoMountsReading) => {
-        this.#publish(reading);
-      },
-      requestRefreshAfterSelect: () => {
-        this.requestRead("terminal-event");
-      },
-    };
   }
 
   /**
@@ -230,8 +197,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * The section's whole reading: the listed workspaces, one mount read per distinct mount, one
-   * worktree read per mount and one capability read per workspace. The round's signal reaches
+   * The section's whole reading: the listed workspaces, one mount read per distinct mount and one
+   * worktree read per mount. The round's signal reaches
    * each read, so an abandoned pass costs only the pre-send check per remaining call.
    */
   async #readSection(round: ReadRound): Promise<void> {
@@ -263,20 +230,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
       worktrees.push(...roots.worktrees);
     }
 
-    const capabilitiesByWorkspaceId: Record<
-      string,
-      WorkspaceExecutionModeCapabilitiesReadResponse
-    > = {};
-    for (const workspace of workspaces) {
-      capabilitiesByWorkspaceId[workspace.id] = await this.#operations.readWorkspaceExecutionModes(
-        workspace.id,
-        round.signal,
-      );
-      if (this.#isAbandoned(round)) {
-        return;
-      }
-    }
-
     // Only this read's own success clears its failure.
     this.#sessionStore.failedDependentReads.forget(this);
     this.#publish({
@@ -285,11 +238,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
       workspaces,
       worktrees,
       readAtMilliseconds: this.#clock.now(),
-      capabilitiesByWorkspaceId,
-      // Spread forward, never rebuilt: a switch still on the wire while a read runs beside it
-      // must keep holding the picker.
-      pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
-      refusedModeByWorkspaceId: this.#reading.refusedModeByWorkspaceId,
     });
   }
 

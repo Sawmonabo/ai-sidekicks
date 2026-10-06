@@ -1,12 +1,7 @@
-// A bind names its session and place explicitly. The capabilities read names exactly one scope:
-// with both, a handler picking one would answer a pre-bind question with the per-workspace answer.
+// A bind names its session and place explicitly.
 import { describe, expect, it } from "vitest";
 
-import {
-  WorkspaceBindRequestSchema,
-  WorkspaceExecutionModeCapabilitiesReadRequestSchema,
-  WorkspaceListResponseSchema,
-} from "../workspace.js";
+import { WorkspaceBindRequestSchema, WorkspaceListResponseSchema } from "../workspace.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
@@ -71,43 +66,5 @@ describe("WorkspaceListResponseSchema (health + binding state)", () => {
       parseWorkspaceListItem({ state: "stale", lastError: WORKSPACE_LAST_ERROR }).success,
     ).toBe(true);
     expect(parseWorkspaceListItem({ state: "stale" }).success).toBe(true);
-  });
-});
-
-const parseCapabilitiesRequest = (request: Record<string, unknown>) =>
-  WorkspaceExecutionModeCapabilitiesReadRequestSchema.safeParse(request);
-
-describe("the capabilities read takes exactly one scope id", () => {
-  it("accepts a MOUNT-scoped read — what could a workspace on this mount do", () => {
-    expect(parseCapabilitiesRequest({ repoMountId: REPO_MOUNT_ID }).success).toBe(true);
-  });
-
-  it("REJECTS a request supplying both `repoMountId` and `workspaceId`", () => {
-    const result = parseCapabilitiesRequest({
-      repoMountId: REPO_MOUNT_ID,
-      workspaceId: WORKSPACE_ID,
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      // Both ids are well formed because Zod skips refinements on an aborted payload: a malformed
-      // id would fail on its own error first.
-      const messages = result.error.issues.map((issue) => issue.message);
-      expect(messages.join("\n")).toContain("MUST carry exactly one of");
-    }
-  });
-
-  it("REJECTS a request supplying neither id", () => {
-    expect(parseCapabilitiesRequest({}).success).toBe(false);
-  });
-
-  it("treats an explicit `undefined` as absence, not as presence", () => {
-    // JSON cannot carry `undefined`, so the predicate counts defined values; a key-presence test
-    // would invert both rows.
-    expect(
-      parseCapabilitiesRequest({ repoMountId: REPO_MOUNT_ID, workspaceId: undefined }).success,
-    ).toBe(true);
-    expect(
-      parseCapabilitiesRequest({ repoMountId: undefined, workspaceId: undefined }).success,
-    ).toBe(false);
   });
 });

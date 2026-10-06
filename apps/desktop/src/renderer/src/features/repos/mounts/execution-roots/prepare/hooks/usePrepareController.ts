@@ -1,21 +1,20 @@
 // How a workspace card holds its prepare controller. It goes through `useActController`'s
 // resource seam, not `useMemo`, so a controller built in a discarded render is closed in that
-// render. It also `start()`s the triggers in an effect, because the reuse question arrives late.
+// render.
 
-import { useCallback, useEffect } from "react";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
-import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useCallback } from "react";
+
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
+
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { useSessionScopedActController } from "#renderer/features/repos/acts/hooks/useActController.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { useActController } from "#renderer/features/repos/acts/hooks/useActController.js";
 import {
   ExecutionRootPrepareController,
   type PrepareOperations,
   type PrepareReading,
-  type PrepareSubject,
 } from "../controller.js";
 
-/** What the hook hands a form: the reading, and the three things it can ask for. */
+/** What the hook hands a form: the reading, and the two things it can ask for. */
 export interface PrepareBinding {
   readonly reading: PrepareReading;
   /**
@@ -24,53 +23,39 @@ export interface PrepareBinding {
    * remounted, so a form addressed at this identity is re-seeded in the render that re-mints.
    */
   readonly controllerIdentity: object;
-  readonly checkReuse: (branchName: string) => void;
-  readonly prepare: (branchName: string, acknowledgeDirtyCandidate: boolean) => void;
+  readonly prepare: (branchName: string) => void;
   readonly clearAct: () => void;
 }
 
 /**
  * Bind one workspace's prepare controller to a form, keyed on the workspace and mode together,
- * so a mode switch mints a fresh controller and clears the branch and settlement of the old one.
+ * so a workspace bound again in another mode mints a fresh controller and drops the old one's
+ * branch and settlement.
  */
 export function usePrepareController(
   bridge: PlatformBridge,
   subject: PrepareSubject,
-  sessionStore: SessionStore,
   operations: PrepareOperations,
 ): PrepareBinding {
-  const clock = useBridgeClock();
-  const ownerWindow = useOwnerWindow();
-  const { controller, reading } = useSessionScopedActController(
+  const { controller, reading } = useActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,
-    sessionStore,
-    () =>
-      new ExecutionRootPrepareController({
-        operations,
-        subject,
-        sessionStore,
-        ownerWindow,
-        clock,
-      }),
-  );
-  useEffect(() => {
-    controller.start();
-  }, [controller]);
-  const checkReuse = useCallback(
-    (branchName: string) => {
-      controller.checkReuse(branchName);
-    },
-    [controller],
+    () => new ExecutionRootPrepareController({ operations, workspaceId: subject.workspaceId }),
   );
   const prepare = useCallback(
-    (branchName: string, acknowledgeDirtyCandidate: boolean) => {
-      void controller.prepare(branchName, acknowledgeDirtyCandidate);
+    (branchName: string) => {
+      void controller.prepare(branchName);
     },
     [controller],
   );
   const clearAct = useCallback(() => {
     controller.clearAct();
   }, [controller]);
-  return { reading, controllerIdentity: controller, checkReuse, prepare, clearAct };
+  return { reading, controllerIdentity: controller, prepare, clearAct };
+}
+
+/** What one prepare form is scoped to: a workspace, in one mode. */
+interface PrepareSubject {
+  readonly workspaceId: string;
+  readonly executionMode: ExecutionMode;
 }

@@ -8,12 +8,10 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
-import { readWorkspaceControlAvailability } from "#renderer/features/repos/mounts/health.js";
 import { PrepareExecutionRoot } from "#renderer/features/repos/mounts/execution-roots/prepare/PrepareExecutionRoot.js";
 import { RootRemovalConfirmation } from "#renderer/features/repos/mounts/execution-roots/removal/RootRemovalConfirmation.js";
 import { preparingDaemon } from "#renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { scriptedRepoOperations } from "#renderer/features/repos/repo-operations.test-support.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
 import { bridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { bridgeOnClock } from "../helpers/fixture/bridge.js";
 
@@ -59,10 +57,8 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
         bridge={bridge}
         operations={scriptedRepoOperations(preparingDaemon())}
         workspaceId="workspace-sidekicks"
-        repoMountId="mount-sidekicks"
         executionMode="provisioned-worktree"
-        sessionStore={new SessionStore({ sessionId: "session-repos" })}
-        availability={readWorkspaceControlAvailability({ available: true }, undefined)}
+        availability={{ available: true }}
         onPrepared={() => undefined}
       />,
       { wrapper: bridgeWrapper(bridge, clock) },

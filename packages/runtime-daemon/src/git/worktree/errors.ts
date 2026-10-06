@@ -3,8 +3,8 @@
 // envelope's `data.type` and `detail` becomes `data.fields`.
 //
 // - A caller-supplied branch name that collides with a live checkout is refused, never adapted.
-// - Prepare-time unavailability is `worktree.create_failed`; a select-time capability refusal is
-//   `workspace.mode_unsupported`, so no `worktree.unsupported` code exists.
+// - Prepare-time unavailability is `worktree.create_failed`; a mode the mount does not offer, at
+//   bind or prepare, is `workspace.mode_unsupported`, so no `worktree.unsupported` code exists.
 // - Only `WorktreeNotFoundError` sets `jsonRpcCode` (`-32602`); the rest default to `-32603`.
 // - No filesystem path reaches a message: reasons are closed enums looked up in a table, and the
 //   other carriers interpolate only opaque ids and git ref names. The one git line a message

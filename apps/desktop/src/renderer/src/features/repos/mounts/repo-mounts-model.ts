@@ -1,16 +1,10 @@
-// What the repos section renders from, declared apart from the reader and the mode switch that
-// both publish it, so neither imports the other's class just to name the shared value.
+// What the repos section renders from, declared apart from the reader that publishes it, so a
+// card names the value without importing the reader's class.
 // `not-read` and an empty list are different facts: `status` says whether a read was made.
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type {
-  WorkspaceExecutionModeCapabilitiesReadResponse,
-  WorkspaceListResponse,
-} from "@ai-sidekicks/contracts/workspace";
+import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
-
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
@@ -29,19 +23,6 @@ export interface RepoMountsReading {
   readonly worktrees: readonly WorktreeStatusRecord[];
   /** The instant this reading was taken, on the reader's own clock; zero before the first read. */
   readonly readAtMilliseconds: number;
-  readonly capabilitiesByWorkspaceId: Readonly<
-    Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
-  >;
-  /**
-   * Per workspace: the mode a switch is on the wire for, so the picker can say which switch it
-   * is holding for. No entry means nothing is on the wire.
-   */
-  readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
-  /**
-   * Per workspace: why the newest switch was refused, until the next switch on that workspace is
-   * sent. No entry means its newest switch was not refused.
-   */
-  readonly refusedModeByWorkspaceId: Readonly<Record<string, Refusal>>;
 }
 
 /** The reading before anything has been asked. */
@@ -51,7 +32,4 @@ export const REPO_MOUNTS_NOT_READ: RepoMountsReading = {
   workspaces: [],
   worktrees: [],
   readAtMilliseconds: 0,
-  capabilitiesByWorkspaceId: {},
-  pendingModeByWorkspaceId: {},
-  refusedModeByWorkspaceId: {},
 };

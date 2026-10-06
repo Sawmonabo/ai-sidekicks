@@ -26,7 +26,6 @@ export const MOUNT_REFUSAL_CODES = [
   "worktree.not_found",
   "worktree.create_failed",
   "worktree.branch_collision",
-  "worktree.reuse_conflict",
   "worktree.retire_conflict",
 ] as const;
 
@@ -34,13 +33,10 @@ export const MOUNT_REFUSAL_CODES = [
 export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
 
 /**
- * What the caller knows that the code alone does not. `restrictionReason` is the mount's own
- * reason for a refused mode (sparse in
- * `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions`); absent means none on file.
- * `resolutionReason` is the `reason` a `repo.root_resolution_failed` refusal carries.
+ * What the caller knows that the code alone does not: `resolutionReason` is the `reason` a
+ * `repo.root_resolution_failed` refusal carries.
  */
 export interface MountRefusalContext {
-  readonly restrictionReason?: string | undefined;
   readonly resolutionReason?: string | undefined;
 }
 
@@ -100,17 +96,13 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
   "workspace.preparation_failed": {
     nextMove:
       "The execution root was not prepared. The workspace keeps the " +
-      "mode it had; selecting the mode again is what retries, and " +
+      "mode it had; preparing again is what retries, and " +
       "nothing is substituted in the meantime.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.mode_unsupported": {
-    // Replaced by `mountRefusalRemedy` when a reason is in hand; this is the arm for a mode the
-    // capabilities read gave no reason for.
     nextMove:
-      "This workspace cannot take that mode. The mount reported no " +
-      "reason for it, so the modes it can take are the ones the picker " +
-      "lists as available.",
+      "This mount does not offer that mode. The background service's " + "message says why.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.stale": {
@@ -170,26 +162,9 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     // user typed is never silently adapted.
     nextMove:
       "That branch already has a live checkout on this mount. Choosing " +
-      "a different branch name, or reusing the existing checkout, are " +
-      "the two moves — the name you typed is never adapted for you.",
+      "a different branch name is the move — the name you typed is " +
+      "never adapted for you.",
     distinctions: NO_DISTINCTIONS,
-  },
-  "worktree.reuse_conflict": {
-    // Three situations sit behind this one code and the daemon's message says which. The
-    // middle one has no override, which a generic "acknowledge and retry" would deny.
-    nextMove:
-      "The named reuse candidate was not bound. The background " +
-      "service's message says which of three situations this is:",
-    distinctions: [
-      "It is dirty and the request carried no acknowledgement — the " +
-        "dirty-candidate consent is a separate, explicit act, and it is " +
-        "never on by default.",
-      "It is incompatible with the requested branch strategy — there " +
-        "is no override for this one, and it never becomes bindable.",
-      "It is no longer live — the candidate went away between the " +
-        "check and the prepare, so re-checking is what finds out what is " +
-        "there now.",
-    ],
   },
   "worktree.retire_conflict": {
     nextMove:
@@ -201,20 +176,14 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
 };
 
 /**
- * The next move for one refusal code, or `undefined` where the repo mounts have none. Two codes
- * read the context: `workspace.mode_unsupported` quotes the mount's own reason when given, and
- * `repo.root_resolution_failed` with reason `not_a_git_repository` has a sentence of its own.
+ * The next move for one refusal code, or `undefined` where the repo mounts have none. One case
+ * reads the context: `repo.root_resolution_failed` with reason `not_a_git_repository` has a
+ * sentence of its own.
  */
 export function mountRefusalRemedy(
   code: string,
   context?: MountRefusalContext,
 ): CasedRefusalRemedy | undefined {
-  if (code === "workspace.mode_unsupported") {
-    const reason = context?.restrictionReason;
-    if (reason !== undefined) {
-      return { nextMove: reason, distinctions: NO_DISTINCTIONS };
-    }
-  }
   if (
     code === "repo.root_resolution_failed" &&
     context?.resolutionReason === "not_a_git_repository"

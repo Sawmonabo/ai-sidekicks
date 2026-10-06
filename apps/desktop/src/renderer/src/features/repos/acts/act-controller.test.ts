@@ -1,16 +1,10 @@
-// The act primitive's two halves, driven through every arm each publishes. Real classes,
-// scheduler and latch; only the wire call is the test's, so cases can hold answers open and
-// settle them out of order (two presses in one tick, a clear while a call is on the wire).
+// The act primitive, driven through every arm it publishes. The real class and latch; only the
+// wire call is the test's, so cases can hold answers open and settle them out of order (two
+// presses in one tick, a clear while a call is on the wire).
 
 import { describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "#renderer/lib/clock.js";
-import { ActController, PrerequisiteReader } from "./act-controller.js";
-import { flush, runScheduledRead } from "./act-controller.test-support.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
-
-/** The frames this reading would re-read on. Never fired here; declared to be read. */
-const TRIGGERING_KINDS: ReadonlySet<string> = new Set(["workspace.ready"]);
+import { ActController } from "./act-controller.js";
 
 interface TestSettlement {
   readonly status: "done";
@@ -35,73 +29,9 @@ function heldAnswer<TValue>(): HeldAnswer<TValue> {
   };
 }
 
-interface OpenedReader {
-  readonly reader: PrerequisiteReader<string>;
-  readonly clock: ManualClock;
-  readonly questionsAsked: string[];
-  readonly answers: HeldAnswer<string>[];
-}
-
-function openReader(): OpenedReader {
-  const clock = new ManualClock();
-  const questionsAsked: string[] = [];
-  const answers: HeldAnswer<string>[] = [];
-  const reader = new PrerequisiteReader<string>({
-    label: "prerequisite reader test reading",
-    clock,
-    sessionStore: new SessionStore({ sessionId: "session-under-test" }),
-    ownerWindow: window,
-    triggeringEventKinds: TRIGGERING_KINDS,
-    readPrerequisite: async (question: string) => {
-      questionsAsked.push(question);
-      const answer = heldAnswer<string>();
-      answers.push(answer);
-      return await answer.promise;
-    },
-  });
-  return { reader, clock, questionsAsked, answers };
-}
-
 function openActs(): ActController<TestSettlement> {
   return new ActController<TestSettlement>({ label: "act controller test reading" });
 }
-
-describe("PrerequisiteReader — the question an act is issued against", () => {
-  it("asks nothing until a question is named", async () => {
-    const { reader, clock, questionsAsked } = openReader();
-    reader.start();
-    reader.requestRead("window-focus");
-    await runScheduledRead(clock);
-    expect(questionsAsked).toStrictEqual([]);
-    expect(reader.snapshot.status).toBe("not-read");
-  });
-
-  it("publishes reading, then the answer the caller's closure returned", async () => {
-    const { reader, clock, questionsAsked, answers } = openReader();
-    reader.ask("first", "subscribe");
-    expect(reader.snapshot.status).toBe("reading");
-    await runScheduledRead(clock);
-    expect(questionsAsked).toStrictEqual(["first"]);
-    answers[0]?.serve("the answer");
-    await flush();
-    const prerequisite = reader.snapshot;
-    expect(prerequisite.status).toBe("read");
-    expect(prerequisite.status === "read" && prerequisite.value).toBe("the answer");
-  });
-
-  it("re-asking the SAME question puts nothing new on the wire", async () => {
-    const { reader, clock, questionsAsked, answers } = openReader();
-    reader.ask("first", "subscribe");
-    await runScheduledRead(clock);
-    answers[0]?.serve("the answer");
-    await flush();
-    reader.ask("first", "subscribe");
-    await runScheduledRead(clock);
-    expect(questionsAsked).toStrictEqual(["first"]);
-    // The answer already on screen is untouched, not blanked.
-    expect(reader.snapshot.status).toBe("read");
-  });
-});
 
 describe("ActController — the act", () => {
   it("publishes sending, then the settlement the caller composed", async () => {

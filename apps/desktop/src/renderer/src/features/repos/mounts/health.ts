@@ -3,11 +3,10 @@
 // cannot be asked). Health is the daemon's status string: the console never probes a path or
 // ranks failing verdicts. `identity_mismatch` means the root answers but holds another repository.
 
-import type { ExecutionMode, RepoMountHealth } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/repo";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountState } from "@ai-sidekicks/contracts/repo/repo";
 import type { ChipTone } from "#renderer/components/Chip/Chip.js";
-import { selectionInFlightCopy } from "./execution-mode/execution-mode-selection.js";
 
 /**
  * One axis reading as a card renders it. `label` is the wire word, rendered verbatim so it can
@@ -90,14 +89,6 @@ export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
 const BIND_CONTROLS_AVAILABLE: BindControlAvailability = { available: true };
 
 /**
- * Whether one workspace's binding controls are live, and what holds them. The held arm carries
- * its own sentence so no call site invents one.
- */
-export type WorkspaceControlAvailability =
-  | { readonly live: true }
-  | { readonly live: false; readonly unavailableBecause: string };
-
-/**
  * A fail-closed projection of daemon-reported state, not an eligibility rule: the daemon alone
  * decides whether a bind is admissible. Lifecycle is checked before health, so a detached row
  * never reads as unreachable.
@@ -118,30 +109,7 @@ export function readBindControlAvailability(mount: RepoMountReadResponse): BindC
   return BIND_CONTROLS_AVAILABLE;
 }
 
-const WORKSPACE_CONTROLS_LIVE: WorkspaceControlAvailability = { live: true };
-
-/**
- * The same question as `readBindControlAvailability` one level down, asked once for the mode
- * picker and the root preparation beneath it so the two never disagree. The mount's reason
- * comes first, then a mode switch in flight.
- */
-export function readWorkspaceControlAvailability(
-  bindControls: BindControlAvailability,
-  pendingMode: ExecutionMode | undefined,
-): WorkspaceControlAvailability {
-  if (!bindControls.available) {
-    return { live: false, unavailableBecause: bindControls.unavailableBecause };
-  }
-  if (pendingMode !== undefined) {
-    // One in-flight switch, one wording, wherever the user meets it.
-    return { live: false, unavailableBecause: selectionInFlightCopy(pendingMode) };
-  }
-  return WORKSPACE_CONTROLS_LIVE;
-}
-
 /** The sentence a workspace's binding controls are closed with, or `undefined` while open. */
-export function controlHoldSentence(
-  availability: WorkspaceControlAvailability,
-): string | undefined {
-  return availability.live ? undefined : availability.unavailableBecause;
+export function controlHoldSentence(availability: BindControlAvailability): string | undefined {
+  return availability.available ? undefined : availability.unavailableBecause;
 }

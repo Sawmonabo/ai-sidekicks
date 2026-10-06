@@ -5,11 +5,9 @@
 
 import type {
   BranchContextId,
-  WorktreeId,
   WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts/worktree/worktree";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 import { act, screen } from "@testing-library/react";
 
@@ -41,24 +39,6 @@ export interface ConfirmationPresses {
   readonly pressOpen: () => Promise<void>;
   readonly pressConfirm: () => Promise<void>;
   readonly pressCancel: () => Promise<void>;
-}
-
-/** Move past the debounce and let a controller's prerequisite read land. */
-export async function settlePrerequisiteRead(
-  controller: PrerequisiteReading,
-  clock: ManualClock,
-): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  for (
-    let turn = 0;
-    turn < 50 && controller.snapshot.prerequisite.status === "reading";
-    turn += 1
-  ) {
-    await Promise.resolve();
-  }
 }
 
 /** The presses of the confirmation whose buttons carry these names. */
@@ -121,11 +101,6 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
   for (let turn = 0; turn < 400 && reader.snapshot.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
-}
-
-/** Anything that reads a prerequisite question: the bind and prepare controllers. */
-interface PrerequisiteReading {
-  readonly snapshot: { readonly prerequisite: { readonly status: string } };
 }
 
 /**
@@ -236,15 +211,9 @@ export const WORKSPACES: readonly RepoWorkspaceRow[] = [
   workspaceRow({ id: "workspace-drifted", repoMountId: DRIFTED_MOUNT_ID }),
 ];
 
-/** Both modes, with the provisioned worktree the default. */
-export const ALL_MODES_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["bound-root", "provisioned-worktree"],
-  defaultMode: "provisioned-worktree",
-};
-
 /**
- * The daemon answering for the session above: its workspaces, each mount, each
- * workspace's modes and the execution roots. A case scripts only what it is about.
+ * The daemon answering for the session above: its workspaces, each mount and the execution
+ * roots. A case scripts only what it is about.
  */
 export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOperations {
   return scriptedRepoOperations({
@@ -256,7 +225,6 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
       }
       return Promise.resolve(found);
     },
-    readWorkspaceExecutionModes: () => Promise.resolve(ALL_MODES_CAPABILITIES),
     readWorktreeStatus: (repoMountId) =>
       Promise.resolve({
         repoRoot: { path: CANONICAL_ROOT, branchName: "main" },
@@ -269,42 +237,9 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
   });
 }
 
-/** A branch with a live, dirty, compatible checkout — the consent case. */
-export const DIRTY_BRANCH = "feat/rate-limit-wiring";
-
-/** A branch whose checkout belongs to another workspace, which admits no consent. */
-export const INCOMPATIBLE_BRANCH = "review/rate-limit-wiring";
-
-/**
- * The daemon's answers to the prepare form: a dirty candidate and an incompatible one. Any
- * other branch is free.
- */
+/** The daemon's answer to a prepare: a fresh root, ready. */
 export function preparingDaemon(): PrepareOperations {
   return {
-    checkWorktreeReuse: (_repoMountId, branchName) => {
-      if (branchName === DIRTY_BRANCH) {
-        return Promise.resolve({
-          available: true,
-          worktreeId: "worktree-dirty" as WorktreeId,
-          state: "dirty",
-          branchName,
-          isClean: false,
-          compatible: true,
-        });
-      }
-      if (branchName === INCOMPATIBLE_BRANCH) {
-        return Promise.resolve({
-          available: true,
-          worktreeId: "worktree-other" as WorktreeId,
-          state: "ready",
-          branchName,
-          isClean: true,
-          compatible: false,
-          reason: "That checkout belongs to another workspace.",
-        });
-      }
-      return Promise.resolve({ available: false });
-    },
     prepareExecutionRoot: () =>
       Promise.resolve({
         executionRoot: "/Users/dev/roots/fresh",

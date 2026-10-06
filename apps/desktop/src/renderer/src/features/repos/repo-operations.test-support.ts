@@ -7,14 +7,10 @@ export function scriptedRepoOperations(script: Partial<RepoOperations> = {}): Re
   return {
     readMount: unscriptedCall("readMount"),
     listWorkspaces: unscriptedCall("listWorkspaces"),
-    readWorkspaceExecutionModes: unscriptedCall("readWorkspaceExecutionModes"),
-    readMountExecutionModes: unscriptedCall("readMountExecutionModes"),
-    selectExecutionMode: unscriptedCall("selectExecutionMode"),
     readWorktreeStatus: unscriptedCall("readWorktreeStatus"),
     attachRepository: unscriptedCall("attachRepository"),
     bindWorkspace: unscriptedCall("bindWorkspace"),
     prepareExecutionRoot: unscriptedCall("prepareExecutionRoot"),
-    checkWorktreeReuse: unscriptedCall("checkWorktreeReuse"),
     retireWorktree: unscriptedCall("retireWorktree"),
     ...script,
   };

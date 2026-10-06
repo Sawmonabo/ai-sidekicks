@@ -135,7 +135,7 @@ function ReadMountList(props: {
   readonly sessionStore: SessionStore;
   readonly operations: RepoOperations;
 }): React.JSX.Element | null {
-  const { reading, requestModeSelection, requestRead } = useRepoMounts(
+  const { reading, requestRead } = useRepoMounts(
     props.bridge,
     props.sessionStore,
     props.operations,
@@ -148,7 +148,6 @@ function ReadMountList(props: {
       operations={props.operations}
       onCopy={() => undefined}
       onRequestRead={requestRead}
-      onSelect={requestModeSelection}
       onOpenDiff={() => undefined}
     />
   );

@@ -1,9 +1,8 @@
 /**
  * Calls a case holds open by hand, for a suite that catches a call mid-flight: to unmount under
- * it, press a control while it is outstanding, or watch what a second call does. Three shapes
- * cover the renderer's suites: a gate let through once, a port whose every invocation waits for
- * its own answer, and a queue of calls released together. One home keeps their release semantics
- * from drifting per suite.
+ * it, press a control while it is outstanding, or watch what a second call does. Two shapes
+ * cover the renderer's suites: a gate let through once, and a port whose every invocation waits
+ * for its own answer. One home keeps their release semantics from drifting per suite.
  */
 
 /** One call held open by hand, let through once. */
@@ -26,31 +25,6 @@ export interface HandAnsweredCall<TAnswer> {
   readonly invoke: () => Promise<TAnswer>;
   /** Answers the newest invocation. */
   readonly open: (answer: TAnswer) => void;
-}
-
-/**
- * Every call parked at one interceptor, released together.
- *
- * The interceptor cannot name the calls it will park, so the case releases them as a
- * batch. Draining on release is what keeps a second `releaseAll` from letting the same
- * call through twice.
- */
-export class ParkedCalls {
-  readonly #letThrough: (() => void)[] = [];
-
-  /** Awaited inside an interceptor to park the call it is handling. */
-  park(): Promise<void> {
-    return new Promise<void>((letThrough) => {
-      this.#letThrough.push(letThrough);
-    });
-  }
-
-  /** Lets every call parked so far through, and parks nothing further by itself. */
-  releaseAll(): void {
-    for (const letThrough of this.#letThrough.splice(0)) {
-      letThrough();
-    }
-  }
 }
 
 /** A gate a case opens once to let one held call through. */

@@ -7,21 +7,19 @@ import { type RepoMountsReading } from "../repo-mounts-model.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { type RepoOperations } from "../../repo-operations.js";
-import type { WorkspaceId, ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 
 /** What the mount list reads and the handlers it passes through to each card. */
 export interface MountListProps {
   readonly reading: RepoMountsReading;
   /** Passed down to each card's controls, which take their clock from it. */
   readonly bridge: PlatformBridge;
-  /** Passed down for the same reason: each control arms its own refresh triggers. */
+  /** Passed down to each card's re-attach, which names the session it is sent for. */
   readonly sessionStore: SessionStore;
   /** The calls each card's controls make. */
   readonly operations: RepoOperations;
   readonly onCopy: (canonicalRoot: string) => void;
   /** Read the section again after a user's own act. Passed through to each card. */
   readonly onRequestRead: () => void;
-  readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /** Open a change set over one row's subject. Passed through to each card. */
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
@@ -37,15 +35,11 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
             key={mount.id}
             mount={mount}
             workspaces={reading.workspaces.filter((row) => row.repoMountId === mount.id)}
-            capabilitiesByWorkspaceId={reading.capabilitiesByWorkspaceId}
-            pendingModeByWorkspaceId={reading.pendingModeByWorkspaceId}
-            refusedModeByWorkspaceId={reading.refusedModeByWorkspaceId}
             bridge={props.bridge}
             sessionStore={props.sessionStore}
             operations={props.operations}
             onCopyCanonicalRoot={props.onCopy}
             onRequestRead={props.onRequestRead}
-            onSelectExecutionMode={props.onSelect}
             onOpenDiff={props.onOpenDiff}
           />
         ))}

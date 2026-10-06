@@ -12,11 +12,9 @@ import { brandedUuidIdSchema } from "../internal/branded.js";
 import { RunIdSchema, type RunId } from "../provider/driver/driver.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
-  ExecutionModeSchema,
   RepoMountIdSchema,
   WorkspaceIdSchema,
   WorkspaceStateSchema,
-  type ExecutionMode,
   type RepoMountId,
   type RepoWorkspaceLifecyclePayloadOf,
   type WorkspaceId,
@@ -29,7 +27,6 @@ import {
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "../session/session.js";
-import { AUTHORED_REASON_MAX_LEN } from "../workspace.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** Brand of a worktree row id (`worktrees.id`), a daemon-minted UUID. */
@@ -90,48 +87,9 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // and some depend on state a schema cannot see.
 
 /**
- * The `repo.executionModeSelect` input: the workspace and the mode it switches to. Selecting
- * records the mode and moves the workspace to `preparing`; `repo.executionRootPrepare` makes
- * the root.
- */
-export interface ExecutionModeSelectRequest {
-  workspaceId: WorkspaceId;
-  executionMode: ExecutionMode;
-}
-/** Wire schema for {@link ExecutionModeSelectRequest}. */
-export const ExecutionModeSelectRequestSchema: z.ZodType<
-  ExecutionModeSelectRequest,
-  ExecutionModeSelectRequest
-> = z
-  .object({
-    workspaceId: WorkspaceIdSchema,
-    // Required: an omitted mode must not read as a chosen one.
-    executionMode: ExecutionModeSchema,
-  })
-  // The single-typed `ExecutionModeSchema` leaves the object's input type `unknown`.
-  .strict() as unknown as z.ZodType<ExecutionModeSelectRequest, ExecutionModeSelectRequest>;
-
-/** The `repo.executionModeSelect` result: the recorded mode and the workspace's position. */
-export interface ExecutionModeSelectResponse {
-  workspaceId: WorkspaceId;
-  executionMode: ExecutionMode;
-  state: WorkspaceState;
-}
-/** Wire schema for {@link ExecutionModeSelectResponse}. */
-export const ExecutionModeSelectResponseSchema: z.ZodType<ExecutionModeSelectResponse> = z
-  .object({
-    workspaceId: WorkspaceIdSchema,
-    // The mode recorded; an unavailable mode is a `workspace.mode_unsupported` refusal, never a
-    // substituted mode.
-    executionMode: ExecutionModeSchema,
-    state: WorkspaceStateSchema,
-  })
-  .strict();
-
-/**
  * The `repo.executionRootPrepare` input: the workspace, its branch, and any worktree to reuse,
- * which makes the root for the selected mode before a run starts. It carries no `runId`: the
- * daemon supplies it, so a caller cannot forge run provenance.
+ * which makes the root for the workspace's execution mode before a run starts. It carries no
+ * `runId`: the daemon supplies it, so a caller cannot forge run provenance.
  */
 export interface ExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
@@ -157,8 +115,8 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
     // Reuse happens only by naming a candidate, which the daemon checks belongs to the mount
     // behind `workspaceId`.
     reuseWorktreeId: WorktreeIdSchema.optional(),
-    // Consent to bind a dirty candidate: without it a candidate that turned dirty after the
-    // reuse check is refused with `worktree.reuse_conflict`; it never overrides incompatibility.
+    // Consent to bind a dirty candidate: without it a dirty candidate is refused with
+    // `worktree.reuse_conflict`; it never overrides incompatibility.
     acknowledgeDirtyCandidate: z.boolean().optional(),
     // Carries the session's uncommitted work, untracked files included, onto
     // the new tree. The daemon refuses it unless the new base is the branch
@@ -187,57 +145,6 @@ export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareR
     // branch context, so `branchContextId` is always present.
     worktreeId: WorktreeIdSchema.optional(),
     branchContextId: BranchContextIdSchema,
-  })
-  .strict();
-
-/** The `repo.worktreeReuseCheck` input: the mount and branch to find a live worktree for. */
-export interface WorktreeReuseCheckRequest {
-  repoMountId: RepoMountId;
-  branchName: string;
-}
-/** Wire schema for {@link WorktreeReuseCheckRequest}. */
-export const WorktreeReuseCheckRequestSchema: z.ZodType<
-  WorktreeReuseCheckRequest,
-  WorktreeReuseCheckRequest
-> = z
-  .object({
-    // Keyed by mount, not workspace: several workspaces on one mount share the candidates.
-    repoMountId: RepoMountIdSchema,
-    branchName: wireUncappedFreeFormString("WorktreeReuseCheckRequest.branchName"),
-  })
-  .strict();
-
-/**
- * The `repo.worktreeReuseCheck` result: at most one candidate, since the active-branch unique
- * index allows one live checkout per mount and branch. Branch, cleanliness and compatibility
- * are daemon verdicts, sent as decided booleans and a reason rather than raw git state.
- */
-export interface WorktreeReuseCheckResponse {
-  available: boolean;
-  worktreeId?: WorktreeId | undefined;
-  state?: WorktreeState | undefined;
-  branchName?: string | undefined;
-  isClean?: boolean | undefined;
-  compatible?: boolean | undefined;
-  reason?: string | undefined;
-}
-/** Wire schema for {@link WorktreeReuseCheckResponse}. */
-export const WorktreeReuseCheckResponseSchema: z.ZodType<WorktreeReuseCheckResponse> = z
-  .object({
-    // True when a live candidate exists; the rest describe it, so `{ available: false }` alone
-    // is a complete answer.
-    available: z.boolean(),
-    worktreeId: WorktreeIdSchema.optional(),
-    state: WorktreeStateSchema.optional(),
-    branchName: wireUncappedFreeFormString("WorktreeReuseCheckResponse.branchName").optional(),
-    // `isClean` gates the dirty acknowledgement; an incompatible candidate never binds.
-    isClean: z.boolean().optional(),
-    compatible: z.boolean().optional(),
-    // Present when the candidate is dirty or incompatible.
-    reason: wireFreeFormString(
-      AUTHORED_REASON_MAX_LEN,
-      "WorktreeReuseCheckResponse.reason",
-    ).optional(),
   })
   .strict();
 

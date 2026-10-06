@@ -98,36 +98,24 @@ import {
 import {
   WorkspaceBindRequestSchema,
   WorkspaceBindResponseSchema,
-  WorkspaceExecutionModeCapabilitiesReadRequestSchema,
-  WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
   type WorkspaceBindRequest,
   type WorkspaceBindResponse,
-  type WorkspaceExecutionModeCapabilitiesReadRequest,
-  type WorkspaceExecutionModeCapabilitiesReadResponse,
   type WorkspaceListRequest,
   type WorkspaceListResponse,
 } from "../workspace.js";
 import {
-  ExecutionModeSelectRequestSchema,
-  ExecutionModeSelectResponseSchema,
   ExecutionRootPrepareRequestSchema,
   ExecutionRootPrepareResponseSchema,
   WorktreeRetireRequestSchema,
   WorktreeRetireResponseSchema,
-  WorktreeReuseCheckRequestSchema,
-  WorktreeReuseCheckResponseSchema,
   WorktreeStatusReadRequestSchema,
   WorktreeStatusReadResponseSchema,
-  type ExecutionModeSelectRequest,
-  type ExecutionModeSelectResponse,
   type ExecutionRootPrepareRequest,
   type ExecutionRootPrepareResponse,
   type WorktreeRetireRequest,
   type WorktreeRetireResponse,
-  type WorktreeReuseCheckRequest,
-  type WorktreeReuseCheckResponse,
   type WorktreeStatusReadRequest,
   type WorktreeStatusReadResponse,
 } from "../worktree/worktree.js";
@@ -166,11 +154,6 @@ export interface RepoMethodDescriptors {
     "repo.workspaceBind",
     WorkspaceBindRequest,
     WorkspaceBindResponse
-  >;
-  readonly "repo.executionModeCapabilitiesRead": MethodDescriptor<
-    "repo.executionModeCapabilitiesRead",
-    WorkspaceExecutionModeCapabilitiesReadRequest,
-    WorkspaceExecutionModeCapabilitiesReadResponse
   >;
   readonly "repo.workspaceList": MethodDescriptor<
     "repo.workspaceList",
@@ -256,20 +239,10 @@ export interface RepoMethodDescriptors {
     WorkingTreeSubscribeResponse,
     WorkingTreeChange
   >;
-  readonly "repo.executionModeSelect": MethodDescriptor<
-    "repo.executionModeSelect",
-    ExecutionModeSelectRequest,
-    ExecutionModeSelectResponse
-  >;
   readonly "repo.executionRootPrepare": MethodDescriptor<
     "repo.executionRootPrepare",
     ExecutionRootPrepareRequest,
     ExecutionRootPrepareResponse
-  >;
-  readonly "repo.worktreeReuseCheck": MethodDescriptor<
-    "repo.worktreeReuseCheck",
-    WorktreeReuseCheckRequest,
-    WorktreeReuseCheckResponse
   >;
   readonly "repo.worktreeRetire": MethodDescriptor<
     "repo.worktreeRetire",
@@ -356,13 +329,6 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     mutating: true,
     requestSchema: WorkspaceBindRequestSchema,
     responseSchema: WorkspaceBindResponseSchema,
-  },
-  "repo.executionModeCapabilitiesRead": {
-    method: "repo.executionModeCapabilitiesRead",
-    procedureType: "query",
-    mutating: false,
-    requestSchema: WorkspaceExecutionModeCapabilitiesReadRequestSchema,
-    responseSchema: WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   },
   "repo.workspaceList": {
     method: "repo.workspaceList",
@@ -486,26 +452,12 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     responseSchema: WorkingTreeSubscribeResponseSchema,
     emissionSchema: WorkingTreeChangeSchema,
   },
-  "repo.executionModeSelect": {
-    method: "repo.executionModeSelect",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: ExecutionModeSelectRequestSchema,
-    responseSchema: ExecutionModeSelectResponseSchema,
-  },
   "repo.executionRootPrepare": {
     method: "repo.executionRootPrepare",
     procedureType: "mutation",
     mutating: true,
     requestSchema: ExecutionRootPrepareRequestSchema,
     responseSchema: ExecutionRootPrepareResponseSchema,
-  },
-  "repo.worktreeReuseCheck": {
-    method: "repo.worktreeReuseCheck",
-    procedureType: "query",
-    mutating: false,
-    requestSchema: WorktreeReuseCheckRequestSchema,
-    responseSchema: WorktreeReuseCheckResponseSchema,
   },
   "repo.worktreeRetire": {
     method: "repo.worktreeRetire",
