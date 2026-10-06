@@ -34,7 +34,7 @@ import {
 import { z } from "zod";
 import type { ZodType } from "zod";
 
-import type { ClientTransport, LocalSubscriptionConsumer } from "./types.js";
+import type { ClientTransport, LocalSubscriptionConsumer } from "./contract.js";
 
 // Typed error classes
 

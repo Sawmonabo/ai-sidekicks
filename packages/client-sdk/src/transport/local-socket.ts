@@ -18,7 +18,7 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { z } from "zod";
 
-import type { ClientTransport } from "./types.js";
+import type { ClientTransport } from "./contract.js";
 
 /**
  * Thrown when the daemon's socket cannot be reached: no daemon is listening, or the socket file is

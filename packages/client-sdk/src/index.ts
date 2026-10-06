@@ -23,5 +23,5 @@ export {
 export {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
-} from "./transport/local-socket-transport.js";
-export type { ClientTransport, Handler, LocalSubscriptionConsumer } from "./transport/types.js";
+} from "./transport/local-socket.js";
+export type { ClientTransport, Handler, LocalSubscriptionConsumer } from "./transport/contract.js";

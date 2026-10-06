@@ -35,7 +35,7 @@ import { JsonRpcRemoteError, JsonRpcTransportClosedError } from "../transport/js
 import {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
-} from "../transport/local-socket-transport.js";
+} from "../transport/local-socket.js";
 
 const COMPATIBLE_HELLO = { compatible: true, protocolVersion: CURRENT_PROTOCOL_VERSION };
 
