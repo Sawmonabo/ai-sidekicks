@@ -52,9 +52,10 @@ import {
   composeResolvedAgent,
   findScenarioMember,
 } from "../data/opening-entries.js";
-import { GITFLOW_DIFF_REPLIES } from "../data/gitflow-diff-replies.js";
-import { SETTINGS_PAGE_REPLIES } from "../data/settings-page-replies.js";
+import { WORKFLOW_RUN_DIFF_REPLIES } from "../data/workflow/run/review-diffs.js";
+import { SETTINGS_REPLIES } from "../data/settings-replies.js";
 import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow/replies.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/run/records.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.
@@ -76,9 +77,9 @@ const RUN_SCOUT = "019b79ee-0280-740e-8130-d1a4c1150013";
 const RUN_ARCHITECT = "019b79ee-0280-740e-8140-d1a4c1150014";
 const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
 
-// The base instant, built with `Date.UTC` rather than by parsing a string (`Date.parse` reads
-// a timezone-less stamp in the host's zone), so the ISO spelling below cannot disagree.
-const startedAtMs: number = Date.UTC(2026, 0, 1, 14, 20);
+// The base instant is the one the workflow replies spread in below call now, so their stamps sit
+// on this session's clock.
+const startedAtMs: number = WORKFLOW_FIXTURE_NOW_MS;
 
 const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 
@@ -547,9 +548,9 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
         },
       },
     },
-    ...SETTINGS_PAGE_REPLIES,
+    ...SETTINGS_REPLIES,
     ...WORKFLOW_REPLIES,
-    ...GITFLOW_DIFF_REPLIES,
+    ...WORKFLOW_RUN_DIFF_REPLIES,
   ],
   openingNotices: WORKFLOW_OPENING_NOTICES,
 };

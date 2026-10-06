@@ -11,10 +11,7 @@
 // projector does.
 
 import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
-import type {
-  WorkflowNodeId,
-  WorkflowPinnedItem,
-} from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type {
   WorkflowDefinitionListResponse,
   WorkflowVersionChainReadResponse,
@@ -23,30 +20,46 @@ import type {
 import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
-import type {
-  WorkflowRunCancelResponse,
-  WorkflowRunResumeResponse,
-  WorkflowRunRetryResponse,
-  WorkflowRunStartResponse,
+import {
+  WORKFLOW_INVALID_TRANSITION_CODE,
+  WORKFLOW_RESUME_NOT_PARKED_CODE,
+  WORKFLOW_RETRY_UNAVAILABLE_CODE,
+  WORKFLOW_RUN_NOT_CANCELABLE_CODE,
+  type WorkflowRetryUnavailableDetails,
+  type WorkflowRunCancelResponse,
+  type WorkflowRunResumeResponse,
+  type WorkflowRunRetryResponse,
+  type WorkflowRunStartResponse,
 } from "@ai-sidekicks/contracts/workflow/run/control";
-import type {
-  WorkflowRunAttentionEntry,
-  WorkflowRunAttentionListResponse,
-  WorkflowRunListResponse,
-  WorkflowRunsDeletePreviewResponse,
-  WorkflowRunsPauseState,
-  WorkflowSubscribeNotification,
+import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
+import {
+  WORKFLOW_RUN_NOT_DELETABLE_CODE,
+  type WorkflowRunAttentionEntry,
+  type WorkflowRunAttentionListResponse,
+  type WorkflowRunDeleteResponse,
+  type WorkflowRunKeepSet,
+  type WorkflowRunListResponse,
+  type WorkflowRunReadResponse,
+  type WorkflowRunsDeletePreviewResponse,
+  type WorkflowRunsDeleteResponse,
+  type WorkflowRunsPauseState,
+  type WorkflowSubscribeNotification,
 } from "@ai-sidekicks/contracts/workflow/run/records";
-import type {
-  WorkflowGateResolveResponse,
-  WorkflowHumanFormDraftSaveResponse,
-  WorkflowHumanFormReadResponse,
-  WorkflowStepReadResponse,
+import {
+  WORKFLOW_REVISION_STALE_CODE,
+  WORKFLOW_STEP_NOT_WAITING_CODE,
+  type WorkflowFixSessionCreateResponse,
+  type WorkflowGateResolveResponse,
+  type WorkflowHumanFormDraftSaveResponse,
+  type WorkflowHumanFormReadResponse,
+  type WorkflowHumanFormSubmitResponse,
+  type WorkflowStepReadResponse,
 } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import type { QuestionId, QuestionResolveResponse } from "@ai-sidekicks/contracts/question";
 import type {
   ScenarioNotice,
   ScenarioOpeningNotice,
+  ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import {
@@ -55,23 +68,21 @@ import {
   WORKFLOW_OWN_SESSION,
   WORKFLOW_SPENT_ACCOUNT,
   WORKFLOW_RUN_RECORDS,
+  isGoing,
   minutesAgo,
   summaryOfRun,
   type WorkflowRunRecord,
 } from "./run/records.js";
 import {
   NOW,
-  asRecord,
   currentRuns,
   isBulkDeletable,
-  isGoing,
   mintedRunId,
-  readMember,
-  readString,
   runsBeforeBulkDeletes,
   startedAtMs,
   type WorkflowPlayback,
 } from "./run/writes.js";
+import { asRecord, readMember, readString } from "../requests.js";
 
 /** The stream every run change is pushed on, typed by its one name so a rename fails the build. */
 const WORKFLOW_STREAM: typeof WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
@@ -177,8 +188,8 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
   },
   {
     call: "workflow.runKeepSet",
-    resultFor: (request) => ({
-      workflowRunId: readString(request, "workflowRunId"),
+    resultFor: (request): WorkflowRunKeepSet => ({
+      workflowRunId: readString(request, "workflowRunId") as WorkflowRunKeepSet["workflowRunId"],
       keep: readMember(request, "keep") === true,
     }),
     noticesFor: runChanged,
@@ -198,7 +209,7 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
   {
     call: "workflow.runsDelete",
     afterMs: 200,
-    resultFor: (request, _at, _ordinal, answered, readStamp) => ({
+    resultFor: (request, _at, _ordinal, answered, readStamp): WorkflowRunsDeleteResponse => ({
       deletedCount: runsOlderThan(request, { answered, readStamp }).length,
     }),
     noticesFor: (request, answer) =>
@@ -235,7 +246,7 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
         "definitionId",
       ) as WorkflowPinDataSetResponse["definitionId"],
       nodeId: readString(request, "nodeId") as WorkflowNodeId,
-      pinned: Array.isArray(readMember(request, "items") as WorkflowPinnedItem[] | null),
+      pinned: Array.isArray(readMember(request, "items")),
     }),
   },
 ];
@@ -340,7 +351,7 @@ function answerRunList(request: unknown, playback: WorkflowPlayback): WorkflowRu
   };
 }
 
-function answerRunRead(request: unknown, playback: WorkflowPlayback): unknown {
+function answerRunRead(request: unknown, playback: WorkflowPlayback): WorkflowRunReadResponse {
   return requireRun(request, playback).read;
 }
 
@@ -456,10 +467,16 @@ function answerFormRead(
   };
 }
 
-function answerFormSubmit(request: unknown, playback: WorkflowPlayback): unknown {
+function answerFormSubmit(
+  request: unknown,
+  playback: WorkflowPlayback,
+): WorkflowHumanFormSubmitResponse {
   requireWaitingStep(request, playback);
   if (readMember(request, "expectedRevision") !== 0) {
-    throw refusal("workflow.revision_stale", "This form was answered from somewhere else first.");
+    throw refusal(
+      WORKFLOW_REVISION_STALE_CODE,
+      "This form was answered from somewhere else first.",
+    );
   }
   return { submittedAt: NOW };
 }
@@ -467,7 +484,7 @@ function answerFormSubmit(request: unknown, playback: WorkflowPlayback): unknown
 function answerGate(request: unknown, playback: WorkflowPlayback): WorkflowGateResolveResponse {
   if (readMember(request, "nodeId") === undefined) {
     if (requireRun(request, playback).read.chainQuestion?.state !== "open") {
-      throw refusal("workflow.step_not_waiting", "This chain's question is already answered.");
+      throw refusal(WORKFLOW_STEP_NOT_WAITING_CODE, "This chain's question is already answered.");
     }
   } else {
     requireWaitingStep({ ...asRecord(request), executionIndex: undefined }, playback);
@@ -482,7 +499,7 @@ function answerCancel(request: unknown, playback: WorkflowPlayback): WorkflowRun
   const run = requireRun(request, playback);
   const state = run.read.state;
   if (state !== "canceled" && run.read.endedAt !== undefined) {
-    throw refusal("workflow.run_not_cancelable", "This run has already ended.");
+    throw refusal(WORKFLOW_RUN_NOT_CANCELABLE_CODE, "This run has already ended.");
   }
   return {
     workflowRunId: run.read.workflowRunId,
@@ -497,7 +514,7 @@ function answerResume(request: unknown, playback: WorkflowPlayback): WorkflowRun
   const isParked =
     run.read.state === "waiting" || (run.read.state === "failed" && run.read.endedAt === undefined);
   if (!isParked) {
-    throw refusal("workflow.resume_not_parked", "This run is not waiting on anything.");
+    throw refusal(WORKFLOW_RESUME_NOT_PARKED_CODE, "This run is not waiting on anything.");
   }
   return { workflowRunId: run.read.workflowRunId, state: "running" };
 }
@@ -506,13 +523,12 @@ function answerRetry(request: unknown, playback: WorkflowPlayback): WorkflowRunR
   const run = requireRun(request, playback);
   const fromNodeId = readString(request, "fromNodeId");
   if (run.read.state === "new" || run.read.state === "running" || run.read.state === "waiting") {
-    throw Object.assign(refusal("workflow.retry_unavailable", "This run is still going."), {
-      details: { reason: "source_running" },
-    });
+    const details = { reason: "source_running" } satisfies WorkflowRetryUnavailableDetails;
+    throw refusal(WORKFLOW_RETRY_UNAVAILABLE_CODE, "This run is still going.", details);
   }
   const latest = run.read.steps.filter((step) => step.nodeId === fromNodeId).at(-1);
   if (latest?.status !== "failed") {
-    throw refusal("workflow.invalid_transition", "Only a step that failed can be retried.");
+    throw refusal(WORKFLOW_INVALID_TRANSITION_CODE, "Only a step that failed can be retried.");
   }
   return {
     workflowRunId: mintedRunId("retry", playback.answered("workflow.runRetry").length),
@@ -530,10 +546,10 @@ function answerRerun(request: unknown, playback: WorkflowPlayback): WorkflowRunS
   };
 }
 
-function answerRunDelete(request: unknown, playback: WorkflowPlayback): unknown {
+function answerRunDelete(request: unknown, playback: WorkflowPlayback): WorkflowRunDeleteResponse {
   const run = requireRun(request, playback);
   if (isGoing(run)) {
-    throw refusal("workflow.run_not_deletable", "Cancel it first.");
+    throw refusal(WORKFLOW_RUN_NOT_DELETABLE_CODE, "Cancel it first.");
   }
   return { workflowRunId: run.read.workflowRunId, deleted: true };
 }
@@ -551,10 +567,13 @@ function answerDeletePreview(
   };
 }
 
-function answerFixSession(request: unknown, playback: WorkflowPlayback): unknown {
+function answerFixSession(
+  request: unknown,
+  playback: WorkflowPlayback,
+): WorkflowFixSessionCreateResponse {
   const step = requireStep(request, playback);
   if (step.status !== "failed") {
-    throw refusal("workflow.invalid_transition", "Only a step that failed can be fixed.");
+    throw refusal(WORKFLOW_INVALID_TRANSITION_CODE, "Only a step that failed can be fixed.");
   }
   return { sessionId: WORKFLOW_FIX_SESSION };
 }
@@ -569,7 +588,7 @@ function requireRun(request: unknown, playback: WorkflowPlayback): WorkflowRunRe
     (candidate) => candidate.read.workflowRunId === readMember(request, "workflowRunId"),
   );
   if (run === undefined) {
-    throw refusal("workflow.not_found", "No run has that id.");
+    throw refusal(WORKFLOW_NOT_FOUND_CODE, "No run has that id.");
   }
   return run;
 }
@@ -581,7 +600,7 @@ function requireStep(request: unknown, playback: WorkflowPlayback): WorkflowStep
       candidate.executionIndex === readMember(request, "executionIndex"),
   );
   if (step === undefined) {
-    throw refusal("workflow.not_found", "No step has that address in this run.");
+    throw refusal(WORKFLOW_NOT_FOUND_CODE, "No step has that address in this run.");
   }
   return step;
 }
@@ -592,7 +611,7 @@ function requireWaitingStep(request: unknown, playback: WorkflowPlayback): void 
     (step) => step.nodeId === readMember(request, "nodeId") && step.status === "waiting",
   );
   if (!waiting) {
-    throw refusal("workflow.step_not_waiting", "This step is no longer waiting.");
+    throw refusal(WORKFLOW_STEP_NOT_WAITING_CODE, "This step is no longer waiting.");
   }
 }
 
@@ -687,6 +706,10 @@ function runsPauseFrame(state: unknown): WorkflowSubscribeNotification {
   return { kind: "runsPause", ...pauseState(readMember(state, "paused")) };
 }
 
-function refusal(code: string, message: string): { code: string; message: string } {
-  return { code, message };
+function refusal(
+  code: string,
+  message: string,
+  details?: ScenarioRefusalEnvelope["details"],
+): ScenarioRefusalEnvelope {
+  return details === undefined ? { code, message } : { code, message, details };
 }

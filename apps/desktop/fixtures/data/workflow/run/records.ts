@@ -1,4 +1,4 @@
-// The machine's workflow runs as the fixture daemon holds them: five saved workflows and the runs
+// The machine's workflow runs as the fixture daemon holds them: the saved workflows and the runs
 // they made in every status a run can stand in, a run waiting on a chat reply and a chain held
 // behind its question among them. `writes.ts` applies the writes the playback has answered over
 // them and `../replies.ts` answers the calls from that state.
@@ -48,7 +48,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
-import { WORK_ACCOUNT } from "../../settings-page-replies.js";
+import { WORK_ACCOUNT } from "../../settings-replies.js";
 
 /** The instant the playback calls now, matching the scenario these replies are spread into. */
 export const WORKFLOW_FIXTURE_NOW_MS: number = Date.UTC(2026, 0, 1, 14, 20);
@@ -222,8 +222,7 @@ function summary(
   name: string,
   latestVersionNumber: number,
   triggerKind: string,
-  runCount: number,
-): WorkflowDefinitionSummary {
+): SavedWorkflowSummary {
   return {
     id,
     name,
@@ -233,42 +232,46 @@ function summary(
     triggerKind,
     enabled: true,
     tags: [],
-    runCount,
     createdAt: minutesAgo(60 * 24 * 30),
     updatedAt: minutesAgo(60 * 24),
   };
 }
 
-/** The saved workflows and their versions. */
-export const WORKFLOW_DEFINITION_RECORDS: readonly WorkflowDefinitionRecord[] = [
+/** A saved workflow's catalog row before its runs are counted. */
+type SavedWorkflowSummary = Omit<WorkflowDefinitionSummary, "runCount">;
+
+/** The saved workflows and their versions, counted into `WORKFLOW_DEFINITION_RECORDS` below. */
+const SAVED_WORKFLOWS: readonly (Omit<WorkflowDefinitionRecord, "summary"> & {
+  readonly summary: SavedWorkflowSummary;
+})[] = [
   {
-    summary: summary(DIGEST, "Daily change notes", 3, "trigger.schedule", 4),
+    summary: summary(DIGEST, "Daily change notes", 3, "trigger.schedule"),
     versions: [1, 2, 3].map((number) => ({
       versionId: `${DIGEST}-v${String(number)}`,
       document: DIGEST_DOCUMENT,
     })),
   },
   {
-    summary: summary(RELEASE, "Release review", 2, "trigger.manual", 3),
+    summary: summary(RELEASE, "Release review", 2, "trigger.manual"),
     versions: [1, 2].map((number) => ({
       versionId: `${RELEASE}-v${String(number)}`,
       document: RELEASE_DOCUMENT,
     })),
   },
   {
-    summary: summary(SUMMARIZE, "Notes digest", 1, "trigger.file-watch", 3),
+    summary: summary(SUMMARIZE, "Notes digest", 1, "trigger.file-watch"),
     versions: [{ versionId: `${SUMMARIZE}-v1`, document: SUMMARIZE_DOCUMENT }],
   },
   {
-    summary: summary(TRIAGE, "Triage issues", 1, "trigger.chat", 1),
+    summary: summary(TRIAGE, "Triage issues", 1, "trigger.chat"),
     versions: [{ versionId: `${TRIAGE}-v1`, document: TRIAGE_DOCUMENT }],
   },
   {
-    summary: summary(SWEEP, "Folder sweep", 1, "trigger.manual", 2),
+    summary: summary(SWEEP, "Folder sweep", 1, "trigger.manual"),
     versions: [{ versionId: `${SWEEP}-v1`, document: SWEEP_DOCUMENT }],
   },
   {
-    summary: summary(SWEEP_CHILD, "Summarize one file", 1, "trigger.sub-workflow", 1),
+    summary: summary(SWEEP_CHILD, "Summarize one file", 1, "trigger.sub-workflow"),
     versions: [{ versionId: `${SWEEP_CHILD}-v1`, document: SWEEP_CHILD_DOCUMENT }],
   },
 ];
@@ -396,14 +399,22 @@ const TRIGGER_KIND_BY_STARTER: Readonly<Record<WorkflowStartedBy["kind"], Workfl
 
 function record(seed: RunSeed): WorkflowRunRecord {
   const workflowRunId = seed.id as WorkflowRunId;
-  const definition = WORKFLOW_DEFINITION_RECORDS.find(
+  const definition = SAVED_WORKFLOWS.find(
     (candidate) => candidate.summary.id === seed.definitionId,
   );
-  const definitionName = definition?.summary.name ?? "Unnamed workflow";
+  if (definition === undefined) {
+    throw new RangeError(`run ${seed.id} names ${seed.definitionId}, which no saved workflow is`);
+  }
+  const definitionName = definition.summary.name;
   const workflowVersionId = `${seed.definitionId}-v${String(seed.versionNumber)}`;
-  const document = definition?.versions.find(
+  const document = definition.versions.find(
     (version) => version.versionId === workflowVersionId,
   )?.document;
+  if (document === undefined) {
+    throw new RangeError(
+      `run ${seed.id} names ${workflowVersionId}, which ${definitionName} lacks`,
+    );
+  }
   const runSteps = steps(workflowRunId, seed.steps);
   const spent = runSteps.reduce((total, step) => total + (step.cost?.usdMicros ?? 0), 0);
   const isFinished = seed.endedMinutesAgo !== undefined && seed.isParked !== true;
@@ -478,7 +489,8 @@ const CHAIN_RUN_COUNT = 100;
 const CHAIN_STARTED_MINUTES_AGO = 260;
 
 const SCHEDULE: WorkflowStartedBy = { kind: "schedule" };
-const PERSON: WorkflowStartedBy = { kind: "user", deviceId: DEVICE };
+/** How a run the person started records its starter. */
+export const WORKFLOW_STARTED_BY_PERSON: WorkflowStartedBy = { kind: "user", deviceId: DEVICE };
 const FILE_EVENT: WorkflowStartedBy = { kind: "fileEvent" };
 const CHAT: WorkflowStartedBy = {
   kind: "chat",
@@ -513,7 +525,7 @@ const KEPT_DIGEST_DAYS_AGO = 45;
 
 /** Minutes after midnight the morning digest's schedule fires, and minutes the fixture's now is. */
 const DIGEST_FIRES_AT_MINUTE = 7 * 60;
-const FIXTURE_NOW_MINUTE = 14 * 60 + 20;
+const FIXTURE_NOW_MINUTE = (WORKFLOW_FIXTURE_NOW_MS % 86_400_000) / 60_000;
 
 /**
  * The morning digest's finished daily runs before today, one a day, so the runs table holds more
@@ -586,7 +598,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     versionNumber: 2,
     state: "waiting",
     mode: "manual",
-    startedBy: PERSON,
+    startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 30,
     liveStep: { index: 4, total: 5, nodeName: "Approve release" },
     steps: [
@@ -615,7 +627,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     versionNumber: 1,
     state: "waiting",
     mode: "manual",
-    startedBy: PERSON,
+    startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 130,
     liveStep: { index: 3, total: 5, nodeName: "Release notes" },
     steps: [
@@ -709,7 +721,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     versionNumber: 1,
     state: "canceled",
     mode: "manual",
-    startedBy: PERSON,
+    startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 600,
     endedMinutesAgo: 590,
     failureReason: "Built from the wrong branch.",
@@ -776,7 +788,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     versionNumber: 1,
     state: "waiting",
     mode: "manual",
-    startedBy: PERSON,
+    startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: CHAIN_STARTED_MINUTES_AGO,
     chainRoot: CHAIN_ROOT,
     chainQuestion: { state: "open" },
@@ -831,7 +843,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     versionNumber: 1,
     state: "succeeded",
     mode: "manual",
-    startedBy: PERSON,
+    startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: SWEPT_MINUTES_AGO,
     endedMinutesAgo: SWEPT_MINUTES_AGO - 4,
     steps: [
@@ -853,10 +865,27 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
   ...DIGEST_HISTORY,
 ];
 
+/** The saved workflows and their versions, each counting the runs it made. */
+export const WORKFLOW_DEFINITION_RECORDS: readonly WorkflowDefinitionRecord[] = SAVED_WORKFLOWS.map(
+  (saved) => ({
+    ...saved,
+    summary: {
+      ...saved.summary,
+      runCount: WORKFLOW_RUN_RECORDS.filter((run) => run.read.definitionId === saved.summary.id)
+        .length,
+    },
+  }),
+);
+
+/** Whether the run is still going: new, running or waiting. */
+export function isGoing(run: WorkflowRunRecord): boolean {
+  return run.read.state === "new" || run.read.state === "running" || run.read.state === "waiting";
+}
+
 /** A run's row in the runs table, derived from its read the way the daemon's projection is. */
 export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
   const { read } = run;
-  const isGoing = read.state === "new" || read.state === "running" || read.state === "waiting";
+  const isRunGoing = isGoing(run);
   const waitingStep = read.steps.find((step) => step.status === "waiting");
   return {
     workflowRunId: read.workflowRunId,
@@ -868,9 +897,9 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     triggerKind: read.triggerKind,
     startedBy: read.startedBy,
     startedAt: read.startedAt,
-    ...(isGoing ? {} : { durationMs: run.durationMs ?? 0 }),
+    ...(isRunGoing ? {} : { durationMs: run.durationMs ?? 0 }),
     stepCount: read.steps.filter((step) => step.finishedAt !== undefined).length,
-    ...(isGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
+    ...(isRunGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
     ...(read.cost === undefined ? {} : { cost: read.cost }),
     ...(read.state === "waiting" && waitingStep?.waitCause !== undefined
       ? { waitCause: waitingStep.waitCause }

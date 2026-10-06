@@ -12,15 +12,15 @@
 // readiness entry carries the paste-token remedy; and a Codex account whose folder holds no
 // credential, whose entry carries the sign-in remedy.
 //
-// The two pages' writes behave as the daemon's do: a switched binding reads back switched, a tool's
-// facet reads back set here or, once cleared, the server's own, and each is announced on
-// `mcp.subscribe`, a sign-in the page started ends on its own a
-// few seconds later, reported on `providerAccount.subscribe` unless it was canceled first (the
-// first one fails with the provider's reason, and every later one finishes), a checked account
-// answers its current reading, the first pasted token is one the provider does not accept, a
-// re-supplied token keeps the account it was pasted into and signs it back in, and the default
-// moves to a signed-in account while one whose login is gone is refused with its own remedy. The
-// registry read reflects every answered write.
+// The two pages' writes behave as the daemon's do: a switched binding reads back switched, and a
+// tool's facet reads back set here or, once cleared, the server's own, each announced on
+// `mcp.subscribe`; a sign-in the page started ends on its own a few seconds later, reported on
+// `providerAccount.subscribe` unless it was canceled first (the first one fails with the
+// provider's reason, and every later one finishes), a checked account answers its current reading,
+// the first pasted token is one the provider does not accept, a re-supplied token keeps the
+// account it was pasted into and signs it back in, and the default moves to a signed-in account
+// while one whose login is gone is refused with its own remedy. The registry read reflects every
+// answered write.
 
 import {
   MCP_TOOL_OVERRIDE_FACETS,
@@ -65,6 +65,7 @@ import type {
   ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
+import { readMember, type AnsweredRequests } from "./requests.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
 const SESSION_A = "019b79ee-0280-75e5-8510-ada11a5a21a5" as SessionId;
@@ -266,7 +267,7 @@ const SIGN_IN_FINISHES_AFTER_MS = 5000;
 const SIGN_IN_CODE_LIFETIME_MS = 15 * 60 * 1000;
 
 /** Every call the two machine-level settings pages make, and what each is answered with. */
-export const SETTINGS_PAGE_REPLIES: readonly ScenarioReply[] = [
+export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
   // Computed, so a binding switched earlier in the playback reads back switched.
   { call: "mcp.list", resultFor: answerMcpList },
   // Computed, so the row that was pressed is the row the answer names.
@@ -316,7 +317,7 @@ function answerMcpList(
   _request: unknown,
   _settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
-  answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
+  answeredRequestsFor: AnsweredRequests,
 ): McpListResponse {
   const writes = answeredRequestsFor("mcp.setEnabled");
   const toolWrites = answeredRequestsFor("mcp.setToolOverride", "mcp.clearToolOverride");
@@ -453,24 +454,17 @@ function announceMcpEdit(request: unknown): readonly ScenarioNotice[] {
 function scriptedServerAddressedBy(request: unknown): McpServerInventoryEntry | undefined {
   return MCP_INVENTORY.find(
     (entry) =>
-      entry.provider === fieldOf(request, "provider") &&
-      entry.scope === fieldOf(request, "scope") &&
-      entry.serverName === fieldOf(request, "serverName") &&
-      (entry.scope === "user" ? undefined : entry.scopeRef) === fieldOf(request, "scopeRef"),
+      entry.provider === readMember(request, "provider") &&
+      entry.scope === readMember(request, "scope") &&
+      entry.serverName === readMember(request, "serverName") &&
+      (entry.scope === "user" ? undefined : entry.scopeRef) === readMember(request, "scopeRef"),
   );
 }
 
 /** The enablement a request or override asked for, or `undefined` for none. */
 function enablementOf(request: unknown): boolean | undefined {
-  const enabled = fieldOf(request, "enabled");
+  const enabled = readMember(request, "enabled");
   return typeof enabled === "boolean" ? enabled : undefined;
-}
-
-/** One member of a request or answer the fixture is handed untyped, or `undefined`. */
-function fieldOf(value: unknown, field: string): unknown {
-  return typeof value === "object" && value !== null
-    ? (value as Readonly<Record<string, unknown>>)[field]
-    : undefined;
 }
 
 /** A row's binding address alone, as a notice carries it. */
@@ -515,7 +509,7 @@ function signInAttemptId(computedReplyOrdinal: number): string {
  */
 function finishSignIn(request: unknown, answer: unknown): readonly ScenarioNotice[] {
   const account = scriptedAccountNamedBy(request);
-  const attemptId = fieldOf(answer, "attemptId");
+  const attemptId = readMember(answer, "attemptId");
   if (account === undefined || typeof attemptId !== "string") {
     return [];
   }
@@ -535,7 +529,7 @@ function finishSignIn(request: unknown, answer: unknown): readonly ScenarioNotic
       afterMs: SIGN_IN_FINISHES_AFTER_MS,
       payloadAtDelivery: (answeredRequestsFor) =>
         answeredRequestsFor("providerAccount.loginCancel").some(
-          (cancel) => fieldOf(cancel, "attemptId") === attemptId,
+          (cancel) => readMember(cancel, "attemptId") === attemptId,
         )
           ? undefined
           : payload,
@@ -552,7 +546,7 @@ function answerAccountProbe(
   request: unknown,
   settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
-  answeredRequestsFor: (call: string) => readonly unknown[],
+  answeredRequestsFor: AnsweredRequests,
 ): ProviderAccountProbeResponse | undefined {
   const account = accountNamedBy(
     request,
@@ -572,7 +566,7 @@ function answerAccountList(
   _request: unknown,
   settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
-  answeredRequestsFor: (call: string) => readonly unknown[],
+  answeredRequestsFor: AnsweredRequests,
 ): ProviderAccountListResponse {
   const accounts = currentAccounts(answeredRequestsFor, settledAtMilliseconds);
   return {
@@ -591,7 +585,7 @@ function answerSetCurrent(
   request: unknown,
   settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
-  answeredRequestsFor: (call: string) => readonly unknown[],
+  answeredRequestsFor: AnsweredRequests,
 ): ProviderAccountSetCurrentResponse | undefined {
   const account = accountNamedBy(
     request,
@@ -619,15 +613,15 @@ function answerSetCurrent(
  * then each answered default move takes the mark from the provider's other accounts.
  */
 function currentAccounts(
-  answeredRequestsFor: (call: string) => readonly unknown[],
+  answeredRequestsFor: AnsweredRequests,
   observedAtMilliseconds: number,
 ): readonly ProviderAccount[] {
   const resupplies = answeredRequestsFor("providerAccount.register").filter(
-    (request) => fieldOf(request, "accountId") !== undefined,
+    (request) => readMember(request, "accountId") !== undefined,
   );
   const resupplied = SCRIPTED_ACCOUNTS.map((account) => {
     const count = resupplies.filter(
-      (request) => fieldOf(request, "accountId") === account.accountId,
+      (request) => readMember(request, "accountId") === account.accountId,
     ).length;
     return count === 0
       ? account
@@ -710,7 +704,7 @@ function accountNamedBy(
   request: unknown,
   accounts: readonly ProviderAccount[],
 ): ProviderAccount | undefined {
-  return accounts.find((registered) => registered.accountId === fieldOf(request, "accountId"));
+  return accounts.find((registered) => registered.accountId === readMember(request, "accountId"));
 }
 
 /** The scripted account a request's `accountId` names, or `undefined`. */
@@ -730,7 +724,7 @@ function answerAccountRegistration(
   request: unknown,
   settledAtMilliseconds: number,
   computedReplyOrdinal: number,
-  answeredRequestsFor: (call: string) => readonly unknown[],
+  answeredRequestsFor: AnsweredRequests,
 ): ProviderAccountRegisterResponse | undefined {
   if (typeof request !== "object" || request === null) {
     return undefined;

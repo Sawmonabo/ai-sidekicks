@@ -133,8 +133,8 @@
 
       // Whole files kept for a consumer that is not built yet, each with what will consume it.
       "ignoreFiles": [
-        // Scripted diff patches kept as the fixtures' test data, read by no module until the Review
-        // pane's diff read lands.
+        // Scripted diff patches kept as the fixtures' test data, read by no module until Review's
+        // diff read of a session's changes lands.
         "fixtures/data/repos-diff-patches.ts",
         // The anchored popover that registers its airspace over the Preview page, for the worktree
         // popover and the context ring's compaction popover.

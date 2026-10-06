@@ -22,12 +22,12 @@ import {
   WORKFLOW_FIX_SESSION,
   WORKFLOW_OWN_SESSION,
   WORKFLOW_RUN_RECORDS,
+  WORKFLOW_STARTED_BY_PERSON,
+  isGoing,
   minutesAgo,
   type WorkflowRunRecord,
 } from "./records.js";
-
-/** What the playback has answered so far, per call. */
-export type AnsweredRequests = (call: string) => readonly unknown[];
+import { readMember, readString, type AnsweredRequests } from "../../requests.js";
 
 /** What a workflow reply reads the playback through: its answered writes and a request's stamp. */
 export interface WorkflowPlayback {
@@ -51,35 +51,39 @@ export function currentRuns(playback: WorkflowPlayback): readonly WorkflowRunRec
 /** The runs with every answered write applied except the bulk deletes, newest first. */
 export function runsBeforeBulkDeletes(answered: AnsweredRequests): readonly WorkflowRunRecord[] {
   const deleted = answered("workflow.runDelete").map((call) => readMember(call, "workflowRunId"));
-  const minted = [
-    ...answered("workflow.runStart").map((call, index) =>
-      mintedRun(mintedRunId("start", index), readString(call, "workflowVersionId"), {
-        mode: "manual",
-        triggerKind: "trigger.manual",
+  const started = answered("workflow.runStart").map((call, index) =>
+    mintedRun(mintedRunId("start", index), readString(call, "workflowVersionId"), {
+      mode: "manual",
+      triggerKind: "trigger.manual",
+    }),
+  );
+  // A retry runs its source's version and keeps the trigger kind its source started on.
+  const retried = answered("workflow.runRetry").map((call, index) => {
+    const source = sourceRun(call, [...WORKFLOW_RUN_RECORDS, ...started]).read;
+    return mintedRun(mintedRunId("retry", index), source.workflowVersionId, {
+      mode: "retry",
+      triggerKind: source.triggerKind,
+    });
+  });
+  // A re-run runs its source's version again, in the mode and trigger kind it started on; its
+  // source may be a run minted before it.
+  const reruns: WorkflowRunRecord[] = [];
+  for (const [index, call] of answered("workflow.runRerun").entries()) {
+    const source = sourceRun(call, [
+      ...WORKFLOW_RUN_RECORDS,
+      ...started,
+      ...retried,
+      ...reruns,
+    ]).read;
+    reruns.push(
+      mintedRun(mintedRunId("rerun", index), source.workflowVersionId, {
+        mode: source.mode,
+        triggerKind: source.triggerKind,
+        sessionId: source.sessionId,
       }),
-    ),
-    ...answered("workflow.runRetry").map((call, index) => {
-      // A retry runs its source's version and keeps the trigger kind its source started on.
-      const source = WORKFLOW_RUN_RECORDS.find(
-        (run) => run.read.workflowRunId === readString(call, "workflowRunId"),
-      )?.read;
-      return mintedRun(mintedRunId("retry", index), source?.workflowVersionId ?? "", {
-        mode: "retry",
-        triggerKind: source?.triggerKind ?? "trigger.manual",
-      });
-    }),
-    ...answered("workflow.runRerun").map((call, index) => {
-      // A re-run runs its source's version again, in the mode and trigger kind it started on.
-      const source = WORKFLOW_RUN_RECORDS.find(
-        (run) => run.read.workflowRunId === readString(call, "workflowRunId"),
-      )?.read;
-      return mintedRun(mintedRunId("rerun", index), source?.workflowVersionId ?? "", {
-        mode: source?.mode ?? "manual",
-        triggerKind: source?.triggerKind ?? "trigger.manual",
-        ...(source === undefined ? {} : { sessionId: source.sessionId }),
-      });
-    }),
-  ].reverse();
+    );
+  }
+  const minted = [...started, ...retried, ...reruns].reverse();
   return [...minted, ...WORKFLOW_RUN_RECORDS]
     .map((run) => applyWrites(run, answered))
     .filter((run) => !deleted.includes(run.read.workflowRunId));
@@ -242,6 +246,16 @@ function canceled(run: WorkflowRunRecord): WorkflowRunRecord {
   };
 }
 
+/** The run an answered retry or re-run names, which the daemon checked exists before answering. */
+function sourceRun(call: unknown, runs: readonly WorkflowRunRecord[]): WorkflowRunRecord {
+  const workflowRunId = readString(call, "workflowRunId");
+  const source = runs.find((run) => run.read.workflowRunId === workflowRunId);
+  if (source === undefined) {
+    throw new RangeError(`an answered act names run ${workflowRunId}, which no run is`);
+  }
+  return source;
+}
+
 function mintedRun(
   workflowRunId: WorkflowRunId,
   workflowVersionId: string,
@@ -255,8 +269,11 @@ function mintedRun(
   const definition = WORKFLOW_DEFINITION_RECORDS.find((candidate) =>
     candidate.versions.some((version) => version.versionId === workflowVersionId),
   );
-  const definitionId = definition?.summary.id ?? WORKFLOW_DEFINITION_RECORDS[0]!.summary.id;
-  const workflowName = definition?.summary.name ?? "Unnamed workflow";
+  if (definition === undefined) {
+    throw new RangeError(`a minted run names ${workflowVersionId}, which no saved workflow has`);
+  }
+  const definitionId = definition.summary.id;
+  const workflowName = definition.summary.name;
   return {
     definitionName: workflowName,
     startedMinutesAgo: 0,
@@ -268,7 +285,7 @@ function mintedRun(
       state: "new",
       mode: started.mode,
       triggerKind: started.triggerKind,
-      startedBy: { kind: "user", deviceId: "device-0001" as never },
+      startedBy: WORKFLOW_STARTED_BY_PERSON,
       chainRoot: { runId: workflowRunId, definitionId, workflowName, startedAt: NOW, runCount: 1 },
       executionContextCaptured: true,
       keep: false,
@@ -289,11 +306,6 @@ export function startedAtMs(run: WorkflowRunRecord): number {
   return WORKFLOW_FIXTURE_NOW_MS - run.startedMinutesAgo * 60_000;
 }
 
-/** Whether the run is still going: new, running or waiting. */
-export function isGoing(run: WorkflowRunRecord): boolean {
-  return run.read.state === "new" || run.read.state === "running" || run.read.state === "waiting";
-}
-
 /** Whether the run has ended for good: succeeded, crashed or canceled. */
 export function isEnded(run: WorkflowRunRecord): boolean {
   return (
@@ -309,20 +321,4 @@ export function mintedRunId(kind: keyof typeof MINTED_RUN_STEMS, index: number):
   const stem = MINTED_RUN_STEMS[kind];
   const serial = String(index).padStart(3, "0");
   return `019b7a30-0280-75e5-8510-ada11a5a${stem}${serial}` as WorkflowRunId;
-}
-
-/** A request read as a record, or an empty one. */
-export function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
-
-/** One member of a request. */
-export function readMember(value: unknown, key: string): unknown {
-  return asRecord(value)[key];
-}
-
-/** One string member of a request, or an empty string. */
-export function readString(value: unknown, key: string): string {
-  const member = readMember(value, key);
-  return typeof member === "string" ? member : "";
 }

@@ -89,8 +89,8 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
       throw new RangeError(
         `script entry ${String(entryIndex)} ("${entry.kind}") is due at ${String(entry.atMs)}ms, ` +
           `behind its predecessor at ${String(previousAtMs)}ms. ` +
-          `The scenario engine delivers beats in ` +
-          "script order, so an entry that goes backwards is delivered late or not at all.",
+          "The scenario engine delivers beats in script order, " +
+          "so an entry that goes backwards is delivered late or not at all.",
       );
     }
     previousAtMs = entry.atMs;
@@ -216,10 +216,10 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
   const creation = creationRowMembers(input);
   if (Object.keys(creation).length > 0 && input.newState !== RUN_BIRTH_STATE) {
     throw new RangeError(
-      `a run's linkage and resolved agent ride its ` +
-        `birth beat, and this entry moves ${input.runId} ` +
-        `into "${input.newState}". The taxonomy puts them on \`run.${RUN_BIRTH_STATE}\` ` +
-        "alone, so a second beat carrying them would be a second record of one fact.",
+      `a run's linkage and resolved agent ride its birth beat, ` +
+        `and this entry moves ${input.runId} into "${input.newState}". ` +
+        `They ride \`run.${RUN_BIRTH_STATE}\` alone, ` +
+        "so a second beat carrying them would be a second record of one fact.",
     );
   }
   return {
