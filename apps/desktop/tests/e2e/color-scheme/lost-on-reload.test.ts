@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { APPEARANCE_FILE_NAME } from "#main/appearance/record-file.js";
 import { withLaunchedApp, type AppUnderTest } from "../../helpers/electron/harness.js";
-import { clickViewMenuScheme, readPageScheme } from "./scheme-access.js";
+import { clickViewMenuScheme, readPageScheme } from "./access.js";
 import { openPalette } from "../../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
