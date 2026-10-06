@@ -5,10 +5,11 @@
 // is a state of the flow and the page learns the account's fate by re-reading the registry.
 // A token exists here only for the length of one registration call, never in a state.
 
-import type {
-  BillingMode,
-  ProviderAccount,
-  ProviderAccountId,
+import {
+  comparableDisplayLabel,
+  type BillingMode,
+  type ProviderAccount,
+  type ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
@@ -199,7 +200,7 @@ export type RegistrationFieldReading =
  *
  * Runs before the token exists in the submit handler, so a refused name cannot discard a typed
  * credential. The name is required and differs from that provider's other account names,
- * compared without case or surrounding spaces; a name of only spaces passes the browser's
+ * compared in the form the service compares them in; a name of only spaces passes the browser's
  * `required` check and is refused here. The refusal never echoes the name, which is user content.
  * The form asks nothing about billing, so an admitted account's billing is `unknown`.
  */
@@ -218,11 +219,12 @@ export function readRegistrationFields(
       ),
     };
   }
-  const comparedName = displayLabel.toLowerCase();
+  const comparedName = comparableDisplayLabel(displayLabel);
   const isTaken = accounts.some(
     (account) =>
       account.provider === typed.provider &&
-      account.displayLabel?.trim().toLowerCase() === comparedName,
+      account.displayLabel !== undefined &&
+      comparableDisplayLabel(account.displayLabel) === comparedName,
   );
   if (isTaken) {
     return {

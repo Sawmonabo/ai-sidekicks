@@ -14,7 +14,7 @@ import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
-import { applyMigrations, applyPragmas } from "../migration-runner.js";
+import { applyMigrations, applyPragmas, registerSchemaFunctions } from "../migration-runner.js";
 
 const TIMESTAMP = "2026-09-28T00:00:00.000Z";
 const NON_MEMBER = "not-a-member";
@@ -78,6 +78,7 @@ describe("contract enums against the daemon schema", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     applyPragmas(db);
+    registerSchemaFunctions(db);
     applyMigrations(db);
     db.prepare(
       `INSERT INTO repo_mounts

@@ -166,8 +166,11 @@ function awaitSnapshotBarrier(barrier) {
  * @param {SnapshotBarrier | null} barrier
  */
 async function applyMigrationsDeferredReplica(db, barrier) {
-  // The loader hook rewrites `.js` → `.ts` for the actual on-disk file.
+  // The loader hook rewrites `.js` → `.ts` for the actual on-disk file. The schema calls the
+  // production runner's SQL functions, so the replica registers them the same way.
   const { DAEMON_SCHEMA_SQL } = await import("../daemon-schema.js");
+  const { registerSchemaFunctions } = await import("../migration-runner.js");
+  registerSchemaFunctions(db);
   if (!hasSchemaReplica(db)) {
     const tx = db.transaction(() => {
       if (!hasSchemaReplica(db)) {
@@ -253,6 +256,7 @@ try {
     // imports resolve correctly.
     const mod = await import("../migration-runner.js");
     mod.applyPragmas(db);
+    mod.registerSchemaFunctions(db);
     mod.applyMigrations(db);
   }
   parentPort.postMessage(/** @type {WorkerResult} */ ({ ok: true }));

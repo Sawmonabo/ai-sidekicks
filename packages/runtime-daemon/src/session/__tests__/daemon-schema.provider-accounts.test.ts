@@ -1,11 +1,11 @@
 // The provider-account tables on the schema the real migration runner builds. Every member of the
 // provider, billing-mode and health-state unions is stored and a value outside each is refused, a
 // generation below the floor is refused, a provider holds one default account at most, a
-// credential home belongs to one account, a typed name is optional and unique per provider
-// ignoring case and surrounding spaces, a quota reading is keyed by account and limit alone,
-// and a memory-import outcome whose count and time disagree with it is refused. The member lists
-// are `Record<Union, true>` maps, so a member added to the contract is a type error here until
-// its case exists, and that case then fails until the CHECK admits it.
+// credential home belongs to one account, a typed name is optional, unique per provider in its
+// comparable form and renamed only where one is carried, a quota reading is keyed by account and
+// limit alone, and a memory-import outcome whose count and time disagree with it is refused. The
+// member lists are `Record<Union, true>` maps, so a member added to the contract is a type error
+// here until its case exists, and that case then fails until the CHECK admits it.
 
 import {
   CREDENTIAL_GENERATION_MIN,
@@ -17,7 +17,7 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyMigrations, applyPragmas } from "../migration-runner.js";
+import { applyMigrations, applyPragmas, registerSchemaFunctions } from "../migration-runner.js";
 
 const TIMESTAMP = "2026-09-30T00:00:00.000Z";
 const NON_MEMBER = "not-a-member";
@@ -71,6 +71,7 @@ describe("provider-account schema", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     applyPragmas(db);
+    registerSchemaFunctions(db);
     applyMigrations(db);
   });
 
@@ -180,8 +181,28 @@ describe("provider-account schema", () => {
     expect(() => insertAccount({ provider: "claude", displayLabel: " work " })).toThrow(
       /UNIQUE constraint failed/,
     );
+    // Folded as the screen folds it, beyond ASCII: SQLite's own lower() would let these pairs in.
+    insertAccount({ provider: "claude", displayLabel: "Ärzte" });
+    expect(() => insertAccount({ provider: "claude", displayLabel: "ärzte " })).toThrow(
+      /UNIQUE constraint failed/,
+    );
+    insertAccount({ provider: "claude", displayLabel: "Straße" });
+    expect(() => insertAccount({ provider: "claude", displayLabel: "STRASSE" })).toThrow(
+      /UNIQUE constraint failed/,
+    );
     expect(() => insertAccount({ provider: "codex", displayLabel: "work" })).not.toThrow();
     expect(() => insertAccount({ provider: "claude", displayLabel: "Personal" })).not.toThrow();
+  });
+
+  it("renames an account that carries a typed name, and names no other", () => {
+    const named = insertAccount({ displayLabel: "Work" });
+    const unnamed = insertAccount({ displayLabel: null });
+    const rename = db.prepare(
+      "UPDATE provider_accounts SET display_label = ? WHERE account_id = ?",
+    );
+    expect(() => rename.run("Office", named)).not.toThrow();
+    expect(() => rename.run("Office 2", unnamed)).toThrow(/renamed only on an account/);
+    expect(() => rename.run(null, named)).toThrow(/renamed only on an account/);
   });
 
   it("keys a quota reading on (account_id, limit_id), with window_mins an attribute", () => {

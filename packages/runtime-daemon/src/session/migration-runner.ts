@@ -4,6 +4,8 @@
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
+import { comparableDisplayLabel } from "@ai-sidekicks/contracts/provider/account/record";
+
 import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
 
 /**
@@ -24,6 +26,20 @@ export function applyPragmas(db: DatabaseType): void {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.pragma("secure_delete = ON");
+}
+
+/**
+ * Registers the SQL functions the schema's generated columns call; call it on every handle open
+ * before the schema is created or written, because SQLite functions are connection-local and a
+ * table naming an unregistered one cannot be created or written.
+ */
+export function registerSchemaFunctions(db: DatabaseType): void {
+  db.function(
+    "comparable_display_label",
+    { deterministic: true },
+    (displayLabel: unknown): string | null =>
+      typeof displayLabel === "string" ? comparableDisplayLabel(displayLabel) : null,
+  );
 }
 
 /**
@@ -61,6 +77,7 @@ export function openDatabase(dbPath: string): DatabaseType {
   const db: DatabaseType = new Database(dbPath);
   try {
     applyPragmas(db);
+    registerSchemaFunctions(db);
     applyMigrations(db);
   } catch (err) {
     try {

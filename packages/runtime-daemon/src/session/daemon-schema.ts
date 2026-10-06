@@ -414,6 +414,11 @@ CREATE TABLE provider_accounts (
   -- key, which its provider names nowhere; NULL on every other account, which its
   -- provider-reported identity names. Personal data.
   display_label             TEXT,
+  -- The name in the form names are compared in, computed by the daemon's
+  -- comparable_display_label function so the table and the screen agree on
+  -- every name; NULL where there is no name.
+  display_label_key         TEXT
+    GENERATED ALWAYS AS (comparable_display_label(display_label)) STORED,
   -- The daemon builds each spawn environment from this path and never inherits
   -- ambient provider credentials.
   credential_home_path      TEXT NOT NULL,
@@ -502,12 +507,20 @@ CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
 CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
 
--- One typed name per provider, compared ignoring case and surrounding spaces,
--- where a name is present: a second account of one provider with the same name
--- is refused.
+-- One typed name per provider, compared in its comparable form, where a name
+-- is present: a second account of one provider with the same name is refused.
 CREATE UNIQUE INDEX provider_accounts_unique_display_label
-  ON provider_accounts(provider, lower(trim(display_label)))
-  WHERE display_label IS NOT NULL;
+  ON provider_accounts(provider, display_label_key)
+  WHERE display_label_key IS NOT NULL;
+
+-- A typed name is renamed only on an account that carries one: an account its
+-- provider names never gains one, and a pasted-token account never loses its.
+CREATE TRIGGER trg_provider_accounts_display_label_kept
+  BEFORE UPDATE OF display_label ON provider_accounts
+  WHEN (OLD.display_label IS NULL) != (NEW.display_label IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'display_label is renamed only on an account that carries one');
+END;
 
 -- The newest quota reading per account and limit. Keyed by limit, not window
 -- length: one provider publishes several limits that share a window length.
