@@ -25,6 +25,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { formatByteQuantity, formatClockTime, formatPercent } from "#renderer/lib/wire/figures.js";
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
@@ -186,6 +187,26 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
           <SettingsFact term="Version">
             <WireFigure value={reading.status.version} />
           </SettingsFact>
+          <SettingsFact term="Processor">
+            {renderUsageReading(
+              reading.status.processor === null
+                ? undefined
+                : {
+                    figure: formatPercent(reading.status.processor.percent / 100),
+                    readAt: reading.status.processor.readAt,
+                  },
+            )}
+          </SettingsFact>
+          <SettingsFact term="Memory">
+            {renderUsageReading(
+              reading.status.memory === null
+                ? undefined
+                : {
+                    figure: formatByteQuantity(reading.status.memory.residentBytes).text,
+                    readAt: reading.status.memory.readAt,
+                  },
+            )}
+          </SettingsFact>
         </dl>
       );
     case "failed":
@@ -198,6 +219,21 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
         />
       );
   }
+}
+
+/** One reading of what the service uses, stamped with when it was taken; none reads as not read. */
+function renderUsageReading(
+  reading: { readonly figure: string; readonly readAt: string } | undefined,
+): ReactNode {
+  if (reading === undefined) {
+    return <span>Not read yet</span>;
+  }
+  return (
+    <span>
+      <WireFigure value={reading.figure} /> · as of{" "}
+      <WireFigure value={formatClockTime(reading.readAt)} title={reading.readAt} />
+    </span>
+  );
 }
 
 /**

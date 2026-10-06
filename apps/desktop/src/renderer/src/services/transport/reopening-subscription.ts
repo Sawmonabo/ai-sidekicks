@@ -72,7 +72,7 @@ class ReopeningSubscription<Payload> {
   readonly #options: ReopeningSubscriptionOptions<Payload>;
   readonly #clock: Clock;
   readonly #backoff: ReopenBackoff;
-  /** The open stream's handle, only while it lasts: an end heard before `open` returns leaves none. */
+  /** The open stream's handle while it lasts: an end heard before `open` returns leaves none. */
   #release: Unsubscribe | undefined;
   #stopWaitingForEdge: Unsubscribe | undefined;
   #isReleased = false;

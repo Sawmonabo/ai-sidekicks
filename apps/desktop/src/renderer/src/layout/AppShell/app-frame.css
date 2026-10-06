@@ -14,8 +14,11 @@
   color: var(--meridian-text);
 }
 
+/* A frame with no rail holds no control, so the whole window is its drag region: with no title
+   bar on macOS, nothing else would move it. */
 .meridian-frame--bare {
   grid-template-columns: minmax(0, 1fr);
+  app-region: drag;
 }
 
 /* Carries `inert` while a modal overlay is open. `display: contents` keeps it out of the grid, so

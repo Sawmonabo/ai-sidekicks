@@ -15,9 +15,9 @@ export type PlatformBridgeSource = "live" | "fixture";
 export interface PlatformBridge extends PreloadApi {
   /**
    * The app's one transport-reconnect signal, which every window shares. Not a host capability:
-   * the renderer derives it from main's `daemon.status` topic and its own opens. Both halves are published because
-   * observers report into it from above and below this seam; readings take the subscribe-only
-   * `TransportReconnectObservable` view.
+   * the renderer derives it from main's `daemon.status` topic and its own opens. Both halves are
+   * published because observers report into it from above and below this seam; readings take the
+   * subscribe-only `TransportReconnectObservable` view.
    */
   readonly transportReconnect: TransportReconnectSignal;
   readonly source: PlatformBridgeSource;

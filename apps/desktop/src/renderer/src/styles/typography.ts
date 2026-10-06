@@ -46,9 +46,10 @@ export const WIRE_FIGURE_SIZE_EM = 0.93;
 
 /**
  * Letter spacing, in em so it scales with the size it is set at. Uppercase text needs more room
- * between letters than mixed case to read at a small size, and a heading over a group sits one
- * step wider than the labels inside it so the two never read as the same rank. Every sheet sets
- * letter spacing from one of these steps.
+ * between letters than mixed case to read at a small size: small uppercase sits between 0.09 and
+ * 0.17 em, small mixed case near 0.02 em, as the published type scales for small text set them.
+ * A heading over a group sits one step wider than the labels inside it so the two never read as
+ * the same rank. Every sheet sets letter spacing from one of these steps.
  */
 export const LETTER_SPACING_EM: Readonly<Record<string, number>> = {
   /** An uppercase section or group heading's spacing: one step wider than a field label's. */
@@ -59,7 +60,7 @@ export const LETTER_SPACING_EM: Readonly<Record<string, number>> = {
    * Small uppercase words that are neither a field label nor a group heading: a category over a
    * run of rows, a row's kind, the word before a value.
    */
-  "tracking-caps": 0.06,
+  "tracking-caps": 0.09,
   /** Mixed-case words set a touch open, such as a block title or a figure's caption. */
   "tracking-mixed": 0.02,
 };
