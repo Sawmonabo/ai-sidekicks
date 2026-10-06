@@ -238,7 +238,7 @@ export interface SpawnedProviderVersionReadRequest {
   /** The transport that spawns and performs the handshake; it has no default. */
   readonly handshake: ProviderVersionHandshake;
   /**
-   * The curated base the provider's session spawn uses, never the daemon's own `process.env`;
+   * The captured base the provider's session spawn builds on, never the daemon's own `process.env`;
    * the opt-out is applied over it, and a bare command is searched along its `PATH`.
    */
   readonly baseEnv: readonly SpawnEnvPair[];

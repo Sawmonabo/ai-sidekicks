@@ -241,7 +241,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // The zero-turn auth probe's outcome. A `ClaudeAuthenticationRequiredError` failure models a
   // determinate logged-out reading; any other failure models a probe that could not be taken.
   probeAuthFailure: Error | undefined = undefined;
-  probeAuthCallCount: number = 0;
+  readonly probeAuthRequests: ClaudeAuthProbeRequest[] = [];
 
   /**
    * Refuses to start a child without the daemon's mandated environment pairs. A refusal rather
@@ -323,7 +323,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   }
 
   async probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading> {
-    this.probeAuthCallCount += 1;
+    this.probeAuthRequests.push(request);
     // Checked before the failure arms: a probe that could not be taken still started a child.
     this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await Promise.resolve();

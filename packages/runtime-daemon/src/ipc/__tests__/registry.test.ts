@@ -27,13 +27,13 @@ describe("schema validates before dispatch", () => {
       ok: true,
     }));
     registry.register(
-      "math.sum",
+      "session.create",
       rejectingSchema<unknown>("malformed-sum-params"),
       passthroughSchema<unknown>(),
       handler,
     );
     const caught = await captureRejection(
-      registry.dispatch("math.sum", { bogus: true }, directCtx),
+      registry.dispatch("session.create", { bogus: true }, directCtx),
     );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
@@ -56,12 +56,12 @@ describe("schema validates before dispatch", () => {
       const registry = new MethodRegistryImpl();
       const handler: Handler<unknown, unknown> = async () => ({ wrong: "shape" });
       registry.register(
-        "math.sum",
+        "session.create",
         passthroughSchema<unknown>(),
         rejectingSchema<unknown>("invalid-result-shape"),
         handler,
       );
-      const caught = await captureRejection(registry.dispatch("math.sum", {}, directCtx));
+      const caught = await captureRejection(registry.dispatch("session.create", {}, directCtx));
       expect(caught).toBeInstanceOf(RegistryDispatchError);
       if (caught instanceof RegistryDispatchError) {
         expect(caught.registryCode).toBe("invalid_result");
@@ -80,12 +80,12 @@ describe("method-not-found namespace isolation", () => {
   it("dispatching an unregistered method throws `method_not_found`, mapped to -32601", async () => {
     const registry = new MethodRegistryImpl();
     registry.register(
-      "math.sum",
+      "session.create",
       passthroughSchema<unknown>(),
       passthroughSchema<unknown>(),
       async () => undefined,
     );
-    const caught = await captureRejection(registry.dispatch("not.registered", {}, directCtx));
+    const caught = await captureRejection(registry.dispatch("daemon.start", {}, directCtx));
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("method_not_found");
@@ -103,14 +103,14 @@ describe("duplicate method registration rejected at register-time", () => {
   it("registering a method twice throws `RegistryRegistrationError(`duplicate_method`)`", () => {
     const registry = new MethodRegistryImpl();
     registry.register(
-      "math.sum",
+      "session.create",
       passthroughSchema<unknown>(),
       passthroughSchema<unknown>(),
       async () => undefined,
     );
     const caught = captureThrow(() =>
       registry.register(
-        "math.sum",
+        "session.create",
         passthroughSchema<unknown>(),
         passthroughSchema<unknown>(),
         async () => undefined,

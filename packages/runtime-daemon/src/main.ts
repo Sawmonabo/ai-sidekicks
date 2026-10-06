@@ -96,8 +96,9 @@ const daemon = await DaemonProcess.start({
     captureLoginShellEnvironment({
       platform: process.platform,
       shell: account.shell,
+      homeDirectory: account.homedir,
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
-      accountEnvironment: process.env,
+      serviceEnvironment: process.env,
       writeServiceLog,
       signal: stopRequest.signal,
     }),

@@ -143,21 +143,21 @@ describe("the mutating-method gate", () => {
     const { raw, gated } = makeFixture();
     const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
     raw.register(
-      "math.read",
+      "session.read",
       passthroughSchema<unknown>(),
       passthroughSchema<{ ok: true }>(),
       handler,
       { mutating: false },
     );
     raw.register(
-      "math.write",
+      "session.create",
       passthroughSchema<unknown>(),
       passthroughSchema<{ ok: true }>(),
       handler,
       { mutating: true },
     );
     const ctx: HandlerContext = { transportId: 201 };
-    for (const method of ["math.read", "math.write", "not.registered"]) {
+    for (const method of ["session.read", "session.create", "daemon.start"]) {
       const caught = await captureRejection(gated.dispatch(method, {}, ctx));
       expect(caught).toBeInstanceOf(NegotiationError);
       if (caught instanceof NegotiationError) {
@@ -179,7 +179,7 @@ describe("the mutating-method gate", () => {
       );
       // Even after an incompatible handshake the gate lets an unregistered method reach the
       // inner registry; refusing it would hide the not-found error behind a gate error.
-      const caught = await captureRejection(gated.dispatch("not.registered", {}, ctx));
+      const caught = await captureRejection(gated.dispatch("daemon.start", {}, ctx));
       expect(caught).toBeInstanceOf(RegistryDispatchError);
       if (caught instanceof RegistryDispatchError) {
         expect(caught.registryCode).toBe("method_not_found");
@@ -191,7 +191,7 @@ describe("the mutating-method gate", () => {
     const { raw, gated } = makeFixture();
     const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
     raw.register(
-      "math.write",
+      "session.create",
       passthroughSchema<unknown>(),
       passthroughSchema<{ ok: true }>(),
       handler,
@@ -205,21 +205,21 @@ describe("the mutating-method gate", () => {
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(true);
-    const result = await gated.dispatch("math.write", {}, ctx);
+    const result = await gated.dispatch("session.create", {}, ctx);
     expect(result).toStrictEqual({ ok: true });
   });
 
   it("after an incompatible handshake, reads pass and a mutating method is refused", async () => {
     const { raw, gated } = makeFixture();
     raw.register(
-      "math.read",
+      "session.read",
       passthroughSchema<unknown>(),
       passthroughSchema<{ ok: true }>(),
       async () => ({ ok: true }),
       { mutating: false },
     );
     raw.register(
-      "math.write",
+      "session.create",
       passthroughSchema<unknown>(),
       passthroughSchema<{ ok: true }>(),
       async () => ({ ok: true }),
@@ -233,9 +233,9 @@ describe("the mutating-method gate", () => {
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(false);
-    const readResult = await gated.dispatch("math.read", {}, ctx);
+    const readResult = await gated.dispatch("session.read", {}, ctx);
     expect(readResult).toStrictEqual({ ok: true });
-    const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
+    const caught = await captureRejection(gated.dispatch("session.create", {}, ctx));
     expect(caught).toBeInstanceOf(NegotiationError);
     if (caught instanceof NegotiationError) {
       expect(caught.negotiationCode).toBe("protocol.version_mismatch");
@@ -253,7 +253,7 @@ describe("the session token", () => {
     async ({ sessionToken }) => {
       const { raw, gated, negotiator } = makeFixture();
       raw.register(
-        "math.read",
+        "session.read",
         passthroughSchema<unknown>(),
         passthroughSchema<{ ok: true }>(),
         async () => ({ ok: true }),
@@ -274,7 +274,7 @@ describe("the session token", () => {
       const retried = await captureRejection(
         gated.dispatch(DAEMON_HELLO_METHOD, { ...hello, sessionToken: SESSION_TOKEN }, ctx),
       );
-      const read = await captureRejection(gated.dispatch("math.read", {}, ctx));
+      const read = await captureRejection(gated.dispatch("session.read", {}, ctx));
       for (const caught of [retried, read]) {
         expect(caught).toBeInstanceOf(NegotiationError);
         expect((caught as NegotiationError).negotiationCode).toBe("auth.token_invalid");

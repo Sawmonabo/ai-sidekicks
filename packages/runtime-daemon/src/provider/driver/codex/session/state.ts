@@ -101,14 +101,10 @@ export interface CodexSessionRecord {
   model: string;
   /**
    * The output-speed level the carriers last asked for: the session's at establishment, then each
-   * accepted turn's. A run carrying none asks for it again, re-resolved when the model changes.
+   * accepted turn's. A run carrying none, and a fork, ask for it again, each resolved afresh
+   * against the model's tier list.
    */
   outputSpeedRequest: string | undefined;
-  /**
-   * The level the thread was sent for `outputSpeedRequest` on `model`: the request where the
-   * model's catalog row lists it, else standard. Never a level the model does not list.
-   */
-  outputSpeed: string | undefined;
   /**
    * The tier the thread declared on its establishment reply, replaced by each
    * `thread/settings/updated` for this thread. Held for the binding's life and written nowhere.

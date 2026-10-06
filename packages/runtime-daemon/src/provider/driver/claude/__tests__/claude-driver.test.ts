@@ -31,6 +31,7 @@ function buildHarness(): DriverHarness {
   });
   const driver = new ClaudeDriver({
     transport,
+    providerBaseEnvironment: [],
     modelCatalogExchange: () => Promise.resolve({ models: [] }),
     runDispatchResolver,
     diagnostics: makeSilentDriverDiagnostics(),

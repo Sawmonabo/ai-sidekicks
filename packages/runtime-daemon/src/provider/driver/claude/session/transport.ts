@@ -216,6 +216,8 @@ export interface ClaudeSpawnBoundLegs {
   /** Serializes beyond-cap subagent tool calls; `undefined` without an enabled subagent policy. */
   readonly subagentAdmission: ClaudeSubagentAdmissionPort | undefined;
   readonly onMcpServerStatus: McpServerStatusProducer | undefined;
+  /** The base the child's environment is built from: the login shell's, captured at start. */
+  readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /**
    * Variables the child must carry (for this CLI, the auto-update opt-out), applied last and never
    * shed, or a provider build could replace itself mid-session and invalidate the recorded version.
@@ -279,6 +281,8 @@ export interface ClaudeAuthProbeReading {
 
 /** What the auth probe's spawn must carry: standalone, since a probe binds to no session. */
 export interface ClaudeAuthProbeRequest {
+  /** The base the probe's environment is built from, as for a session spawn. */
+  readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /**
    * Required: the probe recurs, so an unsuppressed one could update the installation under the
    * readings admission relies on.
@@ -290,8 +294,8 @@ export interface ClaudeAuthProbeRequest {
 export function composeClaudeMandatedEnvironment(): readonly SpawnEnvPair[] {
   return buildProviderSpawnEnv({
     driverName: "claude",
-    // Empty: this side holds no curated environment; the transport composes these pairs over its
-    // base.
+    // Empty: the base travels beside these pairs as `providerBaseEnvironment`, and the transport
+    // composes these over it.
     baseEnv: [],
     // Host semantics: the transport compares names under the same rule.
     hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
@@ -308,8 +312,8 @@ export interface ClaudeSessionTransport {
 
   /**
    * Starts a provider process for a new session. The child environment is constructed, never
-   * inherited: the curated base plus run-provisioned variables, minus the names denied by the
-   * request's own `sandboxSettings.credentialPolicyRef` (never a policy from an earlier spawn).
+   * inherited: `providerBaseEnvironment` plus run-provisioned variables, minus the names denied by
+   * the request's own `sandboxSettings.credentialPolicyRef` (never a policy from an earlier spawn).
    * `CLAUDE_*` and `CLAUDECODE*` are stripped and configuration comes through `--settings`, not
    * `~/.claude`, so ambient developer config cannot reach the agent and two sessions on one node
    * cannot read each other's settings. `mandatedEnvironment` is applied last, replacing

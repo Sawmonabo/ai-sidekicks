@@ -98,6 +98,7 @@ describe("CodexDriver process ownership", () => {
     const server = new FakeCodexAppServer();
     const connection = new CodexAppServerConnection({
       ptyHost: server,
+      providerBaseEnvironment: [],
       subscribeToPtySession: () => {
         throw new Error("subscription registry refused the attach");
       },

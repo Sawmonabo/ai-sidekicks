@@ -8,6 +8,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { type CompactionWaitScheduler } from "../../../compaction-wait.js";
 import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
+import type { SpawnEnvPair } from "../../../spawn-env.js";
 import {
   ThreadFrameRouter,
   type RoutableProviderFrame,
@@ -131,6 +132,8 @@ export function readAdmittedProviderAccountId(requested: string | undefined): st
 /** What a Claude session lifecycle needs from the daemon: the transport, sinks and id sources. */
 export interface ClaudeSessionLifecycleDependencies {
   readonly transport: ClaudeSessionTransport;
+  /** The base every spawn's environment is built from, captured at the daemon's start. */
+  readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   readonly runDispatchResolver: ClaudeRunDispatchResolver;
   /** The daemon-wide diagnostic band; required, since each fail-closed path owes a record. */
   readonly diagnostics: DriverDiagnosticsEmitter;

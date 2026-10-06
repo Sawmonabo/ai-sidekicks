@@ -12,11 +12,12 @@ import { CodexDriverConfigError } from "./errors.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
 
 /**
- * What this driver requires inside the untyped `CreateSessionParams.config`; `env` is the complete
- * child environment (this module never reads `process.env`).
+ * What this driver requires inside the untyped `CreateSessionParams.config` (this module never
+ * reads `process.env`).
  */
 export interface CodexSessionConfig {
   cwd: string;
+  /** The session's environment pairs, set by name over the base the daemon captured at start. */
   env: ReadonlyArray<readonly [string, string]>;
   /**
    * The provider account this leg's credential home is pinned to; the typed request member wins

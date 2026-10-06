@@ -3,6 +3,7 @@
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
+import type { SpawnEnvPair } from "../../../spawn-env.js";
 import {
   type ClaudeSessionTransport,
   type ClaudeSpawnBoundLegs,
@@ -40,10 +41,17 @@ import type {
 export class ClaudeSpawnLegComposer {
   readonly #transport: ClaudeSessionTransport;
   readonly #diagnostics: DriverDiagnosticsEmitter;
+  readonly #providerBaseEnvironment: readonly SpawnEnvPair[];
 
-  constructor(dependencies: Pick<ClaudeSessionLifecycleDependencies, "transport" | "diagnostics">) {
+  constructor(
+    dependencies: Pick<
+      ClaudeSessionLifecycleDependencies,
+      "transport" | "diagnostics" | "providerBaseEnvironment"
+    >,
+  ) {
     this.#transport = dependencies.transport;
     this.#diagnostics = dependencies.diagnostics;
+    this.#providerBaseEnvironment = dependencies.providerBaseEnvironment;
   }
 
   /** The ONE builder both spawn paths use — see `ClaudeSpawnBoundLegs`. */
@@ -78,6 +86,7 @@ export class ClaudeSpawnLegComposer {
       outputSchema: params.outputSchema,
       onCallbackToolCall: params.onCallbackToolCall,
       onMcpServerStatus: params.onMcpServerStatus,
+      providerBaseEnvironment: this.#providerBaseEnvironment,
       // The shared composer, so this path and the auth probe cannot hold different opt-outs.
       mandatedEnvironment: composeClaudeMandatedEnvironment(),
     };

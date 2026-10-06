@@ -17,6 +17,7 @@ import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
+import type { SpawnEnvPair } from "../../spawn-env.js";
 import { ThreadFrameRouter, type ThreadFrameRoute } from "../../thread-frame-router.js";
 import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
 import {
@@ -77,6 +78,7 @@ import {
 /** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
 export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   readonly #transport: ClaudeSessionTransport;
+  readonly #providerBaseEnvironment: readonly SpawnEnvPair[];
   readonly #runDispatchResolver: ClaudeRunDispatchResolver;
   // Every session's slot. Create and resume refuse on a non-EMPTY slot instead of chaining, since
   // a session realized under another posture is what `assertClaudeSpawnBoundRealization`
@@ -104,6 +106,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
     this.#transport = dependencies.transport;
+    this.#providerBaseEnvironment = dependencies.providerBaseEnvironment;
     this.#runDispatchResolver = dependencies.runDispatchResolver;
     this.#diagnostics = dependencies.diagnostics;
     this.#handshakes = new ClaudeHandshakeRegister(dependencies);
@@ -310,9 +313,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
    */
   async probeAuth(): Promise<DriverAuthProbeResult> {
     try {
-      // Carries the mandated environment like every other spawn, so the probe cannot update the
-      // installation underneath the readings.
+      // Built like every other spawn, on the captured base with the mandated environment, so the
+      // probe cannot update the installation underneath the readings.
       const reading = await this.#transport.probeAuth({
+        providerBaseEnvironment: this.#providerBaseEnvironment,
         mandatedEnvironment: composeClaudeMandatedEnvironment(),
       });
       return buildAuthProbeResult(

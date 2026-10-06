@@ -6,7 +6,11 @@
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
-import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../spawn-env.js";
+import {
+  buildProviderSpawnEnv,
+  hostEnvNameMatchForPlatform,
+  type SpawnEnvPair,
+} from "../../spawn-env.js";
 import {
   type CodexDiagnosticSink,
   type CodexPtySessionSubscriber,
@@ -71,6 +75,8 @@ interface PendingRequest {
 /** Construction inputs shared by the connection and the manager. */
 export interface CodexConnectionOptions {
   readonly ptyHost: PtyHost;
+  /** The base every spawn's environment is built from, captured at the daemon's start. */
+  readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   readonly subscribeToPtySession: CodexPtySessionSubscriber;
   readonly reportDiagnostic: CodexDiagnosticSink;
   readonly executablePath?: string | undefined;
@@ -119,6 +125,7 @@ export class CodexAppServerConnection {
   readonly #ptyHost: PtyHost;
   readonly #subscribeToPtySession: CodexPtySessionSubscriber;
   readonly #reportDiagnostic: CodexDiagnosticSink;
+  readonly #providerBaseEnvironment: readonly SpawnEnvPair[];
   readonly #scheduleTimeout: CodexScheduleTimeout;
   readonly #onServerNotification: CodexServerNotificationSink | undefined;
   readonly #executablePath: string;
@@ -148,6 +155,7 @@ export class CodexAppServerConnection {
     this.#ptyHost = options.ptyHost;
     this.#subscribeToPtySession = options.subscribeToPtySession;
     this.#reportDiagnostic = options.reportDiagnostic;
+    this.#providerBaseEnvironment = options.providerBaseEnvironment;
     this.#scheduleTimeout = options.scheduleTimeout ?? defaultScheduleTimeout;
     this.#onServerNotification = options.onServerNotification;
     this.#executablePath = options.executablePath ?? CODEX_DEFAULT_EXECUTABLE_PATH;
@@ -188,14 +196,15 @@ export class CodexAppServerConnection {
         CODEX_APP_SERVER_SHELL_ARGV0,
         ...composeCodexTransportArgv(this.#transportSelection),
       ],
-      // The caller's pairs minus what the credential policy denies, plus the binary path the
-      // prelude reads (mandated, so the deny strip cannot remove it); `process.env` is never
-      // consulted. Name matching follows the running platform, not the policy: whether `path` and
-      // `PATH` are one variable is an OS fact, and a spawn with no declared posture carries no
-      // policy.
+      // The captured base with the session's pairs set over it, minus what the credential policy
+      // denies, plus the binary path the prelude reads (mandated, so the deny strip cannot remove
+      // it); `process.env` is never consulted. Name matching follows the running platform, not the
+      // policy: whether `path` and `PATH` are one variable is an OS fact, and a spawn with no
+      // declared posture carries no policy.
       env: buildProviderSpawnEnv({
         driverName: CODEX_DRIVER_NAME,
-        baseEnv: config.env,
+        baseEnv: this.#providerBaseEnvironment,
+        environmentRows: config.env,
         hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
         credentialEnvPolicy: config.credentialEnvPolicy,
         additionalMandatedPairs: [[CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, this.#executablePath]],

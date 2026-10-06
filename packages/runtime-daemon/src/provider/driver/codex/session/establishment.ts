@@ -76,7 +76,6 @@ function composeSessionRecord(
     | "spawnConfig"
     | "model"
     | "outputSpeedRequest"
-    | "outputSpeed"
     | "declaredOutputSpeed"
   >,
 ): CodexSessionRecord {
@@ -186,7 +185,6 @@ export class CodexSessionEstablishment {
           spawnConfig: config,
           model: params.model,
           outputSpeedRequest: params.outputSpeed,
-          outputSpeed,
           declaredOutputSpeed: this.#outputSpeed.readDeclaredTier(params.sessionId, response),
         }),
       );
@@ -279,7 +277,6 @@ export class CodexSessionEstablishment {
           spawnConfig,
           model: params.model,
           outputSpeedRequest: params.outputSpeed,
-          outputSpeed,
           declaredOutputSpeed: this.#outputSpeed.readDeclaredTier(params.sessionId, response),
         }),
       );
@@ -340,6 +337,12 @@ export class CodexSessionEstablishment {
     record: CodexSessionRecord,
     boundaryTurnId: string,
   ): Promise<ForkConversationResult> {
+    // Resolved afresh against the model's tier list, before the thread id is read, so the fork
+    // runs at the requested speed where the model still lists it.
+    const outputSpeed = await this.#outputSpeed.resolveLevel(
+      record.model,
+      record.outputSpeedRequest,
+    );
     // One read of the mutable field: both the fork source and the usage-base key.
     const preForkThreadId = record.threadId;
     // Wraps the dispatch alone: a malformed result from `readThread` is not a missing capability.
@@ -355,8 +358,7 @@ export class CodexSessionEstablishment {
         ),
         approvalsReviewer: "user",
         model: record.model,
-        // The held level, already resolved for this model, so the fork runs at the same speed.
-        ...composeCodexServiceTier(record.outputSpeed),
+        ...composeCodexServiceTier(outputSpeed),
       });
     } catch (cause) {
       // A build without `ThreadForkParams.lastTurnId` becomes `driver.capability_unsupported`;

@@ -236,14 +236,14 @@ export class CodexLifecycleManager {
     const record = this.#requireSession(runConfig.sessionId);
     // Before the opening frame exists, so a refused run leaves nothing to drop.
     this.#spawnPosture.assertRunSandboxModeMatchesSession(record, params);
-    // The run's level wins and the thread's request is the fallback, as with the posture. The
-    // pair the thread holds was resolved when it was taken, so an unchanged turn never yields.
+    // The run's level wins and the thread's request is the fallback, as with the posture. Each
+    // turn resolves it against the model's tier list afresh, since the catalog can change; a turn
+    // at standard or with no level needs no read and never yields.
     const turnModel = runConfig.model ?? record.model;
     const turnOutputSpeedRequest = params.outputSpeed ?? record.outputSpeedRequest;
-    const turnOutputSpeed =
-      turnOutputSpeedRequest === record.outputSpeedRequest && turnModel === record.model
-        ? record.outputSpeed
-        : await this.#resolveTurnOutputSpeed(record, turnModel, turnOutputSpeedRequest);
+    const turnOutputSpeed = this.#outputSpeed.needsCatalogRead(turnOutputSpeedRequest)
+      ? await this.#resolveTurnOutputSpeed(record, turnModel, turnOutputSpeedRequest)
+      : turnOutputSpeedRequest;
     const openingFrame = this.#textNeutralization.composeRunOpeningFrame(params, runConfig);
     let turnId: string;
     // Raised until the answer is in hand: a terminal ingested by the synchronous read drain may
@@ -289,7 +289,6 @@ export class CodexLifecycleManager {
     // The provider applies a turn's model and tier from that turn on, so the thread now holds them.
     record.model = turnModel;
     record.outputSpeedRequest = turnOutputSpeedRequest;
-    record.outputSpeed = turnOutputSpeed;
     this.#outputSpeed.armRunSettlement(record, turnId, params.runId, turnOutputSpeed);
     // A second accepted start on this run adds a route; the turn axis is never overwritten.
     record.runIdByActiveTurnId.set(turnId, params.runId);
@@ -301,9 +300,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The level a turn whose model or request changed carries, resolved before the opening frame
-   * exists; never refused (see `CodexOutputSpeed.resolveLevel`). Throws `CodexTransportError`
-   * when the session was re-established meanwhile.
+   * The level a turn carries, resolved before the opening frame exists; never refused (see
+   * `CodexOutputSpeed.resolveLevel`). Throws `CodexTransportError` when the session was
+   * re-established meanwhile.
    */
   async #resolveTurnOutputSpeed(
     record: CodexSessionRecord,

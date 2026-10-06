@@ -17,7 +17,7 @@ const NO_PARAMS = z.object({}).strict();
 // only when the test releases that call.
 function buildRegistry(): {
   registry: MethodRegistry;
-  release: (method: "test.write" | "test.read", outcome: "answer" | "fail") => void;
+  release: (method: "session.create" | "session.read", outcome: "answer" | "fail") => void;
 } {
   const inFlight = new InFlightMutations();
   const registry = inFlight.wrap(new MethodRegistryImpl());
@@ -27,8 +27,8 @@ function buildRegistry(): {
   });
   const held = new Map<string, Array<{ resolve: () => void; reject: (error: Error) => void }>>();
   for (const [method, mutating] of [
-    ["test.write", true],
-    ["test.read", false],
+    ["session.create", true],
+    ["session.read", false],
   ] as const) {
     held.set(method, []);
     registry.register(
@@ -71,15 +71,15 @@ const drain = (): Promise<void> => new Promise((resolve) => setImmediate(resolve
 describe("the flush", () => {
   it("answers once the writes taken before it finish, held by no read and no later write", async () => {
     const { registry, release } = buildRegistry();
-    const earlierWrite = dispatch(registry, "test.write");
-    const read = dispatch(registry, "test.read");
+    const earlierWrite = dispatch(registry, "session.create");
+    const read = dispatch(registry, "session.read");
     const flush = dispatch(registry, "daemon.flush");
     const secondFlush = dispatch(registry, "daemon.flush");
-    const laterWrite = dispatch(registry, "test.write");
+    const laterWrite = dispatch(registry, "session.create");
     await drain();
     expect(flush.isSettled()).toBe(false);
 
-    release("test.write", "answer");
+    release("session.create", "answer");
     await drain();
 
     expect(earlierWrite.isSettled()).toBe(true);
@@ -91,10 +91,10 @@ describe("the flush", () => {
 
   it("answers flushed when a write it waited for failed", async () => {
     const { registry, release } = buildRegistry();
-    dispatch(registry, "test.write");
+    dispatch(registry, "session.create");
     const flush = registry.dispatch("daemon.flush", {}, {});
 
-    release("test.write", "fail");
+    release("session.create", "fail");
 
     await expect(flush).resolves.toStrictEqual({ flushed: true });
   });

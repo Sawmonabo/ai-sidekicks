@@ -59,13 +59,18 @@ export class CodexOutputSpeed {
     this.#onRunOutputSpeedSettled = dependencies.onRunOutputSpeedSettled;
   }
 
+  /** Whether resolving `level` reads the catalog: standard and an absent level run as they are. */
+  needsCatalogRead(level: string | undefined): level is string {
+    return level !== undefined && level !== CODEX_STANDARD_OUTPUT_SPEED;
+  }
+
   /**
    * The level a carried `level` runs at on `model`: itself where a fresh catalog read lists it for
    * that model, else standard, so no carried level is refused and none the model lacks is sent.
    * Standard and an absent level need no read. A failed catalog read propagates.
    */
   async resolveLevel(model: string, level: string | undefined): Promise<string | undefined> {
-    if (level === undefined || level === CODEX_STANDARD_OUTPUT_SPEED) {
+    if (!this.needsCatalogRead(level)) {
       return level;
     }
     const catalog = await resolveCodexModelCatalog(this.#modelCatalogExchange);

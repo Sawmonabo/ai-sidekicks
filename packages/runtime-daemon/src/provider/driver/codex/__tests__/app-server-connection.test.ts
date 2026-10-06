@@ -270,6 +270,7 @@ describe("CodexAppServerConnection event-callback containment", () => {
     const diagnostics: CodexTransportDiagnostic[] = [];
     const connection = new CodexAppServerConnection({
       ptyHost: server,
+      providerBaseEnvironment: [],
       subscribeToPtySession: (ptySessionId, listeners) => {
         const dispose = server.subscribe(ptySessionId, listeners);
         return () => {
@@ -314,6 +315,7 @@ describe("CodexAppServerConnection event-callback containment", () => {
     const diagnostics: CodexTransportDiagnostic[] = [];
     const connection = new CodexAppServerConnection({
       ptyHost: server,
+      providerBaseEnvironment: [],
       subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
       reportDiagnostic: (diagnostic) => {
         diagnostics.push(diagnostic);

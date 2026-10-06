@@ -1,7 +1,8 @@
 // The Codex leg of the output-speed axis: the carried level reaches the provider on every carrier
 // as its service tier, standard as a cleared tier, a level the model does not list runs at
-// standard and is never refused, the thread's declared tier is held as the provider said it, and
-// each run reports the tier its turn settled at.
+// standard and is never refused, each carrier reads the model's tier list afresh, the thread's
+// declared tier is held as the provider said it, and each run reports the tier its turn settled
+// at.
 
 import { describe, expect, it } from "vitest";
 
@@ -187,6 +188,16 @@ describe("Codex output speed carriers", () => {
     });
     expect(sentTier(harness, "turn/start")).toBeNull();
 
+    harness.server.on("thread/fork", () => ({
+      result: { thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [] } },
+    }));
+    await harness.driver.forkConversation({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+    expect(sentTier(harness, "thread/fork")).toBeNull();
+
     await harness.driver.resumeSession({ ...RESUME_PARAMS, outputSpeed: "default" });
     expect(sentTier(harness, "thread/resume")).toBeNull();
   });
@@ -231,7 +242,7 @@ describe("Codex output speed resolution", () => {
     const harness = speedHarness();
     await createSpeedSession(harness, "flex");
     expect(sentTier(harness, "thread/start")).toBeNull();
-    // Held as standard, never as the unlisted level, so a run carrying none sends standard.
+    // The request is kept and resolved again on each turn, so a run carrying none sends standard.
     await runTurn(harness, RUN_ID);
     expect(sentTier(harness, "turn/start")).toBeNull();
     await runTurn(harness, SECOND_RUN_ID, { outputSpeed: "flex" });
@@ -271,6 +282,35 @@ describe("Codex output speed resolution", () => {
       model: SECOND_FAST_MODEL,
     });
     expect(sentTier(harness, "turn/start")).toBe(FAST_TIER);
+  });
+
+  it("reads the tier list afresh on an unchanged turn and a fork", async () => {
+    let testModelTiers = [{ id: FAST_TIER, name: "Fast", description: "1.5x speed" }];
+    const harness = createHarness({
+      modelCatalogExchange: () =>
+        Promise.resolve({
+          data: [{ id: TEST_MODEL, displayName: "GPT-5.5", serviceTiers: testModelTiers }],
+          nextCursor: null,
+        }),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+    await createSpeedSession(harness, FAST_TIER);
+    await runTurn(harness, RUN_ID);
+    expect(sentTier(harness, "turn/start")).toBe(FAST_TIER);
+
+    // The provider stops offering the fast tier on this model; the session's request is unchanged.
+    testModelTiers = [];
+    await runTurn(harness, SECOND_RUN_ID);
+    expect(sentTier(harness, "turn/start")).toBeNull();
+    harness.server.on("thread/fork", () => ({
+      result: { thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [] } },
+    }));
+    await harness.driver.forkConversation({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+    expect(sentTier(harness, "thread/fork")).toBeNull();
   });
 
   it("sends no turn on a thread re-established while its level was being resolved", async () => {

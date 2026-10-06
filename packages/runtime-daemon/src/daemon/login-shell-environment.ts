@@ -4,8 +4,8 @@
 // between them, so proxy, certificate and locale settings are there with no terminal open and a
 // provider installed later is on the path. A shell that misses the deadline, prints no markers or
 // is still running when a stop comes during the start is ended, and the start goes on with the
-// account's own environment and one line in the service log; the start never waits on a shell. On
-// Windows the service starts with the account's own environment.
+// account's default environment, what its passwd entry gives, and one line in the service log; the
+// start never waits on a shell. On Windows the service starts with the account's own environment.
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -19,14 +19,20 @@ export const LOGIN_SHELL_DEADLINE_MS = 5_000;
 // Linux), so more output than this cannot hold a usable environment and the read stops there.
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 
+// The search path a login gets before any profile runs: `_PATH_DEFPATH` in `paths.h`, the same in
+// the macOS SDK and in glibc.
+const DEFAULT_LOGIN_PATH = "/usr/bin:/bin";
+
 /** What one capture runs with. */
 export interface LoginShellCaptureOptions {
   readonly platform: NodeJS.Platform;
   /** The person's login shell, `os.userInfo().shell`; `null` where the account names none. */
   readonly shell: string | null;
+  /** The person's home folder, `os.userInfo().homedir`. */
+  readonly homeDirectory: string;
   readonly deadlineMs: number;
-  /** The daemon's own environment: the fallback, and the environment the shell starts with. */
-  readonly accountEnvironment: NodeJS.ProcessEnv;
+  /** The daemon's own environment: the one the shell starts with, and the base on Windows. */
+  readonly serviceEnvironment: NodeJS.ProcessEnv;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
   /** Abandons the capture when a stop comes during the start: the shell and its group end. */
@@ -36,19 +42,23 @@ export interface LoginShellCaptureOptions {
 /**
  * Captures the base environment for provider processes as name-value pairs. Never rejects for a
  * shell that hangs, fails, prints no markers or is abandoned: it says why in the service log and
- * returns the account's own environment.
+ * returns the account's default environment, its home, its shell and the default search path.
  */
 export async function captureLoginShellEnvironment(
   options: LoginShellCaptureOptions,
 ): Promise<readonly SpawnEnvPair[]> {
   if (options.platform === "win32") {
-    return toPairs(options.accountEnvironment);
+    return toPairs(options.serviceEnvironment);
   }
   if (options.shell === null || options.shell.length === 0) {
     options.writeServiceLog(
-      "The account names no login shell, so providers start with the service's own environment.",
+      "The account names no login shell, so providers start with the account's default " +
+        "environment.",
     );
-    return toPairs(options.accountEnvironment);
+    return [
+      ["HOME", options.homeDirectory],
+      ["PATH", DEFAULT_LOGIN_PATH],
+    ];
   }
   const outcome = await runLoginShell(options.shell, options);
   if (outcome.kind === "captured") {
@@ -56,9 +66,13 @@ export async function captureLoginShellEnvironment(
   }
   options.writeServiceLog(
     `The login shell (${options.shell}) ${outcome.reason}, so providers start with the ` +
-      "service's own environment.",
+      "account's default environment.",
   );
-  return toPairs(options.accountEnvironment);
+  return [
+    ["HOME", options.homeDirectory],
+    ["SHELL", options.shell],
+    ["PATH", DEFAULT_LOGIN_PATH],
+  ];
 }
 
 type LoginShellOutcome =
@@ -87,7 +101,7 @@ function runLoginShell(
     const child = spawn(shell, ["-lic", script], {
       stdio: ["ignore", "pipe", "ignore"],
       detached: true,
-      env: options.accountEnvironment,
+      env: options.serviceEnvironment,
     });
     const endLine = Buffer.from(`\n${endMarker}\n`, "utf8");
     // The output is joined once, when the end marker has arrived; until then only the bytes that

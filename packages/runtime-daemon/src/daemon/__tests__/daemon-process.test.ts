@@ -4,7 +4,8 @@
 // reach, and, before the bind, a socket path longer than the platform binds, while a path at that
 // limit binds and answers a hello; a data folder other accounts could read becomes the person's
 // alone; of two starts racing, the token file holds the winner's token.
-// Over the socket, the status read reports the running service and its process, a flush leaves
+// Over the socket, the status read reports the running service and its process, and reads
+// degraded once the listener fails; `daemon.start` is a method it does not have; a flush leaves
 // it running, a stop or restart ends it with another client still connected, and a connection
 // whose handshake was incompatible cannot stop it. The machine's settings file is read and written
 // over the socket: one client's change reaches the file and another client's subscription, a
@@ -49,6 +50,21 @@ import { DaemonAlreadyRunningError } from "../daemon-already-running-error.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../daemon-process.js";
 import { MachineSettingsFile } from "../machine/settings/machine-settings-file.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
+
+// Every server this file's daemons create, so a test can fail the daemon's own listener the way
+// the operating system would, with an `error` event on the listening server.
+const createdServers = vi.hoisted((): import("node:net").Server[] => []);
+vi.mock("node:net", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:net")>();
+  return {
+    ...actual,
+    createServer: (...args: Parameters<typeof actual.createServer>) => {
+      const server = actual.createServer(...args);
+      createdServers.push(server);
+      return server;
+    },
+  };
+});
 
 const EMPTY_DRAIN: DrainResult = {
   sessionsDrained: 0,
@@ -425,6 +441,38 @@ describe("the lifecycle verbs over the socket", () => {
     });
     const { result } = reply as { result: DaemonStatusReadResponse };
     expect(result.memory?.residentBytes).toBeGreaterThan(0);
+    await client.close();
+  });
+
+  it("the status read reports degraded once the listener fails, and the log says why", async () => {
+    const serviceLog: string[] = [];
+    await startDaemon(drainNothing, {}, (options) =>
+      DaemonProcess.start({
+        ...options,
+        writeServiceLog: (line) => {
+          serviceLog.push(line);
+        },
+      }),
+    );
+    const { client, call } = await openSession();
+    const listener = createdServers.find((server) => server.address() === runFolder.socketPath);
+
+    listener?.emit("error", new Error("accept failed"));
+
+    expect(await call("daemon.status.read")).toMatchObject({
+      result: { processState: "degraded" },
+    });
+    expect(serviceLog).toContain("The socket's listener failed: accept failed");
+    await client.close();
+  });
+
+  it("refuses daemon.start as unknown, since a cold start is a spawn", async () => {
+    await startDaemon(drainNothing);
+    const { client, call } = await openSession();
+
+    expect(await call("daemon.start")).toMatchObject({
+      error: { code: -32601, data: { type: "method_not_found" } },
+    });
     await client.close();
   });
 

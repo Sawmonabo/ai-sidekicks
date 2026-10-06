@@ -1,5 +1,6 @@
-// What a spawned Codex child is allowed to hold: denied credentials are stripped on every spawn
-// path, and the provider account a session bills to is never silently swapped.
+// What a spawned Codex child is allowed to hold: every spawn path builds on the environment the
+// daemon captured at start, with the session's pairs set over it, denied credentials are stripped
+// from both, and the provider account a session bills to is never silently swapped.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,8 +29,16 @@ describe("Codex credential-policy strip at the spawn seam", () => {
     credentialPolicyRef: "policy://resume",
     writableRoots: [SESSION_CWD],
   };
+  // The login shell's environment: a proxy only it sets, a home the session's own pair replaces,
+  // and a secret the policy strips here too.
+  const PROVIDER_BASE_ENVIRONMENT = [
+    ["HOME", "/Users/person"],
+    ["HTTPS_PROXY", "http://proxy.internal:3128"],
+    [DENIED_ENV_VAR, "sk-from-the-shell"],
+  ] as const;
   const STRIPPED_ENV = [
     ["HOME", "/home/agent"],
+    ["HTTPS_PROXY", "http://proxy.internal:3128"],
     [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
   ];
 
@@ -146,14 +155,20 @@ describe("Codex credential-policy strip at the spawn seam", () => {
     },
   ];
 
-  it.each(stripCases)("strips a denied name from $path", async (stripCase) => {
-    const harness = createHarness(stripCase.options);
+  it.each(stripCases)(
+    "builds $path on the captured base, a denied name stripped",
+    async (stripCase) => {
+      const harness = createHarness({
+        ...stripCase.options,
+        providerBaseEnvironment: PROVIDER_BASE_ENVIRONMENT,
+      });
 
-    await stripCase.spawn(harness);
+      await stripCase.spawn(harness);
 
-    // Byte-exact, so a builder that also dropped or reordered something else fails.
-    expect(harness.server.spawnRequests[stripCase.spawnIndex]?.env).toEqual(STRIPPED_ENV);
-  });
+      // Byte-exact, so a builder that also dropped or reordered something else fails.
+      expect(harness.server.spawnRequests[stripCase.spawnIndex]?.env).toEqual(STRIPPED_ENV);
+    },
+  );
 
   it("lets the posture's policy govern whole over a bag that named a different one", async () => {
     // The posture's name is gone and the bag's survives: a fallback-only resolution fails the

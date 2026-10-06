@@ -50,6 +50,7 @@ export function buildHarness(
   const textNeutralizationFailures: LifecycleHarness["textNeutralizationFailures"] = [];
   const dependencies: ClaudeSessionLifecycleDependencies = {
     transport,
+    providerBaseEnvironment: [],
     runDispatchResolver,
     diagnostics: makeSilentDriverDiagnostics(),
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,

@@ -18,7 +18,7 @@ import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
-import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
+import { hostEnvNameMatchForPlatform, type SpawnEnvPair } from "../../../spawn-env.js";
 import {
   CodexDriver,
   CodexLifecycleManager,
@@ -410,6 +410,7 @@ export function createHarness(
     resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
     modelCatalogExchange?: CodexModelCatalogExchange;
     onRunOutputSpeedSettled?: RunOutputSpeedSettledListener | undefined;
+    providerBaseEnvironment?: readonly SpawnEnvPair[];
   } = {},
 ): Harness {
   const server = new FakeCodexAppServer();
@@ -424,6 +425,7 @@ export function createHarness(
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
+    providerBaseEnvironment: options.providerBaseEnvironment ?? [],
     modelCatalogExchange: options.modelCatalogExchange ?? STUB_MODEL_CATALOG_READ,
     onTextNeutralizationFailure: (sessionId, runId, failure) => {
       textNeutralizationFailures.push({
@@ -553,6 +555,7 @@ export function createManagerHarness(options: ManagerHarnessOptions = {}): Manag
   let firstNotificationThrown = false;
   const manager = new CodexLifecycleManager({
     ptyHost: server,
+    providerBaseEnvironment: [],
     modelCatalogExchange: STUB_MODEL_CATALOG_READ,
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => {
@@ -684,6 +687,7 @@ export async function routedAskHarness(
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driver = new CodexDriver({
     ptyHost: server,
+    providerBaseEnvironment: [],
     modelCatalogExchange: STUB_MODEL_CATALOG_READ,
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),

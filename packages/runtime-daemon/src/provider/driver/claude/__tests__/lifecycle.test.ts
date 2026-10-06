@@ -1,6 +1,6 @@
 // `lifecycle.ts` session establishment: one provider process per canonical session, held across
 // every create, resume, close and rewind, with no process left running that the daemon cannot
-// reach.
+// reach, and every spawn built on the environment the daemon captured at start.
 
 import { describe, expect, it } from "vitest";
 
@@ -474,5 +474,31 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
     harness.transport.probeAuthFailure = failure as Error | undefined;
 
     await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({ status });
+  });
+});
+
+describe("ClaudeSessionLifecycle spawn environment", () => {
+  it("hands the captured base to every create, rewind, resume and auth probe", async () => {
+    const providerBaseEnvironment = [
+      ["HOME", "/Users/person"],
+      ["HTTPS_PROXY", "http://proxy.internal:3128"],
+    ] as const;
+    const harness = buildHarness({ providerBaseEnvironment });
+
+    await createLiveSession(harness);
+    await rewindTestSession(harness);
+    await closeTestSession(harness);
+    await resumeTestSession(harness);
+    await harness.lifecycle.probeAuth();
+
+    const requests = [
+      ...harness.transport.spawnRequests,
+      ...harness.transport.rewindRequests,
+      ...harness.transport.resumeRequests,
+      ...harness.transport.probeAuthRequests,
+    ];
+    expect(requests.map((request) => request.providerBaseEnvironment)).toStrictEqual(
+      Array.from({ length: 4 }, () => providerBaseEnvironment),
+    );
   });
 });
