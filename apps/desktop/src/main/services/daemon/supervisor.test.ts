@@ -15,7 +15,10 @@ import {
   JsonRpcTransportUnavailableError,
 } from "@ai-sidekicks/client-sdk";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import {
+  CURRENT_PROTOCOL_VERSION,
+  NEGOTIATION_TOKEN_INVALID_CODE,
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
@@ -130,7 +133,7 @@ describe("starting the service", () => {
         code: "ENOENT",
       }),
       new JsonRpcRemoteError(JsonRpcErrorCode.InvalidRequest, "token invalid", {
-        type: "auth.token_invalid",
+        type: NEGOTIATION_TOKEN_INVALID_CODE,
       }),
     );
     supervisor.start();
@@ -172,7 +175,7 @@ describe("starting the service", () => {
     [
       "the last start's token",
       new JsonRpcRemoteError(JsonRpcErrorCode.InvalidRequest, "token invalid", {
-        type: "auth.token_invalid",
+        type: NEGOTIATION_TOKEN_INVALID_CODE,
       }),
     ],
   ])("waits for a found service with %s rather than starting another", async (_case, failure) => {

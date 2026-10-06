@@ -340,16 +340,10 @@ export const WorkflowFixSessionCreateResponseSchema: z.ZodType<WorkflowFixSessio
  * An approval answered, a form read or a form submitted on a step that is no longer
  * waiting, an answer after the step's `Timeout` passed included, even before its timer
  * has run; also a chain's question answered once it is no longer open.
- *
- * @consumedBy the handler that returns the `workflow.step_not_waiting` error
  */
 export const WORKFLOW_STEP_NOT_WAITING_CODE = "workflow.step_not_waiting" as const;
 
-/**
- * A form draft save or a form submit carrying a revision that is no longer current.
- *
- * @consumedBy the handler that returns the `workflow.revision_stale` error
- */
+/** A form draft save or a form submit carrying a revision that is no longer current. */
 export const WORKFLOW_REVISION_STALE_CODE = "workflow.revision_stale" as const;
 
 /** The `workflow.*` methods on one step, keyed by name. */

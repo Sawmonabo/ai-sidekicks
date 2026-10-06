@@ -680,11 +680,7 @@ export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNot
 
 // Refusals
 
-/**
- * `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`).
- *
- * @consumedBy the handler that returns the `workflow.run_not_deletable` error
- */
+/** `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`). */
 export const WORKFLOW_RUN_NOT_DELETABLE_CODE = "workflow.run_not_deletable" as const;
 
 // The workflow run records method table

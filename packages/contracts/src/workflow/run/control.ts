@@ -375,16 +375,10 @@ export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowReposito
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume
  * has not ended and is canceled; a run already `canceled` is not refused, the cancel returns the
  * first's outcome.
- *
- * @consumedBy the handler that returns the `workflow.run_not_cancelable` error
  */
 export const WORKFLOW_RUN_NOT_CANCELABLE_CODE = "workflow.run_not_cancelable" as const;
 
-/**
- * A resume on a run that is not waiting: there is no wait to lift.
- *
- * @consumedBy the handler that returns the `workflow.resume_not_parked` error
- */
+/** A resume on a run that is not waiting: there is no wait to lift. */
 export const WORKFLOW_RESUME_NOT_PARKED_CODE = "workflow.resume_not_parked" as const;
 
 /**
@@ -414,16 +408,10 @@ export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
  * A run or step move its state does not allow: retrying from a step that did not fail,
  * posting the results of an unfinished run, or opening a fix session on a step that did
  * not fail.
- *
- * @consumedBy the handler that returns the `workflow.invalid_transition` error
  */
 export const WORKFLOW_INVALID_TRANSITION_CODE = "workflow.invalid_transition" as const;
 
-/**
- * A retry the daemon cannot make now; the reason says why.
- *
- * @consumedBy the handler that returns the `workflow.retry_unavailable` error
- */
+/** A retry the daemon cannot make now; the reason says why. */
 export const WORKFLOW_RETRY_UNAVAILABLE_CODE = "workflow.retry_unavailable" as const;
 /** Why a retry cannot be made: the source run is still going. */
 export const WORKFLOW_RETRY_UNAVAILABLE_REASONS = ["source_running"] as const;

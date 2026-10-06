@@ -28,6 +28,7 @@ import {
   CURRENT_PROTOCOL_VERSION,
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
+  NEGOTIATION_TOKEN_INVALID_CODE,
   type DaemonHelloAck,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
@@ -752,7 +753,8 @@ async function flushService(client: DaemonClientConnection["client"]): Promise<v
 function isServiceNotReadyYet(failure: unknown): boolean {
   return (
     failure instanceof JsonRpcTransportUnavailableError ||
-    (failure instanceof JsonRpcRemoteError && failure.data?.type === "auth.token_invalid") ||
+    (failure instanceof JsonRpcRemoteError &&
+      failure.data?.type === NEGOTIATION_TOKEN_INVALID_CODE) ||
     (failure instanceof Error && (failure as NodeJS.ErrnoException).code === "ENOENT")
   );
 }

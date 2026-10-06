@@ -88,8 +88,8 @@ export default {
           // beside its `ignoreFiles` entry in the root `knip.json`; each goes in the change that
           // builds its consumer.
           //
-          // Scripted diff patches kept as the fixtures' test data, read by no module until the
-          // Review pane's diff read lands.
+          // Scripted diff patches kept as the fixtures' test data, read by no module until Review's
+          // diff read of a session's changes lands.
           "^fixtures/data/repos-diff-patches\\.ts$",
           // The Preview pane's handback: which chords the page claims, told to the page host.
           "^src/renderer/src/features/preview/handback/chord/mirror\\.ts$",

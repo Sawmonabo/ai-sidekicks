@@ -14,7 +14,10 @@ import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { inspect } from "node:util";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import {
+  JsonRpcErrorCode,
+  TRANSPORT_UNAVAILABLE_CODE,
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import {
   MACHINE_SETTINGS_DEFAULTS,
@@ -560,7 +563,7 @@ describe("the calls that end work", () => {
           refusal: {
             code: JsonRpcErrorCode.InternalError,
             message: "The background service is not connected.",
-            data: { type: "transport.unavailable", fields: { reason: state.kind } },
+            data: { type: TRANSPORT_UNAVAILABLE_CODE, fields: { reason: state.kind } },
           },
         });
       }
