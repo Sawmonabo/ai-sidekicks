@@ -5,7 +5,11 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
-import type { McpServerBindingRef, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
+import type {
+  McpServerBindingRef,
+  McpServerInventoryEntry,
+  McpWritableBindingRef,
+} from "@ai-sidekicks/contracts/mcp/mcp";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
@@ -13,14 +17,22 @@ import { toneForServerStatus } from "../server-status-tone.js";
 import { ToolOverrideList } from "./ToolOverrideList.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 
+// Where a binding a person writes applies, in the words the add form offers for each scope.
+const WHERE_IT_APPLIES: Readonly<Record<McpWritableBindingRef["scope"], string>> = {
+  user: "On this machine, in every project",
+  project: "In this project, saved with the repository",
+  local: "In this project, on this machine only",
+};
+
 /**
  * One inventory row: the binding's identity, what is known about it, and the control this
  * fixture body sends.
  *
  * The identity is the scope-qualified tuple, never the name: two same-named servers in two
- * scopes are two bindings, so provider, scope and scope reference are all on screen. The control
- * is offered and not eligibility-gated; it disables only while its own call is in flight. When
- * the binding store is unreachable the overrides are absent from the wire, and the row says so.
+ * scopes are two bindings, so provider, where it applies and its project or plugin are all on
+ * screen. The control is offered and not eligibility-gated; it disables only while its own call
+ * is in flight. When the binding store is unreachable the overrides are absent from the wire, and
+ * the row says so.
  */
 export function ServerRow(props: {
   readonly entry: McpServerInventoryEntry;
@@ -35,22 +47,15 @@ export function ServerRow(props: {
       <div className="meridian-mcp__row-identity">
         <WireFigure value={entry.serverName} />
         <Chip label={entry.provider} mono />
-        <Chip label={entry.scope} mono />
         <Chip label={entry.status} mono tone={toneForServerStatus(entry.status)} />
         {entry.requiredServer === true ? <Chip label="required" tone="attention" /> : null}
       </div>
 
       <div className="meridian-mcp__row-provenance">
-        {binding.scope === "user" ? (
-          <span className="meridian-settings-page__aside">Declared for this user.</span>
-        ) : (
-          <>
-            <span className="meridian-settings-page__aside">
-              {binding.scope === "plugin" ? "Declared by plugin" : "Declared at"}
-            </span>
-            <WireFigure value={binding.scopeRef} />
-          </>
-        )}
+        <span className="meridian-settings-page__aside">
+          {binding.scope === "plugin" ? "Declared by plugin" : WHERE_IT_APPLIES[binding.scope]}
+        </span>
+        {binding.scope === "user" ? null : <WireFigure value={binding.scopeRef} />}
         {entry.observedAt === undefined ? (
           <span className="meridian-settings-page__aside">Never observed.</span>
         ) : (

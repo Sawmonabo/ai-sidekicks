@@ -1,7 +1,7 @@
 // The MCP fixture body, driven with the daemon verbs handed in as arguments. The three rows are
 // the arms the page must draw: a connected binding, one needing authorization while a leg is
-// fine, and one whose binding store could not be read. Every status and outcome is drawn as the
-// daemon reported it.
+// fine, and one whose binding store could not be read; a plugin's server joins them where a case
+// reads where each binding applies. Every status and outcome is drawn as the daemon reported it.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -70,6 +70,17 @@ const SCRATCHPAD: McpServerInventoryEntry = {
   config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
   status: "unknown",
   bindingStoreUnavailable: true,
+};
+
+const REVIEWER: McpServerInventoryEntry = {
+  provider: "claude",
+  scope: "plugin",
+  scopeRef: "review-tools",
+  serverName: "reviewer",
+  config: { transport: "stdio", command: "reviewer-mcp" },
+  status: "connected",
+  enabled: true,
+  toolOverrides: [],
 };
 
 const PARTIAL_APPLICATION: McpMutationResult = {
@@ -178,12 +189,31 @@ describe("McpFixtureBody", () => {
       [...(row?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
         (label) => label.textContent,
       );
-    expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual([
-      "codex",
-      "project",
-      "needs-auth",
-    ]);
+    expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual(["codex", "needs-auth"]);
     expect(chipLabels(".meridian-mcp__legs")).toStrictEqual(["needs-auth", "connected"]);
+  });
+
+  it("says where each binding applies in the add form's words, or the plugin that declared it", async () => {
+    const { container } = await renderSettledMcpPage(
+      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD, REVIEWER]),
+    );
+    const whereItApplies = (serverName: string): readonly (string | null)[] =>
+      [
+        ...(rowNamed(container, serverName)?.querySelector(".meridian-mcp__row-provenance")
+          ?.children ?? []),
+      ]
+        .map((part) => part.textContent)
+        .filter((text) => text !== "Never observed.");
+    expect(whereItApplies("filesystem")).toStrictEqual(["On this machine, in every project"]);
+    expect(whereItApplies("issue-tracker")).toStrictEqual([
+      "In this project, saved with the repository",
+      "/work/repo",
+    ]);
+    expect(whereItApplies("scratchpad")).toStrictEqual([
+      "In this project, on this machine only",
+      "/work/repo",
+    ]);
+    expect(whereItApplies("reviewer")).toStrictEqual(["Declared by plugin", "review-tools"]);
   });
 
   it("names no invented status on the degraded row", async () => {
