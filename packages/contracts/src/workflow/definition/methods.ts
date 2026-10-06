@@ -151,11 +151,8 @@ const WORKFLOW_WEBHOOK_FIRE_OUTCOMES = ["started", "skipped", "waiting", "token_
 export type WorkflowWebhookFireOutcome = (typeof WORKFLOW_WEBHOOK_FIRE_OUTCOMES)[number];
 
 /**
- * The `workflow.definitionRead` result. `permissionLevel` is the workflow's own level, which
- * every run of it uses and the builder's level pill reads. The webhook token is never read back,
- * only its hash is kept, so the reply carries the token's dates and the last fire's outcome
- * instead: `webhookTokenCreatedAt` is absent while the workflow has no token, and
- * `webhookTokenLastUsedAt` until a call presents it.
+ * The `workflow.definitionRead` result. The webhook token is never read back, only its hash is
+ * kept, so the reply carries the token's dates and the last fire's outcome instead.
  */
 export interface WorkflowDefinitionReadResponse {
   id: WorkflowDefinitionId;
@@ -164,9 +161,12 @@ export interface WorkflowDefinitionReadResponse {
   workflowVersionId: string;
   contentHash: string;
   document: WorkflowDocument;
+  /** The workflow's own level, which every run of it uses and the builder's level pill reads. */
   permissionLevel: PermissionLevel;
   createdAt: string;
+  /** When the webhook token was made, absent while the workflow has no token. */
   webhookTokenCreatedAt?: string | undefined;
+  /** When a call last presented the token, absent until one has. */
   webhookTokenLastUsedAt?: string | undefined;
   webhookLastFire?: { at: string; outcome: WorkflowWebhookFireOutcome } | undefined;
   /**
@@ -228,26 +228,30 @@ export const WorkflowDefinitionListRequestSchema: z.ZodType<
   .strict();
 
 /**
- * One definition in a list, with what a catalog row shows beside the name, so the table
- * needs no second read per row. `latestWorkflowVersionId` is what a run start takes;
- * `latestVersionNumber` sits beside it because a version read addresses a version by
- * number. A client passes both through and derives neither from the other. `lastRun` is the
- * row's last run status and its time, absent where the workflow has never run, which is not a
- * failed run. `lastSkippedFire` is the last fire the trigger's overlap choice skipped because a
- * run was still going, with that run's start, so the row says which run it was; a skipped fire is
- * never a run.
+ * One definition in a list, with what a catalog row shows beside the name, so the table needs no
+ * second read per row.
  */
 export interface WorkflowDefinitionSummary {
   id: WorkflowDefinitionId;
   name: string;
+  /**
+   * The latest version's number, which a version read addresses; passed through beside
+   * `latestWorkflowVersionId`, never derived from it.
+   */
   latestVersionNumber: number;
+  /** The latest version's id, which a run start takes. */
   latestWorkflowVersionId: string;
   contentHash: string;
   triggerKind: WorkflowNodeKindId;
+  /** The last run's status and start, absent where the workflow never ran, which is no failure. */
   lastRun?:
     | { workflowRunId: WorkflowRunId; status: WorkflowRunStatus; startedAt: string }
     | undefined;
   schedule?: { expression: string; timeZone: string; nextFireAt?: string | undefined } | undefined;
+  /**
+   * The last fire the trigger's overlap choice skipped because a run was still going, with that
+   * run's start; a skipped fire is never a run.
+   */
   lastSkippedFire?: { scheduledAt: string; runningSince: string } | undefined;
   enabled: boolean;
   tags: string[];

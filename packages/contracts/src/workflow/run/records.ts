@@ -152,21 +152,8 @@ const WorkflowRunReviewSchema: z.ZodType<WorkflowRunReview> = z.discriminatedUni
 ]);
 
 /**
- * The `workflow.runRead` result: the run's header facts and every step. The page draws
- * its graph and its step panel from `steps`.
- *
- * `executionContextCaptured` is true for a run that works in a project's repository, which
- * records its checkout and snapshot points and so lets `Open in Review` open the run's changes;
- * it is false for a chat's run in the chat's own folder and a `None` run, which record none.
- * `keep` is the Keep mark, which `Delete runs older than…` leaves.
- * `endedAt` is present exactly once the run has ended: a `failed` run parked on its failed step
- * has not ended and carries none, so `Cancel` and `Resume` still act on it.
- * `fixSessionId` names the session a failed step was opened in to be fixed, linked for
- * the life of the run. `failureReason` also carries a cancellation's reason. `cost` is summed
- * from the steps' stored amounts; a going run carries its `liveStep`; `edgeItemCounts` names
- * every edge items went through; a finished run whose checkout was captured carries `review`,
- * the snapshots `Open in Review` compares; and the chain's first run carries the chain's question
- * once one has been asked. A `waiting` run always carries the step that waits.
+ * The `workflow.runRead` result: the run's header facts and every step, from which the page draws
+ * its graph and its step panel. A `waiting` run always carries the step that waits.
  */
 export interface WorkflowRunReadResponse {
   workflowRunId: WorkflowRunId;
@@ -178,17 +165,33 @@ export interface WorkflowRunReadResponse {
   triggerKind: WorkflowTriggerKind;
   startedBy: WorkflowStartedBy;
   chainRoot: WorkflowChainRoot;
+  /**
+   * True for a run in a project's repository, which records its checkout and snapshot points so
+   * `Open in Review` opens its changes; false for a chat's run and a `None` run, which record none.
+   */
   executionContextCaptured: boolean;
+  /** The Keep mark, which `Delete runs older than…` leaves. */
   keep: boolean;
+  /** The session a failed step was opened in to be fixed, linked for the life of the run. */
   fixSessionId?: SessionId | undefined;
   steps: WorkflowStep[];
+  /** Why the run failed, or why it was canceled. */
   failureReason?: string | undefined;
   startedAt: string;
+  /**
+   * Present exactly once the run has ended: a `failed` run parked on its failed step has not
+   * ended, so `Cancel` and `Resume` still act on it.
+   */
   endedAt?: string | undefined;
+  /** Summed from the steps' stored amounts. */
   cost?: WorkflowCost | undefined;
+  /** The step a going run is on. */
   liveStep?: WorkflowLiveStep | undefined;
+  /** Every edge items went through. */
   edgeItemCounts: WorkflowEdgeItemCount[];
+  /** On a finished run whose checkout was captured, the snapshots `Open in Review` compares. */
   review?: WorkflowRunReview | undefined;
+  /** On the chain's first run, the chain's question once one has been asked. */
   chainQuestion?: WorkflowChainQuestion | undefined;
 }
 /** Wire schema for {@link WorkflowRunReadResponse}. */

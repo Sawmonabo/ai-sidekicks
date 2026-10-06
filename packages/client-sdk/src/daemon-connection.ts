@@ -1,9 +1,9 @@
 // A connection to the daemon on this machine, opened the one way every client opens it: connect to
 // its socket, check the run folder is this user's alone, read the session token the daemon wrote
-// at its current start, then `daemon.hello` with that token before any other call. The token is read at every connect, never once, because
-// each daemon start writes a new one, and read again once when the daemon refuses it. The
-// acknowledged handshake comes back with the client, so the caller sees whether the daemon accepted
-// this build's protocol.
+// at its current start, then `daemon.hello` with that token before any other call. The token is
+// read at every connect, never once, because each daemon start writes a new one, and read again
+// once when the daemon refuses it. The acknowledged handshake comes back with the client, so the
+// caller sees whether the daemon accepted this build's protocol.
 
 import { lstat, readFile } from "node:fs/promises";
 import * as os from "node:os";

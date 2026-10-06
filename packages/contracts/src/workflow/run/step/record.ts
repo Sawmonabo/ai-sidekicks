@@ -167,15 +167,22 @@ export const WorkflowStepResolutionSchema: z.ZodType<WorkflowStepResolution> = z
   .strict();
 
 /**
- * The snapshot an approval pause took. Pinned, it names which execution of the run (each
- * re-execution opens the next epoch) and which of its approval pauses, counted from 1, and Review
- * opens on what the run changed from that epoch's start to this pause. Missing, it carries the
- * daemon's words for why the snapshot could not be taken, and `Open in Review` stays in place
- * saying so.
+ * The snapshot an approval pause took, which Review opens on: pinned to an execution of the run
+ * and one of its pauses, or missing with the daemon's words for why it could not be taken.
  */
 export type WorkflowStepReviewPause =
-  | { state: "pinned"; epoch: number; pauseNumber: number }
-  | { state: "missing"; reason: string };
+  | {
+      state: "pinned";
+      /** Which execution of the run; each re-execution opens the next epoch. */
+      epoch: number;
+      /** Which of that execution's approval pauses, counted from 1. */
+      pauseNumber: number;
+    }
+  | {
+      state: "missing";
+      /** Why the snapshot could not be taken; `Open in Review` stays in place saying so. */
+      reason: string;
+    };
 /** Wire schema for {@link WorkflowStepReviewPause}. */
 export const WorkflowStepReviewPauseSchema: z.ZodType<WorkflowStepReviewPause> =
   z.discriminatedUnion("state", [
@@ -316,7 +323,7 @@ export interface WorkflowStepKey {
   nodeId: WorkflowNodeId;
   executionIndex: number;
 }
-/** The members of {@link WorkflowStepKeySchema}, spread into each request and event naming one step. */
+/** The members of {@link WorkflowStepKeySchema}, spread into each request and event on a step. */
 export const workflowStepKeyShape: {
   workflowRunId: z.ZodType<WorkflowRunId, WorkflowRunId>;
   nodeId: z.ZodType<WorkflowNodeId, WorkflowNodeId>;

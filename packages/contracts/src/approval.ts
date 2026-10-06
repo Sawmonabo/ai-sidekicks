@@ -3,8 +3,8 @@
 // with the payloads of the `approval.*` events the daemon records for each.
 //
 // The daemon raises every ask, from a provider's callback or from a workflow's command step, so
-// no client creates one. An ask is held with no timer until it is answered or its run ends, so nothing here names an
-// expiry.
+// no client creates one. An ask is held with no timer until it is answered or its run ends, so
+// nothing here names an expiry.
 //
 // A remembered rule is handed to the provider that runs the session, which keeps it: for this
 // session, or in the provider's own rule file for this project. The daemon keeps no rule store;
