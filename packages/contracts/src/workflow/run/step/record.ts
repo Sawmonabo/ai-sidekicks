@@ -144,9 +144,14 @@ export const WorkflowStepQuestionSchema: z.ZodType<WorkflowStepQuestion> = z
  * How a person answered a step that waited on them. `declined` is the `Decline` on a command
  * step's own approval card, which fails that step.
  */
-export const WORKFLOW_STEP_RESOLUTIONS = ["approved", "rejected", "answered", "declined"] as const;
-/** One of {@link WORKFLOW_STEP_RESOLUTIONS}. */
-export type WorkflowStepResolutionKind = (typeof WORKFLOW_STEP_RESOLUTIONS)[number];
+export const WORKFLOW_STEP_RESOLUTION_KINDS = [
+  "approved",
+  "rejected",
+  "answered",
+  "declined",
+] as const;
+/** One of {@link WORKFLOW_STEP_RESOLUTION_KINDS}. */
+export type WorkflowStepResolutionKind = (typeof WORKFLOW_STEP_RESOLUTION_KINDS)[number];
 
 /**
  * The record of how a person answered a step and when, kept on the step so the receipt it earns,
@@ -158,7 +163,7 @@ export interface WorkflowStepResolution {
 }
 /** Wire schema for {@link WorkflowStepResolution}. */
 export const WorkflowStepResolutionSchema: z.ZodType<WorkflowStepResolution> = z
-  .object({ kind: z.enum(WORKFLOW_STEP_RESOLUTIONS), at: isoDateTimeSchema })
+  .object({ kind: z.enum(WORKFLOW_STEP_RESOLUTION_KINDS), at: isoDateTimeSchema })
   .strict();
 
 /**
