@@ -241,7 +241,6 @@ export const ChildRunLinkSchema: z.ZodType<ChildRunLink> = z.discriminatedUnion(
 export interface ChildRunRejection {
   parentRunId: RunId;
   targetAgentId?: AgentId | undefined;
-  targetDefinitionId?: AgentDefinitionId | undefined;
   reason: string;
   detail?: string | undefined;
   occurredAt: string;
@@ -251,7 +250,6 @@ export const ChildRunRejectionSchema: z.ZodType<ChildRunRejection> = z
   .object({
     parentRunId: RunIdSchema,
     targetAgentId: AgentIdSchema.optional(),
-    targetDefinitionId: AgentDefinitionIdSchema.optional(),
     reason: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ChildRunRejection.reason"),
     detail: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "ChildRunRejection.detail").optional(),
     occurredAt: isoDateTimeSchema,

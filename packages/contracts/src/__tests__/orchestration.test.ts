@@ -50,8 +50,8 @@ const TREE = {
   rejectedCreates: [
     {
       parentRunId: PARENT_RUN_ID,
-      targetDefinitionId: DEFINITION_ID,
-      reason: "agent.resolution_refused",
+      targetAgentId: AGENT_ID,
+      reason: "agent.not_found",
       occurredAt: "2026-09-29T10:01:00Z",
     },
   ],
