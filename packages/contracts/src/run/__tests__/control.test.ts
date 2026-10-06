@@ -6,6 +6,7 @@ import type { InterventionType } from "../../provider/driver/intervention.js";
 import { RECOVERY_CONDITIONS } from "../../provider/driver/recovery.js";
 import {
   InterventionRequestPayloadSchema,
+  InterventionRequestResponseSchema,
   RunControlAckSchema,
   RUN_CONTROL_METHOD_DESCRIPTORS,
   RunPauseRequestSchema,
@@ -35,7 +36,6 @@ describe("InterventionRequestPayload", () => {
   const armPayloads: Record<InterventionType, Record<string, unknown>> = {
     steer: { ...guards, type: "steer", content: "please use the async client" },
     interrupt: { ...guards, type: "interrupt", pending: "nextTurn", reason: "wrong branch" },
-    cancel: { ...guards, type: "cancel" },
     faster_model_retry: {
       ...guards,
       type: "faster_model_retry",
@@ -49,6 +49,12 @@ describe("InterventionRequestPayload", () => {
 
   it.each(arms)("round-trips the %s arm", (_type, payload) => {
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("refuses a cancel, which is no intervention", () => {
+    expect(InterventionRequestPayloadSchema.safeParse({ ...guards, type: "cancel" }).success).toBe(
+      false,
+    );
   });
 
   it.each(arms)("refuses the %s arm without its mandatory comparand", (_type, payload) => {
@@ -121,6 +127,41 @@ describe("InterventionRequestPayload", () => {
         ).attachments,
       ).toEqual(ordered);
     });
+  });
+});
+
+describe("InterventionRequestResponse", () => {
+  const response = {
+    interventionId: "0f2b4d5e-7777-4777-8777-777777777777",
+    interventionType: "interrupt",
+    runVersion: 5,
+  } as const;
+  const result = { turnId: "turn-7" };
+
+  it("carries a result only on an intervention that took effect", () => {
+    const applied = { ...response, state: "applied", result };
+    expect(InterventionRequestResponseSchema.parse(applied)).toEqual(applied);
+    expect(
+      InterventionRequestResponseSchema.safeParse({
+        ...response,
+        state: "rejected",
+        rejectionReason: "driver.capability_unsupported",
+        result,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses a rejection that does not say why", () => {
+    // The reason is how a caller learns why a refusal rode the response rather than an error.
+    const rejected = {
+      ...response,
+      state: "rejected",
+      rejectionReason: "driver.capability_unsupported",
+    };
+    expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
+    expect(
+      InterventionRequestResponseSchema.safeParse({ ...response, state: "rejected" }).success,
+    ).toBe(false);
   });
 });
 

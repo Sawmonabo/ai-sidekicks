@@ -16,16 +16,15 @@ export interface InterruptRunParams {
 }
 
 /**
- * How a caller acts on a live run: steer, interrupt, cancel, or retry on a faster model. A driver
- * applies the first three (`ApplyInterventionParams`); the daemon carries out `faster_model_retry`
- * by stopping the turn and sending its message again on the named model.
+ * How a caller acts on a live run: steer, interrupt, or retry on a faster model. A driver applies
+ * the first two (`ApplyInterventionParams`); the daemon carries out `faster_model_retry` by
+ * stopping the turn and sending its message again on the named model.
  */
-export type InterventionType = "steer" | "interrupt" | "cancel" | "faster_model_retry";
+export type InterventionType = "steer" | "interrupt" | "faster_model_retry";
 /** Validates an {@link InterventionType}; the one runtime spelling of its values. */
 export const InterventionTypeSchema: z.ZodType<InterventionType, InterventionType> = z.enum([
   "steer",
   "interrupt",
-  "cancel",
   "faster_model_retry",
 ]);
 
@@ -48,13 +47,6 @@ export type ApplyInterventionParams =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       payload: InterruptPayload;
-    }
-  | {
-      type: "cancel";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      payload: CancelPayload;
     };
 
 /** Payload of a `steer` intervention: the message content, its attachments and a target turn. */
@@ -68,11 +60,6 @@ export interface SteerPayload {
 
 /** Payload of an `interrupt` intervention. */
 export interface InterruptPayload {
-  reason?: string | undefined;
-}
-
-/** Payload of a `cancel` intervention. */
-export interface CancelPayload {
   reason?: string | undefined;
 }
 

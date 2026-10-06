@@ -357,7 +357,7 @@ CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,
   target_run_id           TEXT NOT NULL,
   type                    TEXT NOT NULL
-                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
+                          CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
     CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                 TEXT NOT NULL DEFAULT '{}', -- JSON

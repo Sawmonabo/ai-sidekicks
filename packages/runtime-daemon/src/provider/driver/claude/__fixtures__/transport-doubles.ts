@@ -380,17 +380,6 @@ export function buildInterruptParams(): ApplyInterventionParams {
   };
 }
 
-/** A cancel intervention on the first test run. */
-export function buildCancelParams(): ApplyInterventionParams {
-  return {
-    type: "cancel",
-    targetRunId: TEST_RUN_ID,
-    expectedRunVersion: 3,
-    clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
-    payload: { reason: "user canceled the run" },
-  };
-}
-
 /**
  * A `result` frame body with positive turn evidence: a real turn reports a non-zero turn count,
  * API duration and cost, and a populated per-model usage map, all together.

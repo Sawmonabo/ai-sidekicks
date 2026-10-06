@@ -4,8 +4,8 @@
  * unsupported type is data, not an exception).
  *
  * - `steer` is gated by the `steer` capability flag, read live at dispatch with `!== true` (as in
- *   `driver/registry.ts`); `interrupt` and `cancel` have no flag. Codex declares `steer: true`,
- *   so its degraded arm is reached only through an injected snapshot.
+ *   `driver/registry.ts`); `interrupt` has no flag. Codex declares `steer: true`, so its degraded
+ *   arm is reached only through an injected snapshot.
  * - `CodexInterventionRuntime` is a port `CodexLifecycleManager` satisfies, so this module stays
  *   testable against a fake.
  * - `clientIdempotencyKey` rides the wire unchanged where a field exists (`turn/steer` carries
@@ -38,7 +38,6 @@ const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
 > = {
   steer: "steer",
   interrupt: null,
-  cancel: null,
 };
 
 /** One steer, as handed to the runtime. */
@@ -64,7 +63,7 @@ export interface CodexSteerAcknowledgement {
   readonly acknowledgedTurnId: string | null;
 }
 
-/** The provider operations routed onto; `cancel` and `interrupt` share `interruptRun`. */
+/** The provider operations the dispatcher routes onto. */
 export interface CodexInterventionRuntime {
   steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement>;
   interruptRun(params: InterruptRunParams): Promise<void>;
@@ -142,10 +141,7 @@ export class CodexInterventionDispatcher {
           this.#runtime.textNeutralizationDecisionForTurn(acknowledgement.targetedTurnId).refused,
         );
       }
-      // Cancel is the same wire operation as interrupt; the daemon differs in what it does with
-      // the run after.
-      case "interrupt":
-      case "cancel": {
+      case "interrupt": {
         await this.#runtime.interruptRun({
           runId: params.targetRunId,
           ...(params.payload.reason === undefined ? {} : { reason: params.payload.reason }),
