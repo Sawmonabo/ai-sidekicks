@@ -1,4 +1,4 @@
-# packages — structure rules
+# packages — rules
 
 Binding for every change under `packages/`, on top of the [root `AGENTS.md`](../AGENTS.md), which this file never restates; how modules are grouped and named is in its [Folders by topic](../AGENTS.md#folders-by-topic).
 
@@ -9,4 +9,4 @@ Binding for every change under `packages/`, on top of the [root `AGENTS.md`](../
 
 ## Contracts
 
-- **A contract is a hand-written type plus its Zod schema annotated with it** (`export const SessionIdSchema: z.ZodType<SessionId, SessionId> = …`), because `isolatedDeclarations` refuses an exported schema whose type is inferred. The annotation checks only that the schema's output fits the type, so the type must say exactly what the schema accepts and produces, never looser: a branded id where the schema brands, the exact literal where the schema pins one, `Record<string, never>` where the schema is a strict empty object.
+- **A contract is a hand-written type plus its Zod schema annotated with it** (`export const SessionIdSchema: z.ZodType<SessionId, SessionId> = …`), because `isolatedDeclarations` refuses an exported schema whose type is inferred. The annotation only checks that the schema fits the type, never that the type is no wider, so the type must say exactly what the schema accepts and produces, never looser: a branded id where the schema brands, the exact literal where the schema pins one, `Record<string, never>` where the schema is a strict empty object.

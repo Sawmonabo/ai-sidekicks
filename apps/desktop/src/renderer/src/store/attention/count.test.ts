@@ -7,7 +7,7 @@ import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { AttentionSummary } from "./summary.js";
 import { attentionCountOf } from "./count.js";
 
-/** The two sessions the items here belong to. */
+// The two sessions the items here belong to.
 const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
 const SESSION_B = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
 
