@@ -3,16 +3,17 @@
 // The package does not depend on the runtime daemon; both sides share the contract schemas.
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import type {
-  JsonRpcError,
-  JsonRpcNotification,
-  JsonRpcRequest,
-  JsonRpcServerMessage,
+import {
+  JSONRPC_VERSION,
+  JsonRpcErrorCode,
+  type JsonRpcError,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+  type JsonRpcServerMessage,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { ClientTransport, JsonRpcClientOptions } from "../transport/json-rpc.js";

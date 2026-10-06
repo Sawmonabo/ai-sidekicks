@@ -5,12 +5,12 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type {
-  JsonRpcId,
-  JsonRpcNotification,
-  JsonRpcResponseEnvelope,
+import {
+  JSONRPC_VERSION,
+  type JsonRpcId,
+  type JsonRpcNotification,
+  type JsonRpcResponseEnvelope,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_END_METHOD,

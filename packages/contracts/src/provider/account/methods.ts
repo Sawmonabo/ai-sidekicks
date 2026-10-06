@@ -23,8 +23,11 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../../jsonrpc/streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../../method-descriptor.js";
-import { defineMethodDescriptors } from "../../method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "../../method-descriptor.js";
 import {
   BillingModeSchema,
   CredentialGenerationSchema,

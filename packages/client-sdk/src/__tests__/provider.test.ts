@@ -9,15 +9,17 @@ import { describe, expect, it } from "vitest";
 
 import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { JsonRpcNotification, JsonRpcRequest } from "@ai-sidekicks/contracts/jsonrpc/message";
+import {
+  JsonRpcErrorCode,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { DriverClient } from "../provider.js";
-import { createDaemonProviderClient } from "../provider.js";
+import { createDaemonProviderClient, type DriverClient } from "../provider.js";
 import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../transport/json-rpc.js";
 import {
   answerByMethod,

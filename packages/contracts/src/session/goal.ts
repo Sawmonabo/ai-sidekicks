@@ -9,8 +9,7 @@
 import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "../agent/definition.js";
-import type { MethodDescriptor } from "../method-descriptor.js";
-import { defineMethodDescriptors } from "../method-descriptor.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { SessionAcknowledgementSchema, type SessionAcknowledgement } from "./controls/methods.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";

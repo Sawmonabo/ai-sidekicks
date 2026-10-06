@@ -13,27 +13,27 @@
 // Byte-level framing and the socket or pipe stay with the caller's
 // `ClientTransport`.
 
-import type {
-  SessionReadRequest,
-  SessionReadResponse,
-  SessionStreamFrame,
+import {
+  SESSION_METHOD_DESCRIPTORS,
+  type SessionReadRequest,
+  type SessionReadResponse,
+  type SessionStreamFrame,
 } from "@ai-sidekicks/contracts/session/methods";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
-import type {
-  SessionCreateRequest,
-  SessionCreateResponse,
+import {
+  SESSION_DIRECTORY_METHOD_DESCRIPTORS,
+  type SessionCreateRequest,
+  type SessionCreateResponse,
 } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 
 import {
   callMethod,
   subscribeMethod,
   withCancelFailure,
   type JsonRpcClient,
+  type LocalSubscriptionConsumer,
 } from "./transport/json-rpc.js";
-import type { LocalSubscriptionConsumer } from "./transport/json-rpc.js";
 
 /**
  * One delivered session event with the cursor the consumer retains for an

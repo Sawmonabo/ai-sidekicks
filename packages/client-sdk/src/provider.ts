@@ -25,23 +25,29 @@ import type {
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
-import type {
-  CompactContextRequest,
-  DriverReadParams,
-  DriverSubscribeEventsParams,
-  ListCapabilitiesResult,
-  ListModelsRequest,
-  ListModelsResult,
-  ListModesResult,
+import {
+  DRIVER_METHOD_DESCRIPTORS,
+  type CompactContextRequest,
+  type DriverReadParams,
+  type DriverSubscribeEventsParams,
+  type ListCapabilitiesResult,
+  type ListModelsRequest,
+  type ListModelsResult,
+  type ListModesResult,
 } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
-import type { DriverEvent } from "@ai-sidekicks/contracts/provider/driver/event";
-import { DRIVER_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/event";
-import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
+import {
+  DRIVER_EVENT_METHOD_DESCRIPTORS,
+  type DriverEvent,
+} from "@ai-sidekicks/contracts/provider/driver/event";
 
-import { callMethod, subscribeMethod, type JsonRpcClient } from "./transport/json-rpc.js";
-import type { LocalSubscriptionConsumer } from "./transport/json-rpc.js";
+import {
+  callMethod,
+  subscribeMethod,
+  type JsonRpcClient,
+  type LocalSubscriptionConsumer,
+} from "./transport/json-rpc.js";
 
 /** The request the two no-arg reads send, frozen so no caller can alter what a later call sends. */
 const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});

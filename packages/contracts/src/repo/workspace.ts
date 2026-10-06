@@ -19,9 +19,8 @@ import {
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 
-// These are daemon JSON-RPC methods only. Two conditional fields are obligations on the daemon, not
-// refinements: `restrictions` names every mode absent from `availableModes`, and `lastError` is
-// present only when the workspace went `stale` from a recorded failure.
+// These are daemon JSON-RPC methods only. `lastError` is an obligation on the daemon, not a
+// refinement: it is present only when the workspace went `stale` from a recorded failure.
 
 /**
  * The longest `lastError` a workspace carries: captured git or provisioning output. The daemon

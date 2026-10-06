@@ -11,8 +11,11 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";

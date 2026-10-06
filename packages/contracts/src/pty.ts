@@ -13,8 +13,11 @@ import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import { wireFreeFormString } from "./free-form-string.js";

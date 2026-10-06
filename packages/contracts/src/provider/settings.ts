@@ -10,12 +10,13 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
-import type {
-  EmptyPayload,
-  MethodDescriptor,
-  SubscriptionMethodDescriptor,
+import {
+  defineMethodDescriptors,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
-import { defineMethodDescriptors, EmptyPayloadSchema } from "../method-descriptor.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./account/record.js";
 import { ProviderNameSchema, type ProviderName } from "./name.js";
 import { RepoMountIdSchema, type RepoMountId } from "../repo/mount.js";

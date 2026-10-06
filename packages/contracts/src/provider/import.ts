@@ -10,12 +10,13 @@ import { z } from "zod";
 
 import { countSchema } from "../internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
-import type {
-  EmptyPayload,
-  MethodDescriptor,
-  SubscriptionMethodDescriptor,
+import {
+  defineMethodDescriptors,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
-import { defineMethodDescriptors, EmptyPayloadSchema } from "../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./name.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 

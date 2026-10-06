@@ -16,8 +16,8 @@ import {
   EventCategorySchema,
   SOURCE_EPOCH_PAYLOAD_KEY,
   SOURCE_POSITION_PAYLOAD_KEY,
+  type EventCategory,
 } from "../event/envelope.js";
-import type { EventCategory } from "../event/envelope.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run/control.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
@@ -103,7 +103,7 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
 
 /**
  * Every event type whose payload always names a run, built from the run-scoped category arrays in
- * `../../event/registry.js` so a type added there joins on its own. The `general` arm refuses these
+ * `../event/registry.js` so a type added there joins on its own. The `general` arm refuses these
  * by type because a projected payload is a summary that may omit `runId`, as a `tool.result`
  * row's can.
  */

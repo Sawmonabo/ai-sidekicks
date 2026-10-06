@@ -7,8 +7,8 @@ import {
   WorkflowRunCancelRequestSchema,
   WorkflowRunResumeResponseSchema,
   WorkflowRunRetryResponseSchema,
+  WORKFLOW_CANCEL_REASON_BYTE_CAP,
 } from "../control.js";
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../control.js";
 
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
 

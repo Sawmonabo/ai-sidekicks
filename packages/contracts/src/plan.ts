@@ -11,8 +11,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import type { MethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import { FILE_PATH_MAX_LEN } from "./free-form-string.js";

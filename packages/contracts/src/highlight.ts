@@ -6,8 +6,7 @@
 import { z } from "zod";
 
 import { jsonUtf8ByteLength } from "./jsonrpc/message.js";
-import type { MethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** Every language the daemon can color. */

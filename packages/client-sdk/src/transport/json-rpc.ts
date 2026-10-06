@@ -10,19 +10,19 @@
 // It is the inverse of the daemon's `mapJsonRpcError`: numeric error codes come back as a typed
 // `JsonRpcRemoteError`.
 
-import type {
-  JsonRpcErrorData,
-  JsonRpcId,
-  JsonRpcNotification,
-  JsonRpcRequest,
-  JsonRpcResponseEnvelope,
-  JsonRpcServerMessage,
+import {
+  JSONRPC_VERSION,
+  type JsonRpcErrorData,
+  type JsonRpcId,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+  type JsonRpcResponseEnvelope,
+  type JsonRpcServerMessage,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   MethodDescriptor,
   SubscriptionMethodDescriptor,
 } from "@ai-sidekicks/contracts/method-descriptor";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_END_METHOD,
@@ -33,8 +33,7 @@ import {
   type SubscriptionId,
   SubscriptionNotifyParamsSchema,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { z } from "zod";
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 
 // The transport and the subscription handle
 

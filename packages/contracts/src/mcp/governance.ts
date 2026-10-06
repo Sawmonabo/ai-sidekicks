@@ -45,6 +45,7 @@ import {
   type McpSetToolOverrideRequest,
   type McpToolOverrideMutationResult,
   type McpUpsertServerRequest,
+  type McpServerStatus,
 } from "./server.js";
 import {
   defineMethodDescriptors,
@@ -53,7 +54,6 @@ import {
   type EmptyPayload,
 } from "../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import type { McpServerStatus } from "./server.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 
 // Governance payloads

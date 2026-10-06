@@ -6,8 +6,11 @@ import { z } from "zod";
 
 import { composedTextSchema, countSchema, percentSchema } from "../internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../method-descriptor.js";
-import { defineMethodDescriptors } from "../method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./id.js";

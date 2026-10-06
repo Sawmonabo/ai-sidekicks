@@ -24,9 +24,8 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
-import { JsonRpcClient, JsonRpcRemoteError } from "./transport/json-rpc.js";
+import { JsonRpcClient, JsonRpcRemoteError, type ClientTransport } from "./transport/json-rpc.js";
 import { connectLocalSocket } from "./transport/local-socket.js";
-import type { ClientTransport } from "./transport/json-rpc.js";
 
 /**
  * What a caller learns of an open connection's traffic: each frame the daemon sends, and the
