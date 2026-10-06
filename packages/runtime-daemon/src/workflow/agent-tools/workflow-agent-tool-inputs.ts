@@ -1,21 +1,17 @@
 // Input schemas for the workflow tools an agent calls from a session, for the tools whose input
-// differs from the request of the method they drive. `workflow_kinds`, `workflow_update` and
-// `workflow_enable` take their methods' request schemas (`workflow.kindList`,
+// differs from the request of the method they drive. `workflow_kinds`, `workflow_list`,
+// `workflow_create`, `workflow_update` and `workflow_enable` take their methods' request schemas
+// (`workflow.kindList`, `workflow.definitionList`, `workflow.definitionCreate`,
 // `workflow.definitionUpdate`, `workflow.enabledSet`) unchanged.
 //
-// No tool takes a session id or a project id: the session is the one whose turn made the call,
-// and a project workflow belongs to that session's project, so an agent cannot reach a workflow
-// through another session or another project. The JSON Schema a provider receives is
-// generated from these schemas, so each member's description is the text the model reads.
+// No tool takes a session id or a repository: the session is the one whose turn made the call,
+// and a run an agent starts works in that session's folder, so an agent cannot reach another
+// session or another repository. The JSON Schema a provider receives is generated from these
+// schemas, so each member's description is the text the model reads.
 import {
-  WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
-  WorkflowDefinitionScopeSchema,
-  WorkflowDocumentSchema,
   WorkflowDraftDocumentSchema,
   type WorkflowDefinitionId,
-  type WorkflowDefinitionScope,
-  type WorkflowDocument,
   type WorkflowDraftDocument,
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/driver";
@@ -23,52 +19,23 @@ import { z } from "zod";
 
 const positiveNumber = z.number().int().positive();
 
-/** The `workflow_run` input: a workflow named as the session sees it. */
+/** The `workflow_run` input: a workflow named by its name, which the library holds once. */
 export interface WorkflowRunToolInput {
   definitionName: string;
-  scope?: WorkflowDefinitionScope | undefined;
 }
 /** Schema for {@link WorkflowRunToolInput}. */
 export const WorkflowRunToolInputSchema: z.ZodType<WorkflowRunToolInput, WorkflowRunToolInput> = z
-  .object({
-    definitionName: z.string().min(1).describe("The workflow's name."),
-    scope: WorkflowDefinitionScopeSchema.optional().describe(
-      "Where to look. Omitted, the name resolves in this session first, then its project, " +
-        "then shared.",
-    ),
-  })
+  .object({ definitionName: z.string().min(1).describe("The workflow's name.") })
   .strict();
 
 /** The `workflow_run` tool: starts a named workflow's latest version in the calling session. */
 export const WORKFLOW_RUN_TOOL: SessionCallbackTool = {
   name: "workflow_run",
   description:
-    "Start a workflow run in this session by definition name. Resolution is " +
-    "most-specific-first across the session, project, and shared scopes.",
+    "Start a workflow run in this session by the workflow's name. The run works in this " +
+    "session's folder.",
   inputSchema: z.toJSONSchema(WorkflowRunToolInputSchema),
 };
-
-/** The `workflow_list` input: the method's request without a session. */
-export interface WorkflowListToolInput {
-  scope?: WorkflowDefinitionScope | undefined;
-  limit?: number | undefined;
-  cursor?: string | undefined;
-}
-/** Schema for {@link WorkflowListToolInput}. */
-export const WorkflowListToolInputSchema: z.ZodType<WorkflowListToolInput, WorkflowListToolInput> =
-  z
-    .object({
-      scope: WorkflowDefinitionScopeSchema.optional().describe(
-        "One scope only. Omitted, every scope this session can see.",
-      ),
-      limit: positiveNumber.optional().describe("The most workflows to return."),
-      cursor: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("The cursor a previous call returned, to read the next page."),
-    })
-    .strict();
 
 /**
  * The `workflow_read` input: one version of a workflow, and with `diffFromVersion` its
@@ -119,30 +86,6 @@ export const WorkflowValidateToolInputSchema: z.ZodType<
     document: WorkflowDraftDocumentSchema.describe(
       "The document to check. The result lists every finding a save would refuse.",
     ),
-  })
-  .strict();
-
-/**
- * The `workflow_create` input: the method's request without a scope ref. The daemon takes the
- * calling session's id at `session` and that session's project at `project`; a session with
- * no project has nothing to put there. A document with no layout is laid out by the daemon.
- */
-export interface WorkflowCreateToolInput {
-  scope: WorkflowDefinitionScope;
-  parentContentHash?: string | undefined;
-  document: WorkflowDocument;
-}
-/** Schema for {@link WorkflowCreateToolInput}. */
-export const WorkflowCreateToolInputSchema: z.ZodType<
-  WorkflowCreateToolInput,
-  WorkflowCreateToolInput
-> = z
-  .object({
-    scope: WorkflowDefinitionScopeSchema.describe("Where the workflow is saved."),
-    parentContentHash: WorkflowContentHashSchema.optional().describe(
-      "The content hash of the shared workflow this one branches from, when it does.",
-    ),
-    document: WorkflowDocumentSchema,
   })
   .strict();
 
