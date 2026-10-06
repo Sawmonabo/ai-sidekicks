@@ -6,7 +6,7 @@
 // header, token or authorization-URL value (the wire carries names in their place).
 //
 // The outcome ledger is one entry per control: a binding's own switch keyed by its scope-qualified
-// identity, and each tool's switch by that identity and the tool's name. It belongs
+// identity, and each tool's facet by that identity, the tool's name and the facet. It belongs
 // to the bridge it was produced through: the provider replaces the bridge under a live mount in
 // place, so the map rides the subject-scoped holder with the bridge as subject. It re-seeds
 // during the render that first sees a new bridge, and a publisher captured under the retired
@@ -16,7 +16,7 @@ import "./McpFixtureBody.css";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/server";
+import type { McpServerBindingRef, McpToolOverrideFacet } from "@ai-sidekicks/contracts/mcp/server";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
@@ -43,6 +43,8 @@ import {
   settlementOfToolOverride,
   type McpChangeSettlement,
   type McpMutationOutcome,
+  type McpToolFacetChange,
+  type SendMcpClearToolOverride,
   type SendMcpEnabled,
   type SendMcpToolOverride,
 } from "./mutation.js";
@@ -60,6 +62,7 @@ export interface McpServerOperations {
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
   readonly sendEnabled: SendMcpEnabled;
   readonly sendToolOverride: SendMcpToolOverride;
+  readonly sendClearToolOverride: SendMcpClearToolOverride;
 }
 
 /** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
@@ -157,19 +160,28 @@ export function McpFixtureBody(props: {
       ),
     );
   };
-  // Only the facet pressed is sent: an absent facet is left as it stands.
-  const setToolEnabled = (
+  // Only the facet pressed is sent: a set names that facet alone and a clear clears it alone, so
+  // the tool's other facets are left as they stand.
+  const changeTool = (
     binding: McpServerBindingRef,
     toolName: string,
-    enabled: boolean,
+    facet: McpToolOverrideFacet,
+    change: McpToolFacetChange,
   ): void => {
-    sendChange(toolOutcomeKeyOf(binding, toolName), binding, async () =>
+    sendChange(toolOutcomeKeyOf(binding, toolName, facet), binding, async () =>
       settlementOfToolOverride(
-        await operations.sendToolOverride({
-          ...binding,
-          override: { toolName, enabled },
-          clientIdempotencyKey: mintKey(),
-        }),
+        change.kind === "clear"
+          ? await operations.sendClearToolOverride({
+              ...binding,
+              toolName,
+              facet,
+              clientIdempotencyKey: mintKey(),
+            })
+          : await operations.sendToolOverride({
+              ...binding,
+              override: { toolName, ...change.override },
+              clientIdempotencyKey: mintKey(),
+            }),
       ),
     );
   };
@@ -196,42 +208,53 @@ export function McpFixtureBody(props: {
     );
   }
   const { servers } = state.value;
-  // A provider with no tool servers set up says so in words, never as an empty list.
+  // A provider with no tool servers set up says so in words, never as an empty list: in place of
+  // the list when neither has any, and in quiet text at the list's foot otherwise.
   const providersWithNone = PROVIDER_NAMES.filter(
     (provider) => !servers.some((entry) => entry.provider === provider),
   );
+  if (servers.length === 0) {
+    return providersWithNone.map((provider) => (
+      <Nothing key={provider} kind="empty" placement="block" title={noServersLineFor(provider)} />
+    ));
+  }
   return (
     <>
-      {servers.length === 0 ? null : (
-        <ul className="meridian-mcp__rows">
-          {servers.map((entry) => {
-            const key = mcpBindingKeyOf(entry);
-            return (
-              <ServerRow
-                key={key}
-                entry={entry}
-                outcome={outcomes.get(key) ?? IDLE_MCP_MUTATION}
-                toolOutcomeFor={(toolName) =>
-                  outcomes.get(toolOutcomeKeyOf(entry, toolName)) ?? IDLE_MCP_MUTATION
-                }
-                onSetEnabled={setEnabled}
-                onSetToolEnabled={setToolEnabled}
-                sessionDirectory={sessionDirectory}
-              />
-            );
-          })}
-        </ul>
-      )}
+      <ul className="meridian-mcp__rows">
+        {servers.map((entry) => {
+          const key = mcpBindingKeyOf(entry);
+          return (
+            <ServerRow
+              key={key}
+              entry={entry}
+              outcome={outcomes.get(key) ?? IDLE_MCP_MUTATION}
+              toolOutcomeFor={(toolName, facet) =>
+                outcomes.get(toolOutcomeKeyOf(entry, toolName, facet)) ?? IDLE_MCP_MUTATION
+              }
+              onSetEnabled={setEnabled}
+              onChangeTool={changeTool}
+              sessionDirectory={sessionDirectory}
+              clock={clock}
+            />
+          );
+        })}
+      </ul>
       {providersWithNone.map((provider) => (
-        <Nothing key={provider} kind="empty" placement="block" title={noServersLineFor(provider)} />
+        <p key={provider} className="meridian-settings-page__aside">
+          {noServersLineFor(provider)}
+        </p>
       ))}
     </>
   );
 }
 
-/** The ledger key of one tool's switch on one binding. */
-function toolOutcomeKeyOf(binding: McpServerBindingRef, toolName: string): string {
-  return structuralKey([mcpBindingKeyOf(binding), toolName]);
+/** The ledger key of one facet of one tool on one binding. */
+function toolOutcomeKeyOf(
+  binding: McpServerBindingRef,
+  toolName: string,
+  facet: McpToolOverrideFacet,
+): string {
+  return structuralKey([mcpBindingKeyOf(binding), toolName, facet]);
 }
 
 function noServersLineFor(provider: ProviderName): string {

@@ -1,6 +1,7 @@
 // The MCP servers page as a fixture launch mounts it: the fixture body registered into the page,
 // its inventory read and its changes reaching the scenario's scripted replies through
-// `callDaemon`, and the re-read after a change answering with what was written.
+// `callDaemon`, and the re-read after a change answering with what was written: a switched-off
+// binding stays off, and a tool's facet cleared back to the server's own leaves its other set.
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,7 +35,7 @@ describe("McpFixtureMount", () => {
     const rowNames = [...container.querySelectorAll(".meridian-mcp__row-identity")].map(
       (identity) => identity.firstElementChild?.textContent,
     );
-    expect(rowNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad"]);
+    expect(rowNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad", "scratchpad"]);
 
     const [enableControl] = runSwitchesIn(container);
     if (enableControl === undefined) {
@@ -62,7 +63,7 @@ describe("McpFixtureMount", () => {
     const enablementControls = (): readonly (string | null)[] =>
       runSwitchesIn(container).map((control) => control.getAttribute("aria-checked"));
     // The binding whose store could not be read sent no enablement, so it has no switch.
-    expect(enablementControls()).toStrictEqual(["true", "true"]);
+    expect(enablementControls()).toStrictEqual(["true", "true", "true"]);
 
     const [disableControl] = runSwitchesIn(container);
     if (disableControl === undefined) {
@@ -75,7 +76,56 @@ describe("McpFixtureMount", () => {
     });
     await settleScheduledRead(fixture.scenarioEngine.clock);
 
-    expect(enablementControls()).toStrictEqual(["false", "true"]);
+    expect(enablementControls()).toStrictEqual(["false", "true", "true"]);
+  });
+
+  it("clears one facet of a tool back to the server's own and leaves its other facet set", async () => {
+    registerMcpFixtureBody();
+    const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+    const { container } = render(
+      <FixtureBridgeProvider fixture={fixture}>
+        <LiveAnnouncerProvider>
+          <McpServersPage />
+        </LiveAnnouncerProvider>
+      </FixtureBridgeProvider>,
+    );
+    await settleScheduledRead(fixture.scenarioEngine.clock);
+    const writeFile = (): Element => {
+      const row = [...container.querySelectorAll(".meridian-mcp__tool")].find((tool) =>
+        (tool.textContent ?? "").startsWith("write_file"),
+      );
+      if (row === undefined) {
+        throw new Error("the scripted inventory drew no write_file tool");
+      }
+      return row;
+    };
+    const readings = (): readonly (readonly (string | null | undefined)[])[] =>
+      [...writeFile().querySelectorAll(".meridian-mcp__tool-setting")]
+        .slice(1)
+        .map((setting) => [
+          setting.querySelector("select")?.selectedOptions[0]?.textContent,
+          setting.lastElementChild?.textContent,
+        ]);
+    expect(readings()).toStrictEqual([
+      ["Ask every time", "Set here"],
+      ["Can be undone", "Set here"],
+    ]);
+
+    const [approval] = writeFile().querySelectorAll("select");
+    if (approval === undefined) {
+      throw new Error("write_file drew no approval choice to make");
+    }
+    // The server's own approval mode for write_file.
+    fireEvent.change(approval, { target: { value: "auto" } });
+    await settle(() => {
+      fixture.scenarioEngine.advance(200);
+    });
+    await settleScheduledRead(fixture.scenarioEngine.clock);
+
+    expect(readings()).toStrictEqual([
+      ["Run without asking", "The server's own"],
+      ["Can be undone", "Set here"],
+    ]);
   });
 });
 

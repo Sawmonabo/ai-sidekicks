@@ -1,19 +1,19 @@
 import type { ReactNode } from "react";
 
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts/mcp/server";
-import { formatWireString } from "#renderer/lib/wire/figures.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { type SessionDirectoryState } from "#renderer/store/session/directory/state.js";
-import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mutation.js";
+import { SessionName } from "./SessionName.js";
 
 /**
- * What the last change to one control did, in place: one line for each grade the service
- * answered, saying when the change takes effect, then one line for each running session it
- * failed on, named as the session list names it.
+ * What the last change to one control did, in place: `Sending…` while it is on its way, once past
+ * the short delay; then one line for each grade the service answered, saying when the change
+ * takes effect, and one line for each running session it failed on, named as the session list
+ * names it.
  *
  * A partial outcome reads as one: a change can be saved and still miss one running session, and
  * a single verdict would leave that session on the old setting while the person believes it
@@ -23,19 +23,15 @@ export function MutationOutcomeLine(props: {
   readonly outcome: McpMutationOutcome;
   /** The service's sessions, which name a session the change failed on. */
   readonly sessionDirectory: SessionDirectoryState | undefined;
+  /** The window's clock, which holds `Sending…` back for the short delay. */
+  readonly clock: Clock;
 }): ReactNode {
-  const { outcome, sessionDirectory } = props;
+  const { outcome, sessionDirectory, clock } = props;
   if (outcome.kind === "idle") {
     return null;
   }
   if (outcome.kind === "sending") {
-    return (
-      <Nothing
-        kind="not-loaded"
-        placement="inline"
-        title="Asking the background service to apply this."
-      />
-    );
+    return <LoadingNotice clock={clock} placement="inline" title="Sending…" />;
   }
   if (outcome.kind === "refused") {
     return <InlineRefusal code={outcome.refusal.code} detail={outcome.refusal.detail} />;
@@ -53,32 +49,14 @@ export function MutationOutcomeLine(props: {
       ))}
       {failedSessions.map((liveResult) => (
         <p key={mcpLiveLegKeyOf(liveResult)} className="meridian-settings-page__state">
-          {renderSessionName(liveResult, sessionDirectory)} is still running with the old setting.
+          <SessionName
+            sessionId={liveResult.sessionId}
+            sessionDirectory={sessionDirectory}
+            unnamed="A session"
+          />{" "}
+          is still running with the old setting.
         </p>
       ))}
     </div>
-  );
-}
-
-/**
- * The session a change failed on, as the session list names it, an untitled one faint and
- * italic. Where the directory does not name it, the line says only that a session did.
- */
-function renderSessionName(
-  liveResult: McpLiveApplicationResult,
-  sessionDirectory: SessionDirectoryState | undefined,
-): ReactNode {
-  const entry =
-    sessionDirectory?.status === "served"
-      ? sessionDirectory.sessions.find((session) => session.sessionId === liveResult.sessionId)
-      : undefined;
-  if (entry === undefined) {
-    return "A session";
-  }
-  const title = sessionDisplayTitleOf(entry);
-  return title.isUntitled ? (
-    <span className="meridian-mcp__untitled-session">{title.text}</span>
-  ) : (
-    formatWireString(title.text)
   );
 }

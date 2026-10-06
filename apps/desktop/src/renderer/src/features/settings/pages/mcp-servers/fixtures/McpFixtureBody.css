@@ -81,6 +81,13 @@
   gap: var(--meridian-space-2);
 }
 
+/* A per-tool choice: its caption, then the choice it names. */
+.meridian-mcp__tool-choice {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
 .meridian-mcp__names {
   display: flex;
   flex-wrap: wrap;

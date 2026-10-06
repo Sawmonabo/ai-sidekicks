@@ -46,5 +46,7 @@ function mcpServerOperationsOver(bridge: PlatformBridge): McpServerOperations {
       unwrapDaemonReply(await callDaemon(bridge, "mcp.setEnabled", request)),
     sendToolOverride: async (request) =>
       unwrapDaemonReply(await callDaemon(bridge, "mcp.setToolOverride", request)),
+    sendClearToolOverride: async (request) =>
+      unwrapDaemonReply(await callDaemon(bridge, "mcp.clearToolOverride", request)),
   };
 }

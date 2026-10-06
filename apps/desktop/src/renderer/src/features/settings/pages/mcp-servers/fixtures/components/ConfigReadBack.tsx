@@ -33,12 +33,11 @@ export function ConfigReadBack(props: {
       ) : (
         <>
           <WireFigure value={config.url} />
-          {renderNameList("Query parameters set", config.urlQueryParamNames)}
+          {renderNameList("Address query", config.urlQueryParamNames)}
           {renderNameList("Headers", config.headerNames)}
           {config.bearerTokenEnvVar === undefined ? null : (
             <span className="meridian-settings-page__aside">
-              Bearer token read from <WireFigure value={config.bearerTokenEnvVar} /> — the variable
-              name, never its value.
+              Token from the environment variable <WireFigure value={config.bearerTokenEnvVar} />
             </span>
           )}
         </>

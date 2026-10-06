@@ -12,6 +12,7 @@ import type {
   McpServerLegStatus,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mutation.js";
@@ -58,14 +59,26 @@ describe("mcpLiveLegKeyOf", () => {
 describe("the two lists that render a live leg", () => {
   it("gives each of one binding's legs its own React identity", async () => {
     const { reported } = await reportsWhileReactRan(() =>
-      render(<ServerLegs legs={LEGS_SHARING_A_HANDLE} />),
+      render(
+        <ServerLegs
+          legs={LEGS_SHARING_A_HANDLE}
+          sessionDirectory={undefined}
+          nowMilliseconds={0}
+        />,
+      ),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);
   });
 
   it("gives each per-leg mutation outcome its own React identity", async () => {
     const { reported } = await reportsWhileReactRan(() =>
-      render(<MutationOutcomeLine outcome={SETTLED_OUTCOME} sessionDirectory={undefined} />),
+      render(
+        <MutationOutcomeLine
+          outcome={SETTLED_OUTCOME}
+          sessionDirectory={undefined}
+          clock={new ManualClock(0)}
+        />,
+      ),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);
   });

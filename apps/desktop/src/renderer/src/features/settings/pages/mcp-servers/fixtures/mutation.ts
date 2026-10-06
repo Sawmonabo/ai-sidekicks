@@ -10,11 +10,13 @@
 
 import type {
   McpApplicationGrade,
+  McpClearToolOverrideRequest,
   McpLiveApplicationResult,
   McpMutationResult,
   McpServerBindingRef,
   McpSetEnabledRequest,
   McpSetToolOverrideRequest,
+  McpToolOverride,
   McpToolOverrideMutationResult,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
@@ -60,6 +62,19 @@ export type SendMcpToolOverride = (
   request: McpSetToolOverrideRequest,
 ) => Promise<McpToolOverrideMutationResult>;
 
+/** Sends the clear of one facet of a tool's override to the daemon. */
+export type SendMcpClearToolOverride = (
+  request: McpClearToolOverrideRequest,
+) => Promise<McpToolOverrideMutationResult>;
+
+/**
+ * What one press on a tool's facet asks for: a value set here, naming that facet alone, or the
+ * facet returned to the server's own value, which clears it alone.
+ */
+export type McpToolFacetChange =
+  | { readonly kind: "set"; readonly override: Omit<McpToolOverride, "toolName"> }
+  | { readonly kind: "clear" };
+
 /** The default minter: the platform's own identifier source. */
 export function mintIdempotencyKey(): string {
   return crypto.randomUUID();
@@ -71,8 +86,8 @@ export function settlementOfMutation(result: McpMutationResult): McpChangeSettle
 }
 
 /**
- * How a tool override settled: the grade of each facet it touched, each grade once, since two
- * facets taking effect the same way settle with one line.
+ * How a tool override set or clear settled: the grade of each facet it touched, each grade once,
+ * since two facets taking effect the same way settle with one line.
  */
 export function settlementOfToolOverride(
   result: McpToolOverrideMutationResult,

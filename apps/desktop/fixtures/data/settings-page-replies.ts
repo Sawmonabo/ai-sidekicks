@@ -3,16 +3,18 @@
 // are the machine's, not a session's, so a scenario that plays a session spreads these into its
 // own replies.
 //
-// The inventory holds the three rows the MCP page must draw: a connected binding whose tools
-// read the server's own settings beside one set here, one needing authorization while one of its
-// legs is fine, and one whose binding store could not be read.
+// The inventory holds the rows the MCP page must draw: a connected binding whose tools read the
+// server's own settings beside ones set here, one needing authorization while one of its legs is
+// fine, one whose binding store could not be read, and a project's shared copy of that last one's
+// name, which the project does not use because its own copy takes its place.
 // The registry holds a Claude account the daemon observed signed in, with two limits on one window
 // length; a pasted-token Claude account whose token stopped working, marked the default, so its
 // readiness entry carries the paste-token remedy; and a Codex account whose folder holds no
 // credential, whose entry carries the sign-in remedy.
 //
-// The two pages' writes behave as the daemon's do: a switched binding or tool reads back switched
-// and set here and is announced on `mcp.subscribe`, a sign-in the page started ends on its own a
+// The two pages' writes behave as the daemon's do: a switched binding reads back switched, a tool's
+// facet reads back set here or, once cleared, the server's own, and each is announced on
+// `mcp.subscribe`, a sign-in the page started ends on its own a
 // few seconds later, reported on `providerAccount.subscribe` unless it was canceled first (the
 // first one fails with the provider's reason, and every later one finishes), a checked account
 // answers its current reading, the first pasted token is one the provider does not accept, a
@@ -20,15 +22,21 @@
 // moves to a signed-in account while one whose login is gone is refused with its own remedy. The
 // registry read reflects every answered write.
 
-import type {
-  McpApplicationGrade,
-  McpListResponse,
-  McpMutationResult,
-  McpServerBindingRef,
-  McpServerConfigChangedNotice,
-  McpServerInventoryEntry,
-  McpToolOverrideMutationResult,
-  McpToolReading,
+import {
+  MCP_TOOL_OVERRIDE_FACETS,
+  type McpApplicationGrade,
+  type McpClearToolOverrideRequest,
+  type McpListResponse,
+  type McpMutationResult,
+  type McpServerBindingRef,
+  type McpServerConfigChangedNotice,
+  type McpServerInventoryEntry,
+  type McpSetToolOverrideRequest,
+  type McpToolOverrideApplication,
+  type McpToolOverrideFacet,
+  type McpToolOverrideMutationResult,
+  type McpToolReading,
+  type McpToolSetting,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type {
   ProviderAccountNotification,
@@ -84,13 +92,21 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
         toolName: "read_file",
         enabled: { value: true, source: "server" },
         approvalMode: { value: "auto", source: "server" },
-        idempotencyClass: { value: "idempotent", source: "override" },
+        idempotencyClass: {
+          value: "idempotent",
+          source: "override",
+          serverValue: "manual_reconcile_only",
+        },
       },
       {
         toolName: "write_file",
         enabled: { value: true, source: "server" },
-        approvalMode: { value: "prompt", source: "override" },
-        idempotencyClass: { value: "manual_reconcile_only", source: "server" },
+        approvalMode: { value: "prompt", source: "override", serverValue: "auto" },
+        idempotencyClass: {
+          value: "compensable",
+          source: "override",
+          serverValue: "manual_reconcile_only",
+        },
       },
     ],
   },
@@ -108,7 +124,7 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
     status: "needs-auth",
     observedAt: OBSERVED_AT,
     legs: [
-      { sessionId: SESSION_A, bindingId: "leg-a", status: "needs-auth" },
+      { sessionId: SESSION_A, bindingId: "leg-a", status: "needs-auth", observedAt: OBSERVED_AT },
       { sessionId: SESSION_B, bindingId: "leg-b", status: "connected" },
     ],
     enabled: true,
@@ -129,6 +145,17 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
     config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
     status: "unknown",
     bindingStoreUnavailable: true,
+  },
+  {
+    provider: "claude",
+    scope: "project",
+    scopeRef: "/work/sidekicks",
+    serverName: "scratchpad",
+    config: { transport: "stdio", command: "npx", args: ["-y", "scratchpad-mcp"] },
+    status: "unknown",
+    supersededIn: ["/work/sidekicks"],
+    enabled: true,
+    tools: [],
   },
 ];
 
@@ -246,11 +273,18 @@ export const SETTINGS_PAGE_REPLIES: readonly ScenarioReply[] = [
     resultFor: answerMcpSetEnabled,
     noticesFor: announceMcpEdit,
   },
-  // Computed, so the tool that was pressed is the tool the answer names, switched and set here.
+  // Computed, so the tool that was pressed is the tool the answer names, each facet set here.
   {
     call: "mcp.setToolOverride",
     afterMs: 200,
-    resultFor: answerMcpSetToolOverride,
+    resultFor: answerMcpToolWrite,
+    noticesFor: announceMcpEdit,
+  },
+  // Computed, so the facet cleared reads the server's own and the tool's others stand.
+  {
+    call: "mcp.clearToolOverride",
+    afterMs: 200,
+    resultFor: answerMcpToolWrite,
     noticesFor: announceMcpEdit,
   },
   // Computed, so a moved default and a re-supplied token read back applied.
@@ -272,17 +306,17 @@ export const SETTINGS_PAGE_REPLIES: readonly ScenarioReply[] = [
 ];
 
 /**
- * The inventory, with each binding's newest answered `mcp.setEnabled` and each tool's newest
- * answered `mcp.setToolOverride` applied.
+ * The inventory, with each binding's newest answered `mcp.setEnabled` and every answered tool
+ * override set and clear applied in the order they landed.
  */
 function answerMcpList(
   _request: unknown,
   _settledAtMilliseconds: number,
   _computedReplyOrdinal: number,
-  answeredRequestsFor: (call: string) => readonly unknown[],
+  answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
 ): McpListResponse {
   const writes = answeredRequestsFor("mcp.setEnabled");
-  const toolWrites = answeredRequestsFor("mcp.setToolOverride");
+  const toolWrites = answeredRequestsFor("mcp.setToolOverride", "mcp.clearToolOverride");
   return {
     servers: MCP_INVENTORY.map((entry) => {
       const newestWrite = writes.findLast(
@@ -292,7 +326,7 @@ function answerMcpList(
       const switched = enabled === undefined ? entry : { ...entry, enabled };
       return toolWrites
         .filter((request) => scriptedServerAddressedBy(request) === entry)
-        .reduce(withToolSwitched, switched);
+        .reduce(withToolWriteApplied, switched);
     }),
   };
 }
@@ -311,38 +345,89 @@ function answerMcpSetEnabled(request: unknown): McpMutationResult | undefined {
 }
 
 /**
- * The inventory row a `mcp.setToolOverride` request addresses, with the tool switched as asked,
- * graded as each provider takes the switch: Claude Code's at the service's own approval layer at
- * once, Codex's written into its own settings. A request naming no scripted row, or one that
- * switches nothing, settles as an unscripted call does.
+ * The inventory row a `mcp.setToolOverride` or `mcp.clearToolOverride` request addresses, with the
+ * write applied and each facet it touched graded as the provider takes it. A request naming no
+ * scripted row settles as an unscripted call does.
  */
-function answerMcpSetToolOverride(request: unknown): McpToolOverrideMutationResult | undefined {
+function answerMcpToolWrite(request: unknown): McpToolOverrideMutationResult | undefined {
   const server = scriptedServerAddressedBy(request);
-  if (server === undefined || enablementOf(fieldOf(request, "override")) === undefined) {
+  if (server === undefined) {
     return undefined;
   }
-  const grade: McpApplicationGrade =
-    server.provider === "claude" ? "daemon_enforced" : "user_config_write";
-  return { server: withToolSwitched(server, request), applied: { enabled: grade } };
+  const write = toolWriteOf(request);
+  const touched = MCP_TOOL_OVERRIDE_FACETS.filter((facet) =>
+    "facet" in write ? write.facet === facet : write.override[facet] !== undefined,
+  );
+  return { server: withToolWriteApplied(server, request), applied: applicationOf(server, touched) };
 }
 
-/** A row with the tool a `mcp.setToolOverride` request names switched as asked, and set here. */
-function withToolSwitched(
+/**
+ * Where each touched facet takes effect: Claude Code's at the service's own approval layer at once,
+ * Codex's switch and approval mode in its own settings, and an interrupted-call class always at
+ * once.
+ */
+function applicationOf(
+  entry: McpServerInventoryEntry,
+  facets: readonly McpToolOverrideFacet[],
+): McpToolOverrideApplication {
+  const providerGrade: McpApplicationGrade =
+    entry.provider === "claude" ? "daemon_enforced" : "user_config_write";
+  return {
+    ...(facets.includes("enabled") ? { enabled: providerGrade } : {}),
+    ...(facets.includes("approvalMode") ? { approvalMode: providerGrade } : {}),
+    ...(facets.includes("idempotencyClass") ? { idempotencyClass: "daemon_enforced" } : {}),
+  };
+}
+
+/**
+ * An answered tool write as the page sent it. `callDaemon` sends only a request its method's
+ * schema accepts, so a request the playback answered for either call has that call's shape.
+ */
+function toolWriteOf(request: unknown): McpSetToolOverrideRequest | McpClearToolOverrideRequest {
+  return request as McpSetToolOverrideRequest | McpClearToolOverrideRequest;
+}
+
+/**
+ * A row with one answered tool write applied to the tool it names: each facet a set names reads
+ * set here over the server's own value, the facet a clear names reads the server's own value
+ * again, and every other facet stands.
+ */
+function withToolWriteApplied(
   entry: McpServerInventoryEntry,
   request: unknown,
 ): McpServerInventoryEntry {
-  const override = fieldOf(request, "override");
-  const toolName = fieldOf(override, "toolName");
-  const enabled = enablementOf(override);
-  if (entry.bindingStoreUnavailable === true || enabled === undefined) {
+  if (entry.bindingStoreUnavailable === true) {
     return entry;
   }
+  const write = toolWriteOf(request);
+  const toolName = "facet" in write ? write.toolName : write.override.toolName;
+  const written = <OverrideValue, ServerValue>(
+    facet: McpToolOverrideFacet,
+    setting: McpToolSetting<OverrideValue, ServerValue>,
+    setValue: OverrideValue | undefined,
+  ): McpToolSetting<OverrideValue, ServerValue> => {
+    const serverValue = setting.source === "server" ? setting.value : setting.serverValue;
+    if ("facet" in write) {
+      return write.facet === facet ? { source: "server", value: serverValue } : setting;
+    }
+    return setValue === undefined ? setting : { source: "override", value: setValue, serverValue };
+  };
+  const override = "facet" in write ? undefined : write.override;
   return {
     ...entry,
     tools: entry.tools.map(
       (tool): McpToolReading =>
         tool.toolName === toolName
-          ? { ...tool, enabled: { value: enabled, source: "override" } }
+          ? {
+              ...tool,
+              enabled: written("enabled", tool.enabled, override?.enabled),
+              approvalMode: written("approvalMode", tool.approvalMode, override?.approvalMode),
+              idempotencyClass: written(
+                "idempotencyClass",
+                tool.idempotencyClass,
+                override?.idempotencyClass,
+              ),
+            }
           : tool,
     ),
   };

@@ -10,6 +10,7 @@ import type {
   McpLiveApplicationResult,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { ManualClock } from "#renderer/lib/clock.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import type { McpMutationOutcome } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
@@ -61,7 +62,11 @@ describe("MutationOutcomeLine", () => {
     ];
     for (const [grade, line] of drawn) {
       const { container, unmount } = render(
-        <MutationOutcomeLine outcome={settledOn([grade])} sessionDirectory={DIRECTORY} />,
+        <MutationOutcomeLine
+          outcome={settledOn([grade])}
+          sessionDirectory={DIRECTORY}
+          clock={new ManualClock(0)}
+        />,
       );
       expect(linesOf(container)).toStrictEqual([line]);
       expect(container.textContent).not.toContain(grade);
@@ -89,6 +94,7 @@ describe("MutationOutcomeLine", () => {
           ],
         )}
         sessionDirectory={DIRECTORY}
+        clock={new ManualClock(0)}
       />,
     );
     expect(linesOf(container)).toStrictEqual([
