@@ -88,7 +88,7 @@ export interface DaemonStatusReadResponse {
   memory: DaemonMemoryReading | null;
   relay?: DaemonRelayStatus | undefined;
   /**
-   * The file the service keeps its secrets in, readable only by the person: present only on
+   * The file the service keeps its secrets in, readable by this account alone: present only on
    * Linux where no Secret Service answers.
    */
   secretsFile?: string | undefined;

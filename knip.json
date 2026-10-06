@@ -249,8 +249,8 @@
       ]
     },
     "packages/runtime-daemon": {
-      // `scutil` is the macOS utility the machine-name test runs to read the computer name the
-      // daemon must report, and `mkfifo` makes the named pipe the stop tests hold a write on; both
+      // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
+      // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
       // ship with the operating system, never as a package dependency.
       "ignoreBinaries": ["scutil", "mkfifo"],
       "ignoreDependencies": [
