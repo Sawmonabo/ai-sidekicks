@@ -240,28 +240,9 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 
 **Goal:** Implement the two initial drivers (Codex, Claude) against the Phase 1 contract. Both drivers execute as local-runtime-node integrations per [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) (no shared hosted driver service).
 
-**Driver capability matrix (V1 declared values per [Spec-004 §Per-Driver Capability Matrix](../specs/004-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix)):**
+**Driver capability matrix:** the V1 declared values are those of [Spec-004 §Per-Driver Capability Matrix](../specs/004-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix).
 
-| Capability             | Codex   | Claude |
-| ---------------------- | ------- | ------ |
-| `resume`               | `true`  | `true` |
-| `steer`                | `true`  | `true` |
-| `interactive_requests` | `true`  | `true` |
-| `mcp`                  | `true`  | `true` |
-| `tool_calls`           | `true`  | `true` |
-| `reasoning_stream`     | `false` | `true` |
-| `model_mutation`       | `true`  | `true` |
-| `structured_output`    | `true`  | `true` |
-| `rollback`             | `true`  | `true` |
-| `session_goals`        | `true`  | `true` |
-| `callback_tools`       | `true`  | `true` |
-| `subagents`            | `true`  | `true` |
-| `context_compaction`   | `true`  | `true` |
-| `provider_commands`    | `true`  | `true` |
-| `output_speed`         | `true`  | `true` |
-| `session_fork`         | `true`  | `true` |
-
-`pause` is intentionally absent from both — orchestration-layer construct per [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior). The rows from `rollback` down mirror the Spec-004 matrix; their driver declaration tests land with Plan-003's driver tasks.
+`pause` is intentionally absent from both — orchestration-layer construct per [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior). The driver declaration tests of the matrix's rows from `rollback` down land with Plan-003's driver tasks.
 
 **Precondition:** Plan-004 Phase 1 merged — it ships `EVENT_DISPOSITION_BY_KIND` (the normalization-disposition map) in `packages/runtime-daemon/src/provider/`, which the Phase-3 driver normalizers (T3.11) consume as the single disposition source; the map ships before this phase's normalizers are built, so the two plans depend on each other only at plan granularity and the ordering is acyclic at phase granularity. Phases 1 and 2 merged in full, T1.7, T1.8 and T2.6 included: T3.11–T3.15 consume T1.8's contract surfaces and T2.6's store/cache seams.
 
