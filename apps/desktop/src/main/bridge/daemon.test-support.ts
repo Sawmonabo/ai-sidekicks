@@ -15,9 +15,9 @@ import { vi } from "vitest";
 import { appFactsSwitches } from "#shared/app-facts.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
-import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/daemon-status-topic.js";
 import type { PreloadApi } from "#shared/preload-api.js";
-import type { DaemonLink } from "../services/daemon/daemon-link.js";
+import { unlinkedState, type DaemonLink } from "../services/daemon/daemon-link.js";
 import type { WindowHandlerContext } from "./window-handlers.js";
 
 /** An in-memory daemon connection: it answers each request from a script, and can be closed. */
@@ -74,17 +74,6 @@ export function scriptedConnection(
   };
 }
 
-/** The supervisor's report for a link in `connection`'s state. */
-export function stateReading(connection: DaemonConnection): MainProcessState {
-  return {
-    connection,
-    negotiation: undefined,
-    startedByApp: undefined,
-    whileSignedOut: undefined,
-    cannotStart: undefined,
-  };
-}
-
 /** Main's link with a daemon client attached over `connection`, in the state given. */
 export async function linkOver(
   connection: ScriptedConnection,
@@ -98,7 +87,7 @@ export async function linkOver(
       protocolVersion: "2026-05-01",
       maxQueuedValuesPerSubscription: 16,
     }),
-    stateReading(linkConnection),
+    unlinkedState(linkConnection),
   );
   return link;
 }

@@ -6,7 +6,7 @@
  * How an editor opens a file at a line on macOS. `bundledCommand` runs the command the app bundle
  * ships, at the first of its relative paths that exists, with the file and line in the form named
  * (`goto`: `--goto <file>:<line>`; `pathAtLine`: `<file>:<line>`); `jetbrains` passes
- * `--line <line> <file>` to the app; `xed` is Xcode's own command.
+ * `--line <line> <file>` to the app; `xed` runs the `xed` command the found Xcode ships.
  */
 export type MacLineLaunch =
   | {

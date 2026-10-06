@@ -69,6 +69,8 @@ describe("the installed editors on macOS", () => {
       expect(locations.get("finder")).toMatch(/Finder\.app$/u);
       expect(locations.has("absent")).toBe(false);
     },
+    // Past the runner's own 10-second bound, so a stuck lookup fails as the runner's timeout.
+    15_000,
   );
 
   it("runs the command the app bundle ships at the line, and opens the app without it", async () => {
@@ -100,12 +102,23 @@ describe("the installed editors on macOS", () => {
 
   it("passes the line the way Xcode and the JetBrains IDEs take it", async () => {
     const installedEditors = new MacInstalledEditors(runProgram);
+    const xcodePath = path.join(scratch, "Xcode.app");
+    const xed = path.join(xcodePath, "Contents/Developer/usr/bin/xed");
+    await mkdir(path.dirname(xed), { recursive: true });
+    await writeFile(xed, "", "utf8");
 
+    // The found Xcode's own command, which needs no developer folder selected.
     await expect(
-      installedEditors.launch(catalogEditor("xcode"), "/Applications/Xcode.app", TARGET, 3),
+      installedEditors.launch(catalogEditor("xcode"), xcodePath, TARGET, 3),
     ).resolves.toStrictEqual({
-      command: "/usr/bin/xed",
+      command: xed,
       programArguments: ["--line", "3", TARGET],
+    });
+    await expect(
+      installedEditors.launch(catalogEditor("xcode"), scratch, TARGET, 3),
+    ).resolves.toStrictEqual({
+      command: "/usr/bin/open",
+      programArguments: ["-a", scratch, TARGET],
     });
     await expect(
       installedEditors.launch(catalogEditor("webstorm"), "/Applications/WebStorm.app", TARGET, 3),

@@ -10,7 +10,7 @@
 import { homedir, totalmem } from "node:os";
 import path from "node:path";
 
-import { app, crashReporter, nativeTheme, screen, type WebContents } from "electron";
+import { app, crashReporter, nativeTheme, screen } from "electron";
 import { appFactsSwitches, supportedArch, supportedPlatform } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-appearance.js";
@@ -20,6 +20,7 @@ import { FilePathRefs } from "./bridge/file-path/file-path-refs.js";
 import { installBridgeHandlers } from "./bridge/install-bridge-handlers.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { installApplicationMenu } from "./menu.js";
+import { firstWindowContents } from "./probes/first-window-contents.js";
 import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
 import { processCrashReporterHost, startCrashReporter } from "./services/crash-reporter.js";
@@ -257,17 +258,11 @@ function startApplication(): void {
             // Registered ahead of the load so a boot that never reaches `did-finish-load`
             // still shows where it stopped.
             const traceReadiness = installReadinessBreadcrumbs(view.webContents, probeStartedAt);
-            // The console document's own contents exist already, so the next one made is the
-            // first window it opens, where the app is drawn.
-            const firstWindowContents = new Promise<WebContents>((resolve) => {
-              app.once("web-contents-created", (_event, created) => {
-                resolve(created);
-              });
-            });
+            const drawnContents = firstWindowContents(app);
             view.webContents.once("did-finish-load", () => {
               traceReadiness("did-finish-load");
               const windowMs = Date.now() - probeStartedAt;
-              void runSmokeProbe(view.webContents, firstWindowContents, windowMs);
+              void runSmokeProbe(view.webContents, drawnContents, windowMs);
             });
           }
         },

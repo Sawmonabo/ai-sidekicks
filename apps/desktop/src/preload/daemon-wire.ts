@@ -116,7 +116,13 @@ export class DaemonSubscriptions {
     }
     return () => {
       if (this.#byId.delete(subscriptionId)) {
-        void this.#ipc.invoke(BRIDGE_CHANNELS.closeDaemonSubscription, subscriptionId);
+        // The page has let go and waits on nothing, so a close main could not make is said in the
+        // console rather than left as an unhandled rejection.
+        this.#ipc
+          .invoke(BRIDGE_CHANNELS.closeDaemonSubscription, subscriptionId)
+          .catch((failure: unknown) => {
+            console.error(`The daemon subscription ${subscriptionId} did not close:`, failure);
+          });
       }
     };
   }

@@ -1,7 +1,8 @@
 // Main's own files under the user-data folder (the keyboard map, the appearance record, the
 // window places) are written whole and readable only by the person. A write goes through a
-// flushed temporary file renamed over the real one, so a reader sees the old file or the new and
-// a crash mid-save never leaves half a file.
+// flushed temporary file renamed over the real one, and the folder is flushed after the rename, so
+// a reader sees the old file or the new and a crash mid-save never leaves half a file or loses the
+// rename. Windows has no flush for a folder; its rename is already on disk when it returns.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -21,7 +22,8 @@ const OWNER_ONLY_FOLDER_MODE = 0o700;
 
 /**
  * Write `value` as pretty-printed JSON to `filePath`, atomically and readable only by the
- * person, making the folder if it is missing. Rejects with the file system's error.
+ * person, making the folder if it is missing. Rejects with the file system's error, or with an
+ * `AggregateError` holding it and the failure to remove the temporary file.
  */
 export async function writeOwnerOnlyJsonFile(filePath: string, value: unknown): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
@@ -36,15 +38,27 @@ export async function writeOwnerOnlyJsonFile(filePath: string, value: unknown): 
     }
     await rename(temporaryPath, filePath);
   } catch (error) {
-    await rm(temporaryPath, { force: true });
+    try {
+      await rm(temporaryPath, { force: true });
+    } catch (cleanupFailure) {
+      throw leftBehind(error, cleanupFailure);
+    }
     throw error;
+  }
+  if (process.platform !== "win32") {
+    const folder = await open(dirname(filePath), "r");
+    try {
+      await folder.sync();
+    } finally {
+      await folder.close();
+    }
   }
 }
 
 /**
  * The same write, finished before it returns: for a moment the process may end right after,
- * such as a window's close during a quit, where a pending write would be cut off. Throws the
- * file system's error.
+ * such as a window's close during a quit, where a pending write would be cut off. Throws as the
+ * write rejects.
  */
 export function writeOwnerOnlyJsonFileSync(filePath: string, value: unknown): void {
   mkdirSync(dirname(filePath), { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
@@ -59,9 +73,30 @@ export function writeOwnerOnlyJsonFileSync(filePath: string, value: unknown): vo
     }
     renameSync(temporaryPath, filePath);
   } catch (error) {
-    rmSync(temporaryPath, { force: true });
+    try {
+      rmSync(temporaryPath, { force: true });
+    } catch (cleanupFailure) {
+      throw leftBehind(error, cleanupFailure);
+    }
     throw error;
   }
+  if (process.platform !== "win32") {
+    const folder = openSync(dirname(filePath), "r");
+    try {
+      fsyncSync(folder);
+    } finally {
+      closeSync(folder);
+    }
+  }
+}
+
+// The write's own failure first, so a caller reads why it failed, and then the temporary file's.
+function leftBehind(writeFailure: unknown, cleanupFailure: unknown): AggregateError {
+  return new AggregateError(
+    [writeFailure, cleanupFailure],
+    "The file was not written, and its temporary file could not be removed.",
+    { cause: writeFailure },
+  );
 }
 
 function temporaryPathFor(filePath: string): string {

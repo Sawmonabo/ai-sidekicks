@@ -20,6 +20,7 @@ import type { PlatformBridge } from "#renderer/services/platform/platform-bridge
 import type { FilePathRef } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import { unlinkedState } from "../services/daemon/daemon-link.js";
 import type { DaemonSubscriber } from "./daemon.js";
 import { FilePathRefs } from "./file-path/file-path-refs.js";
 import { pageOwner } from "./file-path/file-path-refs.test-support.js";
@@ -28,7 +29,6 @@ import {
   bridgeOverLink,
   linkOver,
   scriptedConnection,
-  stateReading,
   type ScriptedConnection,
 } from "./daemon.test-support.js";
 
@@ -319,9 +319,9 @@ describe("how a subscription ends, and the status topic", () => {
     const delivered: MainProcessState[] = [];
 
     const close = bridge.daemon.subscribe("daemon.status", {}, (state) => delivered.push(state));
-    link.report(stateReading({ kind: "starting" }));
+    link.report(unlinkedState({ kind: "starting" }));
     close();
-    link.report(stateReading({ kind: "degraded", attemptLimit: 5, lastError: undefined }));
+    link.report(unlinkedState({ kind: "degraded", attemptLimit: 5, lastError: undefined }));
 
     expect(delivered.map((state) => state.connection.kind)).toEqual(["connecting", "starting"]);
   });
@@ -343,7 +343,7 @@ describe("the calls that end work", () => {
     for (const state of unlinkedStates) {
       const connection = scriptedConnection(() => ({ result: accepted }));
       const link = await linkOver(connection);
-      link.detach(stateReading(state));
+      link.detach(unlinkedState(state));
       const forwarding = new DaemonForwarding({
         link,
         filePathRefs: new FilePathRefs(),

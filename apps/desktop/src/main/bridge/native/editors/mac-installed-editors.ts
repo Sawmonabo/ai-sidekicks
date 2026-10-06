@@ -37,8 +37,11 @@ const appPathsByBundleIdSchema = z.record(z.string(), z.string());
 /** The macOS launcher that opens a file with a named app. */
 const OPEN_COMMAND = "/usr/bin/open";
 
-/** Xcode's own command, which ships with the system and takes a line. */
-const XED_COMMAND = "/usr/bin/xed";
+/**
+ * Xcode's own command inside the found app, which takes a line. Not `/usr/bin/xed`: that asks
+ * `xcrun`, which finds no `xed` while only the Command Line Tools are selected.
+ */
+const XED_IN_APP = "Contents/Developer/usr/bin/xed";
 
 /** The macOS form: Launch Services through `osascript`, and the system's own launchers. */
 export class MacInstalledEditors implements InstalledEditors {
@@ -95,8 +98,12 @@ async function lineLaunch(
 ): Promise<EditorLaunch | undefined> {
   const atLine = `${targetPath}:${String(line)}`;
   switch (launch.kind) {
-    case "xed":
-      return { command: XED_COMMAND, programArguments: ["--line", String(line), targetPath] };
+    case "xed": {
+      const command = await firstExisting([path.join(appPath, XED_IN_APP)]);
+      return command === undefined
+        ? undefined
+        : { command, programArguments: ["--line", String(line), targetPath] };
+    }
     case "jetbrains":
       return {
         command: OPEN_COMMAND,

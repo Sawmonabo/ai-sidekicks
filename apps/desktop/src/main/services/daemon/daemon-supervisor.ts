@@ -43,7 +43,7 @@ import type {
 } from "#shared/daemon/daemon-status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { describeFailure } from "../failure-message.js";
-import type { DaemonLink } from "./daemon-link.js";
+import { unlinkedState, type DaemonLink } from "./daemon-link.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link-lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/service-process.js";
 
@@ -560,14 +560,14 @@ export class DaemonSupervisor {
     }
     if (this.#isStopRequested) {
       this.#phase = "stopped";
-      this.#link.detach(this.#unlinkedState({ kind: "stopped" }));
+      this.#link.detach(unlinkedState({ kind: "stopped" }));
       return;
     }
     this.#isBringingBack = true;
     this.#isLossUnrecognized = cause.kind === "unrecognized";
     this.#consecutiveFailedStarts = 0;
     this.#startWaitsInARow = 0;
-    this.#link.detach(this.#unlinkedState(this.#returningConnection()));
+    this.#link.detach(unlinkedState(this.#returningConnection()));
     this.#scheduleStart();
   }
 
@@ -627,26 +627,14 @@ export class DaemonSupervisor {
 
   #linkedState(hello: DaemonHelloAck, startedByApp: boolean): MainProcessState {
     return {
-      ...this.#unlinkedState(
-        hello.compatible ? { kind: "connected" } : { kind: "version-incompatible" },
-      ),
+      ...unlinkedState(hello.compatible ? { kind: "connected" } : { kind: "version-incompatible" }),
       negotiation: negotiationOf(hello),
       startedByApp,
     };
   }
 
-  #unlinkedState(connection: DaemonConnection): MainProcessState {
-    return {
-      connection,
-      negotiation: undefined,
-      startedByApp: undefined,
-      whileSignedOut: undefined,
-      cannotStart: undefined,
-    };
-  }
-
   #reportUnlinked(connection: DaemonConnection): void {
-    this.#link.report(this.#unlinkedState(connection));
+    this.#link.report(unlinkedState(connection));
   }
 
   #clearRetry(): void {

@@ -18,6 +18,9 @@ import { queryObjects } from "node:v8";
 
 import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 
+import { describeFailure } from "../services/failure-message.js";
+import { firstWindowContents } from "./first-window-contents.js";
+
 /** GC cycles per run. Twenty is enough for a retention leak to show as drift. */
 const PROBE_ITERATIONS = 20;
 
@@ -147,17 +150,20 @@ function closeEveryWindow(): Promise<void> {
 /**
  * Starts one probe run once the first window the console document opens has loaded, on a fresh
  * tick, so the caller's `whenReady` locals unwind before the heap is sampled and the count is
- * not sampled while that window is still arriving. The console document's own contents exist
- * already, so the next contents made are that window's. The scheduled arrows close over `probe`
- * alone, so they cannot capture and root the caller's window.
+ * not sampled while that window is still arriving. The scheduled arrows close over `probe`
+ * alone, so they cannot capture and root the caller's window. A run that fails says why on
+ * stderr and exits with 1, so the tier reports the failure rather than waiting out its timeout.
  */
 export function startGcProbe(electronApp: App): void {
   const probe = new GcProbe();
   probe.observe(electronApp);
-  electronApp.once("web-contents-created", (_event, created) => {
+  void firstWindowContents(electronApp).then((created) => {
     created.once("did-finish-load", () => {
       setImmediate(() => {
-        void probe.run(electronApp);
+        probe.run(electronApp).catch((failure: unknown) => {
+          console.error(`The GC probe failed: ${describeFailure(failure)}`);
+          electronApp.exit(1);
+        });
       });
     });
   });

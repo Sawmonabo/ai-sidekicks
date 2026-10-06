@@ -4,19 +4,24 @@
 
 import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
 
 /** Told of each new state, the current one first. */
 export type DaemonLinkListener = (state: MainProcessState) => void;
 
+/** The state of a link in `connection` with no service linked, so nothing more is known. */
+export function unlinkedState(connection: DaemonConnection): MainProcessState {
+  return {
+    connection,
+    negotiation: undefined,
+    startedByApp: undefined,
+    whileSignedOut: undefined,
+    cannotStart: undefined,
+  };
+}
+
 /** What main has before the supervisor's first report: looking for the service. */
-const CONNECTING_STATE: MainProcessState = {
-  connection: { kind: "connecting" },
-  negotiation: undefined,
-  startedByApp: undefined,
-  whileSignedOut: undefined,
-  cannotStart: undefined,
-};
+const CONNECTING_STATE: MainProcessState = unlinkedState({ kind: "connecting" });
 
 /** The service's state as main knows it, and the daemon client while a link is up. */
 export class DaemonLink {
