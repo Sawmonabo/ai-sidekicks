@@ -148,7 +148,8 @@ interface DaemonStatusReadResult {
   // Extensions, and never while it waits for approval. Settings › Runtime then shows `Secrets are
   // kept unencrypted in <path>, readable by this account alone, because no Secret Service is
   // running.`, or on that Mac the same line ending `because the service runs while you are logged
-  // out.` Absent on every other machine.
+  // out.`, and once the service is turned off in Login Items & Extensions `because the service was
+  // set up to run while you are logged out.` Absent on every other machine.
   secretsFile?: string;
   recovery: DaemonRecoveryStatus; // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012, T12.4)
   // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block

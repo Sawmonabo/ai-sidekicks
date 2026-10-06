@@ -12,7 +12,7 @@ Account identity, device identity and lifecycle, the executing machine, and sess
 
 | Term | What it is | On screen |
 | --- | --- | --- |
-| **User** | The account holder. One per account. | "you", "your account" |
+| **User** | The account holder. One per account. | "you", "this account" |
 | **Device** | A phone or a browser linked to that account to reach its sessions. | **Devices** |
 | **Runtime node** | A machine: a computer whose background service runs sessions. The desktop app on that computer acts with the machine's own key. | The machine's name; `This machine` on the machine itself; **Machines** |
 | **Session owner** | The user a session belongs to. | — |
