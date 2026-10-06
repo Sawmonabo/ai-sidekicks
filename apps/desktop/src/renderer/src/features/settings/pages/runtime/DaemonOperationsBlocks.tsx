@@ -21,10 +21,13 @@
 import { useCallback, useState, type ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { formatByteQuantity, formatClockTime, formatPercent } from "#renderer/lib/wire/figures.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
@@ -81,6 +84,7 @@ export interface DaemonOperationsBlocksProps {
 /** The two blocks that call the daemon: its own reported status, and stop and restart. */
 export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): ReactNode {
   const { mainProcessState } = props.context;
+  const clock = useClock();
   const [confirming, setConfirming] = useState<DaemonControl | undefined>(undefined);
   const [settlement, setSettlement] = useState<DaemonControlSettlement | undefined>(undefined);
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
@@ -103,12 +107,12 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
   return (
     <>
       <section className="meridian-settings-page__block">
-        <h3 className="meridian-settings-page__block-title">Reported status</h3>
-        {renderStatusRegion(status.reading, status.checkAgain)}
+        <h3 className="meridian-settings-page__section-head">Reported status</h3>
+        {renderStatusRegion(status.reading, status.checkAgain, clock)}
       </section>
 
       <section className="meridian-settings-page__block">
-        <h3 className="meridian-settings-page__block-title">Restart or stop it</h3>
+        <h3 className="meridian-settings-page__section-head">Restart or stop it</h3>
         <p className="meridian-settings-page__aside">Both stop whatever is in flight.</p>
         {confirming === undefined ? (
           <div className="meridian-settings-page__actions">
@@ -160,21 +164,18 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
 
 /**
  * The daemon's own status line, on whichever of the read's three phases applies, with
- * `Check again` beside a settled reading.
+ * `Check again` beside a settled reading. The first read's line waits out the short delay on
+ * `clock`, so an answer that comes at once draws no flash of words.
  */
-function renderStatusRegion(reading: DaemonStatusReading, checkAgain: () => void): ReactNode {
+function renderStatusRegion(
+  reading: DaemonStatusReading,
+  checkAgain: () => void,
+  clock: Clock,
+): ReactNode {
   switch (reading.phase) {
     case "reading":
       return (
-        <Nothing
-          kind="computing"
-          placement="block"
-          title="Asking the runtime"
-          detail={
-            "The status the background service reports about itself, which " +
-            "is a different question from what the supervisor observed."
-          }
-        />
+        <LoadingNotice clock={clock} placement="block" title="Reading the background service…" />
       );
     case "read":
       return (

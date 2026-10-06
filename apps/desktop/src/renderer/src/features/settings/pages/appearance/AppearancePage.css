@@ -6,6 +6,14 @@
 /* Three options, no disclosure. The dot is drawn here and the semantics are the hidden
    input's. */
 
+/* The section head and, while the scheme is not the system's, the changed mark after it; outside
+   the heading so the heading's name stays `Color scheme`. */
+.meridian-scheme-choice__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
 .meridian-scheme-choice {
   display: flex;
   flex-direction: column;

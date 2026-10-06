@@ -1,12 +1,15 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
 // offered before the download finishes and needs no confirmation, a call main does not answer is
-// drawn in the block's own words, and the automatic-check switch. The doubles are in
-// `UpdatesBlock.test-support.tsx`.
+// drawn in the block's own words, and the automatic-check switch, which a refused write leaves
+// where it was. The doubles are in `UpdatesBlock.test-support.tsx`.
 import { act } from "@testing-library/react";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
 import {
+  machineSettingsRefusing,
   preferencesAtDefaults,
   pressControl,
+  renderOnMachineSettings,
   renderSettled,
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
@@ -105,5 +108,42 @@ describe("the updates block — checking on its own", () => {
     });
 
     expect(choose).toHaveBeenCalledWith("updatesAutomatic", false);
+  });
+});
+
+describe("the updates block — a refused write puts the switch back", () => {
+  it("keeps the value it had, says why with Try again, and sends the same change again", async () => {
+    const machineSettings = machineSettingsRefusing(1, "The settings file is read-only.");
+    const { block } = await renderOnMachineSettings(
+      updaterReporting({ status: "idle" }),
+      machineSettings,
+    );
+    const control = (): HTMLElement | null => block.querySelector('[role="switch"]');
+
+    await act(async () => {
+      control()?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(machineSettings.writes).toStrictEqual([{ updatesAutomatic: false }]);
+    expect(control()?.getAttribute("aria-checked")).toBe("true");
+    const strip = block.querySelector("[data-refusal-code]");
+    expect(strip?.querySelector(".meridian-refusal__message")?.textContent).toBe(
+      "The settings file is read-only.",
+    );
+    // At its default the switch carries no changed mark.
+    expect(block.querySelector('[aria-label="Changed from the default"]')).toBeNull();
+
+    await pressControl(block, "Try again");
+
+    expect(machineSettings.writes).toStrictEqual([
+      { updatesAutomatic: false },
+      { updatesAutomatic: false },
+    ]);
+    expect(control()?.getAttribute("aria-checked")).toBe("false");
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
+    expect(
+      block.querySelector('[aria-label="Changed from the default"]')?.getAttribute("title"),
+    ).toBe("On by default");
   });
 });

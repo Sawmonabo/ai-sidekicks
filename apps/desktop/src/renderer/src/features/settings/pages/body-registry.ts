@@ -1,5 +1,5 @@
 // Where a settings page gets a body a composition supplies. The page draws the frame and mounts
-// what was registered for its section, so the page imports no body and a composition that has
+// what was registered for it, so the page imports no body and a composition that has
 // none leaves the frame empty.
 
 import type { ReactNode } from "react";
@@ -11,7 +11,7 @@ import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 /** A body a composition supplies for one settings page. */
 export type SettingsPageBody = () => ReactNode;
 
-const pageBodiesBySection = new KeyedRegistry<
+const pageBodiesByPageId = new KeyedRegistry<
   SettingsPageId,
   SingleEntryDescriptor<SettingsPageBody>
 >({
@@ -25,14 +25,14 @@ const pageBodiesBySection = new KeyedRegistry<
 
 /** Fill a page's body. A second owner is refused; the same owner replaces its body. */
 export function registerSettingsPageBody(
-  section: SettingsPageId,
+  pageId: SettingsPageId,
   owner: string,
   body: SettingsPageBody,
 ): void {
-  pageBodiesBySection.register(section, { owner, render: body });
+  pageBodiesByPageId.register(pageId, { owner, render: body });
 }
 
 /** The body registered for a page, or `undefined` while none is. */
-export function findSettingsPageBody(section: SettingsPageId): SettingsPageBody | undefined {
-  return pageBodiesBySection.get(section)?.render;
+export function findSettingsPageBody(pageId: SettingsPageId): SettingsPageBody | undefined {
+  return pageBodiesByPageId.get(pageId)?.render;
 }

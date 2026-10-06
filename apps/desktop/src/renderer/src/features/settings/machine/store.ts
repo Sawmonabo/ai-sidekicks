@@ -68,6 +68,8 @@ export class MachineSettingsStore {
   readonly #answers = new GenerationLatch();
   /** Writes in flight per member; a count, so one of two settling does not clear the row. */
   readonly #writesInFlight = new Map<MachineSettingsMember, number>();
+  /** The change each refused member asked for, so a retry sends exactly what was refused. */
+  readonly #refusedChanges = new Map<MachineSettingsMember, MachineSettingsChange>();
 
   public constructor(
     machineSettings: MachineSettingsService,
@@ -114,20 +116,33 @@ export class MachineSettingsStore {
    *
    * The service's answer (the file as written) is installed unless newer news arrived first.
    * A rejected write records the service's refusal against the member, which stops pending
-   * and keeps the stored value.
+   * and keeps the stored value, so the control reads the value it had.
    */
   public async choose<Member extends MachineSettingsMember>(
     member: Member,
     value: MachineSettings[Member],
   ): Promise<void> {
+    const change: MachineSettingsChange = { [member]: value };
+    await this.#write(member, change);
+  }
+
+  /** Send a refused member's change again; a member with no refusal standing sends nothing. */
+  public async retry(member: MachineSettingsMember): Promise<void> {
+    const change = this.#refusedChanges.get(member);
+    if (change !== undefined) {
+      await this.#write(member, change);
+    }
+  }
+
+  async #write(member: MachineSettingsMember, change: MachineSettingsChange): Promise<void> {
     const answer = this.#answers.supersedeAndClaim(this, ANSWER_KEY);
     this.#writesInFlight.set(member, (this.#writesInFlight.get(member) ?? 0) + 1);
+    this.#refusedChanges.delete(member);
     this.#publish({
       ...this.#snapshot,
       pendingMembers: this.#pendingMembers(),
       refusalByMember: this.#refusalsWith(member, undefined),
     });
-    const change: MachineSettingsChange = { [member]: value };
     let written: MachineSettings | undefined;
     let refusal: Refusal | undefined;
     try {
@@ -146,6 +161,9 @@ export class MachineSettingsStore {
     const reading =
       written !== undefined && answer.isCurrent ? { settings: written } : this.#snapshot.reading;
     answer.release();
+    if (refusal !== undefined) {
+      this.#refusedChanges.set(member, change);
+    }
     this.#publish({
       ...this.#snapshot,
       reading,

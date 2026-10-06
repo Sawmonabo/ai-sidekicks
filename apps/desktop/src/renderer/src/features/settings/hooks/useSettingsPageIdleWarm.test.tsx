@@ -14,23 +14,25 @@ import type { SettingsPageContext } from "../types.js";
 import { useSettingsPageIdleWarm } from "./useSettingsPageIdleWarm.js";
 
 /** A board holding one deferred page that records its load, and one with nothing to load. */
-function composePages(loadedSections: string[]): SettingsPageRegistry {
+function composePages(loadedPageIds: string[]): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
-    section: "notifications",
+    pageId: "notifications",
     label: "Notifications",
     keywords: [],
+    note: "",
     body: () => {
-      loadedSections.push("notifications");
+      loadedPageIds.push("notifications");
       return Promise.resolve<{ Body: (context: SettingsPageContext) => React.ReactNode }>({
         Body: () => null,
       });
     },
   });
   pages.register({
-    section: "keyboard",
+    pageId: "keyboard",
     label: "Keyboard",
     keywords: [],
+    note: "",
     render: () => null,
   });
   return pages;
@@ -47,18 +49,18 @@ function WarmingSettingsScreen(props: {
 
 describe("the settings page board's idle warm", () => {
   it("arms one walk on mount, and at idle warms only the deferred page", () => {
-    const loadedSections: string[] = [];
-    const pages = composePages(loadedSections);
+    const loadedPageIds: string[] = [];
+    const pages = composePages(loadedPageIds);
     const scheduler = new ManualIdleWarmScheduler();
     render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
     expect(scheduler.pendingCount).toBe(1);
-    expect(loadedSections).toStrictEqual([]);
+    expect(loadedPageIds).toStrictEqual([]);
 
     scheduler.runToQuiescence();
 
     // A `render:` page has nothing to fetch, so the walk ends rather than re-arming on it.
-    expect(loadedSections).toStrictEqual(["notifications"]);
+    expect(loadedPageIds).toStrictEqual(["notifications"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 
@@ -66,8 +68,8 @@ describe("the settings page board's idle warm", () => {
     // The walk is built inside the effect, whose dependencies are the board and a pinned
     // scheduler. Depending on the scheduler parameter instead would re-run the effect every
     // pass, since its default constructs one per render.
-    const loadedSections: string[] = [];
-    const pages = composePages(loadedSections);
+    const loadedPageIds: string[] = [];
+    const pages = composePages(loadedPageIds);
     const scheduler = new ManualIdleWarmScheduler();
     const rendered = render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
     rendered.rerender(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
@@ -75,13 +77,13 @@ describe("the settings page board's idle warm", () => {
 
     expect(scheduler.pendingCount).toBe(1);
     scheduler.runToQuiescence();
-    expect(loadedSections).toStrictEqual(["notifications"]);
+    expect(loadedPageIds).toStrictEqual(["notifications"]);
   });
 
   it("releases the walk when the screen goes away", () => {
     // Guards the leak of a window closed mid-walk still re-arming an idle callback.
-    const loadedSections: string[] = [];
-    const pages = composePages(loadedSections);
+    const loadedPageIds: string[] = [];
+    const pages = composePages(loadedPageIds);
     const scheduler = new ManualIdleWarmScheduler();
     const rendered = render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
@@ -92,15 +94,15 @@ describe("the settings page board's idle warm", () => {
     expect(scheduler.canceledHandles).toHaveLength(1);
     expect(scheduler.pendingCount).toBe(0);
     scheduler.runToQuiescence();
-    expect(loadedSections).toStrictEqual([]);
+    expect(loadedPageIds).toStrictEqual([]);
   });
 
   it("warms the board under a re-run effect", () => {
     // `StrictMode` runs setup, cleanup, then setup again. A walk held across the re-run would be
     // started, canceled and then found already canceled, leaving the board cold with nothing
     // failing; building it inside each setup makes a re-run a fresh walk.
-    const loadedSections: string[] = [];
-    const pages = composePages(loadedSections);
+    const loadedPageIds: string[] = [];
+    const pages = composePages(loadedPageIds);
     const scheduler = new ManualIdleWarmScheduler();
     render(
       <StrictMode>
@@ -113,7 +115,7 @@ describe("the settings page board's idle warm", () => {
 
     scheduler.runToQuiescence();
 
-    expect(loadedSections).toStrictEqual(["notifications"]);
+    expect(loadedPageIds).toStrictEqual(["notifications"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
   });
 });

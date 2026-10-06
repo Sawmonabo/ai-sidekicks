@@ -6,10 +6,12 @@
 // download completed. The console never derives readiness from a percent, and only
 // `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
 // for that control under the controls, which stay drawn. Under the read-out sits the switch for
-// the machine setting `updatesAutomatic`, which draws a refused write the same way.
+// the machine setting `updatesAutomatic`: a refused write leaves the switch where it was and draws
+// the service's words in the page's strip, with `Try again` sending the same change again.
 
 import type { UpdateState } from "#shared/preload-api.js";
 import { useState, type ReactNode } from "react";
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
@@ -50,7 +52,7 @@ export interface UpdatesBlockProps {
   /** The machine settings the automatic-check switch reads and writes. */
   readonly preferences: Pick<
     MachineSettingsBinding,
-    "settings" | "isPending" | "refusalFor" | "choose"
+    "settings" | "isPending" | "refusalFor" | "choose" | "retry"
   >;
 }
 
@@ -72,7 +74,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">
-      <h3 className="meridian-settings-page__block-title">Updates</h3>
+      <h3 className="meridian-settings-page__section-head">Updates</h3>
 
       <UpdateReadOut reading={reading} />
 
@@ -117,13 +119,20 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
       <PreferenceToggleRow
         label="Check for updates automatically"
         checked={preferences.settings.updatesAutomatic}
+        checkedByDefault={MACHINE_SETTINGS_DEFAULTS.updatesAutomatic}
         isPending={preferences.isPending("updatesAutomatic")}
         onCheckedChange={(checked) => {
           preferences.choose("updatesAutomatic", checked);
         }}
       />
       {preferenceRefusal === undefined ? null : (
-        <InlineRefusal code={preferenceRefusal.code} detail={preferenceRefusal.detail} />
+        <InlineRefusal
+          code={preferenceRefusal.code}
+          detail={preferenceRefusal.detail}
+          onTryAgain={() => {
+            preferences.retry("updatesAutomatic");
+          }}
+        />
       )}
     </section>
   );

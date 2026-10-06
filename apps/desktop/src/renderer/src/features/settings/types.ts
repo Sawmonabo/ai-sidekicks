@@ -7,25 +7,41 @@ import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import type { SchemePreference } from "#renderer/styles/tokens.js";
 
 /**
+ * One control a page declares findable, in the words the page draws for it.
+ *
+ * `id` is unique within its page: the third part of `#/settings/<page>/<control>` and the value
+ * of the anchor the page body puts on the control, so a link and a search hit land on it.
+ */
+export interface SettingsControl {
+  readonly id: string;
+  /** The control's own label, exactly as drawn. */
+  readonly label: string;
+  /** The section head the control sits under; absent for a control under none. */
+  readonly heading?: string;
+  /** The one-line hint drawn with the control, where it has one. */
+  readonly hint?: string;
+}
+
+/**
  * Everything a settings page is handed.
  *
  * Deliberately narrower than `ScreenContext`: a page reads its own wire and
- * navigates the rail, and handing it the session stores would invite a page to hold
+ * navigates the page list, and handing it the session stores would invite a page to hold
  * session state the settings screen has no session for.
  */
 export interface SettingsPageContext {
   readonly bridge: PlatformBridge;
-  /** Renderer-local rail navigation — the deep-link grammar's other half. */
-  readonly openPage: (section: SettingsPageId) => void;
+  /** Renderer-local page navigation — the deep-link grammar's other half. */
+  readonly openPage: (pageId: SettingsPageId) => void;
   /**
    * What the address asked this page to be opened for, where it asked for anything.
    *
-   * The second segment of `#/settings/<page>/<selection>`, carried through untouched; it is
-   * how a view elsewhere hands a page its subject (`#/settings/providers/codex`). A bare
-   * string, never a narrowed one: `routing/` owns only the grammar, and the page narrows it
-   * against its own vocabulary, fail-closed, so an unrecognized selection is a page opened
-   * for nothing rather than one that refuses to open. It authorizes and selects nothing on
-   * its own.
+   * The third part of `#/settings/<page>/<selection>`, carried through untouched: a control the
+   * frame lands on, or how a view elsewhere hands a page its subject
+   * (`#/settings/providers/codex`). A bare string, never a narrowed one: `routing/` owns only the
+   * grammar, and the page narrows it against its own vocabulary, fail-closed, so an unrecognized
+   * selection is a page opened for nothing rather than one that refuses to open. It authorizes
+   * and selects nothing on its own.
    */
   readonly selection: string | undefined;
   /**

@@ -14,7 +14,8 @@
  * `window-opening` is a list window putting a box it just took at the offset it holds: where the
  * list opens, a selection far down it included. `row-reveal` is a list window scrolling the least
  * distance that brings a row into view: the keyboard's row in a roving list, the palette's
- * highlighted match.
+ * highlighted match. `settings-control-landing` is Settings putting the control a link or a search
+ * hit names in the middle of the view, once, when the person arrives on it.
  */
 export const SCROLL_CALLERS = [
   "follow-tail",
@@ -26,6 +27,7 @@ export const SCROLL_CALLERS = [
   "measurement-compensation",
   "window-opening",
   "row-reveal",
+  "settings-control-landing",
 ] as const;
 
 /** One scroll caller. Derived from the enumeration, never restated. */

@@ -1,68 +1,66 @@
-// One settings page, and the settle that follows a search hit.
+// One settings page: its heading, its note, its body, and the landing an arrival asks for.
 //
-// The reader reaches the page by moving focus to its heading, not by a programmatic scroll:
-// `scrollIntoView` is not allowed in this console and the transcript's scroll chokepoint owns
-// scroll writes. The viewport following focus is the browser's own behavior. The settle is a
-// CSS animation whose end clears it, so nothing here schedules a timer.
+// A search hit moves focus to the heading, so the reader is on the page the hit opened; a hit or
+// a link naming a control then lands on it, which moves focus on to the control and glides it
+// into view through the scroll chokepoint.
 
 import { useEffect, useRef, useState } from "react";
 
 import type { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
 import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
+import { SETTINGS_PAGE_LABELS } from "../pages/labels.js";
+import { useSettingsControlLanding } from "../hooks/useSettingsControlLanding.js";
 
 /** Props for {@link SettingsPageContent}. */
 export interface SettingsPageContentProps {
-  readonly section: SettingsPageId;
+  readonly pageId: SettingsPageId;
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
-  /**
-   * How many search hits this pane has opened. It moves on every hit, including a second hit
-   * on the section already open.
-   */
-  readonly settleOrdinal: number;
+  /** Moves on every search hit, including a second hit on what is already open. */
+  readonly hitOrdinal: number;
 }
 
 /**
- * The selected section's page, and the settle that follows a search hit.
+ * The open page under its heading and note.
  *
- * Its own component because the settle effect needs a heading on screen; the pane's empty-state
+ * Its own component because the landing needs the page body on screen; the pane's empty-state
  * arms stay hook-free.
  */
 export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.Element {
+  const { pageId, context, hitOrdinal } = props;
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [isSettling, setIsSettling] = useState(false);
-  const { settleOrdinal } = props;
+  // State rather than a ref, so the landing starts again when the body element arrives.
+  const [pageBody, setPageBody] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Ordinal zero is the pane opening, not a hit; settling then would flash on rail
-    // navigation.
-    if (settleOrdinal === 0) {
-      return;
+    // Ordinal zero is the pane opening, not a hit.
+    if (hitOrdinal !== 0) {
+      headingRef.current?.focus();
     }
-    headingRef.current?.focus();
-    setIsSettling(true);
-  }, [settleOrdinal]);
+  }, [hitOrdinal]);
+  useSettingsControlLanding({
+    pageBody,
+    pageId,
+    controlId: context.selection,
+    arrivalOrdinal: hitOrdinal,
+  });
 
-  const descriptor = props.pages.descriptorFor(props.section);
-  const label = SETTINGS_PAGE_LABELS[props.section];
+  const descriptor = props.pages.descriptorFor(pageId);
+  const label = descriptor?.label ?? SETTINGS_PAGE_LABELS[pageId];
   return (
-    <article
-      className={
-        isSettling
-          ? "meridian-settings__page meridian-settings__page--settling"
-          : "meridian-settings__page"
-      }
-      aria-label={label}
-      onAnimationEnd={() => {
-        setIsSettling(false);
-      }}
-    >
-      <h2 className="meridian-settings__page-heading" ref={headingRef} tabIndex={-1}>
-        {descriptor?.label ?? label}
-      </h2>
-      <div className="meridian-settings__page-body">{descriptor?.render(props.context)}</div>
+    <article className="meridian-settings__page" aria-label={label}>
+      <header className="meridian-settings__page-head">
+        <h2 className="meridian-settings__page-heading" ref={headingRef} tabIndex={-1}>
+          {label}
+        </h2>
+        {descriptor === undefined ? null : (
+          <p className="meridian-settings__page-note">{descriptor.note}</p>
+        )}
+      </header>
+      <div className="meridian-settings__page-body" ref={setPageBody}>
+        {descriptor?.render(context)}
+      </div>
     </article>
   );
 }

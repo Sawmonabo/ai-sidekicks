@@ -1,49 +1,48 @@
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { type SettingsPageMatch } from "../pages/registry.js";
-import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
+import { type SettingsSearchHit } from "../search.js";
 
 /** Props for {@link SettingsSearchResults}. */
 export interface SettingsSearchResultsProps {
+  readonly hitsId: string;
   readonly query: string;
-  readonly matches: readonly SettingsPageMatch[];
-  readonly selectedSection: SettingsPageId | undefined;
-  readonly onOpenSection: (section: SettingsPageId) => void;
+  readonly hits: readonly SettingsSearchHit[];
+  readonly highlightedIndex: number | undefined;
+  readonly hitIdAt: (hitIndex: number) => string;
+  readonly onOpenHit: (hit: SettingsSearchHit) => void;
 }
 
-/** Ranked hits, each naming its section; a miss names the query and what was searched. */
+/**
+ * The hits, each its label over the place it sits, or the one line a term nothing matches draws.
+ */
 export function SettingsSearchResults(props: SettingsSearchResultsProps): React.JSX.Element {
-  if (props.matches.length === 0) {
+  if (props.hits.length === 0) {
     return (
-      <Nothing
-        kind="empty"
-        placement="block"
-        title={`Nothing in settings matches “${props.query}”.`}
-        detail="Every section was searched by its name, its page heading, and its aliases."
-      />
+      <p id={props.hitsId} className="meridian-settings__no-match" role="status">
+        No setting matches “{props.query.trim()}”.
+      </p>
     );
   }
   return (
-    <nav aria-label="Settings search results">
-      <ul className="meridian-settings__sections">
-        {props.matches.map((match) => (
-          <li key={match.descriptor.section}>
-            <button
-              type="button"
-              className="meridian-settings__section meridian-settings__section--result"
-              aria-current={match.descriptor.section === props.selectedSection ? "page" : undefined}
-              onClick={() => {
-                props.onOpenSection(match.descriptor.section);
-              }}
-            >
-              <span className="meridian-settings__result-label">{match.descriptor.label}</span>
-              <span className="meridian-settings__result-section">
-                {SETTINGS_PAGE_LABELS[match.descriptor.section]}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </nav>
+    <ul
+      id={props.hitsId}
+      className="meridian-settings__hits"
+      role="listbox"
+      aria-label="Settings search results"
+    >
+      {props.hits.map((hit, hitIndex) => (
+        <li
+          key={`${hit.pageId}/${hit.controlId ?? ""}`}
+          id={props.hitIdAt(hitIndex)}
+          className="meridian-settings__hit"
+          role="option"
+          aria-selected={hitIndex === props.highlightedIndex}
+          onClick={() => {
+            props.onOpenHit(hit);
+          }}
+        >
+          <span className="meridian-settings__hit-label">{hit.label}</span>
+          <span className="meridian-settings__hit-place">{hit.place}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -10,6 +10,8 @@ import { DraftStore } from "#renderer/store/drafts.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { WindowStore } from "#renderer/store/window/store.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { SettingsScreen } from "./SettingsScreen.js";
@@ -27,7 +29,7 @@ import { type ScreenContext } from "#renderer/registries/screens/context.js";
 async function loadShippedScreenRender(): Promise<ScreenDescriptor["render"]> {
   const screens = new ScreenRegistry();
   registerSettingsScreen(screens);
-  // Preload first, as a window does, so cases assert on the rail and not on how many turns
+  // Preload first, as a window does, so cases assert on the page list and not on how many turns
   // a dynamic import takes.
   await screens.preload("settings");
   const descriptor = screens.descriptorFor("settings");
@@ -110,12 +112,13 @@ export function windowAt(
 }
 
 /**
- * Render the settings screen the way a window mounts it.
+ * Render the settings screen the way a window mounts it, on the address it was parked at.
  *
- * The announcer is part of the mount because settings pages announce and `useAnnounce`
- * throws outside its provider. Omitting `pages` renders the shipped composition through the
- * registrar. Settles afterward because the shipped arm is loader-backed: the first commit
- * shows the reserved frame and the pages arrive a macrotask later.
+ * The bridge and the announcer are part of the mount because a page lands through the window's
+ * clock and settings pages announce; both hooks throw outside their providers. Omitting `pages`
+ * renders the shipped composition through the registrar. Settles afterward because the shipped
+ * arm is loader-backed: the first commit shows the reserved frame and the pages arrive a
+ * macrotask later.
  */
 export async function renderSettingsScreen(
   context: ScreenContext,
@@ -127,8 +130,42 @@ export async function renderSettingsScreen(
     ) : (
       <SettingsScreen context={context} pages={pages} />
     );
-  const rendered = render(<LiveAnnouncerProvider>{screenElement}</LiveAnnouncerProvider>);
+  const rendered = render(
+    <PlatformBridgeProvider bridge={context.bridge}>
+      <LiveAnnouncerProvider>{screenElement}</LiveAnnouncerProvider>
+    </PlatformBridgeProvider>,
+  );
   // The lazy component suspends on its first render, so the body lands one boundary later.
   await settle();
   return rendered;
+}
+
+/**
+ * Render the settings screen over a registry the case owns, following the window's route as the
+ * router does: each settings address re-renders it, and any other address takes it away.
+ */
+export async function renderRoutedSettingsScreen(
+  settingsWindow: SettingsWindow,
+  pages: SettingsPageRegistry,
+): Promise<ReturnType<typeof render>> {
+  const rendered = render(
+    <PlatformBridgeProvider bridge={settingsWindow.context.bridge}>
+      <LiveAnnouncerProvider>
+        <RoutedSettingsScreen context={settingsWindow.context} pages={pages} />
+      </LiveAnnouncerProvider>
+    </PlatformBridgeProvider>,
+  );
+  await settle();
+  return rendered;
+}
+
+/** The screen while the window's route is a settings address, and nothing on any other. */
+function RoutedSettingsScreen(props: {
+  readonly context: ScreenContext;
+  readonly pages: SettingsPageRegistry;
+}): React.JSX.Element | null {
+  const route = useWindowStore(props.context.frameStore, (state) => state.route);
+  return route.kind === "settings" ? (
+    <SettingsScreen context={{ ...props.context, route }} pages={props.pages} />
+  ) : null;
 }

@@ -1,42 +1,45 @@
-// The settings page table: which page holds which section, and how a term finds it.
+// The settings page table: each page's heading, note, findable words and controls, and how its
+// body arrives.
 //
-// The screen is a page list and a pane holding the selected page. Every entry declares a
-// section, a label, keyword aliases and its renderer, so a search hit names where it
-// landed. `SETTINGS_PAGES` is the table; `SettingsPageRegistry` is what one mount of the
-// screen composes from it, so no window inherits another's pages.
-//
-// The matcher is `scoreSubsequence` from `@ai-sidekicks/search-ranking`, the one the
-// palette ranks with, so a term ranks identically in both places. What lives here is only
-// what text a settings entry offers the scorer.
+// The screen is a page list and a pane holding the open page. `SETTINGS_PAGES` is the table;
+// `SettingsPageRegistry` is what one mount of the screen composes from it, so no window inherits
+// another's pages. What search does with the words each page declares is `../search.ts`.
 
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 
 import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
-import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/loader.js";
 import { AppearancePage } from "./appearance/AppearancePage.js";
+import { APPEARANCE_CONTROLS } from "./appearance/controls.js";
+import { findSettingsPageBody } from "./body-registry.js";
+import { GENERAL_CONTROLS } from "./general/controls.js";
 import { GeneralPage } from "./general/GeneralPage.js";
+import { KEYBOARD_CONTROLS } from "./keyboard/controls.js";
 import { KeyboardPage } from "./keyboard/KeyboardPage.js";
 import { McpServersPage } from "./mcp-servers/McpServersPage.js";
 import { NotificationsPage } from "./notifications/NotificationsPage.js";
 import { ProvidersPage } from "./providers/ProvidersPage.js";
+import { RUNTIME_CONTROLS } from "./runtime/controls.js";
 import { RuntimePage } from "./runtime/RuntimePage.js";
-import type { SettingsPageBody, SettingsPageContext } from "../types.js";
+import type { SettingsControl, SettingsPageBody, SettingsPageContext } from "../types.js";
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
 
 /** One registered page, as the page list, the pane and search read it. */
 export interface SettingsPageDescriptor {
-  readonly section: SettingsPageId;
-  /** The page's own heading. The rail shows {@link SETTINGS_PAGE_LABELS}. */
+  readonly pageId: SettingsPageId;
+  /** The page's own heading. The page list shows `SETTINGS_PAGE_LABELS`. */
   readonly label: string;
   /**
-   * Alternative terms a person may type for this page.
+   * Other words a person may type for this page.
    *
-   * The entry is matched on its label AND on each alias, best score wins, so
-   * "shortcut" finds the keyboard page whose label says "Keyboard".
+   * Search finds the page on its heading, its list label or any of these, so "shortcut" finds
+   * the Keyboard page.
    */
   readonly keywords: readonly string[];
+  /** The one line under the heading saying what the page is and where its values are kept. */
+  readonly note: string;
+  /** The controls search finds on this page, in the order the page draws them. */
+  readonly controls: readonly SettingsControl[];
   readonly render: SettingsPageBody;
 }
 
@@ -63,24 +66,16 @@ export type SettingsPageRegistration =
       readonly render?: never;
     });
 
-/** One ranked search hit: the entry, the text that matched, and its score. */
-export interface SettingsPageMatch {
-  readonly descriptor: SettingsPageDescriptor;
-  /** The label or alias the score was earned on, so the result can say why. */
-  readonly matchedText: string;
-  readonly score: number;
-}
-
 /**
- * The pages one mount of the Settings screen holds, keyed by section.
+ * The pages one mount of the Settings screen holds, keyed by page.
  *
- * A second claim on a section throws rather than replacing it.
+ * A second claim on a page throws rather than replacing it.
  */
 export class SettingsPageRegistry {
-  readonly #descriptorsBySection = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({
+  readonly #descriptorsByPageId = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({
     duplicatePolicy: "throw",
-    describeWhat: "settings section",
-    duplicateHint: "the settings pane renders one page per section, in rail order",
+    describeWhat: "settings page",
+    duplicateHint: "the settings pane renders one body per page, in page-list order",
   });
 
   /**
@@ -89,84 +84,83 @@ export class SettingsPageRegistry {
    * Kept apart from the descriptor because every mount site reads the descriptor and none
    * needs to know whether the page arrived as a chunk.
    */
-  readonly #loadedBodiesBySection = new Map<
-    SettingsPageId,
-    LoaderBackedBody<SettingsPageContext>
-  >();
+  readonly #loadedBodiesByPageId = new Map<SettingsPageId, LoaderBackedBody<SettingsPageContext>>();
 
   /**
-   * Claim a section. A second claim on it is an error, not a swap.
+   * Claim a page. A second claim on it is an error, not a swap.
    *
    * A loader-form registration becomes one `LoaderBackedBody` (one memoized promise, one
    * stable lazy component) and a descriptor whose `render` mounts it, so `descriptorFor` and
-   * `entries` answer the same shape for both forms and neither `SettingsPane` nor the search
-   * index branches on how a body arrived. The descriptor is registered first so a refusal (a
-   * second claim on a taken section) throws before the loader table is touched and cannot
+   * `entries` answer the same shape for both forms and neither `SettingsPane` nor search
+   * branches on how a body arrived. The descriptor is registered first so a refusal (a
+   * second claim on a taken page) throws before the loader table is touched and cannot
    * strip the loader off the registration that survives it.
    */
   public register(registration: SettingsPageRegistration): void {
     const descriptorBase = {
-      section: registration.section,
+      pageId: registration.pageId,
       label: registration.label,
       keywords: registration.keywords,
+      note: registration.note,
+      controls: registration.controls ?? [],
     };
     if (registration.body === undefined) {
-      this.#descriptorsBySection.register(registration.section, {
+      this.#descriptorsByPageId.register(registration.pageId, {
         ...descriptorBase,
         render: registration.render,
       });
-      this.#loadedBodiesBySection.delete(registration.section);
+      this.#loadedBodiesByPageId.delete(registration.pageId);
       return;
     }
     // Nothing draws while the page loads: the pane above has already drawn the frame and
     // heading, and the page has asked the daemon for nothing, so no empty state fits.
     const loadedBody = new LoaderBackedBody(registration.body, () => null);
-    this.#descriptorsBySection.register(registration.section, {
+    this.#descriptorsByPageId.register(registration.pageId, {
       ...descriptorBase,
       render: loadedBody.render,
     });
-    this.#loadedBodiesBySection.set(registration.section, loadedBody);
+    this.#loadedBodiesByPageId.set(registration.pageId, loadedBody);
   }
 
   /**
-   * Start this section's body loading, without opening it.
+   * Start this page's body loading, without opening it.
    *
    * Idempotent, because the promise is memoized on the registration; a component-form or
-   * unregistered section settles immediately. The one production caller is the idle walk
+   * unregistered page settles immediately. The one production caller is the idle walk
    * (`hooks/useSettingsPageIdleWarm.ts`) after the first frame. A load that fails is
    * reported where the page mounts, inside the screen's error boundary; the walk drops its
    * own rejection because nobody is waiting on it.
    */
-  public async preload(section: SettingsPageId): Promise<void> {
-    await this.#loadedBodiesBySection.get(section)?.load();
+  public async preload(pageId: SettingsPageId): Promise<void> {
+    await this.#loadedBodiesByPageId.get(pageId)?.load();
   }
 
   /**
-   * Which registered sections have a page still to load, in rail order.
+   * Which registered pages have a body still to load, in page-list order.
    *
-   * Rail order, not registration order, so what the idle walk warms first does not depend on
-   * which page module evaluated first. Resolved sections drop out, so a second walk over a
+   * Page-list order, not registration order, so what the idle walk warms first does not depend
+   * on which page module evaluated first. Resolved pages drop out, so a second walk over a
    * warm board does nothing.
    */
   public unloadedKeys(): readonly SettingsPageId[] {
     return SETTINGS_PAGE_IDS.filter(
-      (section) => this.#loadedBodiesBySection.get(section)?.isResolved === false,
+      (pageId) => this.#loadedBodiesByPageId.get(pageId)?.isResolved === false,
     );
   }
 
-  public descriptorFor(section: SettingsPageId): SettingsPageDescriptor | undefined {
-    return this.#descriptorsBySection.get(section);
+  public descriptorFor(pageId: SettingsPageId): SettingsPageDescriptor | undefined {
+    return this.#descriptorsByPageId.get(pageId);
   }
 
-  /** Which sections have a page, in rail order rather than registration order. */
-  public registeredSections(): readonly SettingsPageId[] {
-    return SETTINGS_PAGE_IDS.filter((section) => this.#descriptorsBySection.has(section));
+  /** Which pages are registered, in page-list order rather than registration order. */
+  public registeredPageIds(): readonly SettingsPageId[] {
+    return SETTINGS_PAGE_IDS.filter((pageId) => this.#descriptorsByPageId.has(pageId));
   }
 
-  /** Every registered page, in rail order. The search index's input. */
+  /** Every registered page, in page-list order. Search's input. */
   public entries(): readonly SettingsPageDescriptor[] {
-    return this.registeredSections()
-      .map((section) => this.#descriptorsBySection.get(section))
+    return this.registeredPageIds()
+      .map((pageId) => this.#descriptorsByPageId.get(pageId))
       .filter((descriptor): descriptor is SettingsPageDescriptor => descriptor !== undefined);
   }
 }
@@ -176,48 +170,6 @@ export class SettingsPageRegistry {
 // settings window could compose a different subset. A page's body is the exception, held at
 // module scope in `pages/body-registry.ts` as the composer is in the composer registry: a
 // composition fills it before any screen mounts, and the page that draws it imports no body.
-
-/**
- * Rank settings entries against a query.
- *
- * The scoring is `scoreSubsequence`'s; this function only decides which strings an entry
- * offers (its label, its section label and its aliases) and that the best of them wins. An
- * empty query answers every entry in rail order. Ties break on rail order, since the input is
- * in it and `Array.sort` is stable, so equally good hits never swap places between
- * keystrokes.
- */
-export function matchSettingsPages(
-  entries: readonly SettingsPageDescriptor[],
-  query: string,
-): readonly SettingsPageMatch[] {
-  const trimmedQuery = query.trim();
-  if (trimmedQuery === "") {
-    return entries.map((descriptor) => ({
-      descriptor,
-      matchedText: descriptor.label,
-      score: 0,
-    }));
-  }
-  const matches: SettingsPageMatch[] = [];
-  for (const descriptor of entries) {
-    const candidates = [
-      descriptor.label,
-      SETTINGS_PAGE_LABELS[descriptor.section],
-      ...descriptor.keywords,
-    ];
-    let best: SettingsPageMatch | undefined;
-    for (const candidate of candidates) {
-      const scored = scoreSubsequence(candidate, trimmedQuery);
-      if (scored !== undefined && (best === undefined || scored.score > best.score)) {
-        best = { descriptor, matchedText: candidate, score: scored.score };
-      }
-    }
-    if (best !== undefined) {
-      matches.push(best);
-    }
-  }
-  return matches.sort((left, right) => right.score - left.score);
-}
 
 /**
  * A registry holding every page of the table, composed for one mount of the screen.
@@ -236,13 +188,15 @@ export function composeSettingsPages(): SettingsPageRegistry {
 /** The settings pages, in page-list order. */
 export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   {
-    section: "general",
+    pageId: "general",
     label: "General",
     keywords: ["version", "about", "build"],
+    note: "What this install is, how it updates itself, and what a new session starts from.",
+    controls: GENERAL_CONTROLS,
     render: (context) => createElement(GeneralPage, { context }),
   },
   {
-    section: "providers",
+    pageId: "providers",
     label: "Providers",
     keywords: [
       "provider",
@@ -255,10 +209,13 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "default account",
       "readiness",
     ],
+    note:
+      "Sign in to Claude Code and Codex, choose which account new work runs on, and set what " +
+      "each provider does on its own. Every sign-in and pasted token stays on this machine.",
     render: () => createElement(ProvidersPage),
   },
   {
-    section: "mcp-servers",
+    pageId: "mcp-servers",
     label: "MCP servers",
     keywords: [
       "tools",
@@ -269,19 +226,35 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "reconnect",
       "authorize",
     ],
+    note:
+      "The tool servers Claude Code and Codex connect to, and what each is allowed to do. " +
+      "Read live from the background service.",
     render: () => createElement(McpServersPage),
+  },
+  {
+    pageId: "projects",
+    label: "Projects",
+    keywords: ["repositories", "clone", "worktree", "environment variables", "branch names"],
+    note:
+      "Where cloned repositories go, every project attached to this machine, what happens " +
+      "after a worktree is made, and the environment rows every process starts with.",
+    // The frame draws the heading and the note; this page draws nothing under them.
+    render: () => null,
   },
   {
     // A loader, so the page and its sheet stay off the initial import graph: the label
     // and keywords stay here because the page list and search read them before any
     // page's chunk has loaded.
-    section: "browser",
+    pageId: "browser",
     label: "Browser",
     keywords: ["web", "site data", "cookies", "storage", "file boundary", "page tools", "clear"],
+    note:
+      "What the browser inside the app remembers, and whether sidekicks can drive it. One set " +
+      "of site data for this machine.",
     body: () => import("./browser/body.js"),
   },
   {
-    section: "keyboard",
+    pageId: "keyboard",
     label: "Keyboard",
     keywords: [
       "shortcut",
@@ -293,16 +266,20 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "accelerator",
       "rebind",
     ],
+    note: "Every key the app answers to. Change any of them.",
+    controls: KEYBOARD_CONTROLS,
     render: () => createElement(KeyboardPage),
   },
   {
-    section: "appearance",
+    pageId: "appearance",
     label: "Appearance",
     keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
+    note: "How the app looks.",
+    controls: APPEARANCE_CONTROLS,
     render: (context) => createElement(AppearancePage, { chooseScheme: context.chooseScheme }),
   },
   {
-    section: "notifications",
+    pageId: "notifications",
     label: "Notifications",
     keywords: [
       "alerts",
@@ -313,19 +290,41 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "badges",
       "do not disturb",
     ],
+    note: "When the app tells you something is waiting.",
     render: () => createElement(NotificationsPage),
   },
   {
-    section: "runtime",
+    pageId: "runtime",
     label: "Runtime",
     keywords: ["background service", "runtime", "restart", "stop", "connection"],
+    note:
+      "The background service that runs sidekicks, the folders it can reach, what it keeps, " +
+      "and the port it listens on.",
+    controls: RUNTIME_CONTROLS,
     render: (context) => createElement(RuntimePage, { context }),
+  },
+  {
+    // The Remote Control feature fills this body through the page body registry.
+    pageId: "devices",
+    label: "Devices",
+    keywords: ["remote control", "phone", "link a device", "passkeys", "shared ports"],
+    note: "Computers and devices linked to reach sessions remotely.",
+    render: () => renderRegisteredBody("devices"),
   },
 ];
 
 /** What every registration carries, whichever form it takes. */
 interface SettingsPageRegistrationBase {
-  readonly section: SettingsPageId;
+  readonly pageId: SettingsPageId;
   readonly label: string;
   readonly keywords: readonly string[];
+  readonly note: string;
+  /** Absent for a page that declares no findable controls. */
+  readonly controls?: readonly SettingsControl[];
+}
+
+/** The body a composition registered for a page, or nothing while none is registered. */
+function renderRegisteredBody(pageId: SettingsPageId): ReactNode {
+  const RegisteredBody = findSettingsPageBody(pageId);
+  return RegisteredBody === undefined ? null : createElement(RegisteredBody);
 }

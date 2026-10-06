@@ -132,12 +132,8 @@ export function KeyboardPage(): ReactNode {
 
   return (
     <div className="meridian-settings-page">
-      <p className="meridian-settings-page__lede">
-        Every key the app answers to. Change any of them.
-      </p>
-
       <section className="meridian-settings-page__block" aria-label="Chords">
-        <h3 className="meridian-settings-page__block-title">Chords</h3>
+        <h3 className="meridian-settings-page__section-head">Chords</h3>
         <div className="meridian-keymap__filter meridian-form__field">
           <label className="meridian-visually-hidden" htmlFor={FILTER_FIELD_ID}>
             Search shortcuts
@@ -185,7 +181,7 @@ export function KeyboardPage(): ReactNode {
       </section>
 
       <section className="meridian-settings-page__block" aria-label="Changing a chord">
-        <h3 className="meridian-settings-page__block-title">Changing a chord</h3>
+        <h3 className="meridian-settings-page__section-head">Changing a chord</h3>
         <div className="meridian-settings-page__prose">
           <p>
             Press <strong>Rebind</strong> on a row and then the chord you want. Escape leaves the
@@ -204,7 +200,7 @@ export function KeyboardPage(): ReactNode {
       </section>
 
       <section className="meridian-settings-page__block" aria-label="What the keyboard reports">
-        <h3 className="meridian-settings-page__block-title">What the keyboard reports</h3>
+        <h3 className="meridian-settings-page__section-head">What the keyboard reports</h3>
         {audit.conflicts.length === 0 ? (
           <Nothing
             kind="empty"
@@ -281,7 +277,7 @@ export function KeyboardPage(): ReactNode {
         className="meridian-settings-page__block"
         aria-label="Chords this list does not hold"
       >
-        <h3 className="meridian-settings-page__block-title">Chords this list does not hold</h3>
+        <h3 className="meridian-settings-page__section-head">Chords this list does not hold</h3>
         <div className="meridian-settings-page__prose">
           <p>
             The command palette opens on <ChordHint chord={COMMAND_PALETTE_OPEN_CHORD} />, which the

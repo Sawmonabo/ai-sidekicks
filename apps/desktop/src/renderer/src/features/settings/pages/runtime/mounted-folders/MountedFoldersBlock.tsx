@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 export function MountedFoldersBlock(props: { readonly children?: ReactNode }): ReactNode {
   return (
     <section className="meridian-settings-page__block" aria-label="Mounted repositories">
-      <h3 className="meridian-settings-page__block-title">Mounted repositories</h3>
+      <h3 className="meridian-settings-page__section-head">Mounted repositories</h3>
       {props.children}
     </section>
   );

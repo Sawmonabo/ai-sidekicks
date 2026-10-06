@@ -29,15 +29,10 @@ export interface RuntimePageProps {
   readonly children?: ReactNode;
 }
 
-/** The page: the lede, what the supervisor reports about the service, and its folders. */
+/** The page: what the supervisor reports about the service, and its folders. */
 export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
-      <p className="meridian-settings-page__lede">
-        The background service that runs sidekicks, the folders it can reach, what it keeps, and the
-        port it listens on.
-      </p>
-
       <section className="meridian-settings-page__block">
         <dl className="meridian-settings-page__facts">
           {renderSupervisorFacts(props.context.mainProcessState)}

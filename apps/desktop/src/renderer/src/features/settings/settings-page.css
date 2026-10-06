@@ -1,8 +1,8 @@
-/* The chrome every settings page body is drawn inside: the block, the lede, the fact grid,
- * the action row and the wire-vocabulary list. Shared by every page and owned by none, so it
- * lives beside the shared page components rather than in one page's directory. The classes
- * are named for the three shapes every page composes (a lede, a block with a title, and
- * rows), not for any one page.
+/* The chrome every settings page body is drawn inside: the block, its section head, the fact
+ * grid, the action row and the wire-vocabulary list. Shared by every page and owned by none, so
+ * it lives beside the shared page components rather than in one page's directory. The classes
+ * are named for the shapes every page composes (a block under a section head, facts and rows),
+ * not for any one page.
  */
 
 .meridian-settings-page {
@@ -10,14 +10,6 @@
   flex-direction: column;
   gap: var(--meridian-space-5);
   min-width: 0;
-}
-
-.meridian-settings-page__lede {
-  margin: 0;
-  max-width: 62ch;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-sm);
-  line-height: 1.55;
 }
 
 .meridian-settings-page__block {
@@ -31,12 +23,15 @@
   min-width: 0;
 }
 
-.meridian-settings-page__block-title {
+/* The one section head every page draws: the uppercase field label's size, one tracking step
+   wider, so a head and a label differ only by their spacing. */
+.meridian-settings-page__section-head {
   margin: 0;
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
-  font-weight: 600;
-  letter-spacing: var(--meridian-tracking-mixed);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--meridian-tracking-heading);
+  text-transform: uppercase;
 }
 
 .meridian-settings-page__aside,

@@ -14,6 +14,7 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { ChangedFromDefaultMark } from "../../components/ChangedFromDefaultMark.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import {
@@ -67,10 +68,13 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
 
   return (
     <div className="meridian-settings-page">
-      <p className="meridian-settings-page__lede">How the app looks.</p>
-
       <section className="meridian-settings-page__block" aria-label="Color scheme">
-        <h3 className="meridian-settings-page__block-title">Color scheme</h3>
+        <div className="meridian-scheme-choice__head">
+          <h3 className="meridian-settings-page__section-head">Color scheme</h3>
+          {appliedScheme === SYSTEM_SCHEME_PREFERENCE ? null : (
+            <ChangedFromDefaultMark defaultDescription="System by default" />
+          )}
+        </div>
         <RadioGroup
           className="meridian-scheme-choice"
           aria-label="Color scheme"
