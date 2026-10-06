@@ -61,8 +61,6 @@ const BILLING_MODE_VALUES = ["subscription", "metered", "unknown"] as const;
  * never derives it, so showing it as metered would claim spend the daemon cannot support.
  */
 export type BillingMode = (typeof BILLING_MODE_VALUES)[number];
-/** Every `BillingMode`, in declaration order. */
-export const BILLING_MODES: readonly BillingMode[] = BILLING_MODE_VALUES;
 /** Parses a {@link BillingMode}. */
 export const BillingModeSchema: z.ZodType<BillingMode, BillingMode> = z.enum(BILLING_MODE_VALUES);
 
