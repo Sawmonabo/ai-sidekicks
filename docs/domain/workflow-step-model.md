@@ -35,7 +35,7 @@ The workflow step model describes how each node of a workflow executes within a 
 
 ## Agent And Person Steps
 
-The kinds that run an agent or ask a person ([Spec-015 §Node-Kind Taxonomy](../specs/015-workflow-authoring-and-execution.md#node-kind-taxonomy)):
+The kinds that run an agent or ask a person ([Workflow Graph Model §Node-Kind Taxonomy](workflow-graph-model.md#node-kind-taxonomy)):
 
 | Kind | What its step does |
 | --- | --- |

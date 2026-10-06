@@ -92,7 +92,7 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Status: `blocked` (external-world wait — a Bun release fixing [oven-sh/bun#43903](https://github.com/oven-sh/bun/issues/43903))
 - Priority: `P3`
 - Owner: `unassigned`
-- References: [Spec-015 §Node-Kind Taxonomy](./specs/015-workflow-authoring-and-execution.md#node-kind-taxonomy) (a run installs from the lock and never resolves again), [oven-sh/bun#43903](https://github.com/oven-sh/bun/issues/43903)
+- References: [Workflow Graph Model §Node-Kind Taxonomy](domain/workflow-graph-model.md#node-kind-taxonomy) (a run installs from the lock and never resolves again), [oven-sh/bun#43903](https://github.com/oven-sh/bun/issues/43903)
 - Summary: A workflow's code step installs its packages with `bun install --frozen-lockfile` in that version's code folder. Bun runs the `node-gyp` build even for a package that sets `"gypfile": false`, such as `better-sqlite3`, and that build fetches the Node headers. So the install runs with `npm_config_devdir` and `TMPDIR` pointed into the daemon's folder, and the headers land under the daemon's cache rather than the person's own.
 - Named gate: a Bun release that carries the fix. Nothing in-tree blocks.
 - Exit Criteria: (a) the daemon's `bun` on that release; (b) `npm_config_devdir` and `TMPDIR` kept on the install only if the cache placement still needs them; (c) until then, each newest-release pass checks the issue's state with `gh issue view 43903 -R oven-sh/bun`.

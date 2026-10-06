@@ -273,7 +273,7 @@ interface WorkflowStep {
 // `approvalMode`, or `idempotencyClass` facet — a tool's approval lives only in Settings › MCP
 // servers (Spec-024 §Tool-Level Overrides), resolved live at step launch through the Spec-004
 // tool-metadata layer. A definition carrying one is refused as an ordinary parse error naming
-// the field (Spec-015 §Tool bindings are references, never inline policy (SA-31)).
+// the field (Workflow Graph Model §Tool bindings are references, never inline policy (SA-31)).
 // Identity COMPOSES the Plan-022-owned `McpServerBindingRef` discriminated union declared
 // in mcp-governance-payloads.md §Plan-022 rather than restating its members: Plan-014 consumes that identity and
 // authors none of it (CP-014-6), and re-declaring it flat would drop the scope rules the union
