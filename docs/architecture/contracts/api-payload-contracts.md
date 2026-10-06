@@ -4054,44 +4054,65 @@ interface RememberedScope {
 // with it.
 type InvalidationTrigger = "explicit" | "session_end" | "server_removed";
 
-// approval_flow event payload for six of the `approval.*` variants — `requested`, `approved`, `rejected`,
-// `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the canonical
-// Zod schema). The variants carry the projection-rebuild fields (D-009-6
-// rebuild; D-009-7 events-canonical): `requested` carries the request fields; the
-// resolution events carry the answering device + effective scope; `remembered`
-// carries the rule the answer handed to the provider (binding = `rememberedScope`, origin
-// resolution via `approvalRequestId`), the session's own record of it, which the daemon lists and
-// carries across a restart of the provider's process; decision and state ride
-// the event type; envelope timestamps supply the created/updated instants. The other
-// members of the same category have payloads of their own and are not this shape:
-// `moderation.review_flagged`, `approval.reviewer_denied` and `approval.denial_overridden`,
-// see their payloads below, and the `plan.*` types, whose records are §The plan verdict's.
-// Variant-required fields are enforced at the EMISSION seam via the exported per-type
-// refinement (Plan-009 T1.1 `approvalFlowPayloadRefinementFor`): requested ⇒ runId /
-// approvalRequestId / requestedBy / resourceDescriptor; approved / rejected ⇒
-// approvalRequestId / deviceId / effectiveScope; canceled ⇒ approvalRequestId;
-// remembered ⇒ approvalRequestId / rememberedScope / ruleId;
-// rule_revoked ⇒ ruleId / invalidationTrigger —
-// a malformed event fails at the emission parse, never at restart projection (I-009-9).
-// Requested rows a provider permission ask originates additionally carry `askId` — its PRESENCE is
-// required at the CP-009-5 normalizer seam (T2.8, the sole such emitter): the origin-blind
-// refinement cannot know whether a requested payload came from a provider ask, so it enforces
-// nothing about it.
-interface ApprovalFlowEventPayload {
+// approval_flow event payloads for six of the `approval.*` types — `requested`, `approved`, `rejected`,
+// `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the canonical Zod
+// schemas in `packages/contracts/src/approval.ts`, one per type, each `.strict()`). The payloads
+// carry the projection-rebuild fields (D-009-6 rebuild; D-009-7 events-canonical): `requested`
+// carries the request fields; the resolution events carry the answering device and the effective
+// scope; `remembered` carries the rule the answer handed to the provider (binding =
+// `rememberedScope`, origin resolution via `approvalRequestId`), the session's own record of it,
+// which the daemon lists and carries across a restart of the provider's process; decision and state
+// ride the event type; envelope timestamps supply the created/updated instants. Each type's schema
+// requires exactly its own members, so a malformed event fails at the emission parse, never at
+// restart projection (I-009-9). The other members of the same category have payloads of their own:
+// `moderation.review_flagged`, `approval.reviewer_denied` and `approval.denial_overridden`, see
+// their payloads below, and the `plan.*` types, whose records are §The plan verdict's.
+interface ApprovalRequestedPayload {
   sessionId: SessionId;
-  runId?: RunId; // absent on rule_revoked (no in-flight request)
-  approvalRequestId?: ApprovalRequestId; // ditto
-  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the daemon's own id for the ask, a ULID (the provider's request id is delivery routing state, never this id), persisted at creation as the durable ask↔approval association — a restart's rebuild reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; required at the CP-009-5 normalizer emission seam (T2.8 — the sole requester a provider ask originates), set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  runId: RunId;
+  approvalRequestId: ApprovalRequestId;
   category: ApprovalCategory;
   scope: string;
-  requestedBy?: string; // present on approval.requested — recorded requester actor (the agent's actor id, or the device a person's request came from, Spec-010 §Required Behavior)
-  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
-  effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-009-6)
-  clientResolutionId?: string; // present on approval.approved / approval.rejected — the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did
-  deviceId?: DeviceId; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
-  rememberedScope?: RememberedScope;
-  ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
-  invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
+  requestedBy: string; // recorded requester actor (the agent's actor id, or the device a person's request came from, Spec-010 §Required Behavior)
+  resourceDescriptor: Record<string, unknown>; // audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
+  askId?: string; // present when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the daemon's own id for the ask, a ULID (the provider's request id is delivery routing state, never this id), persisted at creation as the durable ask↔approval association — a restart's rebuild reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; its presence is required at the CP-009-5 normalizer emission seam (T2.8 — the sole requester a provider ask originates), since the schema cannot know whether a request came from a provider ask; set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+}
+// approval.approved and approval.rejected
+interface ApprovalResolvedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  approvalRequestId: ApprovalRequestId;
+  category: ApprovalCategory;
+  scope: string;
+  effectiveScope: string; // recorded effective scope (≤ requested, I-009-6)
+  deviceId: DeviceId; // the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
+  clientResolutionId: string; // the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did
+}
+interface ApprovalCanceledPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  approvalRequestId: ApprovalRequestId;
+  category: ApprovalCategory;
+  scope: string;
+}
+interface ApprovalRememberedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  approvalRequestId: ApprovalRequestId;
+  category: ApprovalCategory;
+  scope: string;
+  nodeId: NodeId; // the machine whose provider keeps the rule
+  ruleId: RememberedRuleId;
+  rememberedScope: RememberedScope;
+}
+interface ApprovalRuleRevokedPayload {
+  sessionId: SessionId;
+  category: ApprovalCategory;
+  scope: string;
+  ruleId: RememberedRuleId;
+  invalidationTrigger: InvalidationTrigger;
+  runId?: RunId; // absent where no ask was in flight, as when a project is detached or a tool server is removed
+  approvalRequestId?: ApprovalRequestId; // ditto
 }
 
 // moderation.review_flagged payload — an `approval_flow` event with its own shape
