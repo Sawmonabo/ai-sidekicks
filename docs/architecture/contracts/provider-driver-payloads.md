@@ -675,7 +675,7 @@ interface SessionNoticeLevelUnavailable {
 
 // session.notice of kind `provider_updated`: the session moved to the provider's new build, its
 // process or service replaced and its conversation resumed when its running reply ended, or at once
-// while it was idle. It draws the faint line `<Provider> updated · <old version> → <new version>`
+// while it was idle. It draws the faint line `<Provider> updated · <old version> → <new version> · What's new`
 // above the composer until the next message is sent, and no flow row.
 interface SessionNoticeProviderUpdated {
   sessionId: SessionId;
