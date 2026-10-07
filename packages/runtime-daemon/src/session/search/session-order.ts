@@ -7,7 +7,7 @@ import type { Database, Statement } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { sourceRowidSql } from "./index-columns.js";
+import { sourceRowidSql } from "./index/columns.js";
 import type { TextRanking } from "./ranking.js";
 import type { HeldRowCheck } from "./rowid-floors.js";
 import type { SessionOrder } from "./snapshots.js";

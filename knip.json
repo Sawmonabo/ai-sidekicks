@@ -259,8 +259,13 @@
       ]
     },
     "packages/runtime-daemon": {
-      // The database writer's worker thread: started by its file's URL, which knip cannot follow.
-      "entry": ["src/database/worker.ts"],
+      // The database writer's, the search's and its rankers' worker threads: each started by its
+      // file's URL, which knip cannot follow.
+      "entry": [
+        "src/database/worker.ts",
+        "src/session/search/thread/worker.ts",
+        "src/session/search/thread/ranker/worker.ts"
+      ],
       // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
       // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
       // ship with the operating system, never as a package dependency.

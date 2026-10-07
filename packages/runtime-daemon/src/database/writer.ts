@@ -7,8 +7,6 @@
 // write carries, such as a workflow tick's, commit together. At the queue's cap a write waits for
 // the next batch to commit, except an assistant's thinking update, which is dropped and counted.
 
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
 import Database from "better-sqlite3";
@@ -18,6 +16,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { waitWithin } from "../bounded-wait.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
+import { workerModuleUrlBeside } from "../worker-url.js";
 import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
 import type {
   CarriedError,
@@ -42,12 +41,7 @@ const ALERT_DEPTH = 8_000;
 // The one event type the queue may drop at its cap: narration a later event supersedes.
 const DROPPABLE_EVENT_TYPE = "assistant.thinking_update" satisfies SessionEventType;
 
-// The worker module sits beside this one, with this module's own extension, in the source tree
-// and in the build alike.
-const WORKER_URL = new URL(
-  `./worker${path.extname(fileURLToPath(import.meta.url))}`,
-  import.meta.url,
-);
+const WORKER_URL = workerModuleUrlBeside(import.meta.url);
 
 /** A write refused because a statement's row count was not the one it expected. */
 export class WriteRefusedError extends Error {

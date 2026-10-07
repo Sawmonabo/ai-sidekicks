@@ -1,9 +1,9 @@
 // Sessions' hits for a search's words, each ranked by its place in the search's ranking, and the
-// marked line of the hits a page shows. A log row carries its session's key in the index, so the
-// sessions' log rows are read, marked, by adding their keys to the match; the index answers that
-// from the keys' own entries. A title, group or tag row carries no key, so it is found by its
-// rowid, which its source row gives, and the ranking already holds its mark. A row is a hit only
-// while it still indexes the source row the ranking read at its rowid.
+// marked line of the hits a page shows. Every index row carries its owner's key, the session's or,
+// on a group's row, the group's, so the rows of some sessions and their groups are read by adding
+// their keys to the match; the index answers that from the keys' own entries. A row is a hit only
+// while it still indexes the source row the ranking read at its rowid, and only the hits a page
+// shows are marked.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -12,59 +12,85 @@ import {
   encodeEventCursor,
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";
+import type { SessionGroupId } from "@ai-sidekicks/contracts/session/groups";
 import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 import { TRANSCRIPT_SEARCH_TEXT_MAX_LEN } from "@ai-sidekicks/contracts/transcript/search";
 
-import { indexRowidSql, sessionKeyOf, sourceRowidSql } from "./index-columns.js";
+import { indexRowidSql, narrowToOwners, ownerIdsOf } from "./index/columns.js";
 import { MATCH_CLOSE_MARK, MATCH_OPEN_MARK, cutMarkedLine, readMarks } from "./marked-line.js";
-import { compareRankedRows, type RankedRowKey, type TextRanking } from "./ranking.js";
+import {
+  compareRankedRows,
+  type RankedRowKey,
+  type RankedSessionScope,
+  type TextRanking,
+} from "./ranking.js";
 import type { HeldRowCheck } from "./rowid-floors.js";
 
-const NARROWED_EVENT_ROWS_SQL = `
-  SELECT rowid AS index_rowid, session_id, sequence,
-         highlight(session_search_index, 0, @open, @close) AS marked
+const NARROWED_ROWS_SQL = `
+  SELECT rowid AS index_rowid, session_id, sequence
     FROM session_search_index WHERE session_search_index MATCH @expression`;
 
-// The log rows behind index rows, for a search that ranks every session the words find. Each is
-// found by its own rowid, so no pass over the index repeats; the rows a page shows are marked
-// afterwards.
-const EVENT_ROWS_SQL = `
-  SELECT ${indexRowidSql("event.rowid", "event")} AS index_rowid, event.session_id,
-         event.sequence, NULL AS marked
-    FROM json_each(?) AS wanted
-    JOIN session_events AS event ON event.rowid = ${sourceRowidSql("wanted.value", "event")}`;
+// Chosen rows are read in one pass of the match between their lowest and highest rowid. The index
+// seeks to a rowid bound only when it is an integer, and a JavaScript number binds as a real, so
+// each bound is cast. The rowid list is a filter the index never sees (`+rowid`): as a constraint
+// it would run the match once per rowid, and a prefix the prefix index does not hold is gathered
+// anew on each run.
+const CHOSEN_ROWS_FILTER_SQL = `
+     AND rowid >= CAST(@first AS INTEGER) AND rowid <= CAST(@last AS INTEGER)
+     AND +rowid IN (SELECT value FROM json_each(@rowids))`;
 
-// The rowids each session's title, group and tag rows would have; a session the directory does not
-// hold has none, and so no hits.
-const OTHER_ROWIDS_SQL = `
-  SELECT session.id AS session_id, session.name,
-         ${indexRowidSql("session.rowid", "title")} AS title_index_rowid,
-         ${indexRowidSql("session_group.rowid", "group")} AS group_index_rowid,
-         (SELECT json_group_array(${indexRowidSql("tag.rowid", "tag")})
-            FROM session_tags AS tag WHERE tag.session_id = session.id) AS tag_index_rowids
+const MARKED_ROWS_SQL = `
+  SELECT rowid AS index_rowid, highlight(session_search_index, 0, @open, @close) AS marked
+    FROM session_search_index
+   WHERE session_search_index MATCH @expression ${CHOSEN_ROWS_FILTER_SQL}`;
+
+// The sessions the directory holds among these, each with its group and its group's index rowid; a
+// session since purged has no row, and so no hits.
+const HIT_SESSIONS_SQL = `
+  SELECT session.id AS session_id, session.name, session_group.id AS group_id,
+         ${indexRowidSql("session_group.rowid", "group")} AS group_index_rowid
     FROM sessions AS session
     LEFT JOIN session_groups AS session_group ON session_group.id = session.group_id
    WHERE session.id IN (SELECT value FROM json_each(?))`;
 
-interface EventRow {
+// A matching index row as a read gives it.
+interface MatchingRow {
   readonly index_rowid: number;
-  readonly session_id: SessionId;
-  readonly sequence: number;
-  readonly marked: string | null;
+  /** `null` on a group's row, which belongs to every session in the group. */
+  readonly session_id: SessionId | null;
+  /** The log row's position, `null` on a title, group or tag row. */
+  readonly sequence: number | null;
 }
 
-interface OtherRowidsRow {
+interface MarkedRow {
+  readonly index_rowid: number;
+  readonly marked: string;
+}
+
+// Rows a read is limited to: their lowest and highest rowid, and the list of them as JSON.
+interface ChosenRows {
+  readonly first: number;
+  readonly last: number;
+  readonly rowids: string;
+}
+
+interface HitSessionRow {
   readonly session_id: SessionId;
   readonly name: string | null;
-  readonly title_index_rowid: number;
+  readonly group_id: SessionGroupId | null;
   readonly group_index_rowid: number | null;
-  /** A JSON array of the session's tag rows' rowids. */
-  readonly tag_index_rowids: string;
+}
+
+/** A session whose hits are read, with its name. */
+export interface HitSession extends RankedSessionScope {
+  readonly name: string | null;
 }
 
 /** One matching index row, before its text is marked, as a hit of one session. */
 export interface RankedHit extends RankedRowKey {
   readonly sessionId: SessionId;
+  /** The session or group whose key the row carries: the group, on a group's row. */
+  readonly ownerId: SessionId | SessionGroupId;
   /** The log row's position, `undefined` for a title, group or tag, which open at the start. */
   readonly sequence: number | undefined;
 }
@@ -80,11 +106,17 @@ interface SessionTextHits {
 export interface SearchHits {
   /**
    * Each of these sessions' hits, best first; a session the directory lacks is left out. A
-   * session this search already read, by either read, is answered from that read.
+   * session this search already read or collected is answered from that.
    */
   readHits(sessionIds: readonly SessionId[]): Map<SessionId, SessionTextHits>;
-  /** Every hit each of these sessions has, read from every matching log row's own row. */
-  readEveryHit(sessionIds: readonly SessionId[]): Map<SessionId, SessionTextHits>;
+  /**
+   * Each of these sessions' hits, best first, from the matching rows they and their groups own,
+   * already read.
+   */
+  collectHits(
+    sessions: readonly HitSession[],
+    rows: Iterable<MatchingRow>,
+  ): Map<SessionId, SessionTextHits>;
   /** Each hit as a page shows it: the line its first match sits in, marked, and its cursor. */
   markHits(hits: readonly RankedHit[]): SessionSearchHit[];
 }
@@ -95,81 +127,73 @@ const SESSION_START_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
 
 /** Reads sessions' hits for a search's words from the full-text index. */
 export class SessionHitReader {
-  readonly #narrowedEventRows: Statement<
-    { expression: string; open: string; close: string },
-    EventRow
+  readonly #narrowedRows: Statement<{ expression: string }, MatchingRow>;
+  readonly #markedRows: Statement<
+    { expression: string; open: string; close: string } & ChosenRows,
+    MarkedRow
   >;
-  readonly #eventRows: Statement<[string], EventRow>;
-  readonly #otherRowids: Statement<[string], OtherRowidsRow>;
+  readonly #hitSessions: Statement<[string], HitSessionRow>;
 
   constructor(reader: Database) {
-    this.#narrowedEventRows = reader.prepare(NARROWED_EVENT_ROWS_SQL);
-    this.#eventRows = reader.prepare(EVENT_ROWS_SQL);
-    this.#otherRowids = reader.prepare(OTHER_ROWIDS_SQL);
+    this.#narrowedRows = reader.prepare(NARROWED_ROWS_SQL);
+    this.#markedRows = reader.prepare(MARKED_ROWS_SQL);
+    this.#hitSessions = reader.prepare(HIT_SESSIONS_SQL);
   }
 
   /**
-   * Opens one search's hits over its ranking, which gives every rank and each non-log mark, for
-   * one page's read; `isHeldRow` tells the rows that still index what the ranking read.
+   * Opens one search's hits over its ranking, which gives every rank, for one page's read;
+   * `isHeldRow` tells the rows that still index what the ranking read.
    */
   openSearch(matchExpression: string, ranking: TextRanking, isHeldRow: HeldRowCheck): SearchHits {
     const heldRankOf = (indexRowid: number): number | undefined =>
       isHeldRow(indexRowid) ? ranking.rankOf(indexRowid) : undefined;
-    const markedEvents = new Map<number, string>();
     const readSessions = new Map<SessionId, SessionTextHits>();
-    const readNarrowedEvents = (sessionIds: readonly SessionId[]): EventRow[] =>
-      sessionIds.length === 0
-        ? []
-        : this.#narrowedEventRows.all({
-            expression: narrowToSessions(matchExpression, sessionIds),
-            open: MATCH_OPEN_MARK,
-            close: MATCH_CLOSE_MARK,
-          });
     const collect = (
-      sessionIds: readonly SessionId[],
-      eventRows: Iterable<EventRow>,
+      sessions: readonly HitSession[],
+      rows: Iterable<MatchingRow>,
     ): Map<SessionId, SessionTextHits> => {
-      const sessions = this.#otherRowids.all(JSON.stringify(sessionIds));
-      const hitsBySession = new Map<SessionId, RankedHit[]>();
+      const hitsBySession = new Map<SessionId, RankedHit[]>(
+        sessions.map((session) => [session.sessionId, []]),
+      );
+      const groupMembers = new Map<number, HitSession[]>();
       for (const session of sessions) {
-        const otherRowids: (number | null)[] = [
-          session.title_index_rowid,
-          session.group_index_rowid,
-          ...(JSON.parse(session.tag_index_rowids) as number[]),
-        ];
-        const hits: RankedHit[] = [];
-        for (const indexRowid of otherRowids) {
-          const rank = indexRowid === null ? undefined : heldRankOf(indexRowid);
-          if (indexRowid !== null && rank !== undefined) {
-            hits.push({ rank, indexRowid, sessionId: session.session_id, sequence: undefined });
-          }
+        if (session.groupIndexRowid !== null) {
+          const members = groupMembers.get(session.groupIndexRowid) ?? [];
+          members.push(session);
+          groupMembers.set(session.groupIndexRowid, members);
         }
-        hitsBySession.set(session.session_id, hits);
       }
       // A row of a session not asked about finds no list; one written after the ranking was read,
       // or at the rowid of a row deleted since, has no held rank; both are passed over.
-      for (const row of eventRows) {
-        const hits = hitsBySession.get(row.session_id);
+      for (const row of rows) {
         const rank = heldRankOf(row.index_rowid);
-        if (hits === undefined || rank === undefined) {
+        if (rank === undefined) {
           continue;
         }
-        hits.push({
-          rank,
-          indexRowid: row.index_rowid,
-          sessionId: row.session_id,
-          sequence: row.sequence,
-        });
-        if (row.marked !== null) {
-          markedEvents.set(row.index_rowid, row.marked);
+        const sequence = row.sequence ?? undefined;
+        if (row.session_id !== null) {
+          const { session_id: sessionId } = row;
+          hitsBySession
+            .get(sessionId)
+            ?.push({ rank, indexRowid: row.index_rowid, sessionId, ownerId: sessionId, sequence });
+          continue;
+        }
+        for (const member of groupMembers.get(row.index_rowid) ?? []) {
+          hitsBySession.get(member.sessionId)?.push({
+            rank,
+            indexRowid: row.index_rowid,
+            sessionId: member.sessionId,
+            ownerId: member.groupId ?? member.sessionId,
+            sequence,
+          });
         }
       }
       const collected = new Map<SessionId, SessionTextHits>();
       for (const session of sessions) {
-        const hits = (hitsBySession.get(session.session_id) ?? []).sort(compareRankedRows);
-        const sessionHits = { sessionId: session.session_id, name: session.name, hits };
-        collected.set(session.session_id, sessionHits);
-        readSessions.set(session.session_id, sessionHits);
+        const hits = (hitsBySession.get(session.sessionId) ?? []).sort(compareRankedRows);
+        const sessionHits = { sessionId: session.sessionId, name: session.name, hits };
+        collected.set(session.sessionId, sessionHits);
+        readSessions.set(session.sessionId, sessionHits);
       }
       return collected;
     };
@@ -177,7 +201,22 @@ export class SessionHitReader {
       readHits: (sessionIds) => {
         const unreadSessionIds = sessionIds.filter((sessionId) => !readSessions.has(sessionId));
         if (unreadSessionIds.length > 0) {
-          collect(unreadSessionIds, readNarrowedEvents(unreadSessionIds));
+          const sessions = this.#hitSessions.all(JSON.stringify(unreadSessionIds)).map(
+            (session): HitSession => ({
+              sessionId: session.session_id,
+              name: session.name,
+              groupId: session.group_id,
+              groupIndexRowid: session.group_index_rowid,
+            }),
+          );
+          if (sessions.length > 0) {
+            collect(
+              sessions,
+              this.#narrowedRows.iterate({
+                expression: narrowToOwners(matchExpression, ownerIdsOf(sessions)),
+              }),
+            );
+          }
         }
         const sessions = new Map<SessionId, SessionTextHits>();
         for (const sessionId of sessionIds) {
@@ -188,41 +227,39 @@ export class SessionHitReader {
         }
         return sessions;
       },
-      readEveryHit: (sessionIds) =>
-        collect(sessionIds, this.#eventRows.iterate(JSON.stringify(ranking.eventRowids()))),
+      collectHits: collect,
       markHits: (hits) => {
-        const unmarkedSessionIds = new Set<SessionId>();
-        for (const hit of hits) {
-          if (hit.sequence !== undefined && !markedEvents.has(hit.indexRowid)) {
-            unmarkedSessionIds.add(hit.sessionId);
+        const markedRows = new Map<number, string>();
+        if (hits.length > 0) {
+          const ownerIds = [...new Set(hits.map((hit) => hit.ownerId))];
+          for (const row of this.#markedRows.iterate({
+            expression: narrowToOwners(matchExpression, ownerIds),
+            ...chosenRowsOf(hits),
+            open: MATCH_OPEN_MARK,
+            close: MATCH_CLOSE_MARK,
+          })) {
+            markedRows.set(row.index_rowid, row.marked);
           }
         }
-        for (const row of readNarrowedEvents([...unmarkedSessionIds])) {
-          if (row.marked !== null) {
-            markedEvents.set(row.index_rowid, row.marked);
-          }
-        }
-        return hits.map((hit) =>
-          markHit(
-            hit,
-            hit.sequence === undefined
-              ? ranking.markedTextOf(hit.indexRowid)
-              : markedEvents.get(hit.indexRowid),
-          ),
-        );
+        return hits.map((hit) => markHit(hit, markedRows.get(hit.indexRowid)));
       },
     };
   }
 }
 
-// The match limited to the sessions' log rows, through each session's key.
-function narrowToSessions(matchExpression: string, sessionIds: readonly SessionId[]): string {
-  const keys = sessionIds.map((sessionId) => `"${sessionKeyOf(sessionId)}"`).join(" OR ");
-  return `(${matchExpression}) AND session_key : (${keys})`;
+// The rows of these hits, which are at least one.
+function chosenRowsOf(hits: readonly RankedHit[]): ChosenRows {
+  let first = Number.POSITIVE_INFINITY;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const hit of hits) {
+    first = Math.min(first, hit.indexRowid);
+    last = Math.max(last, hit.indexRowid);
+  }
+  return { first, last, rowids: JSON.stringify(hits.map((hit) => hit.indexRowid)) };
 }
 
-// A page's hits and their marks come from one read transaction, so each row still matches; one
-// with no mark is a broken index, which `cutMarkedLine` throws for.
+// A page's hits and their marks come from one read transaction, and each hit matched when it was
+// read, so each has a mark; one with none is a broken index, which `cutMarkedLine` throws for.
 function markHit(hit: RankedHit, markedText: string | undefined): SessionSearchHit {
   const markedLine = cutMarkedLine(readMarks(markedText ?? ""), TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
   const cursor =

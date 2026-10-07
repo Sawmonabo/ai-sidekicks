@@ -10,6 +10,7 @@ import { TranscriptSearchResponseSchema } from "@ai-sidekicks/contracts/transcri
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
 import { openDatabase } from "../../migration-runner.js";
 import { insertEvent, insertSession, sessionIdOf } from "../__fixtures__/index-rows.js";
+import { loadMatchCount } from "../match-count.js";
 import { TranscriptSearchService } from "../transcript.js";
 
 describe("transcript.search", () => {
@@ -19,6 +20,7 @@ describe("transcript.search", () => {
 
   beforeEach(() => {
     database = openDatabase(":memory:");
+    loadMatchCount(database);
     transcriptSearch = new TranscriptSearchService(database);
     insertSession(database, sessionId, { name: "retry work" });
   });

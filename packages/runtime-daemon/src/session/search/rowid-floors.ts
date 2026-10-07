@@ -8,7 +8,7 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import { indexRowKindOf, sourceRowidOf, type IndexRowKind } from "./index-columns.js";
+import { indexRowKindOf, sourceRowidOf, type IndexRowKind } from "./index/columns.js";
 
 // The log keeps its newest entries; a search held from before the oldest one is let go.
 const KEPT_FLOOR_COUNT = 4096;

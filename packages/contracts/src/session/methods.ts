@@ -245,8 +245,9 @@ export const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
  * Where the next `session.search` page starts. The daemon writes it and owns its format; a client
  * passes it back unchanged with the same query. It continues the search its first page read, so a
  * write between pages neither repeats a hit nor drops one, except a hit whose row, group
- * membership or session has since gone; a cursor of a search the daemon has let go (over its
- * memory budget or 10 minutes unpaged) is refused, and the client searches again.
+ * membership or session has since gone or whose title, group name or tag was renamed so the words
+ * no longer match it; a cursor of a search the daemon has let go (over its memory budget or 10
+ * minutes unpaged) is refused, and the client searches again.
  */
 export type SessionSearchCursor = string & { readonly __brand: "SessionSearchCursor" };
 /** Parses a {@link SessionSearchCursor}; any bounded non-empty string, which the daemon reads. */

@@ -24,11 +24,13 @@
     "tests/helpers/typescript-source-loader.mjs"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm run build:match-count",
+    "build:match-count": "node scripts/build-match-count.mjs",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "lint": "eslint src tests scripts",
+    "test": "vitest run --project=unit",
+    "test:coverage": "vitest run --project=unit --coverage",
+    "test:endurance": "vitest run --project=endurance"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",

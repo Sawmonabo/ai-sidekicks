@@ -1,9 +1,10 @@
 // How the full-text index's rows are keyed. A row's rowid is its source row's rowid times the
 // number of kinds plus its kind's slot, so a search reaches a session's title, group or tag row
 // by arithmetic.
-// A session's id is held in the `session_key` column as its UUID without the hyphens, which the
-// tokenizer would split on, so the id is one token and a search inside one session is answered
-// from that token's own entries in the index.
+// Each row's owner, the session a log, title or tag row belongs to or the group a group row names,
+// is held in the `owner_key` column as its UUID without the hyphens, which the tokenizer would
+// split on, so the id is one token and a search limited to some sessions and their groups is
+// answered from those tokens' own entries in the index.
 
 // Each kind's slot is its place in this list.
 const INDEX_ROW_KINDS = ["event", "title", "group", "tag"] as const;
@@ -14,14 +15,34 @@ export type IndexRowKind = (typeof INDEX_ROW_KINDS)[number];
 // One rowid slot per kind, so every source row owns this many index rowids.
 const SLOT_COUNT = INDEX_ROW_KINDS.length;
 
-/** The SQL that turns a session id held in `idSql` into its `session_key` token. */
-export function sessionKeySql(idSql: string): string {
+/** The SQL that turns a session's or group's id held in `idSql` into its `owner_key` token. */
+export function ownerKeySql(idSql: string): string {
   return `replace(${idSql}, '-', '')`;
 }
 
-/** A session's `session_key` token, as {@link sessionKeySql} writes it. */
-export function sessionKeyOf(sessionId: string): string {
-  return sessionId.replaceAll("-", "");
+// A session's or group's `owner_key` token, as `ownerKeySql` writes it.
+function ownerKeyOf(ownerId: string): string {
+  return ownerId.replaceAll("-", "");
+}
+
+/** The owners of some sessions' rows: each session, and the group it is in, each once. */
+export function ownerIdsOf(
+  sessions: readonly { readonly sessionId: string; readonly groupId: string | null }[],
+): string[] {
+  const ownerIds = new Set<string>();
+  for (const { sessionId, groupId } of sessions) {
+    ownerIds.add(sessionId);
+    if (groupId !== null) {
+      ownerIds.add(groupId);
+    }
+  }
+  return [...ownerIds];
+}
+
+/** The match limited to the rows these sessions and groups own, through each one's key. */
+export function narrowToOwners(matchExpression: string, ownerIds: readonly string[]): string {
+  const keys = ownerIds.map((ownerId) => `"${ownerKeyOf(ownerId)}"`).join(" OR ");
+  return `(${matchExpression}) AND owner_key : (${keys})`;
 }
 
 /** The SQL for the rowid of the `kind` index row of the source row whose rowid is `rowidSql`. */

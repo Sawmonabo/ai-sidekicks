@@ -1,12 +1,13 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
-// two starts on one data folder only one goes on; it then opens the database, through its writer
-// for writes and a read-only connection for reads, kills the terminal children a previous run left
-// running and builds the terminal host over this run's orphan guard, knows this machine, captures
-// the environment providers are built from, listens on its socket and writes this start's session
-// token once the bind has succeeded, then runs its recovery pass, refusing writes until that pass
-// leaves the node healthy. A client that reads the previous token in the moment between the bind
-// and the write is refused once, and its next read finds this start's token. Its stop, asked for
-// over the socket or by a terminate signal, ends it cleanly.
+// two starts on one data folder only one goes on. It then starts capturing the login shell's
+// environment, which providers are built from, and loading the session services' modules; while
+// those run, it opens the database, through its writer for writes and a read-only connection for
+// reads, starts the search thread, whose own read-only connection opens while the start goes on,
+// kills the terminal children a previous run left running and knows this machine. It builds the
+// terminal host over this run's orphan guard, listens on its socket and writes this start's
+// session token once the bind has succeeded. A client that reads the previous token in the moment
+// between the bind and the write is refused once, and its next read finds this start's token. Its
+// stop, asked for over the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -32,7 +33,6 @@ import {
   openDatabaseConnections,
   type DatabaseConnections,
 } from "../database/connections.js";
-import { EventLogService } from "../events/log-service.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
@@ -44,14 +44,7 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
-import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
-import { StartupRecovery } from "../recovery/startup.js";
-import { RecoveryStatusTracker } from "../recovery/status.js";
-import { RecoveryWriteGate } from "../recovery/write-gate.js";
-import { RunEngine } from "../session/run/engine.js";
-import { RUNS_PROJECTION } from "../session/run/projection.js";
-import { RunStateReader } from "../session/run/read.js";
-import { SessionService } from "../session/service.js";
+import { SearchThread } from "../session/search/thread/handle.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -60,7 +53,7 @@ import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { prepareRunFolder, writeSessionToken } from "./run-folder.js";
-import { registerSessionMethods } from "./session-methods.js";
+import type { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 const DATABASE_FILE_NAME = "daemon.db";
@@ -90,8 +83,14 @@ export interface DaemonProcessOptions {
   readonly createPtyHost: (orphanGuard: OrphanGuard) => Pick<PtyHost, "shutdown">;
   /** Reads this machine's friendly name; called only at the first start. */
   readonly readMachineName: () => Promise<string>;
-  /** Captures the base environment every provider process is built from. */
-  readonly captureProviderBaseEnvironment: () => Promise<readonly SpawnEnvPair[]>;
+  /**
+   * Captures the base environment every provider process is built from. A start that fails before
+   * it reads the capture aborts `signal`, with "the start failed" as its reason, and the capture
+   * ends at once.
+   */
+  readonly captureProviderBaseEnvironment: (
+    signal: AbortSignal,
+  ) => Promise<readonly SpawnEnvPair[]>;
   /** The service's own release version, which the status read reports. */
   readonly serviceVersion: string;
   /** The daemon's own process as the system knows it, which the status read reports. */
@@ -122,12 +121,9 @@ export class DaemonProcess {
 
   readonly #dataFolderLock: DataFolderLock;
   readonly #database: DatabaseConnections;
+  readonly #searchThread: SearchThread;
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
-  readonly #recoveryStatus = new RecoveryStatusTracker();
-  readonly #startupRecovery: StartupRecovery;
-  // The start's recovery pass, which a stop waits for before the database closes under it.
-  #recoveryPass: Promise<void> = Promise.resolve();
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
@@ -143,9 +139,11 @@ export class DaemonProcess {
     dataFolderLock: DataFolderLock;
     database: DatabaseConnections;
     orphanGuard: OrphanGuard;
+    searchThread: SearchThread;
     localMachine: LocalMachine;
     providerBaseEnvironment: readonly SpawnEnvPair[];
     sessionToken: string;
+    registerSessionMethods: typeof registerSessionMethods;
   }) {
     const { options } = parts;
     this.localMachine = parts.localMachine;
@@ -153,37 +151,14 @@ export class DaemonProcess {
     this.#dataFolderLock = parts.dataFolderLock;
     this.#database = parts.database;
     this.#orphanGuard = parts.orphanGuard;
+    this.#searchThread = parts.searchThread;
     this.#ptyHost = options.createPtyHost(parts.orphanGuard);
     this.#writeServiceLog = options.writeServiceLog;
 
-    const { reader, writer } = parts.database;
-    const sessionEvents = new EventLogService({ writer });
-    const runEngine = new RunEngine({ reader, sessionEvents });
-    this.#startupRecovery = new StartupRecovery({
-      nodeId: parts.localMachine.nodeId,
-      reader,
-      sessionEvents,
-      projectionRebuild: new ProjectionRebuildService({
-        reader,
-        writer,
-        sessionEvents: new SessionService(reader),
-        projections: [RUNS_PROJECTION],
-      }),
-      runs: new RunStateReader(reader),
-      runEngine,
-      status: this.#recoveryStatus,
-      now: options.now,
-      writeServiceLog: options.writeServiceLog,
-    });
-
-    // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
-    // refused call is never recorded.
+    // The negotiation gate wraps the recording registry, so a refused call is never recorded.
     this.#inFlightMutations = new InFlightMutations();
     const negotiator = new ProtocolNegotiator(parts.sessionToken);
-    const writeGate = new RecoveryWriteGate(() => this.#recoveryStatus.readOverall());
-    const registry = negotiator.wrap(
-      writeGate.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl())),
-    );
+    const registry = negotiator.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl()));
     negotiator.registerHandshakeMethod(registry);
     registerLifecycleMethods(registry, {
       flush: async () => {
@@ -195,7 +170,6 @@ export class DaemonProcess {
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,
-      readRecovery: () => this.#recoveryStatus.read(),
       version: options.serviceVersion,
       transportEndpoint: options.runFolder.socketPath,
       dataDirectory: parts.dataFolder,
@@ -221,7 +195,7 @@ export class DaemonProcess {
       streamingPrimitive,
       findBranchPatternRefusal,
     });
-    this.#stopSessionServices = registerSessionMethods(registry, {
+    this.#stopSessionServices = parts.registerSessionMethods(registry, {
       database: parts.database,
       homeDirectory: options.homeDirectory,
       nodeId: parts.localMachine.nodeId,
@@ -233,6 +207,7 @@ export class DaemonProcess {
         isFull: (transportId) => this.#gateway.isFull(transportId),
         onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
       },
+      searchThread: parts.searchThread,
       writeServiceLog: options.writeServiceLog,
     });
 
@@ -257,20 +232,23 @@ export class DaemonProcess {
         },
       },
     });
-    // A dead writer fails every write from then on, so the service reads as degraded and its
-    // recovery as blocked.
+    // A dead writer fails every write from then on, so the service reads as degraded too.
     void this.#database.writer.whenWorkerFailed.then((error) => {
       this.#markDegraded();
-      this.#recoveryStatus.markStoreFailed();
       options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
+    });
+    // A search thread that failed to open, or died, fails every search from then on, so the
+    // service reads as degraded too.
+    void this.#searchThread.whenWorkerFailed.then((error) => {
+      this.#markDegraded();
+      options.writeServiceLog(`The search thread failed: ${describeError(error)}`);
     });
   }
 
   /**
-   * Starts the daemon and resolves once it listens and its recovery pass has ended; a pass that
-   * fails leaves the node's recovery state saying so and never fails the start. Throws
-   * `DaemonAlreadyRunningError` when another daemon holds the data folder or answers on the
-   * socket; any other failure releases what the start had taken.
+   * Starts the daemon and resolves once it listens. Throws `DaemonAlreadyRunningError` when another
+   * daemon holds the data folder or answers on the socket; any failure releases what the start had
+   * taken.
    */
   static async start(options: DaemonProcessOptions): Promise<DaemonProcess> {
     const startedAt = options.now();
@@ -283,12 +261,31 @@ export class DaemonProcess {
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     await chmod(dataFolder, 0o700);
     const dataFolderLock = takeDataFolderLock(dataFolder);
+    // The login shell and the session services' load are the start's longest steps, so both begin
+    // first and run while the rest of the start does. Each settles into an outcome at once, so a
+    // failure is never left unhandled: the start reads both once the rest is done, or in its
+    // cleanup when it fails before then. A start that fails, the load included, ends the login
+    // shell rather than wait for it.
+    const captureAbort = new AbortController();
+    const sessionMethodsAndCapture = Promise.allSettled([
+      import("./session-methods.js").catch((error: unknown) => {
+        captureAbort.abort("the start failed");
+        throw error;
+      }),
+      options.captureProviderBaseEnvironment(captureAbort.signal),
+    ]);
+    let isSessionMethodsAndCaptureRead = false;
     try {
+      const databasePath = path.join(dataFolder, DATABASE_FILE_NAME);
       const database = await openDatabaseConnections({
-        databasePath: path.join(dataFolder, DATABASE_FILE_NAME),
+        databasePath,
         writeServiceLog: options.writeServiceLog,
       });
+      // The search thread loads and opens on its own thread from here on; the start never waits
+      // for it, and a search waits for its open.
+      const searchThread = SearchThread.start(databasePath);
       let orphanGuard: OrphanGuard | undefined;
+      let daemon: DaemonProcess | undefined;
       try {
         const orphans = await options.openOrphanGuard(dataFolder);
         orphanGuard = orphans.guard;
@@ -298,60 +295,88 @@ export class DaemonProcess {
           options.readMachineName,
           options.now,
         );
-        const providerBaseEnvironment = await options.captureProviderBaseEnvironment();
+        const [sessionMethods, capture] = await sessionMethodsAndCapture;
+        isSessionMethodsAndCaptureRead = true;
+        if (sessionMethods.status === "rejected" && capture.status === "rejected") {
+          throw new AggregateError(
+            [sessionMethods.reason, capture.reason],
+            "The session services' load and the login shell's read both failed",
+          );
+        }
+        if (sessionMethods.status === "rejected") {
+          throw sessionMethods.reason;
+        }
+        if (capture.status === "rejected") {
+          throw capture.reason;
+        }
+        const providerBaseEnvironment = capture.value;
 
         await prepareRunFolder(options.runFolder);
         // A new token at every start, so the previous start's token no longer opens a connection.
         const sessionToken = randomBytes(SESSION_TOKEN_BYTES).toString("hex");
-        const daemon = new DaemonProcess({
+        daemon = new DaemonProcess({
           options,
           startedAt,
           dataFolder,
           dataFolderLock,
           database,
           orphanGuard,
+          searchThread,
           localMachine,
           providerBaseEnvironment,
           sessionToken,
+          registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });
         await daemon.#listen(options.runFolder, sessionToken);
-        daemon.#recoveryPass = daemon.#startupRecovery.run();
-        await daemon.#recoveryPass;
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
-        try {
-          await orphanGuard?.close();
-        } catch (closeError) {
-          cleanupFailures.push(closeError);
+        // The session services' background work reads the database, so it ends first.
+        if (daemon !== undefined) {
+          try {
+            await daemon.#stopSessionServices();
+          } catch (error) {
+            cleanupFailures.push(error);
+          }
         }
-        try {
-          await closeDatabaseConnections(database);
-        } catch (closeError) {
-          cleanupFailures.push(closeError);
+        const closes = await Promise.allSettled([
+          searchThread.close(),
+          orphanGuard?.close(),
+          closeDatabaseConnections(database),
+        ]);
+        for (const close of closes) {
+          if (close.status === "rejected") {
+            cleanupFailures.push(close.reason);
+          }
         }
         throw withCleanupFailures(startError, cleanupFailures, "The daemon's start");
       }
     } catch (startError) {
+      const cleanupFailures: unknown[] = [];
+      if (!isSessionMethodsAndCaptureRead) {
+        captureAbort.abort("the start failed");
+        for (const outcome of await sessionMethodsAndCapture) {
+          if (outcome.status === "rejected") {
+            cleanupFailures.push(outcome.reason);
+          }
+        }
+      }
       try {
         dataFolderLock.release();
       } catch (releaseError) {
-        throw new AggregateError(
-          [startError, releaseError],
-          "The daemon's start failed, and letting its data folder go after that failed too",
-          { cause: releaseError },
-        );
+        cleanupFailures.push(releaseError);
       }
-      throw startError;
+      throw withCleanupFailures(startError, cleanupFailures, "The daemon's start");
     }
   }
 
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
-   * the drain bound, waits for the calls already under way and the start's recovery pass, and
-   * drains every terminal (each gets its graceful signal, then a kill); then stops watching
-   * terminal children's exits and, in what is left of the bound, waits for every write taken to
-   * commit, failing any still unfinished, closes the database and lets the data folder go.
+   * the drain bound, waits for the calls already under way, lets the searches under way finish and
+   * ends the search thread, and drains every terminal (each gets its graceful signal, then a kill);
+   * then stops watching terminal children's exits and, in what is left of the bound, waits for
+   * every write taken to commit, failing any still unfinished, closes the database and lets the
+   * data folder go.
    * Repeated calls share the first stop.
    */
   stop(): Promise<void> {
@@ -424,41 +449,34 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    // Settles with the session services' failure, so one inside the bound is one of the stop's.
-    const sessionServicesStop = this.#stopSessionServices().then(
-      () => undefined,
-      (error: unknown) => ({ error }),
-    );
-    // The calls under way, the recovery pass, the session services' background work and the
-    // terminals are independent, so all finish inside one drain bound. A call, a pass or a
-    // background write still running at the bound fails once the database closes under it, and
-    // its batch rolls back.
-    const [stillWriting, hasPassEnded, drain, haveSessionServicesEnded] = await Promise.allSettled([
+    // The calls under way, the session services' background work, the searches and the terminals
+    // are independent, so all finish inside one drain bound. A call or a background write still
+    // running at the bound fails once the database closes under it, and its batch rolls back.
+    const [stillWriting, drain, sessionServices, searches] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
-      waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
       this.#ptyHost.shutdown({
         perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
         hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
       }),
-      waitWithin(sessionServicesStop, DAEMON_STOP_DRAIN_BOUND_MS),
+      waitWithin(this.#stopSessionServices(), DAEMON_STOP_DRAIN_BOUND_MS),
+      waitWithin(this.#searchThread.close(), DAEMON_STOP_DRAIN_BOUND_MS),
     ]);
-    if (haveSessionServicesEnded.status === "fulfilled" && haveSessionServicesEnded.value) {
-      const sessionServicesFailure = await sessionServicesStop;
-      if (sessionServicesFailure !== undefined) {
-        failures.push(sessionServicesFailure.error);
-      }
-    } else {
+    if (sessionServices.status === "rejected") {
+      failures.push(sessionServices.reason);
+    } else if (!sessionServices.value) {
       this.#writeServiceLog(
         "The stop's drain bound passed; the session services' background work is still running.",
       );
+    }
+    if (searches.status === "rejected") {
+      failures.push(searches.reason);
+    } else if (!searches.value) {
+      this.#writeServiceLog("The stop's drain bound passed; a search is still running.");
     }
     if (stillWriting.status === "fulfilled" && stillWriting.value > 0) {
       this.#writeServiceLog(
         `The stop's drain bound passed; writes still running: ${String(stillWriting.value)}.`,
       );
-    }
-    if (hasPassEnded.status === "fulfilled" && !hasPassEnded.value) {
-      this.#writeServiceLog("The stop's drain bound passed; the recovery pass was still running.");
     }
     if (drain.status === "fulfilled") {
       this.#writeServiceLog(describeDrain(drain.value));

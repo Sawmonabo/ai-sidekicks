@@ -11,6 +11,7 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
+import type { SessionGroupId } from "@ai-sidekicks/contracts/session/groups";
 import {
   START_OF_LOG_POSITION,
   encodeEventCursor,
@@ -32,11 +33,21 @@ import {
   type ListedPagePosition,
   type SearchPagePosition,
 } from "./cursor.js";
-import { SessionHitReader, type RankedHit, type SearchHits } from "./hits.js";
+import { SessionHitReader, type HitSession, type RankedHit, type SearchHits } from "./hits.js";
+import { indexRowidSql } from "./index/columns.js";
+import { SearchIndexVersion } from "./index/version.js";
 import { assembleSearchPage, type PageCandidate, type SearchPage } from "./page.js";
 import { parseSessionSearchQuery, type ParsedSearchQuery } from "./query.js";
 import { fuseRankedLists } from "./rank-fusion.js";
-import { SessionTextRanking, compareRankedRows, type RankedRowKey } from "./ranking.js";
+import {
+  SessionTextRanking,
+  compareRankedRows,
+  rankingOfRanges,
+  ranksEveryMatch,
+  sessionsRankingOfRanges,
+  type RankedRange,
+  type RankedRowKey,
+} from "./ranking.js";
 import { RowidFloorLog, type HeldRowCheck } from "./rowid-floors.js";
 import { IndexRowSessions, listedSessionOrder, rankedSessionOrder } from "./session-order.js";
 import {
@@ -50,27 +61,60 @@ import {
 } from "./snapshots.js";
 
 // The sessions carrying a tag or one nested under it: the fold itself, or any fold past its `/`.
-// `0` is the character after `/`, so the range holds exactly the nested folds.
+// `0` is the character after `/`, so the range holds exactly the nested folds. Each comes with its
+// group, whose row the words may match too.
 const TAGGED_SESSIONS_SQL = `
-  SELECT tag.session_id, tag.tag, session.name, session.last_activity_at
+  SELECT tag.session_id, tag.tag, session.name, session.last_activity_at,
+         session_group.id AS group_id,
+         ${indexRowidSql("session_group.rowid", "group")} AS group_index_rowid
     FROM session_tags AS tag
     JOIN sessions AS session ON session.id = tag.session_id
+    LEFT JOIN session_groups AS session_group ON session_group.id = session.group_id
    WHERE tag.tag_folded = @fold
       OR (tag.tag_folded >= @fold || '/' AND tag.tag_folded < @fold || '0')
    ORDER BY tag.tag_folded`;
+
+const HIGHEST_INDEX_ROWID_SQL = "SELECT max(rowid) FROM session_search_index";
 
 interface TaggedSessionRow {
   readonly session_id: SessionId;
   readonly tag: string;
   readonly name: string | null;
   readonly last_activity_at: string;
+  readonly group_id: SessionGroupId | null;
+  readonly group_index_rowid: number | null;
 }
 
-// A session carrying a tag, with the tags that matched; across several queried tags, the tags
-// that matched each one after another.
-interface TaggedSession extends ListedSession {
+/**
+ * A session carrying a queried tag, with the tags that matched; across several queried tags, the
+ * tags that matched each one after another.
+ */
+export interface TaggedSession extends ListedSession, HitSession {
   readonly lastActivityAt: string;
   readonly hits: SessionSearchHit[];
+}
+
+/**
+ * A first page's ranking across the whole index, planned so other connections can read it in
+ * rowid ranges ahead of the page: the words' match, the sessions a search by tag and words keeps
+ * (`undefined` for words alone), the index version the plan saw, and the highest rowid then, which
+ * places the ranges' bounds.
+ */
+export interface WholeIndexRankingPlan {
+  readonly matchExpression: string;
+  readonly taggedSessions: readonly TaggedSession[] | undefined;
+  readonly version: number;
+  readonly highestRowid: number;
+}
+
+/**
+ * A plan's ranking as other connections read it: its ranges in rowid order, read with their
+ * sessions when the plan keeps tagged sessions, and the index version each read saw.
+ */
+export interface RankingReadAhead {
+  readonly plan: WholeIndexRankingPlan;
+  readonly ranges: readonly RankedRange[];
+  readonly versions: readonly number[];
 }
 
 // A search a first page opened, and the hits it read in finding its order, when it read any.
@@ -85,10 +129,11 @@ interface PageResume {
   readonly position: SearchPagePosition;
 }
 
-// Sessions are read a batch at a time while a page fills, each batch four times the last. Each read
-// is one pass of the index over the words, so a page takes few: one when its sessions hold a few
-// hits each, three when every session holds one.
-const FIRST_READ_BATCH_SIZE = 64;
+// Sessions are read a batch at a time while a page fills, each batch four times the last. A read
+// costs what its sessions' matching rows cost, so a small first batch keeps a page of sessions
+// that each match many rows from reading rows it never shows, and a page of sessions with one hit
+// each still takes three reads.
+const FIRST_READ_BATCH_SIZE = 16;
 const READ_BATCH_GROWTH = 4;
 
 // A tag hit names no row of the session's log, so it opens the session at its start.
@@ -101,6 +146,8 @@ const EVERY_ROW_HELD: HeldRowCheck = () => true;
 export class SessionSearchService {
   readonly #reader: Database;
   readonly #ranking: SessionTextRanking;
+  readonly #indexVersion: SearchIndexVersion;
+  readonly #highestIndexRowid: Statement<[], number | null>;
   readonly #floorLog: RowidFloorLog;
   readonly #rowSessions: IndexRowSessions;
   readonly #hitReader: SessionHitReader;
@@ -113,6 +160,8 @@ export class SessionSearchService {
   ) {
     this.#reader = reader;
     this.#ranking = new SessionTextRanking(reader);
+    this.#indexVersion = new SearchIndexVersion(reader);
+    this.#highestIndexRowid = reader.prepare<[], number | null>(HIGHEST_INDEX_ROWID_SQL).pluck();
     this.#floorLog = new RowidFloorLog(reader);
     this.#rowSessions = new IndexRowSessions(reader);
     this.#hitReader = new SessionHitReader(reader);
@@ -131,7 +180,52 @@ export class SessionSearchService {
     return this.#reader.transaction(() => this.#answer(request))();
   }
 
-  #answer(request: SessionSearchRequest): SessionSearchResponse {
+  /**
+   * The ranking across the whole index a first page of `request` reads, planned for other
+   * connections to read ahead of the page; `undefined` for a later page, a query with no words, and
+   * a search by tag and words whose sessions are few enough to rank through their keys.
+   */
+  planWholeIndexRanking(request: SessionSearchRequest): WholeIndexRankingPlan | undefined {
+    if (request.afterCursor !== undefined) {
+      return undefined;
+    }
+    const { matchExpression, tagFolds } = parseSessionSearchQuery(request.query);
+    if (matchExpression === undefined) {
+      return undefined;
+    }
+    return this.#reader.transaction(() => {
+      const taggedSessions = tagFolds.length === 0 ? undefined : this.#readTaggedSessions(tagFolds);
+      if (taggedSessions !== undefined && !ranksEveryMatch(taggedSessions)) {
+        return undefined;
+      }
+      return {
+        matchExpression,
+        taggedSessions,
+        version: this.#indexVersion.read(),
+        highestRowid: this.#highestIndexRowid.get() ?? 0,
+      };
+    })();
+  }
+
+  /**
+   * As {@link search} for the first page `readAhead` was planned for, ranked by what it read; or
+   * `undefined`, with nothing held, when the index has moved since the plan or any of its reads,
+   * since then the read-ahead is not the ranking this read would read.
+   */
+  searchWithReadAhead(
+    request: SessionSearchRequest,
+    readAhead: RankingReadAhead,
+  ): SessionSearchResponse | undefined {
+    return this.#reader.transaction(() => {
+      const version = this.#indexVersion.read();
+      const isCurrent =
+        readAhead.plan.version === version &&
+        readAhead.versions.every((readVersion) => readVersion === version);
+      return isCurrent ? this.#answer(request, readAhead) : undefined;
+    })();
+  }
+
+  #answer(request: SessionSearchRequest, readAhead?: RankingReadAhead): SessionSearchResponse {
     const query = parseSessionSearchQuery(request.query);
     const queryKey = JSON.stringify(query);
     const limit = request.limit ?? SESSION_SEARCH_PAGE_LIMIT_MAX;
@@ -145,7 +239,7 @@ export class SessionSearchService {
       const page = this.#readHeldPage(snapshot, limit, { cursor: afterCursor, position });
       return toResponse(page, () => snapshotId);
     }
-    const opened = this.#openSearch(query, queryKey);
+    const opened = this.#openSearch(query, queryKey, readAhead);
     if (opened === undefined) {
       return { groups: [], hasMore: false };
     }
@@ -157,14 +251,22 @@ export class SessionSearchService {
   }
 
   // The search a first page reads: its ranking or its whole answer, held for its later pages, and
-  // the hits already read in finding its order, which the first page reuses.
-  #openSearch(query: ParsedSearchQuery, queryKey: string): OpenedSearch | undefined {
+  // the hits already read in finding its order, which the first page reuses. A read-ahead brings
+  // the ranking, and for a search by tag and words the sessions its plan kept.
+  #openSearch(
+    query: ParsedSearchQuery,
+    queryKey: string,
+    readAhead: RankingReadAhead | undefined,
+  ): OpenedSearch | undefined {
     const { matchExpression, tagFolds } = query;
     if (tagFolds.length === 0) {
       if (matchExpression === undefined) {
         return undefined;
       }
-      const ranking = this.#ranking.rank(matchExpression);
+      const ranking =
+        readAhead === undefined
+          ? this.#ranking.rank(matchExpression)
+          : rankingOfRanges(readAhead.ranges);
       return {
         snapshot: {
           order: "ranked",
@@ -176,7 +278,7 @@ export class SessionSearchService {
         },
       };
     }
-    const taggedSessions = this.#readTaggedSessions(tagFolds);
+    const taggedSessions = readAhead?.plan.taggedSessions ?? this.#readTaggedSessions(tagFolds);
     if (matchExpression === undefined) {
       const sessions = taggedSessions.map(({ sessionId, name, hits }) => ({
         sessionId,
@@ -187,11 +289,14 @@ export class SessionSearchService {
         snapshot: { order: "listed", queryKey, sessions, byteLength: listedByteLength(sessions) },
       };
     }
-    // The tag keeps the sessions carrying it; among those the words find, each rank orders them
-    // and the fused rank orders the pages.
-    const ranking = this.#ranking.rank(matchExpression);
+    // The tag keeps the sessions carrying it, and only their rows are ranked; among those the words
+    // find, each rank orders them and the fused rank orders the pages.
+    const { ranking, rows } =
+      readAhead === undefined
+        ? this.#ranking.rankWithinSessions(matchExpression, taggedSessions)
+        : sessionsRankingOfRanges(readAhead.ranges);
     const searchHits = this.#hitReader.openSearch(matchExpression, ranking, EVERY_ROW_HELD);
-    const textHits = searchHits.readEveryHit(taggedSessions.map((session) => session.sessionId));
+    const textHits = searchHits.collectHits(taggedSessions, rows);
     const textOrder = [...textHits.values()]
       .flatMap((session) => session.hits.slice(0, 1))
       .sort(compareRankedRows)
@@ -307,6 +412,8 @@ export class SessionSearchService {
           sessionId: row.session_id,
           name: row.name,
           lastActivityAt: row.last_activity_at,
+          groupId: row.group_id,
+          groupIndexRowid: row.group_index_rowid,
           hits: [],
         };
         bySession.set(row.session_id, session);

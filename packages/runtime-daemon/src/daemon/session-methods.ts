@@ -47,8 +47,7 @@ import { SessionLinkService } from "../session/links/service.js";
 import { SessionRelatedRanking } from "../session/related/ranking.js";
 import { FileSearchService } from "../session/search/files/service.js";
 import { SearchIndexIdleMerge } from "../session/search/idle-merge.js";
-import { SessionSearchService } from "../session/search/service.js";
-import { TranscriptSearchService } from "../session/search/transcript.js";
+import type { SearchThread } from "../session/search/thread/handle.js";
 import { SessionService } from "../session/service.js";
 import { SessionTagService } from "../session/tags/service.js";
 import { WorkspaceEventEmitter } from "../workspace/event-emitter.js";
@@ -72,6 +71,8 @@ export interface SessionMethodsDeps {
   readonly streamingPrimitive: StreamingPrimitive;
   /** The connections' outbound queues, which a session stream reads before it sends a frame. */
   readonly outboundQueue: OutboundQueue;
+  /** The thread session and transcript searches run on, through its own read-only connection. */
+  readonly searchThread: SearchThread;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
 }
@@ -181,7 +182,7 @@ export function registerSessionMethods(
     streamingPrimitive: deps.streamingPrimitive,
   });
   registerSessionTagMethods(registry, { tags: new SessionTagService(database) });
-  registerSessionSearch(registry, { sessionSearch: new SessionSearchService(database.reader) });
+  registerSessionSearch(registry, { sessionSearch: deps.searchThread });
   registerSessionFileSearch(registry, {
     fileSearch: new FileSearchService({
       reader: database.reader,
@@ -189,9 +190,7 @@ export function registerSessionMethods(
       writeServiceLog: deps.writeServiceLog,
     }),
   });
-  registerTranscriptSearch(registry, {
-    transcriptSearch: new TranscriptSearchService(database.reader),
-  });
+  registerTranscriptSearch(registry, { transcriptSearch: deps.searchThread });
 
   const stopAutoTitle = new SessionAutoTitle({
     reader: database.reader,

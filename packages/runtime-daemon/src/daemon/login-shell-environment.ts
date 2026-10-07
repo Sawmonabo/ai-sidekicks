@@ -56,7 +56,10 @@ export interface LoginShellCaptureOptions {
   readonly serviceEnvironment: NodeJS.ProcessEnv;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
-  /** Abandons the capture when a stop comes during the start: the shell and its group end. */
+  /**
+   * Abandons the capture: the shell and its group end. The abort's reason finishes the service
+   * log's sentence on why, as in "was ended, since a stop came during the start".
+   */
   readonly signal: AbortSignal;
 }
 
@@ -86,9 +89,12 @@ export async function captureLoginShellEnvironment(
     }
     return leaveOutWindowsDrives(outcome.pairs, await options.readWindowsDriveMounts());
   }
+  // An abandoned capture belongs to a start that is failing or stopping, so no provider starts.
   options.writeServiceLog(
-    `The login shell (${options.shell}) ${outcome.reason}, so providers start with the ` +
-      "account's default environment.",
+    outcome.kind === "abandoned"
+      ? `The login shell (${options.shell}) ${outcome.reason}.`
+      : `The login shell (${options.shell}) ${outcome.reason}, so providers start with the ` +
+          "account's default environment.",
   );
   return await readDefaultEnvironment(options, options.shell);
 }
@@ -136,7 +142,7 @@ async function readUserTempDirectoryOrLog(
 
 type LoginShellOutcome =
   | { readonly kind: "captured"; readonly pairs: readonly SpawnEnvPair[] }
-  | { readonly kind: "failed"; readonly reason: string };
+  | { readonly kind: "failed" | "abandoned"; readonly reason: string };
 
 function runLoginShell(
   shell: string,
@@ -153,7 +159,7 @@ function runLoginShell(
 
   return new Promise<LoginShellOutcome>((resolve) => {
     if (options.signal.aborted) {
-      resolve({ kind: "failed", reason: "was not run, since a stop came during the start" });
+      resolve({ kind: "abandoned", reason: `was not run, since ${String(options.signal.reason)}` });
       return;
     }
     // Its own process group, so the deadline ends whatever the rc files started with it.
@@ -184,7 +190,10 @@ function runLoginShell(
       resolve(outcome);
     };
     const abandon = (): void => {
-      settle({ kind: "failed", reason: "was ended, since a stop came during the start" }, true);
+      settle(
+        { kind: "abandoned", reason: `was ended, since ${String(options.signal.reason)}` },
+        true,
+      );
     };
 
     const deadline = setTimeout(() => {

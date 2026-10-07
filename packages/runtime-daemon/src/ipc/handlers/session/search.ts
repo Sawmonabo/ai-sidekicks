@@ -6,19 +6,19 @@ import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 
 import type { FileSearchService } from "../../../session/search/files/service.js";
-import type { SessionSearchService } from "../../../session/search/service.js";
+import type { SearchThread } from "../../../session/search/thread/handle.js";
 
 import { registerDescribedMethod } from "../register-described-method.js";
 
-/** What `session.search`'s handler reads from. */
+/** What `session.search`'s handler reads through: the search thread, off the main thread. */
 export interface SessionSearchDeps {
-  readonly sessionSearch: Pick<SessionSearchService, "search">;
+  readonly sessionSearch: Pick<SearchThread, "searchSessions">;
 }
 
 /** Binds `session.search` onto the registry. */
 export function registerSessionSearch(registry: MethodRegistry, deps: SessionSearchDeps): void {
   registerDescribedMethod(registry, SESSION_METHOD_DESCRIPTORS["session.search"], async (request) =>
-    deps.sessionSearch.search(request),
+    deps.sessionSearch.searchSessions(request),
   );
 }
 

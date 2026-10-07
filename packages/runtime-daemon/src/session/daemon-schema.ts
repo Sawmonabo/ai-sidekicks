@@ -11,9 +11,7 @@
 
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
 
-import { indexRowidSql, sessionKeySql } from "./search/index-columns.js";
-import { markFreeTextSql } from "./search/marked-line.js";
-import { rowidFloorTriggerSql } from "./search/rowid-floors.js";
+import { SEARCH_INDEX_SCHEMA_SQL } from "./search/index/schema.js";
 
 /**
  * The whole daemon schema. `applyMigrations` executes it once, in one
@@ -266,120 +264,7 @@ CREATE TABLE session_related (
 
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
 
--- The full-text index both searches read: session titles, settled message text, tool calls,
--- group names and tags, archived sessions included. Each row's rowid is its source row's rowid
--- times four plus its kind's slot (event 0, title 1, group 2, tag 3), so every trigger below
--- reaches its row by rowid. Nothing vacuums this database, so those rowids never move.
--- Words are matched in text alone. session_key holds an event row's session id as one token, so
--- a search inside one session reads that session's entries rather than every match. A group row
--- has no session_id: its sessions are read through sessions.group_id. sequence is the event's
--- position, NULL on every other kind. Text is indexed with the two characters a search's
--- highlight marks a match with turned to spaces, so every mark read back is one the index put.
--- The prefix indexes serve search as the person types; FTS5's automerge keeps writes bounded,
--- and the daemon merges the rest when idle.
-CREATE VIRTUAL TABLE session_search_index USING fts5(
-  text,
-  session_key,
-  session_id UNINDEXED,
-  kind UNINDEXED,
-  sequence UNINDEXED,
-  tokenize = 'unicode61 remove_diacritics 2',
-  prefix = '2 3 4'
-);
-
--- Settled rows only: a person's message, an assistant's message and a tool call. A thinking
--- update is narration a later event supersedes, so it is never indexed.
-CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
-WHEN NEW.type IN ('user.message', 'assistant.message', 'tool.invoked')
-BEGIN
-  INSERT INTO session_search_index (rowid, text, session_key, session_id, kind, sequence)
-  SELECT ${indexRowidSql("NEW.rowid", "event")}, indexed.text, ${sessionKeySql("NEW.session_id")},
-         NEW.session_id, 'event', NEW.sequence
-    FROM (SELECT ${markFreeTextSql(`CASE
-                   WHEN NEW.type = 'user.message' THEN json_extract(NEW.payload, '$.message')
-                   WHEN NEW.type = 'assistant.message' THEN NEW.content_payload
-                   WHEN NEW.type = 'tool.invoked' THEN json_extract(NEW.payload, '$.toolName')
-                     || coalesce(' ' || NEW.content_payload, '')
-                 END`)} AS text) AS indexed
-   WHERE indexed.text IS NOT NULL;
-END;
-
-CREATE TRIGGER trg_session_search_event_delete AFTER DELETE ON session_events
-WHEN OLD.type IN ('user.message', 'assistant.message', 'tool.invoked')
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "event")};
-END;
-
-CREATE TRIGGER trg_session_search_title_insert AFTER INSERT ON sessions
-WHEN NEW.name IS NOT NULL
-BEGIN
-  INSERT INTO session_search_index (rowid, text, session_id, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")}, NEW.id, 'title');
-END;
-
-CREATE TRIGGER trg_session_search_title_update AFTER UPDATE OF name ON sessions
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
-  INSERT INTO session_search_index (rowid, text, session_id, kind)
-  SELECT ${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")}, NEW.id, 'title'
-   WHERE NEW.name IS NOT NULL;
-END;
-
-CREATE TRIGGER trg_session_search_title_delete AFTER DELETE ON sessions
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
-END;
-
-CREATE TRIGGER trg_session_search_group_insert AFTER INSERT ON session_groups
-BEGIN
-  INSERT INTO session_search_index (rowid, text, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "group")}, ${markFreeTextSql("NEW.name")}, 'group');
-END;
-
-CREATE TRIGGER trg_session_search_group_update AFTER UPDATE OF name ON session_groups
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "group")};
-  INSERT INTO session_search_index (rowid, text, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "group")}, ${markFreeTextSql("NEW.name")}, 'group');
-END;
-
-CREATE TRIGGER trg_session_search_group_delete AFTER DELETE ON session_groups
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "group")};
-END;
-
-CREATE TRIGGER trg_session_search_tag_insert AFTER INSERT ON session_tags
-BEGIN
-  INSERT INTO session_search_index (rowid, text, session_id, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")}, NEW.session_id,
-          'tag');
-END;
-
-CREATE TRIGGER trg_session_search_tag_update AFTER UPDATE OF tag ON session_tags
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
-  INSERT INTO session_search_index (rowid, text, session_id, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")}, NEW.session_id,
-          'tag');
-END;
-
-CREATE TRIGGER trg_session_search_tag_delete AFTER DELETE ON session_tags
-BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
-END;
-
--- Each delete that lowers an indexed source table's highest rowid, with the new highest (0 for an
--- empty table), so a search held across pages can tell the rowids a later row may have taken.
--- kind names the index rows the table's rows source. Only the newest entries are kept.
-CREATE TABLE session_search_rowid_floors (
-  id             INTEGER PRIMARY KEY,
-  kind           TEXT NOT NULL,
-  highest_rowid  INTEGER NOT NULL
-) STRICT;
-${rowidFloorTriggerSql("session_events", "event")}
-${rowidFloorTriggerSql("sessions", "title")}
-${rowidFloorTriggerSql("session_groups", "group")}
-${rowidFloorTriggerSql("session_tags", "tag")}
+${SEARCH_INDEX_SCHEMA_SQL}
 
 -- ---------------------------------------------------------------------------
 -- This machine: its id, minted at the daemon's first start, and the friendly

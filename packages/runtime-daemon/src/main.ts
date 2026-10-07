@@ -67,13 +67,13 @@ process.on("uncaughtException", (error: unknown) => {
 });
 
 // Installed before the start, so a signal sent at any moment stops the daemon cleanly: during the
-// start it ends the login shell's capture and the daemon stops as soon as it has started. The
-// handlers stay installed for the whole stop: with none, a second signal would end the daemon
-// mid-drain.
+// start it ends the login shell's capture, its reason saying why in the service log, and the daemon
+// stops as soon as it has started. The handlers stay installed for the whole stop: with none, a
+// second signal would end the daemon mid-drain.
 const stopRequest = new AbortController();
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
-    stopRequest.abort();
+    stopRequest.abort("a stop came during the start");
   });
 }
 
@@ -110,7 +110,7 @@ const daemon = await DaemonProcess.start({
     }),
   createPtyHost: selectPtyHost,
   readMachineName: () => readMachineName(createNodeMachineNameSources()),
-  captureProviderBaseEnvironment: () =>
+  captureProviderBaseEnvironment: (startAbort) =>
     captureLoginShellEnvironment({
       platform: process.platform,
       shell: account.shell,
@@ -121,7 +121,7 @@ const daemon = await DaemonProcess.start({
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
       serviceEnvironment: process.env,
       writeServiceLog,
-      signal: stopRequest.signal,
+      signal: AbortSignal.any([stopRequest.signal, startAbort]),
     }),
   serviceVersion: readServiceVersion(),
   processIdentity,

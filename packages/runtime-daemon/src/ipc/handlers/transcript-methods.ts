@@ -29,7 +29,7 @@ import type {
 } from "@ai-sidekicks/contracts/transcript/methods";
 
 import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content/read.js";
-import type { TranscriptSearchService } from "../../session/search/transcript.js";
+import type { SearchThread } from "../../session/search/thread/handle.js";
 import { RegistryDispatchError } from "../registry.js";
 
 // ----------------------------------------------------------------------------
@@ -286,13 +286,13 @@ export function registerTranscriptBodyRead(
   });
 }
 
-/** What `transcript.search` reads through: the session's rows in the full-text index. */
+/** What `transcript.search` reads through: the search thread, over the session's indexed rows. */
 export interface TranscriptSearchDependencies {
   /**
    * An unknown session throws `SessionNotFoundError` (`session.not_found`); a cursor that names
    * no position throws `EventCursorUnresolvableError` (`event.cursor_unresolvable`).
    */
-  readonly transcriptSearch: Pick<TranscriptSearchService, "search">;
+  readonly transcriptSearch: Pick<SearchThread, "searchTranscript">;
 }
 
 /**
@@ -305,6 +305,6 @@ export function registerTranscriptSearch(
 ): void {
   registerTranscriptMethod(registry, {
     method: TRANSCRIPT_SEARCH_METHOD,
-    handler: async (request) => dependencies.transcriptSearch.search(request),
+    handler: async (request) => dependencies.transcriptSearch.searchTranscript(request),
   });
 }

@@ -151,6 +151,25 @@ describe("session.search paging", () => {
     }
   });
 
+  it("ranks every row of a search whose matches outgrow the ranking's first arrays", () => {
+    for (const index of [1, 2, 3]) {
+      insertSession(database, sessionIdOf(index));
+      for (let sequence = 0; sequence < 400; sequence += 1) {
+        const message = `retry ${"x ".repeat((sequence + index) % 7)}`;
+        insertEvent(database, {
+          sessionId: sessionIdOf(index),
+          sequence,
+          type: "user.message",
+          message,
+        });
+      }
+    }
+    const rankedHits = rankedHitsOf(database, 'text : ("retry")', new Map());
+    expect(rankedHits).toHaveLength(1200);
+
+    expect(hitsOf(readEveryPage(sessionSearch, { query: "retry" }))).toEqual(rankedHits);
+  });
+
   it("returns each hit the first page's search held once, however the index is written", () => {
     const groupId = insertGroup(database, "group-1", "retry");
     for (const index of [1, 2, 3, 4, 5, 6]) {
@@ -235,6 +254,37 @@ describe("session.search paging", () => {
     expect([...new Set(sessionIds)]).toEqual([shown, kept]);
   });
 
+  it("passes over a held title renamed between pages so the words no longer match it", () => {
+    // Shorter text ranks better: the first session's title, its message, then the second's.
+    for (const index of [1, 2]) {
+      const sessionId = sessionIdOf(index);
+      insertSession(database, sessionId, { name: `retry ${"word ".repeat(index)}` });
+      insertEvent(database, {
+        sessionId,
+        sequence: 0,
+        type: "user.message",
+        message: `retry ${"x ".repeat(index + 3)}`,
+      });
+    }
+    const renamedTitle = `${sessionIdOf(2)} ${encodeEventCursor(START_OF_LOG_POSITION)} `;
+    const heldHits = rankedHitsOf(database, 'text : ("retry")', new Map());
+
+    const firstPage = sessionSearch.search({ query: "retry", limit: 1 });
+    if (!firstPage.hasMore) {
+      throw new Error("The search pages.");
+    }
+    database.prepare("UPDATE sessions SET name = 'notes' WHERE id = ?").run(sessionIdOf(2));
+    const laterPages = readEveryPage(sessionSearch, {
+      query: "retry",
+      limit: 1,
+      afterCursor: firstPage.nextCursor,
+    });
+
+    const shownHits = heldHits.filter((hit) => !hit.startsWith(renamedTitle));
+    expect(shownHits).toHaveLength(heldHits.length - 1);
+    expect(hitsOf([firstPage.groups, ...laterPages])).toEqual(shownHits);
+  });
+
   it("credits a row at a purged row's rowid to no session and shows every held hit once", () => {
     const say = (sessionId: SessionId, sequence: number, message: string): void => {
       insertEvent(database, { sessionId, sequence, type: "user.message", message });
@@ -243,7 +293,7 @@ describe("session.search paging", () => {
     // so the first page reads fillers alone; then the team, the purged session's messages, the
     // survivor ranked between, and last the survivor whose new rows take the purged rowids.
     const team = insertGroup(database, "group-team", "retry team one");
-    for (const index of Array.from({ length: 70 }, (_, offset) => 100 + offset)) {
+    for (const index of Array.from({ length: 100 }, (_, offset) => 100 + offset)) {
       insertSession(database, sessionIdOf(index));
       say(sessionIdOf(index), 0, "retry");
     }
@@ -444,6 +494,59 @@ describe("session.search paging", () => {
       expect(hitsOf(readEveryPage(sessionSearch, { query, limit: 1 }))).toEqual(
         hitsOf([whole.groups]),
       );
+    }
+  });
+
+  it("ranks a search by tag and words as the words alone rank the same rows", () => {
+    // One tag on more sessions than a ranking narrows to, and one nested under it on fewer, but
+    // more than one narrowed read names. Each title is shorter than its message, so it ranks
+    // first; the nested tag's own words match too, and so does the name of every seventh
+    // session's group, a row of the group's own.
+    const groupIds = [1, 2, 3].map((index) =>
+      insertGroup(
+        database,
+        `00000000-0000-4000-9000-${String(index).padStart(12, "0")}`,
+        `auth ${String(index)}`,
+      ),
+    );
+    const sessionIds = Array.from({ length: 1100 }, (_, index) => sessionIdOf(index + 1));
+    sessionIds.forEach((sessionId, index) => {
+      insertSession(database, sessionId, {
+        name: `auth ${"x ".repeat(index % 3)}`,
+        ...(index % 7 === 0 ? { groupId: groupIds[index % groupIds.length] } : {}),
+      });
+      insertEvent(database, {
+        sessionId,
+        sequence: 0,
+        type: "user.message",
+        message: `auth ${"word ".repeat(3 + (index % 4))}`,
+      });
+      insertTag(database, sessionId, "billing");
+      if (index % 2 === 0) {
+        insertTag(database, sessionId, "billing/auth");
+      }
+    });
+    insertSession(database, sessionIdOf(1101), { name: "auth" });
+    // Each session's hits across every page of a search.
+    const hitsBySession = (query: string): Map<string, string[]> => {
+      const bySession = new Map<string, string[]>();
+      for (const hit of hitsOf(readEveryPage(sessionSearch, { query }))) {
+        const [sessionId = ""] = hit.split(" ");
+        bySession.set(sessionId, [...(bySession.get(sessionId) ?? []), hit]);
+      }
+      return bySession;
+    };
+
+    const wordsAlone = hitsBySession("auth");
+    for (const [query, taggedSessionIds] of [
+      ["tag:billing auth", sessionIds],
+      ["tag:billing/auth auth", sessionIds.filter((_, index) => index % 2 === 0)],
+    ] as const) {
+      const byTagAndWords = hitsBySession(query);
+      expect([...byTagAndWords.keys()].sort()).toEqual([...taggedSessionIds].sort());
+      for (const [sessionId, hits] of byTagAndWords) {
+        expect(hits).toEqual(wordsAlone.get(sessionId));
+      }
     }
   });
 

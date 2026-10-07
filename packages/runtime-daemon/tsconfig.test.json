@@ -6,7 +6,7 @@
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./src",
+    "rootDir": ".",
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
     // project-references graph.
     "composite": false,
@@ -14,6 +14,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "tests/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }
