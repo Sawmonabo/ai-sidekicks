@@ -16,7 +16,7 @@ The external primary sources behind [Spec-015: Workflow Authoring And Execution]
 **Security invariants (I1–I5, C-15, C-16):**
 
 - [GitHub Actions — Script-injection guidance](https://docs.github.com/en/actions/concepts/security/script-injections)
-- [n8n CVE-2025-68613 advisory (CVSS 9.9)](https://github.com/n8n-io/n8n/security/advisories/GHSA-v98v-ff95-f3cp)
+- [CVE-2025-68613 advisory (CVSS 9.9)](https://github.com/advisories/GHSA-v98v-ff95-f3cp) — expression injection in a node-graph automation tool
 - [Airflow CVE-2024-39877](https://nvd.nist.gov/vuln/detail/CVE-2024-39877)
 - [tj-actions/changed-files CVE-2025-30066](https://nvd.nist.gov/vuln/detail/CVE-2025-30066)
 - [Airflow secret masker issue #54540 (Vault masking regression, Airflow 3.0.0-3.0.4)](https://github.com/apache/airflow/issues/54540)
@@ -56,10 +56,8 @@ The external primary sources behind [Spec-015: Workflow Authoring And Execution]
 - [Temporal Events Reference](https://docs.temporal.io/references/events)
 - [Temporal Encyclopedia — Event History](https://docs.temporal.io/encyclopedia/event-history)
 - [OpenTelemetry Semantic Conventions for Events](https://opentelemetry.io/docs/specs/semconv/general/events/) — event-name convention precedent (SA-19)
-- [n8n Workflow Executions Docs](https://docs.n8n.io/workflows/executions/)
 - [OpenTelemetry AI Agent observability blog (2025)](https://opentelemetry.io/blog/2025/ai-agent-observability/) — LLM-event semantic-convention rationale (SA-19)
 - [Argo Workflows architecture — workflow events](https://argo-workflows.readthedocs.io/en/latest/architecture/#workflow-engine) — event-engine industry comparison
-- [n8n executions API reference](https://docs.n8n.io/api/api-reference/#tag/Execution) — execution-event industry comparison
 
 **Persistence (SA-24, SA-25, SA-26):**
 
@@ -104,7 +102,6 @@ Two adopted packages carry no documentation page in any source read for Spec-015
 **Park, pacing, and durable resumption precedents (SA-37, SA-38, SA-39, SA-40, C-19):**
 
 - [Cloudflare Workflows — events and parameters (`waitForEvent`)](https://developers.cloudflare.com/workflows/build/events-and-parameters/) — durable wait primitive whose pending state is persisted rather than held in process memory (SA-37's durable-row-not-in-memory-timeout rule)
-- [n8n Workflow Executions](https://docs.n8n.io/workflows/executions/) — durable-resume prior art, already cited above for `workflow.resumed` cadence and reused here for the resume-from-persisted-state shape
 
 **Testing (SA-27):**
 

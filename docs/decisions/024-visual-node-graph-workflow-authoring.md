@@ -35,7 +35,7 @@ Adopt a visual node-graph authoring surface for workflow definitions, built on t
 
 The normative specification of all three is [Spec-015 §Visual Workflow Builder](../specs/015-workflow-authoring-and-execution.md#visual-workflow-builder) (SA-29 … SA-34, C-17); the implementation tasks are Plan-014 T1.6, T1.7, T5.4, T5.5, and T5.6, pinned by invariants I-014-10 … I-014-12.
 
-A definition is saved in the app's own graph format; the Open Workflow Specification and n8n's format were weighed and cannot hold that graph.
+A definition is saved in the app's own graph format; the Open Workflow Specification and a node-graph automation tool's export format were weighed and cannot hold that graph.
 
 ### Thesis — Why This Option
 

@@ -72,7 +72,7 @@ The decision has six parts.
 - **A headless Linux machine has no Secret Service at all.** On a server or a container with no desktop session, a workflow secret sits in a file that only its permissions protect: any program running as the person can read it.
 - **The keychain read from a background process is unproven.** On macOS a keychain item written by one process can prompt when another reads it, and an unsigned build's access differs from a signed one. The daemon that reads a secret may have been started by the app or from the command line, detached and outliving both. If the read prompts, an unattended run stalls or fails.
 - **One entry per secret grows the person's keychain** with opaque ids they did not create and cannot recognize there.
-- **No expression access is a real loss.** An n8n user expects to build a header from a credential and a literal (`Bearer {{$credentials.token}}`) or pass a key as a query param; forbidding expressions forces every such use through a sensitive field a node kind must declare.
+- **No expression access is a real loss.** A user of node-graph automation tools expects to build a header from a credential and a literal (`Bearer {{$credentials.token}}`) or pass a key as a query param; forbidding expressions forces every such use through a sensitive field a node kind must declare.
 
 ### Synthesis — Why It Still Holds
 
@@ -106,7 +106,7 @@ The decision has six parts.
 
 ### Option D: An expression binding that resolves a secret anywhere (Rejected)
 
-- **What:** `$secrets("<scope>/<name>")` in any param's expression, as n8n resolves credentials in expressions.
+- **What:** `$secrets("<scope>/<name>")` in any param's expression, as node-graph automation tools resolve credentials in expressions.
 - **Steel man:** Composable, familiar and one line for any use.
 - **Why rejected:** A value would reach command arguments, previews, outputs and branch conditions the redaction set cannot anticipate. A value must never enter a command line, and the expression preview must never show one. Resolution only in declared sensitive fields keeps both rules checkable at save.
 
@@ -195,7 +195,6 @@ The decision has six parts.
 | Apple Security framework, `SecBase.h` | Documentation | A locked keychain the caller cannot prompt through returns `errSecInteractionNotAllowed` (-25308); no keychain returns `errSecNotAvailable` (-25291) or `errSecNoSuchKeychain` (-25294) | macOS SDK, `Security.framework/Headers/SecBase.h` |
 | freedesktop Secret Service API | Documentation | Collections report whether they are locked; a session with no service on its bus has none | https://specifications.freedesktop.org/secret-service/ |
 | VS Code secret storage service | Primary research | When no OS keyring can be identified, VS Code tells the person which keyring to install and offers "Use weaker encryption"; the product encrypts nothing of its own there and keeps its items in a file readable by this account alone | https://github.com/microsoft/vscode, `src/vs/workbench/services/secrets/electron-browser/secretStorageService.ts` |
-| n8n credentials | Documentation | n8n keeps credentials encrypted in its own database and resolves them in expressions; the product keeps the reference-in-a-param model and drops both the own-database store and expression resolution | https://docs.n8n.io/credentials/ |
 
 ### Related ADRs
 
