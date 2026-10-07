@@ -6,7 +6,6 @@
 import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 
-import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import {
   type AppearanceRecord,
   DEFAULT_APPEARANCE_RECORD,
@@ -37,7 +36,8 @@ interface MainReading {
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the window floor", () => {
   it("refuses a size under its floor at the default and the largest text size", async () => {
-    await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
+    // No scenario: a fixture launch answers the floor itself, and only the real bridge reaches main.
+    await withLaunchedApp({}, async (appUnderTest) => {
       await appUnderTest.window.locator(".meridian-frame__window-floor").waitFor({
         state: "attached",
         timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
