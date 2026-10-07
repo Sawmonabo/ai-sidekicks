@@ -68,9 +68,11 @@ const FIRST_RANKING_CAPACITY = 1024;
 // The most sessions and groups one narrowed read names. Past it, the index's merge of their keys
 // costs more than another pass over the words does.
 const NARROWED_READ_OWNERS = 256;
-// The most sessions and groups a ranking within sessions narrows to; past four reads, one read of
-// every match costs less.
-const NARROWED_RANKING_OWNERS = 4 * NARROWED_READ_OWNERS;
+/**
+ * The most sessions and groups a ranking within sessions narrows to; past four narrowed reads, one
+ * read of every match costs less.
+ */
+export const NARROWED_RANKING_OWNERS: number = 4 * NARROWED_READ_OWNERS;
 
 /** A matching index row's place in the ranking: its BM25 rank, then its rowid. */
 export interface RankedRowKey {

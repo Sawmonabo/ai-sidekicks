@@ -2,10 +2,10 @@
 // session and transcript search runs, so however long a search reads, it holds this thread and
 // never the daemon's main one. Searches run one at a time, in the order they were sent, and the
 // searches held between pages live here. A first page's ranking across the whole index is read by
-// the thread's rankers, a rowid range each, while this thread holds the page's read open, and used
-// when every range read the index the page reads; otherwise it is read again, and after a few
-// tries here. The rankers start when the main thread asks, once the daemon listens, so their load
-// stays out of its start, or at the first ranking that needs them.
+// the thread's rankers, a rowid range each, while this thread holds the page's read open and reads
+// the sessions a tag keeps, and used when every range read the index the page reads; otherwise it
+// is read again, and after a few tries here. The rankers start when the main thread asks, once the
+// daemon listens, so their load stays out of its start, or at the first ranking that needs them.
 
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
@@ -137,15 +137,18 @@ function serve(connection: DatabaseType): void {
         if (plan !== undefined) {
           const openRead = rankerRead;
           rankerRead = undefined;
-          const split = await settle(
+          const ranking = settle(
             pool,
-            openRead.rank(
-              plan.matchExpression,
-              plan.taggedSessions !== undefined,
-              plan.highestRowid,
-            ),
+            openRead.rank(plan.matchExpression, plan.tagFolds.length > 0, plan.highestRowid),
           );
-          return sessionSearch.searchWithReadAhead(request, { plan, ...split });
+          // This thread reads the sessions the tag keeps while the rankers rank.
+          const [split, plannedWithSessions] = await readWhileAwaiting(ranking, () =>
+            sessionSearch.fillTaggedSessions(plan),
+          );
+          return sessionSearch.searchWithReadAhead(request, {
+            plan: plannedWithSessions,
+            ...split,
+          });
         }
       } finally {
         if (rankerRead !== undefined) {
@@ -156,6 +159,29 @@ function serve(connection: DatabaseType): void {
     } finally {
       connection.exec("COMMIT");
     }
+  }
+
+  // What `answer` settles to and what `read` returns, `read` running on this thread meanwhile. Once
+  // both have settled, a failure is thrown, and both when both failed.
+  async function readWhileAwaiting<Answer, Read>(
+    answer: Promise<Answer>,
+    read: () => Read,
+  ): Promise<[Answer, Read]> {
+    const [answered, readOutcome] = await Promise.allSettled([
+      answer,
+      new Promise<Read>((resolve) => {
+        resolve(read());
+      }),
+    ]);
+    if (answered.status === "fulfilled" && readOutcome.status === "fulfilled") {
+      return [answered.value, readOutcome.value];
+    }
+    const failures: unknown[] = [answered, readOutcome].flatMap((outcome) =>
+      outcome.status === "rejected" ? [outcome.reason] : [],
+    );
+    throw failures.length === 1
+      ? failures[0]
+      : new AggregateError(failures, "The rankers and this thread's read both failed");
   }
 
   // What the rankers answer. A ranker that fails fails this search with what it threw, and the

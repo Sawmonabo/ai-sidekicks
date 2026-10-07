@@ -40,6 +40,7 @@ import { assembleSearchPage, type PageCandidate, type SearchPage } from "./page.
 import { parseSessionSearchQuery, type ParsedSearchQuery } from "./query.js";
 import { fuseRankedLists } from "./rank-fusion.js";
 import {
+  NARROWED_RANKING_OWNERS,
   SessionTextRanking,
   compareRankedRows,
   rankingOfRanges,
@@ -60,9 +61,13 @@ import {
   type SessionOrder,
 } from "./snapshots.js";
 
-// The sessions carrying a tag or one nested under it: the fold itself, or any fold past its `/`.
-// `0` is the character after `/`, so the range holds exactly the nested folds. Each comes with its
-// group, whose row the words may match too.
+// A tag row carrying the tag `@fold` or one nested under it: the fold itself, or any fold past its
+// `/`. `0` is the character after `/`, so the range holds exactly the nested folds.
+const TAG_FOLD_MATCH_SQL = `(tag.tag_folded = @fold
+      OR (tag.tag_folded >= @fold || '/' AND tag.tag_folded < @fold || '0'))`;
+
+// The sessions carrying a tag or one nested under it, each with its group, whose row the words may
+// match too.
 const TAGGED_SESSIONS_SQL = `
   SELECT tag.session_id, session.rowid AS session_rowid, tag.tag, session.name,
          session.last_activity_at,
@@ -71,9 +76,17 @@ const TAGGED_SESSIONS_SQL = `
     FROM session_tags AS tag
     JOIN sessions AS session ON session.id = tag.session_id
     LEFT JOIN session_groups AS session_group ON session_group.id = session.group_id
-   WHERE tag.tag_folded = @fold
-      OR (tag.tag_folded >= @fold || '/' AND tag.tag_folded < @fold || '0')
+   WHERE ${TAG_FOLD_MATCH_SQL}
    ORDER BY tag.tag_folded`;
+
+// How many sessions carry a tag or one nested under it, counted no further than `@bound`, from the
+// tag index alone.
+const TAGGED_SESSION_COUNT_SQL = `
+  SELECT count(*) FROM (
+    SELECT DISTINCT tag.session_id
+      FROM session_tags AS tag
+     WHERE ${TAG_FOLD_MATCH_SQL}
+     LIMIT @bound)`;
 
 const HIGHEST_INDEX_ROWID_SQL = "SELECT max(rowid) FROM session_search_index";
 
@@ -98,12 +111,17 @@ export interface TaggedSession extends ListedSession, HitSession {
 
 /**
  * A first page's ranking across the whole index, planned so other connections can read it in
- * rowid ranges ahead of the page: the words' match, the sessions a search by tag and words keeps
- * (`undefined` for words alone), the index version the plan saw, and the highest rowid then, which
- * places the ranges' bounds.
+ * rowid ranges ahead of the page: the words' match, the tags whose sessions a search by tag and
+ * words keeps (none for words alone), those sessions once read, the index version the plan saw,
+ * and the highest rowid then, which places the ranges' bounds.
  */
 export interface WholeIndexRankingPlan {
   readonly matchExpression: string;
+  readonly tagFolds: readonly string[];
+  /**
+   * The sessions the tags keep: `undefined` for words alone, and for a tag a count showed many
+   * sessions carry until {@link SessionSearchService.fillTaggedSessions} reads them.
+   */
   readonly taggedSessions: readonly TaggedSession[] | undefined;
   readonly version: number;
   readonly highestRowid: number;
@@ -154,6 +172,7 @@ export class SessionSearchService {
   readonly #rowSessions: IndexRowSessions;
   readonly #hitReader: SessionHitReader;
   readonly #taggedSessions: Statement<{ fold: string }, TaggedSessionRow>;
+  readonly #taggedSessionCount: Statement<{ fold: string; bound: number }, number>;
   readonly #snapshots: SearchSnapshots;
 
   constructor(
@@ -168,6 +187,9 @@ export class SessionSearchService {
     this.#rowSessions = new IndexRowSessions(reader);
     this.#hitReader = new SessionHitReader(reader);
     this.#taggedSessions = reader.prepare(TAGGED_SESSIONS_SQL);
+    this.#taggedSessionCount = reader
+      .prepare<{ fold: string; bound: number }, number>(TAGGED_SESSION_COUNT_SQL)
+      .pluck();
     this.#snapshots = new SearchSnapshots(snapshotLimits);
   }
 
@@ -196,7 +218,8 @@ export class SessionSearchService {
   /**
    * The ranking across the whole index a first page of `request` reads, planned for other
    * connections to read ahead of the page; `undefined` for a later page, a query with no words, and
-   * a search by tag and words whose sessions are few enough to rank through their keys.
+   * a search by tag and words whose sessions are few enough to rank through their keys. A tag a
+   * count shows many sessions carry is planned without reading them, so the ranking need not wait.
    */
   planWholeIndexRanking(request: SessionSearchRequest): WholeIndexRankingPlan | undefined {
     const { matchExpression, tagFolds } = parseSessionSearchQuery(request.query);
@@ -204,17 +227,31 @@ export class SessionSearchService {
       return undefined;
     }
     return this.#reader.transaction(() => {
-      const taggedSessions = tagFolds.length === 0 ? undefined : this.#readTaggedSessions(tagFolds);
-      if (taggedSessions !== undefined && !ranksEveryMatch(taggedSessions)) {
-        return undefined;
+      let taggedSessions: TaggedSession[] | undefined;
+      if (tagFolds.length > 0 && !this.#isCarriedByManySessions(tagFolds)) {
+        taggedSessions = this.#readTaggedSessions(tagFolds);
+        if (!ranksEveryMatch(taggedSessions)) {
+          return undefined;
+        }
       }
       return {
         matchExpression,
+        tagFolds,
         taggedSessions,
         version: this.#indexVersion.read(),
         highestRowid: this.#highestIndexRowid.get() ?? 0,
       };
     })();
+  }
+
+  /**
+   * The plan with the sessions its tags keep, read in the caller's read when the plan left them
+   * unread; the search thread reads them while its rankers rank.
+   */
+  fillTaggedSessions(plan: WholeIndexRankingPlan): WholeIndexRankingPlan {
+    return plan.taggedSessions !== undefined || plan.tagFolds.length === 0
+      ? plan
+      : { ...plan, taggedSessions: this.#readTaggedSessions(plan.tagFolds) };
   }
 
   /**
@@ -385,6 +422,20 @@ export class SessionSearchService {
       throw searchCursorUnresolvable(resume.cursor);
     }
     return isHeldRow;
+  }
+
+  // Whether the one queried tag surely keeps more sessions than a ranking within sessions narrows
+  // to, from a count that stops just past that many: each session owns rows of its own, so they
+  // have at least that many owners. The sessions several tags keep are those carrying every one,
+  // which no such count tells.
+  #isCarriedByManySessions(tagFolds: readonly string[]): boolean {
+    const [fold, ...otherFolds] = tagFolds;
+    return (
+      fold !== undefined &&
+      otherFolds.length === 0 &&
+      (this.#taggedSessionCount.get({ fold, bound: NARROWED_RANKING_OWNERS + 1 }) ?? 0) >
+        NARROWED_RANKING_OWNERS
+    );
   }
 
   // The sessions carrying every queried tag, most recently active first, each with the tags that

@@ -91,7 +91,10 @@ describe("the rankers", () => {
         split.ranges.map((range) => range.rowids.length > 0),
         query,
       ).toEqual([true, true, true, true]);
-      const firstPage = sessionSearch.searchWithReadAhead(request, { plan, ...split });
+      const firstPage = sessionSearch.searchWithReadAhead(request, {
+        plan: sessionSearch.fillTaggedSessions(plan),
+        ...split,
+      });
       expect(firstPage, query).toBeDefined();
       const onOneRead = new SessionSearchService(reader);
       expect(everyPage(sessionSearch, request, firstPage), query).toEqual(
@@ -146,7 +149,7 @@ describe("the rankers", () => {
   function rankWith(plan: WholeIndexRankingPlan): Promise<SplitRanking> {
     return rankers
       .openRead()
-      .rank(plan.matchExpression, plan.taggedSessions !== undefined, plan.highestRowid);
+      .rank(plan.matchExpression, plan.tagFolds.length > 0, plan.highestRowid);
   }
 
   // A log row matching the words, which moves the index's version; answers its index rowid.
