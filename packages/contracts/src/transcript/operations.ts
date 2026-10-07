@@ -56,7 +56,11 @@ export const TRANSCRIPT_READ_LIMIT_MAX = 256;
 
 /**
  * A bounded read window over one session's transcript. `afterCursor` and `beforeCursor` are
- * independently optional, spanning forward paging, backward paging and a bounded range.
+ * independently optional, spanning forward paging, backward paging and a bounded range. A cursor
+ * is a position in the log, and the cursor an event carries is the position right after it:
+ * `afterCursor` answers the events after its position and `beforeCursor` those before it, the
+ * event carrying that cursor among them, so a page before a window's head and the stream after
+ * it meet with nothing missed or repeated.
  */
 export interface TranscriptReadRequest {
   sessionId: SessionId;
