@@ -79,9 +79,13 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionRecord;
-  // `earliest` is required: the position just before the oldest surviving row, where a reader with
-  // no acknowledged cursor resumes (Plan-004 T4.1).
+  // `earliest` is required: the position just before the oldest surviving row. A reader opens its
+  // window at `acknowledged ?? latest` with a `transcript.read` window and follows the stream after
+  // that window's newest row (Plan-004 T4.1, Plan-010 T2.4).
   transcriptCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor };
+  // Every run of the session not yet ended, with its state now, so a window opened below a run's
+  // earlier events still knows whether the run is working or waiting.
+  liveRuns: Array<{ runId: RunId; parentRunId?: RunId; state: RunState; runVersion: number }>;
 }
 
 // SessionSubscribe
@@ -102,12 +106,16 @@ interface SessionSubscribeResponse {
 // A frame carries changes, never the whole transcript, oldest first, and every change carries its cursor.
 // The daemon never waits for a subscriber: changes that do not fit are dropped for it and `dropped` rides
 // the next frame that fits; the subscriber then repairs from the daemon's record by cursor, and past a gap
-// of 1,024 events reads `session.read` and resumes from its latest cursor instead of filling. When a
+// of 1,024 events reads `session.read`, then the `transcript.read` window at its latest cursor, and
+// resumes after that window instead of filling. When a
 // subscriber that fell behind has caught up, the daemon sends it one frame with no changes, carrying
 // `dropped` and the newest cursor, so a session that goes quiet right after a drop still tells the
 // subscriber it is behind.
 interface SessionStreamFrame {
-  changes: Array<{ cursor: EventCursor; event: EventEnvelope }>; // at most 50; EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy
+  // At most 50. EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy. `runStamp`
+  // is present exactly on an event of a run: the daemon's turn position, execution epoch and
+  // superseded marker for it, the same stamp a `transcript.read` row of that event carries.
+  changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
   dropped?: true;
   // Present only on the frame with no changes, which always carries `dropped`: the newest cursor the
   // daemon holds for the session. A frame with changes carries no frame cursor.

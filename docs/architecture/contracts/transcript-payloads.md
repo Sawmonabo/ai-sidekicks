@@ -87,6 +87,15 @@ type TranscriptRollbackBoundary = Omit<TranscriptEventRowBase, "category" | "typ
 
 type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union every transcript surface returns — TranscriptReadResponse.entries and ChildRunExpandResponse.entries are both TranscriptEventRow — genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
 
+// The run stamp a session.subscribe change carries for an event of a run (Plan-010 T2.4): the same
+// position, epoch and superseded marker the event's transcript.read row carries, computed by the one
+// projection fold, so a row delivered live and the same row read in a window agree by construction.
+type TranscriptRunStamp = {
+  position: number;
+  epoch: number;
+  superseded?: { targetPosition: number };
+};
+
 // The incompleteness marker (Plan-010 T1.2). Spec-011 §Fallback Behavior requires that a child run whose detail fetch fails "remains
 // visible and marked incomplete rather than disappearing"; without the mark,
 // the only signal of incompleteness would be a low eventCount, which is indistinguishable from a child run
