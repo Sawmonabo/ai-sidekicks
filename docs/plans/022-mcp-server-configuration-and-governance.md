@@ -105,7 +105,7 @@ The Phase 5 desktop MCP panel views consume daemon state only through the render
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `mcp.*` namespace handler files per CP-022-3.
 - `packages/client-sdk/src/mcp.ts` (CREATE) + the client's named export line in the package's entry point `packages/client-sdk/src/index.ts` — typed `mcp.*` client methods.
 - `apps/desktop/src/renderer/src/features/settings/pages/mcp-servers/` (EXTEND) — MCP panel views over the renderer's `services/daemon/` client.
-- `apps/cli/src/commands/mcp/<verb>.ts` (CREATE) + `apps/cli/src/program.ts` (EXTEND — `createProgram` calls each command's registration function, which adds the command with `.command()` per Plan-005 CP-005-7) — the `sidekicks mcp` command group (`list` / `add` / `remove` / `override` / `login` / `watch` — `watch` tails `mcp.subscribe`) under the Plan-005 registered bin name (`bin: { "sidekicks": … }`, the Plan-013 command precedent; per-subcommand filenames: `mcp/list.ts`, `mcp/add.ts`, `mcp/remove.ts`, `mcp/override.ts`, `mcp/login.ts`, `mcp/watch.ts`).
+- `apps/cli/src/commands/mcp/<verb>.ts` (CREATE) + `apps/cli/src/program.ts` (EXTEND — `createProgram` calls each command's registration function, which adds the command with `.command()` per Plan-005 CP-005-7) — the `sidekicks mcp` command group (`list` / `add` / `remove` / `override` / `login` / `watch` — `watch` tails `mcp.subscribe`) under the Plan-005 registered bin name (`bin: { "sidekicks": … }`; per-subcommand filenames: `mcp/list.ts`, `mcp/add.ts`, `mcp/remove.ts`, `mcp/override.ts`, `mcp/login.ts`, `mcp/watch.ts`).
 
 ## Data And Storage Changes
 
