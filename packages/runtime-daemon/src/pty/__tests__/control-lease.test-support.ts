@@ -71,8 +71,8 @@ export interface UnreliableLease {
   holdNextBroadcast: () => HeldBroadcast;
 }
 
-/** One broadcast a case holds back. */
-export interface HeldBroadcast {
+// One broadcast a case holds back.
+interface HeldBroadcast {
   /** Whether the lease has started it. */
   isStarted: () => boolean;
   /** Fails it, which fails the change that sent it. */
