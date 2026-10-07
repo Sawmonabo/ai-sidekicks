@@ -27,6 +27,9 @@ const RESUME_AT = new Date(2026, 0, 1, 15, 0).toISOString();
 const NEWER_WAIT = new Date(2026, 0, 1, 14, 5).toISOString();
 const OLDER_WAIT = new Date(2026, 0, 1, 8, 30).toISOString();
 
+/** The clock locale the section writes its figures in. */
+const CLOCK_LOCALE = "en-US";
+
 /**
  * Two accounts, then two runs whose waits are out of time order, as a daemon may send them:
  * a screen that sorted or regrouped the entries would draw them in another order.
@@ -74,6 +77,7 @@ describe("the attention list", () => {
         state={{ kind: "loaded", value: DAEMON_GROUPING }}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
+        clockLocale={CLOCK_LOCALE}
         clock={new ManualClock(NOW_MS)}
         readAgain={() => undefined}
         answeredCount={0}
@@ -85,8 +89,8 @@ describe("the attention list", () => {
     expect(lines).toStrictEqual([
       "1 run waits on the Claude Code account Personal, which is spent.",
       "3 runs wait on the Codex account Work, which is spent until " +
-        `${formatDayClock(RESUME_AT, NOW_MS)}.`,
-      `Release · waiting on Approve the release · since ${formatDayClock(NEWER_WAIT, NOW_MS)}`,
+        `${formatDayClock(RESUME_AT, NOW_MS, CLOCK_LOCALE)}.`,
+      `Release · waiting on Approve the release · since ${formatDayClock(NEWER_WAIT, NOW_MS, CLOCK_LOCALE)}`,
       "Weekly notes · waiting on Write the notes · since 8:30 AM",
     ]);
   });
@@ -98,6 +102,7 @@ describe("the attention list", () => {
         state={state}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
+        clockLocale={CLOCK_LOCALE}
         clock={clock}
         readAgain={() => undefined}
         answeredCount={3}
@@ -158,6 +163,7 @@ function SectionRefusedOnEveryRead(props: { readonly clock: ManualClock }): Reac
       state={state}
       onOpenRun={() => undefined}
       nowMs={NOW_MS}
+      clockLocale={CLOCK_LOCALE}
       clock={props.clock}
       readAgain={() => {
         setState(refusedRead());

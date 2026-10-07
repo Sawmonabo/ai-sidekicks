@@ -11,7 +11,7 @@
 // packaged build skips, and the two icons'. Electron refuses a scheme registered after ready, and a
 // window created before the handler is installed loads against an unhandled scheme.
 
-import { homedir, totalmem } from "node:os";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import {
@@ -23,10 +23,11 @@ import {
   Tray,
   type NativeImage,
 } from "electron";
-import { appFactsSwitches, supportedArch, supportedPlatform } from "#shared/app-facts.js";
+import { appFactsSwitches } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
+import { readAppFacts, watchMachineClock } from "./bridge/app-facts.js";
 import { DaemonForwarding } from "./bridge/daemon.js";
 import { FilePathRefs } from "./bridge/file-path/refs.js";
 import { installBridgeHandlers } from "./bridge/install-handlers.js";
@@ -284,15 +285,13 @@ function startApplication(): void {
         windowContext: { appearance, openWindows },
       });
 
-      // Read after ready because the locale is unknown before it. An unsupported platform or
-      // architecture stops the launch here rather than reaching a page as an unchecked value.
-      const appSwitches = appFactsSwitches({
-        version: app.getVersion(),
-        platform: supportedPlatform(process.platform),
-        arch: supportedArch(process.arch),
-        locale: app.getLocale(),
-        physicalMemoryBytes: totalmem(),
-      });
+      // Read after ready because the locales are unknown before it. A fact out of range stops the
+      // launch here rather than reaching a page as an unchecked value.
+      const appSwitches = appFactsSwitches(readAppFacts());
+      // Heard from here on, so a region or clock changed while the app runs redraws every figure.
+      watchMachineClock((clock) => {
+        openWindows.announceMachineClock(clock);
+      }, log);
 
       // The probes in `./probes/` are gated twice: the compile-time `__SMOKE_BUILD__` (a release
       // bundle references nothing there, so Rollup drops the modules) and a per-run env var, so

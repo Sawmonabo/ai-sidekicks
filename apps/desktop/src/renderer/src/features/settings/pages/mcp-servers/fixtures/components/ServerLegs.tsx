@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
@@ -57,7 +57,10 @@ export function ServerLegs(props: {
               {leg.observedAt === undefined ? null : (
                 <>
                   <span className="meridian-settings-page__aside">· updated</span>
-                  <DerivedFigure text={formatRelativeTime(leg.observedAt, nowMilliseconds)} />
+                  <WireFigure
+                    value={formatRelativeTime(leg.observedAt, nowMilliseconds)}
+                    title={leg.observedAt}
+                  />
                 </>
               )}
             </li>

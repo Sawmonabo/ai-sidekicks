@@ -24,13 +24,17 @@ import {
 } from "#fixtures/data/workflow/run/records.js";
 import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
-import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import {
   createWorkflowCommandTargets,
   type WorkflowCommandTargets,
 } from "#renderer/features/workflows/command-target.js";
 import { withCommandTargets } from "#renderer/features/workflows/command-target.test-support.js";
 import { StepBlocker } from "./StepBlocker.js";
+
+/** The clock locale the fixture bridge carries, which the screen writes its figures in. */
+const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
 
 /** How long the fixture daemon takes to answer `question.resolve`. */
 const QUESTION_RESOLVE_DELAY_MS = 200;
@@ -119,7 +123,9 @@ describe("a step's blocker", () => {
     renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "notes");
 
     expect(
-      screen.getByText(`Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS)}`),
+      screen.getByText(
+        `Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS, CLOCK_LOCALE)}`,
+      ),
     ).toBeDefined();
     expect(screen.queryByRole("button")).toBeNull();
   });
@@ -136,7 +142,7 @@ describe("a step's blocker", () => {
     });
     renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "approve", [], timedOut);
     expect(
-      screen.getByText(`Timed out at ${formatDayClock(finishedAt, NEXT_DAY_MS)}`),
+      screen.getByText(`Timed out at ${formatDayClock(finishedAt, NEXT_DAY_MS, CLOCK_LOCALE)}`),
     ).toBeDefined();
     expect(screen.queryByRole("button")).toBeNull();
     cleanup();

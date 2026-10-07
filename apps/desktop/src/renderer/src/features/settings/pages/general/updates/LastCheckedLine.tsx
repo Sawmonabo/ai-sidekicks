@@ -1,5 +1,6 @@
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /**
  * When the last update check finished, or the sentence for a build that never checked.
@@ -14,6 +15,7 @@ import { formatDateTime } from "#renderer/lib/wire/figures.js";
 export function LastCheckedLine(props: {
   readonly lastCheckedAt: string | undefined;
 }): React.JSX.Element {
+  const clockLocale = useClockLocale();
   if (props.lastCheckedAt === undefined) {
     return (
       <span className="meridian-settings-page__aside">
@@ -23,7 +25,7 @@ export function LastCheckedLine(props: {
   }
   return (
     <span className="meridian-settings-page__aside">
-      Last checked <DerivedFigure text={formatDateTime(props.lastCheckedAt)} />.
+      Last checked <DerivedFigure text={formatDateTime(props.lastCheckedAt, clockLocale)} />.
     </span>
   );
 }

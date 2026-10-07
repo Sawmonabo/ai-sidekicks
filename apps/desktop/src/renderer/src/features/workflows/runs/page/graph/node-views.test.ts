@@ -9,7 +9,8 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
-import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "./node-views.js";
 
 const RUN_ID = "019b7a10-0280-75e5-8510-ada11a5a4999" as WorkflowRunId;
@@ -77,8 +78,11 @@ const FIRST_ATTEMPT_FAILED = step("summary", 1, {
 /** The instant the graph counts days from. */
 const GRAPH_NOW_MS = Date.UTC(2026, 0, 1, 14, 20);
 
+/** The clock locale the fixture bridge carries, which the graph writes its instants in. */
+const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
+
 function summaryView(steps: readonly WorkflowStep[]) {
-  const view = runGraphNodeViews(DOCUMENT, steps, [], GRAPH_NOW_MS).find(
+  const view = runGraphNodeViews(DOCUMENT, steps, [], GRAPH_NOW_MS, CLOCK_LOCALE).find(
     (candidate) => candidate.node.id === "summary",
   );
   if (view === undefined) {
@@ -146,7 +150,7 @@ describe("the run graph names when a parked node resumes", () => {
     });
 
     expect(summaryView([TRIGGERED, parked]).resumeLine).toBe(
-      `Resumes at ${formatDayClock(resumeAt, GRAPH_NOW_MS)}`,
+      `Resumes at ${formatDayClock(resumeAt, GRAPH_NOW_MS, CLOCK_LOCALE)}`,
     );
   });
 });

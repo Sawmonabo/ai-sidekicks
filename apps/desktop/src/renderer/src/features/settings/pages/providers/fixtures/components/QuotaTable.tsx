@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatDateTime, formatDuration, formatPercent } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { MILLISECONDS_PER_MINUTE } from "#renderer/lib/instant.js";
 import type { AccountQuotaRow } from "../quota-rows.js";
 
@@ -28,6 +30,7 @@ const UTILIZATION_BAR_FULL_SCALE = 1;
  * provider and behind this account.
  */
 export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] }): ReactNode {
+  const clockLocale = useClockLocale();
   if (props.rows.length === 0) {
     return (
       <Nothing
@@ -71,12 +74,12 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
               {window.resetsAt === undefined ? (
                 <span className="meridian-settings-page__aside">Not published</span>
               ) : (
-                <DerivedFigure text={formatDateTime(window.resetsAt)} />
+                <DerivedFigure text={formatDateTime(window.resetsAt, clockLocale)} />
               )}
             </td>
             <td>
-              <DerivedFigure text={formatDateTime(window.observedAt)} />{" "}
-              <Chip label={window.source} mono />
+              <DerivedFigure text={formatDateTime(window.observedAt, clockLocale)} />{" "}
+              <Chip label={codeWords(window.source)} />
               {behindAccountGeneration ? (
                 <Chip label="Behind this account’s credential" tone="attention" glyph="alert" />
               ) : null}

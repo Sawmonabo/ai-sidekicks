@@ -5,9 +5,11 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /** One row: the path, the two axes, and when the mount was last probed. */
 export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse }): ReactNode {
+  const clockLocale = useClockLocale();
   const { mount } = props;
   const lifecycle = mountLifecycleReading(mount.state);
   const health = mountHealthReading(mount.health);
@@ -26,7 +28,10 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
       </span>
       <span className="meridian-mount-list__probe">
         Last probed at{" "}
-        <WireFigure value={formatDateTime(mount.health.checkedAt)} title={mount.health.checkedAt} />
+        <WireFigure
+          value={formatDateTime(mount.health.checkedAt, clockLocale)}
+          title={mount.health.checkedAt}
+        />
       </span>
     </div>
   );

@@ -62,6 +62,8 @@ const APP_FACTS_SWITCHES = appFactsSwitches({
   arch: "arm64",
   locale: "en-US",
   physicalMemoryBytes: 17_179_869_184,
+  regionLocale: "en-US",
+  hourCycle: "h12",
 });
 
 let userData: string;

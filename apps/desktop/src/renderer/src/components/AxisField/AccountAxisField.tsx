@@ -17,6 +17,7 @@ import {
   registryCarriesAccount,
   type AccountRegistryReading,
 } from "#renderer/lib/provider-binding/account/axis.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { AccountChoiceEmptyState } from "./AccountChoiceEmptyState.js";
 import { AccountChoiceList } from "./AccountChoiceList.js";
 
@@ -58,6 +59,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   // The root is a `div`, not a `<label>`, and `role="combobox"` takes no name from its content,
   // so the trigger is named explicitly. Minted because two fields can share a window.
   const labelId = useId();
+  const clockLocale = useClockLocale();
 
   return (
     <div className="meridian-axis-field meridian-form__field">
@@ -101,7 +103,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
                 "reading, and the request still names no account."}
           </span>
           <ul className="meridian-axis-field__advisories">
-            {accountAdvisoriesFor(advisoryChoice).map((advisory) => (
+            {accountAdvisoriesFor(advisoryChoice, clockLocale).map((advisory) => (
               <li key={advisory} className="meridian-axis-field__advisory">
                 {advisory}
               </li>

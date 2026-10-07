@@ -1,12 +1,13 @@
 // The front end's bridge: what every host provides. The host capabilities are the preload's
-// `PreloadApi` taken whole, implemented by `live-bridge.ts` and `bridge.fixture.ts`, so a
-// namespace added to the preload breaks the fixture at compile time. This adds what only the
-// renderer has: the transport-reconnect signal and which bridge the window runs against. The
-// registered daemon streams and their kinds live in
+// `PreloadApi` taken whole, implemented by `live-bridge.ts` and `bridge.fixture.ts`, so a namespace
+// added to the preload breaks the fixture at compile time. This adds what only the renderer has:
+// the transport-reconnect signal, the clock locale held once for every figure, and which bridge the
+// window runs against. The registered daemon streams and their kinds live in
 // `services/daemon/session/event/streams.ts`.
 
 import type { PreloadApi } from "#shared/preload-api.js";
 import type { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
+import type { ClockLocale } from "./clock-locale.js";
 
 /** Which bridge the window is running against. Rendered, never inferred. */
 export type PlatformBridgeSource = "live" | "fixture";
@@ -20,5 +21,7 @@ export interface PlatformBridge extends PreloadApi {
    * subscribe-only `TransportReconnectObservable` view.
    */
   readonly transportReconnect: TransportReconnectSignal;
+  /** The locale every clock figure and date is written in, following the machine as it changes. */
+  readonly clockLocale: ClockLocale;
   readonly source: PlatformBridgeSource;
 }

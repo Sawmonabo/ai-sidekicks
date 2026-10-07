@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import {
   BILLING_MODE_WORDS,
   PROVIDER_READINESS_STATE_WORDS,
@@ -36,6 +37,7 @@ export function AccountRow(props: {
   readonly onSelect: (account: ListedProviderAccount) => void;
 }): ReactNode {
   const { account, selected, nowMilliseconds, onSelect } = props;
+  const clockLocale = useClockLocale();
   const ageInDays =
     account.healthObservedAt === null
       ? undefined
@@ -70,7 +72,7 @@ export function AccountRow(props: {
           ) : (
             <>
               <span className="meridian-settings-page__aside">Observed </span>
-              <DerivedFigure text={formatDateTime(account.healthObservedAt)} />
+              <DerivedFigure text={formatDateTime(account.healthObservedAt, clockLocale)} />
             </>
           )}
         </span>

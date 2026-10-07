@@ -1,6 +1,7 @@
 // The IPC channel each bridge member is carried on. The preload invokes a channel and main
 // handles it, so the name is written here once, with the channels each member rides.
 
+import type { AppFacts } from "./app-facts.js";
 import type { PreloadApi } from "./preload-api.js";
 
 /** The channels the preload invokes, by bridge member; main answers each but the updater's. */
@@ -71,6 +72,9 @@ export const NAVIGATION_REQUEST_CHANNEL = "window.navigationRequest";
 /** The channel main tells the console document on that a View-menu scheme pick was not saved. */
 export const UNKEPT_SCHEME_CHANNEL = "window.unkeptScheme";
 
+/** The channel main pushes the machine's region and clock on, to the console document. */
+export const MACHINE_CLOCK_CHANNEL = "app.machineClock";
+
 /** The channel main pushes each updater state on, to the console document. */
 export const UPDATE_STATE_CHANNEL = "update.state";
 
@@ -80,12 +84,9 @@ export const UPDATE_STATE_CHANNEL = "update.state";
  */
 type BridgeMember = Exclude<
   {
-    [Namespace in Exclude<keyof PreloadApi, "app">]: `${Namespace}.${Extract<
-      keyof PreloadApi[Namespace],
-      string
-    >}`;
-  }[Exclude<keyof PreloadApi, "app">],
-  "window.lastUsedWindowId"
+    [Namespace in keyof PreloadApi]: `${Namespace}.${Extract<keyof PreloadApi[Namespace], string>}`;
+  }[keyof PreloadApi],
+  "window.lastUsedWindowId" | `app.${keyof AppFacts}`
 >;
 
 /** The updater's members, carried on `UpdaterBridgeChannel`s, which main does not answer. */
@@ -136,4 +137,6 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.subscribeToUnkeptScheme": [],
   // The request main held reads first; every later one is pushed on `NAVIGATION_REQUEST_CHANNEL`.
   "window.subscribeToNavigationRequest": [BRIDGE_CHANNELS.readNavigationRequest],
+  // Pushed by main alone, on `MACHINE_CLOCK_CHANNEL`: the first delivery is the preload's newest.
+  "app.subscribeMachineClock": [],
 };

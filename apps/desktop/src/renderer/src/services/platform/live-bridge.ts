@@ -7,6 +7,7 @@ import { isWireRecord } from "#renderer/lib/wire/record.js";
 import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "#shared/fixture-launch.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import type { PlatformBridge } from "./bridge.js";
+import { ClockLocale } from "./clock-locale.js";
 import { TransportReconnectSignal } from "../transport/reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
@@ -35,6 +36,7 @@ export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
     // subscription any window opens (`transport/observed-subscription.ts`). One for the app: every
     // window reaches the service through main's one connection, so they share one reading.
     transportReconnect: new TransportReconnectSignal(),
+    clockLocale: new ClockLocale(preloadApi.app),
     source: "live",
   };
 }

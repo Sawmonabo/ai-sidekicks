@@ -24,16 +24,24 @@ const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {
  * A step's receipt from the record of how it was answered: `Approved at 2:14 PM`, with the day in
  * front when it was not the day of `nowMs`.
  */
-export function resolutionReceipt(resolution: WorkflowStepResolution, nowMs: number): string {
-  return `${RESOLUTION_VERBS[resolution.kind]} at ${formatDayClock(resolution.at, nowMs)}`;
+export function resolutionReceipt(
+  resolution: WorkflowStepResolution,
+  nowMs: number,
+  locale: string,
+): string {
+  return `${RESOLUTION_VERBS[resolution.kind]} at ${formatDayClock(resolution.at, nowMs, locale)}`;
 }
 
 /**
  * The receipt for an answer this window just took, at the instant its own clock reads, for an
  * answer whose record carries none: `Answered at 2:14 PM`.
  */
-export function receiptNow(kind: WorkflowStepResolutionKind, nowMs: number): string {
-  return `${RESOLUTION_VERBS[kind]} at ${formatDayClockAt(nowMs, nowMs)}`;
+export function receiptNow(
+  kind: WorkflowStepResolutionKind,
+  nowMs: number,
+  locale: string,
+): string {
+  return `${RESOLUTION_VERBS[kind]} at ${formatDayClockAt(nowMs, nowMs, locale)}`;
 }
 
 /** The node kinds whose step waits on a person: an approval, a form and a chat reply. */
@@ -58,12 +66,13 @@ export function timedOutReceipt(
   step: WorkflowStep,
   nodeKind: WorkflowNodeKindId | undefined,
   nowMs: number,
+  locale: string,
 ): string | undefined {
   const isPersonWait = nodeKind !== undefined && isPersonWaitKind(nodeKind);
   return isPersonWait &&
     step.error?.code === WORKFLOW_STEP_TIMED_OUT_CODE &&
     step.finishedAt !== undefined
-    ? `Timed out at ${formatDayClock(step.finishedAt, nowMs)}`
+    ? `Timed out at ${formatDayClock(step.finishedAt, nowMs, locale)}`
     : undefined;
 }
 

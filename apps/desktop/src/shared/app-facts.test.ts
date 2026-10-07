@@ -11,6 +11,8 @@ const FACTS: AppFacts = {
   arch: "x64",
   locale: "sr-Latn-RS",
   physicalMemoryBytes: 17_179_869_184,
+  regionLocale: "en-GB",
+  hourCycle: "h23",
 };
 
 describe("the app facts a window is started with", () => {

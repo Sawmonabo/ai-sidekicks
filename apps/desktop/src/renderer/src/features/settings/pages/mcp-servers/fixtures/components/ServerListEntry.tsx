@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
@@ -52,7 +51,10 @@ export function ServerListEntry(props: {
           {entry.observedAt === undefined ? null : (
             <>
               <span className="meridian-settings-page__aside">· updated</span>
-              <DerivedFigure text={formatRelativeTime(entry.observedAt, nowMilliseconds)} />
+              <WireFigure
+                value={formatRelativeTime(entry.observedAt, nowMilliseconds)}
+                title={entry.observedAt}
+              />
             </>
           )}
         </span>

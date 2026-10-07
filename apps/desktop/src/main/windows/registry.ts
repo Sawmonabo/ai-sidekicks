@@ -30,9 +30,11 @@ import type {
   WebContents,
 } from "electron";
 
+import type { MachineClock } from "#shared/app-facts.js";
 import type { AppearanceRecord } from "#shared/appearance.js";
 import {
   APPEARANCE_VALUE_CHANNEL,
+  MACHINE_CLOCK_CHANNEL,
   NAVIGATION_REQUEST_CHANNEL,
   REOPEN_WINDOW_CHANNEL,
   UNKEPT_SCHEME_CHANNEL,
@@ -109,6 +111,8 @@ export class OpenWindows {
   /** Whether the renderer loaded now is a safe start, during which no kept place changes. */
   #isSafeStart = false;
   #pushedRecord: AppearanceRecord;
+  /** The machine's region and clock after its last change; `undefined` before any. */
+  #machineClock: MachineClock | undefined;
   /** The id of the console window used last; a fresh one on a first launch. */
   #consoleWindowUsedLast: string;
   /** Set once a quit begins, so focus moving as the windows close keeps the window used last. */
@@ -244,6 +248,15 @@ export class OpenWindows {
    */
   public announceUnkeptScheme(): void {
     this.#sendToConsoleDocument(UNKEPT_SCHEME_CHANNEL, undefined);
+  }
+
+  /**
+   * Hands the console document the machine's region and clock after a change, and every console
+   * document loaded later too, since a reload or a rebuilt window starts from start's switches.
+   */
+  public announceMachineClock(clock: MachineClock): void {
+    this.#machineClock = clock;
+    this.#sendToConsoleDocument(MACHINE_CLOCK_CHANNEL, clock);
   }
 
   /**
@@ -400,6 +413,12 @@ export class OpenWindows {
     hiddenWindow.view.webContents.on("did-navigate", () => {
       if (this.#hiddenWindow === hiddenWindow) {
         this.#consoleDocumentReplaced();
+      }
+    });
+    // A document loaded after the machine's clock changed started from the clock at start.
+    hiddenWindow.view.webContents.on("did-finish-load", () => {
+      if (this.#hiddenWindow === hiddenWindow && this.#machineClock !== undefined) {
+        this.#sendToConsoleDocument(MACHINE_CLOCK_CHANNEL, this.#machineClock);
       }
     });
     // A failed load commits an error page in the document's place, with no `did-navigate`.

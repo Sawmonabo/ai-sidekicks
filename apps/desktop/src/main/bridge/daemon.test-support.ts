@@ -171,6 +171,8 @@ export async function bridgeOverLink(
       arch: "arm64",
       locale: "en-US",
       physicalMemoryBytes: 17_179_869_184,
+      regionLocale: "en-US",
+      hourCycle: "h12",
     }),
     lastUsedWindowIdSwitch("w-1"),
   ]);

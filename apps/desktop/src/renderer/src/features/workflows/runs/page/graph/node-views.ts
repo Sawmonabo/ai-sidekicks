@@ -88,18 +88,19 @@ const HAS_OWN_OUTPUT: Readonly<Record<WorkflowStepStatus, boolean>> = {
  *
  * A node's latest step is the one with the highest `executionIndex` among its steps, so a node
  * that ran in a loop shows its last pass and a retried node its last attempt. A resume instant's
- * day is counted from `nowMs`.
+ * day is counted from `nowMs`, and the instant is written in `locale`.
  */
 export function runGraphNodeViews(
   document: WorkflowDocument,
   steps: readonly WorkflowStep[],
   edgeItemCounts: readonly WorkflowEdgeItemCount[],
   nowMs: number,
+  locale: string,
 ): readonly RunGraphNodeView[] {
   const latestByNode = latestStepByNode(steps);
   const firstOutputCounts = firstOutputItemCounts(document, edgeItemCounts);
   return [document.trigger, ...document.nodes].map((node) =>
-    nodeView(node, latestByNode.get(node.id), firstOutputCounts.get(node.id), nowMs),
+    nodeView(node, latestByNode.get(node.id), firstOutputCounts.get(node.id), nowMs, locale),
   );
 }
 
@@ -181,12 +182,13 @@ function nodeView(
   step: WorkflowStep | undefined,
   firstOutputEdgeCount: number | undefined,
   nowMs: number,
+  locale: string,
 ): RunGraphNodeView {
   const status = step?.status ?? "pending";
   const waitCause = status === "waiting" ? step?.waitCause : undefined;
   const resumeAt = status === "waiting" ? step?.resumeAt : undefined;
   const resumeLine =
-    resumeAt === undefined ? undefined : `Resumes at ${formatDayClock(resumeAt, nowMs)}`;
+    resumeAt === undefined ? undefined : `Resumes at ${formatDayClock(resumeAt, nowMs, locale)}`;
   const stateWords =
     waitCause === undefined
       ? STEP_STATUS_WORDS[status]

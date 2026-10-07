@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount, formatDateTime, formatDayDuration } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import {
   DefinitionGrid,
   type DefinitionGridEntry,
@@ -19,6 +20,7 @@ import { estimatedReloginDaysAfterSignIn } from "../../quota-rows.js";
  * present it renders as an approximate day count after sign-in, never as a date.
  */
 export function AccountDetail(props: { readonly account: ProviderAccount }): ReactNode {
+  const clockLocale = useClockLocale();
   const { account } = props;
   const entries: DefinitionGridEntry[] = [
     {
@@ -42,7 +44,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
     entries.push({
       key: "loggedInAt",
       term: <span>Signed in</span>,
-      definition: <DerivedFigure text={formatDateTime(account.loggedInAt)} />,
+      definition: <DerivedFigure text={formatDateTime(account.loggedInAt, clockLocale)} />,
     });
   }
   const horizonInDays =

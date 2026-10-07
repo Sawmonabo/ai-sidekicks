@@ -11,6 +11,7 @@ import {
   WORKFLOW_RUN_RECORDS,
   summaryOfRun,
 } from "#fixtures/data/workflow/run/records.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { RunsTable } from "./RunsTable.js";
 
@@ -41,6 +42,7 @@ describe("the runs table's `Delete run`", () => {
         onRunDeleted={onRunDeleted}
         nowMs={0}
       />,
+      { wrapper: bridgeWrapper(bridge) },
     );
     const [waitingRow, finishedRow] = screen.getAllByRole("row").slice(1);
     if (waitingRow === undefined || finishedRow === undefined) {

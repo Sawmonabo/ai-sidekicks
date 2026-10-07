@@ -80,12 +80,13 @@ export function runHeaderLines(
 
 /**
  * The line at the foot of a going run's header: its live step's place, what it is doing or
- * waiting on, the instant it resumes itself or gives up, its day counted from `nowMs`, and what it
- * has spent so far. A run that has finished has no live line.
+ * waiting on, the instant it resumes itself or gives up, its day counted from `nowMs` and written
+ * in `locale`, and what it has spent so far. A run that has finished has no live line.
  */
 export function runLiveLine(
   run: WorkflowRunReadResponse,
   nowMs: number,
+  locale: string,
 ): readonly RunLiveLinePart[] | undefined {
   if (!isGoing(run.status)) {
     return undefined;
@@ -99,7 +100,7 @@ export function runLiveLine(
   const waiting = latestStepWith(run.steps, "waiting");
   const holding = latestStepWith(run.steps, "waiting-memory");
   if (waiting?.waitCause !== undefined) {
-    parts.push(...waitingParts(run, waiting, waiting.waitCause, nowMs));
+    parts.push(...waitingParts(run, waiting, waiting.waitCause, nowMs, locale));
   } else if (holding !== undefined) {
     parts.push(plain("waiting for memory"), plain("starts itself when memory frees up"));
   } else if (run.liveStep !== undefined) {
@@ -229,9 +230,12 @@ function waitingParts(
   step: WorkflowStep,
   cause: WorkflowWaitCause,
   nowMs: number,
+  locale: string,
 ): RunLiveLinePart[] {
   const deadline =
-    step.waitDeadlineAt === undefined ? "" : ` until ${formatDayClock(step.waitDeadlineAt, nowMs)}`;
+    step.waitDeadlineAt === undefined
+      ? ""
+      : ` until ${formatDayClock(step.waitDeadlineAt, nowMs, locale)}`;
   const blocker: RunLiveLinePart = {
     text: `waiting on ${WAIT_CAUSE_WORDS[cause]}${deadline}`,
     isAttention: isPersonWaitCause(cause),
@@ -247,7 +251,7 @@ function waitingParts(
     plain(
       step.resumeAt === undefined
         ? "awaiting resume — no instant is armed"
-        : `resumes itself at ${formatDayClock(step.resumeAt, nowMs)}`,
+        : `resumes itself at ${formatDayClock(step.resumeAt, nowMs, locale)}`,
     ),
   ];
 }

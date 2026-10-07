@@ -370,6 +370,9 @@ class ElectronMockImpl implements ElectronMock {
         getName: vi.fn(() => "AI Sidekicks"),
         getVersion: vi.fn(() => "0.0.0"),
         getLocale: vi.fn(() => "en-US"),
+        // The region and clock a Mac set to the United States leaves at its own defaults reports.
+        getSystemLocale: vi.fn(() => "en-US"),
+        getLocaleCountryCode: vi.fn(() => "US"),
         on: vi.fn(
           (eventName: string, listener: (event: MockAppEvent, ...args: unknown[]) => void) => {
             this.record(`app.on:${eventName}`);
@@ -395,6 +398,14 @@ class ElectronMockImpl implements ElectronMock {
           this.exitCodes.push(code);
           this.record(`app.exit:${String(code)}`);
         }),
+      },
+      // A US region with no 24-Hour Time switch set either way, as on a Mac left at its region's
+      // clock, whose locale settings never change.
+      systemPreferences: {
+        getUserDefault: vi.fn((key: string, type: "string" | "boolean") =>
+          type === "string" ? (key === "AppleLocale" ? "en_US" : "") : false,
+        ),
+        subscribeLocalNotification: vi.fn(() => 0),
       },
       crashReporter: {
         start: vi.fn(() => {

@@ -5,6 +5,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
@@ -37,11 +38,12 @@ export interface StepBlockerProps {
  */
 export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
+  const clockLocale = useClockLocale();
   const { reviewPause } = step;
   const receipt =
     step.resolution === undefined
-      ? (props.receipt ?? timedOutReceipt(step, props.nodeKind, props.nowMs))
-      : resolutionReceipt(step.resolution, props.nowMs);
+      ? (props.receipt ?? timedOutReceipt(step, props.nodeKind, props.nowMs, clockLocale))
+      : resolutionReceipt(step.resolution, props.nowMs, clockLocale);
   if (receipt !== undefined) {
     return <p className="meridian-workflow-step__receipt">{receipt}</p>;
   }

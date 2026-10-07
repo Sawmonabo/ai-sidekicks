@@ -1,7 +1,9 @@
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type SessionListRow } from "../rows/list-row.js";
 
 /**
@@ -9,6 +11,7 @@ import { type SessionListRow } from "../rows/list-row.js";
  * has no day divider and a clock-only reading would look the same across days.
  */
 export function SessionRowFacts(props: { readonly row: SessionListRow }): React.JSX.Element {
+  const clockLocale = useClockLocale();
   const { row } = props;
   return (
     <div className="meridian-session-row__facts">
@@ -19,10 +22,13 @@ export function SessionRowFacts(props: { readonly row: SessionListRow }): React.
           detail="The wire named none for this session."
         />
       ) : (
-        <Chip label={row.state} mono />
+        <Chip label={codeWords(row.state)} />
       )}
       {row.touchedAtIso === undefined ? null : (
-        <WireFigure value={formatDateTime(row.touchedAtIso)} title={row.touchedAtIso} />
+        <WireFigure
+          value={formatDateTime(row.touchedAtIso, clockLocale)}
+          title={row.touchedAtIso}
+        />
       )}
       {row.userIds.length === 0 ? null : (
         <span className="meridian-session-row__users">

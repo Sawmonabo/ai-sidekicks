@@ -57,6 +57,8 @@ const SAMPLE_APP_FACTS: AppFacts = {
   arch: "arm64",
   locale: "",
   physicalMemoryBytes: 0,
+  regionLocale: "",
+  hourCycle: "h12",
 };
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {

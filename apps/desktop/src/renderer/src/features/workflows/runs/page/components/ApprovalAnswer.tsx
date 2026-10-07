@@ -5,6 +5,7 @@ import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
@@ -26,11 +27,14 @@ export function ApprovalAnswer(props: {
 }): React.JSX.Element {
   const { workflowRunId, nodeId, bridge } = props;
   const clock = useClock();
+  const clockLocale = useClockLocale();
   const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
       callDaemon(bridge, "workflow.gateResolve", { workflowRunId, nodeId, decision }),
     (resolved, decision) => {
-      props.onAnswered(resolutionReceipt({ kind: decision, at: resolved.decidedAt }, clock.now()));
+      props.onAnswered(
+        resolutionReceipt({ kind: decision, at: resolved.decidedAt }, clock.now(), clockLocale),
+      );
     },
   );
   const isSending = answer.state.kind === "sending";

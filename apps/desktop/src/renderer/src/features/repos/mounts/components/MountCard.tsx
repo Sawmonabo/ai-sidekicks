@@ -13,6 +13,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
 import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
 import { readBindControlAvailability } from "../bind-control-availability.js";
@@ -45,6 +46,7 @@ export interface MountCardProps {
 
 /** One mount: root, lifecycle and health chips, provenance, and its workspaces. */
 export function MountCard(props: MountCardProps): React.JSX.Element {
+  const clockLocale = useClockLocale();
   const { mount } = props;
   // The lifecycle sentence reaches the screen through the withheld line.
   const lifecycle = mountLifecycleReading(mount.state);
@@ -77,11 +79,11 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       </header>
 
       <div className="meridian-mount-card__axes">
-        <Chip label={lifecycle.label} mono tone={lifecycle.tone} />
-        <Chip label={health.label} mono tone={health.tone} />
+        <Chip label={lifecycle.label} tone={lifecycle.tone} />
+        <Chip label={health.label} tone={health.tone} />
         {/* Beside the chip, not in it: the verdict and when it was probed are two facts. */}
         <span className="meridian-mount-card__checked-at">
-          probed {formatClockTime(mount.health.checkedAt)}
+          probed {formatClockTime(mount.health.checkedAt, clockLocale)}
         </span>
       </div>
 

@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { renderAppSettled, renderSettled } from "../helpers/app/harness.js";
+import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { describeHorizontalOverflow } from "../helpers/horizontal-overflow.js";
 import { narrowTesterViewportTo, restoreTesterViewport } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
@@ -95,16 +96,20 @@ describe("reflow — the console at 320 CSS px", () => {
   // wraps whatever the wire sent, which one row can be asked directly with an identifier no font
   // can fit.
   it("wraps a session identifier that has no break opportunity in it", async () => {
+    // The row writes its clock figures in the machine's clock, which the bridge carries.
+    const BridgeHost = liveBridgeWrapper();
     const { container } = await renderSettled(
-      <SessionRow
-        row={{
-          sessionId: UNBREAKABLE_SESSION_ID,
-          state: "active",
-          touchedAtIso: undefined,
-          userIds: [],
-        }}
-        onOpen={() => undefined}
-      />,
+      <BridgeHost>
+        <SessionRow
+          row={{
+            sessionId: UNBREAKABLE_SESSION_ID,
+            state: "active",
+            touchedAtIso: undefined,
+            userIds: [],
+          }}
+          onOpen={() => undefined}
+        />
+      </BridgeHost>,
     );
 
     // The harness sizes its container to the viewport, which `beforeEach` narrowed to the floor,

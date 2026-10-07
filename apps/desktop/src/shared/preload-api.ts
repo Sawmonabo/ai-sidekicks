@@ -38,7 +38,7 @@ import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
-import type { AppFacts } from "./app-facts.js";
+import type { AppFacts, MachineClock } from "./app-facts.js";
 import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";
 import type { DaemonSubscriptionEnd } from "./daemon/forwarding.js";
 import type {
@@ -504,7 +504,13 @@ export interface PreloadApi {
     subscribeToNavigationRequest(handler: (request: NavigationRequest) => void): Unsubscribe;
   };
 
-  readonly app: AppFacts;
+  readonly app: AppFacts & {
+    /**
+     * The machine's region and clock on every change main hears, the first delivery the newest
+     * this window holds, so a setting changed while the app runs redraws every clock figure.
+     */
+    subscribeMachineClock(handler: (clock: MachineClock) => void): Unsubscribe;
+  };
 }
 
 /**
@@ -524,8 +530,8 @@ function stubThrow(member: string): never {
 
 /**
  * `PreloadApi` as an object literal, with every round-trip member throwing `NotImplementedError`
- * and the build facts and the window used last the caller gives: the members the live bridge must
- * have, and a bridge none of whose calls reaches main.
+ * and the build facts and the window used last the caller gives, on a machine whose clock never
+ * changes: the members the live bridge must have, and a bridge none of whose calls reaches main.
  */
 export function createStubBridge(app: AppFacts, lastUsedWindowId: string): PreloadApi {
   return {
@@ -573,6 +579,6 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       subscribeToUnkeptScheme: () => stubThrow("window.subscribeToUnkeptScheme"),
       subscribeToNavigationRequest: () => stubThrow("window.subscribeToNavigationRequest"),
     },
-    app,
+    app: { ...app, subscribeMachineClock: () => () => undefined },
   };
 }

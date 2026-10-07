@@ -128,6 +128,11 @@ export interface LaunchAppOptions {
   readonly isWindowOnScreen?: boolean;
   /** A `sidekicks://` link on the command line, as a link that launches the app hands it over. */
   readonly appLink?: string;
+  /**
+   * macOS user defaults this launch alone reads, standing it on a machine setting
+   * (`launch/args.ts`).
+   */
+  readonly macUserDefaults?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -163,6 +168,9 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
         platform: process.platform,
         ...(options.scenarioId === undefined ? {} : { fixtureScenarioId: options.scenarioId }),
         ...(options.appLink === undefined ? {} : { appLink: options.appLink }),
+        ...(options.macUserDefaults === undefined
+          ? {}
+          : { macUserDefaults: options.macUserDefaults }),
       }),
       env: {
         ...process.env,

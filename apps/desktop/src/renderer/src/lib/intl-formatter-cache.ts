@@ -124,7 +124,7 @@ export type DateTimeStyle =
 
 /**
  * Every date and time style a figure renders in, by name. The hour is `numeric` with no
- * `hour12`, so the locale's own clock decides between `2:20 PM` and `14:20`.
+ * `hour12`, so the clock the locale tag carries decides between `2:20 PM` and `14:20`.
  */
 const DATE_TIME_STYLES: Readonly<Record<DateTimeStyle, Intl.DateTimeFormatOptions>> = {
   clockTime: { hour: "numeric", minute: "2-digit", second: "2-digit" },
@@ -151,7 +151,7 @@ export function numberFormatFor(style: NumberStyle, locale?: string): Intl.Numbe
 }
 
 /** The one `Intl.DateTimeFormat` held for `style` in `locale`; two asks answer with one object. */
-export function dateTimeFormatFor(style: DateTimeStyle, locale?: string): Intl.DateTimeFormat {
+export function dateTimeFormatFor(style: DateTimeStyle, locale: string): Intl.DateTimeFormat {
   let formatters = dateTimeFormatters.get(style);
   if (formatters === undefined) {
     formatters = new LocaleKeyedFormatters(

@@ -37,6 +37,7 @@ describe("the account picker's advisories", () => {
   it("names the token remedy on an expired token account, and never the sign-in", () => {
     const advisories = accountAdvisoriesFor(
       resolvedChoice("reauth_required", { kind: "paste_token", accountId: ACCOUNT_ID }),
+      "en-US",
     );
     expect(advisories).toContain("Login expired · Sign in again");
     expect(advisories).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.paste_token("claude"));
@@ -47,12 +48,14 @@ describe("the account picker's advisories", () => {
   it("words a sign-in into an empty folder apart from renewing a login", () => {
     const emptyFolder = accountAdvisoriesFor(
       resolvedChoice("home_missing", { kind: "sign_in", accountId: ACCOUNT_ID }),
+      "en-US",
     );
     expect(emptyFolder).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in_to_empty_folder("claude"));
     expect(emptyFolder).not.toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in("claude"));
 
     const expired = accountAdvisoriesFor(
       resolvedChoice("reauth_required", { kind: "sign_in", accountId: ACCOUNT_ID }),
+      "en-US",
     );
     expect(expired).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in("claude"));
   });
@@ -60,6 +63,7 @@ describe("the account picker's advisories", () => {
   it("never collapses an undecided reading into an expired login", () => {
     const advisories = accountAdvisoriesFor(
       resolvedChoice("indeterminate", { kind: "look_again", accountId: ACCOUNT_ID }),
+      "en-US",
     );
     expect(advisories).toContain("Cannot tell right now");
     expect(advisories).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.look_again("claude"));

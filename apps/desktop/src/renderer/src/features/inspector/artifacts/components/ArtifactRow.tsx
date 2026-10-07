@@ -4,7 +4,6 @@
 import "./ArtifactRow.css";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
@@ -41,7 +40,10 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
         </span>
         <span className="meridian-artifact-row__age" title={row.createdAt}>
-          <DerivedFigure text={formatRelativeTime(row.createdAt, props.nowMilliseconds)} />
+          <WireFigure
+            value={formatRelativeTime(row.createdAt, props.nowMilliseconds)}
+            title={row.createdAt}
+          />
         </span>
       </div>
 
