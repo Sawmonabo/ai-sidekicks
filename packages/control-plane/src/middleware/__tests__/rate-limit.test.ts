@@ -25,6 +25,8 @@ const { limit, periodSeconds } = RATE_LIMIT_ENDPOINT_GROUPS["auth.endpoint"];
 const WINDOW_MILLISECONDS = periodSeconds * 1000;
 const NOW = Date.parse("2026-10-07T12:00:00.000Z");
 const ADDRESS = "203.0.113.7";
+// The counter's own failure text, which no caller may read.
+const COUNTER_FAILURE_TEXT = "rate-limit counter unreachable";
 
 const WINDOW_WITH_ROOM: RateLimitCheckResponse = {
   allowed: true,
@@ -152,7 +154,7 @@ describe("rateLimitProcedure", () => {
         check: async (request) => {
           if (isCounterDown) {
             isCounterDown = false;
-            throw new Error("rate-limit counter unreachable");
+            throw new Error(COUNTER_FAILURE_TEXT);
           }
           const counterAnswer = await counter.check(request);
           counterAnswers.push(counterAnswer);
@@ -168,7 +170,7 @@ describe("rateLimitProcedure", () => {
     // A caller with no credential reads a fixed message, never the relay's own text or stack.
     expect(failure).not.toHaveProperty("stack");
     expect(failed.body).toMatchObject({ error: { message: "Unexpected internal error" } });
-    expect(JSON.stringify(failed.body)).not.toContain("rate-limit counter unreachable");
+    expect(JSON.stringify(failed.body)).not.toContain(COUNTER_FAILURE_TEXT);
     expect(failed.retryAfterHeader).toBeNull();
 
     const next = await sendSignInFrom(ADDRESS, checkAdmission);

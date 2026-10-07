@@ -42,8 +42,9 @@ function refuseUnavailable(reason: string, log: (message: string) => void): Resp
 }
 
 /**
- * Builds one request's context on the Workers relay: the caller's address as Cloudflare reports it,
- * the response headers the adapter sends, and the admission check over the address's Durable Object.
+ * Builds one request's context on the Workers relay: the caller's address as Cloudflare reports
+ * it, the response headers the adapter sends, and the admission check over the address's Durable
+ * Object.
  */
 export function createControlPlaneContext(options: {
   readonly request: Request;

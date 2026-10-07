@@ -48,7 +48,7 @@ The relay counts requests on its sign-in routes only — sign-in, token refresh 
 
 | Deployment | Where the sign-in routes are counted |
 | --- | --- |
-| `Workers Relay` (Cloudflare) | The per-identity `RateLimitIdentityDurableObject` Durable Object, one global count per source address whichever edge location serves it ([Plan-018 D-018-1](../plans/018-rate-limiting-policy.md#design-decisions)) |
+| `Workers Relay` (Cloudflare) | The per-identity `RateLimitIdentityDurableObject`, one global count per source address whichever edge location serves it ([Plan-018 D-018-1](../plans/018-rate-limiting-policy.md#design-decisions)) |
 | `Compose Relay` | The relay process's memory ([Plan-018 D-018-2](../plans/018-rate-limiting-policy.md#design-decisions)) |
 | `Single-Device Local` | Nowhere: the daemon is reached through its socket only |
 

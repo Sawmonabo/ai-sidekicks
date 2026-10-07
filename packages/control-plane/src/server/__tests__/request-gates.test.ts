@@ -13,7 +13,7 @@ import { buildControlPlaneFetchHandler } from "../host.js";
 // What the two gates read; each run adds a counter binding.
 type GateEnv = FeatureFlagEnv & DevEnvironmentEnv;
 
-// No gate case reaches a counted procedure, so nothing calls the binding; a call would throw here.
+// No gate case reaches a counted procedure, so nothing calls the binding; a call would throw.
 const uncalledCounterBinding = {} as RateLimitIdentityEnv["RATE_LIMIT_IDENTITY"];
 
 interface HarnessResult {

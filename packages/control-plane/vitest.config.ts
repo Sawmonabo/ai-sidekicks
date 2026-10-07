@@ -19,8 +19,9 @@ export default defineConfig({
   test: {
     passWithNoTests: false,
     reporters: ["default"],
-    // Only the node project is measured: v8 coverage cannot instrument workerd, so the modules
-    // only the workers project runs are left out rather than read as untested.
+    // Only the node project is measured: v8 coverage cannot instrument workerd, so the Worker
+    // entry and the modules whose counting runs only in the workers project are left out rather
+    // than read as untested.
     coverage: sharedCoverageOptions({
       exclude: [
         "src/worker.ts",

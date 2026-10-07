@@ -1,6 +1,7 @@
-// The deployed Worker's entry module, the one `wrangler.toml` names as `main`. Cloudflare reads each
-// Durable Object class from this module's exports, and only this module's imports reach the Workers
-// runtime, so the fetch handler and the package entry stay loadable on Node.
+// The deployed Worker's entry module, the one `wrangler.toml` names as `main`. Cloudflare reads
+// each Durable Object class from this module's exports. Only this module imports the Durable
+// Object class, whose module imports `cloudflare:workers`, so `server/host.ts` and the package
+// entry load on Node.
 
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "./server/host.js";
 

@@ -251,9 +251,9 @@
         "pg",
         "@types/pg",
         // Not a package: the rate-limit Durable Object imports `cloudflare:workers`, and the tests
-        // that run inside workerd import it and `cloudflare:test`.
-        // The Workers runtime and its Vitest integration supply them, the way Node supplies `node:`
-        // modules, and knip reads the `cloudflare:` scheme as an unlisted package named `cloudflare`.
+        // that run inside workerd import it and `cloudflare:test`. The Workers runtime and its
+        // Vitest integration supply them, the way Node supplies `node:` modules, and knip reads the
+        // `cloudflare:` scheme as an unlisted package named `cloudflare`.
         "cloudflare",
         // The push senders that present the person's own credentials: the signed headers of a
         // Web Push, a notice sent through Apple's push service, and the sign-in for Firebase's.
