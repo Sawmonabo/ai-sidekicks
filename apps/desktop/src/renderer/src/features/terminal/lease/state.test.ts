@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
-import { projectTerminalLease } from "./state.js";
+import { canTypeIntoShell, projectTerminalLease, TERMINAL_LEASE_HOLDERS } from "./state.js";
 import {
   COMMAND_ID,
   OTHER_DEVICE_ID,
@@ -17,6 +17,30 @@ import {
 } from "./state.test-support.js";
 
 describe("the lease fold — what the wire said, and only that", () => {
+  it("reads a run's release that hands the shell back as the hold of the device it names", () => {
+    const events = [
+      transitionEvent(1, "taken", THIS_DEVICE_ID),
+      transitionEvent(2, "taken", THIS_DEVICE_ID, THIS_DEVICE_ID, {
+        holderRunId: RUN_ID,
+        holderCommandId: COMMAND_ID,
+      }),
+      transitionEvent(3, "auto_released_command_ended", THIS_DEVICE_ID, THIS_DEVICE_ID),
+    ];
+    expect(
+      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID }).holder,
+    ).toBe("held-by-this-device");
+    expect(
+      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: OTHER_DEVICE_ID }).holder,
+    ).toBe("held-by-another-device");
+  });
+
+  it("lets this device type only while it holds the shell or nobody does", () => {
+    expect(TERMINAL_LEASE_HOLDERS.filter((holder) => canTypeIntoShell(holder))).toEqual([
+      "unheld",
+      "held-by-this-device",
+    ]);
+  });
+
   it("takes the holder from the newest transition's own payload", () => {
     const state = projectTerminalLease(
       [
@@ -148,9 +172,9 @@ describe("an unread transition — ignorance about a write lease is not the old 
 // The contract refuses a holder shape that contradicts its reason; the fold owes that the
 // refusal reads as ignorance rather than as a confident state.
 describe("a holder shape that contradicts its reason is unread, not normalized", () => {
-  it("refuses a release that names this device, rather than reading it as its hold", () => {
+  it("refuses a disconnect that names this device, rather than reading it as its hold", () => {
     const state = projectTerminalLease(
-      [transitionEvent(1, "auto_released_run_idle", THIS_DEVICE_ID, THIS_DEVICE_ID)],
+      [transitionEvent(1, "auto_released_disconnect", THIS_DEVICE_ID, THIS_DEVICE_ID)],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
     // The one reading that opens stdin for somebody the daemon just took the shell from.

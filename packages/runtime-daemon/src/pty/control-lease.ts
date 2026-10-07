@@ -2,10 +2,12 @@
 //
 // The lease is held by one of the person's devices, or by an agent's run on this machine, and lives
 // only in this daemon's memory. Beside that holder it keeps bindings: the connections a device took
-// it from, and the command a run last took it for. Nothing gives a shell back: a device's hold ends
-// when another device takes it or every connection that took it has ended, a run's hold when the
-// command it holds the shell for ends or the run leaves its running state, whichever comes first.
-// A run's hold is never taken by a device, forced or not.
+// it from, and the command a run last took it for. A device takes a shell nobody holds by taking it
+// or by writing to it. Nothing gives a shell back: a device's hold ends when another device or a
+// run takes it or every connection that took it has ended, a run's hold when the command it holds
+// the shell for ends or the run leaves its running state, whichever comes first. A run's hold is
+// never taken by a device, forced or not. A run that takes a device's hold keeps that hold aside
+// and hands it back when its own hold ends, to those of the device's connections still open.
 //
 // Every decision reads and replaces the holder with no `await` in between, so two takes in one
 // tick cannot both win. Changes of holder run one at a time: while one is being broadcast, the
@@ -41,8 +43,10 @@ export interface ShellLeaseRun {
   commandId: CommandId;
 }
 
-/** Who is writing one frame to a shell: a device, or an agent's run on this machine. */
-export type ShellWriter = { kind: "device"; deviceId: DeviceId } | { kind: "run"; runId: RunId };
+/** Who writes one frame to a shell: a device's connection, or an agent's run on this machine. */
+export type ShellWriter =
+  | { kind: "device"; deviceId: DeviceId; transportId: number }
+  | { kind: "run"; runId: RunId };
 
 /** What a {@link ShellControlLease} is built with. */
 export interface ShellControlLeaseOptions {
@@ -54,9 +58,9 @@ export interface ShellControlLeaseOptions {
   broadcast: (change: PtyControlChangedPayload) => Promise<void>;
 }
 
-type LeaseHolder =
-  | { kind: "device"; deviceId: DeviceId; transportIds: ReadonlySet<number> }
-  | { kind: "run"; runId: RunId; commandId: CommandId };
+type DeviceHold = { kind: "device"; deviceId: DeviceId; transportIds: ReadonlySet<number> };
+
+type LeaseHolder = DeviceHold | { kind: "run"; runId: RunId; commandId: CommandId };
 
 /** A take, resize or close refused because another device or a run holds the shell. */
 class PtyControlHeldByOtherError extends DaemonDomainError {
@@ -91,6 +95,9 @@ export class ShellControlLease {
   readonly #machineDeviceId: DeviceId;
   readonly #broadcast: (change: PtyControlChangedPayload) => Promise<void>;
   #holder: LeaseHolder | null = null;
+  // The device hold a run took the shell from, handed back when the run's hold ends; `null` while a
+  // device holds the shell, nobody does, or the run took it from nobody.
+  #keptAside: DeviceHold | null = null;
   // The broadcast of the one change of holder in flight; a join awaits it, any other act waits for
   // it to settle.
   #pendingBroadcast: Promise<void> | undefined;
@@ -140,7 +147,8 @@ export class ShellControlLease {
    * Takes the shell for an agent's running command. The same run's retake from the same command
    * changes nothing, waiting on a pending broadcast of the hold as a device's retake does; from
    * another command it names that command, broadcast as a take. A different run's take moves the
-   * hold to it; a device's hold is never taken by a run.
+   * hold to it. A take off a device's hold keeps that hold aside for the hand-back; the caller
+   * decides first that the shell is idle, since the lease cannot see a half-typed line.
    */
   async takeForRun(run: ShellLeaseRun): Promise<void> {
     for (;;) {
@@ -157,26 +165,45 @@ export class ShellControlLease {
         await this.#settled();
         continue;
       }
-      if (current?.kind === "device") {
-        throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
-      }
       await this.#changeHolder(
         { kind: "run", runId: run.runId, commandId: run.commandId },
         "taken",
+        current?.kind === "device" ? current : this.#keptAside,
       );
       return;
     }
   }
 
-  /** Lets one write frame through only when its writer holds the shell. */
-  admitWrite(writer: ShellWriter): void {
-    const current = this.#holder;
-    const isHeldByWriter =
-      writer.kind === "device"
-        ? current?.kind === "device" && current.deviceId === writer.deviceId
-        : current?.kind === "run" && current.runId === writer.runId;
-    if (!isHeldByWriter) {
-      throw new PtyControlNotHeldError(this.#terminalId);
+  /**
+   * Lets one write frame through only when its writer holds the shell. A device's write to a shell
+   * nobody holds takes it for the writing connection first, broadcast as a take, and lands once
+   * that broadcast has; a write that joins a pending take fails with it.
+   */
+  async admitWrite(writer: ShellWriter): Promise<void> {
+    for (;;) {
+      const current = this.#holder;
+      if (writer.kind === "run") {
+        if (current?.kind !== "run" || current.runId !== writer.runId) {
+          throw new PtyControlNotHeldError(this.#terminalId);
+        }
+        return;
+      }
+      if (current?.kind === "device" && current.deviceId === writer.deviceId) {
+        await this.#pendingBroadcast;
+        return;
+      }
+      if (this.#pendingBroadcast !== undefined) {
+        await this.#settled();
+        continue;
+      }
+      if (current !== null) {
+        throw new PtyControlNotHeldError(this.#terminalId);
+      }
+      await this.#changeHolder(
+        { kind: "device", deviceId: writer.deviceId, transportIds: new Set([writer.transportId]) },
+        "taken",
+      );
+      return;
     }
   }
 
@@ -202,10 +229,20 @@ export class ShellControlLease {
     }
   }
 
-  /** Drops an ended connection from the device's hold, giving the shell back once none remains. */
+  /**
+   * Drops an ended connection from the device's hold, giving the shell back once none remains. A
+   * hold kept aside under a run loses the connection too, and is dropped once none remains.
+   */
   async releaseConnection(transportId: number): Promise<void> {
     await this.#settled();
     const current = this.#holder;
+    const keptAside = this.#keptAside;
+    if (current?.kind === "run" && keptAside?.transportIds.has(transportId) === true) {
+      const remaining = new Set(keptAside.transportIds);
+      remaining.delete(transportId);
+      this.#keptAside = remaining.size > 0 ? { ...keptAside, transportIds: remaining } : null;
+      return;
+    }
     if (current?.kind !== "device" || !current.transportIds.has(transportId)) {
       return;
     }
@@ -218,7 +255,10 @@ export class ShellControlLease {
     await this.#changeHolder(null, "auto_released_disconnect");
   }
 
-  /** Gives the shell back when the command a run holds it for ends; a run past it keeps it. */
+  /**
+   * Ends a run's hold when the command it holds the shell for ends; a run past that command keeps
+   * it. The shell goes back to the device hold kept aside, or to nobody.
+   */
   async releaseCommand(run: ShellLeaseRun): Promise<void> {
     await this.#settled();
     const current = this.#holder;
@@ -229,17 +269,20 @@ export class ShellControlLease {
     ) {
       return;
     }
-    await this.#changeHolder(null, "auto_released_command_ended");
+    await this.#changeHolder(this.#keptAside, "auto_released_command_ended", null);
   }
 
-  /** Gives the shell back when the run holding it leaves its running state. */
+  /**
+   * Ends a run's hold when the run leaves its running state. The shell goes back to the device hold
+   * kept aside, or to nobody.
+   */
   async releaseRun(runId: RunId): Promise<void> {
     await this.#settled();
     const current = this.#holder;
     if (current?.kind !== "run" || current.runId !== runId) {
       return;
     }
-    await this.#changeHolder(null, "auto_released_run_idle");
+    await this.#changeHolder(this.#keptAside, "auto_released_run_idle", null);
   }
 
   /** Who holds the shell now, or `null` while nobody does. */
@@ -268,12 +311,19 @@ export class ShellControlLease {
     }
   }
 
-  // Replaces the holder at once, then broadcasts the change, naming the holder after it, or nobody
-  // after a release, and the device it moved off. Called only while no other change is in flight,
-  // so a failed take puts back exactly the holder it replaced; a failed release is not undone.
-  async #changeHolder(next: LeaseHolder | null, reason: PtyControlChangedReason): Promise<void> {
+  // Replaces the holder and the hold kept aside at once, then broadcasts the change, naming the
+  // holder after it, or nobody, and the device it moved off. Called only while no other change is
+  // in flight, so a failed take puts back exactly what it replaced; a failed release, a hand-back
+  // among them, is not undone, because the hold it ended is gone.
+  async #changeHolder(
+    next: LeaseHolder | null,
+    reason: PtyControlChangedReason,
+    keptAside: DeviceHold | null = this.#keptAside,
+  ): Promise<void> {
     const previous = this.#holder;
+    const previousKeptAside = this.#keptAside;
     this.#holder = next;
+    this.#keptAside = keptAside;
     const broadcasting = this.#broadcast({
       sessionId: this.#sessionId,
       terminalId: this.#terminalId,
@@ -286,8 +336,9 @@ export class ShellControlLease {
     try {
       await broadcasting;
     } catch (error) {
-      if (next !== null) {
+      if (reason === "taken" || reason === "taken_by_force") {
         this.#holder = previous;
+        this.#keptAside = previousKeptAside;
       }
       throw error;
     } finally {

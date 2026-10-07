@@ -1,7 +1,7 @@
 // The lease line: where one of the session's shells is held, and the control region beside it.
 // It states the holder from the fold and never derives it from a take: the line moves when a
 // `pty.control_changed` transition reaches the fold. Nothing is drawn until the holder has been
-// read, or while this device holds the shell. The take control is `LeaseTakeControl.tsx`,
+// read, while nobody holds the shell, or while this device does. The take control is `LeaseTakeControl.tsx`,
 // passed in `controls`.
 
 import "./LeaseLine.css";
@@ -21,7 +21,6 @@ export interface LeaseLineProps {
 
 /** What the chip says for each drawn holder; `null` draws no chip. */
 const HOLDER_CHIP_LABELS: Readonly<Record<DrawnLeaseHolder, string | null>> = {
-  unheld: "Free",
   "held-by-another-device": "Held",
   "held-by-run": null,
   "unrecognized-transition": null,
@@ -30,7 +29,7 @@ const HOLDER_CHIP_LABELS: Readonly<Record<DrawnLeaseHolder, string | null>> = {
 /** The lease line: the holder chip and statement and the control region, or nothing. */
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element | null {
   const { holder } = props.state;
-  if (holder === "not-checked" || holder === "held-by-this-device") {
+  if (holder === "not-checked" || holder === "unheld" || holder === "held-by-this-device") {
     return null;
   }
   const chipLabel = HOLDER_CHIP_LABELS[holder];

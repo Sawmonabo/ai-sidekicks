@@ -1,5 +1,5 @@
-// The holder line in the one state that offers no way to take the shell: a running
-// command holds it, and no device can take it from the command.
+// The holder line in the one state that offers no way to take the shell — a running command
+// holds it, and no device can take it from the command — and the free shell, which draws none.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,5 +20,12 @@ describe("the holder line — a running command holds the shell", () => {
     // the run's hold rather than nothing.
     expect(container.textContent).toMatch(/running command holds the shell\./i);
     expect(container.querySelector(".meridian-lease-line__take")).toBeNull();
+  });
+});
+
+describe("the holder line — nobody holds the shell", () => {
+  it("draws nothing, since the first keystroke takes the shell", () => {
+    const { container } = renderLease(leaseState({ holder: "unheld", holderDeviceId: null }));
+    expect(container.textContent).toBe("");
   });
 });

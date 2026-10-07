@@ -22,4 +22,8 @@ describe("the take control is absent", () => {
   it("offers nothing while a run holds the shell, which only stopping the run ends", () => {
     expect(resolve("held-by-run", IDENTITY_READ)).toStrictEqual({ control: "none" });
   });
+
+  it("offers nothing while nobody holds the shell, which the first keystroke takes", () => {
+    expect(resolve("unheld", IDENTITY_READ)).toStrictEqual({ control: "none" });
+  });
 });

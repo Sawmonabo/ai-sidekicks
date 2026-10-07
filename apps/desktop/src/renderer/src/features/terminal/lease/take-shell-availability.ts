@@ -4,9 +4,9 @@
 // the only requirement is knowing which device is asking. Without the identity a take would
 // come back as a hold the lease line cannot recognize as this device's own.
 //
-// There is no release. The control is drawn only while this device does not hold the shell,
-// and the next device to take it displaces the holder. The daemon refuses a take against a
-// run's hold, so none is offered while a run holds the shell.
+// There is no release. The control is drawn only while another device holds the shell, or the
+// holder cannot be read, and the next device to take it displaces the holder. A free shell needs
+// none, since the first write takes it, and the daemon refuses a take against a run's hold.
 
 import type { TerminalLeaseHolder } from "./state.js";
 import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.js";
@@ -25,6 +25,7 @@ export function resolveTakeShellAvailability(input: {
 }): TakeShellAvailability {
   if (
     input.holder === "held-by-this-device" ||
+    input.holder === "unheld" ||
     input.holder === "held-by-run" ||
     input.deviceIdentity.status !== "read"
   ) {

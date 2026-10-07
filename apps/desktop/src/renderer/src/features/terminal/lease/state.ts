@@ -24,8 +24,8 @@ import {
 /**
  * Who holds the shell, from this device's point of view.
  *
- * `not-checked` means no transition has been read, which is not the free lease (`unheld`).
- * `held-by-run` means an agent's run holds the shell and only the run writes, even when the
+ * `not-checked` means no transition has been read, which is not the free lease (`unheld`): a free
+ * shell is live here, since the first device to write takes it. `held-by-run` means an agent's run holds the shell and only the run writes, even when the
  * run's machine is this device. `unrecognized-transition` means the log carried a transition
  * this build cannot read, so the holder is unknown.
  */
@@ -42,10 +42,13 @@ export const TERMINAL_LEASE_HOLDERS = [
 export type TerminalLeaseHolder = (typeof TERMINAL_LEASE_HOLDERS)[number];
 
 /**
- * The holders the lease line is drawn for: every holder but a lease not yet read and this
- * device's own hold, where the line draws nothing.
+ * The holders the lease line is drawn for: every holder but a lease not yet read, a free shell and
+ * this device's own hold, where the line draws nothing.
  */
-export type DrawnLeaseHolder = Exclude<TerminalLeaseHolder, "not-checked" | "held-by-this-device">;
+export type DrawnLeaseHolder = Exclude<
+  TerminalLeaseHolder,
+  "not-checked" | "unheld" | "held-by-this-device"
+>;
 
 /** What a log of lease transitions folds to, from this device's point of view. */
 export interface TerminalLeaseState {
@@ -64,6 +67,15 @@ export interface TerminalLeaseProjectionInput {
   readonly terminalId: TerminalId;
   /** This device's identity, to tell `held-by-this-device` from `held-by-another-device`. */
   readonly thisDeviceId: string | undefined;
+}
+
+/**
+ * Whether this device may type into the shell: while it holds it, and while nobody does, because
+ * the first write takes a free shell. Everything else, a lease not yet read among them, is
+ * read-only.
+ */
+export function canTypeIntoShell(holder: TerminalLeaseHolder): boolean {
+  return holder === "held-by-this-device" || holder === "unheld";
 }
 
 /** The state before any transition has been read. */

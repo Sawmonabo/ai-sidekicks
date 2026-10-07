@@ -1,7 +1,7 @@
 // The lease line's one control: take the shell. It never derives the holder from the last take
 // (the line moves when a `pty.control_changed` transition reaches the fold), never queues or
-// retries one, and is absent while this device holds the shell, a run holds it, or this
-// device's identity has not been read.
+// retries one, and is absent while this device holds the shell, nobody does, a run holds it, or
+// this device's identity has not been read.
 
 import { resolveTakeShellAvailability } from "../take-shell-availability.js";
 import type { UseTakeShellResult } from "../hooks/useTakeShell.js";

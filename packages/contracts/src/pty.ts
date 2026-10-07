@@ -358,6 +358,8 @@ export const PTY_CONTROL_CHANGED_EVENT = "pty.control_changed" as const;
 /**
  * Why a shell's holder changed: it was taken, taken by force off another device, the holding
  * connection ended, the holding run's command ended, or the holding run left its running state.
+ * A run's two releases hand the shell back to the device the run took it from, while one of that
+ * device's connections is open.
  */
 export type PtyControlChangedReason =
   | "taken"
@@ -376,8 +378,9 @@ export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = O
 
 /**
  * One change of one shell's holder. The holder members say who holds it after the change, so a take
- * names a holder and a release names nobody; the device it moved off is
- * `previousHolderDeviceId`. Clients fold these and never infer a holder from a take they made.
+ * names a holder, a disconnect names nobody, and a run's release names the device it hands the
+ * shell back to or nobody; the device it moved off is `previousHolderDeviceId`. Clients fold these
+ * and never infer a holder from a take they made.
  */
 export interface PtyControlChangedPayload {
   sessionId: SessionId;
@@ -389,9 +392,10 @@ export interface PtyControlChangedPayload {
   reason: PtyControlChangedReason;
 }
 /**
- * Parses a {@link PtyControlChangedPayload}. A take that names no holder, or a release that names
- * one, contradicts itself and is refused. A forced take is a device's, never a run's, and always
- * moves the shell off another device. A run's take names its holding command.
+ * Parses a {@link PtyControlChangedPayload}. A take that names no holder, a disconnect that names
+ * one, or a release that names a run contradicts itself and is refused. A forced take is a
+ * device's, never a run's, and always moves the shell off another device. A run's take names its
+ * holding command.
  */
 export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
   .object({
@@ -406,12 +410,19 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
   .strict()
   .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND)
   .refine(
-    (payload) =>
-      payload.reason === "taken" || payload.reason === "taken_by_force"
-        ? payload.holderDeviceId !== null
-        : payload.holderDeviceId === null && payload.holderRunId === undefined,
+    (payload) => {
+      if (payload.reason === "taken" || payload.reason === "taken_by_force") {
+        return payload.holderDeviceId !== null;
+      }
+      if (payload.reason === "auto_released_disconnect") {
+        return payload.holderDeviceId === null && payload.holderRunId === undefined;
+      }
+      return payload.holderRunId === undefined;
+    },
     {
-      message: "a take names the holder after it, and a release names nobody",
+      message:
+        "a take names the holder after it, a disconnect names nobody, and a run's release " +
+        "names the device it hands the shell back to or nobody",
       path: ["holderDeviceId"],
     },
   )
@@ -427,8 +438,8 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
 
 /**
  * A take, a close or a resize refused because someone else holds the shell. The details name the
- * holder, so the screen can tell a run's hold, which ends with its command and which no take moves, from
- * another device's, which a forced take or close moves.
+ * holder, so the screen can tell a run's hold, which ends with its command and which no take
+ * moves, from another device's, which a forced take or close moves.
  */
 export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
 /**
@@ -453,8 +464,8 @@ export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOther
   .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND);
 
 /**
- * A write to a shell its writer does not hold, or a resize of a shell nobody holds; the caller
- * takes the shell first.
+ * A write to a shell someone else holds, a run's write to a shell it does not hold, or a resize of
+ * a shell nobody holds. A device's write to a shell nobody holds takes it instead.
  */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
 /**

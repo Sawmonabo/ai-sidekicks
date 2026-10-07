@@ -13,7 +13,11 @@ import { type SessionStore } from "#renderer/store/session/store.js";
 import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { LeaseLine } from "../../lease/components/LeaseLine.js";
 import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
-import { projectTerminalLease, type TerminalLeaseState } from "../../lease/state.js";
+import {
+  canTypeIntoShell,
+  projectTerminalLease,
+  type TerminalLeaseState,
+} from "../../lease/state.js";
 
 /** The shell body's accessible name. */
 const TERMINAL_OUTPUT_LABEL = "Shell output";
@@ -44,7 +48,7 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
       <LeaseLine state={lease} />
       <XtermMountPoint
         terminalId={sessionId}
-        isWriteEnabled={lease.holder === "held-by-this-device"}
+        isWriteEnabled={canTypeIntoShell(lease.holder)}
         label={TERMINAL_OUTPUT_LABEL}
       />
     </>
