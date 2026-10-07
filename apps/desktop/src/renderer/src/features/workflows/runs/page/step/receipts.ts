@@ -4,10 +4,10 @@
 
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import {
-  type WorkflowStep,
-  type WorkflowStepResolution,
-  type WorkflowStepResolutionKind,
+import type {
+  WorkflowStep,
+  WorkflowStepResolution,
+  WorkflowStepResolutionKind,
 } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowChainQuestion } from "@ai-sidekicks/contracts/workflow/run/records";
 

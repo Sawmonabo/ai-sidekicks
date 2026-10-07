@@ -11,7 +11,7 @@
 
 import "./AccountsFixtureBody.css";
 
-import { type ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_LABELS, PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 import {
   Fragment,
