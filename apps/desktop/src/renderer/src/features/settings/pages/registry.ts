@@ -192,7 +192,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     label: "General",
     keywords: ["version", "about", "build"],
     note: "What this install is, how it updates itself, and what a new session starts from.",
-    controls: GENERAL_CONTROLS,
+    controls: Object.values(GENERAL_CONTROLS),
     render: (context) => createElement(GeneralPage, { context }),
   },
   {
@@ -267,7 +267,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "rebind",
     ],
     note: "Every key the app answers to. Change any of them.",
-    controls: KEYBOARD_CONTROLS,
+    controls: Object.values(KEYBOARD_CONTROLS),
     render: () => createElement(KeyboardPage),
   },
   {
@@ -275,7 +275,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     label: "Appearance",
     keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
     note: "How the app looks.",
-    controls: APPEARANCE_CONTROLS,
+    controls: Object.values(APPEARANCE_CONTROLS),
     render: (context) => createElement(AppearancePage, { chooseScheme: context.chooseScheme }),
   },
   {
@@ -300,7 +300,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     note:
       "The background service that runs sidekicks, the folders it can reach, what it keeps, " +
       "and the port it listens on.",
-    controls: RUNTIME_CONTROLS,
+    controls: Object.values(RUNTIME_CONTROLS),
     render: (context) => createElement(RuntimePage, { context }),
   },
   {

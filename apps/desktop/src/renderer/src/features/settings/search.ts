@@ -19,7 +19,7 @@ export interface SettingsSearchHit {
   /** The control a press lands on; `undefined` for a hit on the page itself. */
   readonly controlId: string | undefined;
   readonly label: string;
-  /** Where the hit sits, read under its label: `Page › Heading`, the page alone, or `Settings`. */
+  /** Where the hit sits, read under its label: `Page › Heading`, or the page alone. */
   readonly place: string;
 }
 
@@ -51,7 +51,7 @@ export function findSettings(
     if (pageRank !== undefined) {
       ranked.push({
         rank: pageRank,
-        hit: { pageId: page.pageId, controlId: undefined, label: page.label, place: "Settings" },
+        hit: { pageId: page.pageId, controlId: undefined, label: page.label, place: pageLabel },
       });
     }
     for (const control of page.controls) {

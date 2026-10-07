@@ -68,7 +68,7 @@ describe("settings search", () => {
     expect(described("zzzz")).toStrictEqual([]);
     expect(described("   ")).toStrictEqual([]);
     // A page is found by a word it declares, and opens the page itself.
-    expect(described("about")).toStrictEqual(["general/(page) · General · Settings"]);
+    expect(described("about")).toStrictEqual(["general/(page) · General · General"]);
   });
 
   it("ranks a label hit over a heading hit over a hint hit, and equal ranks in page order", () => {

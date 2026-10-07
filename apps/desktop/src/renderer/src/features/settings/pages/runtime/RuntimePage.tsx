@@ -20,6 +20,7 @@ import {
 } from "#renderer/store/window/main-process-state.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
+import { RUNTIME_CONTROLS } from "./controls.js";
 import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
 
 /** What the Runtime page is handed. */
@@ -59,7 +60,7 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
   const { connection } = state;
   return (
     <>
-      <SettingsFact term="State">
+      <SettingsFact control={RUNTIME_CONTROLS.state}>
         {connection.kind === "unreported" ? (
           <Nothing kind="not-checked" placement="inline" title={UNREPORTED_DAEMON_NOTICE.title} />
         ) : (

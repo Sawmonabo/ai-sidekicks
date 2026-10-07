@@ -10,7 +10,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { settingsRoute } from "#renderer/routing/readers.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./control-anchor.js";
-import { SettingsPageRegistry } from "./pages/registry.js";
+import { APPEARANCE_CONTROLS } from "./pages/appearance/controls.js";
+import { SETTINGS_PAGES, SettingsPageRegistry } from "./pages/registry.js";
 import {
   CHUNK_WARM_TIMEOUT_MS,
   renderRoutedSettingsScreen,
@@ -150,7 +151,7 @@ describe("a window too narrow for both panes", () => {
 });
 
 describe("arriving on a control", () => {
-  it("opens the fold holding a control a link names, glides it to the middle and lights it", async () => {
+  it("opens the fold holding a control a link names, glides it to the middle and lights it, and a search hit lands on a shipped page's control", async () => {
     const settingsWindow = windowAt("general");
     const pages = generalPageDrawing(() => (
       <div className="landing-test__scroller" style={{ overflowY: "auto" }}>
@@ -162,7 +163,12 @@ describe("arriving on a control", () => {
         </details>
       </div>
     ));
-    const { container } = await renderRoutedSettingsScreen(settingsWindow, pages);
+    const appearancePage = SETTINGS_PAGES.find((page) => page.pageId === "appearance");
+    if (appearancePage === undefined) {
+      throw new Error("the Appearance page is not registered");
+    }
+    pages.register(appearancePage);
+    const { container, getByRole } = await renderRoutedSettingsScreen(settingsWindow, pages);
     const scroller = container.querySelector<HTMLElement>(".landing-test__scroller");
     const control = container.querySelector<HTMLElement>(`[${SETTINGS_CONTROL_ATTRIBUTE}]`);
     const fold = container.querySelector("details");
@@ -185,6 +191,21 @@ describe("arriving on a control", () => {
     expect(glide.mock.calls).toStrictEqual([["settings-control-landing", 820]]);
     expect(control.hasAttribute("data-settings-landed")).toBe(true);
     expect(container.ownerDocument.activeElement?.textContent).toBe("Folded control");
+
+    // The shipped Appearance page anchors the control it declares, so a hit lands on it.
+    const searchField = getByRole("combobox", { name: "Search settings" });
+    fireEvent.change(searchField, { target: { value: APPEARANCE_CONTROLS.light.label } });
+    fireEvent.keyDown(searchField, { key: "Enter" });
+
+    const { route } = settingsWindow.frameStore.getState();
+    expect(route).toMatchObject({ kind: "settings", page: "appearance" });
+    const lightOption = container.querySelector(
+      `[${SETTINGS_CONTROL_ATTRIBUTE}="${APPEARANCE_CONTROLS.light.id}"]`,
+    );
+    expect(lightOption?.hasAttribute("data-settings-landed")).toBe(true);
+    expect(container.ownerDocument.activeElement).toBe(
+      lightOption?.querySelector('[role="radio"]'),
+    );
   });
 });
 
