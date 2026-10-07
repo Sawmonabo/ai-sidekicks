@@ -23,7 +23,7 @@ import { applyDeclaredMonospaceFamily } from "./typeface.js";
 
 /** What one adapter is built with: its terminal id, renderer pool, and callbacks. */
 export interface XtermTerminalAdapterOptions {
-  /** The shared terminal this adapter is a view of. One per session. */
+  /** The shell this adapter is a view of, by its terminal id. */
   readonly terminalId: string;
   readonly pool?: TerminalRendererPool | undefined;
   /**

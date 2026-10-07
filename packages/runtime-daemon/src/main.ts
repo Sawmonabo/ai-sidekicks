@@ -26,6 +26,8 @@ import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
 import { openServiceLog } from "./daemon/service-log.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { selectPtyHost } from "./pty/host/selector.js";
+import { openOrphanGuard } from "./pty/orphan/guard.js";
+import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
 
 // The service's version is its package's; the manifest sits one folder above this file, in the
 // source tree and in the build alike.
@@ -75,13 +77,15 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 
-// Read once: the reading of a running process never changes.
+// One reader for the daemon's own process and its terminal children, so the boot is read once.
 const runProgram = promisify(execFile);
-const processIdentity = await createProcessIdentityReader({
+const readProcessIdentity = createProcessIdentityReader({
   platform: process.platform,
   readTextFile: (filePath) => readFile(filePath, "utf8"),
   runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-})(process.pid);
+});
+// Read once: the reading of a running process never changes.
+const processIdentity = await readProcessIdentity(process.pid);
 if (processIdentity === undefined) {
   throw new Error("The system finds no process with the daemon's own id");
 }
@@ -94,7 +98,17 @@ const daemon = await DaemonProcess.start({
     temporaryDirectory: os.tmpdir(),
     userId: account.uid,
   }),
-  ptyHost: selectPtyHost(),
+  openOrphanGuard: async (dataFolder) =>
+    openOrphanGuard({
+      dataFolder,
+      bootId: processIdentity.bootId,
+      readProcessIdentity,
+      operatingSystem: await openOrphanOperatingSystem(process.platform, (error) => {
+        writeServiceLog(`The watch on terminal children's exits stopped: ${error.message}`);
+      }),
+      writeServiceLog,
+    }),
+  createPtyHost: selectPtyHost,
   readMachineName: () => readMachineName(createNodeMachineNameSources()),
   captureProviderBaseEnvironment: () =>
     captureLoginShellEnvironment({

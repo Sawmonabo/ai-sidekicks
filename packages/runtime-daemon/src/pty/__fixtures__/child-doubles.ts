@@ -1,5 +1,5 @@
-// Shared fakes for the PTY host tests: a `node-pty` child for `NodePtyHost`, and a sidecar child
-// process with Content-Length frame helpers for `RustSidecarPtyHost`.
+// Shared fakes for the PTY host tests: a `node-pty` child and an orphan guard for `NodePtyHost`,
+// and a sidecar child process with Content-Length frame helpers for `RustSidecarPtyHost`.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 
 import { vi } from "vitest";
 
-import type { NodePtyChild } from "../host/node-pty.js";
+import type { NodePtyChild, NodePtyOrphanGuard } from "../host/node-pty.js";
 import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar/child-supervisor.js";
 import type { Envelope, SpawnRequest } from "../host/protocol.js";
 import type { RustSidecarPtyHost } from "../sidecar/host.js";
@@ -17,38 +17,66 @@ import type { RustSidecarPtyHost } from "../sidecar/host.js";
 type NodePtyExitEvent = { exitCode: number; signal?: number | undefined };
 
 /**
- * Build a fake `NodePtyChild` that captures its `onExit` listener so a test can trigger an exit
- * with `triggerExit`, which throws if no listener is attached yet. `pid` defaults to 12345;
- * suites pass their own so the pid is distinctive in assertion failures.
+ * Builds a fake `NodePtyChild` that keeps its `onData` and `onExit` listeners until disposed, so a
+ * test can emit output with `emitData` and an exit with `triggerExit`, which throws if no exit
+ * listener is attached. `pid` defaults to 12345; suites pass their own so the pid is distinctive
+ * in assertion failures.
  */
 export function makeFakeChild(pid: number = 12345): {
   child: NodePtyChild;
+  emitData: (chunk: string | Uint8Array) => void;
   triggerExit: (exitCode: number, signal?: number) => void;
 } {
-  let exitListener: ((event: NodePtyExitEvent) => void) | null = null;
+  const dataListeners = new Set<(chunk: string | Uint8Array) => void>();
+  const exitListeners = new Set<(event: NodePtyExitEvent) => void>();
   const child: NodePtyChild = {
     pid,
-    onData: () => ({ dispose: () => undefined }),
+    onData: (listener) => {
+      dataListeners.add(listener);
+      return { dispose: () => dataListeners.delete(listener) };
+    },
     onExit: (listener) => {
-      exitListener = listener;
-      return { dispose: () => undefined };
+      exitListeners.add(listener);
+      return { dispose: () => exitListeners.delete(listener) };
     },
     kill: vi.fn(),
     resize: vi.fn(),
     write: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
   return {
     child,
+    emitData: (chunk) => {
+      for (const listener of dataListeners) {
+        listener(chunk);
+      }
+    },
     triggerExit: (exitCode: number, signal?: number) => {
-      if (exitListener === null) {
+      if (exitListeners.size === 0) {
         throw new Error(
           "makeFakeChild.triggerExit: onExit listener not yet attached " +
             "(was the child spawned via NodePtyHost.spawn?)",
         );
       }
       const event: NodePtyExitEvent = signal === undefined ? { exitCode } : { exitCode, signal };
-      exitListener(event);
+      for (const listener of exitListeners) {
+        listener(event);
+      }
     },
+  };
+}
+
+/** An orphan guard that records nothing, for tests of the host's own behavior. */
+export function makeOrphanGuardDouble(): NodePtyOrphanGuard {
+  let spawnCount = 0;
+  return {
+    prepareSpawn: () => {
+      spawnCount += 1;
+      return Promise.resolve(`nonce-${String(spawnCount)}`);
+    },
+    completeSpawn: () => Promise.resolve(),
+    retire: () => undefined,
   };
 }
 

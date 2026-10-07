@@ -20,6 +20,15 @@ export interface PtyHost {
   write(sessionId: string, bytes: Uint8Array): Promise<void>;
 
   /**
+   * Stop reading the session's PTY, so its output waits in the kernel's buffer and the program
+   * producing it blocks once that buffer fills.
+   */
+  pause(sessionId: string): Promise<void>;
+
+  /** Read the session's PTY again; the output that waited arrives in order. */
+  resume(sessionId: string): Promise<void>;
+
+  /**
    * Send `signal` to the session's child process. Windows backends translate POSIX signals to
    * console-control events (`GenerateConsoleCtrlEvent` for `SIGINT`) and escalate hard stops
    * through `taskkill /T /F`.

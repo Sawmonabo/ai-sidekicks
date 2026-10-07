@@ -13,7 +13,7 @@ The console's window onto the shell commands an agent started. The provider deci
 | `command.background` | `mutation` | `CommandBackgroundRequest` | `CommandBackgroundResponse` |
 | `command.write` | `mutation` | `CommandWriteRequest` | `CommandWriteResponse` |
 
-`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` is capability-gated: exactly one pinned provider can move a waited-on command to the background, and on the other the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` answers a command that is waiting for its input: text the person typed, or `End input`, which closes the command's input; a prompt that opens the terminal raises the same input line with the prompt's own words.
+`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` is capability-gated: exactly one pinned provider can move a waited-on command to the background, and on the other the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` answers a command that is waiting for its input: text the person typed, or `End input`, which ends the command's input as end of file does on a terminal; a prompt that opens the terminal raises the same input line with the prompt's own words.
 
 ```ts
 // One running command, in the order the commands started. `name` is the command as the agent ran it,
@@ -27,8 +27,9 @@ interface RunningCommand {
   name: string;
   startedAt: string;
   waitingInForeground: boolean;
-  // True while the command is waiting on its own input, reported by the daemon's command wrapper from
-  // the kernel's own signal; kept with the session, so every device shows the same input line.
+  // True while the command is waiting on its own input, reported from the kernel's own signal by the
+  // daemon's command wrapper, or by the shell table for a command typed into a session's shell; kept
+  // with the session, so every device shows the same input line.
   waitingForInput: boolean;
 }
 interface CommandListSubscribeRequest {
@@ -70,8 +71,10 @@ interface CommandBackgroundResponse {
 // Typed input to a command that is waiting for it, or `End input`. The daemon's command wrapper sits
 // after each provider's permission decision and inside its sandbox, holding the command's standard
 // input: `text` is written to it and `endOfInput` closes it (end-of-file on a terminal). The wrapper
-// is not a sandbox; it runs inside the provider's. A read waits for the person or `End input`,
-// bounded only by the provider's and the runtime's own limits.
+// is not a sandbox; it runs inside the provider's. A command typed into a session's shell has no
+// wrapper: `text` is written into that shell and `endOfInput` writes its end-of-file character. A
+// read waits for the person or `End input`, bounded only by the provider's and the runtime's own
+// limits.
 interface CommandWriteRequest {
   sessionId: SessionId;
   commandId: string;

@@ -152,8 +152,8 @@ export const CommandBackgroundResponseSchema: z.ZodType<CommandBackgroundRespons
 
 /**
  * Typed input for a command that is waiting on its input, `End input`, or both:
- * `text` is sent to the command, and `endOfInput` then closes its input (end of
- * file on a terminal).
+ * `text` is sent to the command, and `endOfInput` then ends its input, as end of
+ * file does on a terminal.
  */
 export interface CommandWriteRequest {
   sessionId: SessionId;

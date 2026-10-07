@@ -10,10 +10,9 @@ import { TerminalPane } from "./components/TerminalPane.js";
 /**
  * The terminal pane, as the pane layout holds it.
  *
- * It is not detachable into a window of its own: a session has one shared shell, and its write
- * lease is held from one device at a time, so a torn-off pane would put it behind two mount
- * points. `render` goes through `paneBodyForKind`, which narrows the context to this kind and
- * throws on another, so no mount at another kind's address opens a second view on that shell.
+ * Nothing ties it to one window: the one console document draws every window, and each shell's
+ * lease is held by a device, not by a window. `render` goes through `paneBodyForKind`,
+ * which narrows the context to this kind and throws on another.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "terminal",

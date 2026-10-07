@@ -204,6 +204,14 @@ export class FakeCodexAppServer implements PtyHost {
     return Promise.resolve();
   }
 
+  pause(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  resume(): Promise<void> {
+    return Promise.resolve();
+  }
+
   write(sessionId: string, bytes: Uint8Array): Promise<void> {
     if (this.parkNextWrite) {
       this.parkNextWrite = false;

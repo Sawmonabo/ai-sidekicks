@@ -5,8 +5,8 @@
 // answer that this device holds the shell; the emulator gets its gate in the same synchronous
 // `attach()` that builds it, so no keystroke reaches it before the gate is set. The gate is the
 // library's own `disableStdin` option, which shuts the input element and drops every data
-// event, programmatic input included. Keystrokes go to the wire, never
-// the local buffer, because the daemon echoes a shared shell.
+// event, programmatic input included. Keystrokes go to the wire, never the local buffer, because
+// the shell echoes what it is sent and that echo reaches every pane showing it.
 //
 // The gate is the lease's answer and a mount element being on screen. The lease's answer is
 // stored, so a detached binding reports the shut gate and re-opens it on the next mount

@@ -29,6 +29,7 @@ import {
   COMPATIBLE_HELLO,
   FOUND_SERVICE_PROCESS_ID,
   INCOMPATIBLE_HELLO,
+  SERVICE_DEVICE_ID,
   linkToRunningService,
   supervisorOverScriptedService,
   type ScriptedService,
@@ -63,7 +64,12 @@ describe("starting the service", () => {
     expect(link.state).toMatchObject({
       connection: { kind: "connected" },
       startedByApp: true,
-      negotiation: { compatible: true, appProtocolVersion: CURRENT_PROTOCOL_VERSION },
+      // The hello's device is this app's own, which the terminal compares a shell's holder with.
+      negotiation: {
+        compatible: true,
+        deviceId: SERVICE_DEVICE_ID,
+        appProtocolVersion: CURRENT_PROTOCOL_VERSION,
+      },
     });
     expect(connections.map((connection) => connection.kind)).toStrictEqual([
       "connecting",

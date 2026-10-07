@@ -21,11 +21,11 @@ export const TERMINAL_DEFAULT_SCROLLBACK_LINES = 10_000;
 export const TERMINAL_BUDGET_MEASUREMENT_COLUMNS = 120;
 
 /**
- * How many terminals may hold a WebGL renderer at once.
+ * How many WebGL contexts the page's terminals may create over its life.
  *
  * Chromium keeps sixteen contexts per page and drops the oldest past that, and a disposed
  * addon does not give its context back, so the ceiling counts contexts the page has ever
- * created. Twelve leaves four for the rest of the page and covers every layout, since a
- * session has one shared shell held by one device at a time.
+ * created. Twelve leaves four for the rest of the page. Each pane drawing a shell takes its own
+ * context, so past twelve a terminal draws with the DOM renderer.
  */
 export const TERMINAL_WEBGL_POOL_CAP = 12;

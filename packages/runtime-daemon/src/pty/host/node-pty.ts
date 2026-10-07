@@ -1,6 +1,9 @@
 // In-process `node-pty` implementation of the `PtyHost` contract.
 //
 // - The selector picks it on every platform (see `host/selector.ts`).
+// - Each child is recorded through the orphan guard: its intent before the start, its process
+//   after, its end; a child the guard cannot record is killed and the spawn rejects.
+// - A session's output and exit wait until `spawn()` has resolved, so its caller knows the id.
 // - `node-pty.kill(signal)` on Windows signals one PID and does not walk console-control or
 //   process-tree semantics (microsoft/node-pty#167, #437), so the Windows kill translation
 //   lives here:
@@ -9,13 +12,17 @@
 //     - SIGKILL runs `taskkill /T /F` on the whole descendant tree (a single-PID kill orphans
 //       children on Windows). The reap is bounded to 5 s, and `onExit` fires either way.
 // - `node-pty` does not expose `GenerateConsoleCtrlEvent`, so it is bound through `koffi`, loaded
-//   on the first Windows kill; `koffi` is an optional dependency.
+//   on the first Windows kill.
 // - Every effectful primitive (`node-pty.spawn`, the FFI binding, the `taskkill` spawn, timers)
 //   is injectable through `NodePtyHostDeps`, so tests run on every platform without `node-pty`,
 //   `koffi` or Windows.
 
 import { randomUUID } from "node:crypto";
 
+import { importKoffi } from "../koffi.js";
+import { HeldSessionEvents } from "./held-events.js";
+import type { OrphanGuard } from "../orphan/guard.js";
+import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../orphan/registry.js";
 import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
 import { defaultSpawnTaskkill, type TaskkillResult } from "../taskkill-windows.js";
 import type { PtySignal, SpawnRequest, SpawnResponse } from "./protocol.js";
@@ -23,7 +30,7 @@ import type { DrainResult, PtyHost } from "./contract.js";
 
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer
 // (it is loaded lazily), and the types list exactly what is consumed: `pid`, `onData`,
-// `onExit`, `kill`, `resize` and `write`.
+// `onExit`, `kill`, `resize`, `write`, `pause` and `resume`.
 
 /** Shape of a single PTY-child wrapper as returned by `node-pty.spawn`. */
 export interface NodePtyChild {
@@ -41,7 +48,14 @@ export interface NodePtyChild {
   resize(cols: number, rows: number): void;
   /** Write a chunk to the PTY's master FD. */
   write(data: string | Uint8Array): void;
+  /** Stop reading the PTY's master FD. */
+  pause(): void;
+  /** Read the PTY's master FD again. */
+  resume(): void;
 }
+
+/** The part of the orphan guard the host reports each child's life to. */
+export type NodePtyOrphanGuard = Pick<OrphanGuard, "prepareSpawn" | "completeSpawn" | "retire">;
 
 /** Options passed to `node-pty.spawn`. */
 interface NodePtySpawnOptions {
@@ -89,6 +103,8 @@ export interface NodePtyHostDeps {
   readonly setTimer: (cb: () => void, ms: number) => NodeJS.Timeout;
   /** Cancels a timer created by `setTimer`. */
   readonly clearTimer: (handle: NodeJS.Timeout) => void;
+  /** Signals a whole process group, as `process.kill(-leaderId, signal)` does. */
+  readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
 }
 
 /** `NodePtyHostDeps` after defaults; a `null` `ptySpawn` means `node-pty` loads on first spawn. */
@@ -99,6 +115,7 @@ interface ResolvedNodePtyHostDeps {
   readonly spawnTaskkill?: (pid: number) => Promise<TaskkillResult>;
   readonly setTimer: (cb: () => void, ms: number) => NodeJS.Timeout;
   readonly clearTimer: (handle: NodeJS.Timeout) => void;
+  readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
 }
 
 // --------------------------------------------------------------------------
@@ -108,11 +125,14 @@ interface ResolvedNodePtyHostDeps {
 interface PtySessionRecord {
   /** Underlying `node-pty` child. */
   readonly child: NodePtyChild;
-  /**
-   * Subscriptions held so `close()` can dispose them. Mutable so
-   * `spawn()` can populate after attaching listeners; the contents are
-   * effectively immutable post-spawn.
-   */
+  /** The nonce the orphan registry records the child under. */
+  readonly nonce: string;
+  /** The consumer's data and exit, held while `spawn()` has not resolved. */
+  readonly heldEvents: HeldSessionEvents;
+  /** Whether the consumer paused the read, and whether the read is paused now. */
+  isPausedByConsumer: boolean;
+  isReadPaused: boolean;
+  /** The consumer-facing listeners on the child, which `close()` disposes. */
   readonly subscriptions: Array<{ dispose: () => void }>;
   /**
    * `true` once `onExit` has fired for this session, from the child's own exit or the synthetic
@@ -135,7 +155,7 @@ interface PtySessionRecord {
 // --------------------------------------------------------------------------
 //
 // Both modules load through dynamic `import(...)`, so nothing couples the file to them at module
-// load and `koffi` can stay an optional dependency.
+// load.
 
 /** Lazily resolve `node-pty.spawn`. Called on the first `spawn()` call. */
 async function loadNodePtySpawn(): Promise<NodePtySpawnFn> {
@@ -162,53 +182,14 @@ async function loadNodePtySpawn(): Promise<NodePtySpawnFn> {
 
 /**
  * Binds `GenerateConsoleCtrlEvent` from `kernel32.dll` through `koffi` on first use.
- * Throws with an install hint when `koffi` is missing. Only the Windows kill path calls it.
+ * Throws with an install hint when `koffi` cannot be loaded. Only the Windows kill path calls it.
  */
 async function loadGenerateConsoleCtrlEvent(): Promise<
   (event: ConsoleCtrlEvent, pid: number) => void
 > {
   // No platform guard: tests inject the FFI seam directly, and a real Windows failure surfaces
   // with its own diagnostics.
-  //
-  // `koffi` ships ESM with both a default export and a named `load`; `.default ?? mod` takes
-  // whichever shape the installed version has.
-  type KoffiBinding = {
-    load(name: string): {
-      func(signature: string): (...args: unknown[]) => unknown;
-    };
-  };
-  const specifier: string = "koffi";
-  let koffi: KoffiBinding;
-  try {
-    // A missing install would surface as a raw ERR_MODULE_NOT_FOUND; it is re-thrown below with
-    // an install hint.
-    const koffiMod = (await import(specifier)) as {
-      default?: KoffiBinding;
-      load?: KoffiBinding["load"];
-    };
-    const resolved: { load?: KoffiBinding["load"] } = koffiMod.default ?? koffiMod;
-    if (typeof resolved.load !== "function") {
-      throw new Error(
-        "loadGenerateConsoleCtrlEvent: `koffi` module did not expose a " +
-          "`load` function (checked both default-export and named-export " +
-          "shapes). This usually means the installed `koffi` version's " +
-          "ESM-bridge shape changed; pin the dep or update this loader.",
-      );
-    }
-    koffi = resolved as KoffiBinding;
-  } catch (cause) {
-    // The shape-mismatch error above is already clear; only a missing module gets the hint.
-    if (cause instanceof Error && cause.message.startsWith("loadGenerateConsoleCtrlEvent:")) {
-      throw cause;
-    }
-    throw new Error(
-      "NodePtyHost: `koffi` is required for Windows kill-translation but " +
-        "is not installed. Install with `pnpm add koffi` (or restore the " +
-        "optional dep via `pnpm install` without `--no-optional`). The Rust " +
-        "sidecar backend does not help here: its kill returns an error on Windows.",
-      { cause },
-    );
-  }
+  const koffi = await importKoffi("Windows kill-translation");
   const kernel32 = koffi.load("kernel32.dll");
   const binding = kernel32.func(
     "int __stdcall GenerateConsoleCtrlEvent(uint32 dwCtrlEvent, uint32 dwProcessGroupId)",
@@ -239,6 +220,9 @@ export class NodePtyHost implements PtyHost {
   /** Effective deps record after constructor wiring. */
   private readonly deps: ResolvedNodePtyHostDeps;
 
+  /** Records each child in the orphan registry from before its start to its end. */
+  private readonly orphanGuard: NodePtyOrphanGuard;
+
   /** Consumer callbacks; no-ops until the daemon registers its own with `setOnData`/`setOnExit`. */
   private dataListener: (sessionId: string, chunk: Uint8Array) => void = () => {};
 
@@ -261,13 +245,17 @@ export class NodePtyHost implements PtyHost {
   private readonly shutdownWaiters: Map<string, (result: "drained" | "forced") => void> = new Map();
 
   /** Partial `deps` merge with production defaults. */
-  public constructor(deps?: Partial<NodePtyHostDeps>) {
+  public constructor(orphanGuard: NodePtyOrphanGuard, deps?: Partial<NodePtyHostDeps>) {
+    this.orphanGuard = orphanGuard;
     this.deps = resolveDefaultDeps(deps ?? {});
   }
 
   // ---- PtyHost methods --------------------------------------------------
 
-  /** Starts a PTY child and returns its session id. Rejects once `shutdown()` has begun. */
+  /**
+   * Starts a PTY child and returns its session id. Rejects once `shutdown()` has begun, and when
+   * the orphan registry cannot record the child, which is then killed.
+   */
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
     if (this.shuttingDown) {
       // Refuse new spawns so no PTY child can outlive `shutdown()`.
@@ -278,26 +266,38 @@ export class NodePtyHost implements PtyHost {
       );
     }
     const ptySpawn: NodePtySpawnFn = await this.resolvePtySpawn();
-    if (this.shuttingDown) {
-      // `shutdown()` may have started while `resolvePtySpawn()` was awaited, after the drain
-      // snapshot was taken. Reject before `ptySpawn`, so no orphan child exists to clean up.
-      throw new PtyBackendUnavailableError(
-        { attemptedBackend: "node-pty" },
-        "NodePtyHost: shutdown() in progress or complete; " +
-          "the host is terminal — re-create a fresh instance for new sessions.",
-      );
-    }
-    const env: Record<string, string> = envTuplesToRecord(spec.env);
+    // The intent is durable before the child exists, so a crash at any later moment leaves the
+    // registry able to find it.
+    const nonce: string = await this.orphanGuard.prepareSpawn();
+    const env: Record<string, string> = {
+      ...envTuplesToRecord(spec.env),
+      [SPAWN_NONCE_ENVIRONMENT_NAME]: nonce,
+    };
 
-    const child: NodePtyChild = ptySpawn(spec.command, spec.args, {
-      name: "xterm-color",
-      cols: spec.cols,
-      rows: spec.rows,
-      cwd: spec.cwd,
-      env,
-      // Must stay `false`; see `NodePtySpawnOptions.useConptyDll`.
-      useConptyDll: false,
-    });
+    let child: NodePtyChild;
+    try {
+      if (this.shuttingDown) {
+        // `shutdown()` may have started during the awaits above, after the drain snapshot was
+        // taken. Reject before `ptySpawn`, so no orphan child exists to clean up.
+        throw new PtyBackendUnavailableError(
+          { attemptedBackend: "node-pty" },
+          "NodePtyHost: shutdown() in progress or complete; " +
+            "the host is terminal — re-create a fresh instance for new sessions.",
+        );
+      }
+      child = ptySpawn(spec.command, spec.args, {
+        name: "xterm-color",
+        cols: spec.cols,
+        rows: spec.rows,
+        cwd: spec.cwd,
+        env,
+        // Must stay `false`; see `NodePtySpawnOptions.useConptyDll`.
+        useConptyDll: false,
+      });
+    } catch (error) {
+      this.orphanGuard.retire(nonce);
+      throw error;
+    }
 
     // Not `mintUuidV7`: this is a host-local handle, dead when the PTY closes, with a
     // backend-private format (the Rust sidecar backend mints `s-{n}`), and no row stores it.
@@ -306,17 +306,29 @@ export class NodePtyHost implements PtyHost {
     // visible to `kill()`.
     const record: PtySessionRecord = {
       child,
+      nonce,
+      heldEvents: new HeldSessionEvents(() => {
+        this.applyReadPause(record);
+      }),
+      isPausedByConsumer: false,
+      isReadPaused: false,
       subscriptions: [],
       hasExited: false,
       pendingEscalation: null,
       escalated: false,
     };
 
+    // Kept through `close()`, so a closed child that ignores the hangup is retired when it ends.
+    child.onExit(() => {
+      this.orphanGuard.retire(nonce);
+    });
     record.subscriptions.push(
       child.onData((chunk: string | Uint8Array) => {
         const bytes: Uint8Array =
           typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-        this.dataListener(sessionId, bytes);
+        record.heldEvents.deliver(() => {
+          this.dataListener(sessionId, bytes);
+        }, bytes.byteLength);
       }),
     );
     record.subscriptions.push(
@@ -331,7 +343,9 @@ export class NodePtyHost implements PtyHost {
           return;
         }
         record.hasExited = true;
-        this.fireExit(sessionId, event.exitCode, event.signal);
+        record.heldEvents.deliver(() => {
+          this.fireExit(sessionId, event.exitCode, event.signal);
+        }, 0);
         // Notify after `fireExit` so listeners see the exit before the drain completes. On Windows
         // the 2 s taskkill escalation can win before the drain timeout, so the outcome reads
         // `record.escalated`. The closure-captured `record` is used, not a `sessions` lookup, so a
@@ -341,6 +355,13 @@ export class NodePtyHost implements PtyHost {
     );
 
     this.sessions.set(sessionId, record);
+    // Listeners attach before this read, so an exit during it is still seen.
+    try {
+      await this.orphanGuard.completeSpawn(nonce, child.pid);
+    } catch (failure) {
+      await this.killUnrecordedChild(sessionId, record, failure);
+    }
+    this.releaseHeldDeliveries(sessionId, record);
 
     return { kind: "spawn_response", session_id: sessionId };
   }
@@ -361,6 +382,26 @@ export class NodePtyHost implements PtyHost {
       throw new Error(`NodePtyHost.write: unknown sessionId '${sessionId}'`);
     }
     record.child.write(bytes);
+  }
+
+  /** Stops reading the PTY. Throws for an unknown session id; an exited child gets nothing. */
+  public async pause(sessionId: string): Promise<void> {
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+    if (record === undefined) {
+      throw new Error(`NodePtyHost.pause: unknown sessionId '${sessionId}'`);
+    }
+    record.isPausedByConsumer = true;
+    this.applyReadPause(record);
+  }
+
+  /** Reads the PTY again. Throws for an unknown session id; an exited child gets nothing. */
+  public async resume(sessionId: string): Promise<void> {
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+    if (record === undefined) {
+      throw new Error(`NodePtyHost.resume: unknown sessionId '${sessionId}'`);
+    }
+    record.isPausedByConsumer = false;
+    this.applyReadPause(record);
   }
 
   /**
@@ -426,6 +467,71 @@ export class NodePtyHost implements PtyHost {
       }
     }
     this.sessions.delete(sessionId);
+  }
+
+  // A child the orphan registry could not record must not outlive its spawn, which rejects with
+  // why; its whole tree is killed outright, since a hangup can be ignored.
+  private async killUnrecordedChild(
+    sessionId: string,
+    record: PtySessionRecord,
+    failure: unknown,
+  ): Promise<never> {
+    if (this.deps.platform === "win32") {
+      // There `close()` ends the tree with `taskkill /T /F`.
+      await this.close(sessionId);
+      throw failure;
+    }
+    for (const subscription of record.subscriptions) {
+      subscription.dispose();
+    }
+    this.sessions.delete(sessionId);
+    try {
+      // The child leads its own process group.
+      this.deps.signalProcessGroup(record.child.pid, "SIGKILL");
+    } catch (killError: unknown) {
+      // A group already gone needs no kill; any other refusal leaves it running.
+      if (!(killError instanceof Error && "code" in killError && killError.code === "ESRCH")) {
+        throw new AggregateError(
+          [failure, killError],
+          "The orphan registry could not record a terminal child, and killing it failed",
+          { cause: killError },
+        );
+      }
+    }
+    throw failure;
+  }
+
+  // Delivers what was held on a later turn, once the caller of `spawn()` has the session id,
+  // holding what comes meanwhile so the order stands; with nothing held, events go straight on.
+  private releaseHeldDeliveries(sessionId: string, record: PtySessionRecord): void {
+    if (!record.heldEvents.isHolding) {
+      record.heldEvents.release();
+      return;
+    }
+    setImmediate(() => {
+      const held = record.heldEvents.release();
+      if (this.sessions.get(sessionId) !== record) {
+        return;
+      }
+      for (const delivery of held) {
+        delivery();
+      }
+      this.applyReadPause(record);
+    }).unref();
+  }
+
+  // Pauses the read while the consumer asked or too much output is held; skips an exited child.
+  private applyReadPause(record: PtySessionRecord): void {
+    const shouldPause = record.isPausedByConsumer || record.heldEvents.isOverBound;
+    if (shouldPause === record.isReadPaused || record.hasExited) {
+      return;
+    }
+    record.isReadPaused = shouldPause;
+    if (shouldPause) {
+      record.child.pause();
+    } else {
+      record.child.resume();
+    }
   }
 
   /**
@@ -772,11 +878,17 @@ function resolveDefaultDeps(partial: Partial<NodePtyHostDeps>): ResolvedNodePtyH
     readonly ptySpawn: NodePtySpawnFn | null;
     readonly setTimer: (cb: () => void, ms: number) => NodeJS.Timeout;
     readonly clearTimer: (handle: NodeJS.Timeout) => void;
+    readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
   } = {
     platform: partial.platform ?? process.platform,
     ptySpawn: partial.ptySpawn ?? null,
     setTimer: partial.setTimer ?? ((cb, ms) => setTimeout(cb, ms)),
     clearTimer: partial.clearTimer ?? ((handle) => clearTimeout(handle)),
+    signalProcessGroup:
+      partial.signalProcessGroup ??
+      ((leaderId, signal) => {
+        process.kill(-leaderId, signal);
+      }),
   };
   return {
     ...base,

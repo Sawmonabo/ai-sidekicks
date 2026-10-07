@@ -4,18 +4,21 @@
 // lease transitions are wire-true. Terminal output (bytes, scrollback, resize) has no
 // registered type and is absent rather than invented.
 //
-// A hold ends three ways and the script reaches each: another device takes the shell (a shell
-// has no release control), the holder's connection ends, or the holding run leaves `running`.
-// Each is reached as the daemon reaches it, so the run-idle release follows the run's queued,
-// starting and `running` beats, an agent-path take bound to the run, and the run leaving
-// `running`. That release is the holding run's first transition out of `running` and leaves
-// a device's hold alone.
+// The script moves the hold every way but a forced take and a closed pane: another device takes the
+// shell (a shell has no release control), the holder's connection ends, the command a run holds the
+// shell for ends with nobody to hand it back to, a device's first keystroke takes the free shell, a
+// run's next command takes it off that device, and the holding run leaves `running`, which hands it
+// back. Each is reached as the daemon reaches it: after the run's queued, starting and `running`
+// beats, an agent-path take bound to the run and its first command, that command's stored ending
+// and the release that follows it, the owner's take, the run's take for its next command off the
+// owner, and the run leaving `running`. That last release is the holding run's first transition out
+// of `running`.
 //
 // The lease is per shell and the holder is a device: every transition names its shell, and a
 // run's hold names the machine's own device and the run.
 //
-// The script ends held, on the owner taking the shell, because the scenario plays to the
-// last beat and a named holder is the frame that carries the most.
+// The script ends held, on the hand-back to the owner, because the scenario plays to the last
+// beat and a named holder is the frame that carries the most.
 
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
@@ -24,12 +27,13 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
+import { FIXTURE_DEVICE_ID } from "../data/this-device.js";
 import type { Scenario } from "../scenario.js";
 
 // Who and what the scenario is about: the session, the owner, a second device and the agent's
 // run. Ids are UUIDs because the contract check presents each beat to the strict layer as a
 // whole envelope.
-const OWNER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
+const OWNER_ID = FIXTURE_DEVICE_ID;
 const OTHER_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
@@ -45,8 +49,11 @@ const TERMINAL_SCENARIO_SHELL_ID = TERMINAL_SCENARIO_SESSION_ID;
 /** The agent's run; `auto_released_run_idle` needs a holding run to bind to. */
 const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
-/** The run's command that holds the shell. */
+/** The run's first command, whose ending gives the shell back. */
 const TERMINAL_AGENT_COMMAND_ID = "command-pnpm-test";
+
+/** The run's next command, taken off the owner, holding the shell when the run leaves `running`. */
+const TERMINAL_AGENT_NEXT_COMMAND_ID = "command-pnpm-lint";
 
 /**
  * The scenario's cast by role, so tests get each id with the role it plays.
@@ -60,7 +67,8 @@ interface TerminalScenarioRoles {
   /** The other device the lease changes hands to. */
   readonly otherDevice: string;
   /**
-   * The session's lead, whose run's idling is one of the ways a hold ends. The run binds to
+   * The session's lead, whose run's command ending and idling are two of the ways a hold ends.
+   * The run binds to
    * the lease, never this id: a run's take names the machine's own device and the run.
    */
   readonly agent: string;
@@ -97,6 +105,8 @@ interface TerminalLeaseTransitionInput {
   readonly previousHolderDeviceId: string | null;
   /** One of the reasons the wire closes the set at. */
   readonly reason: string;
+  /** The shell's lease version after this transition: one more for every change of holder. */
+  readonly leaseVersion: number;
   /** Omitted for a take the daemon's own lease authority performed. */
   readonly actorId?: string;
 }
@@ -117,6 +127,7 @@ function leaseTransitionEntry(transition: TerminalLeaseTransitionInput): ScriptE
         : { holderCommandId: transition.holderCommandId }),
       previousHolderDeviceId: transition.previousHolderDeviceId,
       reason: transition.reason,
+      leaseVersion: transition.leaseVersion,
     },
   };
 }
@@ -156,6 +167,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   },
   leaseTransitionEntry({
     atMs: 1200,
+    leaseVersion: 1,
     holderDeviceId: OTHER_DEVICE_ID,
     previousHolderDeviceId: null,
     reason: "taken",
@@ -163,6 +175,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   }),
   leaseTransitionEntry({
     atMs: 1800,
+    leaseVersion: 2,
     holderDeviceId: null,
     previousHolderDeviceId: OTHER_DEVICE_ID,
     reason: "auto_released_disconnect",
@@ -194,10 +207,50 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   // The holder is the machine's own device, with the run and its command named beside it.
   leaseTransitionEntry({
     atMs: 3300,
+    leaseVersion: 3,
     holderDeviceId: OWNER_ID,
     holderRunId: TERMINAL_AGENT_RUN_ID,
     holderCommandId: TERMINAL_AGENT_COMMAND_ID,
     previousHolderDeviceId: null,
+    reason: "taken",
+  }),
+  // The command's stored ending, which the release below follows.
+  {
+    atMs: 3400,
+    kind: "command.ended",
+    payload: {
+      sessionId: TERMINAL_SCENARIO_SESSION_ID,
+      runId: TERMINAL_AGENT_RUN_ID,
+      commandId: TERMINAL_AGENT_COMMAND_ID,
+      ending: "finished",
+      exitCode: 0,
+      durationMs: 100,
+    },
+  },
+  leaseTransitionEntry({
+    atMs: 3450,
+    leaseVersion: 4,
+    holderDeviceId: null,
+    previousHolderDeviceId: OWNER_ID,
+    reason: "auto_released_command_ended",
+  }),
+  // The owner's first keystroke into the free shell takes it.
+  leaseTransitionEntry({
+    atMs: 3480,
+    leaseVersion: 5,
+    holderDeviceId: OWNER_ID,
+    previousHolderDeviceId: null,
+    reason: "taken",
+    actorId: OWNER_ID,
+  }),
+  // The run's next command takes the idle shell off the owner, whose hold is kept aside.
+  leaseTransitionEntry({
+    atMs: 3500,
+    leaseVersion: 6,
+    holderDeviceId: OWNER_ID,
+    holderRunId: TERMINAL_AGENT_RUN_ID,
+    holderCommandId: TERMINAL_AGENT_NEXT_COMMAND_ID,
+    previousHolderDeviceId: OWNER_ID,
     reason: "taken",
   }),
   // The holding run's first transition out of `running`, which the release below follows.
@@ -207,19 +260,13 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
     previousState: "running",
     newState: "completed",
   }),
+  // The release hands the shell back to the owner, and the script ends held.
   leaseTransitionEntry({
     atMs: 3700,
-    holderDeviceId: null,
+    leaseVersion: 7,
+    holderDeviceId: OWNER_ID,
     previousHolderDeviceId: OWNER_ID,
     reason: "auto_released_run_idle",
-  }),
-  // The held steady state: the holder the pane's header names.
-  leaseTransitionEntry({
-    atMs: 4100,
-    holderDeviceId: OWNER_ID,
-    previousHolderDeviceId: null,
-    reason: "taken",
-    actorId: OWNER_ID,
   }),
 ];
 
@@ -232,10 +279,11 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
   label: "Lease changing hands",
   purpose:
     "One of the session's shells moving between two of the user's devices and an agent " +
-    "run — the run queued, started, taken on the agent path, and completed, so the run-idle " +
-    "release follows the acquisition it releases — reaching each automatic ending of a hold " +
-    "and ending held. The output stream is absent until the terminal pane's " +
-    "renderer is registered.",
+    "run — taken by another device and freed when its connection ends, taken on the agent " +
+    "path for the run's first command and freed when that command ends, taken by the owner's " +
+    "first keystroke, taken off the owner for the run's next command, and handed back when the " +
+    "run completes, so each release follows the acquisition it releases — and ending held. The " +
+    "output stream is absent until the terminal pane's renderer is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: composeScriptBeats({

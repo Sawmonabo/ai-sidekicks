@@ -113,6 +113,7 @@ function mainProcessNegotiationsAreEqual(
   }
   return (
     left.compatible === right.compatible &&
+    left.deviceId === right.deviceId &&
     left.reason === right.reason &&
     left.behind === right.behind &&
     left.appProtocolVersion === right.appProtocolVersion &&

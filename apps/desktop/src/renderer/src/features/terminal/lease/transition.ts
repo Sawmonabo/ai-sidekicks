@@ -1,9 +1,10 @@
 // Reads one `pty.control_changed` event on its own, with no ordering and no device.
 //
-// The holder is a wire field and is never derived from the last observed take. The holder
-// shape each reason requires (a take names its holder, a release names nobody) is the
-// contract's refinement, so a payload that contradicts its reason is refused here without
-// restating the rule. `model.ts` folds a log of these readings into a lease state.
+// The holder is a wire field and is never derived from the last observed take. The holder shape
+// each reason requires (a take names its holder, every release names the holder it ended, a
+// disconnect or a closed pane names nobody after it, and a run's release names the device it hands
+// the shell back to or nobody) is the contract's refinement, so a payload that contradicts its reason is refused
+// here without restating the rule. `state.ts` folds a log of these readings into a lease state.
 
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import type { PtyControlChangedReason, TerminalId } from "@ai-sidekicks/contracts/pty";
@@ -24,6 +25,8 @@ export interface TerminalLeaseTransition {
   readonly holderRunId: RunId | undefined;
   /** The run's command holding the shell, named whenever the run is. */
   readonly holderCommandId: CommandId | undefined;
+  /** The shell's lease version after this transition; a newer reading has a higher one. */
+  readonly leaseVersion: number;
 }
 
 /**
@@ -44,6 +47,7 @@ export function readTerminalLeaseTransition(
     holderDeviceId: payload.holderDeviceId,
     holderRunId: payload.holderRunId,
     holderCommandId: payload.holderCommandId,
+    leaseVersion: payload.leaseVersion,
   };
 }
 

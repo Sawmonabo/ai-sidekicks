@@ -21,9 +21,11 @@
 
 /*
  * Hover brightens the face with a filter: the ink is dark in both schemes, so this moves the
- * pair apart (4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark).
+ * pair apart (4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark). A control that is
+ * unavailable, by `disabled` or by `aria-disabled` while it keeps focus, answers neither hover
+ * nor press.
  */
-.meridian-accent-fill:hover {
+.meridian-accent-fill:not(:disabled, [aria-disabled="true"]):hover {
   filter: brightness(1.06);
 }
 
@@ -33,7 +35,7 @@
  * 4.5:1 text floor. The border takes the ink because the light face has only about 6% of
  * luminance to spend on the press, too little to see alone.
  */
-.meridian-accent-fill:active {
+.meridian-accent-fill:not(:disabled, [aria-disabled="true"]):active {
   border-color: var(--meridian-accent-ink);
   background: var(--meridian-accent-pressed);
 }

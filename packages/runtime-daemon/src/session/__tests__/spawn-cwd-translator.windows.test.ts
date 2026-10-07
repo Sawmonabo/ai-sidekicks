@@ -38,6 +38,14 @@ class RecordingPtyHost implements PtyHost {
     return await Promise.resolve();
   }
 
+  async pause(_sessionId: string): Promise<void> {
+    return await Promise.resolve();
+  }
+
+  async resume(_sessionId: string): Promise<void> {
+    return await Promise.resolve();
+  }
+
   async kill(_sessionId: string, _signal: PtySignal): Promise<void> {
     return await Promise.resolve();
   }

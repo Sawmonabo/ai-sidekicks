@@ -1,7 +1,8 @@
 // The emulator wrapper: scrollback kept across a move, the buffer released on
 // teardown, the write gate on the library's own `disableStdin`, and printed links held to the
 // scheme allow-list. Sending a keystroke nobody was allowed to send is the expensive mistake on
-// a shared shell, so the gate is also shut while the emulator has no mount element.
+// a shell another device or an agent's command holds, so the gate is also shut while the emulator
+// has no mount element.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 

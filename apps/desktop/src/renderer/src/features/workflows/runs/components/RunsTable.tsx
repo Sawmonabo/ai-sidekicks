@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
 import { formatCount, formatDayClock, formatUnitDuration } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -13,7 +14,6 @@ import { runDurationWords } from "../duration.js";
 import { RunControl } from "../../components/RunControl.js";
 import { isGoing } from "../controls.js";
 import { TRIGGER_KIND_WORDS, startedByWords } from "../../words.js";
-import { useInlineConfirm } from "../hooks/useInlineConfirm.js";
 import { useInViewMarks } from "../hooks/useInViewMarks.js";
 import { RunLiveDot } from "./RunLiveDot.js";
 import { ActionButton } from "../../components/ActionButton.js";
