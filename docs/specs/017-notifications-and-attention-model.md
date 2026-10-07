@@ -190,5 +190,5 @@ The kinds, the text, the stable id, the replacement in place and the withdrawal 
 - [Spec-027: Remote Control](027-remote-control.md)
 - [ADR-036: Workflow secrets in the OS keychain](../decisions/036-workflow-secrets-in-the-os-keychain.md)
 - [Standard Webhooks specification](https://github.com/standard-webhooks/standard-webhooks)
-- [Nodemailer SMTP transport](https://nodemailer.com/smtp/)
+- [Nodemailer SMTP transport](https://nodemailer.com/smtp)
 - [RFC 8291: Message Encryption for Web Push](https://www.rfc-editor.org/rfc/rfc8291)
