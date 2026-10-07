@@ -2,11 +2,12 @@
 // one shell's output stream, writing and resizing, flow control, and the per-shell control lease.
 //
 // Every request names the session and the terminal, and a take or a write names the pane's output
-// subscription it comes through. A request whose terminal is not that session's is refused
-// `pty.not_found`, so a terminal id alone never reaches another session's shell; only the
-// flow-control signal, which may race a closing shell, changes nothing instead. A take or write
-// whose subscription is not the calling connection's open subscription to that shell is refused
-// `pty.output_subscription_not_found`, so a hold is never bound to another connection's pane.
+// subscription it comes through. A request naming a shell its session does not have is refused
+// `pty.not_found`, so a terminal id alone never reaches another session's shell. The flow-control
+// signal is the one exception: naming such a shell changes nothing, since it may race a closing
+// shell. A take or write whose subscription is not the calling connection's open subscription to
+// that shell is refused `pty.output_subscription_not_found`, so a hold is never bound to another
+// connection's pane.
 //
 // The lease is one per shell, held by one of the user's devices or by an agent's running command on
 // this machine. A run's hold carries this machine's device id, the run's id and the holding
@@ -325,7 +326,7 @@ const PtyActResponseSchema: z.ZodType<PtyActResponse> = z.null();
  * The state this connection declares for one shell: `paused` while it is behind, false once it has
  * caught up. The daemon stops reading the shell only while every live watcher is behind, and a
  * connection's state clears when it disconnects. Not gated by the lease: it moves no bytes toward
- * the shell. A call naming a shell the session does not have changes nothing and is not refused.
+ * the shell. A call naming a shell its session does not have changes nothing and is not refused.
  */
 export interface SessionSetTerminalFlowControlRequest {
   sessionId: SessionId;
