@@ -22,8 +22,8 @@ export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.
       ? "'s running command holds the shell."
       : ` holds the shell.${isConfirming ? " Take it?" : ""}`;
   return (
-    <span id={id} className="meridian-lease-line__sentence">
-      <strong className="meridian-lease-line__holder-name">{holderName}</strong>
+    <span id={id} className="meridian-terminal-lease-line__sentence">
+      <strong className="meridian-terminal-lease-line__holder-name">{holderName}</strong>
       {rest}
     </span>
   );

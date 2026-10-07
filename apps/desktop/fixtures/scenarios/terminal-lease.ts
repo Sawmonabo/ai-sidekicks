@@ -27,12 +27,13 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
+import { FIXTURE_DEVICE_ID } from "../data/this-device.js";
 import type { Scenario } from "../scenario.js";
 
 // Who and what the scenario is about: the session, the owner, a second device and the agent's
 // run. Ids are UUIDs because the contract check presents each beat to the strict layer as a
 // whole envelope.
-const OWNER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
+const OWNER_ID = FIXTURE_DEVICE_ID;
 const OTHER_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 

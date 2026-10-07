@@ -30,7 +30,10 @@ export type TakeShellTarget = Pick<
 export interface UseTakeShellResult {
   /** Whether the confirm is open in place of `Take the shell`. */
   readonly isConfirming: boolean;
-  /** Whether a take is out; the confirm's buttons are disabled and Escape does nothing meanwhile. */
+  /**
+   * Whether a take is out; meanwhile the confirm's buttons say they are unavailable, and their
+   * presses and Escape change nothing.
+   */
   readonly isInFlight: boolean;
   /** Why the last take was refused, said on the line with the confirm still open. */
   readonly refusal: Refusal | undefined;

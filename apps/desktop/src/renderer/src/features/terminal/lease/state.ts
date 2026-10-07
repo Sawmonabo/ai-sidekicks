@@ -123,8 +123,8 @@ export function projectTerminalLease(
 ): TerminalLeaseState {
   let newest: LeaseReading | undefined =
     input.listedLease === undefined ? undefined : readListedLease(input.listedLease);
-  // Whether a transition for this shell the fold could not read came after the newest reading, so
-  // it may be the newest change; only a newer readable transition clears it.
+  // Whether the last transition for this shell is one the fold could not read, so it may be the
+  // newest change.
   let isNewestUnread = false;
 
   for (const event of events) {
@@ -142,9 +142,11 @@ export function projectTerminalLease(
     if (transition.terminalId !== input.terminalId) {
       continue;
     }
+    // The log carries each shell's changes in version order, so a readable one after an unread one
+    // is the newer of the two.
+    isNewestUnread = false;
     if (newest === undefined || transition.leaseVersion > newest.leaseVersion) {
       newest = transition;
-      isNewestUnread = false;
     }
   }
 

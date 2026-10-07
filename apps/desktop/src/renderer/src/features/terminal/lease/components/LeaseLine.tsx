@@ -33,8 +33,8 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element | null {
   const isTakeOffered = holder === "held-by-another-device";
 
   return (
-    <div className="meridian-lease-line" role="group" aria-label="Terminal lease">
-      <div className="meridian-lease-line__head">
+    <div className="meridian-terminal-lease-line" role="group" aria-label="Terminal lease">
+      <div className="meridian-terminal-lease-line__head">
         <LeaseHolderSentence
           id={questionId}
           holder={holder}

@@ -1,4 +1,4 @@
-// The holder line in the design's words, and where it draws nothing: another device's hold names
+// The holder line's words, and where it draws nothing: another device's hold names
 // the device beside `Take the shell`, a running command's names the agent with no take, a free
 // shell draws nothing because the first keystroke takes it, and a holder whose name has not been
 // read draws nothing either, so the line never speaks for a holder it cannot name.

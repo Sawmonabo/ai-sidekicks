@@ -1,14 +1,14 @@
 /*
- * The lease line: who holds the shell, and the control that takes it.
+ * The lease line's one sheet, for the line and the sentence and take control in it, imported by
+ * `LeaseLine.tsx`, the line's top view.
  *
- * No literal color; every value comes from a custom property. `LeaseLine.tsx` owns and imports
- * it.
+ * No literal color; every value comes from a custom property.
  *
  * Cyan is spent only on the take control and the confirm's `Take it`, and motion settles with no
  * overshoot.
  */
 
-.meridian-lease-line {
+.meridian-terminal-lease-line {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -16,7 +16,7 @@
   border-block-end: 1px solid var(--meridian-edge);
 }
 
-.meridian-lease-line__head {
+.meridian-terminal-lease-line__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -24,18 +24,18 @@
   flex-wrap: wrap;
 }
 
-.meridian-lease-line__sentence {
+.meridian-terminal-lease-line__sentence {
   flex: 1;
   min-inline-size: 0;
   color: var(--meridian-text-muted);
 }
 
-.meridian-lease-line__holder-name {
+.meridian-terminal-lease-line__holder-name {
   font-weight: 600;
   color: var(--meridian-text);
 }
 
-.meridian-lease-line__controls {
+.meridian-terminal-lease-line__controls {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);
@@ -44,19 +44,19 @@
 /* The one accent-bordered control on the line. Cyan goes on its boundary, not behind its
    label: `--meridian-accent` is a non-text token held only to the 3:1 boundary floor, so the
    label uses `--meridian-accent-text`, which clears 4.5:1 against every ground. */
-.meridian-lease-line__take {
+.meridian-terminal-lease-line__take {
   color: var(--meridian-accent-text);
   background: var(--meridian-surface);
   border-color: var(--meridian-accent);
   transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-lease-line__take:hover {
+.meridian-terminal-lease-line__take:hover {
   background: var(--meridian-surface-raised);
 }
 
-/* While a take is out neither of the confirm's buttons answers. */
-.meridian-lease-line__confirm:disabled {
+/* While a take is out neither of the confirm's buttons answers, and both keep focus. */
+.meridian-terminal-lease-line__confirm[aria-disabled="true"] {
   cursor: progress;
   opacity: 0.6;
 }

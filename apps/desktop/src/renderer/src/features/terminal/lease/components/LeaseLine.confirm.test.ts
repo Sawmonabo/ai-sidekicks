@@ -8,9 +8,8 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "#test/helpers/settle.js";
+import { HeldTakes, TAKE_TARGET } from "../hooks/useTakeShell.test-support.js";
 import {
-  HeldTakes,
-  TAKE_TARGET,
   THIRD_DEVICE_ID,
   leaseLineWithTake,
   leaseState,
@@ -64,15 +63,23 @@ describe("taking the shell from another device", () => {
     expect(takes.takes).toStrictEqual([
       { method: "session.takeControl", params: { ...TAKE_TARGET, force: true } },
     ]);
-    // While it is out the confirm cannot be pressed again or canceled.
+    // While it is out both buttons say they are unavailable yet stay focusable, and neither a press
+    // nor Escape sends again or cancels.
+    const buttons = Array.from(
+      screen.getByRole("group", { name: QUESTION }).querySelectorAll("button"),
+    );
     expect(
-      Array.from(
-        screen.getByRole("group", { name: QUESTION }).querySelectorAll("button"),
-        (button) => button.disabled,
-      ),
-    ).toStrictEqual([true, true]);
+      buttons.map((button) => [button.getAttribute("aria-disabled"), button.disabled]),
+    ).toStrictEqual([
+      ["true", false],
+      ["true", false],
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Take it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.keyDown(screen.getByRole("button", { name: "Take it" }), { key: "Escape" });
+    await settle();
     expect(screen.getByRole("group", { name: QUESTION })).toBeTruthy();
+    expect(takes.takes).toHaveLength(1);
 
     await settle(() => {
       takes.serve(0);
@@ -97,7 +104,10 @@ describe("taking the shell from another device", () => {
     expect(screen.getByRole("status").textContent).toBe(
       "an agent's running command holds this shell",
     );
-    expect(screen.getByRole("button", { name: "Take it" }).hasAttribute("disabled")).toBe(false);
+    // Focus stayed on `Take it` through the take, which answers again.
+    const takeIt = screen.getByRole("button", { name: "Take it" });
+    expect(document.activeElement).toBe(takeIt);
+    expect(takeIt.getAttribute("aria-disabled")).toBe("false");
   });
 
   it("closes an open confirm when the holder changes, so it never asks about a device that let go", () => {

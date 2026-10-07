@@ -34,7 +34,7 @@ export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Elemen
     <button
       ref={takeShellButton}
       type="button"
-      className="meridian-action-button meridian-action-button--regular meridian-lease-line__take"
+      className="meridian-action-button meridian-action-button--regular meridian-terminal-lease-line__take"
       onClick={takeShell.openConfirm}
     >
       Take the shell
@@ -42,30 +42,32 @@ export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Elemen
   );
 }
 
-// Mounted only while the confirm is open, so its focus lands on `Take it` as it opens.
+// Mounted only while the confirm is open, so its focus lands on `Take it` as it opens. While a take
+// is out both buttons say they are unavailable yet keep focus, and their presses change nothing:
+// the take is single-flight and a cancel waits for it.
 function TakeShellConfirm(props: LeaseTakeControlProps): React.JSX.Element {
   const { takeShell, questionId } = props;
   const confirm = useInlineConfirm(takeShell.cancelConfirm, "last-button");
   return (
     <div
       ref={confirm.ref}
-      className="meridian-lease-line__controls"
+      className="meridian-terminal-lease-line__controls"
       role="group"
       aria-labelledby={questionId}
       onKeyDown={confirm.onKeyDown}
     >
       <button
         type="button"
-        className="meridian-action-button meridian-action-button--regular meridian-action-button--outline meridian-lease-line__confirm"
-        disabled={takeShell.isInFlight}
+        className="meridian-action-button meridian-action-button--regular meridian-action-button--outline meridian-terminal-lease-line__confirm"
+        aria-disabled={takeShell.isInFlight}
         onClick={takeShell.cancelConfirm}
       >
         Cancel
       </button>
       <button
         type="button"
-        className="meridian-action-button meridian-action-button--regular meridian-accent-fill meridian-lease-line__confirm"
-        disabled={takeShell.isInFlight}
+        className="meridian-action-button meridian-action-button--regular meridian-accent-fill meridian-terminal-lease-line__confirm"
+        aria-disabled={takeShell.isInFlight}
         onClick={takeShell.take}
       >
         Take it

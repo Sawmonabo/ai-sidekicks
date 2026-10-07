@@ -85,17 +85,24 @@ describe("the lease fold — what the wire said, and only that", () => {
         listedLease: { holder: null, leaseVersion: 7 },
       }).holder,
     ).toBe("unheld");
-    // A change this build cannot read may be the newest, and an older one after it does not clear
-    // it: the shell stays unread rather than live on the strength of a stale reading.
+    // The log carries each shell's changes in version order, so a readable change after one this
+    // build cannot read is newer than it and is read, even where the list read that change first.
     expect(
       projectTerminalLease(
         [
-          leaseEventWithPayload(11, { reason: "seized", terminalId: SHELL_ID }),
-          transitionEvent(12, "taken", THIS_DEVICE_ID, null, { leaseVersion: 4 }),
+          transitionEvent(11, "taken", OTHER_DEVICE_ID, null, { leaseVersion: 1 }),
+          leaseEventWithPayload(12, { reason: "seized", terminalId: SHELL_ID }),
+          transitionEvent(13, "taken_by_force", THIS_DEVICE_ID, OTHER_DEVICE_ID, {
+            leaseVersion: 3,
+          }),
         ],
-        { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID, listedLease },
+        {
+          terminalId: SHELL_ID,
+          thisDeviceId: THIS_DEVICE_ID,
+          listedLease: { holder: { holderDeviceId: THIS_DEVICE_ID }, leaseVersion: 3 },
+        },
       ).holder,
-    ).toBe("not-checked");
+    ).toBe("held-by-this-device");
   });
 
   it("tells this device's hold apart from another device's", () => {

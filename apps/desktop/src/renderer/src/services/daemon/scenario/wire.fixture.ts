@@ -1,13 +1,16 @@
 // The fixture daemon: the daemon calls and subscriptions a scripted scenario answers. A method the
 // scenario scripts no reply for rejects with a named error rather than resolving `undefined`, so a
 // screen is never trained to render an empty state where the live daemon would fail. A scenario's
-// daemon always answers, so the status topic reads connected from its first delivery.
+// daemon always answers, so the status topic reads connected from its first delivery, with the
+// handshake a compatible service settles, naming the scenario's own device.
 
 import type {
   DaemonMethod,
   DaemonParams,
   DaemonResult,
 } from "@ai-sidekicks/contracts/daemon/method-map";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { FIXTURE_DEVICE_ID } from "#fixtures/data/this-device.js";
 import { DAEMON_STATUS_TOPIC, type MainProcessState } from "#shared/daemon/status-topic.js";
 import type {
   DaemonWire,
@@ -24,7 +27,15 @@ import { subscribeToScenario } from "./subscriptions.fixture.js";
 /** The status topic's one delivery: a service this app found running, linked and answering. */
 const FIXTURE_SERVICE_STATE: MainProcessState = {
   connection: { kind: "connected" },
-  negotiation: undefined,
+  negotiation: {
+    compatible: true,
+    deviceId: FIXTURE_DEVICE_ID,
+    daemonProtocolVersion: CURRENT_PROTOCOL_VERSION,
+    appProtocolVersion: CURRENT_PROTOCOL_VERSION,
+    daemonSupportedProtocols: [],
+    reason: undefined,
+    behind: undefined,
+  },
   startedByApp: false,
   whileSignedOut: undefined,
   cannotStart: undefined,

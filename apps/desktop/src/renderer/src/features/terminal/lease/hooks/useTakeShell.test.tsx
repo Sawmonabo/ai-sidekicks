@@ -7,9 +7,9 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "#test/helpers/settle.js";
-import { HeldTakes, TAKE_TARGET } from "../components/LeaseLine.test-support.js";
 import { OTHER_DEVICE_ID, OTHER_SHELL_ID } from "../state.test-support.js";
 import { useTakeShell, type TakeShellTarget, type UseTakeShellResult } from "./useTakeShell.js";
+import { HeldTakes, TAKE_TARGET } from "./useTakeShell.test-support.js";
 
 /** The second shell of the same session, seen through the pane's subscription to it. */
 const OTHER_SHELL_TARGET: TakeShellTarget = { ...TAKE_TARGET, terminalId: OTHER_SHELL_ID };
