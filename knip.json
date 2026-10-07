@@ -302,8 +302,6 @@
         "re2js",
         // The email digest of what needs the person's attention.
         "nodemailer",
-        // Matching a workflow file-watch trigger's path patterns.
-        "picomatch",
         // A short workflow code step run in its own memory-bounded engine.
         "quickjs-emscripten",
         // The picture of an attachment's first page and its covered copy.
@@ -317,9 +315,6 @@
         // The machine's `presence.read` binding, which nothing registers until Remote Control
         // reports the devices connected to this machine.
         "src/ipc/handlers/presence/read.ts",
-        // `session.create`'s binding, which nothing registers until the daemon's startup binds the
-        // session methods onto its registry.
-        "src/ipc/handlers/session/create.ts",
         // The input schemas of the workflow agent tools, read by their handlers once the daemon
         // serves them.
         "src/workflow/agent-tools/inputs.ts",

@@ -39,6 +39,7 @@ import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import { ProviderRegistry } from "../provider/driver/registry.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
@@ -59,6 +60,7 @@ import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { prepareRunFolder, writeSessionToken } from "./run-folder.js";
+import { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 const DATABASE_FILE_NAME = "daemon.db";
@@ -129,6 +131,7 @@ export class DaemonProcess {
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
+  readonly #stopSessionServices: () => void;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
   #processState: DaemonProcessState = "starting";
   #stopping: Promise<void> | undefined;
@@ -209,13 +212,28 @@ export class DaemonProcess {
         this.#gateway.notify(transportId, notification);
       },
     });
+    const settingsFile = new MachineSettingsFile({
+      filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
+      now: options.now,
+    });
     registerMachineSettingsMethods(registry, {
-      settingsFile: new MachineSettingsFile({
-        filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
-        now: options.now,
-      }),
+      settingsFile,
       streamingPrimitive,
       findBranchPatternRefusal,
+    });
+    this.#stopSessionServices = registerSessionMethods(registry, {
+      database: parts.database,
+      homeDirectory: options.homeDirectory,
+      nodeId: parts.localMachine.nodeId,
+      settingsFile,
+      providers: new ProviderRegistry(),
+      streamingPrimitive,
+      // The gateway is built just below; a stream reads its queues only once it listens.
+      outboundQueue: {
+        isFull: (transportId) => this.#gateway.isFull(transportId),
+        onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
+      },
+      writeServiceLog: options.writeServiceLog,
     });
 
     this.#gateway = new LocalIpcGateway({
@@ -406,6 +424,7 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
+    this.#stopSessionServices();
     // The calls under way, the recovery pass and the terminals are independent, so all finish
     // inside one drain bound. A call or a pass still running at the bound fails once the database
     // closes under it.

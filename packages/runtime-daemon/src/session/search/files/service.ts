@@ -19,8 +19,8 @@ import type { GitCommand } from "../../../git/process.js";
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
 import { listWorkingFolder } from "./listing.js";
 
-/** The most paths one `@` file search answers. */
-export const FILE_SEARCH_RESULT_MAX = 50;
+// The most paths one `@` file search answers.
+const FILE_SEARCH_RESULT_MAX = 50;
 
 // The session's working folder: its newest workspace whose root is in place.
 const WORKING_FOLDER_SQL = `

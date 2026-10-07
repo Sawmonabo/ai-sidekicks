@@ -8,9 +8,6 @@ const RANK_FUSION_OFFSET = 60;
 /**
  * Merges ranked lists into one, best first: an item's score is the sum over the lists that rank
  * it of 1/(60 + its rank there). Ties keep the order of first appearance across the lists.
- *
- * @consumedBy the agents' session search, which merges the text rank with the related-session
- *   rank of the session it searches around
  */
 export function fuseRankedLists<Item>(rankedLists: readonly (readonly Item[])[]): Item[] {
   const scores = new Map<Item, number>();

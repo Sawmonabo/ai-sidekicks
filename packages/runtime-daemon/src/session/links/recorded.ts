@@ -20,9 +20,6 @@ const RECORD_LINK_SQL = `INSERT INTO session_links
  * The statement an event's producer puts in that event's write prelude to record its link, or
  * count one more use of it. Once the write commits, the producer asks the related ranking to
  * re-score around the two sessions.
- *
- * @consumedBy the fork and the agents' session start, message, ask and mention, each recording
- * its link inside its own event's write
  */
 export function recordedSessionLinkStatement(link: {
   readonly sourceSessionId: SessionId;
