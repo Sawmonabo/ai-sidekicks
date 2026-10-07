@@ -1,8 +1,8 @@
 // How wide a wire figure stands in a canvas's small text, worked out rather than measured: a
 // figure is set in the mono face, whose every character has the one advance, so its width is its
 // length times that advance. The face holds the Latin-1 characters alone; one outside it is set
-// in a fallback face and counted a full em, the widest such a glyph is drawn. A node's kind label
-// and count and an edge's count are all set so.
+// in a fallback face and counted a full em, the widest such a glyph is drawn. A node's count and
+// an edge's count are set so, and a node's kind words are measured the same way.
 
 import {
   MONO_ADVANCE_EM,

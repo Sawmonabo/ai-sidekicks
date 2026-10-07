@@ -62,7 +62,7 @@ describe("a run graph node at the largest text size", () => {
       for (const [kind, widths] of widthsByKind) {
         expect(widths.size, `every ${kind} node is one width`).toBe(1);
       }
-      // The kind label is a mono figure, so a label with more characters takes more room.
+      // The kind words are measured per character, so words with more characters take more room.
       const widthOf = (kind: string): number => Math.max(...(widthsByKind.get(kind) ?? []));
       for (const kind of kinds) {
         for (const shorter of kinds.filter((candidate) => candidate.length < kind.length)) {

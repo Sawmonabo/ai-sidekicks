@@ -22,7 +22,7 @@ import {
   type NodeBoxSize,
 } from "#renderer/features/workflows/canvas/node-box.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
-import { itemCountWords } from "#renderer/features/workflows/words.js";
+import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
 import type { RunGraphNodeView } from "./node-views.js";
 
@@ -132,7 +132,7 @@ export function nodeHandleIds(document: WorkflowDocument): ReadonlyMap<string, N
 }
 
 /**
- * The box one node takes on this run's canvas: its kind's label and the run's widest count
+ * The box one node takes on this run's canvas: its kind's words and the run's widest count
  * across, its busier side's handles down, and one line more for a failure or a resume instant.
  * Every node of one kind comes out the same width.
  */
@@ -143,7 +143,7 @@ export function runGraphNodeBox(
   hasExtraLine: boolean,
 ): NodeBoxSize {
   return deriveNodeBoxSize({
-    kindLabel: node.kind,
+    kindLabel: nodeKindWords(node.kind),
     countFigure,
     handleCount: Math.max(handles.inputs.length, handles.outputs.length),
     hasExtraLine,

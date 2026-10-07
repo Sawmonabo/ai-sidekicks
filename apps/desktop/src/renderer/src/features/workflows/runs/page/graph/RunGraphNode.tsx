@@ -1,5 +1,5 @@
 // One node of the run, as a box on the canvas: its name and its first output's item count, short
-// on the box and whole in its title; its kind, which the box is sized to hold whole; and a ring
+// on the box and whole in its title; its kind as words, which the box is sized to hold; and a ring
 // and a line saying what its latest step is doing and which attempt it is. The library supplies
 // position, focus and handle geometry; every color is drawn from design tokens through the data
 // attributes the sheet reads.
@@ -10,7 +10,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
-import { itemCountWords } from "#renderer/features/workflows/words.js";
+import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
 import { handleOffset, type RunGraphFlowNode } from "./elements.js";
 
 /**
@@ -50,9 +50,7 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
           </span>
         )}
       </span>
-      <span className="meridian-run-graph-node__kind">
-        <WireFigure value={view.node.kind} />
-      </span>
+      <span className="meridian-run-graph-node__kind">{nodeKindWords(view.node.kind)}</span>
       <span className="meridian-run-graph-node__state">
         {view.attemptWords === undefined
           ? view.stateWords
