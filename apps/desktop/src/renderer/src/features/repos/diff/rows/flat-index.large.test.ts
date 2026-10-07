@@ -62,19 +62,9 @@ describe("a forty-file, five-thousand-line diff", () => {
   });
 
   it("costs no more per scroll at the end of the diff than at its start", () => {
-    // The claim the flattening's binary search exists for. A ratio, not an absolute duration,
-    // because this is a claim about the algorithm, not the runner: a `rowAt` that walked from the
-    // top would make the tail slower than the head on any runner.
-    const index = new DiffRowIndex(ENDURANCE_DIFF);
-    const headMilliseconds = timeRowReads(index, 0, index.rowCount / 100);
-    const tailMilliseconds = timeRowReads(
-      index,
-      Math.floor(index.rowCount * 0.99),
-      index.rowCount / 100,
-    );
-    // A generous ceiling: the tail must not be a multiple of the head, and shared-runner timing
-    // noise needs the headroom.
-    expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds * 8, 1));
+    // The claim the flattening's binary search exists for: a `rowAt` that walked from the top
+    // would make the tail a multiple of the head on any runner.
+    expectTailReadsAsCheapAsHead(new DiffRowIndex(ENDURANCE_DIFF));
   });
 
   it("retains nothing across sustained expansion, and the expansion stays monotonic", () => {
@@ -134,14 +124,7 @@ describe("a forty-file, five-thousand-line diff", () => {
   it("costs no more per scroll deep inside one hunk than at its top", () => {
     // The forty-file ratio claim, asked of the addressing inside one span rather than across
     // spans: a `rowAt` that walked a hunk's body would make the tail a multiple of the head.
-    const index = new DiffRowIndex(SINGLE_LARGE_HUNK_DIFF);
-    const headMilliseconds = timeRowReads(index, 0, index.rowCount / 100);
-    const tailMilliseconds = timeRowReads(
-      index,
-      Math.floor(index.rowCount * 0.99),
-      index.rowCount / 100,
-    );
-    expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds * 8, 1));
+    expectTailReadsAsCheapAsHead(new DiffRowIndex(SINGLE_LARGE_HUNK_DIFF));
   });
 });
 
@@ -221,11 +204,42 @@ function pathologicalPatchText(): string {
   ].join("\n");
 }
 
-/** Read a band of rows and report how long it took, in milliseconds. */
-function timeRowReads(index: DiffRowIndex, startRowIndex: number, count: number): number {
+/** How many times each band is timed; the fastest of them is the band's cost. */
+const ROW_READ_TRIAL_COUNT = 21;
+
+/** How many reads one trial makes, cycling through its band, so a trial outlasts timer noise. */
+const ROW_READS_PER_TRIAL = 5_000;
+
+/**
+ * Asserts that reading the last hundredth of `index`'s rows costs no multiple of reading the
+ * first. A claim about the algorithm, not the runner, so neither band's time is taken from one
+ * run: the two are timed in alternation, many times over, and each band's fastest trial is its
+ * cost. A busy machine only ever adds time, so a trial it slows is outrun by one it left alone,
+ * and the alternation hands the head and the tail the same machine.
+ */
+function expectTailReadsAsCheapAsHead(index: DiffRowIndex): void {
+  const bandRowCount = Math.floor(index.rowCount / 100);
+  const tailStartRowIndex = index.rowCount - bandRowCount;
+  let headMilliseconds = Number.POSITIVE_INFINITY;
+  let tailMilliseconds = Number.POSITIVE_INFINITY;
+  for (let trial = 0; trial < ROW_READ_TRIAL_COUNT; trial += 1) {
+    headMilliseconds = Math.min(headMilliseconds, timeRowReads(index, 0, bandRowCount));
+    tailMilliseconds = Math.min(
+      tailMilliseconds,
+      timeRowReads(index, tailStartRowIndex, bandRowCount),
+    );
+  }
+  // The tail may cost a little more, never a multiple: a walk from the top costs it hundreds.
+  expect(tailMilliseconds).toBeLessThan(headMilliseconds * 4);
+}
+
+/** Read a band of rows over and over, and report how long the reads took, in milliseconds. */
+function timeRowReads(index: DiffRowIndex, startRowIndex: number, bandRowCount: number): number {
   const startedAt = performance.now();
-  for (let offset = 0; offset < count; offset += 1) {
-    index.rowAt(startRowIndex + offset);
+  for (let read = 0; read < ROW_READS_PER_TRIAL; read += 1) {
+    if (index.rowAt(startRowIndex + (read % bandRowCount)) === undefined) {
+      throw new Error(`row ${String(startRowIndex + (read % bandRowCount))} is unaddressable`);
+    }
   }
   return performance.now() - startedAt;
 }
