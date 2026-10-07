@@ -47,7 +47,8 @@ const MARKED_ROWS_SQL = `
 // The sessions the directory holds among these, each with its group and its group's index rowid; a
 // session since purged has no row, and so no hits.
 const HIT_SESSIONS_SQL = `
-  SELECT session.id AS session_id, session.name, session_group.id AS group_id,
+  SELECT session.id AS session_id, session.rowid AS session_rowid, session.name,
+         session_group.id AS group_id,
          ${indexRowidSql("session_group.rowid", "group")} AS group_index_rowid
     FROM sessions AS session
     LEFT JOIN session_groups AS session_group ON session_group.id = session.group_id
@@ -76,6 +77,7 @@ interface ChosenRows {
 
 interface HitSessionRow {
   readonly session_id: SessionId;
+  readonly session_rowid: number;
   readonly name: string | null;
   readonly group_id: SessionGroupId | null;
   readonly group_index_rowid: number | null;
@@ -204,6 +206,7 @@ export class SessionHitReader {
           const sessions = this.#hitSessions.all(JSON.stringify(unreadSessionIds)).map(
             (session): HitSession => ({
               sessionId: session.session_id,
+              sessionRowid: session.session_rowid,
               name: session.name,
               groupId: session.group_id,
               groupIndexRowid: session.group_index_rowid,

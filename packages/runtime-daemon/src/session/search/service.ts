@@ -64,7 +64,8 @@ import {
 // `0` is the character after `/`, so the range holds exactly the nested folds. Each comes with its
 // group, whose row the words may match too.
 const TAGGED_SESSIONS_SQL = `
-  SELECT tag.session_id, tag.tag, session.name, session.last_activity_at,
+  SELECT tag.session_id, session.rowid AS session_rowid, tag.tag, session.name,
+         session.last_activity_at,
          session_group.id AS group_id,
          ${indexRowidSql("session_group.rowid", "group")} AS group_index_rowid
     FROM session_tags AS tag
@@ -78,6 +79,7 @@ const HIGHEST_INDEX_ROWID_SQL = "SELECT max(rowid) FROM session_search_index";
 
 interface TaggedSessionRow {
   readonly session_id: SessionId;
+  readonly session_rowid: number;
   readonly tag: string;
   readonly name: string | null;
   readonly last_activity_at: string;
@@ -410,6 +412,7 @@ export class SessionSearchService {
       if (session === undefined) {
         session = {
           sessionId: row.session_id,
+          sessionRowid: row.session_rowid,
           name: row.name,
           lastActivityAt: row.last_activity_at,
           groupId: row.group_id,

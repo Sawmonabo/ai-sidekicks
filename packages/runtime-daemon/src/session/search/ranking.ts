@@ -19,7 +19,8 @@ import { indexRowKindOf, narrowToOwners, ownerIdsOf } from "./index/columns.js";
 // One stretch of rowids' matching rows. The index seeks to a rowid bound only when it is an
 // integer, and a JavaScript number binds as a real, so each bound is cast.
 const RANGE_FILTER_SQL = `
-     AND rowid >= CAST(@low AS INTEGER) AND rowid < CAST(@high AS INTEGER)`;
+     AND session_search_index.rowid >= CAST(@low AS INTEGER)
+     AND session_search_index.rowid < CAST(@high AS INTEGER)`;
 
 const RANKED_ROWS_SQL = `
   SELECT rowid AS index_rowid, rank
@@ -34,21 +35,27 @@ const NARROWED_RANKED_ROWS_SQL = `
     FROM session_search_index
    WHERE session_search_index MATCH @expression`;
 
+// Each matching row's session and position come from the index's session table, which a row's
+// lookup finds in its few cached pages, rather than from the index's content, whose rows hold the
+// text and cost a read of their own page each.
 const RANKED_ROWS_WITH_SESSIONS_SQL = `
-  SELECT rowid AS index_rowid, rank, session_id, sequence
+  SELECT session_search_index.rowid AS index_rowid, rank, row_session.session_rowid,
+         row_session.sequence
     FROM session_search_index
+    LEFT JOIN session_search_index_sessions AS row_session
+      ON row_session.index_rowid = session_search_index.rowid
    WHERE session_search_index MATCH @expression ${RANGE_FILTER_SQL}
-   ORDER BY rowid`;
+   ORDER BY session_search_index.rowid`;
 
 // A matching row as the ranking read gives it: its rowid and its rank.
 type RankedRow = readonly [indexRowid: number, rank: number];
 
-// A matching row with its session, `null` on a group's row, and its position in the log, `null`
-// on any row not the log's.
+// A matching row with its session's rowid, `null` on a group's row, and its position in the log,
+// `null` on any row not the log's.
 type RankedSessionRow = readonly [
   indexRowid: number,
   rank: number,
-  sessionId: SessionId | null,
+  sessionRowid: number | null,
   sequence: number | null,
 ];
 
@@ -99,6 +106,8 @@ export interface RankedIndexRow {
 /** A session a ranking within sessions reads, and the group whose row is the session's too. */
 export interface RankedSessionScope {
   readonly sessionId: SessionId;
+  /** The session's rowid in the directory, by which the index's session table names it. */
+  readonly sessionRowid: number;
   readonly groupId: SessionGroupId | null;
   /** The index rowid of the group's row, `null` for a session in no group. */
   readonly groupIndexRowid: number | null;
@@ -180,21 +189,26 @@ export class SessionTextRanking {
     sessions: readonly RankedSessionScope[],
     range: RowidRange,
   ): RankedRange {
-    const sessionIds = new Set(sessions.map((session) => session.sessionId));
+    const sessionIdsByRowid = new Map(
+      sessions.map((session) => [session.sessionRowid, session.sessionId]),
+    );
     const groupIndexRowids = new Set(sessions.map((session) => session.groupIndexRowid));
     const ranked = this.#rows;
     ranked.clear();
     const ownedRows: RankedIndexRow[] = [];
-    for (const [indexRowid, rank, sessionId, sequence] of this.#rankedRowsWithSessions.iterate({
+    for (const [indexRowid, rank, sessionRowid, sequence] of this.#rankedRowsWithSessions.iterate({
       expression: matchExpression,
       ...range,
     })) {
       ranked.add(indexRowid, rank);
-      const isOwned =
-        indexRowKindOf(indexRowid) === "group"
-          ? groupIndexRowids.has(indexRowid)
-          : sessionId !== null && sessionIds.has(sessionId);
-      if (isOwned) {
+      if (indexRowKindOf(indexRowid) === "group") {
+        if (groupIndexRowids.has(indexRowid)) {
+          ownedRows.push({ index_rowid: indexRowid, rank, session_id: null, sequence: null });
+        }
+        continue;
+      }
+      const sessionId = sessionRowid === null ? undefined : sessionIdsByRowid.get(sessionRowid);
+      if (sessionId !== undefined) {
         ownedRows.push({ index_rowid: indexRowid, rank, session_id: sessionId, sequence });
       }
     }

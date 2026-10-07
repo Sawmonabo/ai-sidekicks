@@ -7,6 +7,23 @@ import { indexRowidSql, ownerKeySql } from "./columns.js";
 // Run by every trigger that writes the search index, after its write.
 const INDEX_VERSION_BUMP_SQL = "UPDATE session_search_index_version SET version = version + 1;";
 
+// The entry in the index's session table for the index row whose rowid is `indexRowidSql`: the row
+// of the session whose id is `sessionIdSql` in the directory, and the log position `sequenceSql`.
+// A session with no directory row gets none.
+function rowSessionInsertSql(
+  indexRowidSql: string,
+  sessionIdSql: string,
+  sequenceSql: string,
+): string {
+  return `INSERT INTO session_search_index_sessions (index_rowid, session_rowid, sequence)
+  SELECT ${indexRowidSql}, session.rowid, ${sequenceSql}
+    FROM sessions AS session WHERE session.id = ${sessionIdSql}`;
+}
+
+function rowSessionDeleteSql(indexRowidSql: string): string {
+  return `DELETE FROM session_search_index_sessions WHERE index_rowid = ${indexRowidSql};`;
+}
+
 /** The search index's part of the daemon's schema: its tables, and the triggers that keep it. */
 export const SEARCH_INDEX_SCHEMA_SQL: string = `
 -- The full-text index both searches read: session titles, settled message text, tool calls,
@@ -42,6 +59,18 @@ CREATE TABLE session_search_index_version (
 ) STRICT;
 INSERT INTO session_search_index_version (singleton, version) VALUES (1, 0);
 
+-- Each log, title and tag row of the index with its session's rowid in sessions and, on a log
+-- row, the event's sequence, kept by the triggers below in the same write as the row. A ranking
+-- that reads every match's session reads it here, from pages few enough to stay cached, rather
+-- than from the index's content, whose rows hold the text. A group row has no entry, and neither
+-- has a row whose session has no directory row, which only the daemon's own sentinel session
+-- lacks.
+CREATE TABLE session_search_index_sessions (
+  index_rowid    INTEGER PRIMARY KEY,
+  session_rowid  INTEGER NOT NULL,
+  sequence       INTEGER
+) STRICT;
+
 -- Settled rows only: a person's message, an assistant's message and a tool call. A thinking
 -- update is narration a later event supersedes, so it is never indexed.
 CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
@@ -57,6 +86,9 @@ BEGIN
                      || coalesce(' ' || NEW.content_payload, '')
                  END`)} AS text) AS indexed
    WHERE indexed.text IS NOT NULL;
+  ${rowSessionInsertSql(indexRowidSql("NEW.rowid", "event"), "NEW.session_id", "NEW.sequence")}
+     AND EXISTS (SELECT 1 FROM session_search_index
+                  WHERE rowid = ${indexRowidSql("NEW.rowid", "event")});
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
@@ -64,6 +96,7 @@ CREATE TRIGGER trg_session_search_event_delete AFTER DELETE ON session_events
 WHEN OLD.type IN ('user.message', 'assistant.message', 'tool.invoked')
 BEGIN
   DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "event")};
+  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "event"))}
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
@@ -73,22 +106,28 @@ BEGIN
   INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
   VALUES (${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")},
           ${ownerKeySql("NEW.id")}, NEW.id, 'title');
+  INSERT INTO session_search_index_sessions (index_rowid, session_rowid)
+  VALUES (${indexRowidSql("NEW.rowid", "title")}, NEW.rowid);
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
 CREATE TRIGGER trg_session_search_title_update AFTER UPDATE OF name ON sessions
 BEGIN
   DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
+  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "title"))}
   INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
   SELECT ${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")},
          ${ownerKeySql("NEW.id")}, NEW.id, 'title'
    WHERE NEW.name IS NOT NULL;
+  INSERT INTO session_search_index_sessions (index_rowid, session_rowid)
+  SELECT ${indexRowidSql("NEW.rowid", "title")}, NEW.rowid WHERE NEW.name IS NOT NULL;
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
 CREATE TRIGGER trg_session_search_title_delete AFTER DELETE ON sessions
 BEGIN
   DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
+  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "title"))}
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
@@ -120,21 +159,25 @@ BEGIN
   INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
   VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")},
           ${ownerKeySql("NEW.session_id")}, NEW.session_id, 'tag');
+  ${rowSessionInsertSql(indexRowidSql("NEW.rowid", "tag"), "NEW.session_id", "NULL")};
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
 CREATE TRIGGER trg_session_search_tag_update AFTER UPDATE OF tag ON session_tags
 BEGIN
   DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
+  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "tag"))}
   INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
   VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")},
           ${ownerKeySql("NEW.session_id")}, NEW.session_id, 'tag');
+  ${rowSessionInsertSql(indexRowidSql("NEW.rowid", "tag"), "NEW.session_id", "NULL")};
   ${INDEX_VERSION_BUMP_SQL}
 END;
 
 CREATE TRIGGER trg_session_search_tag_delete AFTER DELETE ON session_tags
 BEGIN
   DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
+  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "tag"))}
   ${INDEX_VERSION_BUMP_SQL}
 END;
 

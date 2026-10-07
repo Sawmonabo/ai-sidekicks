@@ -69,8 +69,9 @@ export class RankerPool {
     highestRowid: number,
   ): Promise<SplitRanking> {
     // Only what a ranker reads crosses to it, since every field is copied to each one.
-    const scopes = sessions?.map(({ sessionId, groupId, groupIndexRowid }) => ({
+    const scopes = sessions?.map(({ sessionId, sessionRowid, groupId, groupIndexRowid }) => ({
       sessionId,
+      sessionRowid,
       groupId,
       groupIndexRowid,
     }));
