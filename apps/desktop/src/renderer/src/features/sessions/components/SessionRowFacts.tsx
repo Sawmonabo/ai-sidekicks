@@ -1,6 +1,7 @@
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type SessionListRow } from "../rows/list-row.js";
@@ -21,7 +22,7 @@ export function SessionRowFacts(props: { readonly row: SessionListRow }): React.
           detail="The wire named none for this session."
         />
       ) : (
-        <Chip label={row.state} mono />
+        <Chip label={codeWords(row.state)} />
       )}
       {row.touchedAtIso === undefined ? null : (
         <WireFigure

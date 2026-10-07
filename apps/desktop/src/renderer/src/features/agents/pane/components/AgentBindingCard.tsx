@@ -10,6 +10,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ToolAllowlistLine } from "../tool-allowlist/components/ToolAllowlistLine.js";
@@ -42,7 +43,10 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
 
       <p className="meridian-agent-card__effective">
         <span className="meridian-form__label">Running under</span>{" "}
-        <BindingAxis label="provider" value={binding.driverName} />
+        <span className="meridian-agent-card__axis">
+          <span className="meridian-form__label">provider</span>{" "}
+          {PROVIDER_LABELS[binding.driverName]}
+        </span>
         <BindingAxis label="model" value={binding.modelId} />
         <BindingAxis
           label="account"

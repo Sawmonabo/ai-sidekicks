@@ -79,8 +79,8 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       </header>
 
       <div className="meridian-mount-card__axes">
-        <Chip label={lifecycle.label} mono tone={lifecycle.tone} />
-        <Chip label={health.label} mono tone={health.tone} />
+        <Chip label={lifecycle.label} tone={lifecycle.tone} />
+        <Chip label={health.label} tone={health.tone} />
         {/* Beside the chip, not in it: the verdict and when it was probed are two facts. */}
         <span className="meridian-mount-card__checked-at">
           probed {formatClockTime(mount.health.checkedAt, clockLocale)}
