@@ -1,7 +1,8 @@
-// Creating a session: its lead as the request spells it, on the account the request names or the
-// provider's current one, bound where it works in the same call. A chat gets its managed
-// workspace; a project session binds to its project's mount. The session is born `provisioning`
-// with `session.created`, which brings in its lead, and reads `active` once bound.
+// Creating a session: its lead as the request spells it, on the provider's current account, bound
+// where it works in the same call. A chat's managed workspace is made before the session exists,
+// so a workspace that cannot be made leaves no session behind; a project session binds to its
+// project's mount. The session is born `provisioning` with `session.created`, which brings in its
+// lead, and reads `active` once bound.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -17,6 +18,7 @@ import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mo
 import type {
   SessionCreateRequest,
   SessionCreateResponse,
+  SessionLead,
 } from "@ai-sidekicks/contracts/session/directory";
 import type {
   SessionCreatedPayload,
@@ -37,11 +39,9 @@ import { sessionGroupPlacementStatement } from "./groups/store.js";
 
 const SESSION_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
-// Holds only while the account is still registered for the provider, and, where it was resolved
-// as the provider's current account, still current.
-const NAMED_ACCOUNT_SQL =
-  "SELECT 1 FROM provider_accounts WHERE account_id = @accountId AND provider = @provider";
-const CURRENT_ACCOUNT_SQL = `${NAMED_ACCOUNT_SQL} AND is_default = 1`;
+// Holds only while the account the lead was resolved to is still the provider's current one.
+const CURRENT_ACCOUNT_SQL = `SELECT 1 FROM provider_accounts
+  WHERE account_id = @accountId AND provider = @provider AND is_default = 1`;
 
 const INSERT_CONSOLE_STATE_SQL = `INSERT INTO session_console_state
   (session_id, advisor_model, updated_at) VALUES (?, ?, ?)`;
@@ -60,8 +60,8 @@ export interface SessionCreationDeps {
   readonly events: Pick<EventLogService, "append">;
   /** Binds the session to the mount it works in. */
   readonly workspaces: Pick<WorkspaceService, "bind">;
-  /** Makes a chat's managed workspace and its mount. */
-  readonly managedWorkspaces: Pick<ManagedWorkspaceService, "create">;
+  /** Makes a chat's managed workspace and its mount, and removes them when the chat is not born. */
+  readonly managedWorkspaces: Pick<ManagedWorkspaceService, "create" | "delete">;
   /** The machine's settings file: its advisor default, and where the last lead pick is kept. */
   readonly settingsFile: Pick<MachineSettingsFile, "read" | "update">;
   /** The clock that stamps the session's events. Defaults to the system clock. */
@@ -75,10 +75,9 @@ export interface SessionCreationDeps {
 export class SessionCreation {
   readonly #events: Pick<EventLogService, "append">;
   readonly #workspaces: Pick<WorkspaceService, "bind">;
-  readonly #managedWorkspaces: Pick<ManagedWorkspaceService, "create">;
+  readonly #managedWorkspaces: Pick<ManagedWorkspaceService, "create" | "delete">;
   readonly #settingsFile: Pick<MachineSettingsFile, "read" | "update">;
   readonly #now: () => Date;
-  readonly #selectNamedAccount: Statement<{ accountId: string; provider: ProviderName }>;
   readonly #selectCurrentAccount: Statement<[ProviderName], { readonly accountId: string }>;
   readonly #selectAnyAccount: Statement<[ProviderName]>;
   readonly #selectProjectGroup: Statement<[string, string]>;
@@ -89,7 +88,6 @@ export class SessionCreation {
     this.#managedWorkspaces = deps.managedWorkspaces;
     this.#settingsFile = deps.settingsFile;
     this.#now = deps.now ?? (() => new Date());
-    this.#selectNamedAccount = deps.reader.prepare(NAMED_ACCOUNT_SQL);
     this.#selectCurrentAccount = deps.reader.prepare(
       "SELECT account_id AS accountId FROM provider_accounts WHERE provider = ? AND is_default = 1",
     );
@@ -102,31 +100,42 @@ export class SessionCreation {
   }
 
   /**
-   * Creates the session and answers once it is bound and active. The lead runs on the provider,
-   * model, effort and account the request names, never on a value from the settings file; the
+   * Creates the session and answers once it is bound and active, with the lead's binding as
+   * `session.created` records it. The lead runs on the provider, model and effort the request
+   * names, never on a value from the settings file, and on the provider's current account; the
    * lead's model and effort are then kept there as the last pick. Throws
-   * `agent.definition_not_found` for a request naming a definition, `provideraccount.unknown`,
+   * `agent.definition_not_found` for a request naming a definition,
    * `provideraccount.not_registered` or `provideraccount.no_default` for a lead with no account,
    * and `session.group_refused` for a group outside the session's project, each before anything is
-   * written. A failure in the bind leaves the session `provisioning`.
+   * written. A chat whose workspace cannot be made, or whose `session.created` is not written,
+   * leaves neither a session nor a workspace. A failure in the bind leaves the session
+   * `provisioning`.
    */
   async create(request: SessionCreateRequest): Promise<SessionCreateResponse> {
     const lead = leadOf(request);
     if (request.binding.kind === "project" && request.groupId !== undefined) {
       this.#refuseGroupOutsideProject(request.groupId, request.binding.repoMountId);
     }
+    const account = this.#resolveAccount(lead);
     const sessionId = mintUuidV7() as SessionId;
     const shape = request.binding.kind;
     const { settings } = await this.#settingsFile.read();
-    await this.#appendCreated(sessionId, shape, lead, settings.advisorModel);
 
-    const mount: { repoMountId: RepoMountId; executionMode: ExecutionMode } =
-      request.binding.kind === "chat"
-        ? {
-            repoMountId: (await this.#managedWorkspaces.create({ sessionId })).repoMountId,
-            executionMode: "bound-root",
-          }
-        : request.binding;
+    let mount: { repoMountId: RepoMountId; executionMode: ExecutionMode };
+    let binding: AgentProviderBinding;
+    if (request.binding.kind === "chat") {
+      const workspace = await this.#managedWorkspaces.create({ sessionId });
+      mount = { repoMountId: workspace.repoMountId, executionMode: "bound-root" };
+      binding = await this.#appendCreatedOrRemoveWorkspace(
+        sessionId,
+        lead,
+        account,
+        settings.advisorModel,
+      );
+    } else {
+      mount = request.binding;
+      binding = await this.#appendCreated(sessionId, shape, lead, account, settings.advisorModel);
+    }
     await this.#workspaces.bind({
       sessionId,
       repoMountId: mount.repoMountId,
@@ -137,18 +146,47 @@ export class SessionCreation {
     await this.#settingsFile.update({
       lastLeadModel: { driverName: lead.driverName, modelId: lead.modelId, effort: lead.effort },
     });
-    return { sessionId, shape, state: "active" };
+    return { sessionId, shape, state: "active", lead: binding };
   }
 
-  // A refused account guard means the account moved after it was read, so it is resolved again.
+  // A chat's workspace exists before its session does, so a session that is not born takes its
+  // workspace with it.
+  async #appendCreatedOrRemoveWorkspace(
+    sessionId: SessionId,
+    lead: SessionLead,
+    account: ResolvedAccount,
+    advisorModel: string | null,
+  ): Promise<AgentProviderBinding> {
+    try {
+      return await this.#appendCreated(sessionId, "chat", lead, account, advisorModel);
+    } catch (creationError) {
+      try {
+        await this.#managedWorkspaces.delete({ sessionId });
+      } catch (removalError) {
+        throw new AggregateError(
+          [creationError, removalError],
+          "The chat was not created, and removing its managed workspace failed too",
+          { cause: removalError },
+        );
+      }
+      throw creationError;
+    }
+  }
+
+  // A refused account guard means the current account moved after it was read, so it is resolved
+  // again. Answers the binding the lead was born on.
   async #appendCreated(
     sessionId: SessionId,
     shape: SessionCreatedPayload["shape"],
-    lead: AgentProviderBinding,
+    lead: SessionLead,
+    firstAccount: ResolvedAccount,
     advisorModel: string | null,
-  ): Promise<void> {
-    for (;;) {
-      const account = this.#resolveAccount(lead);
+  ): Promise<AgentProviderBinding> {
+    for (let account = firstAccount; ; account = this.#resolveAccount(lead)) {
+      const binding: AgentProviderBinding = {
+        ...lead,
+        providerAccountId: account.providerAccountId,
+      };
       const createdAt = this.#now().toISOString();
       const payload: SessionCreatedPayload = {
         sessionId,
@@ -156,7 +194,7 @@ export class SessionCreation {
         mainAgent: {
           agentId: AgentIdSchema.parse(mintUuidV7()),
           name: PROVIDER_LABELS[lead.driverName],
-          binding: { ...lead, providerAccountId: account.providerAccountId },
+          binding,
           ancestry: [],
           createdAt,
         },
@@ -180,7 +218,7 @@ export class SessionCreation {
           },
           { transactionalPrelude: [account.guard, ...consoleState] },
         );
-        return;
+        return binding;
       } catch (error) {
         if (error instanceof WriteRefusedError && error.statementIndex === 0) {
           continue;
@@ -228,21 +266,7 @@ export class SessionCreation {
     }
   }
 
-  #resolveAccount(lead: AgentProviderBinding): ResolvedAccount {
-    if (lead.providerAccountId !== null) {
-      const bindings = { accountId: lead.providerAccountId, provider: lead.driverName };
-      if (this.#selectNamedAccount.get(bindings) === undefined) {
-        throw new DaemonDomainError("No such account is registered for the provider.", {
-          code: "provideraccount.unknown",
-          jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-          detail: { providerAccountId: lead.providerAccountId, provider: lead.driverName },
-        });
-      }
-      return {
-        providerAccountId: lead.providerAccountId,
-        guard: { sql: NAMED_ACCOUNT_SQL, bindings, expectedRowCount: 1 },
-      };
-    }
+  #resolveAccount(lead: SessionLead): ResolvedAccount {
     const current = this.#selectCurrentAccount.get(lead.driverName);
     if (current === undefined) {
       const hasAccounts = this.#selectAnyAccount.get(lead.driverName) !== undefined;
@@ -277,7 +301,7 @@ export class SessionCreation {
 
 // The lead the request spells out. A saved definition resolves through the definition registry,
 // which this daemon does not hold, so a request naming one names a definition it does not have.
-function leadOf(request: SessionCreateRequest): AgentProviderBinding {
+function leadOf(request: SessionCreateRequest): SessionLead {
   if (request.leadDefinitionId !== undefined) {
     throw new DaemonDomainError("This machine holds no such saved sidekick.", {
       code: "agent.definition_not_found",

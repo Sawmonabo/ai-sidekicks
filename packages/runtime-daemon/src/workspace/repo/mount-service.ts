@@ -262,6 +262,8 @@ export class RepoMountService {
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectMountStmt: Statement;
   readonly #selectActiveMountByRootStmt: Statement;
+  readonly #selectAttachedMountStmt: Statement;
+  readonly #selectManagedRootStmt: Statement;
 
   constructor(deps: RepoMountServiceDeps) {
     if (deps.resolver !== undefined && deps.gitExecutablePath !== undefined) {
@@ -320,6 +322,16 @@ export class RepoMountService {
           AND canonical_root = @canonical_root
           AND state = '${ATTACHED_MOUNT_STATE}'`,
     );
+
+    this.#selectAttachedMountStmt = database.prepare(
+      `SELECT id, canonical_root, vcs_type, origin
+         FROM repo_mounts
+        WHERE id = @repo_mount_id AND state = '${ATTACHED_MOUNT_STATE}'`,
+    );
+
+    this.#selectManagedRootStmt = database.prepare(
+      `SELECT canonical_root FROM repo_mounts WHERE managed_session_id = @session_id`,
+    );
   }
 
   /**
@@ -352,6 +364,49 @@ export class RepoMountService {
     });
 
     return response;
+  }
+
+  /**
+   * Attach a local path, or answer the machine's mount for that folder when one is attached
+   * already. Throws `RepoRootResolutionError`, or `RepoAlreadyAttachedError` when the folder is a
+   * chat's managed workspace, which is never a project.
+   */
+  async attachOrReuse(input: RepoAttachPathRequest): Promise<RepoAttachResponse> {
+    try {
+      return await this.attach(input);
+    } catch (error) {
+      if (!(error instanceof RepoAlreadyAttachedError)) {
+        throw error;
+      }
+      const mount = this.#selectAttachedMountStmt.get({
+        repo_mount_id: error.conflictingRepoMountId,
+      }) as
+        | {
+            readonly id: string;
+            readonly canonical_root: string;
+            readonly vcs_type: string;
+            readonly origin: string;
+          }
+        | undefined;
+      // A managed workspace is never a project, and a mount detached since the refused insert is
+      // no longer the folder's mount.
+      if (mount?.origin !== ATTACHED_MOUNT_ORIGIN) {
+        throw error;
+      }
+      return this.#projectAttachResponse({
+        repoMountId: mount.id,
+        canonicalRoot: mount.canonical_root,
+        vcsType: mount.vcs_type,
+      });
+    }
+  }
+
+  /** The folder of the chat's managed workspace, or `undefined` when the session has none. */
+  readManagedRoot(sessionId: SessionId): string | undefined {
+    const row = this.#selectManagedRootStmt.get({ session_id: sessionId }) as
+      | { readonly canonical_root: string }
+      | undefined;
+    return row?.canonical_root;
   }
 
   /**

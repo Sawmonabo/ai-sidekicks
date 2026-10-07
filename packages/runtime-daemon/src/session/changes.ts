@@ -126,7 +126,7 @@ export class SessionChanges {
    */
   async rename(request: SessionRenameRequest): Promise<SessionRenameResponse> {
     await this.#change(request.sessionId, (facts) => {
-      refuseClosed(request.sessionId, facts);
+      refuseClosedSession(request.sessionId, facts.state);
       return facts.name === request.name
         ? undefined
         : renamedEvent(request.sessionId, request.name, facts.name, "user");
@@ -150,7 +150,7 @@ export class SessionChanges {
   async archive(sessionId: SessionId): Promise<void> {
     await this.lock.run(sessionId, async () => {
       await this.#change(sessionId, (facts) => {
-        refuseClosed(sessionId, facts);
+        refuseClosedSession(sessionId, facts.state);
         return facts.state === "archived"
           ? undefined
           : lifecycleEvent("session.archived", sessionId, facts.state, "archived");
@@ -162,7 +162,7 @@ export class SessionChanges {
   async reactivate(sessionId: SessionId): Promise<void> {
     await this.lock.run(sessionId, async () => {
       await this.#change(sessionId, (facts) => {
-        refuseClosed(sessionId, facts);
+        refuseClosedSession(sessionId, facts.state);
         return facts.state === "archived"
           ? lifecycleEvent("session.reactivated", sessionId, "archived", "active")
           : undefined;
@@ -212,7 +212,7 @@ export class SessionChanges {
 
   async #setMark(sessionId: SessionId, mark: SessionMark, isSet: boolean): Promise<void> {
     await this.#change(sessionId, (facts) => {
-      refuseClosed(sessionId, facts);
+      refuseClosedSession(sessionId, facts.state);
       const isSetNow = (mark === "pin" ? facts.pinnedAt : facts.mutedAt) !== null;
       if (isSetNow === isSet) {
         return undefined;
@@ -284,8 +284,9 @@ export class SessionChanges {
   }
 }
 
-function refuseClosed(sessionId: SessionId, facts: SessionFacts): void {
-  if (facts.state === "closed") {
+/** Refuses a change to a closed session with `session.already_closed`. */
+export function refuseClosedSession(sessionId: SessionId, state: SessionState): void {
+  if (state === "closed") {
     throw new DaemonDomainError("The session is closed and cannot be changed.", {
       code: "session.already_closed",
       detail: { sessionId },
