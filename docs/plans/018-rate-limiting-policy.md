@@ -74,7 +74,7 @@ This plan owns no table: every piece of rate-limit state is ephemeral and bounde
 - Persisted state (survives worker restart) via DO's built-in storage API: the in-window request times for each endpoint group — the counter of record, which gives the authoritative `remaining`/`resetAt` (D-018-1).
 - **Single-alarm scheduling:** Cloudflare permits one scheduled alarm per object and `setAlarm` overrides. On every state change, re-arm to the earliest per-group window expiry, where a group's window expires one full window after its newest counted request, so an idle address costs one alarm wake rather than one per request. `alarm()` drops expired per-group window state and re-arms if live state remains; once every window has expired it calls `storage.deleteAll()` (no per-identity residue survives) and the DO idles out with no alarm. Every registry window is 60 seconds, so an address's state is gone within a minute of its last request.
 - RPC surface = `checkAndConsume`, the atomic per-group check and consume: it refuses over-threshold and returns the authoritative `remaining`/`resetAt` in the same round trip. A refused request is not recorded, so a caller that keeps knocking never pushes its own window later. The Worker-side stub resolver lives in `cloudflare-limiter.ts` (§Target Areas).
-- The stored window is read back through a Zod schema, the control plane's `zod` dependency: storage outlives the code version that wrote it, so a stored state that fails to parse fails the request rather than being trusted or silently reset.
+- The stored window is read back through a Zod schema, the control plane's `zod` dependency: storage outlives the code version that wrote it, so a stored state that fails to parse fails `checkAndConsume` rather than being trusted. `alarm()` logs it and drops it as expired: the state is ephemeral and bounded by its window, and an alarm that threw instead would refuse the address's sign-ins for good once Cloudflare's alarm retries ran out.
 
 ### `RateLimitResponse` canonical shape
 
@@ -150,7 +150,9 @@ One stage on every enforced transport (I-018-1): tRPC procedures and raw routes 
 // packages/control-plane/src/middleware/rate-limit.ts
 export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =>
   t.middleware(async ({ ctx, next }) => {
-    const identity = resolveIdentity(ctx); // D-018-4
+    const identity = canonicalIdentityOf(ctx.sourceAddress); // D-018-4
+    if (identity === undefined)
+      throw new ControlPlaneRefusal({ trpcCode: "BAD_REQUEST", message, body }); // 400
     const admission = await ctx.checkAdmission({ identity, endpoint: opts.endpoint });
     if (!admission.admitted) {
       const refusal = rateLimitResponseFrom(admission.check, Date.now()); // the one retryAfter
@@ -279,7 +281,7 @@ The phase builds on the shipped contracts package.
   - **Spec coverage:** Spec-019 §Overflow Response (429 + Retry-After on refusal), Spec-019 §Fallback Behavior
   - **Verifies invariant:** I-018-1
   - **Consumes:** `RateLimiter` via factory ← T18.2-5.
-- **T18.3-2 — `middleware/rate-limit.ts` (CREATE).** `rateLimitProcedure` per §API And Transport Changes: the source address (D-018-4), 429 with the canonical envelope. Unit tests: a request with no resolvable address → 400; an allowed request carries no rate-limit header, and a 429 carries `Retry-After`.
+- **T18.3-2 — `middleware/rate-limit.ts` (CREATE).** `rateLimitProcedure` per §API And Transport Changes: the source address (D-018-4), 429 with the canonical envelope. It reads `sourceAddress`, `responseHeaders` and `checkAdmission` from the control plane's tRPC context (`server/trpc.ts`), which `server/host.ts`'s `createContext` supplies (§Target Areas). Unit tests: a request with no resolvable address → 400; an allowed request carries no rate-limit header, and a 429 carries `Retry-After`.
   - **Spec coverage:** Spec-019 §Default Behavior, Spec-019 §Overflow Response (429; Retry-After)
   - **Verifies invariant:** I-018-1, I-018-4
   - **Consumes:** `checkAdmission` ← T18.3-1; the CP-018-1 mount surface ← the control-plane host (§Preconditions).
