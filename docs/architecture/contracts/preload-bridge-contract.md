@@ -101,7 +101,8 @@ interface PlatformBridge {
   browser: {
     // the rectangle the pane's page is positioned to; null hides the page
     publishPaneRect(pane: PaneRef, rect: PaneRect | null): void;
-    // an editing or focus act on the page (cut, copy, paste, select all, copy link, focus)
+    // an editing or focus act on the page (cut, copy, paste, select all, copy link, focus), or
+    // `inspect`, which opens the page's developer tools docked at the bottom or closes them
     act(pane: PaneRef, act: BrowserPaneAct): Promise<void>;
     // the page as a picture for marking, its scale read from the image
     capturePage(pane: PaneRef): Promise<CapturedPageImage>;
@@ -110,8 +111,9 @@ interface PlatformBridge {
     // on this machine's own desktop window, the system save dialog for the download the pane's page
     // offered; main writes the file where the person chose, and a canceled dialog writes nothing
     saveDownload(pane: PaneRef): Promise<void>;
-    // the bound chords the console keeps while focus is in the page, replacing the last set
-    publishPageChords(chords: ChordDescriptor[]): void;
+    // the bound chords the console keeps while focus is in the page, replacing the last set, and
+    // `Inspect`'s, which main claims there whatever their modifiers and matches inside its tools
+    publishPageChords(chords: ChordDescriptor[], inspectChords: ChordDescriptor[]): void;
     // a kept chord pressed while the page has focus, handed back by main
     subscribePageChords(handler: (chord: ChordDescriptor) => void): Unsubscribe;
   };
