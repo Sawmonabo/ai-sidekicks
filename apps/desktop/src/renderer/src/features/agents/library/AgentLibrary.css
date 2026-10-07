@@ -1,7 +1,7 @@
 /* The agent library: all of `.meridian-agent-library`. */
 
-/* A standalone page carries its own measure and padding. The two columns collapse to one
- * under the narrow measure, since a 2-up layout in a torn-off window leaves both unreadable. */
+/* A standalone page carries its own measure and padding. Every window holds the frame's floor,
+ * so the two columns always have the room to sit side by side. */
 .meridian-agent-library {
   display: flex;
   flex-direction: column;
@@ -35,12 +35,6 @@
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   gap: var(--meridian-space-5);
   align-items: start;
-}
-
-@media (width <= 60rem) {
-  .meridian-agent-library__columns {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .meridian-agent-library__column {

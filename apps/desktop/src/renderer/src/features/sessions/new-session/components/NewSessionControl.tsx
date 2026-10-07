@@ -8,6 +8,7 @@
 import "./NewSessionControl.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import type { NewSessionControlProps } from "../control-contract.js";
 import { useNewSessionComposition } from "../hooks/useNewSessionComposition.js";
 
@@ -36,7 +37,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
     <section className="meridian-new-session" aria-label="New session draft">
       <label className="meridian-form__field">
         <span className="meridian-form__label">Its first message</span>
-        <textarea
+        <TextBox
           className="meridian-new-session__first-turn-input meridian-form__input"
           value={composition.draftState.firstTurn}
           rows={3}

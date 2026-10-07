@@ -34,8 +34,8 @@
 }
 
 /*
- * A text box, text area or select. Its edge is the strong one, since a control's boundary holds
- * the 3:1 non-text floor that the quiet edge does not.
+ * A text box, text area or select, or the box a text area scrolls in. Its edge is the strong one,
+ * since a control's boundary holds the 3:1 non-text floor that the quiet edge does not.
  */
 :where(.meridian-form__input) {
   font: inherit;
@@ -48,12 +48,12 @@
 }
 
 /* What a field asks for, when the field draws no label of its own. */
-:where(.meridian-form__input)::placeholder {
+:where(.meridian-form__input, .meridian-form__input > *)::placeholder {
   color: var(--meridian-text-faint);
 }
 
 /* Closed, it sinks with its text faded, as the raised action button does. */
-:where(.meridian-form__input:disabled) {
+:where(.meridian-form__input:disabled, .meridian-form__input:has(> :disabled)) {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;

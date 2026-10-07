@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { subscribeToComposerFocus } from "../../focus-requests.js";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
@@ -50,15 +51,15 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
 
   return (
     <div className="meridian-composer__send">
-      <textarea
-        ref={lineRef}
+      <TextBox
+        fieldRef={lineRef}
         className="meridian-composer__line"
         aria-label="Message"
         placeholder={DRAFT_PLACEHOLDER}
         value={text}
         rows={1}
         // Grow to the cap, then scroll inside the box so the transcript keeps its room.
-        style={{ maxHeight: `calc(${String(COMPOSER_DRAFT_MAX_ROWS)} * 1.5em)` }}
+        maxRows={COMPOSER_DRAFT_MAX_ROWS}
         onChange={onChange}
         onKeyDown={onKeyDown}
       />

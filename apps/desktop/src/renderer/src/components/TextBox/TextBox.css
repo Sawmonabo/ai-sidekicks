@@ -1,0 +1,57 @@
+/*
+ * The text box: the outer box scrolls and wears the caller's edge, ground and padding; the text
+ * area inside is sized to its text and draws nothing of its own. Heights count lines of the box's
+ * own text, so they follow the text size. Imported by `TextBox.tsx`.
+ */
+
+.meridian-text-box {
+  overflow-y: auto;
+  block-size: calc(var(--meridian-text-box-rows) * 1lh);
+  cursor: text;
+}
+
+.meridian-text-box:has(> :disabled) {
+  cursor: default;
+}
+
+.meridian-text-box--grows {
+  block-size: auto;
+  min-block-size: calc(var(--meridian-text-box-rows) * 1lh);
+  max-block-size: calc(var(--meridian-text-box-max-rows) * 1lh);
+}
+
+/*
+ * As tall as its text and never shorter than the box, so a press anywhere in the box lands in
+ * it; it never scrolls, the box does.
+ */
+.meridian-text-box__field {
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 100%;
+  field-sizing: content;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: inherit;
+  resize: none;
+}
+
+/* A growing box has no height of its own for a percentage to resolve against. */
+.meridian-text-box--grows > .meridian-text-box__field {
+  min-block-size: calc(var(--meridian-text-box-rows) * 1lh);
+}
+
+/*
+ * The browser's focus mark moves onto the box, where the scroll cannot clip it. No specificity,
+ * so a caller that marks focus another way wins.
+ */
+:where(.meridian-text-box:has(> .meridian-text-box__field:focus-visible)) {
+  outline: auto 1px -webkit-focus-ring-color;
+}

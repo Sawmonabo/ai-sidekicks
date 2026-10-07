@@ -23,8 +23,6 @@
 
 /* Grows to the row cap in `bounds.ts`, then scrolls inside its own box. */
 .meridian-composer__line {
-  width: 100%;
-  min-height: calc(var(--meridian-space-5) + var(--meridian-space-2));
   padding: var(--meridian-space-2);
   color: var(--meridian-text);
   font: inherit;
@@ -32,7 +30,6 @@
   background: var(--meridian-ground);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
-  resize: none;
 }
 
 /* Focus marks the whole card; the message box draws none of its own. */
@@ -40,11 +37,11 @@
   border-color: var(--meridian-edge-strong);
 }
 
-.meridian-composer__line:focus {
+.meridian-composer__line:focus-within {
   outline: none;
 }
 
-.meridian-composer__line[readonly] {
+.meridian-composer__line:has(> [readonly]) {
   color: var(--meridian-text-muted);
   background: var(--meridian-surface-sunken);
 }

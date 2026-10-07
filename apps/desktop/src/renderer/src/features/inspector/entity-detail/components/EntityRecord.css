@@ -32,7 +32,6 @@
   font-weight: 600;
 }
 
-/* Two columns at the reading measure, one when narrow; the fixed label column aligns values. */
 .meridian-entity-record__facets {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -40,13 +39,12 @@
   margin: 0;
 }
 
-@media (min-width: 30rem) {
-  .meridian-entity-record__facet {
-    display: grid;
-    grid-template-columns: 10rem minmax(0, 1fr);
-    gap: var(--meridian-space-3);
-    align-items: baseline;
-  }
+/* A label beside its value; the fixed label column aligns the values. */
+.meridian-entity-record__facet {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: var(--meridian-space-3);
+  align-items: baseline;
 }
 
 .meridian-entity-record__label {

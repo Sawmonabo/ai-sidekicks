@@ -132,14 +132,19 @@ export function definition(overrides: DefinitionOverrides = {}): AgentDefinition
 
 /** Mounts inside the announcer the page speaks through, on a clock that never runs. */
 export function renderAgentLibrary(stub: RegistryStub): { readonly container: HTMLElement } {
-  const { container } = render(
-    <PlatformBridgeProvider bridge={stub.bridge} clock={stub.clock}>
-      <LiveAnnouncerProvider clock={new ManualClock()}>
-        <AgentLibrary bridge={stub.bridge} calls={stub.calls} />
-      </LiveAnnouncerProvider>
-    </PlatformBridgeProvider>,
-  );
+  const { container } = render(<AgentLibraryOverStub stub={stub} />);
   return { container };
+}
+
+/** The page over the stub's bridge, inside the announcer it speaks through. */
+export function AgentLibraryOverStub(props: { readonly stub: RegistryStub }): React.JSX.Element {
+  return (
+    <PlatformBridgeProvider bridge={props.stub.bridge} clock={props.stub.clock}>
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <AgentLibrary bridge={props.stub.bridge} calls={props.stub.calls} />
+      </LiveAnnouncerProvider>
+    </PlatformBridgeProvider>
+  );
 }
 
 /** The saved agents region; throws where the page rendered none. */

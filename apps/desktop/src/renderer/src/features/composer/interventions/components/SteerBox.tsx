@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
@@ -168,7 +169,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
 
   return (
     <form ref={formRef} className="meridian-run-composer" onSubmit={onSubmit}>
-      <textarea
+      <TextBox
         className="meridian-run-composer__body meridian-form__input"
         aria-label={`Steer ${agentName}`}
         placeholder={`Steer ${agentName}…`}
