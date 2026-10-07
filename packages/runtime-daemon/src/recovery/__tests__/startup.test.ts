@@ -59,20 +59,17 @@ describe("the recovery pass at a restart", () => {
   // would have written, so its rows cannot be rebuilt.
   async function writeUnfoldableSession(): Promise<string> {
     const sessionId = SessionIdSchema.parse(randomUUID());
+    const starting = {
+      sessionId,
+      runId: RunIdSchema.parse(randomUUID()),
+      runVersion: 1,
+      previousState: "queued",
+      newState: "starting",
+    };
     await new SessionEventAppender(
       { sessionEvents: fixture.sessionEvents },
       EventEnvelopeVersionSchema.parse("1.0"),
-    ).append(
-      "run.starting",
-      {
-        sessionId,
-        runId: RunIdSchema.parse(randomUUID()),
-        runVersion: 1,
-        previousState: "queued",
-        newState: "starting",
-      },
-      {},
-    );
+    ).append("run.starting", starting, {});
     return sessionId;
   }
 

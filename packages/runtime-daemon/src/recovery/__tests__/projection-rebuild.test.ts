@@ -11,7 +11,10 @@ import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { InterventionIdSchema, type InterventionId } from "@ai-sidekicks/contracts/run/control";
-import { DAEMON_INTERVENTION_ACTOR } from "@ai-sidekicks/contracts/run/events";
+import {
+  DAEMON_INTERVENTION_ACTOR,
+  type InterventionEventPayload,
+} from "@ai-sidekicks/contracts/run/events";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 
@@ -57,26 +60,23 @@ describe("projection rebuild over the session log", () => {
   // row's move and the event in one write.
   async function applySteer(runId: RunId): Promise<void> {
     const interventionId = await insertAcceptedIntervention(runId, "steer");
+    const applied: InterventionEventPayload<"applied"> = {
+      sessionId: fixture.sessionId,
+      interventionId,
+      targetRunId: runId,
+      type: "steer",
+      state: "applied",
+      actor: DAEMON_INTERVENTION_ACTOR,
+    };
     await new SessionEventAppender(
       { sessionEvents: fixture.sessionEvents },
       EventEnvelopeVersionSchema.parse("1.0"),
-    ).append(
-      "intervention.applied",
-      {
-        sessionId: fixture.sessionId,
-        interventionId,
-        targetRunId: runId,
-        type: "steer",
-        state: "applied",
-        actor: DAEMON_INTERVENTION_ACTOR,
-      },
-      {
-        transactionalPrelude: [
-          advanceRunVersionStatement({ sessionId: fixture.sessionId, runId }),
-          moveInterventionStatement(interventionId, { from: "accepted", to: "applied" }),
-        ],
-      },
-    );
+    ).append("intervention.applied", applied, {
+      transactionalPrelude: [
+        advanceRunVersionStatement({ sessionId: fixture.sessionId, runId }),
+        moveInterventionStatement(interventionId, { from: "accepted", to: "applied" }),
+      ],
+    });
   }
 
   // An accepted interrupt the restart settle applies, ending its run in the verdict's write.
