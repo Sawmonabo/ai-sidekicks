@@ -1,7 +1,8 @@
 // Which daemon-hosted tools an agent can reach. Three states never merge: capability undeclared
-// (section absent), registry withheld (the daemon's approval service is not running, so a stray
-// invocation is denied), and exposed. The flag and the registry come from separate reads, so
-// each has its own arm, and the registry is never synthesized from observed tool rows.
+// (section absent), registry withheld (the daemon's approval service is not running or the
+// provider cannot register the tools, so a stray invocation is denied), and exposed. The flag
+// and the registry come from separate reads, so each has its own arm, and the registry is never
+// synthesized from observed tool rows.
 
 import "./CallbackTools.css";
 
@@ -43,10 +44,10 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <Nothing
         kind="not-checked"
         placement="block"
-        title="Whether the provider supports these tools has not been read."
+        title="The provider's support for tools the background service hosts has not been read."
         detail={
-          "Nothing is listed until then, because an empty list would read as a sidekick " +
-          "with no tools."
+          "Nothing is listed until it has been read, because an empty list would read as if " +
+          "the background service hosted none."
         }
       />
     );
@@ -56,7 +57,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <Nothing
         kind="not-loaded"
         placement="block"
-        title="Reading the registry of tools the background service hosts."
+        title="Reading the tools the background service hosts."
       />
     );
   }
@@ -74,9 +75,9 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
   return (
     <div className="meridian-callback-tools">
       <p className="meridian-callback-tools__note">
-        The background service provides these tools, not a provider. A sidekick's call to one is an
+        The background service hosts these tools, not a provider. A sidekick's call to one is an
         ordinary tool call under the permission level of the session or workflow run it works in, so
-        a level that asks first raises the approval card before the tool runs.
+        a level that asks first asks for approval before the tool runs.
       </p>
       <CallbackToolRows tools={props.registry.tools} />
     </div>
