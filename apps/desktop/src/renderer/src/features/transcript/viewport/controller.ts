@@ -5,7 +5,7 @@
 // anchor holds the tail as rows measure and it lands on each appended row. `virtualizer-options.ts`
 // owns its reach to the outside world. The anchor is captured from the virtualizer, never the DOM,
 // so holding a reading position costs no element read. The snapshot vocabulary, prune cycle,
-// publication, deferred hold, head insertion and anchor capture each have a module beside this one.
+// publication, deferred hold and anchor capture each have a module beside this one.
 
 import { type Clock } from "#renderer/lib/clock.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
@@ -15,20 +15,21 @@ import { ReadingAnchor, type ReadingMode } from "./reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
+import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
 import { ViewportAnchorCapture } from "./anchor-capture.js";
 import { ViewportDeferredHold } from "./deferred-hold.js";
-import { HeadInsertion } from "./head-insertion.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
 import {
   shouldCompensateForInsertion,
   countAppendedAfter,
+  countInsertedBefore,
   type ViewportConditions,
   type ViewportRow,
   type ViewportSnapshot,
 } from "./snapshot.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
-import { TranscriptWindow } from "./window-cap.js";
+import { TranscriptWindow, type WindowSide } from "./window-cap.js";
 
 /**
  * The clock every timer and frame of the controller is minted through, where heights live, and
@@ -53,7 +54,7 @@ export class ViewportController {
   /** The option object the virtualizer is constructed with. */
   readonly virtualizerOptions: VirtualizerOptions;
 
-  /** The cap, and the re-ask a refusal owes. Constructed over the four above. */
+  /** The window's passes, and the re-ask a refusal owes. Constructed over the four above. */
   readonly #pruneCycle: ViewportPruneCycle;
   /** The one place this frame tells a render that something changed. */
   readonly #publication: ViewportPublication;
@@ -62,8 +63,6 @@ export class ViewportController {
 
   /** The position work a reconcile arms and the binding's layout effect performs. */
   readonly #deferredHold: ViewportDeferredHold;
-  /** Whether each incoming set grew at the front, and where it would be cut. */
-  readonly #headGrowth = new HeadInsertion();
   readonly #teardown: Unsubscribe[] = [];
 
   #virtualizer: TranscriptRowVirtualizer | undefined;
@@ -79,10 +78,14 @@ export class ViewportController {
   /** Each row key's index in `#rowKeys`, built on the first lookup after the keys change. */
   #rowIndexByKey: ReadonlyMap<string, number> | undefined;
   /**
-   * The row a link asked to land on, until the committed render that holds it scrolls there; no
-   * scroll sample moves the reading state meanwhile.
+   * The row a landing asked for and who asked, until the committed render that holds it scrolls
+   * there; no scroll sample moves the reading state meanwhile.
    */
-  #pendingLandingRowKey: string | undefined;
+  #pendingLanding: { readonly rowKey: string; readonly caller: RowLandingCaller } | undefined;
+  /** The last row of the log the last pass was handed, which appended rows are counted after. */
+  #logTailKey: string | undefined;
+  /** Whether a pass is running, so a sample its own write publishes cannot start another. */
+  #isPassRunning = false;
   #disposed = false;
 
   /**
@@ -129,6 +132,8 @@ export class ViewportController {
       scroll: this.scroll,
       clock: options.clock,
       virtualizer: () => this.#virtualizer,
+      publishedRowKeys: () => this.#rowKeys,
+      publishedIndexOf: (rowKey) => this.#indexOfRowKey(rowKey),
     });
     this.#anchorCapture = new ViewportAnchorCapture({
       anchor: this.anchor,
@@ -154,11 +159,12 @@ export class ViewportController {
         // Until a link's landing commits, the reading position is the landing's. The rows it
         // brings are not laid out yet, so a sample can read as the tail and resume following,
         // or capture another row and move the floor that keeps the landing's row.
-        if (this.#pendingLandingRowKey !== undefined) {
+        if (this.#pendingLanding !== undefined) {
           return;
         }
         this.anchor.observeGeometry(geometry);
         this.#anchorCapture.captureFrom(geometry);
+        this.#reviewWindowAfter(geometry);
       }),
       this.anchor.subscribe((state) => {
         this.#noteReadingMode(state.mode);
@@ -234,58 +240,11 @@ export class ViewportController {
   }
 
   /**
-   * Folds one render's conditions in: takes the rows, prunes, and holds the reader's position.
-   *
-   * The cap cycle runs first because it can change the row set, the row set is rebuilt from what
-   * the window retained, and the position is held last. The prune compensation is paid here,
-   * after the rebuild, because a glide publishes a geometry sample that would otherwise reach
-   * the anchor capture against keys the window no longer has.
+   * Folds one render's conditions in: takes the log, runs the window's pass, and holds the
+   * reader's position.
    */
   public reconcile(conditions: ViewportConditions): void {
-    const previousHeadKey = this.#rowKeys[0];
-    const previousTailKey = this.#rowKeys[this.#rowKeys.length - 1];
-    const previousVirtualKeys = this.#virtualKeys;
-    const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
-    // Read before the cap runs so the pin is up: a backward page lands over the row cap and the
-    // cap prunes oldest-first, so an unpinned pass would take the rows that just arrived.
-    const headGrowth = this.#headGrowth.read(conditions.rows);
-    if (headGrowth.headRootCursor !== undefined) {
-      // Pinning suppresses prune. It clears when the reader reaches the tail again.
-      this.anchor.pin(headGrowth.headRootCursor);
-    }
-    const { prunedHeightPx, readingFloorRowKey } = this.#pruneCycle.run(conditions);
-    const retained = this.rowWindow.rows();
-    const appendedCount = countAppendedAfter(retained, previousTailKey);
-    this.#rows = retained;
-    this.#rowKeys = retained.map((row) => row.key);
-    this.#rowIndexByKey = undefined;
-    this.#virtualKeys = this.measurements.projectKeys(this.#rowKeys).virtualKeys;
-    if (appendedCount > 0) {
-      this.anchor.noteAppendedRows(appendedCount);
-    }
-    if (
-      this.anchor.state.mode === "following" &&
-      haveDifferentEnds(previousVirtualKeys, this.#virtualKeys)
-    ) {
-      // The library lays out again from the lowest row that resized, but from row zero, reading
-      // every unmeasured row's estimate, once the row count or an end key changes, so a moved
-      // estimate would shift rows above a reader at the next append. While the reader follows,
-      // that whole layout runs under the library's end anchor, which keeps the row at the top of
-      // the viewport where it was, and the rows above it move out of sight. A reader who reads
-      // keeps the estimates the rows were laid out at. A follower's measurements publish too.
-      this.measurements.publishEstimates();
-    }
-    const compensated =
-      readingFloorRowKey !== undefined &&
-      this.#pruneCycle.compensateForPrunedHeight(prunedHeightPx);
-    if (!compensated) {
-      this.#deferredHold.armAfterReconcile({
-        headInsertedCount: headGrowth.insertedCount,
-        previousHeadKey,
-        scrollTopPx,
-      });
-    }
-    this.#publication.publish();
+    this.#runPass(conditions, { admitSide: undefined, isRender: true });
   }
 
   /**
@@ -301,42 +260,56 @@ export class ViewportController {
   }
 
   /**
-   * Lands the reader on one row, as a link to a message does: reading starts at it, so the cap
-   * keeps it and every row after it however far back it sits, and `commitPendingLanding` brings
-   * it to the top of the viewport. Call it before the reconcile that brings the row, or that pass
-   * may already have pruned it. Until it lands, the landing wins over a return to the tail.
+   * Lands the reader on one row, as a link to a message, a find step or Home does: reading starts
+   * at it, the window centers on it however far from the window it sits, and
+   * `commitPendingLanding` brings it into view. A link's row may not be in the log yet; the pass
+   * that brings it centers the window then. Until it lands, the landing wins over a return to the
+   * tail.
    */
-  public landOnRow(rowKey: string): void {
+  public landOnRow(rowKey: string, caller: RowLandingCaller): void {
     this.anchor.readFrom(rowKey);
-    this.#pendingLandingRowKey = rowKey;
+    this.#pendingLanding = { rowKey, caller };
+    const conditions = this.#pruneCycle.lastConditions;
+    if (conditions === undefined) {
+      return;
+    }
+    // A row the window already held lands now: the virtualizer still counts the same rows. A row
+    // the pass brought in lands once the render that holds it commits.
+    // A link's landing waits for the binding's layout effect, which also hands the log focus.
+    if (!this.#runPass(conditions, OWN_PASS) && caller !== "message-anchor") {
+      this.commitPendingLanding();
+    }
   }
 
   /**
    * Scrolls to the row `landOnRow` named once the window holds it, through the library's own
-   * index scroll, which re-aims as the estimated rows above it measure. Called from the same
-   * layout effect as the position hold, when the virtualizer counts the rows the window holds.
-   * Answers whether it landed, once per landing.
+   * index scroll, which re-aims as the estimated rows around it measure: a link's row and Home's
+   * at the top of the viewport, a find match in its middle. Called from the same layout effect as
+   * the position hold, when the virtualizer counts the rows the window holds. Answers who landed,
+   * once per landing, or `undefined`.
    */
-  public commitPendingLanding(): boolean {
-    const rowKey = this.#pendingLandingRowKey;
+  public commitPendingLanding(): RowLandingCaller | undefined {
+    const landing = this.#pendingLanding;
     const virtualizer = this.#virtualizer;
-    if (this.#disposed || rowKey === undefined || virtualizer === undefined) {
-      return false;
+    if (this.#disposed || landing === undefined || virtualizer === undefined) {
+      return undefined;
     }
-    const index = this.#rowKeys.indexOf(rowKey);
-    if (index < 0) {
-      return false;
+    const index = this.#indexOfRowKey(landing.rowKey);
+    if (index === undefined) {
+      return undefined;
     }
-    this.#pendingLandingRowKey = undefined;
-    this.virtualizerOptions.scrollFor("message-anchor", () => {
-      virtualizer.scrollToIndex(index, { align: "start" });
+    this.#pendingLanding = undefined;
+    this.virtualizerOptions.scrollFor(landing.caller, () => {
+      virtualizer.scrollToIndex(index, {
+        align: landing.caller === "find-match" ? "center" : "start",
+      });
     });
-    return true;
+    return landing.caller;
   }
 
   /**
-   * Re-asks for a prune the window refused, once the refusal's condition is gone: one ordinary
-   * reconcile over the conditions the refused pass was given. `ViewportPruneCycle.owedConditions`
+   * Re-asks for a cut the window refused, once the refusal's condition is gone: one ordinary
+   * pass over the conditions the refused pass was given. `ViewportPruneCycle.owedConditions`
    * says which refusals need it.
    */
   public retryDeferredPrune(): void {
@@ -347,7 +320,7 @@ export class ViewportController {
     if (conditions === undefined) {
       return;
     }
-    this.reconcile(conditions);
+    this.#runPass(conditions, OWN_PASS);
   }
 
   /**
@@ -366,9 +339,9 @@ export class ViewportController {
    * Puts a reader who left the tail back where they were: the anchored row at the same distance
    * from the top of the viewport. A follower's position is the library's, so it does nothing.
    *
-   * `reconcile` calls it only where no prune compensation ran: after a prune the virtualizer is
-   * still in the pre-prune offset space until React re-renders, so its index lookup would name
-   * the wrong row. The head-insert case waits for `commitPendingPositionHold`.
+   * A pass calls it only where no cut compensation ran: after a cut the virtualizer is still in
+   * the pre-cut offset space until React re-renders, so its index lookup would name the wrong
+   * row. The head-insert case waits for `commitPendingPositionHold`.
    */
   public holdReadingPosition(): void {
     const reading = this.anchor.state;
@@ -376,8 +349,8 @@ export class ViewportController {
     if (reading.mode === "following" || anchorPoint === undefined) {
       return;
     }
-    const index = this.#rowKeys.indexOf(anchorPoint.rowKey);
-    if (index < 0) {
+    const index = this.#indexOfRowKey(anchorPoint.rowKey);
+    if (index === undefined) {
       // The anchored row left the window; guessing a replacement would teleport the
       // transcript, so the offset stays.
       return;
@@ -389,11 +362,16 @@ export class ViewportController {
   }
 
   /**
-   * The tail pill, the palette's jump and End: following resumes and the library lands on the
-   * last row, re-aiming as the rows near it measure.
+   * The tail pill, the palette's jump and End: following resumes, the window takes the tail back
+   * if it had let it go, and the library lands on the last row, re-aiming as the rows near it
+   * measure and as the rows the pass brought in render.
    */
   public jumpToTail(): void {
     this.anchor.resumeFollowing();
+    const conditions = this.#pruneCycle.lastConditions;
+    if (conditions !== undefined) {
+      this.#runPass(conditions, OWN_PASS);
+    }
     this.#scrollToTail("jump-to-tail");
   }
 
@@ -403,11 +381,7 @@ export class ViewportController {
    */
   public rowStartPx(rowKey: string): number | undefined {
     // Asked on every scroll sample by each long body on screen, so the lookup is a map read.
-    // Reversed so a repeated key keeps its first row, as an index search would.
-    this.#rowIndexByKey ??= new Map(
-      this.#rowKeys.map((key, index) => [key, index] as const).reverse(),
-    );
-    const index = this.#rowIndexByKey.get(rowKey);
+    const index = this.#indexOfRowKey(rowKey);
     return index === undefined ? undefined : this.#anchorCapture.offsetOfIndex(index);
   }
 
@@ -453,15 +427,101 @@ export class ViewportController {
     });
   }
 
-  /** Home: the first retained row at the top of the viewport, through the library's index scroll. */
-  #jumpToHead(): void {
-    const virtualizer = this.#virtualizer;
-    if (virtualizer === undefined) {
+  /**
+   * Runs one pass of the window over `conditions` and holds the reader's position, answering
+   * whether the rows the viewport holds changed.
+   *
+   * The pass runs first because it can change the row set, the row set is rebuilt from what the
+   * window holds, and the position is held last. The cut compensation is paid here, after the
+   * rebuild, because a glide publishes a geometry sample that would otherwise reach the anchor
+   * capture against keys the window no longer has. A pass the pass's own write would start is not
+   * run. A render's pass always holds the position; a pass the controller runs itself holds it only
+   * when the row set changed, because an unchanged set moved no row under the reader.
+   */
+  #runPass(conditions: ViewportConditions, pass: WindowPass): boolean {
+    if (this.#isPassRunning) {
+      return false;
+    }
+    this.#isPassRunning = true;
+    try {
+      const previousHeadKey = this.#rowKeys[0];
+      const previousVirtualKeys = this.#virtualKeys;
+      const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
+      // Counted on the log, not the window: a row appended past a tail the window let go is still
+      // news for the reader's pill.
+      const appendedCount = countAppendedAfter(conditions.rows, this.#logTailKey);
+      this.#logTailKey = conditions.rows[conditions.rows.length - 1]?.key;
+      const { prunedHeightPx, isFollowing } = this.#pruneCycle.run(conditions, pass.admitSide);
+      const retained = this.rowWindow.rows();
+      const hasRowSetChanged = retained !== this.#rows;
+      if (hasRowSetChanged) {
+        this.#rows = retained;
+        this.#rowKeys = retained.map((row) => row.key);
+        this.#rowIndexByKey = undefined;
+        this.#virtualKeys = this.measurements.projectKeys(this.#rowKeys).virtualKeys;
+      }
+      if (appendedCount > 0) {
+        this.anchor.noteAppendedRows(appendedCount);
+      }
+      if (
+        this.anchor.state.mode === "following" &&
+        haveDifferentEnds(previousVirtualKeys, this.#virtualKeys)
+      ) {
+        // The library lays out again from the lowest row that resized, but from row zero, reading
+        // every unmeasured row's estimate, once the row count or an end key changes, so a moved
+        // estimate would shift rows above a reader at the next append. While the reader follows,
+        // that whole layout runs under the library's end anchor, which keeps the row at the top of
+        // the viewport where it was, and the rows above it move out of sight. A reader who reads
+        // keeps the estimates the rows were laid out at. A follower's measurements publish too.
+        this.measurements.publishEstimates();
+      }
+      // Rows let go above a reader are paid by arithmetic; rows admitted above them, or a page
+      // landing at the head, are held once the render that lays them out commits.
+      const compensated =
+        !isFollowing && this.#pruneCycle.compensateForPrunedHeight(prunedHeightPx);
+      if (!compensated && (pass.isRender || hasRowSetChanged)) {
+        this.#deferredHold.armAfterReconcile({
+          headInsertedCount: countInsertedBefore(retained, previousHeadKey),
+          previousHeadKey,
+          scrollTopPx,
+        });
+      }
+      this.#publication.publish();
+      return hasRowSetChanged;
+    } finally {
+      this.#isPassRunning = false;
+    }
+  }
+
+  /**
+   * Asks the window for the pass a reader's scroll sample owes it, else for a refused cut whose
+   * refusal the sample lifted: the first sample with a height, a held row released.
+   */
+  #reviewWindowAfter(geometry: ScrollGeometry): void {
+    const request = this.#pruneCycle.passOwedBy(geometry);
+    const conditions = this.#pruneCycle.lastConditions;
+    if (request !== undefined && conditions !== undefined) {
+      this.#runPass(conditions, { admitSide: request.admitSide, isRender: false });
       return;
     }
-    this.virtualizerOptions.scrollFor("jump-to-head", () => {
-      virtualizer.scrollToIndex(0, { align: "start" });
-    });
+    this.retryDeferredPrune();
+  }
+
+  /** A published key's index, the first for a repeated key, or `undefined` when not held. */
+  #indexOfRowKey(rowKey: string): number | undefined {
+    // Reversed so a repeated key keeps its first row, as an index search would.
+    this.#rowIndexByKey ??= new Map(
+      this.#rowKeys.map((key, index) => [key, index] as const).reverse(),
+    );
+    return this.#rowIndexByKey.get(rowKey);
+  }
+
+  /** Home: the log's first row at the top of the viewport, admitted first if it was let go. */
+  #jumpToHead(): void {
+    const headRowKey = this.rowWindow.logHeadRowKey;
+    if (headRowKey !== undefined) {
+      this.landOnRow(headRowKey, "jump-to-head");
+    }
   }
 
   /** The library's own landing on the last row, which re-aims as the rows near it measure. */
@@ -499,12 +559,12 @@ export class ViewportController {
   }
 
   #buildSnapshot(): ViewportSnapshot {
-    const { mode, newRowCount, pinnedRootCursor } = this.anchor.state;
+    const { mode, newRowCount } = this.anchor.state;
     return {
       rows: this.#rows,
       rowKeys: this.#rowKeys,
       keyProjection: this.measurements.projectKeys(this.#rowKeys),
-      reading: { mode, newRowCount, pinnedRootCursor },
+      reading: { mode, newRowCount },
       lastPrune: this.#pruneCycle.lastOutcome,
     };
   }
@@ -523,3 +583,18 @@ function haveDifferentEnds(previousKeys: readonly string[], nextKeys: readonly s
 function hasModifier(event: KeyboardEvent): boolean {
   return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
 }
+
+/**
+ * Who lands the reader on one row: a link to a message, a find step, or Home. Only a link's
+ * landing takes focus; the others keep it where the person pressed.
+ */
+type RowLandingCaller = Extract<ScrollCaller, "message-anchor" | "find-match" | "jump-to-head">;
+
+/** What starts one pass of the window: the side a reader's approach admits on, and who asked. */
+interface WindowPass {
+  readonly admitSide: WindowSide | undefined;
+  readonly isRender: boolean;
+}
+
+/** A pass the controller runs itself, outside a render, with no side to admit on. */
+const OWN_PASS: WindowPass = { admitSide: undefined, isRender: false };

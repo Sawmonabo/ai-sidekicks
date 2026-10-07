@@ -1,7 +1,7 @@
-// The find field's state and the walk over the window the viewport shows. It searches the
-// visible window, not the log, because the viewport performs the jump and a match outside
-// it would land nowhere. Matches outside are counted in two figures, one per stage that
-// removed rows (the cap and the run fold), since each has a different exit.
+// The find field's state and the walk over the rows the feed draws. It searches every row the
+// store holds, whether or not the viewport's window holds it: a step to a row the window let go
+// lands on it, as a link does. Matches inside folded run groups are counted apart, since opening
+// the group is their exit.
 
 import { useCallback, useMemo, useState } from "react";
 
@@ -14,21 +14,18 @@ import {
   type FindStepDirection,
   type FindResult,
 } from "../matcher.js";
-import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** The find field's state, and the walk over one window's matches. */
 export interface TranscriptFindState {
   readonly isOpen: boolean;
   readonly query: string;
   readonly result: FindResult;
-  /** Matches in rows the cap took out of this window. Named, never hidden. */
-  readonly beyondWindowMatchCount: number;
   /** Matches inside folded terminal run groups; finished runs fold by default. */
   readonly foldedAwayMatchCount: number;
   /**
    * Where the walk is in the current result, or `-1` with nothing selected.
    *
-   * Derived from the selected row, not held as an ordinal: the result recomputes as the window
+   * Derived from the selected row, not held as an ordinal: the result recomputes as the log
    * moves, and a held ordinal could outlive a shorter list.
    */
   readonly currentMatchIndex: number;
@@ -47,10 +44,10 @@ export interface TranscriptFindState {
   readonly step: (direction: FindStepDirection) => ReturnType<typeof stepFindMatch>;
 }
 
-/** Every stage between the loaded log and the rows on screen. */
+/** The rows the walk searches, and what the run fold withheld from them. */
 export interface TranscriptFindInputs {
-  /** The rows the walk searches — the only ones a step can land on. */
-  readonly visible: VisibleTranscriptWindow;
+  /** The rows the feed draws, in log order: every one a step can land on. */
+  readonly rows: readonly TranscriptEventRow[];
   /**
    * The rows the run fold withheld, as that stage reported them. Re-deriving them would walk
    * the whole projection on every appended row while a query is set.
@@ -64,17 +61,14 @@ export interface TranscriptFindInputs {
 }
 
 /**
- * Searches the window on screen and counts what lies outside it.
+ * Searches the rows the feed draws and counts the matches the run fold withholds.
  *
- * The three sets are disjoint (a row the fold took never reaches the viewport), so every match
- * is in `result` or in exactly one count. The walk is held by row, not ordinal, because the
- * result recomputes as the window moves.
+ * The two sets are disjoint (a row the fold took is not drawn), so every match is in `result` or
+ * in the count. The walk is held by row, not ordinal, because the result recomputes as the log
+ * moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
-  const { foldedAwayRows, drawsRow } = inputs;
-  // Each count keys on its own list, which the split keeps across a streamed update to a row the
-  // other list holds.
-  const { rows: visibleRows, prunedAwayRows } = inputs.visible;
+  const { rows, foldedAwayRows, drawsRow } = inputs;
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
@@ -82,15 +76,8 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
 
   const result = useMemo(
     () =>
-      query.trim().length === 0
-        ? emptyFindResult(visibleRows.length)
-        : findInTranscript(visibleRows, query),
-    [visibleRows, query],
-  );
-
-  const beyondWindowMatchCount = useMemo(
-    () => (query.trim().length === 0 ? 0 : findInTranscript(prunedAwayRows, query).totalMatchCount),
-    [prunedAwayRows, query],
+      query.trim().length === 0 ? emptyFindResult(rows.length) : findInTranscript(rows, query),
+    [rows, query],
   );
 
   const foldedAwayMatchCount = useMemo(
@@ -143,7 +130,6 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
     isOpen,
     query,
     result,
-    beyondWindowMatchCount,
     foldedAwayMatchCount,
     currentMatchIndex,
     setQuery,

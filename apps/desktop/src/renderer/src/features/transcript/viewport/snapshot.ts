@@ -7,7 +7,7 @@ import { type RowKeyProjection } from "./row-measurement-table.js";
 import { type WindowRow, type PruneOutcome } from "./window-cap.js";
 
 /**
- * One row, as the viewport addresses it. An alias of the window's row type, so the cap and the
+ * One row, as the viewport addresses it. An alias of the window's row type, so the window and the
  * list agree on what a row is.
  */
 export type ViewportRow = WindowRow;
@@ -31,7 +31,7 @@ export interface ViewportSnapshot {
 /** What the surrounding feed tells the frame each render. */
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
-  /** A turn is mid-flight, so prune waits rather than moving rows under a stream. */
+  /** A turn is mid-flight, so a cut waits rather than moving rows under a stream. */
   readonly hasActiveTurn: boolean;
   /** The reveal engine still has characters queued for this frame. */
   readonly isRevealDraining: boolean;
@@ -40,8 +40,8 @@ export interface ViewportConditions {
 /**
  * How many rows arrived after the row that used to be last.
  *
- * Zero when there was no previous window or the previous tail was pruned: nothing is owed to a
- * reader who was not there, and a vanished key has no origin to count from.
+ * Zero when there was no previous set or its last row is gone: nothing is owed to a reader who
+ * was not there, and a vanished key has no origin to count from.
  */
 export function countAppendedAfter(
   rows: readonly ViewportRow[],

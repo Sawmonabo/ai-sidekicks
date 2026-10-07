@@ -33,7 +33,7 @@ export function LoadEarlier(props: LoadEarlierAffordanceProps): React.JSX.Elemen
         // under the pointer that just pressed it.
         disabled={!canLoadEarlier}
       >
-        {isReading ? "Loading earlier entries…" : "Load earlier"}
+        Load earlier
       </button>
       {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
     </div>

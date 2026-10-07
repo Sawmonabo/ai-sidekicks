@@ -1,250 +1,103 @@
-// The window cap: what it drops, what it refuses to drop, and what it leaves owed, and an ingest
-// that re-indexes only what changed agreeing with one that indexes the whole log. Logs and the
-// all-clear conditions come from `window-cap.test-support.ts`; the retained-state-table seam and
-// the counting rules are `window-cap.retained-row-state.test.ts`'s.
+// The transcript window lets go on both sides of the reader, by the window's own height, and never
+// takes the reader's row or a row on screen. Rows are one flat height, so where each cut falls is
+// arithmetic a case can state.
 
 import { describe, expect, it } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
+import { TRANSCRIPT_RETAINED_SCREEN_HEIGHTS } from "./caps.js";
 import { TranscriptWindow, type PruneConditions, type WindowRow } from "./window-cap.js";
-import {
-  CHILDREN_PER_RUN_GROUP,
-  loadedWindow,
-  PRUNABLE,
-  RandomLogChanges,
-  syntheticWindowRows,
-  TOP_LEVEL_ROW_COUNT,
-} from "./window-cap.test-support.js";
 
-/** A cap small enough that the random logs go over it and prunes land on most steps. */
-const EQUIVALENCE_TOP_LEVEL_CAP = 6;
+/** Every row's height, and the viewport's: four rows to a screen. */
+const ROW_HEIGHT_PX = 100;
+const VIEWPORT_HEIGHT_PX = 400;
+/** Rows the retained share holds on each side of the viewport. */
+const RETAINED_ROWS = (TRANSCRIPT_RETAINED_SCREEN_HEIGHTS * VIEWPORT_HEIGHT_PX) / ROW_HEIGHT_PX;
+/** A log long enough that both edges sit far past the let-go distance from its middle. */
+const LOG_ROW_COUNT = 400;
+/** The row at the top of the reader's viewport, in the middle of the log. */
+const READER_ROW_INDEX = 200;
 
-describe("the transcript window — ingest", () => {
-  it("answers every read and prune as a window that ingested the same log whole", () => {
-    // A window whose index disagrees with its rows drops or duplicates conversation rows. One
-    // long-lived window takes every change span by span, prunes landing between changes, and
-    // must agree after each with a window built fresh from the same log. A fresh window held
-    // nothing before, so the rows that left the window are held to what the long-lived one
-    // showed after its own last prune; paying for a row it never showed moves the reader.
-    for (const seed of [1, 2, 3]) {
-      const changes = new RandomLogChanges(seed);
-      const incremental = new TranscriptWindow({ topLevelCap: EQUIVALENCE_TOP_LEVEL_CAP });
-      let shownRowKeys = new Set<string>();
-      for (let step = 0; step < 300; step += 1) {
-        const { change, log } = changes.next();
-        const whole = new TranscriptWindow({ topLevelCap: EQUIVALENCE_TOP_LEVEL_CAP });
-        incremental.ingest(log);
-        whole.ingest(log);
-        const context = `seed ${String(seed)}, step ${String(step)}, ${change}`;
-        expect(readingOf(incremental), context).toStrictEqual(readingOf(whole));
-        // A second prune with nothing ingested between reads what the first one dropped.
-        for (const conditions of [pruneConditionsFor(step, log), PRUNABLE]) {
-          const { newlyPrunedKeys, ...outcome } = incremental.prune(conditions);
-          const { newlyPrunedKeys: _freshWindowHeldNothing, ...wholeOutcome } =
-            whole.prune(conditions);
-          expect(outcome, context).toStrictEqual(wholeOutcome);
-          expect(newlyPrunedKeys, context).toStrictEqual(
-            outcome.prunedKeys.filter((prunedKey) => shownRowKeys.has(prunedKey)),
-          );
-          shownRowKeys = new Set(incremental.rows().map((row) => row.key));
-          expect(readingOf(incremental), context).toStrictEqual(readingOf(whole));
-          // The count the cap and every outcome read is kept, not walked, so it is held to the
-          // walk: what the window reports retaining, and refusing as under its cap, is what it
-          // holds.
-          const topLevelCount = incremental.topLevelRowKeys().length;
-          expect(outcome.topLevelRetained, context).toBe(topLevelCount);
-          expect(outcome.deferredBecause === "under-cap", context).toBe(
-            !outcome.applied && topLevelCount <= EQUIVALENCE_TOP_LEVEL_CAP,
-          );
-        }
-      }
-    }
-  });
-});
-
-describe("the transcript window — the cap", () => {
-  it("caps top-level rows and lets children ride along", () => {
-    const window = loadedWindow();
-    expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
-    const outcome = window.prune(PRUNABLE);
-    expect(outcome.applied).toBe(true);
-    expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
-    // Children never trip the cap: the retained set is the cap's worth of run groups with their
-    // children, not the cap's worth of rows.
-    expect(window.size).toBe(TRANSCRIPT_WINDOW_ROW_CAP * (CHILDREN_PER_RUN_GROUP + 1));
-  });
-
-  it("drops the oldest first, and keeps the newest", () => {
-    const window = loadedWindow();
-    window.prune(PRUNABLE);
-    const retained = window.topLevelRowKeys();
-    expect(retained[0]).toBe(
-      `run-group-${String(TOP_LEVEL_ROW_COUNT - TRANSCRIPT_WINDOW_ROW_CAP)}`,
-    );
-    expect(retained[retained.length - 1]).toBe(`run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`);
-  });
-
-  it("never orphans a child: every retained child's parent is retained too", () => {
-    const window = loadedWindow();
-    window.prune(PRUNABLE);
-    const retainedKeys = new Set(window.rows().map((row) => row.key));
-    const orphans = window
-      .rows()
-      .filter((row) => row.parentKey !== undefined && !retainedKeys.has(row.parentKey))
-      .map((row) => row.key);
-    expect(orphans).toStrictEqual([]);
-  });
-});
-
-describe("the transcript window — when prune may not land", () => {
-  it("defers, naming the reason, and drops nothing while deferred", () => {
-    const conditionsByReason: readonly (readonly [string, PruneConditions])[] = [
-      ["pinned-history", { ...PRUNABLE, pinnedRootCursor: "cursor-9" }],
-      ["active-turn", { ...PRUNABLE, hasActiveTurn: true }],
-      ["scroll-write", { ...PRUNABLE, scrollControllerVetoes: true }],
-      ["reveal-drain", { ...PRUNABLE, revealDrainInFlight: true }],
-    ];
-    for (const [reason, conditions] of conditionsByReason) {
-      const window = loadedWindow();
-      const outcome = window.prune(conditions);
-      expect(outcome.deferredBecause).toBe(reason);
-      expect(outcome.owedBecause).toBe(reason);
-      expect(outcome.applied).toBe(false);
-      expect(outcome.prunedKeys).toStrictEqual([]);
-      expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
-    }
-  });
-
-  it("never prunes a held row, however old, nor the run group above a held child", () => {
-    const window = loadedWindow();
-    const outcome = window.prune({
-      ...PRUNABLE,
-      heldRowKeys: ["run-group-0", "run-group-1-child-2"],
-    });
-    const retainedKeys = new Set(window.rows().map((row) => row.key));
-    expect(retainedKeys.has("run-group-0")).toBe(true);
-    expect(retainedKeys.has("run-group-1")).toBe(true);
-    expect(retainedKeys.has("run-group-1-child-2")).toBe(true);
-    expect(outcome.prunedKeys).not.toContain("run-group-0");
-  });
-
-  it("names `held-rows` when every candidate the cap wanted is held", () => {
-    // The second way a pass ends over its cap: no floor stopped the walk, it just had nothing it
-    // was allowed to take. Reported as applied with an empty key list, it would read like a
-    // window already under cap.
-    const window = new TranscriptWindow({ topLevelCap: 2 });
-    window.ingest(syntheticWindowRows(5));
-    const outcome = window.prune({
-      ...PRUNABLE,
-      heldRowKeys: ["run-group-0", "run-group-1", "run-group-2", "run-group-3", "run-group-4"],
-    });
-    expect(outcome.applied).toBe(false);
-    expect(outcome.deferredBecause).toBe("held-rows");
-    expect(outcome.owedBecause).toBe("held-rows");
-    expect(window.topLevelRowKeys()).toHaveLength(5);
-  });
-
-  it("owes `held-rows` for a pass that took what it could and stayed over cap", () => {
-    // One of the three rows the cap wanted is free, so the pass applies and the window is still
-    // two rows over its ceiling; nobody re-asks unless the residual is named beside the outcome.
-    const window = new TranscriptWindow({ topLevelCap: 2 });
-    window.ingest(syntheticWindowRows(5));
-    const outcome = window.prune({
-      ...PRUNABLE,
-      heldRowKeys: ["run-group-0", "run-group-2", "run-group-3", "run-group-4"],
-    });
-    expect(outcome.applied).toBe(true);
-    expect(outcome.deferredBecause).toBeUndefined();
-    expect(outcome.prunedKeys).toContain("run-group-1");
-    expect(outcome.owedBecause).toBe("held-rows");
-    expect(window.topLevelRowKeys()).toHaveLength(4);
-  });
-});
-
-describe("the transcript window — the reading floor", () => {
-  /** The row a reader is parked on, far enough back that the cap wants it gone. */
-  const READER_ROW = "run-group-10";
-
-  it("stops the drop at the reader's row, and keeps the window contiguous", () => {
-    const window = loadedWindow();
-    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: READER_ROW });
-    expect(outcome.applied).toBe(true);
-    // The window is still far over its cap after the drop; an outcome reporting only `applied`
-    // told the re-ask nothing was owed.
-    expect(outcome.owedBecause).toBe("reading-floor");
-    expect(outcome.topLevelRetained).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
-    // Everything above the reader that the cap wanted and not one row more: the ten run groups
-    // before them, with their children.
-    expect(outcome.prunedKeys).toStrictEqual(
-      Array.from({ length: 10 }, (_unused, index) => `run-group-${String(index)}`).flatMap(
-        (runGroupKey) => [
-          runGroupKey,
-          ...Array.from(
-            { length: CHILDREN_PER_RUN_GROUP },
-            (_unused, child) => `${runGroupKey}-child-${String(child)}`,
-          ),
-        ],
-      ),
-    );
-    // The reader's row and everything after it survive, so the window they are about to scroll
-    // into is whole.
-    const retainedKeys = window.rows().map((row) => row.key);
-    expect(retainedKeys[0]).toBe(READER_ROW);
-    expect(retainedKeys).toHaveLength((TOP_LEVEL_ROW_COUNT - 10) * (CHILDREN_PER_RUN_GROUP + 1));
-  });
-
-  it("holds a run group whose child the reader is on, rather than dropping its head", () => {
-    const readerChildRow = "run-group-3-child-1";
-    const window = loadedWindow();
-    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: readerChildRow });
-    expect(outcome.prunedKeys).not.toContain("run-group-3");
-    expect(outcome.prunedKeys[outcome.prunedKeys.length - 1]).toBe("run-group-2-child-2");
-  });
-
-  it("names `reading-floor` when the floor leaves it nothing to take", () => {
-    // `applied` with an empty key list would be indistinguishable from a window already under
-    // cap.
-    const window = loadedWindow();
-    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "run-group-0" });
-    expect(outcome.applied).toBe(false);
-    expect(outcome.deferredBecause).toBe("reading-floor");
-    expect(outcome.prunedKeys).toStrictEqual([]);
-    expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
-  });
-
-  it("ignores a floor naming a row the window no longer holds", () => {
-    const window = loadedWindow();
-    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "a-row-pruned-long-ago" });
-    expect(outcome.applied).toBe(true);
-    expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
-  });
-});
-
-/** Everything a caller can read off a window without changing it. */
-function readingOf(window: TranscriptWindow): {
-  readonly rows: readonly WindowRow[];
-  readonly topLevelRowKeys: readonly string[];
-  readonly size: number;
-} {
-  return { rows: window.rows(), topLevelRowKeys: window.topLevelRowKeys(), size: window.size };
+function rowKey(index: number): string {
+  return `row-${String(index)}`;
 }
 
-/**
- * The prune a step asks for, cycling through the all-clear, a refusal, a reader parked mid-log and
- * held head rows, so the walk's stop, skip and refusal all run against the changed index.
- */
-function pruneConditionsFor(step: number, log: readonly WindowRow[]): PruneConditions {
-  switch (step % 4) {
-    case 0:
-      return PRUNABLE;
-    case 1:
-      return { ...PRUNABLE, hasActiveTurn: true };
-    case 2:
-      return { ...PRUNABLE, readingFloorRowKey: log[Math.floor(log.length / 2)]?.key };
-    default:
-      return {
-        ...PRUNABLE,
-        heldRowKeys: [log[0], log[2]].flatMap((row) => (row === undefined ? [] : [row.key])),
-      };
-  }
+function flatLog(): readonly WindowRow[] {
+  return Array.from({ length: LOG_ROW_COUNT }, (_unused, index) => ({
+    key: rowKey(index),
+    parentKey: undefined,
+    rootCursor: `cursor-${String(index)}`,
+  }));
 }
+
+/** A reader at the top of their row in the middle of the log, with nothing refusing a cut. */
+const READING_MID_LOG: PruneConditions = {
+  hasActiveTurn: false,
+  scrollControllerVetoes: false,
+  revealDrainInFlight: false,
+  heldRowKeys: [],
+  onScreenRowKeys: [],
+  readingPosition: { rowKey: rowKey(READER_ROW_INDEX), offsetWithinViewportPx: 0 },
+  viewportHeightPx: VIEWPORT_HEIGHT_PX,
+  heightOf: () => ROW_HEIGHT_PX,
+  admitSide: undefined,
+};
+
+function windowOverLog(): TranscriptWindow {
+  const window = new TranscriptWindow();
+  window.ingest(flatLog());
+  return window;
+}
+
+function heldKeys(window: TranscriptWindow): readonly string[] {
+  return window.rows().map((row) => row.key);
+}
+
+describe("the transcript window — letting go around the reader", () => {
+  it("lets go of the rows past the retained share above and below the reader", () => {
+    const window = windowOverLog();
+
+    const outcome = window.prune(READING_MID_LOG);
+
+    // Above: the rows within the share of the viewport's top edge. Below: the screen itself,
+    // then the share past its bottom edge.
+    const firstKept = READER_ROW_INDEX - RETAINED_ROWS;
+    const lastKept = READER_ROW_INDEX + VIEWPORT_HEIGHT_PX / ROW_HEIGHT_PX + RETAINED_ROWS - 1;
+    expect(heldKeys(window)[0]).toBe(rowKey(firstKept));
+    expect(heldKeys(window).at(-1)).toBe(rowKey(lastKept));
+    expect(outcome.applied).toBe(true);
+    expect(outcome.owedBecause).toBeUndefined();
+    expect(outcome.prunedKeys).toHaveLength(LOG_ROW_COUNT - (lastKept - firstKept + 1));
+  });
+
+  it("stops each cut short of a row on screen and of the reader's row, and names them", () => {
+    // Heights that disagree with the screen (a row the library still lays out where the reader
+    // was, a row taller than its estimate) put such rows past the line; the cut stops there.
+    const window = windowOverLog();
+    const onScreenRowIndex = 20;
+    const readerRowIndex = READER_ROW_INDEX;
+
+    const outcome = window.prune({
+      ...READING_MID_LOG,
+      onScreenRowKeys: [rowKey(onScreenRowIndex)],
+      // The reader's row starts far below the top of the viewport, so it sits past the line below.
+      readingPosition: { rowKey: rowKey(readerRowIndex), offsetWithinViewportPx: 5000 },
+    });
+
+    expect(heldKeys(window)[0]).toBe(rowKey(onScreenRowIndex));
+    expect(heldKeys(window).at(-1)).toBe(rowKey(readerRowIndex));
+    expect(outcome.prunedKeys).not.toContain(rowKey(onScreenRowIndex));
+    expect(outcome.prunedKeys).not.toContain(rowKey(readerRowIndex));
+    expect(outcome.owedBecause).toBe("on-screen-rows");
+
+    // With nothing it may take, the pass is refused rather than reported as applied.
+    const refused = window.prune({
+      ...READING_MID_LOG,
+      onScreenRowKeys: [rowKey(onScreenRowIndex)],
+      readingPosition: { rowKey: rowKey(readerRowIndex), offsetWithinViewportPx: 5000 },
+    });
+    expect(refused.applied).toBe(false);
+    expect(refused.deferredBecause).toBe("on-screen-rows");
+    expect(heldKeys(window)[0]).toBe(rowKey(onScreenRowIndex));
+    expect(heldKeys(window).at(-1)).toBe(rowKey(readerRowIndex));
+  });
+});

@@ -8,11 +8,6 @@ import { TranscriptWindow } from "./window-cap.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./caps.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { PRUNABLE, TOP_LEVEL_ROW_COUNT, loadedWindow } from "./window-cap.test-support.js";
-
-/** The newest run group in the shared log — the one end of it the cap never drops. */
-const NEWEST_RUN_GROUP_KEY = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
-
 /** A window holding the rows named, each a top-level row of its own. */
 function windowWithRows(rowKeys: readonly string[]): TranscriptWindow {
   const window = new TranscriptWindow();
@@ -91,13 +86,13 @@ describe("the trim takes only what the frame cannot reach", () => {
   });
 
   it("releases parked states and leaves live ones alone", () => {
-    // Parked through the real cap: a retained state is parked because a prune dropped its row.
+    // Parked through the real window: a retained state is parked when its row leaves the log.
     const clock = new ManualClock();
-    const window = loadedWindow();
-    window.setRetainedState("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
-    window.setRetainedState(NEWEST_RUN_GROUP_KEY, { density: "expanded", innerScrollTopPx: 30 });
-    window.prune(PRUNABLE);
-    expect(window.retainedState("run-group-0")).toStrictEqual({
+    const window = windowWithRows(["row-gone", "row-kept"]);
+    window.setRetainedState("row-gone", { density: "expanded", innerScrollTopPx: 44 });
+    window.setRetainedState("row-kept", { density: "expanded", innerScrollTopPx: 30 });
+    window.ingest([{ key: "row-kept", parentKey: undefined, rootCursor: "row-kept" }]);
+    expect(window.retainedState("row-gone")).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 44,
     });
@@ -111,8 +106,8 @@ describe("the trim takes only what the frame cannot reach", () => {
     clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS);
     trim.noteActivity();
 
-    expect(window.retainedState("run-group-0")).toBeUndefined();
-    expect(window.retainedState(NEWEST_RUN_GROUP_KEY)).toStrictEqual({
+    expect(window.retainedState("row-gone")).toBeUndefined();
+    expect(window.retainedState("row-kept")).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 30,
     });

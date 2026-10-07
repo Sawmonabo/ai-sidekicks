@@ -77,7 +77,7 @@ function renderRow(row: ViewportRow): React.ReactNode {
 
 describe("the transcript viewport — the feed", () => {
   it("names the feed, and mounts far fewer rows than the log holds", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     const { container } = render(
       <ComposedTranscriptViewport
         clock={new ManualClock()}
@@ -94,7 +94,7 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("mounts its rows without reading the selection, behind one selection listener", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     // React puts its own `selectionchange` listener on the document with the first root it makes,
     // so one root goes up first and the count below is the transcript's alone.
     render(<p />);
@@ -120,7 +120,7 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("arms no timer once the first paint has settled", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     const clock = new ManualClock();
     render(
       <ComposedTranscriptViewport
@@ -139,7 +139,7 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("draws both rows of a projection that repeated a key", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     const rows: readonly ViewportRow[] = [
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-0" },
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-1" },

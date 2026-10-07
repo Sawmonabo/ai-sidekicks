@@ -1,7 +1,7 @@
-// How complete the find walk is, in the shared partial-read vocabulary. The walk searches
-// the window the viewport shows, which the cap and the folds cut short of the session;
-// `useTranscriptFind.ts` counts the matches each hides. The reading is `cut` only when some
-// match is unreached, and its figure is what the walk holds, not what was hidden.
+// How complete the find walk is, in the shared partial-read vocabulary. The walk searches the
+// rows the feed draws, which the run folds cut short of the session; `useTranscriptFind.ts`
+// counts the matches they hide. The reading is `cut` only when some match is unreached, and its
+// figure is what the walk holds, not what was hidden.
 
 import { type ReadingState } from "#renderer/lib/partial-read.js";
 

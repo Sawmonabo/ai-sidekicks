@@ -22,7 +22,6 @@ import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
-import { TRANSCRIPT_OVERSCAN_ROWS } from "../caps.js";
 import { ViewportController } from "../controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
@@ -39,9 +38,10 @@ export interface TranscriptViewportBinding {
   readonly attachRow: (element: HTMLElement | null) => void;
   readonly jumpToTail: () => void;
   /**
-   * Scrolls one row into view by key; does nothing if the window no longer holds it.
+   * Scrolls one row of the log into the middle of the view by key, as a find step does: a row the
+   * window let go is landed on, the window centering on it. Does nothing for a key the log lacks.
    *
-   * Keyed because an index goes stale when a prune runs between the caller reading and acting on
+   * Keyed because an index goes stale when a pass runs between the caller reading and acting on
    * it. Routed through the virtualizer's `scrollToIndex`, which the controller binds to the
    * scroll chokepoint; the write is a find match's.
    */
@@ -52,8 +52,8 @@ export interface TranscriptViewportBinding {
    */
   readonly focusScrollContainer: () => void;
   /**
-   * The state a row body parked on this window, live or re-parked after a prune.
-   * Survives an unmount and a prune, up to the parked state cap.
+   * The state a row body parked on this window, live or re-parked after its row was let go.
+   * Survives an unmount and a cut, up to the parked state cap.
    */
   readonly retainedRowState: (rowKey: string) => RetainedRowState | undefined;
   /** Park one row body's state on the window. */
@@ -151,7 +151,9 @@ export function useTranscriptViewport(
   const isFollowing = snapshot.reading.mode === "following";
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
-    overscan: TRANSCRIPT_OVERSCAN_ROWS,
+    // The band drawn beyond the box is measured in pixels by the range extractor, not in rows.
+    overscan: 0,
+    rangeExtractor: controller.virtualizerOptions.rangeExtractor,
     // Named here rather than left to the library's same-spelled default: a rename in the row
     // primitive would otherwise measure every row as row zero with nothing to notice.
     indexAttribute: WINDOWED_ROW_INDEX_ATTRIBUTE,
@@ -182,8 +184,8 @@ export function useTranscriptViewport(
     controller.bindVirtualizer(virtualizer);
   }, [controller, virtualizer]);
 
-  // A layout effect, so the landing's reading floor is set before the passive reconcile below
-  // prunes: an over-cap log would otherwise lose a row far back on the very pass that brings it.
+  // A layout effect, so the landing's reading position is set before the passive reconcile below
+  // runs: the window would otherwise center on wherever the reader was, not on the row.
   // Landed once per key and controller: the key goes `undefined` while its row is folded away or
   // let go, and its return must not pull the reader back or take focus from where they are.
   const landed = useRef<{ readonly controller: ViewportController; readonly rowKey: string }>(
@@ -197,7 +199,7 @@ export function useTranscriptViewport(
       return;
     }
     landed.current = { controller, rowKey: landingRowKey };
-    controller.landOnRow(landingRowKey);
+    controller.landOnRow(landingRowKey, "message-anchor");
   }, [controller, landingRowKey]);
 
   useEffect(() => {
@@ -207,21 +209,20 @@ export function useTranscriptViewport(
     controller.reconcile({ rows, hasActiveTurn, isRevealDraining });
   }, [controller, rows, hasActiveTurn, isRevealDraining]);
 
-  // Re-asks a prune the reconcile above could not finish. That effect depends only on the rows
-  // and the two activity flags, but the window also refuses a prune while the reader is above
-  // the tail, history is pinned, a programmatic scroll is mid-write, or the rows the cap wants
-  // are held; none of those moves a dependency. The reading fields carry the first two, and
-  // `lastPrune`'s identity carries the rest because the veto is raised and dropped inside one
-  // synchronous write. It cannot spin: each landed pass leaves fewer rows over the cap, and a
+  // Re-asks a cut the reconcile above could not finish. That effect depends only on the rows and
+  // the two activity flags, but the window also stops a cut while a programmatic scroll is
+  // mid-write or the rows it wants are held, on screen or under the reader; none of those moves a
+  // dependency. The reading mode carries a return to the tail, and `lastPrune`'s identity the rest
+  // because the veto is raised and dropped inside one synchronous write. It cannot spin: a
   // residual whose blocker still stands answers `undefined`.
-  const { mode: readingMode, pinnedRootCursor } = snapshot.reading;
+  const readingMode = snapshot.reading.mode;
   const lastPrune = snapshot.lastPrune;
   useEffect(() => {
     if (controller.isDisposed) {
       return;
     }
     controller.retryDeferredPrune();
-  }, [controller, readingMode, pinnedRootCursor, lastPrune]);
+  }, [controller, readingMode, lastPrune]);
 
   // Performs the deferred head hold, and a pending landing, once the height they depend on is
   // committed.
@@ -235,8 +236,8 @@ export function useTranscriptViewport(
       return;
     }
     controller.commitPendingPositionHold();
-    // Focus goes to the log the link landed in, so the keyboard reads on from the message.
-    if (controller.commitPendingLanding()) {
+    // Focus goes to the log a link landed in, so the keyboard reads on from the message.
+    if (controller.commitPendingLanding() === "message-anchor") {
       scrollContainerRef.current?.focus();
     }
   });
@@ -288,6 +289,12 @@ export function useTranscriptViewport(
       // it would be stale.
       const virtualItems = virtualizer.getVirtualItems();
       const range = virtualizer.range;
+      const firstDrawn = virtualItems[0];
+      const lastDrawn = virtualItems[virtualItems.length - 1];
+      const firstVisible =
+        range === null ? undefined : virtualizer.measurementsCache[range.startIndex];
+      const lastVisible =
+        range === null ? undefined : virtualizer.measurementsCache[range.endIndex];
       // The element, not the chokepoint's last sample: the sample is what the library was told,
       // so it would agree with the window even when both describe a collapsed box.
       const scrollContainer = scrollContainerRef.current;
@@ -300,6 +307,15 @@ export function useTranscriptViewport(
         totalRowCount: virtualizer.options.count,
         indexableRowCount: snapshot.rows.length,
         visibleRowCount: range === null ? 0 : range.endIndex - range.startIndex + 1,
+        // Each band without its outermost row: the space between that row and the box's rows.
+        drawnBandPx: Math.max(
+          firstDrawn === undefined || firstVisible === undefined
+            ? 0
+            : Math.max(0, firstVisible.start - firstDrawn.end),
+          lastDrawn === undefined || lastVisible === undefined
+            ? 0
+            : Math.max(0, lastDrawn.start - lastVisible.end),
+        ),
         totalContentHeightPx: virtualizer.getTotalSize(),
         viewportClientHeightPx: scrollContainer?.clientHeight ?? 0,
         viewportScrollHeightPx: scrollContainer?.scrollHeight ?? 0,
@@ -309,12 +325,15 @@ export function useTranscriptViewport(
     jumpToRow: useCallback(
       (rowKey: string) => {
         const index = snapshot.rows.findIndex((candidate) => candidate.key === rowKey);
-        if (index < 0) {
+        if (index >= 0) {
+          controller.virtualizerOptions.scrollFor("find-match", () => {
+            virtualizer.scrollToIndex(index, { align: "center" });
+          });
           return;
         }
-        controller.virtualizerOptions.scrollFor("find-match", () => {
-          virtualizer.scrollToIndex(index, { align: "center" });
-        });
+        if (controller.rowWindow.logHoldsRow(rowKey)) {
+          controller.landOnRow(rowKey, "find-match");
+        }
       },
       [controller, snapshot, virtualizer],
     ),

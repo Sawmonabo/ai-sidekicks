@@ -1,50 +1,57 @@
-// The transcript window: what the log keeps, what it lets go of, and when.
+// The transcript window: which stretch of the log the viewport holds, what it lets go of, and when.
 //
-// Chromium places no element taller than 33,554,431 px, so an uncapped log's total-size spacer
-// would stop growing and strand the rows below it; the cap is a ceiling, not a nicety.
+// The window is one span of the projected log, measured in pixels from the reading position and
+// never counted in rows. It keeps the rows within the retained share of the reader on each side;
+// an edge that drifts past the let-go distance is cut back to the share, and a stretch is admitted
+// beyond an edge the reader approaches. Chromium places no element taller than 33,554,431 px, so a
+// window that grew with the log would strand the rows past that height.
 //
-// Only top-level rows count, so a run group with two hundred tool rows is one row. A row whose
-// `parentKey` names no row the window holds is top-level here: reading "has a parent key" as
-// "is a child" let a run-only log grow without bound. Prune is a request that can be refused
-// for a named reason, drops a parent's subtree with it, never drops held rows or those from
-// the reader's row down, and parks (never loses) the retained state of a dropped row.
+// The span is held by its end rows, so it survives the feed handing over the whole log on every
+// pass, and an end at the log's first or last row stays there as the log grows at it. A run group
+// goes with its children: no end falls between a row and the row it hangs from. A cut never takes
+// the reader's row, a row on screen or a held row; it stops short of the first one, and names it.
 //
 // The feed hands over the whole projected log on every reconcile, so the key index describes the
-// last log ingested and an ingest re-indexes only the span that differs from it. A prune records
-// what it dropped beside that index instead of editing it, so the next ingest still diffs against
-// the log it was last handed. Since the same head rows are dropped again on every pass, a prune
-// also names the rows that left the window its last pass returned, which is all a pass's reader
-// has to pay for.
+// last log ingested and an ingest re-indexes only the span that differs from it.
 
+import {
+  TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
+  TRANSCRIPT_RETAINED_SCREEN_HEIGHTS,
+  TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
+} from "./caps.js";
+import { type ReadingAnchorPoint } from "./reading-anchor.js";
 import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-state-table.js";
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {
   readonly key: string;
   /** The run group or row this hangs from; `undefined` for a top-level row. */
   readonly parentKey: string | undefined;
-  /** The `transcript.read` cursor this row was read at — the unit a pin cuts by. */
+  /** The `transcript.read` cursor this row was read at. */
   readonly rootCursor: string;
 }
 
+/** An end of the window: `head` toward the log's first row, `tail` toward its last. */
+export type WindowSide = "head" | "tail";
+
 /**
- * Why a prune did not happen. Closed, so a caller can read back every reason a prune deferred.
+ * Why a pass let nothing go, or stopped short. Closed, so a caller can read back every reason.
  */
 export const PRUNE_DEFERRAL_REASONS = [
-  "under-cap",
+  "within-share",
+  "unmeasured",
   "active-turn",
   "scroll-write",
   "reveal-drain",
-  "pinned-history",
   "reading-floor",
+  "on-screen-rows",
   "held-rows",
 ] as const;
 
 /** One deferral reason. Derived from the enumeration, never restated. */
 export type PruneDeferralReason = (typeof PRUNE_DEFERRAL_REASONS)[number];
 
-/** What the caller must tell the window before it may drop anything. */
+/** What the caller must tell the window before it may admit or let go of anything. */
 export interface PruneConditions {
   /** A turn is mid-flight; its rows are still being written to. */
   readonly hasActiveTurn: boolean;
@@ -52,64 +59,59 @@ export interface PruneConditions {
   readonly scrollControllerVetoes: boolean;
   /** The reveal engine has characters queued for this frame. */
   readonly revealDrainInFlight: boolean;
-  /** `ReadingAnchor.state.pinnedRootCursor`. Pinned history is never trimmed. */
-  readonly pinnedRootCursor: string | undefined;
-  /** `ReadingAnchor.heldRowKeys()`. A held row survives the cap. */
+  /** `ReadingAnchor.heldRowKeys()`. A held row is never let go. */
   readonly heldRowKeys: readonly string[];
+  /** The rows the viewport has on screen, as the virtualizer laid them out. Never let go. */
+  readonly onScreenRowKeys: readonly string[];
   /**
-   * The row the reader is on, or `undefined` while they are at the tail.
-   *
-   * A floor stops the drop walk, where a held key would only be skipped: skipping would open a
-   * hole directly below a reader parked in the middle of a long log.
+   * Where the reader is: their row and its top edge's offset from the top of the viewport,
+   * `"tail"` while they follow it, or `undefined` before they are placed.
    */
-  readonly readingFloorRowKey: string | undefined;
+  readonly readingPosition: ReadingAnchorPoint | "tail" | undefined;
+  /** The viewport's height in pixels, the window's unit; zero or `undefined` before it is known. */
+  readonly viewportHeightPx: number | undefined;
+  /** A row's height in pixels: as the virtualizer laid it out, else its estimate. */
+  readonly heightOf: (rowKey: string) => number;
+  /** The side the reader asked a stretch for by approaching it, or `undefined`. */
+  readonly admitSide: WindowSide | undefined;
 }
 
-/** The result of one prune pass. */
+/** The result of one pass. */
 export interface PruneOutcome {
+  /** Whether the pass let rows go. */
   readonly applied: boolean;
-  /** Why this pass took nothing. `undefined` exactly when `applied` is true. */
+  /** Why this pass let nothing go. `undefined` exactly when `applied` is true. */
   readonly deferredBecause: PruneDeferralReason | undefined;
   /**
-   * What still holds the window over its cap after the pass, or `undefined` when it is within
-   * its cap.
-   * Not a restatement of `deferredBecause`: a walk that stopped at the reading floor after
-   * taking rows applied (`deferredBecause` is `undefined`) yet leaves the window over its cap.
-   * A caller that re-asks reads this one. `under-cap` owes nothing.
+   * What still holds an edge past the let-go distance after the pass, or `undefined` when nothing
+   * is owed. Not a restatement of `deferredBecause`: a cut that stopped short of a held row applied
+   * yet leaves rows owed. A caller that re-asks reads this one; `within-share` owes nothing.
    */
   readonly owedBecause: PruneDeferralReason | undefined;
-  /** Every key dropped, ancestors and their subtrees together. */
+  /** Every key the pass let go, in log order. */
   readonly prunedKeys: readonly string[];
   /**
-   * The dropped keys the window held when its last prune returned, in drop order: the rows that
-   * left the window it published then. A row dropped again, or one that arrived since and was
-   * never shown, is not among them.
+   * The keys let go above the reader that the window held when its last pass returned, in log
+   * order: the height the reader's offset owes. A row that arrived since was never laid out.
    */
-  readonly newlyPrunedKeys: readonly string[];
-  readonly topLevelRetained: number;
+  readonly prunedAboveKeys: readonly string[];
 }
 
-/** Caps for a `TranscriptWindow`; each defaults to the shared transcript constant. */
+/** Options for a `TranscriptWindow`. */
 export interface TranscriptWindowOptions {
-  readonly topLevelCap?: number;
+  /** How many let-go rows' retained states are parked; defaults to the shared constant. */
   readonly parkedStateCap?: number;
 }
 
-/** The retained transcript rows, capped by top-level count and pruned only when allowed. */
+/** The span of the log the viewport holds, sized in screen heights from the reading position. */
 export class TranscriptWindow {
-  readonly #topLevelCap: number;
   /** Each parent key's child keys over the last ingested log, in log order, each listed once. */
   readonly #childKeysByParentKey = new Map<string, string[]>();
   /** Every key of the last ingested log, so "is this row's parent here?" costs no scan. */
   readonly #ingestedRowKeys = new Set<string>();
-  /** Keys the log gained since the last prune returned: rows the window published then lacked. */
-  readonly #arrivedRowKeys = new Set<string>();
+  /** Each key's first position in `#positionIndexedRows`, built when a span grows. */
+  readonly #positionByKey = new Map<string, number>();
   readonly #retainedStates: RetainedRowStateTable;
-
-  /** Keys a prune dropped since the last ingest; the window no longer holds them. */
-  #prunedRowKeys = new Set<string>();
-  /** The keys the window had dropped when its last prune returned. */
-  #droppedAtLastPrune: ReadonlySet<string> = new Set<string>();
 
   /** The log last ingested, which the next ingest diffs against. */
   #ingestedRows: readonly WindowRow[] = [];
@@ -118,67 +120,84 @@ export class TranscriptWindow {
    * stands every ingest rebuilds the index.
    */
   #hasRepeatedRowKey = false;
-  /**
-   * Rows of the last ingested log whose parent that log holds. With no repeated key this is the
-   * summed length of every ingested key's child list, kept as keys and lists change.
-   */
-  #childRowCount = 0;
-  /** Top-level rows the window holds now, kept so the cap is checked without walking the log. */
-  #topLevelRowCount = 0;
-  /**
-   * The adopted log, oldest first, which is also prune order. An array rather than a map so a
-   * repeated key survives here; the row measurement table reports and handles the repeat.
-   */
+  /** The log `#positionByKey` describes. */
+  #positionIndexedRows: readonly WindowRow[] | undefined;
+  /** The span's first and last positions in the last ingested log; empty is `0` and `-1`. */
+  #headPosition = 0;
+  #tailPosition = -1;
+  /** The span's end rows, by which the next ingest finds the span in the log it is handed. */
+  #headKey: string | undefined;
+  #tailKey: string | undefined;
+  /** Whether the span starts at the log's first row, so rows landing in front of it join it. */
+  #holdsLogHead = true;
+  /** Whether the span ends at the log's last row, so appended rows join it. */
+  #holdsLogTail = true;
+  /** The span's rows, oldest first; a new array exactly when the span or its log changed. */
   #rows: readonly WindowRow[] = [];
+  /** The log `#rows` was sliced from. */
+  #slicedRows: readonly WindowRow[] = [];
+  /** The rows the window held when its last pass returned: what the viewport laid out. */
+  #rowsAtLastPrune: readonly WindowRow[] = [];
 
   public constructor(options: TranscriptWindowOptions = {}) {
-    this.#topLevelCap = options.topLevelCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
     this.#retainedStates = new RetainedRowStateTable(options.parkedStateCap);
   }
 
   /**
-   * Adopt the projected log, oldest first, replacing what the window held, rows a prune dropped
-   * included. The window holds the array rather than copying it, so the caller must not mutate it
-   * afterwards.
+   * Adopt the projected log, oldest first, and find the span in it. The window holds the array
+   * rather than copying it, so the caller must not mutate it afterwards.
    *
    * The window is a view over the projection, never a second copy: a row the projection no
-   * longer carries is forgotten, and its retained state parked. Only the span that differs from
-   * the last ingested log is re-indexed; a log sharing neither its head nor its tail with that one
-   * is indexed whole. A row that arrives twice is listed once under its parent, at its first
-   * position, so a projection defect cannot double a run group's subtree.
+   * longer carries is forgotten, and its retained state parked. An end whose row the log no longer
+   * carries moves to the log's end on that side, which keeps more rather than guessing. A row that
+   * arrives twice is listed once under its parent, at its first position.
    */
   public ingest(rows: readonly WindowRow[]): void {
+    if (rows === this.#ingestedRows) {
+      return;
+    }
     const previousRows = this.#ingestedRows;
     this.#ingestedRows = rows;
-    this.#rows = rows;
-    // A new set rather than a cleared one: the last prune's still says what it had dropped.
-    this.#prunedRowKeys = new Set<string>();
-    const arrivedRowKeys =
-      (this.#hasRepeatedRowKey ? undefined : this.#reindexChangedSpan(previousRows, rows)) ??
-      this.#rebuildIndex(previousRows, rows);
-    for (const arrivedRowKey of arrivedRowKeys) {
-      this.#arrivedRowKeys.add(arrivedRowKey);
+    if (this.#hasRepeatedRowKey || !this.#reindexChangedSpan(previousRows, rows)) {
+      this.#rebuildIndex(rows);
     }
-    this.#topLevelRowCount = rows.length - this.#childRowCount;
     this.#retainedStates.parkAllExcept(this.#ingestedRowKeys);
+    const lastPosition = rows.length - 1;
+    const foundHead = this.#holdsLogHead ? 0 : positionOfKey(rows, this.#headKey);
+    const foundTail = this.#holdsLogTail ? lastPosition : positionOfKey(rows, this.#tailKey);
+    const head = foundHead < 0 ? 0 : foundHead;
+    const tail = foundTail < 0 ? lastPosition : foundTail;
+    // Ends the log now carries in the other order hold no span between them; the log is taken whole.
+    if (tail < head) {
+      this.#placeSpan(0, lastPosition);
+    } else {
+      this.#placeSpan(head, tail);
+    }
   }
 
-  /** Every retained row, oldest first. */
+  /** The rows the window holds, oldest first; the same array until the span or the log moves. */
   public rows(): readonly WindowRow[] {
-    return [...this.#rows];
+    return this.#rows;
   }
 
-  /**
-   * Retained top-level rows, the only ones the cap counts. A row naming a parent this window
-   * does not hold is top-level too; see the header.
-   */
-  public topLevelRowKeys(): readonly string[] {
-    return this.#rows.filter((row) => this.#isTopLevel(row)).map((row) => row.key);
+  /** Whether the window starts at the log's first row, leaving nothing before it to admit. */
+  public get holdsLogHead(): boolean {
+    return this.#holdsLogHead;
   }
 
-  /** How many rows the window holds. */
-  public get size(): number {
-    return this.#rows.length;
+  /** Whether the window ends at the log's last row, leaving nothing after it to admit. */
+  public get holdsLogTail(): boolean {
+    return this.#holdsLogTail;
+  }
+
+  /** The key of the log's first row, whether or not the window holds it. */
+  public get logHeadRowKey(): string | undefined {
+    return this.#ingestedRows[0]?.key;
+  }
+
+  /** Whether the last ingested log carries a row under this key, held by the window or not. */
+  public logHoldsRow(rowKey: string): boolean {
+    return this.#ingestedRowKeys.has(rowKey);
   }
 
   /** A row body's retained state, live or parked. */
@@ -200,200 +219,349 @@ export class TranscriptWindow {
   }
 
   /**
-   * Drop the oldest top-level rows, or say why it could not.
+   * Admit and let go for one pass, or say why nothing went.
    *
-   * `owedBecause` is set on every return, including an applied pass: the walk can stop at the
-   * reader's row or skip every candidate as held and still leave the window over its cap.
-   * `reading-floor` and `held-rows` are only known once the walk has run; the other refusals
-   * are decided up front and clear within a frame or two.
+   * A reader outside the span (a jump to the tail, a landing) has the span widened to take them
+   * with the retained share around them; a stretch is admitted on the side asked for; then an
+   * edge past the let-go distance is cut back to the retained share. With the viewport's height or
+   * the reader's place unknown, nothing moves. `owedBecause` is set on every return.
    */
   public prune(conditions: PruneConditions): PruneOutcome {
-    const deferral = this.#deferralFor(conditions);
+    const log = this.#ingestedRows;
+    const screenHeightPx = conditions.viewportHeightPx ?? 0;
+    const readerPosition = this.#readerPositionOf(conditions.readingPosition);
+    if (log.length === 0) {
+      return this.#settle(this.#headPosition, this.#tailPosition, NOTHING_OWED);
+    }
+    if (screenHeightPx <= 0 || readerPosition === undefined) {
+      return this.#settle(this.#headPosition, this.#tailPosition, deferredOutcome("unmeasured"));
+    }
+    const lastPosition = log.length - 1;
+    const anchorPoint =
+      conditions.readingPosition === "tail" ? undefined : conditions.readingPosition;
+    const heightOf = conditions.heightOf;
+    // Distances run from the viewport's top edge upward and from its bottom edge downward. A
+    // follower's viewport ends at the last row; a reader's starts where their row's offset says.
+    const above: EdgeWalk =
+      anchorPoint === undefined
+        ? { log, heightOf, start: lastPosition, step: -1, startDistancePx: -screenHeightPx }
+        : {
+            log,
+            heightOf,
+            start: readerPosition - 1,
+            step: -1,
+            startDistancePx: -anchorPoint.offsetWithinViewportPx,
+          };
+    const below: EdgeWalk | undefined =
+      anchorPoint === undefined
+        ? undefined
+        : {
+            log,
+            heightOf,
+            start: readerPosition,
+            step: 1,
+            startDistancePx: anchorPoint.offsetWithinViewportPx - screenHeightPx,
+          };
+    const retainedPx = TRANSCRIPT_RETAINED_SCREEN_HEIGHTS * screenHeightPx;
+    const letGoPx = TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * screenHeightPx;
+    const stretchPx = TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * screenHeightPx;
+
+    let head = this.#headPosition;
+    let tail = this.#tailPosition;
+    let hasGrown = false;
+    const isReaderOutside =
+      anchorPoint === undefined
+        ? tail < lastPosition
+        : readerPosition < head || readerPosition > tail;
+    if (isReaderOutside) {
+      // A jump to the tail or a landing: the span takes the reader and the share around them, and
+      // the cut below lets go of what is now far from them.
+      const beyondAbove = firstPositionBeyond(above, 0, retainedPx);
+      head = Math.min(head, readerPosition, beyondAbove === undefined ? 0 : beyondAbove + 1);
+      const beyondBelow =
+        below === undefined ? undefined : firstPositionBeyond(below, lastPosition, retainedPx);
+      tail =
+        below === undefined
+          ? lastPosition
+          : Math.max(
+              tail,
+              readerPosition,
+              beyondBelow === undefined ? lastPosition : beyondBelow - 1,
+            );
+      hasGrown = true;
+    }
+    if (conditions.admitSide === "head" && head > 0) {
+      const beyond = firstPositionBeyond(
+        { log, heightOf, start: head - 1, step: -1, startDistancePx: 0 },
+        0,
+        stretchPx,
+      );
+      head = beyond === undefined ? 0 : beyond + 1;
+      hasGrown = true;
+    } else if (conditions.admitSide === "tail" && tail < lastPosition) {
+      const beyond = firstPositionBeyond(
+        { log, heightOf, start: tail + 1, step: 1, startDistancePx: 0 },
+        lastPosition,
+        stretchPx,
+      );
+      tail = beyond === undefined ? lastPosition : beyond - 1;
+      hasGrown = true;
+    }
+    if (hasGrown) {
+      [head, tail] = this.#takeWholeGroups(head, tail);
+    }
+
+    // An edge is cut only once it sits past the let-go distance, and then back to the share.
+    const headCutEnd =
+      firstPositionBeyond(above, head, letGoPx) === undefined
+        ? undefined
+        : (firstPositionBeyond(above, head, retainedPx) ?? head - 1) + 1;
+    const tailCutStart =
+      below === undefined || firstPositionBeyond(below, tail, letGoPx) === undefined
+        ? undefined
+        : (firstPositionBeyond(below, tail, retainedPx) ?? tail + 1);
+    if (headCutEnd === undefined && tailCutStart === undefined) {
+      return this.#settle(head, tail, NOTHING_OWED);
+    }
+    const deferral = deferralFor(conditions);
     if (deferral !== undefined) {
-      return this.#settle({
-        applied: false,
-        deferredBecause: deferral,
-        owedBecause: deferral === "under-cap" ? undefined : deferral,
-        prunedKeys: [],
-        newlyPrunedKeys: [],
-        topLevelRetained: this.#topLevelRowCount,
+      return this.#settle(head, tail, deferredOutcome(deferral));
+    }
+
+    const protectedReasons = protectedRowReasons(conditions, log[readerPosition]?.key);
+    let stoppedBecause: PruneDeferralReason | undefined;
+    let keptHead = head;
+    if (headCutEnd !== undefined) {
+      const cut = this.#headCut(head, headCutEnd, tail, protectedReasons);
+      keptHead = cut.keptEdge;
+      stoppedBecause = cut.stoppedBecause;
+    }
+    let keptTail = tail;
+    if (tailCutStart !== undefined) {
+      const cut = this.#tailCut(tailCutStart, tail, keptHead, protectedReasons);
+      keptTail = cut.keptEdge;
+      stoppedBecause ??= cut.stoppedBecause;
+    }
+    const prunedAboveRows = log.slice(head, keptHead);
+    const prunedBelowRows = log.slice(keptTail + 1, tail + 1);
+    if (prunedAboveRows.length === 0 && prunedBelowRows.length === 0) {
+      return this.#settle(head, tail, {
+        ...deferredOutcome(stoppedBecause ?? "within-share"),
+        owedBecause: stoppedBecause,
       });
     }
-    const heldRowKeys = new Set(conditions.heldRowKeys);
-    const removedKeys = new Set<string>();
-    const prunedKeys: string[] = [];
-    const newlyPrunedKeys: string[] = [];
-    const keysFromReadingFloor = this.#keysFromReadingFloor(conditions.readingFloorRowKey);
-    let remainingToDrop = this.#topLevelRowCount - this.#topLevelCap;
-    let stoppedAtReadingFloor = false;
-    // Oldest first, and no further than the cap needs.
-    for (const row of this.#rows) {
-      if (remainingToDrop <= 0) {
-        break;
-      }
-      if (!this.#isTopLevel(row)) {
-        continue;
-      }
-      const closure = this.#ancestorClosure(row.key);
-      if (closure.some((closedKey) => keysFromReadingFloor.has(closedKey))) {
-        stoppedAtReadingFloor = true;
-        break;
-      }
-      if (closure.some((closedKey) => heldRowKeys.has(closedKey))) {
-        // A held row is never pruned and never orphaned: a run group with an open child stays
-        // whole.
-        continue;
-      }
-      for (const closedKey of closure) {
-        if (removedKeys.has(closedKey)) {
-          continue;
-        }
-        removedKeys.add(closedKey);
-        this.#retainedStates.park(closedKey);
-        prunedKeys.push(closedKey);
-        if (this.#wasHeldAtLastPrune(closedKey)) {
-          newlyPrunedKeys.push(closedKey);
-        }
-      }
-      remainingToDrop -= 1;
+    const shownRowKeys =
+      prunedAboveRows.length === 0
+        ? new Set<string>()
+        : new Set(this.#rowsAtLastPrune.map((row) => row.key));
+    const prunedKeys = [...prunedAboveRows, ...prunedBelowRows].map((row) => row.key);
+    for (const prunedKey of prunedKeys) {
+      this.#retainedStates.park(prunedKey);
     }
-    // `remainingToDrop` above zero means the window is still over its cap: the reader's floor
-    // stopped the walk, or every remaining candidate was held.
-    const blockedBy: PruneDeferralReason | undefined =
-      remainingToDrop <= 0 ? undefined : stoppedAtReadingFloor ? "reading-floor" : "held-rows";
-    if (blockedBy !== undefined && prunedKeys.length === 0) {
-      // Named rather than returned as an applied prune with an empty key list, which would be
-      // indistinguishable from a window already under cap.
-      return this.#settle({
-        applied: false,
-        deferredBecause: blockedBy,
-        owedBecause: blockedBy,
-        prunedKeys: [],
-        newlyPrunedKeys: [],
-        topLevelRetained: this.#topLevelRowCount,
-      });
-    }
-    let removedTopLevelCount = 0;
-    this.#rows = this.#rows.filter((row) => {
-      if (!removedKeys.has(row.key)) {
-        return true;
-      }
-      if (this.#isTopLevel(row)) {
-        removedTopLevelCount += 1;
-      }
-      return false;
-    });
-    for (const removedKey of removedKeys) {
-      this.#prunedRowKeys.add(removedKey);
-    }
-    // The closure takes every row hanging from a dropped row, so no kept row turns top-level.
-    this.#topLevelRowCount -= removedTopLevelCount;
-    return this.#settle({
+    return this.#settle(keptHead, keptTail, {
       applied: true,
       deferredBecause: undefined,
-      owedBecause: blockedBy,
+      owedBecause: stoppedBecause,
       prunedKeys,
-      newlyPrunedKeys,
-      topLevelRetained: this.#topLevelRowCount,
+      prunedAboveKeys: prunedAboveRows
+        .map((row) => row.key)
+        .filter((rowKey) => shownRowKeys.has(rowKey)),
     });
   }
 
-  /** Mark what the window holds as a pass returns, which the next pass's newly pruned rows read. */
-  #settle(outcome: PruneOutcome): PruneOutcome {
-    this.#droppedAtLastPrune = this.#prunedRowKeys;
-    this.#arrivedRowKeys.clear();
+  /** Move the span to the positions a pass settled on, and mark what the window now holds. */
+  #settle(head: number, tail: number, outcome: PruneOutcome): PruneOutcome {
+    this.#placeSpan(head, tail);
+    this.#rowsAtLastPrune = this.#rows;
     return outcome;
   }
 
-  /** Whether the window held a row of its log when its last prune returned. */
-  #wasHeldAtLastPrune(rowKey: string): boolean {
-    return !this.#arrivedRowKeys.has(rowKey) && !this.#droppedAtLastPrune.has(rowKey);
+  #placeSpan(head: number, tail: number): void {
+    const log = this.#ingestedRows;
+    if (log !== this.#slicedRows || head !== this.#headPosition || tail !== this.#tailPosition) {
+      this.#rows = log.slice(head, tail + 1);
+    }
+    this.#slicedRows = log;
+    this.#headPosition = head;
+    this.#tailPosition = tail;
+    this.#headKey = log[head]?.key;
+    this.#tailKey = log[tail]?.key;
+    this.#holdsLogHead = head <= 0;
+    this.#holdsLogTail = tail >= log.length - 1;
   }
 
-  #deferralFor(conditions: PruneConditions): PruneDeferralReason | undefined {
-    if (this.#topLevelRowCount <= this.#topLevelCap) {
-      return "under-cap";
+  /** The reader's position in the log: the last row while following, `undefined` when unplaced. */
+  #readerPositionOf(readingPosition: PruneConditions["readingPosition"]): number | undefined {
+    if (readingPosition === undefined) {
+      return undefined;
     }
-    if (conditions.pinnedRootCursor !== undefined) {
-      return "pinned-history";
+    if (readingPosition === "tail") {
+      return this.#ingestedRows.length - 1;
     }
-    if (conditions.hasActiveTurn) {
-      return "active-turn";
+    const position = positionOfKey(this.#ingestedRows, readingPosition.rowKey);
+    return position < 0 ? undefined : position;
+  }
+
+  /**
+   * Where the head cut ends: before the first protected row, and before any row tied by hanging
+   * to a row the window keeps, so a run group never leaves without its children.
+   */
+  #headCut(
+    head: number,
+    cutEnd: number,
+    tail: number,
+    protectedReasons: ReadonlyMap<string, PruneDeferralReason>,
+  ): WindowCut {
+    let keptHead = cutEnd;
+    let stoppedBecause: PruneDeferralReason | undefined;
+    for (let position = head; position < keptHead; position += 1) {
+      const reason = protectedReasons.get(this.#ingestedRows[position]?.key ?? "");
+      if (reason !== undefined) {
+        keptHead = position;
+        stoppedBecause = reason;
+        break;
+      }
     }
-    if (conditions.scrollControllerVetoes) {
-      return "scroll-write";
+    for (;;) {
+      const tiedPosition = this.#firstTiedPosition(head, keptHead - 1, head, tail, 1);
+      if (tiedPosition === undefined) {
+        return { keptEdge: keptHead, stoppedBecause };
+      }
+      keptHead = tiedPosition;
     }
-    if (conditions.revealDrainInFlight) {
-      return "reveal-drain";
+  }
+
+  /** Where the tail cut starts, under the same stops as the head cut, read from the tail up. */
+  #tailCut(
+    cutStart: number,
+    tail: number,
+    head: number,
+    protectedReasons: ReadonlyMap<string, PruneDeferralReason>,
+  ): WindowCut {
+    let keptTail = cutStart - 1;
+    let stoppedBecause: PruneDeferralReason | undefined;
+    for (let position = tail; position > keptTail; position -= 1) {
+      const reason = protectedReasons.get(this.#ingestedRows[position]?.key ?? "");
+      if (reason !== undefined) {
+        keptTail = position;
+        stoppedBecause = reason;
+        break;
+      }
+    }
+    for (;;) {
+      const tiedPosition = this.#firstTiedPosition(tail, keptTail + 1, head, tail, -1);
+      if (tiedPosition === undefined) {
+        return { keptEdge: keptTail, stoppedBecause };
+      }
+      keptTail = tiedPosition;
+    }
+  }
+
+  /**
+   * The first row, walking a cut range from the window's edge (`outerEnd`) in to `innerEnd`, whose
+   * parent or child the window keeps; `undefined` when the cut takes whole groups.
+   */
+  #firstTiedPosition(
+    outerEnd: number,
+    innerEnd: number,
+    head: number,
+    tail: number,
+    step: 1 | -1,
+  ): number | undefined {
+    const log = this.#ingestedRows;
+    if (step === 1 ? innerEnd < outerEnd : innerEnd > outerEnd) {
+      return undefined;
+    }
+    const cutKeys = new Set<string>();
+    for (let position = outerEnd; position !== innerEnd + step; position += step) {
+      cutKeys.add(log[position]?.key ?? "");
+    }
+    const windowKeys = new Set(log.slice(head, tail + 1).map((row) => row.key));
+    for (let position = outerEnd; position !== innerEnd + step; position += step) {
+      const row = log[position];
+      if (row === undefined) {
+        continue;
+      }
+      const isTiedAcross = this.#tiedKeysOf(row).some(
+        (tiedKey) => !cutKeys.has(tiedKey) && windowKeys.has(tiedKey),
+      );
+      if (isTiedAcross) {
+        return position;
+      }
     }
     return undefined;
   }
 
-  /** A row and every descendant beneath it, parents before children. */
-  #ancestorClosure(rootKey: string): readonly string[] {
-    const closure: string[] = [rootKey];
-    // The loop also visits each key appended while it runs, so the array is its own queue.
-    for (const key of closure) {
-      closure.push(...this.#childKeysOf(key));
+  /** Widen a span until every row in it has its parent and its children in it too. */
+  #takeWholeGroups(head: number, tail: number): readonly [number, number] {
+    let first = head;
+    let last = tail;
+    let unread: (readonly [number, number])[] = [[head, tail]];
+    while (unread.length > 0) {
+      let nextFirst = first;
+      let nextLast = last;
+      for (const [from, to] of unread) {
+        for (let position = from; position <= to; position += 1) {
+          const row = this.#ingestedRows[position];
+          for (const tiedKey of row === undefined ? [] : this.#tiedKeysOf(row)) {
+            const tiedPosition = this.#positionOf(tiedKey);
+            if (tiedPosition !== undefined) {
+              nextFirst = Math.min(nextFirst, tiedPosition);
+              nextLast = Math.max(nextLast, tiedPosition);
+            }
+          }
+        }
+      }
+      unread = [];
+      if (nextFirst < first) {
+        unread.push([nextFirst, first - 1]);
+      }
+      if (nextLast > last) {
+        unread.push([last + 1, nextLast]);
+      }
+      first = nextFirst;
+      last = nextLast;
     }
-    return closure;
+    return [first, last];
   }
 
-  /** Whether a held row counts against the cap: it has no parent the window holds. */
-  #isTopLevel(row: WindowRow): boolean {
-    return row.parentKey === undefined || !this.#holdsRowKey(row.parentKey);
+  /** The keys a row hangs from or holds that the log carries: its parent and its children. */
+  #tiedKeysOf(row: WindowRow): readonly string[] {
+    const childKeys = this.#childKeysByParentKey.get(row.key) ?? [];
+    return row.parentKey !== undefined && this.#ingestedRowKeys.has(row.parentKey)
+      ? [row.parentKey, ...childKeys]
+      : childKeys;
   }
 
-  /**
-   * Whether the window holds a row under this key: ingested, and not pruned since. No key is
-   * pruned between an ingest and its prune, so that lookup is skipped then; the prune walk asks
-   * this once per row.
-   */
-  #holdsRowKey(rowKey: string): boolean {
-    return (
-      this.#ingestedRowKeys.has(rowKey) &&
-      (this.#prunedRowKeys.size === 0 || !this.#prunedRowKeys.has(rowKey))
-    );
-  }
-
-  /** A row's child keys in log order; none once a prune dropped the row. */
-  #childKeysOf(rowKey: string): readonly string[] {
-    return this.#prunedRowKeys.has(rowKey) ? [] : (this.#childKeysByParentKey.get(rowKey) ?? []);
-  }
-
-  /**
-   * Index every row, discarding the old index, and answer the keys `previousRows` lacked. Those
-   * are read off the rows rather than the old index, which a failed re-index left partial.
-   */
-  #rebuildIndex(
-    previousRows: readonly WindowRow[],
-    rows: readonly WindowRow[],
-  ): ReadonlySet<string> {
-    const previousRowKeys = new Set<string>();
-    for (const row of previousRows) {
-      previousRowKeys.add(row.key);
+  /** A key's first position in the last ingested log, indexed once per log on first ask. */
+  #positionOf(rowKey: string): number | undefined {
+    if (this.#positionIndexedRows !== this.#ingestedRows) {
+      this.#positionByKey.clear();
+      for (const [position, row] of this.#ingestedRows.entries()) {
+        if (!this.#positionByKey.has(row.key)) {
+          this.#positionByKey.set(row.key, position);
+        }
+      }
+      this.#positionIndexedRows = this.#ingestedRows;
     }
-    const arrivedRowKeys = new Set<string>();
+    return this.#positionByKey.get(rowKey);
+  }
+
+  /** Index every row, discarding the old index. */
+  #rebuildIndex(rows: readonly WindowRow[]): void {
     this.#ingestedRowKeys.clear();
     this.#childKeysByParentKey.clear();
     for (const row of rows) {
       this.#ingestedRowKeys.add(row.key);
-      if (!previousRowKeys.has(row.key)) {
-        arrivedRowKeys.add(row.key);
-      }
     }
     this.#hasRepeatedRowKey = this.#ingestedRowKeys.size !== rows.length;
     // Only a repeated key can list a child twice under one parent, so these exist only then.
     const listedChildKeysByParentKey = this.#hasRepeatedRowKey
       ? new Map<string, Set<string>>()
       : undefined;
-    this.#childRowCount = 0;
     for (const row of rows) {
       if (row.parentKey === undefined) {
         continue;
-      }
-      if (this.#ingestedRowKeys.has(row.parentKey)) {
-        this.#childRowCount += 1;
       }
       if (listedChildKeysByParentKey !== undefined) {
         const listedChildKeys = listedChildKeysByParentKey.get(row.parentKey) ?? new Set<string>();
@@ -410,53 +578,38 @@ export class TranscriptWindow {
         siblingKeys.push(row.key);
       }
     }
-    return arrivedRowKeys;
   }
 
   /**
-   * Re-index only what differs between the last ingested log and `nextRows`, and answer the keys
-   * the re-indexed span gained. Answers `undefined`, leaving a partial index for the caller to
-   * rebuild, when the two share neither a head nor a tail or `nextRows` repeats a key.
+   * Re-index only what differs between the last ingested log and `nextRows`. Answers `false`,
+   * leaving a partial index for the caller to rebuild, when the two share neither a head nor a
+   * tail or `nextRows` repeats a key.
    *
    * The changed span is re-indexed together with the shorter shared end, so the rows it forgets
    * and adds sit at one end of the log, and each child list it touches changes only at that end.
    */
-  #reindexChangedSpan(
-    previousRows: readonly WindowRow[],
-    nextRows: readonly WindowRow[],
-  ): ReadonlySet<string> | undefined {
+  #reindexChangedSpan(previousRows: readonly WindowRow[], nextRows: readonly WindowRow[]): boolean {
     const sharedHeadCount = sharedHeadLength(previousRows, nextRows);
     const sharedTailCount = sharedTailLength(previousRows, nextRows, sharedHeadCount);
     if (sharedHeadCount === 0 && sharedTailCount === 0) {
-      return undefined;
+      return false;
     }
     if (sharedHeadCount >= sharedTailCount) {
-      const forgottenRowKeys = this.#unindexRows(previousRows.slice(sharedHeadCount), "tail");
-      return this.#indexRows(nextRows.slice(sharedHeadCount), "tail", forgottenRowKeys);
+      this.#unindexRows(previousRows.slice(sharedHeadCount), "tail");
+      return this.#indexRows(nextRows.slice(sharedHeadCount), "tail");
     }
-    const forgottenRowKeys = this.#unindexRows(
-      previousRows.slice(0, previousRows.length - sharedTailCount),
-      "head",
-    );
-    return this.#indexRows(
-      nextRows.slice(0, nextRows.length - sharedTailCount),
-      "head",
-      forgottenRowKeys,
-    );
+    this.#unindexRows(previousRows.slice(0, previousRows.length - sharedTailCount), "head");
+    return this.#indexRows(nextRows.slice(0, nextRows.length - sharedTailCount), "head");
   }
 
   /**
-   * Forget rows that sit together at one end of the last ingested log, and answer their keys.
-   * Their children are the same end of each parent's list, since the list is in log order and
-   * holds no repeat.
+   * Forget rows that sit together at one end of the last ingested log. Their children are the
+   * same end of each parent's list, since the list is in log order and holds no repeat.
    */
-  #unindexRows(rows: readonly WindowRow[], end: LogEnd): ReadonlySet<string> {
-    const forgottenRowKeys = new Set<string>();
+  #unindexRows(rows: readonly WindowRow[], end: WindowSide): void {
     const forgottenCountByParentKey = new Map<string, number>();
     for (const row of rows) {
-      forgottenRowKeys.add(row.key);
       this.#ingestedRowKeys.delete(row.key);
-      this.#childRowCount -= this.#childKeysByParentKey.get(row.key)?.length ?? 0;
       if (row.parentKey !== undefined) {
         const forgottenCount = forgottenCountByParentKey.get(row.parentKey) ?? 0;
         forgottenCountByParentKey.set(row.parentKey, forgottenCount + 1);
@@ -469,36 +622,22 @@ export class TranscriptWindow {
       } else {
         siblingKeys.length -= forgottenCount;
       }
-      if (this.#ingestedRowKeys.has(parentKey)) {
-        this.#childRowCount -= forgottenCount;
-      }
       if (siblingKeys.length === 0) {
         this.#childKeysByParentKey.delete(parentKey);
       }
     }
-    return forgottenRowKeys;
   }
 
   /**
-   * Index rows that go together at one end of the log, and answer the keys among them that the
-   * span this replaces lacked; `undefined` when one repeats a key.
+   * Index rows that go together at one end of the log; `false` when one repeats a key.
    */
-  #indexRows(
-    rows: readonly WindowRow[],
-    end: LogEnd,
-    forgottenRowKeys: ReadonlySet<string>,
-  ): ReadonlySet<string> | undefined {
-    const arrivedRowKeys = new Set<string>();
+  #indexRows(rows: readonly WindowRow[], end: WindowSide): boolean {
     const addedChildKeysByParentKey = new Map<string, string[]>();
     for (const row of rows) {
       if (this.#ingestedRowKeys.has(row.key)) {
-        return undefined;
+        return false;
       }
       this.#ingestedRowKeys.add(row.key);
-      if (!forgottenRowKeys.has(row.key)) {
-        arrivedRowKeys.add(row.key);
-      }
-      this.#childRowCount += this.#childKeysByParentKey.get(row.key)?.length ?? 0;
       if (row.parentKey !== undefined) {
         const addedChildKeys = addedChildKeysByParentKey.get(row.parentKey);
         if (addedChildKeys === undefined) {
@@ -509,9 +648,6 @@ export class TranscriptWindow {
       }
     }
     for (const [parentKey, addedChildKeys] of addedChildKeysByParentKey) {
-      if (this.#ingestedRowKeys.has(parentKey)) {
-        this.#childRowCount += addedChildKeys.length;
-      }
       const siblingKeys = this.#childKeysByParentKey.get(parentKey);
       if (siblingKeys === undefined) {
         this.#childKeysByParentKey.set(parentKey, addedChildKeys);
@@ -523,35 +659,101 @@ export class TranscriptWindow {
         }
       }
     }
-    return arrivedRowKeys;
-  }
-
-  /**
-   * Every key from the reader's row to the end of the window, the set the drop may not touch;
-   * empty when there is no floor, or when the floor names a row the window no longer holds.
-   * A repeated key resolves to its first occurrence, which protects the most.
-   */
-  #keysFromReadingFloor(readingFloorRowKey: string | undefined): ReadonlySet<string> {
-    const keysFromFloor = new Set<string>();
-    if (readingFloorRowKey === undefined) {
-      return keysFromFloor;
-    }
-    const floorPosition = this.#rows.findIndex((row) => row.key === readingFloorRowKey);
-    if (floorPosition < 0) {
-      return keysFromFloor;
-    }
-    for (let position = floorPosition; position < this.#rows.length; position += 1) {
-      const rowKey = this.#rows[position]?.key;
-      if (rowKey !== undefined) {
-        keysFromFloor.add(rowKey);
-      }
-    }
-    return keysFromFloor;
+    return true;
   }
 }
 
-/** The end of the log a re-indexed span sits at. */
-type LogEnd = "head" | "tail";
+/** A pass that had nothing past the let-go distance on either side. */
+const NOTHING_OWED: PruneOutcome = deferredOutcome("within-share");
+
+/** One side's cut: the last position kept on that side, and what stopped it short, if anything. */
+interface WindowCut {
+  readonly keptEdge: number;
+  readonly stoppedBecause: PruneDeferralReason | undefined;
+}
+
+/**
+ * A walk outward from the viewport over the log: the first position, the direction, and the
+ * distance of that first row's near edge from the viewport's edge on that side.
+ */
+interface EdgeWalk {
+  readonly log: readonly WindowRow[];
+  readonly heightOf: (rowKey: string) => number;
+  readonly start: number;
+  readonly step: 1 | -1;
+  readonly startDistancePx: number;
+}
+
+/**
+ * The first position of a walk, no further than `bound`, whose near edge sits `linePx` or more
+ * from the viewport, or `undefined` when none does. A row's distance is the walk's start distance
+ * plus the heights of the rows walked before it.
+ */
+function firstPositionBeyond(walk: EdgeWalk, bound: number, linePx: number): number | undefined {
+  let distancePx = walk.startDistancePx;
+  for (
+    let position = walk.start;
+    walk.step < 0 ? position >= bound : position <= bound;
+    position += walk.step
+  ) {
+    if (distancePx >= linePx) {
+      return position;
+    }
+    distancePx += walk.heightOf(walk.log[position]?.key ?? "");
+  }
+  return undefined;
+}
+
+/** A pass that let nothing go, for one reason it names and owes. */
+function deferredOutcome(reason: PruneDeferralReason): PruneOutcome {
+  return {
+    applied: false,
+    deferredBecause: reason,
+    owedBecause: reason === "within-share" ? undefined : reason,
+    prunedKeys: [],
+    prunedAboveKeys: [],
+  };
+}
+
+/** The refusal a cut waits out, decided before any row is read. */
+function deferralFor(conditions: PruneConditions): PruneDeferralReason | undefined {
+  if (conditions.hasActiveTurn) {
+    return "active-turn";
+  }
+  if (conditions.scrollControllerVetoes) {
+    return "scroll-write";
+  }
+  if (conditions.revealDrainInFlight) {
+    return "reveal-drain";
+  }
+  return undefined;
+}
+
+/**
+ * Every row a cut must stop short of, with the reason it names: a held row, a row on screen, and
+ * the reader's row, which outranks the others.
+ */
+function protectedRowReasons(
+  conditions: PruneConditions,
+  readerRowKey: string | undefined,
+): ReadonlyMap<string, PruneDeferralReason> {
+  const reasons = new Map<string, PruneDeferralReason>();
+  for (const heldRowKey of conditions.heldRowKeys) {
+    reasons.set(heldRowKey, "held-rows");
+  }
+  for (const onScreenRowKey of conditions.onScreenRowKeys) {
+    reasons.set(onScreenRowKey, "on-screen-rows");
+  }
+  if (readerRowKey !== undefined) {
+    reasons.set(readerRowKey, "reading-floor");
+  }
+  return reasons;
+}
+
+/** A key's first position in a log, or `-1`; a repeated key resolves to its first occurrence. */
+function positionOfKey(rows: readonly WindowRow[], rowKey: string | undefined): number {
+  return rowKey === undefined ? -1 : rows.findIndex((row) => row.key === rowKey);
+}
 
 /**
  * Whether two rows are alike to the index, which reads only a row's key and parent key. A row past

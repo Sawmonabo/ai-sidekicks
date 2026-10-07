@@ -1,27 +1,33 @@
-// The window's cap cycle: one prune asked with every condition that can refuse it, and the
+// The window's cycle: one pass asked with the reading position, the viewport's height and every
+// condition that can refuse a cut, the stretch a reader's approach to an edge is owed, and the
 // re-ask a refusal owes.
 //
-// The state a re-ask needs (last conditions, outcome, held set) lives beside the pass that
-// produces it, not among the controller's fields. The cycle asks the anchor for the floor, the
-// held rows and whether a pin is gone, and notifies nobody, which keeps the controller's
-// publication point single. It owns the compensation for pruned height because only the pass
-// knows how many pixels it took; the controller decides when to pay it, after the row set is
-// rebuilt, so a glide's geometry sample never wakes a subscriber against stale keys. The feed
-// hands over the whole log on every pass, so the cap drops the same head rows again each time;
-// the pass pays only for the rows that left the window it last published, and a remembered height
-// outlives its row's prune, so a backward page that brings the row back lays it out at it.
+// The state a re-ask needs (last conditions, outcome, held and on-screen sets) lives beside the
+// pass that produces it, not among the controller's fields. The cycle reads the anchor and the
+// virtualizer and notifies nobody, which keeps the controller's publication point single. It owns
+// the compensation for the height let go above the reader because only the pass knows which rows
+// went; the controller pays it after the row set is rebuilt, so a glide's geometry sample never
+// wakes a subscriber against stale keys. Every height is read as the virtualizer laid the row
+// out, so the pass and the scroll offset agree about where each edge of the window sits.
 
-import { IdleMemoryTrim } from "./idle-trim.js";
-import { type ReadingAnchor } from "./reading-anchor.js";
-import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type Clock } from "#renderer/lib/clock.js";
+import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
+import {
+  TRANSCRIPT_APPROACH_SCREEN_HEIGHTS,
+  TRANSCRIPT_GESTURE_GAP_MS,
+  TRANSCRIPT_LET_GO_SCREEN_HEIGHTS,
+} from "./caps.js";
+import { IdleMemoryTrim } from "./idle-trim.js";
+import { type ReadingAnchor, type ReadingAnchorPoint } from "./reading-anchor.js";
+import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type ViewportConditions } from "./snapshot.js";
 import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import {
-  type TranscriptWindow,
   type PruneDeferralReason,
   type PruneOutcome,
+  type TranscriptWindow,
+  type WindowSide,
 } from "./window-cap.js";
 
 /** Dependencies of a `ViewportPruneCycle`. */
@@ -33,43 +39,61 @@ export interface ViewportPruneCycleOptions {
   readonly clock: Clock;
   /** The virtualizer that laid the rows out, once it is bound. */
   readonly virtualizer: () => TranscriptRowVirtualizer | undefined;
+  /** The keys the viewport last published, in the order the virtualizer laid them out. */
+  readonly publishedRowKeys: () => readonly string[];
+  /** A published key's index in that order, or `undefined` for a key it does not hold. */
+  readonly publishedIndexOf: (rowKey: string) => number | undefined;
 }
 
-/** What one pass took, and the floor it was told to stop at. */
+/** What one pass took, for the controller to pay. */
 export interface ViewportPruneCycleResult {
   /**
-   * The height the rows that left the published window were laid out at, summed in pixels;
-   * zero while following, when no offset is held.
+   * The height the rows let go above the reader were laid out at, summed in pixels; zero while
+   * following, when the virtualizer's end anchor holds the position.
    */
   readonly prunedHeightPx: number;
-  /** The row the drop may not walk past, or `undefined` while following. */
-  readonly readingFloorRowKey: string | undefined;
+  /** Whether the reader followed the tail during the pass. */
+  readonly isFollowing: boolean;
 }
 
-/** Applies the window cap under every refusal condition and re-asks when a refusal lifts. */
+/** A pass a reader's scroll sample asks for, and the side a stretch is admitted on, if any. */
+export interface WindowPassRequest {
+  readonly admitSide: WindowSide | undefined;
+}
+
+/** Runs the window under every refusal condition, admits on approach, and re-asks a refusal. */
 export class ViewportPruneCycle {
   readonly #window: TranscriptWindow;
   readonly #measurements: RowMeasurementTable;
   readonly #anchor: ReadingAnchor;
   readonly #scroll: ScrollController;
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
+  readonly #publishedRowKeys: () => readonly string[];
+  readonly #publishedIndexOf: (rowKey: string) => number | undefined;
   /**
-   * Owned here because `run` is called once per reconcile, the frame's signal that the
-   * transcript moved; the trim measures quiet time against the clock.
+   * Owned here because `run` is called once per pass, the frame's signal that the transcript
+   * moved; the trim measures quiet time against the clock.
    */
   readonly #idleTrim: IdleMemoryTrim;
 
   #lastOutcome: PruneOutcome | undefined;
   /**
-   * The conditions the last pass folded in, kept so a deferred prune is re-asked with them; a
-   * re-ask must not invent a row set nobody is showing.
+   * The conditions the last pass folded in, kept so a deferred pass or a reader's approach is
+   * run with them; a re-ask must not invent a row set nobody is showing.
    */
   #lastConditions: ViewportConditions | undefined;
-  /**
-   * The held set the last pass ran against. It is not on `ViewportConditions`, so `held-rows`
-   * is answered by comparing it with the anchor's current one.
-   */
+  /** The held set the last pass ran against; `held-rows` clears when it changes. */
   #lastHeldRowKeys: readonly string[] = [];
+  /** The rows on screen when the last pass ran; `on-screen-rows` clears when they change. */
+  #lastOnScreenRowKeys: readonly string[] = [];
+  /** The reader's row when the last pass ran; `reading-floor` clears when it changes. */
+  #lastReadingRowKey: string | undefined;
+  /** The last sample heard, of any cause, so an edge crossing the let-go distance is told apart. */
+  #lastSample: ScrollGeometry | undefined;
+  /** The clock stamp of the reader's last scroll sample, which a pause measures from. */
+  #lastReaderSampleAtMs: number | undefined;
+  /** Whether the reader's current gesture has had its stretch. */
+  #hasGestureAdmitted = false;
 
   public constructor(options: ViewportPruneCycleOptions) {
     this.#window = options.window;
@@ -77,6 +101,8 @@ export class ViewportPruneCycle {
     this.#anchor = options.anchor;
     this.#scroll = options.scroll;
     this.#virtualizer = options.virtualizer;
+    this.#publishedRowKeys = options.publishedRowKeys;
+    this.#publishedIndexOf = options.publishedIndexOf;
     this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
       window: options.window,
@@ -89,47 +115,57 @@ export class ViewportPruneCycle {
     return this.#lastOutcome;
   }
 
-  /**
-   * The row the prune may not walk past, or `undefined` while following, when the tail is the
-   * position and the cap may take every row it allows.
-   */
-  public readingFloorRowKey(): string | undefined {
-    const reading = this.#anchor.state;
-    return reading.mode === "following" ? undefined : reading.anchorPoint?.rowKey;
+  /** The conditions the last pass ran with, which a pass the feed did not ask for runs again. */
+  public get lastConditions(): ViewportConditions | undefined {
+    return this.#lastConditions;
   }
 
   /**
-   * Ingests one render's rows, then applies the cap to the full set. The pruned height is summed
-   * before the virtualizer re-renders, while it still lays out the rows that left.
+   * Ingests one render's rows, then admits and lets go around the reading position. The height
+   * let go is summed before the virtualizer re-renders, while it still lays out the rows that left.
    */
-  public run(conditions: ViewportConditions): ViewportPruneCycleResult {
+  public run(conditions: ViewportConditions, admitSide?: WindowSide): ViewportPruneCycleResult {
     // The transcript moved: if it was still for a dwell, the idle trim runs now.
     this.#idleTrim.noteActivity();
     this.#lastConditions = conditions;
-    const readingFloorRowKey = this.readingFloorRowKey();
+    const readingPosition = this.#readingPosition();
     const heldRowKeys = this.#anchor.heldRowKeys();
+    const onScreenRowKeys = this.#onScreenRowKeys();
     this.#lastHeldRowKeys = heldRowKeys;
+    this.#lastOnScreenRowKeys = onScreenRowKeys;
+    this.#lastReadingRowKey = readingPositionRowKey(readingPosition);
+    // Rebuilds the library's measurement memo when a row measured since it was last read, so the
+    // sizes read below are the ones the offset was laid out with.
+    this.#virtualizer()?.getTotalSize();
     this.#window.ingest(conditions.rows);
     const outcome = this.#window.prune({
       hasActiveTurn: conditions.hasActiveTurn,
       scrollControllerVetoes: this.#scroll.vetoesPrune(),
       revealDrainInFlight: conditions.isRevealDraining,
-      pinnedRootCursor: this.#anchor.state.pinnedRootCursor,
       heldRowKeys,
-      readingFloorRowKey,
+      onScreenRowKeys,
+      readingPosition,
+      viewportHeightPx: this.#scroll.geometry?.viewportHeight,
+      heightOf: (rowKey) => this.#laidOutHeightOf(rowKey),
+      admitSide,
     });
     this.#lastOutcome = outcome;
-    const prunedHeightPx =
-      readingFloorRowKey === undefined ? 0 : this.#laidOutHeightOf(outcome.newlyPrunedKeys);
-    return { prunedHeightPx, readingFloorRowKey };
+    const isFollowing = readingPosition === "tail";
+    const prunedHeightPx = isFollowing
+      ? 0
+      : outcome.prunedAboveKeys.reduce(
+          (heightPx, rowKey) => heightPx + this.#laidOutHeightOf(rowKey),
+          0,
+        );
+    return { prunedHeightPx, isFollowing };
   }
 
   /**
-   * Moves the offset up by exactly what the pass took from above the reader.
+   * Moves the offset up by exactly what the pass let go above the reader.
    *
    * Arithmetic, not an anchor glide: React has not re-rendered, so the virtualizer still answers
-   * in pre-prune offsets, and the reading floor guarantees the dropped pixels sat above the
-   * reader. Returns whether the offset moved, so the caller can fall back to the anchor glide.
+   * in pre-cut offsets, and the cut stops short of the reader's row, so the pixels it took sat
+   * above them. Returns whether the offset moved, so the caller can fall back to the anchor glide.
    */
   public compensateForPrunedHeight(prunedHeightPx: number): boolean {
     const currentScrollTopPx = this.#scroll.geometry?.scrollTop;
@@ -142,13 +178,64 @@ export class ViewportPruneCycle {
   }
 
   /**
+   * The pass a geometry sample asks for, or `undefined` when it asks for none: a stretch when the
+   * reader comes within the approach distance of an edge the log holds rows past, once per
+   * gesture, or a cut when an edge has just drifted past the let-go distance.
+   *
+   * Only the reader's own scroll asks; a sample a programmatic write published is the transcript
+   * moving itself. A gesture ends at a pause of `TRANSCRIPT_GESTURE_GAP_MS` between the reader's
+   * samples, read off their clock stamps, so a fling brings one stretch and arms no timer.
+   */
+  public passOwedBy(geometry: ScrollGeometry): WindowPassRequest | undefined {
+    const previous = this.#lastSample;
+    this.#lastSample = geometry;
+    const screenHeightPx = geometry.viewportHeight;
+    if (
+      this.#lastConditions === undefined ||
+      screenHeightPx <= 0 ||
+      geometry.cause !== "scroll" ||
+      this.#scroll.vetoesPrune()
+    ) {
+      return undefined;
+    }
+    const lastReaderSampleAtMs = this.#lastReaderSampleAtMs;
+    this.#lastReaderSampleAtMs = geometry.sampledAt;
+    if (
+      lastReaderSampleAtMs === undefined ||
+      geometry.sampledAt - lastReaderSampleAtMs >= TRANSCRIPT_GESTURE_GAP_MS
+    ) {
+      this.#hasGestureAdmitted = false;
+    }
+    const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * screenHeightPx;
+    const admitSide: WindowSide | undefined =
+      geometry.scrollTop < approachPx && !this.#window.holdsLogHead
+        ? "head"
+        : geometry.distanceFromTailPx < approachPx && !this.#window.holdsLogTail
+          ? "tail"
+          : undefined;
+    if (admitSide !== undefined && !this.#hasGestureAdmitted) {
+      this.#hasGestureAdmitted = true;
+      return { admitSide };
+    }
+    // Asked as the edge crosses the distance rather than on every sample past it, so a pass that
+    // found nothing to let go is not run again for each pixel scrolled.
+    const letGoPx = TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * screenHeightPx;
+    const hasCrossed = (distancePx: number, previousDistancePx: number | undefined): boolean =>
+      distancePx > letGoPx && (previousDistancePx === undefined || previousDistancePx <= letGoPx);
+    return hasCrossed(geometry.scrollTop, previous?.scrollTop) ||
+      hasCrossed(geometry.distanceFromTailPx, previous?.distanceFromTailPx)
+      ? { admitSide: undefined }
+      : undefined;
+  }
+
+  /**
    * The conditions a re-ask is owed with, or `undefined` when nothing is owed.
    *
-   * A second entry point because a reader above the tail, a pin, a programmatic write and a held
-   * row are facts about this frame that the feed's conditions do not carry; without it the window
-   * stays over cap until the log changes. Reads `owedBecause`, not `deferredBecause`: a pass that
-   * applied but stopped at the reading floor still over cap names no deferral. Answers
-   * `undefined` cheaply and cannot spin while the blocker stands.
+   * A second entry point because a reader's place, a programmatic write, the rows on screen and a
+   * held row are facts about this frame that the feed's conditions do not carry; without it the
+   * window stays past its share until the log changes. Reads `owedBecause`, not `deferredBecause`:
+   * a cut that stopped short applied yet still owes. Answers `undefined` cheaply and cannot spin
+   * while the blocker stands.
    */
   public owedConditions(): ViewportConditions | undefined {
     const conditions = this.#lastConditions;
@@ -163,41 +250,69 @@ export class ViewportPruneCycle {
   public forgetConditions(): void {
     this.#lastConditions = undefined;
     this.#lastHeldRowKeys = [];
+    this.#lastOnScreenRowKeys = [];
+  }
+
+  /** The reader's place: the tail while following, their anchored row otherwise. */
+  #readingPosition(): ReadingAnchorPoint | "tail" | undefined {
+    const reading = this.#anchor.state;
+    return reading.mode === "following" ? "tail" : reading.anchorPoint;
+  }
+
+  /** The keys of the rows the virtualizer has on screen, without its drawn band. */
+  #onScreenRowKeys(): readonly string[] {
+    const range = this.#virtualizer()?.range;
+    return range === undefined || range === null
+      ? []
+      : this.#publishedRowKeys().slice(range.startIndex, range.endIndex + 1);
   }
 
   /**
-   * The height the virtualizer laid rows out at, summed: the size it holds for a row, else the
-   * estimate it laid the row out at, which no publication moves while a reader holds a position.
+   * The height the virtualizer laid a row out at: its laid-out size where the published window
+   * holds the row, the size it holds for the key, else the estimate it would lay the row out at.
    */
-  #laidOutHeightOf(rowKeys: readonly string[]): number {
+  #laidOutHeightOf(rowKey: string): number {
     const virtualizer = this.#virtualizer();
-    let heightPx = 0;
-    for (const rowKey of rowKeys) {
-      heightPx += virtualizer?.itemSizeCache.get(rowKey) ?? this.#measurements.heightOf(rowKey);
-    }
-    return heightPx;
+    const publishedIndex = this.#publishedIndexOf(rowKey);
+    const laidOutSizePx =
+      publishedIndex === undefined
+        ? undefined
+        : virtualizer?.measurementsCache[publishedIndex]?.size;
+    return (
+      laidOutSizePx ?? virtualizer?.itemSizeCache.get(rowKey) ?? this.#measurements.heightOf(rowKey)
+    );
   }
 
   /**
    * Whether the condition that refused the last pass is gone. Total over
    * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * `under-cap` owes nothing, and the feed already re-runs the pass when `active-turn` or
-   * `reveal-drain` changes, so those answer `false`. `held-rows` compares the held set rather
-   * than testing for empty: only a changed engagement helps a blocked walk, and comparing makes
-   * the re-ask single-shot.
+   * `within-share` owes nothing, and the feed already re-runs the pass when `active-turn` or
+   * `reveal-drain` changes, so those answer `false`. The sets compare rather than test for empty:
+   * only a changed engagement, screen or place helps a stopped cut, and comparing makes the
+   * re-ask single-shot.
    */
   #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
     switch (owedBecause) {
+      case "unmeasured": {
+        // The window's own test: a height, and a reading position the log holds. A reader on a
+        // row folded out of the log stays unplaced, so asking again would refuse again.
+        const readingPosition = this.#readingPosition();
+        return (
+          (this.#scroll.geometry?.viewportHeight ?? 0) > 0 &&
+          (readingPosition === "tail" ||
+            (readingPosition !== undefined && this.#window.logHoldsRow(readingPosition.rowKey)))
+        );
+      }
       case "scroll-write":
         return !this.#scroll.vetoesPrune();
-      case "pinned-history":
-        return this.#anchor.state.pinnedRootCursor === undefined;
       case "reading-floor":
-        return this.readingFloorRowKey() === undefined;
+        return readingPositionRowKey(this.#readingPosition()) !== this.#lastReadingRowKey;
+      case "on-screen-rows":
+        return !sameRowKeySet(this.#onScreenRowKeys(), this.#lastOnScreenRowKeys);
       case "held-rows":
         return !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys);
-      case "under-cap":
+      case "within-share":
       case "active-turn":
       case "reveal-drain":
         return false;
@@ -205,8 +320,17 @@ export class ViewportPruneCycle {
   }
 }
 
+/** The row a reading position names, or `undefined` for the tail or an unplaced reader. */
+function readingPositionRowKey(
+  readingPosition: ReadingAnchorPoint | "tail" | undefined,
+): string | undefined {
+  return readingPosition === undefined || readingPosition === "tail"
+    ? undefined
+    : readingPosition.rowKey;
+}
+
 /**
- * Whether two held-row readings name the same rows, ignoring order: the walk reads the set
+ * Whether two readings of row keys name the same rows, ignoring order: the pass reads each set
  * through a `Set`, so a reordering must not trigger a re-ask.
  */
 function sameRowKeySet(left: readonly string[], right: readonly string[]): boolean {

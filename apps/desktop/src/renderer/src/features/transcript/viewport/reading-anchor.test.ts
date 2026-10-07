@@ -47,17 +47,12 @@ describe("the reading anchor — the three states", () => {
     expect(anchor.state).toMatchObject({ mode: "following", newRowCount: 0 });
   });
 
-  it("resumes following on the pill, and unpins with it", () => {
+  it("resumes following on the pill", () => {
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(1200, false));
-    anchor.pin("cursor-40");
     anchor.noteAppendedRows(9);
     expect(anchor.resumeFollowing()).toBe("following");
-    expect(anchor.state).toMatchObject({
-      mode: "following",
-      newRowCount: 0,
-      pinnedRootCursor: undefined,
-    });
+    expect(anchor.state).toMatchObject({ mode: "following", newRowCount: 0 });
   });
 });
 
@@ -85,17 +80,7 @@ describe("the reading anchor — distance from the tail the reader did not make"
   });
 });
 
-describe("the reading anchor — pinning and holds", () => {
-  it("suppresses prune only while pinned", () => {
-    const anchor = new ReadingAnchor();
-    expect(anchor.suppressesPrune()).toBe(false);
-    anchor.pin("cursor-12");
-    expect(anchor.suppressesPrune()).toBe(true);
-    expect(anchor.state.pinnedRootCursor).toBe("cursor-12");
-    anchor.unpin();
-    expect(anchor.suppressesPrune()).toBe(false);
-  });
-
+describe("the reading anchor — holds", () => {
   it("holds rows a reader is engaged with, and releases them by key", () => {
     const anchor = new ReadingAnchor();
     anchor.hold("row-9", "open-approval");
@@ -116,37 +101,5 @@ describe("the reading anchor — the anchor point", () => {
     anchor.capture({ rowKey: "row-7", offsetWithinViewportPx: 4 });
     anchor.observeGeometry(geometry(1200, false));
     expect(anchor.state.anchorPoint?.rowKey).toBe("row-7");
-  });
-});
-
-describe("the reading anchor — returning to the tail", () => {
-  it("releases the pin, so prune resumes once the reader is done with history", () => {
-    // Reaching the tail by scrolling and by the pill are one act; a pin only the pill released
-    // would survive the other and keep prune refused.
-    const anchor = new ReadingAnchor();
-    anchor.pin("cursor-earlier");
-    expect(anchor.suppressesPrune()).toBe(true);
-
-    anchor.observeGeometry(geometry(4500, true));
-
-    expect(anchor.suppressesPrune()).toBe(false);
-    expect(anchor.state.pinnedRootCursor).toBeUndefined();
-    expect(anchor.state.mode).toBe("following");
-  });
-
-  it("notifies on the release, so the window hears the refusal lift", () => {
-    // The refusal is read off the published state, so an unannounced release would leave the
-    // window deferring until something else notified.
-    const anchor = new ReadingAnchor();
-    anchor.pin("cursor-earlier");
-    anchor.observeGeometry(geometry(1200, false));
-    const seen: (string | undefined)[] = [];
-    anchor.subscribe((state) => seen.push(state.pinnedRootCursor));
-
-    anchor.observeGeometry(geometry(4500, true));
-
-    expect(seen[0]).toBe("cursor-earlier");
-    expect(seen.length).toBeGreaterThan(1);
-    expect(seen.slice(1).every((pinnedRootCursor) => pinnedRootCursor === undefined)).toBe(true);
   });
 });

@@ -5,8 +5,8 @@
 //     otherwise they are counted (the tail pill's count).
 //   - The anchor is a row key plus that row's offset from the viewport top, which survives the
 //     height changes of rows above it, where a bare scroll offset would drift.
-//   - Pinning suppresses prune, and held rows (open ask, approval, deep-link target, selection)
-//     are never pruned; the held set lives here because engagement is a reading fact.
+//   - Held rows (open ask, approval, deep-link target, selection) are never let go of; the held
+//     set lives here because engagement is a reading fact.
 //   - Following resumes on arrival at the tail or through the pill, never on a timer.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -27,7 +27,7 @@ export const READING_MODES = ["following", "reading", "reading-with-new-rows"] a
 /** One reading state. Derived from the enumeration, never restated. */
 export type ReadingMode = (typeof READING_MODES)[number];
 
-/** Why a row is held against prune. Closed: each is something a person is doing with the row. */
+/** Why a row is held against a cut. Closed: each is something a person is doing with the row. */
 export const READING_HOLD_REASONS = [
   "open-ask",
   "open-approval",
@@ -50,19 +50,16 @@ export interface ReadingAnchorState {
   readonly mode: ReadingMode;
   /** Rows appended since the reader left the tail. Zero while following. */
   readonly newRowCount: number;
-  /** The root cursor the window is cut at while pinned, or `undefined`. */
-  readonly pinnedRootCursor: string | undefined;
   readonly anchorPoint: ReadingAnchorPoint | undefined;
 }
 
-/** The reading state machine: follow, read, pin history, and hold engaged rows against prune. */
+/** The reading state machine: follow, read, and hold engaged rows against a cut. */
 export class ReadingAnchor {
   readonly #stateEmitter = new Emitter<ReadingAnchorState>("reading anchor state");
   readonly #holdReasonByRowKey = new Map<string, ReadingHoldReason>();
 
   #mode: ReadingMode = "following";
   #newRowCount = 0;
-  #pinnedRootCursor: string | undefined;
   #anchorPoint: ReadingAnchorPoint | undefined;
   /** The last sample folded in, so a reader's scroll toward the head is told apart. */
   #lastGeometry: ScrollGeometry | undefined;
@@ -79,7 +76,6 @@ export class ReadingAnchor {
     return {
       mode: this.#mode,
       newRowCount: this.#newRowCount,
-      pinnedRootCursor: this.#pinnedRootCursor,
       anchorPoint: this.#anchorPoint,
     };
   }
@@ -87,11 +83,10 @@ export class ReadingAnchor {
   /**
    * Fold one geometry sample in.
    *
-   * Arriving at the tail resumes following, clears the count, and clears the pin, exactly as
-   * {@link resumeFollowing} does: reaching the tail by scrolling and by the pill are one act, and
-   * a pin only the pill released would survive the other and refuse prune forever. Leaving the
-   * tail keeps the last anchor point, since dropping it would leave a frame with nothing to
-   * restore.
+   * Arriving at the tail resumes following and clears the count, exactly as
+   * {@link resumeFollowing} does: reaching the tail by scrolling and by the pill are one act.
+   * Leaving the tail keeps the last anchor point, since dropping it would leave a frame with
+   * nothing to restore.
    *
    * Leaving takes a `"scroll"` sample whose offset moved toward the head: a shrinking viewport,
    * and content growing under a still offset before the virtualizer's end anchor catches up, raise
@@ -104,9 +99,6 @@ export class ReadingAnchor {
     const scrolledTowardHead = isReaderScrollTowardHead(previous, geometry);
     this.#lastGeometry = geometry;
     if (geometry.isAtTail && !scrolledTowardHead) {
-      // Through `unpin` so a sample that only releases a pin still notifies; the window's prune
-      // refusal lifts on that field.
-      this.unpin();
       this.#transition("following", 0);
       return;
     }
@@ -130,8 +122,8 @@ export class ReadingAnchor {
 
   /**
    * Start reading at one row, as a link to a message does: the follow releases and the row's top
-   * edge becomes the anchor, at the top of the viewport, so the cap keeps it and every row after
-   * it and an append holds it there.
+   * edge becomes the anchor, at the top of the viewport, so the window centers on it and an
+   * append holds it there.
    */
   public readFrom(rowKey: string): void {
     this.#anchorPoint = { rowKey, offsetWithinViewportPx: 0 };
@@ -151,36 +143,12 @@ export class ReadingAnchor {
   }
 
   /**
-   * Pin history at a root cursor.
-   *
-   * The cursor, not a row count, because `window-cap.ts` cuts the window by root cursor while
-   * pinned and a count would move under the reader as the log appended.
-   */
-  public pin(rootCursor: string): void {
-    if (this.#pinnedRootCursor === rootCursor) {
-      return;
-    }
-    this.#pinnedRootCursor = rootCursor;
-    this.#transition(this.#mode === "following" ? "reading" : this.#mode, this.#newRowCount);
-  }
-
-  /** Let go of the pinned history, if any; the cap may trim again. */
-  public unpin(): void {
-    if (this.#pinnedRootCursor === undefined) {
-      return;
-    }
-    this.#pinnedRootCursor = undefined;
-    this.#emit();
-  }
-
-  /**
    * The pill, and the keyboard's jump.
    *
    * Returns the mode it moved to instead of scrolling: the one module that can move the scroll
    * container performs the move.
    */
   public resumeFollowing(): ReadingMode {
-    this.#pinnedRootCursor = undefined;
     this.#transition("following", 0);
     return this.#mode;
   }
@@ -206,7 +174,7 @@ export class ReadingAnchor {
     return this.#holdReasonByRowKey.has(rowKey);
   }
 
-  /** Every held row, for the window's prune pass. */
+  /** Every held row, for the window's pass. */
   public heldRowKeys(): readonly string[] {
     return [...this.#holdReasonByRowKey.keys()];
   }
@@ -214,11 +182,6 @@ export class ReadingAnchor {
   /** Why the reader holds this row, or `undefined` when it is not held. */
   public holdReason(rowKey: string): ReadingHoldReason | undefined {
     return this.#holdReasonByRowKey.get(rowKey);
-  }
-
-  /** Whether prune and trim stop, which they do while history is pinned. */
-  public suppressesPrune(): boolean {
-    return this.#pinnedRootCursor !== undefined;
   }
 
   /** Terminal. Drops every sink so a late append cannot reach an unmounted pane. */

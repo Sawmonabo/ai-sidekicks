@@ -7,7 +7,7 @@
 // scroll event. Every offset the library writes reaches the scroll chokepoint through
 // `scrollToFn`, named for whoever it is made for.
 
-import type { Rect, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, Rect, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
@@ -15,6 +15,7 @@ import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { SCROLL_GEOMETRY_EPSILON_PX } from "#renderer/lib/scroll/geometry/sample.js";
+import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "./caps.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
@@ -130,6 +131,33 @@ export class VirtualizerOptions {
   };
 
   /**
+   * The rows the library draws: the ones the box intersects, and beyond each end the rows within
+   * `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS` of the viewport's own height, counted from the end of
+   * that range and including the row that crosses the band's edge. The library offers only a row
+   * count of its own, so the band is walked in pixels here, over the sizes it laid the rows out at,
+   * or their estimates before it is bound. It re-asks only when the intersected range moves, so a
+   * viewport that changed height without moving that range keeps its band until the next scroll.
+   */
+  public readonly rangeExtractor = (range: Range): number[] => {
+    const bandPx =
+      (this.#scroll.geometry?.viewportHeight ?? 0) * TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS;
+    let startIndex = range.startIndex;
+    for (let drawnPx = 0; startIndex > 0 && drawnPx < bandPx; ) {
+      startIndex -= 1;
+      drawnPx += this.#laidOutSizeAt(startIndex);
+    }
+    let endIndex = range.endIndex;
+    for (let drawnPx = 0; endIndex < range.count - 1 && drawnPx < bandPx; ) {
+      endIndex += 1;
+      drawnPx += this.#laidOutSizeAt(endIndex);
+    }
+    return Array.from(
+      { length: endIndex - startIndex + 1 },
+      (_unused, offset) => startIndex + offset,
+    );
+  };
+
+  /**
    * The measurement table's verdict on a row's observed border box, whose width is the width
    * every row is laid out at. With no observation, as a row mounts, it answers the size the
    * library already holds for the row and reads no element: the observer reports the row's real
@@ -189,6 +217,11 @@ export class VirtualizerOptions {
   /** Points the options at the box the chokepoint just took, or at nothing. */
   public bindScrollContainer(scrollContainer: HTMLElement | undefined): void {
     this.#scrollContainer = scrollContainer;
+  }
+
+  /** The size the library laid a row out at, or the estimate it would lay the row out at. */
+  #laidOutSizeAt(index: number): number {
+    return this.#virtualizer()?.measurementsCache[index]?.size ?? this.estimateSize(index);
   }
 
   /**

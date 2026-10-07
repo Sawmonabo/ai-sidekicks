@@ -16,7 +16,7 @@ import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type EarlierPageRead } from "../../history/earlier-reader.js";
-import { OVER_CAP_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
+import { LONG_LOG_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
 import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   openSessionStoreWithGeneralLog,
@@ -30,11 +30,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A message past the window cap from the newest row, which the cap takes on an ordinary open. */
+/** A message far back from the newest row, which the window lets go of on an ordinary open. */
 const FAR_BACK_INDEX = 10;
 /**
- * A message the cap keeps, far enough above the bottom that an ordinary open, which stands at the
- * bottom, does not mount it, and near enough that the laid-out box's content height reaches it.
+ * A message far enough above the bottom that an ordinary open, which stands at the bottom, does
+ * not mount it, and near enough that the laid-out box's content height reaches it.
  */
 const MID_LOG_INDEX = 120;
 /** A row twenty rows below `MID_LOG_INDEX`, past the box a landing there mounts. */
@@ -49,11 +49,14 @@ function scrollContainerOf(feed: HTMLElement): Element | null {
   return feed.querySelector(".meridian-transcript-viewport__scroll-container");
 }
 
-/** The over-cap log mounted with `messageAnchorCursor` naming the message to open at. */
-function renderOverCapFeed(messageAnchorCursor?: string): HTMLElement {
-  withLaidOutViewport();
+/**
+ * The long log mounted with `messageAnchorCursor` naming the message to open at, in a box that
+ * opens at its tail as the app's does.
+ */
+function renderLongFeed(messageAnchorCursor?: string): HTMLElement {
+  withLaidOutViewport({ content: "laid-out" });
   return renderFeed(
-    openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT),
+    openSessionStoreWithGeneralLog(LONG_LOG_EVENT_COUNT),
     undefined,
     RowIdBody,
     messageAnchorCursor === undefined ? {} : { messageAnchorCursor },
@@ -149,22 +152,22 @@ function openWindowAfterTwoPages(readFromCursor: EventCursor = WINDOW_HEAD_CURSO
 }
 
 describe("the transcript feed — opened at a message", () => {
-  it("keeps a message from past the window cap, lands on it and puts focus on the log", () => {
-    const feed = renderOverCapFeed(transcriptFixtureStreamCursor(FAR_BACK_INDEX));
+  it("centers the window on a message it let go of, lands on it and puts focus on the log", () => {
+    const feed = renderLongFeed(transcriptFixtureStreamCursor(FAR_BACK_INDEX));
     expect(isMounted(feed, FAR_BACK_INDEX)).toBe(true);
     expect(document.activeElement).toBe(scrollContainerOf(feed));
   });
 
   it("scrolls the window to a message above the bottom", () => {
-    const feed = renderOverCapFeed(transcriptFixtureStreamCursor(MID_LOG_INDEX));
+    const feed = renderLongFeed(transcriptFixtureStreamCursor(MID_LOG_INDEX));
     expect(isMounted(feed, MID_LOG_INDEX)).toBe(true);
     expect(isMounted(feed, BELOW_MID_LOG_INDEX)).toBe(false);
   });
 
   it("negative control: with no message named, the same log mounts neither message", () => {
-    // The cap takes the far one and the bottom is far from the other, so the cases above hold
-    // only through the landing.
-    const feed = renderOverCapFeed();
+    // The window lets the far one go and the bottom is far from the other, so the cases above
+    // hold only through the landing.
+    const feed = renderLongFeed();
     expect(isMounted(feed, FAR_BACK_INDEX)).toBe(false);
     expect(isMounted(feed, MID_LOG_INDEX)).toBe(false);
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
@@ -172,7 +175,7 @@ describe("the transcript feed — opened at a message", () => {
 
   it("opens as with no message named for a cursor the log does not hold", () => {
     // The row id, not the stream position: a lookup that confused the two would land here.
-    const feed = renderOverCapFeed(transcriptFixtureEventId(FAR_BACK_INDEX));
+    const feed = renderLongFeed(transcriptFixtureEventId(FAR_BACK_INDEX));
     expect(isMounted(feed, FAR_BACK_INDEX)).toBe(false);
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
   });
@@ -180,7 +183,7 @@ describe("the transcript feed — opened at a message", () => {
   it("lands a link to a row the feed draws nothing for on the next row it draws", () => {
     withLaidOutViewport();
     const feed = renderFeed(
-      openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT),
+      openSessionStoreWithGeneralLog(LONG_LOG_EVENT_COUNT),
       undefined,
       RowIdBody,
       {
@@ -188,9 +191,8 @@ describe("the transcript feed — opened at a message", () => {
         drawsBody: (row) => row.id !== transcriptFixtureEventId(FAR_BACK_INDEX),
       },
     );
-    // Reading starts at the next drawn row, so the cap keeps it and takes the one before.
+    // Reading starts at the next drawn row.
     expect(isMounted(feed, FAR_BACK_INDEX + 1)).toBe(true);
-    expect(isMounted(feed, FAR_BACK_INDEX - 1)).toBe(false);
     expect(document.activeElement).toBe(scrollContainerOf(feed));
   });
 

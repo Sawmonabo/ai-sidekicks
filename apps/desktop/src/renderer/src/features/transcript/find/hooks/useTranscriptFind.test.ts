@@ -1,35 +1,48 @@
-// The find field's held state: the walk when the window moves under it, and its own open
-// act. Matching is `model.test.ts`'s.
+// The find field's held state: the walk when the log moves under it, and its own open act.
+// Matching is `matcher.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { useTranscriptFind, type TranscriptFindState } from "./useTranscriptFind.js";
-import { NO_ROWS_REMOVED, type TranscriptWindowModel } from "../../window/transcript-window.js";
 import {
-  useVisibleTranscriptWindow,
-  type VisibleTranscriptWindow,
-} from "../../window/hooks/useVisibleTranscriptWindow.js";
-import { deriveTranscriptWindow } from "../../window/transcript-window.js";
+  NO_ROWS_REMOVED,
+  deriveTranscriptWindow,
+  type TranscriptWindowModel,
+} from "../../window/transcript-window.js";
 import {
-  EVERY_ROW_QUERY,
-  LOG_EVENT_COUNT,
-  syntheticEventLog,
-} from "../../window/visible-window.test-support.js";
+  transcriptFixtureStampAt,
+  transcriptFixtureStreamCursor,
+} from "../../logs.test-support.js";
+
+/** Long enough to walk past a shorter window, short enough to enumerate. */
+const LOG_EVENT_COUNT = 10;
+/** A query every row of the log below matches, so a walk is over the whole log. */
+const EVERY_ROW_QUERY = "user.message";
+
+/** A log of `count` events, oldest first, every one matching {@link EVERY_ROW_QUERY}. */
+function syntheticEventLog(count: number): readonly ProjectedSessionEvent[] {
+  return Array.from({ length: count }, (_unused, index) => ({
+    id: `event-${String(index)}`,
+    sessionId: "session-find",
+    sequence: index,
+    cursor: transcriptFixtureStreamCursor(index),
+    kind: EVERY_ROW_QUERY,
+    occurredAt: transcriptFixtureStampAt(index),
+    payload: {},
+  }));
+}
 
 describe("the walk when the result moves under it", () => {
-  function windowOver(rows: readonly TranscriptEventRow[]): VisibleTranscriptWindow {
-    return { rows, prunedAwayRows: [] };
-  }
-
   function findOver(
     rows: readonly TranscriptEventRow[],
   ): RenderHookResult<TranscriptFindState, { readonly rows: readonly TranscriptEventRow[] }> {
     return renderHook(
       ({ rows: currentRows }) =>
         useTranscriptFind({
-          visible: windowOver(currentRows),
+          rows: currentRows,
           // Nothing is folded here, so the fold reports the shared empty removal.
           foldedAwayRows: NO_ROWS_REMOVED,
           drawsRow: () => true,
@@ -54,7 +67,7 @@ describe("the walk when the result moves under it", () => {
     const foldedWindow = modelOf(stages.folded);
     return renderHook(() =>
       useTranscriptFind({
-        visible: windowOver(foldedWindow.rows),
+        rows: foldedWindow.rows,
         foldedAwayRows: modelOf(stages.unfurled).rows.slice(stages.folded),
         drawsRow: stages.drawsRow,
       }),
@@ -73,8 +86,8 @@ describe("the walk when the result moves under it", () => {
     }
     expect(result.current.currentMatchIndex).toBe(LOG_EVENT_COUNT - 1);
 
-    // Same query over a window the cap cut to two rows, neither selected: a held ordinal
-    // would read "10 of 2".
+    // Same query over a log rebuilt to two rows, neither selected: a held ordinal would read
+    // "10 of 2".
     rerender({ rows: wholeLog.slice(0, 2) });
     expect(result.current.result.matches).toHaveLength(2);
     expect(result.current.currentMatchIndex).toBe(-1);
@@ -88,7 +101,7 @@ describe("the walk when the result moves under it", () => {
     expect(result.current.currentMatchIndex).toBe(0);
   });
 
-  it("keeps the selected row's position when the window only grew", () => {
+  it("keeps the selected row's position when the log only grew", () => {
     const SELECTED_MATCH_INDEX = 3;
     const { result, rerender } = findOver(wholeLog.slice(0, LOG_EVENT_COUNT - 2));
     act(() => {
@@ -144,7 +157,7 @@ describe("the find field's own open act", () => {
     const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
     return renderHook(() =>
       useTranscriptFind({
-        visible: useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
+        rows: transcriptWindow.rows,
         // Nothing is folded here, so the fold reports the shared empty removal.
         foldedAwayRows: NO_ROWS_REMOVED,
         drawsRow: () => true,

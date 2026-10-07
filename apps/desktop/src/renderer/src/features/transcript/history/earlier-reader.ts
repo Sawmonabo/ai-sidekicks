@@ -22,10 +22,9 @@ import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
  * Rows one backward read of a session's log asks the daemon for.
  *
  * Well under the contract's `TRANSCRIPT_READ_LIMIT_MAX` (256 rows): that is the most a producer
- * may answer with, this is what one press should land in a viewport retaining
- * `TRANSCRIPT_WINDOW_ROW_CAP`. The wire ceiling would fill most of a press with rows the
- * reader scrolls past, and three presses would exceed the retention with the prune suppressed.
- * Fifty is about a screenful and a half.
+ * may answer with, this is what one press should land in a viewport whose window holds a few
+ * screen heights around the reader. The wire ceiling would fill most of a press with rows the
+ * reader scrolls past. Fifty is about a screenful and a half.
  */
 const TRANSCRIPT_EARLIER_PAGE_ROWS = 50;
 

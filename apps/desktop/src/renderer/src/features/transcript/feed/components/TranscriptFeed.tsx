@@ -14,7 +14,6 @@ import { LoadEarlier } from "../../history/components/LoadEarlier.js";
 import { type EarlierPageRead } from "../../history/earlier-reader.js";
 import { useEarlierHistory } from "../../history/hooks/useEarlierHistory.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
-import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -42,7 +41,7 @@ export interface TranscriptFeedProps {
 }
 
 /**
- * The session's log: the find field, the rows, and what the window does not hold. A component of
+ * The session's log: the find field and the rows. A component of
  * its own because it cannot exist without a session store, so the pane holds the no-session arm
  * as an ordinary render instead of a conditional hook.
  */
@@ -56,12 +55,12 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     earlierHistory,
     drawsBody: props.rowRenderer.drawsBody,
   });
-  const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
+  const { runGroupDisclosure, transcriptWindow, viewport } = windows;
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
     drawsRow: windows.drawsRow,
-    visible,
+    rows: transcriptWindow.rows,
     jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
   });
@@ -111,13 +110,11 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const copySelection = useConversationCopy();
 
   // `Load earlier` comes from `history/`, over the producer's verdict about the log. The find box
-  // offers none: the rows the cap took are rows the store still holds, so a backward read there
-  // would fetch rows the window already has.
+  // offers none: the rows the window let go are rows the store still holds, and find reaches them.
   return (
     <div className="meridian-transcript-feed">
       <div className="meridian-transcript-feed__head">
         <TranscriptFeedHeader findAndJump={findAndJump} />
-        <TranscriptWindowNotices droppedRowCount={visible.prunedAwayRows.length} />
       </div>
       <div className="meridian-transcript-feed__body" onCopy={copySelection}>
         <RetainedRowStateProvider channel={retainedStateChannel}>

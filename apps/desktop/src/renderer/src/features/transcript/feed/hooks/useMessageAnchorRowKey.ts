@@ -42,8 +42,8 @@ export interface MessageAnchorRowKeyInputs {
  */
 export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): string | undefined {
   const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow, drawsRow } = inputs;
-  // The log's oldest event moves when the log is first read, when a page lands and when the cap
-  // lets rows go: the only times an older message can arrive or leave. Keyed on it, the lookup
+  // The log's oldest event moves when the log is first read and when a page lands: the only
+  // times an older message can arrive. Keyed on it, the lookup
   // runs then and not on every streamed append, and stops at the message.
   const oldestEvent = useSessionStore(sessionStore, selectOldestEvent);
   const eventId = useMemo(
@@ -84,7 +84,7 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
  * page re-renders with the grown log, so this walks page by page and stops on its own: at the
  * message, at the start of history (`canLoadEarlier` false), or at a refusal, which the head
  * control shows and offers to retry. Once the message is found the walk is over for that link,
- * so a row the window cap later lets go of is not chased back.
+ * so a row that later leaves the log is not chased back.
  */
 function usePageBackToMessage(
   messageAnchorCursor: string | undefined,

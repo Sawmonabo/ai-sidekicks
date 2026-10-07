@@ -8,7 +8,6 @@ import { act, render } from "@testing-library/react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/caps.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
@@ -22,10 +21,13 @@ import { type TranscriptRowProps } from "../../rows/renderer.js";
 import { type EarlierPageRead } from "../../history/earlier-reader.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
-/** An event count that fits inside the window cap. */
+/** An event count short enough that the window never lets one of its rows go. */
 export const SHORT_LOG_EVENT_COUNT = 10;
-/** An event count past the window cap, so the cap takes rows. */
-export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;
+/**
+ * An event count whose rows run many screen heights past the laid-out box, so the window lets
+ * rows go from an ordinary open at the bottom.
+ */
+export const LONG_LOG_EVENT_COUNT = 450;
 
 /**
  * Mount the feed under a bridge, because the transcript reads the app's clock. `onRowMounted`

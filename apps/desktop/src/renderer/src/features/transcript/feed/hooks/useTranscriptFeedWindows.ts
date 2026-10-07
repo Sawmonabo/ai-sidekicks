@@ -1,9 +1,9 @@
 // Every window this feed derives, in the one order they may be derived in: the unfurled
-// projection, the run-group fold, the rows the feed draws anything for, and the part the viewport
-// reconciled onto the screen. The fold and the viewport's split publish the rows they removed,
-// since re-deriving the difference downstream re-walked the projection on every append; nothing
-// counts a row the feed never draws, so that stage publishes its window alone. The one viewport
-// binding and reveal engine are minted here.
+// projection, the run-group fold, and the rows the feed draws anything for, which the viewport
+// holds a window of. The fold publishes the rows it removed, since re-deriving the difference
+// downstream re-walked the projection on every append; nothing counts a row the feed never draws,
+// so that stage publishes its window alone. The one viewport binding and reveal engine are minted
+// here.
 
 import { useCallback, useEffect } from "react";
 
@@ -26,10 +26,6 @@ import {
 import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowKeyCapture.js";
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
-import {
-  useVisibleTranscriptWindow,
-  type VisibleTranscriptWindow,
-} from "../../window/hooks/useVisibleTranscriptWindow.js";
 import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
@@ -77,8 +73,6 @@ export interface TranscriptFeedWindows {
   readonly drawsRow: (row: TranscriptEventRow) => boolean;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
-  /** What the viewport reconciled onto the screen, with both absences separable. */
-  readonly visible: VisibleTranscriptWindow;
 }
 
 /** Derive every window this feed draws from, in the one order they may be derived in. */
@@ -183,10 +177,6 @@ export function useTranscriptFeedWindows(
     forgetDrawnTextOutside((rowId) => unfurledWindow.rowsByKey.has(rowId));
   }, [retireRevealLanes, forgetDrawnTextOutside, transcriptWindow, unfurledWindow]);
 
-  // Read back off the viewport's reconciled snapshot, so find sees the window on screen; what
-  // the cap took is the difference between the two.
-  const visible = useVisibleTranscriptWindow(transcriptWindow, viewport.snapshot.rows);
-
   return {
     firstReadSettled,
     runGroupDisclosure,
@@ -196,7 +186,6 @@ export function useTranscriptFeedWindows(
     drawsRow,
     reveal,
     viewport,
-    visible,
   };
 }
 

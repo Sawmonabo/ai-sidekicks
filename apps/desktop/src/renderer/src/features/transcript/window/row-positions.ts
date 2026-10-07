@@ -38,35 +38,13 @@ export function itemsOutsidePositions<TItem>(
   items: readonly TItem[],
   positions: readonly number[],
 ): TItem[] {
-  const isAtPosition = sitsAtPositions(positions);
-  return items.filter((_item, index) => !isAtPosition(index));
-}
-
-/** The items outside `positions` and the items at them, each in list order; `positions` ascend. */
-export function partitionByPositions<TItem>(
-  items: readonly TItem[],
-  positions: readonly number[],
-): { readonly kept: TItem[]; readonly removed: TItem[] } {
-  const isAtPosition = sitsAtPositions(positions);
-  const kept: TItem[] = [];
-  const removed: TItem[] = [];
-  items.forEach((item, index) => {
-    (isAtPosition(index) ? removed : kept).push(item);
-  });
-  return { kept, removed };
-}
-
-/**
- * A test asked once per index, in ascending order, of whether that index is the next of
- * `positions`; the one walk both readers above share.
- */
-function sitsAtPositions(positions: readonly number[]): (index: number) => boolean {
+  // One walk over the ascending positions, asked once per index in order.
   let nextPosition = 0;
-  return (index) => {
+  return items.filter((_item, index) => {
     if (positions[nextPosition] !== index) {
-      return false;
+      return true;
     }
     nextPosition += 1;
-    return true;
-  };
+    return false;
+  });
 }

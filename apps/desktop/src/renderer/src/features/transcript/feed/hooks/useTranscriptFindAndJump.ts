@@ -1,4 +1,4 @@
-// The find field, wired to the window it searches and the scroll writer its walk jumps through:
+// The find field, wired to the rows it searches and the scroll writer its walk jumps through:
 // the walk that jumps to each match, and the close that hands focus back to the log. The find
 // state itself is `useTranscriptFind.ts`; this holds only the wiring.
 
@@ -8,7 +8,6 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 
 import { type FindStepDirection } from "../../find/matcher.js";
 import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
-import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** Everything the find field needs, over one transcript. */
 export interface TranscriptFindAndJump {
@@ -20,22 +19,22 @@ export interface TranscriptFindAndJump {
   readonly onClose: () => void;
 }
 
-/** Wire the find field to the window it searches and the scroll writer it jumps through. */
+/** Wire the find field to the rows it searches and the scroll writer it jumps through. */
 export function useTranscriptFindAndJump(inputs: {
   /** What the run group fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TranscriptEventRow[];
   /** Whether the feed draws a row, so a folded row it would not draw is not counted. */
   readonly drawsRow: (row: TranscriptEventRow) => boolean;
-  readonly visible: VisibleTranscriptWindow;
-  /** The transcript's ONE scroll writer. Nothing here touches an element. */
+  /** The rows the feed draws, in log order, whether or not the viewport's window holds them. */
+  readonly rows: readonly TranscriptEventRow[];
+  /** The transcript's ONE scroll writer, which lands on a row its window let go. */
   readonly jumpToRow: (rowId: string) => void;
   readonly focusTranscriptViewport: () => void;
 }): TranscriptFindAndJump {
-  const { foldedAwayRows, drawsRow, visible, jumpToRow, focusTranscriptViewport } = inputs;
+  const { foldedAwayRows, drawsRow, rows, jumpToRow, focusTranscriptViewport } = inputs;
 
-  // Every stage, not just the rows on screen: what the walk cannot reach is counted under the
-  // stage holding it, each reported by the stage that removed it rather than re-derived here.
-  const find = useTranscriptFind({ visible, foldedAwayRows, drawsRow });
+  // What the fold withholds is counted as that stage reported it rather than re-derived here.
+  const find = useTranscriptFind({ rows, foldedAwayRows, drawsRow });
 
   const onStep = useCallback(
     (direction: FindStepDirection) => {
