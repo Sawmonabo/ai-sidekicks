@@ -1,5 +1,5 @@
 /**
- * Typed carriers for the five `repo.*` error codes, each a `DaemonDomainError` subclass with its
+ * Typed carriers for the six `repo.*` error codes, each a `DaemonDomainError` subclass with its
  * code fixed: `code` becomes `data.type` and `detail` becomes `data.fields`.
  *
  * - Only `RepoMountNotFoundError` sets `jsonRpcCode` (`-32602`, as `session.not_found` does); the
@@ -15,7 +15,7 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 
 /**
- * The five canonical `repo.*` dotted identifiers. Subclasses do not redeclare `code` (under
+ * The six canonical `repo.*` dotted identifiers. Subclasses do not redeclare `code` (under
  * `useDefineForClassFields` that would clobber the base value), so discriminate by `instanceof`.
  */
 type RepoErrorCode =
@@ -23,7 +23,8 @@ type RepoErrorCode =
   | "repo.root_resolution_failed"
   | "repo.outside_trust_envelope"
   | "repo.already_attached"
-  | "repo.detach_conflict";
+  | "repo.detach_conflict"
+  | "repo.mount_managed";
 
 /** Why canonical-root resolution failed; closed and non-path-bearing, so safe on the wire. */
 export type RepoRootResolutionReason =
@@ -132,5 +133,21 @@ export class RepoDetachConflictError extends DaemonDomainError {
       detail: { runningSessionId },
     });
     this.runningSessionId = runningSessionId;
+  }
+}
+
+/**
+ * `repo.mount_managed`: the mount is a chat's managed workspace, which only that chat binds and
+ * only its purge removes, so another session's bind and any detach are refused.
+ */
+export class RepoMountManagedError extends DaemonDomainError {
+  readonly repoMountId: string;
+
+  constructor(repoMountId: string) {
+    super(`repo mount ${repoMountId} is a chat's managed workspace`, {
+      code: "repo.mount_managed" satisfies RepoErrorCode,
+      detail: { repoMountId },
+    });
+    this.repoMountId = repoMountId;
   }
 }

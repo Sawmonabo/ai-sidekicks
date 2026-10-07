@@ -19,10 +19,10 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
-import { SessionService } from "../../../session/service.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
+  RepoMountManagedError,
   RepoMountNotFoundError,
   RepoRootResolutionError,
 } from "../errors.js";
@@ -41,8 +41,8 @@ import {
   readLifecycleEventTypes,
   requireMountRow,
   requireWorkspaceRow,
-  seedSession,
 } from "../../__fixtures__/rows.js";
+import { seedSessionRow } from "../../../session/groups/__fixtures__/directory-rows.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../../git/__fixtures__/command.js";
 import { captureRejection, captureThrow } from "../../../__fixtures__/capture-failure.js";
 
@@ -139,7 +139,6 @@ interface TestHarness {
   readonly database: ScratchDatabase;
   readonly emitter: WorkspaceEventEmitter;
   readonly workspaces: WorkspaceService;
-  readonly sessions: SessionService;
   readonly service: RepoMountService;
 }
 
@@ -222,18 +221,15 @@ beforeEach(async () => {
   const emitter = new WorkspaceEventEmitter({
     sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
   });
-  const sessions = new SessionService(database.reader);
   const workspaces = new WorkspaceService({
     database,
     events: emitter,
-    sessions,
     newWorkspaceId: makeIdSource(WORKSPACE_ID_POOL, "workspace"),
   });
   harness = {
     database,
     emitter,
     workspaces,
-    sessions,
     service: new RepoMountService({
       database,
       events: emitter,
@@ -242,8 +238,8 @@ beforeEach(async () => {
     }),
   };
 
-  await seedSession(database.writer, SESSION_ID);
-  await seedSession(database.writer, OTHER_SESSION_ID);
+  await seedSessionRow(database.writer, SESSION_ID);
+  await seedSessionRow(database.writer, OTHER_SESSION_ID);
 });
 
 afterEach(async () => {
@@ -477,6 +473,28 @@ describe("RepoMountService.detach", () => {
     );
     expect(error).toBeInstanceOf(RepoMountNotFoundError);
     expect(countMountRows()).toBe(0);
+  });
+
+  it("refuses a chat's managed mount and leaves it and its workspace as they were", async () => {
+    const managedRoot = join(gitFixtures.fixtureRoot, "managed-chat-workspace");
+    mkdirSync(managedRoot, { recursive: true });
+    const repoMountId = await harness.service.attachManaged({
+      sessionId: SESSION_ID,
+      canonicalRoot: managedRoot,
+    });
+    const workspaceId = await bindReadyWorkspace(
+      harness.workspaces,
+      SESSION_ID,
+      repoMountId,
+      managedRoot,
+    );
+
+    const error = await captureRejection(() => harness.service.detach({ repoMountId }));
+
+    expect(error).toBeInstanceOf(RepoMountManagedError);
+    expect((error as RepoMountManagedError).detail).toEqual({ repoMountId });
+    expect(requireMountRow(harness.database.reader, repoMountId).state).toBe("attached");
+    expect(requireWorkspaceRow(harness.database.reader, workspaceId).state).toBe("ready");
   });
 
   it("announces the remaining dependents if one archived append fails, then rejects", async () => {

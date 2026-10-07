@@ -13,7 +13,8 @@ import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
  * - WAL journal mode: readers run during writes.
  * - synchronous=FULL: overrides better-sqlite3's NORMAL default so a committed event survives
  *   power loss.
- * - foreign_keys=ON: enforces foreign keys at INSERT and UPDATE.
+ * - foreign_keys=ON: enforces foreign keys at INSERT, UPDATE and DELETE, so a row another row
+ *   names cannot be deleted before it.
  * - busy_timeout=5000: a concurrent writer waits up to 5 s before SQLITE_BUSY surfaces.
  * - secure_delete=ON: a deleted row's page is overwritten with zeros, so a purged session's
  *   content does not linger in free pages.

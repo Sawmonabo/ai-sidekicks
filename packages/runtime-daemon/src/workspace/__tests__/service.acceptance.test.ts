@@ -20,7 +20,6 @@ import {
   type DatabaseConnections,
 } from "../../database/connections.js";
 import { EventLogService } from "../../events/log-service.js";
-import { SessionService } from "../../session/service.js";
 import { RepoMountService } from "../repo/mount-service.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 import { WorkspaceService } from "../service.js";
@@ -33,8 +32,8 @@ import {
   readLifecycleEventTypes,
   requireMountRow,
   requireWorkspaceRow,
-  seedSession,
 } from "../__fixtures__/rows.js";
+import { seedSessionRow } from "../../session/groups/__fixtures__/directory-rows.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
@@ -110,7 +109,6 @@ afterAll(() => {
 interface DaemonStack {
   readonly emitter: WorkspaceEventEmitter;
   readonly workspaces: WorkspaceService;
-  readonly sessions: SessionService;
   readonly mounts: RepoMountService;
 }
 
@@ -119,12 +117,10 @@ function buildDaemonStack(database: DatabaseConnections, now: () => string): Dae
     sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
   });
   // The production id sources run; assertions name ids by identity or set membership.
-  const sessions = new SessionService(database.reader);
-  const workspaces = new WorkspaceService({ database, events: emitter, sessions, now });
+  const workspaces = new WorkspaceService({ database, events: emitter, now });
   return {
     emitter,
     workspaces,
-    sessions,
     mounts: new RepoMountService({ database, events: emitter, nodeId: NODE_ID, now }),
   };
 }
@@ -177,8 +173,8 @@ beforeEach(async () => {
     boundRootCheckout,
   };
 
-  await seedSession(database.writer, SESSION_ID);
-  await seedSession(database.writer, OTHER_SESSION_ID);
+  await seedSessionRow(database.writer, SESSION_ID);
+  await seedSessionRow(database.writer, OTHER_SESSION_ID);
 });
 
 afterEach(async () => {

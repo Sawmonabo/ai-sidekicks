@@ -17,7 +17,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
-import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
+import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
 import type {
   CarriedError,
   WriteJob,
@@ -257,14 +257,22 @@ export class DatabaseWriter {
   }
 
   /**
-   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches. Throws once the
-   * writer is closing or closed.
+   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches; every write waits
+   * behind it, a busy one included unless it skips the wait for readers. Throws once the writer is
+   * closing or closed.
    */
-  async checkpoint(mode: CheckpointMode): Promise<CheckpointResult> {
+  async checkpoint(
+    mode: CheckpointMode,
+    options: CheckpointOptions = {},
+  ): Promise<CheckpointResult> {
     if (this.#closing !== undefined) {
       throw new Error("The database writer is closed; the checkpoint did not run");
     }
-    const reply = await this.#request({ type: "checkpoint", mode });
+    const reply = await this.#request({
+      type: "checkpoint",
+      mode,
+      shouldWaitForReaders: options.shouldWaitForReaders ?? true,
+    });
     switch (reply.type) {
       case "checkpointed":
         return reply.result;

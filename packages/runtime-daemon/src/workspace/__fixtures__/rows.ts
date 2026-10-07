@@ -1,32 +1,6 @@
-// Raw-SQL seeding and reading of the mount, workspace and event rows the workspace tests assert on.
+// Raw-SQL reading of the mount, workspace and event rows the workspace tests assert on.
 
 import type { Database } from "better-sqlite3";
-
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-
-import type { DatabaseWriter } from "../../database/writer.js";
-import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
-
-/** Seeds a session's log so `SessionService.rebuildSession` returns a snapshot for it. */
-export async function seedSession(
-  writer: Pick<DatabaseWriter, "write">,
-  sessionId: SessionId,
-): Promise<void> {
-  await insertStoredEvent(writer, {
-    id: `evt-${sessionId}`,
-    sessionId,
-    sequence: 0,
-    occurredAt: "2026-08-05T00:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: null,
-    payload: { sessionId },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  });
-}
 
 // Row and event readers use raw SQL, not a service call: durability is a claim about what is on
 // disk, and reading back through the writing service would prove only that it agrees with itself.
@@ -103,25 +77,20 @@ export function requireWorkspaceRow(database: Database, workspaceId: string): St
   return row;
 }
 
-/**
- * The session's event types in sequence order, without the seeded `session.created` anchor, which
- * exists only because `rebuildSession` refuses a log that does not start with it.
- */
+/** The session's event types in sequence order. */
 export function readLifecycleEventTypes(database: Database, sessionId: string): readonly string[] {
   return readLifecycleEnvelopes(database, sessionId).map((row) => row.type);
 }
 
-/** The session's event envelopes in sequence order, without the seeded `session.created` anchor. */
+/** The session's event envelopes in sequence order. */
 export function readLifecycleEnvelopes(
   database: Database,
   sessionId: string,
 ): readonly StoredEventEnvelopeRow[] {
-  return (
-    database
-      .prepare(
-        `SELECT type, actor, correlation_id, payload FROM session_events
-          WHERE session_id = ? ORDER BY sequence ASC`,
-      )
-      .all(sessionId) as readonly StoredEventEnvelopeRow[]
-  ).filter((row) => row.type !== "session.created");
+  return database
+    .prepare(
+      `SELECT type, actor, correlation_id, payload FROM session_events
+        WHERE session_id = ? ORDER BY sequence ASC`,
+    )
+    .all(sessionId) as readonly StoredEventEnvelopeRow[];
 }

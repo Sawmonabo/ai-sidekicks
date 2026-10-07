@@ -23,6 +23,8 @@ export interface MountRow {
   readonly id: string;
   readonly canonical_root: string;
   readonly vcs_type: string;
+  /** The chat a managed mount belongs to; `null` on a project's mount. */
+  readonly managed_session_id: string | null;
 }
 
 /** The `workspaces` columns this service reads. */

@@ -1,8 +1,9 @@
 // A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
 // id>` the daemon makes at the chat's create and registers as the chat's managed mount, kept while
-// the chat is archived, and deleted whole with its mount row when the chat is purged.
+// the chat is archived, and deleted whole when the chat is purged.
 
-import { realpath } from "node:fs/promises";
+import { mkdtemp, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
@@ -17,6 +18,8 @@ const MANAGED_WORKSPACES_FOLDER_NAME = "workspaces";
 
 // `git init` writes a handful of files; a slow disk still finishes well inside this.
 const GIT_INIT_TIMEOUT_MS = 10_000;
+
+const EMPTY_GIT_TEMPLATE_PREFIX = "ai-sidekicks-empty-git-template-";
 
 /** The folder holding every chat's managed workspace, one subfolder per session id. */
 export function managedWorkspacesDirectoryOf(homeDirectory: string): string {
@@ -81,10 +84,7 @@ export class ManagedWorkspaceService {
     });
     try {
       await DEFAULT_GIT_FILESYSTEM.createDirectory(workspacePath);
-      await this.#git(["-C", workspacePath, "init", "--quiet"], {
-        timeoutMs: GIT_INIT_TIMEOUT_MS,
-        executable: this.#gitExecutable,
-      });
+      await this.#initializeRepository(workspacePath);
     } catch (creationError) {
       try {
         await this.#remove(input.sessionId, workspacePath);
@@ -101,16 +101,54 @@ export class ManagedWorkspaceService {
   }
 
   /**
-   * Deletes the chat's workspace folder whole, then its mount row and the workspace rows on it. A
-   * session with no managed workspace changes nothing, so a repeat is safe.
+   * Deletes the chat's workspace folder whole, then its mount row and every row on it. A session
+   * with no managed workspace changes nothing, so a repeat is safe.
    */
   async delete(input: { readonly sessionId: SessionId }): Promise<void> {
-    await this.#remove(input.sessionId, path.join(this.#workspacesDirectory, input.sessionId));
+    await this.#remove(input.sessionId, this.#workspacePathOf(input.sessionId));
+  }
+
+  /**
+   * Deletes the chat's workspace folder whole and leaves its rows, for a caller that deletes them in
+   * its own write. A session with no managed workspace changes nothing, so a repeat is safe.
+   */
+  async deleteFolder(input: { readonly sessionId: SessionId }): Promise<void> {
+    await DEFAULT_GIT_FILESYSTEM.removePath(this.#workspacePathOf(input.sessionId));
+  }
+
+  // Built from the session id under the daemon's own folder, never read from a row, so a removal
+  // can reach nothing but a chat's workspace.
+  #workspacePathOf(sessionId: SessionId): string {
+    return path.join(this.#workspacesDirectory, sessionId);
   }
 
   // The folder before the rows: a removal that fails leaves the row naming what is still on disk.
   async #remove(sessionId: SessionId, workspacePath: string): Promise<void> {
     await DEFAULT_GIT_FILESYSTEM.removePath(workspacePath);
     await this.#repoMounts.deleteManaged(sessionId);
+  }
+
+  // `--template` outranks `GIT_TEMPLATE_DIR` and `init.templateDir`, so an empty folder there keeps
+  // the person's template hooks out of the chat's repository.
+  async #initializeRepository(workspacePath: string): Promise<void> {
+    const emptyTemplate = await mkdtemp(path.join(tmpdir(), EMPTY_GIT_TEMPLATE_PREFIX));
+    try {
+      await this.#git(["-C", workspacePath, "init", "--quiet", `--template=${emptyTemplate}`], {
+        timeoutMs: GIT_INIT_TIMEOUT_MS,
+        executable: this.#gitExecutable,
+      });
+    } catch (initError) {
+      try {
+        await DEFAULT_GIT_FILESYSTEM.removePath(emptyTemplate);
+      } catch (removalError) {
+        throw new AggregateError(
+          [initError, removalError],
+          "git init failed, and removing its empty template folder failed too",
+          { cause: removalError },
+        );
+      }
+      throw initError;
+    }
+    await DEFAULT_GIT_FILESYSTEM.removePath(emptyTemplate);
   }
 }

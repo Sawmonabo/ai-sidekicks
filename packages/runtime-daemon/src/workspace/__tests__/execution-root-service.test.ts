@@ -26,7 +26,7 @@ import type {
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 import type { FilesystemPathProbeFn } from "../row-guards.js";
 import { WorkspaceStaleError } from "../errors.js";
-import { WorkspaceService, type SessionExistenceReader } from "../service.js";
+import { WorkspaceService } from "../service.js";
 
 import { requireWorkspaceRow } from "../__fixtures__/rows.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
@@ -184,11 +184,6 @@ const probePath: FilesystemPathProbeFn = (path) =>
     checkedAt: EPOCH,
   });
 
-/** No case here binds; the service still needs a session-existence reader. */
-const KNOWN_SESSIONS: SessionExistenceReader = {
-  rebuildSession: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
-};
-
 beforeEach(async () => {
   mintedIdCount = 0;
   const database = await openScratchDatabase();
@@ -199,7 +194,6 @@ beforeEach(async () => {
       events: new WorkspaceEventEmitter({
         sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
       }),
-      sessions: KNOWN_SESSIONS,
       probePath,
       now: clock,
     }),

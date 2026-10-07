@@ -7,7 +7,8 @@
  * - Attach has no containment check: attaching a path is what admits it to the trust envelope.
  * - A duplicate root is caught by `idx_repo_mounts_active_root` on the INSERT; a pre-read races.
  * - Detach checks for running agents, archives and flips the mount in one write, then appends
- *   `workspace.archived` events, so a crash leaves rows durable and events missing.
+ *   `workspace.archived` events, so a crash leaves rows durable and events missing. A managed
+ *   mount is never detached.
  * - On Windows bare `git` resolves from the working directory first, so config supplies an
  *   absolute `gitExecutablePath`.
  */
@@ -37,10 +38,12 @@ import {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { DatabaseConnections } from "../../database/connections.js";
+import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
+  RepoMountManagedError,
   RepoMountNotFoundError,
 } from "./errors.js";
 import { RepoRootResolver } from "./root-resolver.js";
@@ -93,6 +96,7 @@ interface RepoMountRow {
   readonly local_path: string;
   readonly canonical_root: string;
   readonly vcs_type: string;
+  readonly origin: string;
   readonly state: string;
   readonly attached_at: string;
 }
@@ -192,11 +196,30 @@ const INSERT_MOUNT_SQL = `INSERT INTO repo_mounts (
      '${ATTACHED_MOUNT_STATE}', @now, @now, '{}'
    )`;
 
-// A chat's workspace rows go with its mount, because no workspace may outlive the mount it names.
-const DELETE_MANAGED_WORKSPACES_SQL = `DELETE FROM workspaces
-    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)`;
+// The workspaces on the chat's managed mount.
+const MANAGED_WORKSPACE_IDS_SQL = `SELECT workspace.id
+     FROM workspaces AS workspace
+     JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
+    WHERE mount.managed_session_id = @session_id`;
 
-const DELETE_MANAGED_MOUNT_SQL = `DELETE FROM repo_mounts WHERE managed_session_id = @session_id`;
+// Each row that names a workspace on the mount goes before it, and each workspace before the mount,
+// because every foreign key holds on DELETE too.
+const DELETE_MANAGED_MOUNT_SQL: readonly string[] = [
+  `DELETE FROM run_execution_contexts WHERE workspace_id IN (${MANAGED_WORKSPACE_IDS_SQL})`,
+  `DELETE FROM branch_contexts WHERE workspace_id IN (${MANAGED_WORKSPACE_IDS_SQL})`,
+  `DELETE FROM workspaces
+    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)`,
+  "DELETE FROM repo_mounts WHERE managed_session_id = @session_id",
+];
+
+/**
+ * The statements that delete a chat's managed mount row with every workspace on it and the run and
+ * branch rows naming those workspaces, in foreign-key order; a session with none matches nothing.
+ * They go in one write, alone or inside the purge's.
+ */
+export function managedMountDeletionStatements(sessionId: SessionId): readonly WriteStatement[] {
+  return DELETE_MANAGED_MOUNT_SQL.map((sql) => ({ sql, bindings: { session_id: sessionId } }));
+}
 
 // A dependent with an agent running in it: `busy`, or holding a run whose execution root is
 // unreleased, since a run releases its workspace hold and its execution root separately.
@@ -308,7 +331,7 @@ export class RepoMountService {
 
     // Unscoped by state: a read must answer for a `detached` mount.
     this.#selectMountStmt = database.prepare(
-      `SELECT id, node_id, local_path, canonical_root, vcs_type, state, attached_at
+      `SELECT id, node_id, local_path, canonical_root, vcs_type, origin, state, attached_at
          FROM repo_mounts
         WHERE id = @repo_mount_id`,
     );
@@ -428,15 +451,11 @@ export class RepoMountService {
   }
 
   /**
-   * Delete a chat's managed mount row and the workspace rows on it, in one write. A session with
-   * no managed mount writes nothing, so a repeat after a partial purge is safe.
+   * Delete a chat's managed mount row and every row on it, in one write. A session with no managed
+   * mount writes nothing, so a repeat is safe.
    */
   async deleteManaged(sessionId: SessionId): Promise<void> {
-    const bindings = { session_id: sessionId };
-    await this.#writer.write([
-      { sql: DELETE_MANAGED_WORKSPACES_SQL, bindings },
-      { sql: DELETE_MANAGED_MOUNT_SQL, bindings },
-    ]);
+    await this.#writer.write(managedMountDeletionStatements(sessionId));
   }
 
   /**
@@ -451,11 +470,11 @@ export class RepoMountService {
   }
 
   /**
-   * Detach a mount and archive its workspaces (a no-op if not `attached`); refuses with
-   * `RepoDetachConflictError`, naming the running session, while an agent runs in any of them
-   * (`busy`, or a run whose execution root is unreleased). Rejects with
-   * `detach_notification_incomplete` if committed but an event append failed; the rows are the
-   * truth and a rerun is a no-op.
+   * Detach a mount and archive its workspaces (a no-op if not `attached`). Refuses a chat's
+   * managed mount with `RepoMountManagedError`, and refuses with `RepoDetachConflictError`, naming
+   * the running session, while an agent runs in any of its workspaces (`busy`, or a run whose
+   * execution root is unreleased). Rejects with `detach_notification_incomplete` if committed but
+   * an event append failed; the rows are the truth and a rerun is a no-op.
    */
   async detach(input: DetachRepoMountInput): Promise<RepoMountDetachOutcome> {
     const actor = input.actor ?? null;
@@ -463,6 +482,11 @@ export class RepoMountService {
     const repoMountId = input.repoMountId;
 
     const row = this.#requireMountRow(repoMountId);
+    // A chat's managed workspace goes only with its chat's purge, so it is no detach target. The
+    // origin never changes, so the row read decides it.
+    if (row.origin !== ATTACHED_MOUNT_ORIGIN) {
+      throw new RepoMountManagedError(repoMountId);
+    }
     if (row.state !== ATTACHED_MOUNT_STATE) {
       return this.#projectDetachOutcome(repoMountId, row.state, []);
     }

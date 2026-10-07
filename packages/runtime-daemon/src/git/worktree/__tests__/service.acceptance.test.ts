@@ -27,7 +27,6 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
-import { SessionService } from "../../../session/service.js";
 import { ExecutionRootService } from "../../../workspace/execution-root-service.js";
 import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
 import { requireWorkspaceRow } from "../../../workspace/__fixtures__/rows.js";
@@ -295,7 +294,6 @@ beforeEach(async () => {
   const workspaces = new WorkspaceService({
     database: scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: eventLog }),
-    sessions: new SessionService(scratch.reader),
     now: clock,
   });
   // No `git` seam: that selects the production `execFile` runner.

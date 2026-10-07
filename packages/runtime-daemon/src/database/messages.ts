@@ -33,7 +33,12 @@ export type WriteJobOutcome =
 /** What the main thread asks of the worker. */
 export type WriterRequest =
   | { readonly type: "batch"; readonly jobs: readonly WriteJob[] }
-  | { readonly type: "checkpoint"; readonly mode: CheckpointMode }
+  | {
+      readonly type: "checkpoint";
+      readonly mode: CheckpointMode;
+      /** Whether the checkpoint waits out the busy timeout for a reader before answering busy. */
+      readonly shouldWaitForReaders: boolean;
+    }
   | { readonly type: "close" };
 
 /** What the worker answers: once when its connection is open, then once per request. */
