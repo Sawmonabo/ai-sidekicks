@@ -124,6 +124,28 @@ describe("run state change", () => {
     expect(fixture.runs.getRun(otherRunId)).toMatchObject({ state: "pausing", version: 3 });
   });
 
+  it("never re-opens a run whose end won the race against a provider's live move", async () => {
+    const runId = await fixture.runThrough(["starting", "running", "waiting_for_approval"]);
+
+    // The provider's `running` read the run waiting, then lost its swap to the person's interrupt;
+    // `interrupted -> running` is in the table, so only the retry's ended-run check refuses it.
+    const [, providerOutcome] = await Promise.allSettled([
+      fixture.engine.transition({ runId, newState: "interrupted" }),
+      fixture.engine.applyProviderStateChange({ runId, newState: "running" }),
+    ]);
+
+    const refusal = (providerOutcome as PromiseRejectedResult).reason as unknown;
+    expect(refusal).toBeInstanceOf(RunInvalidTransitionError);
+    expect(refusal).toMatchObject({ fromState: "interrupted", toState: "running" });
+    expect(fixture.runs.getRun(runId)).toMatchObject({ state: "interrupted", version: 4 });
+    expect(
+      fixture
+        .readRunEvents(runId)
+        .map((row) => row.type)
+        .slice(-2),
+    ).toEqual(["run.waiting_for_approval", "run.interrupted"]);
+  });
+
   it("refuses a terminal its run version already holds even while the row still reads live", async () => {
     const runId = await fixture.runThrough(["starting", "running"]);
     // A terminal record at the next version, appended with no swap, so only the guard can see it.
