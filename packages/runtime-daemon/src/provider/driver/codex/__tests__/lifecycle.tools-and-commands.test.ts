@@ -1,6 +1,7 @@
-// The provider's callback-tool asks and the daemon's native commands. A tool call must reach the
-// host attributed to the run that made it, or be refused before anything runs; compaction settles
-// only on the provider's typed evidence; the command list is a live read that never goes stale.
+// The provider's callback-tool asks and the daemon's native commands. A goal is set and cleared as
+// the person's own act; a tool call must reach the host attributed to the run that made it, or be
+// refused before anything runs; compaction settles only on the provider's typed evidence; the
+// command list is a live read that never goes stale.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +30,34 @@ import { CREATE_PARAMS } from "./lifecycle.test-support.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 
 const BINDING = { sessionId: SESSION_ID, bindingId: "binding-abc" };
+
+describe("Codex session goals", () => {
+  // Codex counts a goal as the person's instruction only when the request says so; without
+  // `origin: "user"` its automatic reviewer never reads the goal as authorization.
+  it("sets and clears the goal as the person's own act", async () => {
+    const harness = createManagerHarness();
+    harness.server.on("thread/goal/set", () => ({ result: {} }));
+    harness.server.on("thread/goal/clear", () => ({ result: { cleared: true } }));
+    await harness.manager.createSession(CREATE_PARAMS);
+
+    await expect(
+      harness.manager.setSessionGoal({ ...BINDING, runId: RUN_ID, goalText: "ship the fix" }),
+    ).resolves.toStrictEqual({ status: "applied" });
+    await expect(
+      harness.manager.clearSessionGoal({ ...BINDING, runId: RUN_ID }),
+    ).resolves.toStrictEqual({ status: "applied" });
+
+    expect(harness.server.framesForMethod("thread/goal/set")[0]?.["params"]).toStrictEqual({
+      threadId: THREAD_ID,
+      origin: "user",
+      objective: "ship the fix",
+    });
+    expect(harness.server.framesForMethod("thread/goal/clear")[0]?.["params"]).toStrictEqual({
+      threadId: THREAD_ID,
+      origin: "user",
+    });
+  });
+});
 
 // Through the composed path a production spawn uses: a provider `item/tool/call` frame reaches
 // `CallbackToolHost` and the host's answer returns as a `DynamicToolCallResponse`.

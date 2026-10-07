@@ -8,8 +8,8 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // AttentionProjectionRead — the machine's whole attention projection, served live: the first emission is
 // the whole projection, then one emission per change. The bell's count and its list, the app icon's count
 // and the operating-system notification are all read from it, and from nothing else.
-// With no session named, the whole projection across every session and workflow run. Naming a session
-// narrows by D-016-4: scope "run" requires runId, and runId is admissible only with scope "run".
+// With no session named, the whole projection across every session and workflow run, with each
+// provider's build entries. Naming a session narrows by D-016-4: scope "run" requires runId, and runId is admissible only with scope "run".
 interface AttentionProjectionReadRequest {
   sessionId?: SessionId;
   scope?: "run" | "session";
@@ -21,7 +21,8 @@ interface AttentionProjectionReadResponse {
 
 interface AttentionItem {
   id: string;
-  // The MOMENT this entry speaks for — the session or run and the episode it is in, minted by the
+  // The MOMENT this entry speaks for — the session or run and the episode it is in, or on a
+  // `provider_build` entry the provider and its build, minted by the
   // projection and never composed by a client. Every operating-system notification carries it, so a
   // subject that moves from waiting to finished while nobody is looking REPLACES its banner in place
   // instead of standing a second one beside it: the waiting entry and the finished one that follows it
@@ -34,7 +35,7 @@ interface AttentionItem {
   // running, the daemon starts the app's own program with no window to post the banner, and that process
   // exits.
   momentId: string;
-  sessionId: SessionId;
+  sessionId?: SessionId; // absent exactly on a `provider_build` entry, which belongs to no session
   runId?: RunId; // present on a run-scoped entry; absent on the session-scoped aggregate
   // The name the entry is shown under — the session's name, or the run's name on a run's entry — and the
   // word the line reads after it (`Waiting on you`, `Finished`, `Failed`, or a Notify step's own notice
@@ -45,29 +46,42 @@ interface AttentionItem {
   // counted, and withdrawn when resolved), `Finished` (`run_completed`) and `Failed` (`run_failed`), listed
   // under `Earlier` and never counted, and a workflow's Notify step (`workflow_notify`), listed under
   // `Earlier`, never counted and never withdrawn. A Notify step is one informational entry with no event
-  // of its own.
+  // of its own. A provider's new build (`provider_build`) is none of the four: one informational entry per
+  // build under `Earlier`, never counted, written `withheld` and carried by no notification, push,
+  // web-address message or digest line; its line opens that provider's section of Settings › Providers.
   trigger:
     | "pending_approval"
     | "pending_input"
     | "run_completed"
     | "run_failed"
-    | "workflow_notify";
+    | "workflow_notify"
+    | "provider_build";
   stepId?: string; // present exactly on a `workflow_notify` entry, which is informational and carries its run: the step that posted it
+  // Present exactly on a `provider_build` entry: the line reads `Claude Code updated · 2.1.293 → 2.1.294`
+  // with `What's new`, which opens the provider's official release notes for the new version, or, with
+  // no `fromVersion`, a build only available to a provider the person keeps from updating itself,
+  // `Claude Code 2.1.294 available`.
+  providerBuild?: { provider: ProviderName; fromVersion?: string; toVersion: string };
   severity: "actionable" | "informational";
   summary: string; // one line a surface renders: prose, not an identifier
   // What became of the entry's banner. The daemon writes `withheld` when it writes the entry for a kind
-  // this machine's settings switch off, for the master switch off, and for a muted session's `Finished` or
-  // `Failed`, and starts no windowless app for it, and `pending` otherwise; the main process settles a
-  // `pending` entry once through `attention.bannerSettle`, so a banner is never posted twice.
+  // this machine's settings switch off, for the master switch off, for a muted session's `Finished` or
+  // `Failed`, and for every `provider_build` entry, and starts no windowless app for it, and `pending`
+  // otherwise; the main process settles a `pending` entry once through `attention.bannerSettle`, so a
+  // banner is never posted twice.
   bannerState: "pending" | "posted" | "withheld" | "withdrawn";
   // Where the entry's message to the person's web address stands, and how many sends it took; both
   // present exactly when the entry is sent to a web address.
   webAddressState?: "pending" | "delivered" | "undelivered";
   webAddressAttemptCount?: number;
-  sourceEventId: string; // canonical event that triggered this
+  // The canonical event that triggered this; absent on a `provider_build` entry, which is derived from its
+  // row in the daemon's record of each provider's builds.
+  sourceEventId?: string;
   createdAt: string;
   resolvedAt?: string; // set once the state that produced the entry resolves; absent means outstanding
-  seen: boolean; // the one seen-or-unseen fact the daemon keeps, which the session's row reads too
+  // The one seen-or-unseen fact the daemon keeps, which the session's row reads too; absent on an entry
+  // with no session.
+  seen?: boolean;
 }
 
 // AttentionBannerSettle — called by the main process alone: records what became of an entry's banner. A

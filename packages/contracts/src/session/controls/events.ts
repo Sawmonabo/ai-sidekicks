@@ -134,8 +134,9 @@ export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferin
  * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own words.
  * - `level_unavailable`: an account switch moved the session onto an account that cannot run the
  *   level it left, so it runs at `ask`; `level` is the level it left.
- * - `provider_updated`: the provider's installed build changed under the running session, both
- *   versions as the provider reports them; drawn as a banner, never a row.
+ * - `provider_updated`: the session moved to the provider's new build, both versions as the
+ *   provider reports them; drawn as a faint line above the composer until the next message is
+ *   sent, never a row.
  * - `fast_output_unavailable`: the provider says fast output is not on for the run `runId`, which
  *   asked for it, with its own reason when it sent one.
  * - `provider_missing`: the session's provider is not installed where the background service

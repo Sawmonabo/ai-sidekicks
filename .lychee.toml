@@ -17,16 +17,18 @@ include_fragments = "full"
 # CI on probe bursts. 200..=299 covers all success codes; listing it explicitly documents intent.
 accept = ["200..=299", "429"]
 
+# Each value is a regular expression matched anywhere in the path, not a glob, so each is anchored
+# to a whole folder name; the repository-level folders are anchored to the start of the path.
 exclude_path = [
-  "node_modules/**",
-  ".git/**",
-  ".agents/**",
-  ".claude/**",
-  "dist/**",
-  "build/**",
-  "docs/archive/**",
-  ".turbo/**",
-  ".pnpm-store/**",
+  "(^|/)node_modules/",
+  "^(\\./)?\\.git/",
+  "^(\\./)?\\.agents/",
+  "^(\\./)?\\.claude/",
+  "(^|/)dist/",
+  "(^|/)build/",
+  "^(\\./)?docs/archive/",
+  "(^|/)\\.turbo/",
+  "^(\\./)?\\.pnpm-store/",
 ]
 
 # URL-pattern excludes. Hosts that persistently 403 lychee's bot-shaped
