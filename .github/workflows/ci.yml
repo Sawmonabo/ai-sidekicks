@@ -60,7 +60,6 @@ jobs:
       # `|| 'true'` is the default off a pull request: the filter step runs only there, so a push or
       # scheduled run reports every filter changed and runs unfiltered.
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
-      desktop-build-settings: ${{ steps.filter.outputs.desktop-build-settings || 'true' }}
       structure: ${{ steps.filter.outputs.structure || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
       slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
@@ -84,19 +83,18 @@ jobs:
               - 'packages/**'
               - 'pnpm-lock.yaml'
               - 'turbo.json'
-              - '.github/workflows/ci.yml'
-              - '.github/actions/setup-electron-display/**'
-            # The root files the desktop build reads that `desktop` does not name: the TypeScript
-            # configs its own extend, the Node version and the install settings. A change to one
-            # can break that build while the `desktop` job is skipped, so the `test` job builds
-            # the desktop then. `eslint.config.mjs` is in Turbo's global hash but the build never
-            # reads it; a patch moves its hash in `pnpm-lock.yaml`.
-            desktop-build-settings:
+              # The root settings the desktop's build and tiers run under: the TypeScript configs
+              # its own extend, the shared Vitest settings its Vitest config imports, the Node
+              # version and the install settings. A change under `patches/` moves that patch's
+              # hash in the lockfile, so the lockfile entry covers it.
               - 'tsconfig.base.json'
               - 'tsconfig.node.json'
+              - 'vitest.shared.ts'
               - '.nvmrc'
               - '.npmrc'
               - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
             # entries (this workflow, the lefthook config).
             structure:
@@ -143,10 +141,11 @@ jobs:
           version="$(tr -d '[:space:]' < .nvmrc)"
           echo "major-minor=[\"$(cut -d. -f1,2 <<< "$version")\"]" >> "$GITHUB_OUTPUT"
 
-  # Full-repo lint, format check, build, typecheck and test on the Node floor.
+  # Full-repo lint, format check and typecheck on the Node floor, and the build and tests of every
+  # workspace but the desktop, whose build and tiers are the `desktop` job's.
   test:
     name: test (${{ matrix.os }} / node ${{ matrix.node }})
-    needs: [node-version, changes]
+    needs: [node-version]
     runs-on: ${{ matrix.os }}
     # Job-scoped `permissions:` and `env:` are both load-bearing for the Turborepo remote cache:
     #   - A job-level `permissions:` map replaces the workflow-level one, so `contents: read` is
@@ -214,16 +213,10 @@ jobs:
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
 
-      # Every workspace but the desktop: the `desktop` job's tiers build it whenever a file under
-      # its filter changes, so building it here too would build it twice.
+      # Every workspace but the desktop: the `desktop` job's tiers build it whenever a file its
+      # filter names changes, so building it here too would build it twice.
       - name: Build (excluding desktop)
         run: pnpm turbo run build --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
-
-      # The one change that can break the desktop build with the `desktop` job skipped: a root
-      # build setting it reads (`desktop-build-settings` in `changes`).
-      - name: Build desktop (a root build setting changed)
-        if: needs.changes.outputs.desktop-build-settings == 'true' && needs.changes.outputs.desktop != 'true'
-        run: pnpm turbo run build --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Typecheck
         run: pnpm turbo run typecheck ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
