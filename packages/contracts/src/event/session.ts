@@ -26,9 +26,14 @@ import {
   BackupFailedPayloadSchema,
   BackupRestoredPayloadSchema,
 } from "../daemon/backup.js";
-import { EVENT_FIELD_MAX_LEN } from "./version.js";
+import {
+  RecoveryAttemptedPayloadSchema,
+  RecoveryFailedPayloadSchema,
+  RecoverySucceededPayloadSchema,
+} from "../daemon/recovery.js";
 import {
   EventCompactedPayloadSchema,
+  UsageModelReroutedPayloadSchema,
   assistantMessagePayloadSchema,
   assistantThinkingUpdatePayloadSchema,
   buildMachineContentDescriptorShape,
@@ -44,15 +49,12 @@ import type {
   SessionEvent,
 } from "./variant-types.js";
 import { GitSettledPayloadSchema } from "../gitflow/local.js";
-import { uuidTextFormSchema } from "../internal/branded.js";
 import { McpServerOauthCompletedPayloadSchema } from "../mcp/governance.js";
 import {
   PlanAcceptedPayloadSchema,
   PlanHandedOffPayloadSchema,
   PlanProposedPayloadSchema,
 } from "../plan.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
-import { RunIdSchema } from "../run/id.js";
 import { OrchestrationRejectedPayloadSchema } from "../orchestration.js";
 import { PtyControlChangedPayloadSchema } from "../pty.js";
 import { QuestionAskedPayloadSchema } from "../question.js";
@@ -100,8 +102,6 @@ import {
   SessionGoalUpdatedPayloadSchema,
 } from "../session/goal.js";
 import { SessionRestoreFinishedPayloadSchema } from "../session/restore.js";
-import { wireFreeFormString } from "../free-form-string.js";
-import { SessionIdSchema } from "../session/id.js";
 import {
   WorkflowCanceledPayloadSchema,
   WorkflowResultsPostedPayloadSchema,
@@ -325,32 +325,6 @@ const commandEndedVariantPayloadSchema = withEpochStamp(
   CommandEndedPayloadSchema as unknown as z.ZodObject<Record<never, never>, z.core.$strict>,
 ) as unknown as z.ZodType<CommandEndedEvent["payload"]>;
 
-const usageModelReroutedVariantPayloadSchema = withEpochStamp(
-  z
-    .object({
-      sessionId: SessionIdSchema,
-      runId: RunIdSchema,
-      agentId: uuidTextFormSchema.optional(),
-      fromModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.fromModel"),
-      toModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.toModel"),
-      scope: z.enum(["turn", "session", "local"]),
-      sentence: wireFreeFormString(
-        DRIVER_FAILURE_DETAIL_MAX_LEN,
-        "UsageModelReroutedPayload.sentence",
-      ).optional(),
-      explanation: wireFreeFormString(
-        DRIVER_FAILURE_DETAIL_MAX_LEN,
-        "UsageModelReroutedPayload.explanation",
-      ).optional(),
-      cause: z.enum(["safety", "model_unavailable", "model_blocked", "out_of_credits"]),
-      safetyCategory: wireFreeFormString(
-        EVENT_FIELD_MAX_LEN,
-        "UsageModelReroutedPayload.safetyCategory",
-      ).optional(),
-    })
-    .strict(),
-);
-
 const approvalRejectedVariantSchema = buildSessionEventVariantSchema(
   "approval.rejected",
   "approval_flow",
@@ -489,7 +463,7 @@ const sessionUnmutedVariantSchema = buildSessionEventVariantSchema(
 const usageModelReroutedVariantSchema = buildSessionEventVariantSchema(
   "usage.model_rerouted",
   "usage_telemetry",
-  usageModelReroutedVariantPayloadSchema,
+  UsageModelReroutedPayloadSchema,
 );
 const sessionConvertedVariantSchema = buildSessionEventVariantSchema(
   "session.converted",
@@ -701,6 +675,21 @@ const backupRestoredVariantSchema = buildSessionEventVariantSchema(
   "event_maintenance",
   BackupRestoredPayloadSchema,
 );
+const recoveryAttemptedVariantSchema = buildSessionEventVariantSchema(
+  "recovery.attempted",
+  "recovery_events",
+  RecoveryAttemptedPayloadSchema,
+);
+const recoverySucceededVariantSchema = buildSessionEventVariantSchema(
+  "recovery.succeeded",
+  "recovery_events",
+  RecoverySucceededPayloadSchema,
+);
+const recoveryFailedVariantSchema = buildSessionEventVariantSchema(
+  "recovery.failed",
+  "recovery_events",
+  RecoveryFailedPayloadSchema,
+);
 
 // A run state change and an intervention event each take their payload from their own state.
 const buildRunStateChangeVariantSchema = <TState extends RunStateChangeState>(state: TState) =>
@@ -855,6 +844,9 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   backupCompletedVariantSchema,
   backupFailedVariantSchema,
   backupRestoredVariantSchema,
+  recoveryAttemptedVariantSchema,
+  recoverySucceededVariantSchema,
+  recoveryFailedVariantSchema,
   buildRunStateChangeVariantSchema("starting"),
   buildRunStateChangeVariantSchema("running"),
   buildRunStateChangeVariantSchema("waiting_for_approval"),

@@ -283,6 +283,7 @@ export class ScriptedService {
       dataDirectory: "/home/person/.ai-sidekicks",
       processor: { percent: 0, readAt },
       memory: { residentBytes: 1, readAt },
+      recovery: { overall: "healthy", sessions: [] },
     };
   }
 }

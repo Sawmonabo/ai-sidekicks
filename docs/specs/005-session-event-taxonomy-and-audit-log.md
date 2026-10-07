@@ -353,7 +353,7 @@ Payload shape: `{sessionId, runId?, tokenCount?, inputTokens?, outputTokens?, ca
 
 Daemon-startup recovery lifecycle events producing the durable record of projection rebuild, binding restoration, and in-flight run disposition per [Spec-013 §Required Behavior](./013-persistence-and-recovery.md#required-behavior). These events belong to their own category rather than `run_lifecycle` because a single recovery cycle may touch zero, one, or many runs across multiple sessions, and the category scope is **the daemon's recovery pass**, not any one run.
 
-Payload shape: `{nodeId, recoveryId, phase, attemptNumber}` (base). Per-event payload extensions called out inline.
+Payload shape: `{nodeId, recoveryId, phase, attemptNumber}` (base). `phase ∈ ['projection_rebuild','binding_restore','run_resumption']` is the step of the pass the event was recorded in: `projection_rebuild` on `recovery.attempted`, the step the pass ended in on `recovery.succeeded` and `recovery.failed`. `attemptNumber` is one more than the `recovery.failed` events recorded since the last `recovery.succeeded`. Per-event payload extensions called out inline.
 
 | Type | Description | Payload Extension |
 | --- | --- | --- |

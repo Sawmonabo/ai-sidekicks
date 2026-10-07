@@ -8,6 +8,7 @@ import { ProcessIdentitySchema, type ProcessIdentity } from "../process-identity
 import { ReleaseVersionSchema } from "../release-manifest.js";
 import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { DaemonRecoveryStatusSchema, type DaemonRecoveryStatus } from "./recovery.js";
 
 /** Where the service is in its own life. */
 export type DaemonProcessState = "running" | "starting" | "stopping" | "degraded";
@@ -85,6 +86,8 @@ export interface DaemonStatusReadResponse {
   processor: DaemonProcessorReading | null;
   /** `null` when the reading could not be taken at this call. */
   memory: DaemonMemoryReading | null;
+  /** Where the node stands in its recovery from the last restart; writes wait for `healthy`. */
+  recovery: DaemonRecoveryStatus;
   relay?: DaemonRelayStatus | undefined;
   /**
    * The file the service keeps its secrets in, readable by this account alone: present only on
@@ -111,6 +114,7 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
       .strict()
       .nullable(),
     memory: z.object({ residentBytes: countSchema, readAt: isoDateTimeSchema }).strict().nullable(),
+    recovery: DaemonRecoveryStatusSchema,
     relay: z
       .object({
         devices: z.array(

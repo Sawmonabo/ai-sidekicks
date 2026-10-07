@@ -49,6 +49,7 @@ interface ProjectionRebuildResponse {
   sessionId: SessionId;
   rebuiltProjections: string[];
   asOfSequence: number;
+  eventsApplied: number; // the events the rebuild read; recovery.succeeded sums them
 }
 
 // RuntimeBindingRead

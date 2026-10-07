@@ -3,9 +3,10 @@
 // for writes and a read-only connection for reads, kills the terminal children a previous run left
 // running and builds the terminal host over this run's orphan guard, knows this machine, captures
 // the environment providers are built from, listens on its socket and writes this start's session
-// token once the bind has succeeded. A client that reads the previous token in the moment between
-// the bind and the write is refused once, and its next read finds this start's token. Its stop,
-// asked for over the socket or by a terminate signal, ends it cleanly.
+// token once the bind has succeeded, then runs its recovery pass, refusing writes until that pass
+// leaves the node healthy. A client that reads the previous token in the moment between the bind
+// and the write is refused once, and its next read finds this start's token. Its stop, asked for
+// over the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -30,6 +31,7 @@ import {
   openDatabaseConnections,
   type DatabaseConnections,
 } from "../database/connections.js";
+import { EventLogService } from "../events/log-service.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
@@ -40,6 +42,14 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
+import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
+import { StartupRecovery } from "../recovery/startup.js";
+import { RecoveryStatusTracker } from "../recovery/status.js";
+import { RecoveryWriteGate } from "../recovery/write-gate.js";
+import { RunEngine } from "../session/run/engine.js";
+import { RUNS_PROJECTION } from "../session/run/projection.js";
+import { RunStateReader } from "../session/run/read.js";
+import { SessionService } from "../session/service.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -111,6 +121,9 @@ export class DaemonProcess {
   readonly #database: DatabaseConnections;
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
+  readonly #recoveryStatus = new RecoveryStatusTracker();
+  readonly #runEngine: RunEngine;
+  readonly #startupRecovery: StartupRecovery;
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
@@ -138,10 +151,34 @@ export class DaemonProcess {
     this.#ptyHost = options.createPtyHost(parts.orphanGuard);
     this.#writeServiceLog = options.writeServiceLog;
 
-    // The negotiation gate wraps the recording registry, so a refused call is never recorded.
+    const { reader, writer } = parts.database;
+    const sessionEvents = new EventLogService({ writer });
+    this.#runEngine = new RunEngine({ reader, sessionEvents });
+    this.#startupRecovery = new StartupRecovery({
+      nodeId: parts.localMachine.nodeId,
+      reader,
+      sessionEvents,
+      projectionRebuild: new ProjectionRebuildService({
+        reader,
+        writer,
+        sessionEvents: new SessionService(reader),
+        projections: [RUNS_PROJECTION],
+      }),
+      runs: new RunStateReader(reader),
+      runEngine: this.#runEngine,
+      status: this.#recoveryStatus,
+      now: options.now,
+      writeServiceLog: options.writeServiceLog,
+    });
+
+    // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
+    // refused call is never recorded.
     this.#inFlightMutations = new InFlightMutations();
     const negotiator = new ProtocolNegotiator(parts.sessionToken);
-    const registry = negotiator.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl()));
+    const writeGate = new RecoveryWriteGate(() => this.#recoveryStatus.readOverall());
+    const registry = negotiator.wrap(
+      writeGate.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl())),
+    );
     negotiator.registerHandshakeMethod(registry);
     registerLifecycleMethods(registry, {
       flush: async () => {
@@ -153,6 +190,7 @@ export class DaemonProcess {
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,
+      readRecovery: () => this.#recoveryStatus.read(),
       version: options.serviceVersion,
       transportEndpoint: options.runFolder.socketPath,
       dataDirectory: parts.dataFolder,
@@ -199,17 +237,20 @@ export class DaemonProcess {
         },
       },
     });
-    // A dead writer fails every write from then on, so the service reads as degraded too.
+    // A dead writer fails every write from then on, so the service reads as degraded and its
+    // recovery as blocked.
     void this.#database.writer.whenWorkerFailed.then((error) => {
       this.#markDegraded();
+      this.#recoveryStatus.markStoreFailed();
       options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
     });
   }
 
   /**
-   * Starts the daemon and resolves once it listens. Throws `DaemonAlreadyRunningError` when another
-   * daemon holds the data folder or answers on the socket; any failure releases what the start had
-   * taken.
+   * Starts the daemon and resolves once it listens and its recovery pass has ended; a pass that
+   * fails leaves the node's recovery state saying so and never fails the start. Throws
+   * `DaemonAlreadyRunningError` when another daemon holds the data folder or answers on the
+   * socket; any other failure releases what the start had taken.
    */
   static async start(options: DaemonProcessOptions): Promise<DaemonProcess> {
     const startedAt = options.now();
@@ -254,6 +295,7 @@ export class DaemonProcess {
           sessionToken,
         });
         await daemon.#listen(options.runFolder, sessionToken);
+        await daemon.#startupRecovery.run();
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];

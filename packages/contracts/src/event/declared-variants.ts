@@ -1,6 +1,6 @@
 // Session events whose payload this package declares itself: session, workspace and worktree
-// lifecycle, event compaction, and assistant and tool activity. Each has an event interface here;
-// `SessionEventSchema` in event/session.ts parses them.
+// lifecycle, event compaction, assistant and tool activity, and the provider's move of a turn onto
+// another model. `SessionEventSchema` in event/session.ts parses them.
 
 import { z } from "zod";
 import { EVENT_FIELD_MAX_LEN } from "./version.js";
@@ -11,6 +11,9 @@ import {
   type SourceEpoch,
   type SourcePosition,
 } from "./envelope.js";
+import { uuidTextFormSchema } from "../internal/branded.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import { NodeIdSchema, type NodeId } from "../runtime-node/id.js";
 import type { RepoWorkspaceLifecyclePayload } from "../repo/mount.js";
 import type { SessionCreatedPayload } from "../session/events.js";
@@ -340,3 +343,53 @@ export interface ToolErrorEvent extends EventEnvelope {
   category: "tool_activity";
   payload: ToolActivityPayload;
 }
+
+/**
+ * `usage.model_rerouted`: the provider moved a turn onto another model and the turn went on.
+ * `scope` says how long the switch holds: this turn, the rest of the session, or one helper's
+ * response (`local`); `sentence`, `explanation` and `safetyCategory` are the provider's own.
+ */
+export type UsageModelReroutedPayload = {
+  sessionId: SessionId;
+  runId: RunId;
+  agentId?: string | undefined;
+  fromModel: string;
+  toModel: string;
+  scope: "turn" | "session" | "local";
+  sentence?: string | undefined;
+  explanation?: string | undefined;
+  cause: "safety" | "model_unavailable" | "model_blocked" | "out_of_credits";
+  safetyCategory?: string | undefined;
+};
+
+/** Strict payload schema of `usage.model_rerouted`, with the epoch stamp. */
+export const UsageModelReroutedPayloadSchema: z.ZodType<
+  UsageModelReroutedPayload & {
+    sourceEpoch?: SourceEpoch | undefined;
+    sourcePosition?: SourcePosition | undefined;
+  }
+> = withEpochStamp(
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      runId: RunIdSchema,
+      agentId: uuidTextFormSchema.optional(),
+      fromModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.fromModel"),
+      toModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.toModel"),
+      scope: z.enum(["turn", "session", "local"]),
+      sentence: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "UsageModelReroutedPayload.sentence",
+      ).optional(),
+      explanation: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "UsageModelReroutedPayload.explanation",
+      ).optional(),
+      cause: z.enum(["safety", "model_unavailable", "model_blocked", "out_of_credits"]),
+      safetyCategory: wireFreeFormString(
+        EVENT_FIELD_MAX_LEN,
+        "UsageModelReroutedPayload.safetyCategory",
+      ).optional(),
+    })
+    .strict(),
+);

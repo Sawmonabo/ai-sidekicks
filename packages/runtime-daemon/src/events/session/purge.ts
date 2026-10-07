@@ -1,6 +1,6 @@
-// The whole-session purge: deletes the event and snapshot rows of each session a person deletes,
-// outright, appends one receipt naming every session that lost rows, then truncates the
-// write-ahead log.
+// The whole-session purge: deletes the event, snapshot and projection cursor rows of each session
+// a person deletes, outright, appends one receipt naming every session that lost rows, then
+// truncates the write-ahead log.
 //
 // It is the only operation in this package that removes a committed row of the append-only log.
 // Nothing in the background calls it. The caller chooses the sessions and owns the precondition
@@ -284,9 +284,10 @@ export class SessionPurge {
 }
 
 /**
- * The range read and the two deletes of one session. The range read returns its row only while
- * the stored sequences are safe integers, so a range the receipt could not name refuses the write
- * before anything is deleted. A snapshot names the event it reflects, so snapshots go first.
+ * The range read and the deletes of one session. The range read returns its row only while the
+ * stored sequences are safe integers, so a range the receipt could not name refuses the write
+ * before anything is deleted. A snapshot names the event it reflects, so snapshots go first; the
+ * projection cursor names the last event the session's rows reflect, so it goes with the events.
  */
 function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
   return [
@@ -302,6 +303,7 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     },
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
+    { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
   ];
 }
 

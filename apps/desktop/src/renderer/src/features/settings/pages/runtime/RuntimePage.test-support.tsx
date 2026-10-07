@@ -127,6 +127,7 @@ export function daemonStatusAt(version: string): DaemonStatusReadResponse {
     dataDirectory: "/tmp/sidekicks",
     processor: { percent: 0, readAt: "2026-04-30T09:00:00.000Z" },
     memory: { residentBytes: 0, readAt: "2026-04-30T09:00:00.000Z" },
+    recovery: { overall: "healthy", sessions: [] },
   };
 }
 

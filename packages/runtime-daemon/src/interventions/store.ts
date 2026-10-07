@@ -9,7 +9,7 @@ import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { InterventionType } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
-import type { WriteStatement } from "../database/statement.js";
+import { DATABASE_NOW_SQL, type WriteStatement } from "../database/statement.js";
 
 /** A new intervention as its `requested` row records it; `payload` is its type's own fields. */
 export interface RequestedIntervention {
@@ -50,16 +50,13 @@ export interface SavedIntervention {
   readonly failureReason: string | null;
 }
 
-// The row's times are the database clock's, in the same ISO 8601 form as every other column.
-const NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
-
 // Changes no row when the key was already spent on this run, so the write that carries it is
 // refused and nothing saved is replaced.
 const INSERT_REQUESTED_SQL = `INSERT INTO interventions
     (id, target_run_id, type, state, payload, expected_run_version, client_idempotency_key,
      device_id, created_at)
   VALUES (@id, @target_run_id, @type, 'requested', @payload, @expected_run_version,
-          @client_idempotency_key, @device_id, ${NOW_SQL})
+          @client_idempotency_key, @device_id, ${DATABASE_NOW_SQL})
   ON CONFLICT (target_run_id, client_idempotency_key) DO NOTHING`;
 
 const MOVE_SQL = `UPDATE interventions
@@ -67,7 +64,7 @@ const MOVE_SQL = `UPDATE interventions
         rejection_reason = @rejection_reason,
         failure_reason = @failure_reason,
         fallback_action = @fallback_action,
-        resolved_at = CASE WHEN @to = 'accepted' THEN NULL ELSE ${NOW_SQL} END
+        resolved_at = CASE WHEN @to = 'accepted' THEN NULL ELSE ${DATABASE_NOW_SQL} END
   WHERE id = @id
     AND state = @from`;
 

@@ -1,7 +1,10 @@
-// Reads a session's events back in `sequence ASC` order and rebuilds its record from the stored
-// events on every call; no snapshot is persisted.
+// Reads a session's events back in `sequence ASC` order, whole or a page after a known sequence,
+// and rebuilds its record from the stored events on every call; no snapshot is persisted.
 
 import type { Database, Statement } from "better-sqlite3";
+
+import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { DaemonSessionRecord, StoredEvent } from "./records.js";
 import { rebuildSession as rebuildSessionFromEvents } from "./projector.js";
@@ -25,24 +28,79 @@ interface SessionEventRow {
   readonly version: string;
 }
 
+/** A page of a session's events after a known sequence; with no `limit`, every later event. */
+export interface EventsReadAfterSequenceRequest {
+  readonly sessionId: SessionId;
+  /** The last sequence already read, or `-1` to read from the session's first event. */
+  readonly afterSequence: number;
+  readonly limit?: number | undefined;
+}
+
+/** The page: its events in sequence order, and where the next page starts. */
+export interface EventsReadAfterSequenceResponse {
+  readonly events: EventEnvelope[];
+  /** The `afterSequence` that reads the next page: the page's last sequence, or the request's. */
+  readonly nextSequence: number;
+  readonly hasMore: boolean;
+}
+
+const EVENT_COLUMNS_SQL = `id, session_id, sequence, occurred_at, monotonic_ns,
+                category, type, actor, payload,
+                correlation_id, causation_id, version`;
+
+// SQLite reads a negative limit as no limit.
+const NO_LIMIT = -1;
+
 /** Reads a session's events and rebuilds its record from them. */
 export class SessionService {
   // Only the statements are kept: each one references its database, which keeps the connection
   // alive.
   readonly #readEventsStatement: Statement;
+  readonly #readEventsAfterSequenceStatement: Statement;
 
   constructor(db: Database) {
     this.#readEventsStatement = db
       .prepare(
-        `SELECT id, session_id, sequence, occurred_at, monotonic_ns,
-                category, type, actor, payload,
-                correlation_id, causation_id, version
+        `SELECT ${EVENT_COLUMNS_SQL}
          FROM session_events
          WHERE session_id = ?
          ORDER BY sequence ASC`,
       )
       // Returns integer columns as bigint so a `monotonic_ns` above 2^53 round-trips exactly.
       .safeIntegers(true);
+    this.#readEventsAfterSequenceStatement = db
+      .prepare(
+        `SELECT ${EVENT_COLUMNS_SQL}
+         FROM session_events
+         WHERE session_id = ? AND sequence > ?
+         ORDER BY sequence ASC
+         LIMIT ?`,
+      )
+      .safeIntegers(true);
+  }
+
+  /**
+   * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them.
+   * Throws when a stored row is not a well-formed envelope.
+   */
+  readEventsAfterSequence(
+    request: EventsReadAfterSequenceRequest,
+  ): EventsReadAfterSequenceResponse {
+    // One row past the page says whether another page follows.
+    const rows = this.#readEventsAfterSequenceStatement.all(
+      request.sessionId,
+      request.afterSequence,
+      request.limit === undefined ? NO_LIMIT : request.limit + 1,
+    ) as ReadonlyArray<SessionEventRow>;
+    const hasMore = request.limit !== undefined && rows.length > request.limit;
+    const events = (hasMore ? rows.slice(0, request.limit) : rows).map((row) =>
+      toEventEnvelope(hydrateRow(row)),
+    );
+    return {
+      events,
+      nextSequence: events.at(-1)?.sequence ?? request.afterSequence,
+      hasMore,
+    };
   }
 
   /** Returns a session's events ordered by `sequence ASC`, or `[]` for an unknown session. */
@@ -75,6 +133,23 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
     causationId: row.causation_id,
     version: row.version,
   };
+}
+
+// The tolerant envelope parse keeps an event type this build does not know as a stub.
+function toEventEnvelope(event: StoredEvent): EventEnvelope {
+  return EventEnvelopeSchema.parse({
+    id: event.id,
+    sessionId: event.sessionId,
+    sequence: event.sequence,
+    occurredAt: event.occurredAt,
+    category: event.category,
+    type: event.type,
+    actor: event.actor,
+    payload: event.payload,
+    ...(event.correlationId === null ? {} : { correlationId: event.correlationId }),
+    ...(event.causationId === null ? {} : { causationId: event.causationId }),
+    version: event.version,
+  });
 }
 
 // The read-side trust boundary: a stored row may hold JSON that is not an object. Failing here
