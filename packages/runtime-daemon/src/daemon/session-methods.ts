@@ -3,9 +3,6 @@
 // statements, so each event's `sessions` row change commits in the event's own write, and the
 // sessions list follows that log from the start, before any append.
 
-import * as path from "node:path";
-
-import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 
@@ -15,6 +12,7 @@ import { DEFAULT_GIT_FILESYSTEM } from "../git/filesystem.js";
 import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  executionRootsDirectoryOf,
   runGitWithExecFile,
 } from "../git/process.js";
 import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
@@ -59,9 +57,6 @@ import { RepoMountService } from "../workspace/repo/mount-service.js";
 import { WorkspaceService } from "../workspace/service.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
 
-// The folder under the data folder whose children the git runner keeps its empty hooks folder in.
-const EXECUTION_ROOTS_FOLDER_NAME = "execution-roots";
-
 /** What the session services are built from. */
 export interface SessionMethodsDeps {
   readonly database: DatabaseConnections;
@@ -84,12 +79,13 @@ export interface SessionMethodsDeps {
 /**
  * Builds the session services and registers their verbs on `registry`. Returns the stop that ends
  * the background work they started: the sessions list, the self-naming, the related lists' rename
- * follow and the index merge.
+ * follow and the index merge. It settles once the related-list round under way has finished, and
+ * never rejects.
  */
 export function registerSessionMethods(
   registry: MethodRegistry,
   deps: SessionMethodsDeps,
-): () => void {
+): () => Promise<void> {
   const { database } = deps;
   const eventLog = new EventLogService({
     writer: database.writer,
@@ -101,15 +97,11 @@ export function registerSessionMethods(
   const git = createHookNeutralizedGitCommand({
     git: runGitWithExecFile,
     filesystem: DEFAULT_GIT_FILESYSTEM,
-    executionRootsDirectory: path.join(
-      deps.homeDirectory,
-      DAEMON_DATA_FOLDER_NAME,
-      EXECUTION_ROOTS_FOLDER_NAME,
-    ),
+    executionRootsDirectory: executionRootsDirectoryOf(deps.homeDirectory),
     timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   });
   const workspaceEvents = new WorkspaceEventEmitter({ sessionEvents: eventLog });
-  const workspaces = new WorkspaceService({ database, events: workspaceEvents, sessions });
+  const workspaces = new WorkspaceService({ database, events: workspaceEvents });
   const repoMounts = new RepoMountService({
     database,
     events: workspaceEvents,
@@ -131,6 +123,7 @@ export function registerSessionMethods(
     workspaces,
     managedWorkspaces,
     settingsFile: deps.settingsFile,
+    writeServiceLog: deps.writeServiceLog,
   });
   const draftStore = new SessionDraftStore(database);
   const relatedRanking = new SessionRelatedRanking({
@@ -163,8 +156,8 @@ export function registerSessionMethods(
   registerSessionSubscribe(registry, {
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
-    subscribeToSession: (sessionId, afterCursor, onChange) =>
-      eventLog.follow(sessionId, afterCursor, onChange),
+    subscribeToSession: (sessionId, afterCursor, listener) =>
+      eventLog.follow(sessionId, afterCursor, listener),
   });
   registerSessionRename(registry, { changes });
   registerSessionLifecycleMethods(registry, { changes });
@@ -203,10 +196,10 @@ export function registerSessionMethods(
   });
   indexMerge.start();
   const stopRelatedRanking = relatedRanking.start();
-  return () => {
-    stopRelatedRanking();
+  return async () => {
     indexMerge.stop();
     stopAutoTitle();
     listFeed.close();
+    await stopRelatedRanking();
   };
 }

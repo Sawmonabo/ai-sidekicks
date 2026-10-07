@@ -131,7 +131,7 @@ export class DaemonProcess {
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
-  readonly #stopSessionServices: () => void;
+  readonly #stopSessionServices: () => Promise<void>;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
   #processState: DaemonProcessState = "starting";
   #stopping: Promise<void> | undefined;
@@ -424,18 +424,21 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    this.#stopSessionServices();
-    // The calls under way, the recovery pass and the terminals are independent, so all finish
-    // inside one drain bound. A call or a pass still running at the bound fails once the database
-    // closes under it.
-    const [stillWriting, hasPassEnded, drain] = await Promise.allSettled([
+    // The calls under way, the recovery pass, the session services' background work and the
+    // terminals are independent, so all finish inside one drain bound. A call or a pass still
+    // running at the bound fails once the database closes under it.
+    const [stillWriting, hasPassEnded, drain, sessionServices] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
       waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
       this.#ptyHost.shutdown({
         perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
         hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
       }),
+      this.#stopSessionServices(),
     ]);
+    if (sessionServices.status === "rejected") {
+      failures.push(sessionServices.reason);
+    }
     if (stillWriting.status === "fulfilled" && stillWriting.value > 0) {
       this.#writeServiceLog(
         `The stop's drain bound passed; writes still running: ${String(stillWriting.value)}.`,

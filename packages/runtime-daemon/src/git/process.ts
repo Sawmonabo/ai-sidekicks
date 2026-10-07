@@ -7,6 +7,8 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 
+import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+
 import type { GitFilesystem } from "./filesystem.js";
 
 /**
@@ -196,6 +198,16 @@ export function readGitExitStatus(rejection: unknown): number | null {
     return null;
   }
   return typeof rejection.code === "number" ? rejection.code : null;
+}
+
+const EXECUTION_ROOTS_FOLDER_NAME = "execution-roots";
+
+/**
+ * The execution-roots folder in the data folder inside `homeDirectory`: every worktree root and the
+ * empty hooks folder the git runner points git at sit under it.
+ */
+export function executionRootsDirectoryOf(homeDirectory: string): string {
+  return join(homeDirectory, DAEMON_DATA_FOLDER_NAME, EXECUTION_ROOTS_FOLDER_NAME);
 }
 
 /** What {@link createHookNeutralizedGitCommand} needs from its service. */
