@@ -7,18 +7,21 @@ import { RepoMountIdSchema, type RepoMountId } from "../repo/mount.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
 import { countSchema } from "../internal/wire-scalars.js";
-import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 
 /**
  * `session.convert` named a session that is not a chat, a chat with no managed workspace to
- * convert (`data.fields.reason` `no_managed_workspace`), or carried a key that already converted
- * another session (`idempotency_key_reused`); nothing is attached or copied.
+ * convert (`data.fields.reason` `no_managed_workspace`), a key another session's conversion holds
+ * (`idempotency_key_reused`), or a folder other than the one a chat's stopped conversion copies
+ * into (`conversion_unfinished`, with that conversion's `repoMountId`); nothing is attached or
+ * copied.
  */
 export const SESSION_CONVERT_REFUSED_CODE = "session.convert_refused" as const;
 
 /**
  * A conversion that stopped after the repository was attached. `data.fields` names what was done:
- * `repoMountId`, `copiedCount`, `skippedCount`, `isBound`; the session still reads as a chat.
+ * `sessionId`, `repoMountId`, `copiedCount`, `skippedCount`, `isBound`; the session still reads
+ * as a chat.
  */
 export const SESSION_CONVERT_INCOMPLETE_CODE = "session.convert_incomplete" as const;
 
@@ -66,7 +69,8 @@ export interface SessionConvertSkippedFile {
 }
 const SessionConvertSkippedFileSchema: z.ZodType<SessionConvertSkippedFile> = z
   .object({
-    path: wireFreeFormString(FILE_PATH_MAX_LEN, "SessionConvertSkippedFile.path"),
+    // Any name the filesystem holds, a name of spaces alone included.
+    path: z.string().min(1).max(FILE_PATH_MAX_LEN),
     reason: SessionConvertSkipReasonSchema,
   })
   .strict();
@@ -193,5 +197,5 @@ export const SessionConvertSkippedFileListResponseSchema: z.ZodType<SessionConve
           message: `a page carries at most ${String(SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX)} files, not ${String(page.files.length)}`,
         });
       }
-      requirePageToRideOneFrame(page.files, "files", issueContext);
+      requireMemberToRideOneFrame(page.files, "files", issueContext);
     });

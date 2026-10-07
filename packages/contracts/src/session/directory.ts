@@ -19,7 +19,7 @@ import { SessionEventSchema } from "../event/session.js";
 import type { SessionEvent } from "../event/variant-types.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { SubscriptionIdSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
@@ -150,7 +150,7 @@ export type SessionListEntryPlace =
  *   itself absent before the first message.
  * - A project entry names its project, once known the branch the daemon holds for the session,
  *   so the row costs no git read, and its group while it is in one; a chat entry counts its
- *   documents.
+ *   documents once its artifact store counts them, and carries no count before.
  * - `pinnedAt` is present exactly while the session is pinned; pinned rows sit in the order
  *   they were pinned.
  * - `state` puts archived and closed sessions in the `Archived` group; `activity` is the row's
@@ -234,7 +234,7 @@ export const SessionListAckSchema: z.ZodType<SessionListAck> = z
   })
   .strict()
   .superRefine((ack, issueContext) => {
-    requirePageToRideOneFrame(ack.sessions, "sessions", issueContext);
+    requireMemberToRideOneFrame(ack.sessions, "sessions", issueContext);
   });
 
 /**
@@ -262,7 +262,7 @@ export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discrimin
     })
     .strict()
     .superRefine((page, issueContext) => {
-      requirePageToRideOneFrame(page.sessions, "sessions", issueContext);
+      requireMemberToRideOneFrame(page.sessions, "sessions", issueContext);
     }),
   z
     .object({ kind: z.literal("upsert"), entry: SessionListEntrySchema, chatCount: countSchema })

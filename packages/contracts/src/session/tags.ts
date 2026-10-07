@@ -2,7 +2,6 @@
 // `Add tag` suggests, and the code a tag the daemon will not hold is refused with.
 import { z } from "zod";
 
-import { wireFreeFormString } from "../free-form-string.js";
 import {
   EmptyPayloadSchema,
   defineMethodDescriptors,
@@ -12,6 +11,7 @@ import {
 import { SessionIdSchema, type SessionId } from "./id.js";
 import {
   SESSION_NAME_MAX_LEN,
+  SessionTagSchema,
   SessionVerbResponseSchema,
   type SessionVerbResponse,
 } from "./methods.js";
@@ -48,7 +48,7 @@ export interface SessionTagListResponse {
 /** Parses a {@link SessionTagListResponse}. */
 export const SessionTagListResponseSchema: z.ZodType<SessionTagListResponse> = z
   .object({
-    tags: z.array(wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionTagListResponse.tags")),
+    tags: z.array(SessionTagSchema),
   })
   .strict();
 

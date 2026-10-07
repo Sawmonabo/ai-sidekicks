@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import {
   StreamFrameSchema,
   SubscribeAckResponseSchema,
@@ -56,6 +56,9 @@ export const SESSION_CHANGE_REFUSED_CODE = "session.change_refused" as const;
 /** The longest session name the daemon stores. */
 export const SESSION_NAME_MAX_LEN = 256;
 
+/** One tag the daemon holds: not blank, no NUL byte, at most {@link SESSION_NAME_MAX_LEN} long. */
+export const SessionTagSchema: z.ZodString = wireFreeFormString(SESSION_NAME_MAX_LEN, "A tag");
+
 /**
  * One session as `session.read` answers it.
  *
@@ -92,7 +95,7 @@ export const SessionRecordSchema: z.ZodType<SessionRecord> = z
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
     draft: z.string(),
-    tags: z.array(wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRecord.tags")),
+    tags: z.array(SessionTagSchema),
   })
   .strict();
 
@@ -241,8 +244,9 @@ export const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
 /**
  * Where the next `session.search` page starts. The daemon writes it and owns its format; a client
  * passes it back unchanged with the same query. It continues the search its first page read, so a
- * write between pages neither repeats nor drops a hit; a cursor of a search the daemon has let go
- * (over its memory budget or 10 minutes unpaged) is refused, and the client searches again.
+ * write between pages neither repeats a hit nor drops one, except a hit whose row, group
+ * membership or session has since gone; a cursor of a search the daemon has let go (over its
+ * memory budget or 10 minutes unpaged) is refused, and the client searches again.
  */
 export type SessionSearchCursor = string & { readonly __brand: "SessionSearchCursor" };
 /** Parses a {@link SessionSearchCursor}; any bounded non-empty string, which the daemon reads. */
@@ -366,7 +370,7 @@ export const SessionSearchResponseSchema: z.ZodType<SessionSearchResponse> = z
         message: `a page carries at most ${String(SESSION_SEARCH_PAGE_LIMIT_MAX)} hits, not ${String(hitCount)}`,
       });
     }
-    requirePageToRideOneFrame(page.groups, "groups", issueContext);
+    requireMemberToRideOneFrame(page.groups, "groups", issueContext);
   });
 
 /**

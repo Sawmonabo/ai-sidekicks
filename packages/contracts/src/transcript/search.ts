@@ -13,7 +13,7 @@ import {
   type SessionId,
 } from "../session/id.js";
 
-import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "./operations.js";
 import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./row.js";
 import { countSchema } from "../internal/wire-scalars.js";
@@ -109,7 +109,7 @@ export const TranscriptSearchResponseSchema: z.ZodType<TranscriptSearchResponse>
       .strict(),
   ])
   .superRefine((response, issueContext) => {
-    requirePageToRideOneFrame(response.hits, "hits", issueContext);
+    requireMemberToRideOneFrame(response.hits, "hits", issueContext);
     const pageMatchCount = response.hits.reduce((total, hit) => total + hit.matchRanges.length, 0);
     if (pageMatchCount > response.matchCount) {
       issueContext.addIssue({

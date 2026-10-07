@@ -14,7 +14,7 @@ import {
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 
-import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 // transcript.bodyRead
@@ -58,7 +58,7 @@ export const TranscriptBodyReadResponseSchema: z.ZodType<TranscriptBodyReadRespo
       })
       .strict()
       .superRefine((available, issueContext) => {
-        requirePageToRideOneFrame(available.body, "body", issueContext);
+        requireMemberToRideOneFrame(available.body, "body", issueContext);
       }),
     z
       .object({
@@ -118,5 +118,5 @@ export const TranscriptPatchReadResponseSchema: z.ZodType<TranscriptPatchReadRes
   })
   .strict()
   .superRefine((response, issueContext) => {
-    requirePageToRideOneFrame(response.files, "files", issueContext);
+    requireMemberToRideOneFrame(response.files, "files", issueContext);
   });

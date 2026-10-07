@@ -49,7 +49,7 @@ export function countEntriesFittingOneFrame(
  * path names the member, so a client learns which one overflowed; a paged member's producer
  * stops at whichever of its row limit and this budget trips first.
  */
-export function requirePageToRideOneFrame(
+export function requireMemberToRideOneFrame(
   member: unknown,
   memberName: string,
   issueContext: z.RefinementCtx,

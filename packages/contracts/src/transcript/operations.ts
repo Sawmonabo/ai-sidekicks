@@ -3,7 +3,7 @@
 // the caller is the authenticated connection.
 import { z } from "zod";
 
-import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunStateSchema, type RunState } from "../run/state.js";
 import { wireFreeFormString } from "../free-form-string.js";
@@ -117,7 +117,7 @@ export const TranscriptReadResponseSchema: z.ZodType<TranscriptReadResponse> = z
       .strict(),
   ])
   .superRefine((response, issueContext) => {
-    requirePageToRideOneFrame(response.entries, "entries", issueContext);
+    requireMemberToRideOneFrame(response.entries, "entries", issueContext);
     requireNondecreasingSequence(response.entries, "entries", issueContext);
   });
 
@@ -219,7 +219,11 @@ const reasoningAvailableArmSchema = z
       .strict(),
   ])
   .superRefine((availableResponse, issueContext) => {
-    requirePageToRideOneFrame(availableResponse.reasoningEntries, "reasoningEntries", issueContext);
+    requireMemberToRideOneFrame(
+      availableResponse.reasoningEntries,
+      "reasoningEntries",
+      issueContext,
+    );
     requireNondecreasingSequence(
       availableResponse.reasoningEntries,
       "reasoningEntries",
@@ -322,7 +326,7 @@ export const ChildRunExpandResponseSchema: z.ZodType<ChildRunExpandResponse> = z
       .strict(),
   ])
   .superRefine((response, issueContext) => {
-    requirePageToRideOneFrame(response.entries, "entries", issueContext);
+    requireMemberToRideOneFrame(response.entries, "entries", issueContext);
     requireNondecreasingSequence(response.entries, "entries", issueContext);
     requireEntriesToBelongToRun(response.runId, response.entries, issueContext);
     refuseSelfParentingRun(response, issueContext);
