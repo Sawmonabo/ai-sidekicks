@@ -108,7 +108,13 @@ beforeEach(async () => {
   ctx = {
     scratch,
     db: scratch.reader,
-    eventLog: new EventLogService({ writer: scratch.writer, reader: scratch.reader }),
+    eventLog: new EventLogService({
+      writer: scratch.writer,
+      reader: scratch.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
   };
 });
 

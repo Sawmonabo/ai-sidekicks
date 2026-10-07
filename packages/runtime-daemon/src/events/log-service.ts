@@ -26,6 +26,7 @@ import {
 } from "@ai-sidekicks/contracts/session/id";
 import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
 
+import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { WriteStatement } from "../database/statement.js";
 import type { DatabaseWriter } from "../database/writer.js";
 import { canonicalizeEvent, normalizeOccurredAt } from "./canonicalizer.js";
@@ -110,6 +111,11 @@ export interface EventLogServiceDeps {
    * thinking update takes none.
    */
   readonly projectionStatements?: (envelope: UnsequencedEventEnvelope) => readonly WriteStatement[];
+  /**
+   * Where the followers' failures that no follower hears are written: a follower of every session
+   * that threw, and a session's missing events that could not be read.
+   */
+  readonly writeServiceLog: ServiceLogWriter;
   /** The most events one catch-up page reads before it waits for the next turn. Defaults to 100. */
   readonly catchUpPageSize?: number;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
@@ -168,6 +174,7 @@ export class EventLogService {
     this.#followers = new SessionEventFollowers(
       this.#reads,
       deps.catchUpPageSize ?? DEFAULT_EVENT_READ_LIMIT,
+      deps.writeServiceLog,
     );
     this.#projectionStatements = deps.projectionStatements ?? (() => []);
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
@@ -295,10 +302,15 @@ export class EventLogService {
 
   /**
    * Delivers every session's events as they commit, each session's in sequence order, until the
-   * returned detach runs.
+   * returned detach runs. `onGap` hears of a session whose events before a receipt could not be
+   * read, just before that receipt, so a follower that keeps state built from events rebuilds that
+   * session's from its rows.
    */
-  followAll(onCommitted: (event: EventEnvelope) => void): () => void {
-    return this.#followers.followAll(onCommitted);
+  followAll(
+    onCommitted: (event: EventEnvelope) => void,
+    onGap?: (sessionId: SessionId) => void,
+  ): () => void {
+    return this.#followers.followAll(onCommitted, onGap);
   }
 
   // The position a cursor names, checked against the session's head; absent is the start of the
@@ -315,13 +327,16 @@ export class EventLogService {
   }
 
   // Published in a microtask, in sequence order, so the append's outcome reports only the write;
-  // the followers contain their own faults. The settle runs once the receipt is out.
+  // the followers contain their own faults. The settle runs once publishing ends, however it ends.
   #publishCommitted(committed: readonly EventEnvelope[], settle: () => void): void {
     queueMicrotask(() => {
-      for (const event of committed) {
-        this.#followers.publish(event);
+      try {
+        for (const event of committed) {
+          this.#followers.publish(event);
+        }
+      } finally {
+        settle();
       }
-      settle();
     });
   }
 

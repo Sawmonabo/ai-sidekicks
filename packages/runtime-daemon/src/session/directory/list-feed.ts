@@ -5,7 +5,9 @@
 // - Events reach the feed through the log's all-sessions follow, attached for the feed's whole
 //   life so no append in flight at the first open is missed. A service that changes a list fact
 //   without an event calls `refresh` after its write commits. Either way only the named sessions'
-//   rows are read again, once per turn of the event loop however many events named them.
+//   rows are read again, once per turn of the event loop however many events named them. When the
+//   log cannot give back the machine's own scope's events, whose purge receipts name other
+//   sessions, every listed session's row is read again.
 // - A session with no row has no entry: only `session.created` writes one, so a session the person
 //   runs in their own terminal never has one, and a purge, which deletes the row, removes the
 //   entry. A project session whose project is not known yet (its workspace is not bound) shows
@@ -33,6 +35,7 @@ import type { SessionGroupId } from "@ai-sidekicks/contracts/session/groups";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 
+import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { EventLogService } from "../../events/log-service.js";
 import { PURGE_RECEIPT_TYPE } from "../../events/session/purge.js";
 import type { LiveRunActivity, SessionRunOutcome } from "../records.js";
@@ -45,6 +48,8 @@ export interface SessionListFeedDeps {
   readonly reader: Database;
   /** The log whose committed events tell the feed which sessions changed. */
   readonly eventLog: Pick<EventLogService, "followAll">;
+  /** Where a failed read of a changed session's row is written. */
+  readonly writeServiceLog: ServiceLogWriter;
 }
 
 /** A change to one entry of the list: what the feed publishes once a listener has the list. */
@@ -115,6 +120,7 @@ export class SessionListFeed {
   readonly #readSome: Statement<[string], SessionListRow>;
   readonly #listeners = new Set<SessionListListener>();
   readonly #detachFromLog: () => void;
+  readonly #writeServiceLog: ServiceLogWriter;
   // Present exactly while a listener is open.
   #entries: Map<string, SessionListEntry> | undefined;
   #chatCount = 0;
@@ -129,9 +135,15 @@ export class SessionListFeed {
     this.#readSome = deps.reader.prepare(
       `${SESSION_LIST_ROW_SQL} WHERE s.id IN (SELECT value FROM json_each(?))`,
     );
-    this.#detachFromLog = deps.eventLog.followAll((event) => {
-      this.#noteCommitted(event);
-    });
+    this.#writeServiceLog = deps.writeServiceLog;
+    this.#detachFromLog = deps.eventLog.followAll(
+      (event) => {
+        this.#noteCommitted(event);
+      },
+      (sessionId) => {
+        this.#noteGap(sessionId);
+      },
+    );
   }
 
   /**
@@ -231,6 +243,17 @@ export class SessionListFeed {
     }
   }
 
+  // The receipt that revealed a session's gap comes next and reads that session's row again, but a
+  // purge receipt the machine's scope lost could have named any listed session.
+  #noteGap(sessionId: SessionId): void {
+    if (sessionId !== DAEMON_SCOPE_SENTINEL_SESSION_ID) {
+      return;
+    }
+    for (const listedSessionId of this.#entries?.keys() ?? []) {
+      this.#noteChanged(listedSessionId);
+    }
+  }
+
   // Changes named in one turn are read together on the next, so a burst of events reads each
   // session's row once.
   #noteChanged(sessionId: string): void {
@@ -303,7 +326,10 @@ export class SessionListFeed {
   // No held list is current any more: every listener is detached and told, and the next open
   // reads the rows again.
   #fail(error: unknown): void {
-    console.error("[session.list] reading a changed session's row failed", error);
+    this.#writeServiceLog(
+      "sessions list: reading a changed session's row failed, so every listener was ended: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
     const listeners = [...this.#listeners];
     for (const listener of listeners) {
       this.#detach(listener);

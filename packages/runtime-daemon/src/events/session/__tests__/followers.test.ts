@@ -19,7 +19,6 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
-import type { DatabaseWriter } from "../../../database/writer.js";
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
 import { drainMicrotasks } from "../../../provider/__fixtures__/drain-microtasks.js";
 import {
@@ -27,15 +26,18 @@ import {
   type EventLogServiceDeps,
   type UnsequencedEventEnvelope,
 } from "../../log-service.js";
+import { breakStoredEvent, holdReceiptOfAppend } from "../__fixtures__/log-faults.js";
 import type { SessionEventListener } from "../followers.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
 let scratch: ScratchDatabase;
+let serviceLogLines: string[];
 
 beforeEach(async () => {
   scratch = await openScratchDatabase();
+  serviceLogLines = [];
 });
 
 afterEach(async () => {
@@ -64,6 +66,9 @@ function buildService(overrides?: Partial<EventLogServiceDeps>): EventLogService
     writer: scratch.writer,
     reader: scratch.reader,
     catchUpPageSize: 2,
+    writeServiceLog: (line) => {
+      serviceLogLines.push(line);
+    },
     ...overrides,
   });
 }
@@ -128,17 +133,6 @@ function recordChanges(): RecordedFollow {
       for (const listener of listeners) listener();
     },
   };
-}
-
-// Rewrites one stored row's payload as a write outside the append path would, so reading it fails.
-async function corruptStoredEvent(sequence: number): Promise<void> {
-  await scratch.writer.write([
-    {
-      sql: "UPDATE session_events SET payload = 'not json' WHERE session_id = ? AND sequence = ?",
-      bindings: [SESSION, sequence],
-      expectedRowCount: 1,
-    },
-  ]);
 }
 
 describe("EventLogService.follow — catch-up to follow", () => {
@@ -237,7 +231,7 @@ describe("EventLogService.follow — one follower's failure is its own", () => {
     vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
     const service = buildService();
     await appendEvents(service, 4);
-    await corruptStoredEvent(3);
+    await breakStoredEvent(scratch.writer, SESSION, 3);
     const live = recordChanges();
     service.follow(SESSION, encodeEventCursor(3), live.listener);
     const catchingUp = recordChanges();
@@ -267,7 +261,6 @@ describe("EventLogService.follow — one follower's failure is its own", () => {
     });
     const next = recordChanges();
     service.follow(SESSION, encodeEventCursor(0), next.listener);
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     service.followAll(() => {
       throw thrown;
     });
@@ -283,43 +276,18 @@ describe("EventLogService.follow — one follower's failure is its own", () => {
     expect(next.sequences).toEqual([1, 2]);
     expect(allSessions).toEqual([1, 2]);
     // The follower of every session stays attached, so it fails on each event.
-    expect(consoleError).toHaveBeenCalledTimes(2);
-    consoleError.mockRestore();
+    expect(serviceLogLines).toEqual([
+      expect.stringContaining("on sequence 1 of session"),
+      expect.stringContaining("on sequence 2 of session"),
+    ]);
+    expect(serviceLogLines[0]).toContain("the receiver broke");
   });
 });
 
 describe("EventLogService.follow — publication order", () => {
-  // A writer that holds the second append's receipt after its commit until released, so the
-  // third's arrives first.
-  function holdSecondReceipt(): {
-    readonly writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
-    readonly release: () => void;
-  } {
-    let releaseHeldReceipt: () => void = () => {};
-    let appendCount = 0;
-    return {
-      writer: {
-        appendEvents: async (events, statements) => {
-          appendCount += 1;
-          const isHeld = appendCount === 2;
-          const sequences = await scratch.writer.appendEvents(events, statements);
-          if (isHeld) {
-            await new Promise<void>((resolve) => {
-              releaseHeldReceipt = resolve;
-            });
-          }
-          return sequences;
-        },
-        appendThinkingUpdate: (event) => scratch.writer.appendThinkingUpdate(event),
-      },
-      release: () => {
-        releaseHeldReceipt();
-      },
-    };
-  }
-
   it("publishes in sequence order when a later receipt arrives before an earlier one", async () => {
-    const holding = holdSecondReceipt();
+    // The second append's receipt is held, so the third's arrives first.
+    const holding = holdReceiptOfAppend(scratch.writer, 2);
     const service = buildService({ writer: holding.writer });
     await appendEvents(service, 1);
     const follower = recordChanges();
@@ -342,23 +310,28 @@ describe("EventLogService.follow — publication order", () => {
     expect(allSessions).toEqual([1, 2]);
   });
 
-  it("ends a live follower whose missing events cannot be read, and only that", async () => {
-    const holding = holdSecondReceipt();
+  it("ends a live follower at a gap it cannot read, and tells the others of the gap", async () => {
+    // The second append's receipt is held, so the third's arrives first.
+    const holding = holdReceiptOfAppend(scratch.writer, 2);
     const service = buildService({ writer: holding.writer });
     await appendEvents(service, 1);
     const live = recordChanges();
     service.follow(SESSION, encodeEventCursor(0), live.listener);
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const allSessions: number[] = [];
-    service.followAll((event) => {
-      allSessions.push(event.sequence);
-    });
+    const allSessions: (number | string)[] = [];
+    service.followAll(
+      (event) => {
+        allSessions.push(event.sequence);
+      },
+      (sessionId) => {
+        allSessions.push(`gap in ${sessionId}`);
+      },
+    );
 
     const heldAppend = service.append(makeEnvelope());
     await vi.waitFor(() => {
       expect(storedSequences()).toEqual([0, 1]);
     });
-    await corruptStoredEvent(1);
+    await breakStoredEvent(scratch.writer, SESSION, 1);
     await service.append(makeEnvelope());
     await drainMicrotasks();
     holding.release();
@@ -367,14 +340,16 @@ describe("EventLogService.follow — publication order", () => {
 
     expect(live.sequences).toEqual([]);
     expect(live.failures).toHaveLength(1);
-    expect(allSessions).toEqual([2]);
-    expect(consoleError).toHaveBeenCalledOnce();
-    consoleError.mockRestore();
+    expect(allSessions).toEqual([`gap in ${SESSION}`, 2]);
+    expect(serviceLogLines).toEqual([
+      expect.stringContaining(`reading session ${SESSION}'s events before sequence 2 failed`),
+    ]);
   });
 
   it("keeps a session no one follows in order for the followers of every session", async () => {
     // Nothing follows the session itself, so only the appends in flight keep its order.
-    const holding = holdSecondReceipt();
+    // The second append's receipt is held, so the third's arrives first.
+    const holding = holdReceiptOfAppend(scratch.writer, 2);
     const service = buildService({ writer: holding.writer });
     const allSessions: number[] = [];
     service.followAll((event) => {

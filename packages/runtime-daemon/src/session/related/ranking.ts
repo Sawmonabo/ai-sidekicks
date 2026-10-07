@@ -3,13 +3,13 @@
 // two sessions it joins and their neighbors: no other session's two-step walk crosses a changed
 // share. Scoring yields to the event loop whenever it has held the thread for a slice, so a round
 // never stalls the daemon's other work. A rename re-sends the lists that show the renamed session,
-// since an entry reads its name from the session's row.
+// since an entry reads its name from the session's row, and so does a gap in a session's events,
+// which could have hidden a rename.
 
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
 import type { Statement } from "better-sqlite3";
 
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionRelatedListEntry,
@@ -73,7 +73,10 @@ interface StoredRelatedRow {
 export interface SessionRelatedRankingOptions {
   readonly reader: DatabaseConnections["reader"];
   readonly writer: Pick<DatabaseWriter, "write">;
-  /** The log whose committed renames re-send the lists showing the renamed session. */
+  /**
+   * The log whose committed renames, and the gaps that could hide one, re-send the lists showing
+   * the session.
+   */
   readonly events: Pick<EventLogService, "followAll">;
   /**
    * Where a re-score that failed, or a follower that threw, is reported; the next link change
@@ -123,9 +126,16 @@ export class SessionRelatedRanking {
    * after the round under way, and resolves once that round's write and sends are done.
    */
   start(): () => Promise<void> {
-    const unfollow = this.#events.followAll((event) => {
-      this.#sendAfterRename(event);
-    });
+    const unfollow = this.#events.followAll(
+      (event) => {
+        if (event.type === "session.renamed") {
+          this.#sendListsShowing(event.sessionId);
+        }
+      },
+      (sessionId) => {
+        this.#sendListsShowing(sessionId);
+      },
+    );
     return () => {
       unfollow();
       this.#isStopped = true;
@@ -295,13 +305,13 @@ export class SessionRelatedRanking {
     return statements;
   }
 
-  // Each followed list that shows the renamed session is the list of a session linked to it.
-  #sendAfterRename(event: EventEnvelope): void {
-    if (event.type !== "session.renamed" || this.#followers.size === 0) {
+  // Each followed list that shows a session is the list of a session linked to it.
+  #sendListsShowing(sessionId: SessionId): void {
+    if (this.#followers.size === 0) {
       return;
     }
     const linkedSessionIds = new Set(
-      this.#selectLinks.all({ sessionId: event.sessionId }).map((link) => link.otherSessionId),
+      this.#selectLinks.all({ sessionId }).map((link) => link.otherSessionId),
     );
     this.#sendToFollowers([...linkedSessionIds]);
   }

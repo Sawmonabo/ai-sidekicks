@@ -79,7 +79,14 @@ interface ServiceFixture {
 
 function buildService(overrides?: Partial<EventLogServiceDeps>): ServiceFixture {
   return {
-    service: new EventLogService({ writer: scratch.writer, reader: scratch.reader, ...overrides }),
+    service: new EventLogService({
+      writer: scratch.writer,
+      reader: scratch.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+      ...overrides,
+    }),
   };
 }
 

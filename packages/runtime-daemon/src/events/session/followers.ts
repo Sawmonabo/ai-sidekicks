@@ -10,8 +10,10 @@
 //   passes the receipt by and reads the event on its next page, holding nothing in memory; it goes
 //   live in the same turn as the page that reports nothing more.
 // - Followers never cost each other an event. A session follower that throws, or whose catch-up
-//   page or missing events cannot be read, ends alone and hears why through `onFailure`; a follower
-//   of every session that throws stays attached, and the failure goes to the daemon's log.
+//   page or missing events cannot be read, ends alone and hears why through `onFailure`. A follower
+//   of every session that throws stays attached, and the failure goes to the service log; when a
+//   session's missing events cannot be read, it hears of the gap through its `onGap`, so it can
+//   rebuild what it holds for that session from the session's rows.
 // - A session is tracked while it has followers or an append whose receipt is not yet published.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
@@ -19,6 +21,7 @@ import type { SessionStreamChange } from "@ai-sidekicks/contracts/session/method
 import { encodeEventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
+import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { SessionEventReads } from "./read.js";
 
 // One change a session follower receives: the committed event and the cursor that resumes after it.
@@ -54,6 +57,11 @@ interface SessionFollower {
   cancelNextPage: (() => void) | undefined;
 }
 
+interface AllSessionsFollower {
+  readonly onCommitted: (event: EventEnvelope) => void;
+  readonly onGap: ((sessionId: SessionId) => void) | undefined;
+}
+
 interface SessionPublication {
   readonly key: SessionId;
   /** The highest sequence published for the session. */
@@ -67,14 +75,18 @@ interface SessionPublication {
 export class SessionEventFollowers {
   readonly #reads: SessionEventReads;
   readonly #pageSize: number;
+  readonly #writeServiceLog: ServiceLogWriter;
   // Keyed by the canonical session id.
   readonly #sessions = new Map<SessionId, SessionPublication>();
-  readonly #allSessionsFollowers = new Set<(event: EventEnvelope) => void>();
+  readonly #allSessionsFollowers = new Set<AllSessionsFollower>();
 
-  /** `pageSize` bounds each catch-up read. */
-  constructor(reads: SessionEventReads, pageSize: number) {
+  /**
+   * `pageSize` bounds each catch-up read; `writeServiceLog` takes the failures no follower hears.
+   */
+  constructor(reads: SessionEventReads, pageSize: number, writeServiceLog: ServiceLogWriter) {
     this.#reads = reads;
     this.#pageSize = pageSize;
+    this.#writeServiceLog = writeServiceLog;
   }
 
   /**
@@ -133,12 +145,17 @@ export class SessionEventFollowers {
     };
   }
 
-  /** Delivers every session's committed events from now on, each session in sequence order. */
-  followAll(onCommitted: (event: EventEnvelope) => void): () => void {
-    // A wrapper, so one function attached twice detaches once per attach.
-    const follower = (event: EventEnvelope): void => {
-      onCommitted(event);
-    };
+  /**
+   * Delivers every session's committed events from now on, each session in sequence order, and
+   * calls `onGap` with a session whose events before a receipt could not be read, before that
+   * receipt; a follower that keeps state built from events rebuilds that session's from its rows.
+   */
+  followAll(
+    onCommitted: (event: EventEnvelope) => void,
+    onGap?: (sessionId: SessionId) => void,
+  ): () => void {
+    // A fresh object, so one function attached twice detaches once per attach.
+    const follower: AllSessionsFollower = { onCommitted, onGap };
     this.#allSessionsFollowers.add(follower);
     return () => {
       this.#allSessionsFollowers.delete(follower);
@@ -192,7 +209,7 @@ export class SessionEventFollowers {
   }
 
   // A live follower would miss the events the log cannot give back, so it ends; one catching up
-  // reads them on its own page, and a follower of every session can only be told in the log.
+  // reads them on its own page, and a follower of every session is told of the gap.
   #publishMissing(publication: SessionPublication, event: EventEnvelope): void {
     let missing: EventEnvelope[];
     try {
@@ -207,11 +224,20 @@ export class SessionEventFollowers {
           this.#fail(publication, follower, error);
         }
       }
-      console.error(
-        `[event log] reading session ${event.sessionId}'s events before sequence ` +
-          `${String(event.sequence)} failed; the followers of every session miss them`,
+      this.#report(
+        `reading session ${event.sessionId}'s events before sequence ${String(event.sequence)}`,
         error,
       );
+      for (const allSessionsFollower of this.#allSessionsFollowers) {
+        try {
+          allSessionsFollower.onGap?.(event.sessionId);
+        } catch (gapError) {
+          this.#report(
+            `a follower of every session repairing session ${event.sessionId}`,
+            gapError,
+          );
+        }
+      }
       return;
     }
     for (const missingEvent of missing) {
@@ -234,15 +260,21 @@ export class SessionEventFollowers {
     }
     for (const allSessionsFollower of this.#allSessionsFollowers) {
       try {
-        allSessionsFollower(event);
+        allSessionsFollower.onCommitted(event);
       } catch (error) {
-        console.error(
-          `[event log] a follower of every session failed on sequence ${String(event.sequence)} ` +
-            `of session ${event.sessionId}; it stays attached`,
+        this.#report(
+          `a follower of every session, on sequence ${String(event.sequence)} of session ` +
+            event.sessionId,
           error,
         );
       }
     }
+  }
+
+  #report(what: string, error: unknown): void {
+    this.#writeServiceLog(
+      `event log: ${what} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   // Reads one page and delivers it, then waits for the next page or goes live.

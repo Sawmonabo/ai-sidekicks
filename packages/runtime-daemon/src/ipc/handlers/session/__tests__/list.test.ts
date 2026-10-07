@@ -145,7 +145,11 @@ function listedEntries(delivered: ReturnType<typeof deliveredOn>): SessionListEn
 
 describe("session.list sends a list too big for one message across its ack and pages", () => {
   it("delivers each session once, a page per drained queue, and holds a change behind the last", async () => {
-    const feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+    const feed = new SessionListFeed({
+      reader: log.scratch.reader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
     const served = serveList(feed);
     const seeded = await log.seedWideChats(2_500);
     const renamed = seeded[0];
@@ -190,7 +194,11 @@ describe("session.list sends a list too big for one message across its ack and p
   });
 
   it("answers an empty list complete in the ack alone", async () => {
-    const feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+    const feed = new SessionListFeed({
+      reader: log.scratch.reader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
     const served = serveList(feed);
     await served.subscribe(1);
     await crossEventLoopTurn();
@@ -204,7 +212,11 @@ describe("session.list sends a list too big for one message across its ack and p
 
 describe("session.list waits for room before a change", () => {
   it("waits out a full queue, keeping each session's newest change, then sends them", async () => {
-    const feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+    const feed = new SessionListFeed({
+      reader: log.scratch.reader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
     const served = serveList(feed);
     const other = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11" as SessionId;
     await log.createSession(CHAT, "chat");
@@ -241,7 +253,11 @@ describe("session.list waits for room before a change", () => {
 
 describe("session.list orders its changes after the acknowledgment", () => {
   it("delivers a change that lands between the snapshot and the ack after the ack", async () => {
-    const feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+    const feed = new SessionListFeed({
+      reader: log.scratch.reader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
     const served = serveList(feed);
     await log.createSession(CHAT, "chat");
     await served.subscribe(1);
@@ -282,7 +298,11 @@ describe("session.list orders its changes after the acknowledgment", () => {
 describe("session.list never puts a refused entry on the wire", () => {
   it("ends each subscription a row the list schema refuses would reach, and throws nowhere", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+    const feed = new SessionListFeed({
+      reader: log.scratch.reader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
     const served = serveList(feed);
     await log.createSession(CHAT, "chat");
     const ack = await served.subscribe(1);
@@ -313,7 +333,11 @@ describe("session.list survives a feed that can no longer read", () => {
   it("ends the subscription refused, after the ack, and throws nowhere", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const feedReader = new Database(log.scratch.databasePath, { readonly: true });
-    const feed = new SessionListFeed({ reader: feedReader, eventLog: log.eventLog });
+    const feed = new SessionListFeed({
+      reader: feedReader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
     const served = serveList(feed);
     await log.createSession(CHAT, "chat");
     const ack = await served.subscribe(1);
@@ -336,10 +360,11 @@ describe("session.list survives a feed that can no longer read", () => {
         },
       },
     ]);
-    expect(consoleError).toHaveBeenCalledWith(
-      "[session.list] reading a changed session's row failed",
-      expect.any(Error),
-    );
+    expect(log.serviceLogLines).toEqual([
+      expect.stringContaining("sessions list: reading a changed session's row failed"),
+    ]);
+    // The subscription's own end is reported where the streaming primitive reports it.
+    expect(consoleError).toHaveBeenCalledOnce();
     feed.close();
   });
 });

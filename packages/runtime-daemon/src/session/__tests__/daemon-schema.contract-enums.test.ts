@@ -1,6 +1,7 @@
-// Every member of a contract or daemon enum is admitted by the SQLite CHECK on the column that
-// stores it, and a value outside the enum is refused. The `Record<Union, true>` member maps make a
-// member added without an accept case a typecheck error here.
+// Every member of a contract enum is admitted by the SQLite CHECK on the column that stores it, and
+// a value outside the enum is refused; a session's step limit and a link's use count are refused
+// below one. The `Record<Union, true>` member maps make a contract member added without an accept
+// case a typecheck error here.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -14,10 +15,12 @@ import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import type { SessionLinkKind } from "@ai-sidekicks/contracts/session/links";
+import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
-import type { ProjectionCursorState } from "../../recovery/projection-rebuild.js";
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
+import type { LiveRunActivity, SessionRunOutcome } from "../records.js";
 
 const TIMESTAMP = "2026-09-28T00:00:00.000Z";
 const NON_MEMBER = "not-a-member";
@@ -82,10 +85,32 @@ const IDEMPOTENCY_CLASSES: Record<IdempotencyClass, true> = {
   manual_reconcile_only: true,
 };
 
-const PROJECTION_CURSOR_STATES: Record<ProjectionCursorState, true> = {
-  current: true,
-  rebuilding: true,
-  stale: true,
+const EXECUTION_MODES: Record<ExecutionMode, true> = {
+  "bound-root": true,
+  "provisioned-worktree": true,
+};
+
+const SESSION_SHAPES: Record<SessionShape, true> = { chat: true, project: true };
+
+const SESSION_STATES: Record<SessionState, true> = {
+  provisioning: true,
+  active: true,
+  archived: true,
+  closed: true,
+  purge_requested: true,
+};
+
+const RUN_OUTCOMES: Record<SessionRunOutcome, true> = { done: true, failed: true, idle: true };
+
+const LIVE_RUN_ACTIVITIES: Record<LiveRunActivity, true> = { running: true, waiting: true };
+
+const LINK_KINDS: Record<SessionLinkKind, true> = {
+  started: true,
+  copied_from: true,
+  messaged: true,
+  asked: true,
+  mentioned: true,
+  related: true,
 };
 
 function membersOf<Member extends string>(members: Record<Member, true>): Member[] {
@@ -161,6 +186,25 @@ describe("contract enums against the daemon schema", () => {
     ).run(newId("queue-item"), state, TIMESTAMP, TIMESTAMP);
   }
 
+  // A valid row; each case overrides the one column it checks.
+  function insertSession(
+    overrides: { shape?: string; state?: string; lastRunOutcome?: string } = {},
+  ): void {
+    db.prepare(
+      `INSERT INTO sessions
+         (id, shape, state, last_run_outcome, created_at, updated_at, last_activity_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      newId("session"),
+      overrides.shape ?? "chat",
+      overrides.state ?? "active",
+      overrides.lastRunOutcome ?? "idle",
+      TIMESTAMP,
+      TIMESTAMP,
+      TIMESTAMP,
+    );
+  }
+
   function insertIntervention(type: string, state: string): void {
     db.prepare(
       `INSERT INTO interventions
@@ -233,21 +277,6 @@ describe("contract enums against the daemon schema", () => {
     expect(() => insertRun("queued", NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
-  it("admits every projection cursor state and refuses any other", () => {
-    const insertCursor = db.prepare(
-      `INSERT INTO projection_cursors (id, session_id, last_sequence, state, updated_at)
-       VALUES (?, ?, 0, ?, ?)`,
-    );
-    for (const state of membersOf(PROJECTION_CURSOR_STATES)) {
-      expect(() =>
-        insertCursor.run(newId("cursor"), newId("session"), state, TIMESTAMP),
-      ).not.toThrow();
-    }
-    expect(() =>
-      insertCursor.run(newId("cursor"), newId("session"), NON_MEMBER, TIMESTAMP),
-    ).toThrow(CHECK_FAILURE);
-  });
-
   it("admits every driver capability flag and refuses any other", () => {
     const insertFlag = db.prepare(
       `INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
@@ -268,5 +297,75 @@ describe("contract enums against the daemon schema", () => {
       expect(() => insertTool.run(newId("tool"), idempotencyClass, TIMESTAMP)).not.toThrow();
     }
     expect(() => insertTool.run(newId("tool"), NON_MEMBER, TIMESTAMP)).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every session shape, state and run outcome, and refuses any other", () => {
+    for (const shape of membersOf(SESSION_SHAPES)) {
+      expect(() => insertSession({ shape })).not.toThrow();
+    }
+    for (const state of membersOf(SESSION_STATES)) {
+      expect(() => insertSession({ state })).not.toThrow();
+    }
+    for (const lastRunOutcome of membersOf(RUN_OUTCOMES)) {
+      expect(() => insertSession({ lastRunOutcome })).not.toThrow();
+    }
+    expect(() => insertSession({ shape: NON_MEMBER })).toThrow(CHECK_FAILURE);
+    expect(() => insertSession({ state: NON_MEMBER })).toThrow(CHECK_FAILURE);
+    // A live reading is never a run's outcome.
+    expect(() => insertSession({ lastRunOutcome: "running" })).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every execution mode a session's create records, and refuses any other", () => {
+    const insertCreateRequest = db.prepare(
+      `INSERT INTO session_create_requests
+         (client_idempotency_key, session_id, repo_mount_id, execution_mode)
+       VALUES (?, ?, ?, ?)`,
+    );
+    for (const executionMode of membersOf(EXECUTION_MODES)) {
+      expect(() =>
+        insertCreateRequest.run(newId("key"), newId("session"), MOUNT_ID, executionMode),
+      ).not.toThrow();
+    }
+    expect(() =>
+      insertCreateRequest.run(newId("key"), newId("session"), MOUNT_ID, NON_MEMBER),
+    ).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every live run activity and refuses any other", () => {
+    const insertRun = db.prepare(
+      `INSERT INTO session_run_activity (session_id, run_id, activity) VALUES ('session-1', ?, ?)`,
+    );
+    for (const activity of membersOf(LIVE_RUN_ACTIVITIES)) {
+      expect(() => insertRun.run(newId("run"), activity)).not.toThrow();
+    }
+    // An ended run's outcome is never a live reading.
+    expect(() => insertRun.run(newId("run"), "done")).toThrow(CHECK_FAILURE);
+  });
+
+  it("bounds a session's own step limit from below at one, and lets it be unset", () => {
+    const insertConsoleState = db.prepare(
+      `INSERT INTO session_console_state (session_id, max_steps_per_turn, updated_at)
+       VALUES (?, ?, ?)`,
+    );
+    expect(() => insertConsoleState.run(newId("session"), null, TIMESTAMP)).not.toThrow();
+    expect(() => insertConsoleState.run(newId("session"), 1, TIMESTAMP)).not.toThrow();
+    expect(() => insertConsoleState.run(newId("session"), 0, TIMESTAMP)).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every link kind with a use count of at least one, and refuses any other", () => {
+    const insertLink = db.prepare(
+      `INSERT INTO session_links
+         (source_session_id, target_session_id, kind, use_count, first_at, last_at)
+       VALUES ('session-1', ?, ?, ?, ?, ?)`,
+    );
+    for (const kind of membersOf(LINK_KINDS)) {
+      expect(() => insertLink.run(newId("session"), kind, 1, TIMESTAMP, TIMESTAMP)).not.toThrow();
+    }
+    expect(() => insertLink.run(newId("session"), NON_MEMBER, 1, TIMESTAMP, TIMESTAMP)).toThrow(
+      CHECK_FAILURE,
+    );
+    expect(() => insertLink.run(newId("session"), "related", 0, TIMESTAMP, TIMESTAMP)).toThrow(
+      CHECK_FAILURE,
+    );
   });
 });

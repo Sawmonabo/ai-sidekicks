@@ -288,7 +288,13 @@ beforeEach(async () => {
   const executionRootsDirectory: string = join(fixtureRoot, "execution-roots");
   const scratch: ScratchDatabase = await openScratchDatabase();
   const db: DatabaseType = new Database(scratch.databasePath);
-  const eventLog = new EventLogService({ writer: scratch.writer, reader: scratch.reader });
+  const eventLog = new EventLogService({
+    writer: scratch.writer,
+    reader: scratch.reader,
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+  });
   const clock = (): string => CLOCK_INSTANT;
 
   const workspaces = new WorkspaceService({

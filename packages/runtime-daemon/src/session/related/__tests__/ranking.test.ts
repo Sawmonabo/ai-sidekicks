@@ -2,9 +2,10 @@
 // the links: a linked session a second path also reaches outranks one reached by its link alone,
 // a session reached only in two steps is left out, and an old link outranks a fresh one of its
 // kind no longer. The scores are stored through the real writer and read back from the stored
-// rows, and a rename reaches the lists that show the renamed session. A round that fails ends the
-// re-scoring and its sessions are scored with the next link change's; the stop ends it after the
-// round under way and waits for that round; a follower that throws costs no other its update.
+// rows, and a rename reaches the lists that show the renamed session, even a rename the log
+// loses. A round that fails ends the re-scoring and its sessions are scored with the next link
+// change's; the stop ends it after the round under way and waits for that round; a follower that
+// throws costs no other its update.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -15,7 +16,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
-import { openSessionLog } from "../../directory/__fixtures__/event-log.js";
+import { buildSessionEvent, openSessionLog } from "../../directory/__fixtures__/event-log.js";
 import { mintSessionId, seedSessionRow } from "../../groups/__fixtures__/directory-rows.js";
 import { recordedSessionLinkStatement } from "../../links/recorded.js";
 import { SessionRelatedRanking, type SessionRelatedRankingOptions } from "../ranking.js";
@@ -267,6 +268,44 @@ describe("a related list after a rename", () => {
       await loggedRanking.whenIdle();
 
       expect(names).toEqual([undefined, "Builder"]);
+    } finally {
+      await stop();
+      await log.scratch.close();
+    }
+  });
+
+  it("sends the new name when the log loses the rename", async () => {
+    const log = await openSessionLog();
+    const lossyLog = log.openLossyLog();
+    const loggedRanking = rankingOn(log.scratch, lossyLog.eventLog);
+    const stop = loggedRanking.start();
+    try {
+      const [planner, builder] = [mintSessionId(), mintSessionId()];
+      await log.createSession(planner, "project");
+      await log.createSession(builder, "project");
+      await link(planner, builder, 0, log.scratch, loggedRanking);
+      const names: (string | undefined)[] = [];
+      loggedRanking.follow(planner, (update) => {
+        names.push(update.related[0]?.name);
+      });
+
+      await lossyLog.appendLosing(
+        buildSessionEvent(builder, "session.renamed", "session_lifecycle", {
+          sessionId: builder,
+          name: "Builder",
+          origin: "user",
+        }),
+        buildSessionEvent(builder, "session.pinned", "session_lifecycle", {
+          sessionId: builder,
+          at: NOW.toISOString(),
+        }),
+      );
+      await loggedRanking.whenIdle();
+
+      expect(names).toEqual([undefined, "Builder"]);
+      expect(log.serviceLogLines).toEqual([
+        expect.stringContaining(`reading session ${builder}'s events`),
+      ]);
     } finally {
       await stop();
       await log.scratch.close();

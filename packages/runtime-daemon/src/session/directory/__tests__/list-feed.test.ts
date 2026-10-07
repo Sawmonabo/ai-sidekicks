@@ -1,7 +1,7 @@
 // The live sessions list, fed by the real event log over a real database: a quiet running
 // session is renewed on a fake clock, the chats count follows a chat's create and its convert,
-// archived and closed sessions stay entries, a purge removes one, and a group's rename reaches
-// every session in it.
+// archived and closed sessions stay entries, a purge removes one even when the log loses its
+// receipt, and a group's rename reaches every session in it.
 
 import { randomUUID } from "node:crypto";
 
@@ -13,9 +13,15 @@ import {
   sessionActivityAsOf,
   type SessionListChange,
 } from "@ai-sidekicks/contracts/session/directory";
+import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { crossEventLoopTurn, openSessionLog, type SessionLog } from "../__fixtures__/event-log.js";
+import {
+  buildPurgeReceipt,
+  crossEventLoopTurn,
+  openSessionLog,
+  type SessionLog,
+} from "../__fixtures__/event-log.js";
 import { SessionGroupService } from "../../groups/service.js";
 import { SessionListFeed, type SessionListListener } from "../list-feed.js";
 
@@ -29,7 +35,11 @@ let feed: SessionListFeed;
 
 beforeEach(async () => {
   log = await openSessionLog();
-  feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+  feed = new SessionListFeed({
+    reader: log.scratch.reader,
+    eventLog: log.eventLog,
+    writeServiceLog: log.writeServiceLog,
+  });
 });
 
 afterEach(async () => {
@@ -201,6 +211,35 @@ describe("the sessions list counts the chats and keeps every session the log hol
 
     expect(listener.changes).toStrictEqual([{ kind: "remove", sessionId: CHAT, chatCount: 0 }]);
     expect(feed.open(recordingListener()).sessions).toStrictEqual([]);
+  });
+
+  it("removes a purged session whose receipt the log loses", async () => {
+    await log.createSession(CHAT, "chat");
+    await log.createSession(SECOND_CHAT, "chat");
+    const lossyLog = log.openLossyLog();
+    const lossyFeed = new SessionListFeed({
+      reader: log.scratch.reader,
+      eventLog: lossyLog.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
+    const listener = recordingListener();
+    lossyFeed.open(listener);
+
+    await log.scratch.writer.write([
+      { sql: "DELETE FROM sessions WHERE id = ?", bindings: [CHAT], expectedRowCount: 1 },
+    ]);
+    // The receipt after the lost one names a session the list never held.
+    await lossyLog.appendLosing(
+      buildPurgeReceipt(CHAT),
+      buildPurgeReceipt(randomUUID() as SessionId),
+    );
+    await crossEventLoopTurn();
+
+    expect(listener.changes).toStrictEqual([{ kind: "remove", sessionId: CHAT, chatCount: 1 }]);
+    expect(log.serviceLogLines).toEqual([
+      expect.stringContaining(`reading session ${DAEMON_SCOPE_SENTINEL_SESSION_ID}'s events`),
+    ]);
+    lossyFeed.close();
   });
 });
 
