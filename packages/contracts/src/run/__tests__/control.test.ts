@@ -136,21 +136,6 @@ describe("InterventionRequestResponse", () => {
     interventionType: "interrupt",
     runVersion: 5,
   } as const;
-  const result = { turnId: "turn-7" };
-
-  it("carries a result only on an intervention that took effect", () => {
-    const applied = { ...response, state: "applied", result };
-    expect(InterventionRequestResponseSchema.parse(applied)).toEqual(applied);
-    expect(
-      InterventionRequestResponseSchema.safeParse({
-        ...response,
-        state: "rejected",
-        rejectionReason: "driver.capability_unsupported",
-        result,
-      }).success,
-    ).toBe(false);
-  });
-
   it("refuses a rejection that does not say why", () => {
     // The reason is how a caller learns why a refusal rode the response rather than an error.
     const rejected = {
@@ -162,6 +147,17 @@ describe("InterventionRequestResponse", () => {
     expect(
       InterventionRequestResponseSchema.safeParse({ ...response, state: "rejected" }).success,
     ).toBe(false);
+    // A reason on an intervention that took effect would read as a refusal that never happened.
+    expect(
+      InterventionRequestResponseSchema.safeParse({
+        ...response,
+        state: "applied",
+        rejectionReason: "driver.capability_unsupported",
+      }).success,
+    ).toBe(false);
+    expect(
+      InterventionRequestResponseSchema.safeParse({ ...response, state: "applied" }).success,
+    ).toBe(true);
   });
 });
 
@@ -174,6 +170,16 @@ const minimalRunStateChange = {
 } as const;
 
 describe("RunStateChangeEvent", () => {
+  it("names why the daemon itself interrupted a run, from the closed set only", () => {
+    const interrupted = { ...minimalRunStateChange, newState: "interrupted" } as const;
+    for (const trigger of ["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"]) {
+      expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger }).success).toBe(true);
+    }
+    expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger: "person" }).success).toBe(
+      false,
+    );
+  });
+
   it("carries every member of the recovery vocabulary", () => {
     // Driven from the imported array so a member added to the vocabulary reaches this carrier; a
     // narrower local copy would still compile but dead-letter the member at parse.

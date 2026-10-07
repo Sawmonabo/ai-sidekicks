@@ -2,7 +2,8 @@
 // control plane could no longer route reconnects to the right authoritative state. Its accept set
 // (`RFC_9562_TEXT_FORM`, shared by every branded UUID id) is RFC 9562 text, case-insensitive on
 // every alternative, with the version and variant nibbles still deciding. The event cursor codec
-// must refuse a corrupted cursor with the typed error rather than resume a read at a wrong position.
+// must refuse a corrupted cursor with the typed error rather than resume a read at a wrong
+// position.
 import { describe, expect, it } from "vitest";
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE, EventCursorUnresolvableError } from "../../error.js";

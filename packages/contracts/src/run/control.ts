@@ -89,6 +89,7 @@ import {
   wireUncappedFreeFormString,
 } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { InterruptReasonSchema, type InterruptReason } from "../orchestration.js";
 
 /** Identifies one intervention on a run. */
 export type InterventionId = string & { readonly __brand: "InterventionId" };
@@ -237,21 +238,15 @@ export interface InterventionResponseBase {
 }
 
 /**
- * The daemon's answer to an intervention request, one arm per group of states. Only an applied or
- * degraded answer carries a `result`; a refused intervention is a normal answer in state
- * `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error.
+ * The daemon's answer to an intervention request. A refused intervention is a normal answer in
+ * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; no other state
+ * carries a reason.
  */
 export type InterventionRequestResponse = InterventionResponseBase &
   (
+    | { state: Extract<InterventionState, "rejected">; rejectionReason: string }
     | {
-        state: Extract<InterventionState, "applied" | "degraded">;
-        result?: Record<string, unknown> | undefined;
-        rejectionReason?: never;
-      }
-    | { state: Extract<InterventionState, "rejected">; rejectionReason: string; result?: never }
-    | {
-        state: Extract<InterventionState, "requested" | "accepted" | "expired">;
-        result?: never;
+        state: Exclude<InterventionState, "rejected">;
         rejectionReason?: never;
       }
   );
@@ -272,13 +267,6 @@ export const InterventionRequestResponseSchema: z.ZodType<
   z
     .object({
       ...interventionResponseBaseShape,
-      state: z.enum(["applied", "degraded"]),
-      result: z.record(z.string(), z.unknown()).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      ...interventionResponseBaseShape,
       state: z.literal("rejected"),
       rejectionReason: wireFreeFormString(
         DRIVER_WIRE_HANDLE_MAX_LEN,
@@ -289,7 +277,7 @@ export const InterventionRequestResponseSchema: z.ZodType<
   z
     .object({
       ...interventionResponseBaseShape,
-      state: z.enum(["requested", "accepted", "expired"]),
+      state: z.enum(["requested", "accepted", "applied", "degraded", "expired"]),
     })
     .strict(),
 ]);
@@ -384,21 +372,6 @@ export const ProcessExitSchema: z.ZodType<ProcessExit> = z.union([
     })
     .strict(),
 ]);
-
-const INTERRUPT_REASONS = [
-  "step_limit",
-  "spend_limit",
-  "token_limit",
-  "workflow_phase_canceled",
-] as const;
-
-/**
- * Why the daemon itself interrupted a run: a step, spend or token limit the person set was
- * reached, or the run's workflow phase was canceled. The person's own interrupt has none.
- */
-export type InterruptReason = (typeof INTERRUPT_REASONS)[number];
-const InterruptReasonSchema: z.ZodType<InterruptReason, InterruptReason> =
-  z.enum(INTERRUPT_REASONS);
 
 /**
  * One run state transition as `run.subscribeState` delivers it, with its new run version.

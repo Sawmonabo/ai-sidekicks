@@ -207,17 +207,15 @@ interface InterventionResponseBase {
   interventionType: InterventionType;
   runVersion: number; // post-application run counter (D-002-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-003 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
 }
-// One arm per group of states: only an `applied` or `degraded` answer carries a `result`, and
-// `requested`, `accepted`, `rejected` and `expired` answers carry none. A `rejected` answer always
-// carries its `rejectionReason`, and no other state carries one.
+// A `rejected` answer always carries its `rejectionReason`, and no other state carries one. No
+// state carries a result: what an intervention did reaches the screen as the run's own events.
 type InterventionRequestResponse = InterventionResponseBase &
   (
-    | { state: "applied" | "degraded"; result?: Record<string, unknown> }
     | {
         state: "rejected";
         rejectionReason: string; // machine-readable cause on a `rejected` OUTCOME, which is a normal `run.intervene` response and not a JSON-RPC transport error, so the CLI renders WHY (e.g. `driver.capability_unsupported`). A request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Durable across a retry: the cause persists in the intervention row's own `rejection_reason` column (Plan-002 T1.4 DDL), so a retry that returns the saved result reconstructs the SAME machine-readable reason from that column, never fabricating one.
       }
-    | { state: "requested" | "accepted" | "expired" }
+    | { state: "requested" | "accepted" | "applied" | "degraded" | "expired" }
   );
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the

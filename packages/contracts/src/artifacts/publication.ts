@@ -66,9 +66,10 @@ export interface ArtifactPublishResponse {
  *
  * @consumedBy the daemon's publish service, which answers a publish with this reply
  */
-export const ArtifactPublishResponseSchema: z.ZodType<ArtifactPublishResponse> = z
-  .object({ manifest: ArtifactManifestSchema })
-  .strict();
+export const ArtifactPublishResponseSchema: z.ZodType<
+  ArtifactPublishResponse,
+  ArtifactPublishResponse
+> = z.object({ manifest: ArtifactManifestSchema }).strict();
 
 /**
  * The payload of `artifact.published` and `artifact.superseded`. It names the artifact and its new

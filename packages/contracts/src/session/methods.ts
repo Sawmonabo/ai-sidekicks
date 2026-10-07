@@ -60,8 +60,8 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   .strict();
 
 /**
- * The `session.read` result: the session and its transcript cursors. A reader resumes from
- * `acknowledged ?? earliest`, and an `acknowledged` below `earliest` means events were lost.
+ * The `session.read` result: the session and its transcript cursors. A reader with no
+ * acknowledged position resumes from `earliest`.
  */
 export interface SessionReadResponse {
   session: SessionRecord;
