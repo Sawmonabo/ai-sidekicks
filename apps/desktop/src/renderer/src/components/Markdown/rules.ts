@@ -17,7 +17,8 @@ type DeferredFenceKind = "math" | "diagram";
 /**
  * The fence info strings whose rendering waits for the block to settle, and what each holds: math
  * and diagrams, both wrong when fed a prefix. `mdast-util-gfm` gives neither its own node type, so
- * the table is keyed by the info string.
+ * the table is keyed by the info string. A mermaid fence shows its source while it streams and is
+ * drawn as a picture once settled, so mermaid never parses a half-written diagram.
  */
 const DEFERRED_FENCE_KIND_BY_LANGUAGE: ReadonlyMap<string, DeferredFenceKind> = new Map([
   ["math", "math"],
