@@ -49,6 +49,7 @@ import {
   type ProviderRegistry,
 } from "../../../provider/driver/registry.js";
 import { DaemonDomainError } from "../../domain-error.js";
+import { RunNotFoundError } from "../../../session/run/refusals.js";
 import { SessionNotFoundError } from "../../session-errors.js";
 
 import { registerDescribedMethod } from "../register-described-method.js";
@@ -182,7 +183,7 @@ function resolveDriverForRunOrThrow(
   // Called once: the resolver reads live binding state, so a second call could disagree.
   const driverName = deps.resolveDriverForRun(runId);
   if (driverName === undefined) {
-    refuseRunNotFound(runId);
+    throw new RunNotFoundError(runId);
   }
   const driver = deps.providerRegistry.lookup(driverName);
   if (driver === undefined) {
@@ -190,15 +191,6 @@ function resolveDriverForRunOrThrow(
     translateDriverError(new DriverUnavailableError(driverName));
   }
   return { driverName, driver };
-}
-
-/** One throw site, so the run-addressed verbs and `driver.compactContext` cannot drift. */
-function refuseRunNotFound(runId: RunId): never {
-  throw new DaemonDomainError("Run does not exist or is not accessible", {
-    code: "run.not_found",
-    jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    detail: { runId },
-  });
 }
 
 /**
@@ -404,7 +396,7 @@ export function registerDriverCompactContext(
 
     const resolution = deps.resolveRunBinding(params.sessionId, params.runId);
     if (resolution.kind === "unknown-run") {
-      refuseRunNotFound(params.runId);
+      throw new RunNotFoundError(params.runId);
     }
 
     if (deps.evaluateInterveneAction(params.sessionId, params.runId) !== "permit") {
