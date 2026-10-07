@@ -687,7 +687,8 @@ interface SessionNoticeProviderUpdated {
 // session is running again, restarted by the daemon or by the person's `Restart`. One flow row,
 // `Restarted · Claude Code is back` (`Restarted · Codex is back` on Codex). A restart after a
 // provider update writes none; the daemon's automatic restart of a shared Codex service writes it
-// only to the sessions whose running turn the crash ended.
+// only to the sessions whose running turn the crash ended, and the person's `Restart` of a service
+// left down writes it to every session that showed the banner.
 interface SessionNoticeProviderRestarted {
   sessionId: SessionId;
   kind: "provider_restarted";
@@ -696,14 +697,13 @@ interface SessionNoticeProviderRestarted {
 
 // session.notice of kind `provider_crash_loop`: the provider process crashed for the fifth time
 // within three minutes and the daemon stopped restarting it. It draws the banner
-// `Claude Code ended unexpectedly · exit code 137 · Restart ×` and no flow row.
-interface SessionNoticeProviderCrashLoop {
+// `Claude Code ended unexpectedly · exit code 137 · Restart ×` and no flow row. It carries exactly
+// one of the exit code and the signal the daemon observed, as `run.failed`'s `processExit` does.
+type SessionNoticeProviderCrashLoop = {
   sessionId: SessionId;
   kind: "provider_crash_loop";
   provider: ProviderName;
-  exitCode?: number; // as the daemon observed it
-  signal?: string;
-}
+} & ({ exitCode: number; signal?: never } | { signal: string; exitCode?: never });
 
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
 // background service runs, so no provider process started (Spec-001 §Fallback Behavior). One flow
