@@ -102,10 +102,8 @@ function SignInInProgress(props: {
         />
       </p>
       {refusal === undefined ? null : (
-        <p
-          className="meridian-settings-page__state meridian-settings-page__state--failed"
-          role="alert"
-        >
+        // The refusal is its own status region, so the line is announced once.
+        <p className="meridian-settings-page__state meridian-settings-page__state--failed">
           <InlineRefusal {...refusal} />
         </p>
       )}

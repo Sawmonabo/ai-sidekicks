@@ -65,8 +65,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
     return (
       <div className="meridian-callback-tools">
         <p className="meridian-callback-tools__note">
-          These tools stay off until the background service can ask for approval. A sidekick cannot
-          use them, and a call to one is denied.
+          A sidekick cannot use these tools yet, and a call to one is denied.
         </p>
         <CallbackToolRows tools={props.registry.tools} deniedTone />
       </div>
