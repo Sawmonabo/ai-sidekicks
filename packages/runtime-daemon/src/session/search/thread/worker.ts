@@ -4,7 +4,8 @@
 // searches held between pages live here. A first page's ranking across the whole index is read by
 // the thread's rankers, a rowid range each, while this thread holds the page's read open, and used
 // when every range read the index the page reads; otherwise it is read again, and after a few
-// tries here.
+// tries here. The rankers start when the main thread asks, once the daemon listens, so their load
+// stays out of its start, or at the first ranking that needs them.
 
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
@@ -71,7 +72,7 @@ function openSearchConnection(path: string): DatabaseType {
 function serve(connection: DatabaseType): void {
   const sessionSearch = new SessionSearchService(connection);
   const transcriptSearch = new TranscriptSearchService(connection);
-  let rankers = RankerPool.start(databasePath, RANKER_COUNT);
+  let rankers: RankerPool | undefined;
   // Each request is answered once the one before it has been, though a session search waits on
   // its rankers in between.
   let answered = Promise.resolve();
@@ -82,6 +83,9 @@ function serve(connection: DatabaseType): void {
   async function answer(request: SearchThreadRequest): Promise<void> {
     try {
       switch (request.type) {
+        case "start-rankers":
+          rankers ??= RankerPool.start(databasePath, RANKER_COUNT);
+          return;
         case "session.search":
           post({ type: "session-searched", response: await searchSessions(request.request) });
           return;
@@ -89,7 +93,7 @@ function serve(connection: DatabaseType): void {
           post({ type: "transcript-searched", response: transcriptSearch.search(request.request) });
           return;
         case "close":
-          await rankers.close();
+          await rankers?.close();
           connection.close();
           post({ type: "closed" });
           port.close();
@@ -138,6 +142,7 @@ function serve(connection: DatabaseType): void {
   async function rankWithRankers(
     ...rankArguments: Parameters<RankerPool["rank"]>
   ): ReturnType<RankerPool["rank"]> {
+    rankers ??= RankerPool.start(databasePath, RANKER_COUNT);
     try {
       return await rankers.rank(...rankArguments);
     } catch (error) {

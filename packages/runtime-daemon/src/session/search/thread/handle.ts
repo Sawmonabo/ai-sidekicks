@@ -99,6 +99,17 @@ export class SearchThread {
     );
   }
 
+  /**
+   * Starts the thread's rankers, which a broad search's ranking is split across, so the first such
+   * search finds them loaded. Called once the daemon listens, so their load stays out of its start;
+   * a search that needs them before starts them itself. Nothing answers it.
+   */
+  startRankers(): void {
+    if (this.#failure === undefined && this.#closing === undefined) {
+      this.#worker.postMessage({ type: "start-rankers" } satisfies SearchThreadRequest);
+    }
+  }
+
   /** One page of a `session.search`, as the session search answers it on the thread. */
   async searchSessions(request: SessionSearchRequest): Promise<SessionSearchResponse> {
     const reply = await this.#search({ type: "session.search", request });

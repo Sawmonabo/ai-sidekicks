@@ -1,6 +1,7 @@
 // The messages between the search thread and the daemon's main thread, and the errors a search
 // throws, carried across as plain data and rebuilt as the class the wire mapping reads. Each
-// request is answered once, in the order it was sent.
+// request is answered once, in the order it was sent, except the start of the rankers, which is
+// never answered.
 
 import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
 import type {
@@ -22,6 +23,7 @@ import {
 
 /** What the main thread asks of the search thread. */
 export type SearchThreadRequest =
+  | { readonly type: "start-rankers" }
   | { readonly type: "session.search"; readonly request: SessionSearchRequest }
   | { readonly type: "transcript.search"; readonly request: TranscriptSearchRequest }
   | { readonly type: "close" };

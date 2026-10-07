@@ -328,6 +328,8 @@ export class DaemonProcess {
           registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });
         await daemon.#listen(options.runFolder, sessionToken);
+        // The rankers' load would lengthen the start, and only a broad search needs them.
+        searchThread.startRankers();
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
