@@ -134,6 +134,9 @@ describe("SessionService — readSession", () => {
       writer: ctx.connections.writer,
       reader: ctx.connections.reader,
       projectionStatements: directoryStatementsFor,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
     });
     const version = EventEnvelopeVersionSchema.parse("1.0");
     const created = storedCreatedEvent(1n);

@@ -1,7 +1,8 @@
 // Converting a chat to a project in place. The typed folder is attached, or the machine's mount for
-// it reused; the chat's files are copied in without replacing anything the repository holds; the
-// session binds to the project's checkout; and `session.converted` moves its shape, recording the
-// request's idempotency key and every file not copied with its reason, which a paged read serves.
+// it reused, and the conversion recorded under the request's idempotency key; the chat's files are
+// copied in without replacing anything the repository holds, each outcome recorded as it lands; the
+// session binds to the project's checkout; and `session.converted` moves its shape. A conversion
+// that stopped part way resumes from its records, and the files not copied are read page by page.
 // The session keeps its id and transcript, and its managed workspace stays with its history.
 
 import { constants as fsConstants, type Dirent } from "node:fs";
@@ -16,6 +17,7 @@ import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
+import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import {
   SESSION_CONVERT_INCOMPLETE_CODE,
@@ -34,7 +36,8 @@ import {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 
-import { WriteRefusedError } from "../database/writer.js";
+import type { WriteStatement } from "../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import type { EventLogService } from "../events/log-service.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
@@ -56,27 +59,43 @@ const SESSION_FACTS_SQL = "SELECT shape, state FROM sessions WHERE id = ?";
 const OPEN_CHAT_SQL = `SELECT 1 FROM sessions
   WHERE id = ? AND shape = 'chat' AND state NOT IN ('closed', 'purge_requested')`;
 
-const RECORD_CONVERT_REQUEST_SQL = `INSERT INTO session_convert_requests
-  (client_idempotency_key, session_id) VALUES (?, ?)`;
+const RECORD_CONVERSION_SQL = `INSERT INTO session_convert_requests
+  (client_idempotency_key, session_id, repo_mount_id) VALUES (?, ?, ?)`;
 
-// Every skipped file in one statement, from one bound JSON array, however many there are.
-const RECORD_SKIPPED_FILES_SQL = `INSERT INTO session_convert_skipped_files (session_id, path, reason)
-  SELECT @sessionId, json_extract(value, '$.path'), json_extract(value, '$.reason')
-    FROM json_each(@skippedFiles)`;
+// The request resuming a conversion takes it over: its key answers the conversion from here on, on
+// the mount the folder is attached as now.
+const TAKE_OVER_CONVERSION_SQL = `UPDATE session_convert_requests
+  SET client_idempotency_key = ?, repo_mount_id = ? WHERE session_id = ?`;
 
-// The conversion this key already made, of whichever session, as its event recorded it.
-const EARLIER_CONVERSION_SQL = `SELECT request.session_id AS sessionId, event.payload
+const RECORD_FILE_SQL = `INSERT INTO session_convert_files (session_id, path, outcome)
+  VALUES (?, ?, ?)`;
+
+// The conversion this key runs under, of whichever session, with its event once that has landed.
+const CONVERSION_BY_KEY_SQL = `SELECT request.session_id AS sessionId, event.payload
   FROM session_convert_requests AS request
-  JOIN session_events AS event
+  LEFT JOIN session_events AS event
     ON event.session_id = request.session_id AND event.type = 'session.converted'
  WHERE request.client_idempotency_key = ?`;
+
+// A chat's conversion that stopped part way, with the folder it copies into.
+const UNFINISHED_CONVERSION_SQL = `SELECT request.client_idempotency_key AS clientIdempotencyKey,
+       request.repo_mount_id AS repoMountId, mount.canonical_root AS canonicalRoot
+  FROM session_convert_requests AS request
+  JOIN repo_mounts AS mount ON mount.id = request.repo_mount_id
+ WHERE request.session_id = ?`;
+
+const FILES_DEALT_WITH_SQL = "SELECT path FROM session_convert_files WHERE session_id = ?";
+
+const FILE_COUNTS_SQL = `SELECT count(*) FILTER (WHERE outcome = 'copied') AS copiedCount,
+       count(*) FILTER (WHERE outcome <> 'copied') AS skippedCount
+  FROM session_convert_files WHERE session_id = ?`;
 
 const SESSION_EXISTS_SQL = "SELECT 1 FROM sessions WHERE id = ?";
 
 // One row past the page shows whether more remain; the first page reads after the empty path,
 // which sorts before every path.
-const SKIPPED_FILES_PAGE_SQL = `SELECT path, reason FROM session_convert_skipped_files
-  WHERE session_id = @sessionId AND path > @afterPath
+const SKIPPED_FILES_PAGE_SQL = `SELECT path, outcome AS reason FROM session_convert_files
+  WHERE session_id = @sessionId AND path > @afterPath AND outcome <> 'copied'
   ORDER BY path
   LIMIT @rowCount`;
 
@@ -90,6 +109,10 @@ const OPEN_FOLDER_FLAGS = fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsCon
 // One read of a file being copied, the size a Node file stream reads at a time.
 const COPY_CHUNK_BYTES = 64 * 1024;
 
+// The most file records waiting on their commit while the copy goes on: enough to keep the
+// writer's batches full, and the most landed copies a crash can leave unrecorded.
+const RECORDS_IN_FLIGHT_MAX = 100;
+
 interface SessionFacts {
   readonly shape: SessionShape;
   readonly state: SessionState;
@@ -102,23 +125,36 @@ type CopyOutcome =
   | { readonly kind: "skipped"; readonly reason: SessionConvertSkipReason }
   | { readonly kind: "gone" };
 
+// How a recorded file came out: copied, or not copied for a reason.
+type RecordedOutcome = "copied" | SessionConvertSkipReason;
+
 // What a conversion has done so far, so a failure part way can say it.
-interface ConversionProgress {
-  copiedCount: number;
-  readonly skippedFiles: SessionConvertSkippedFile[];
-  isBound: boolean;
+interface ConversionProgress extends SessionConvertResponse {
+  readonly isBound: boolean;
+}
+
+// A chat's conversion that stopped part way.
+interface UnfinishedConversion {
+  readonly clientIdempotencyKey: string;
+  readonly repoMountId: RepoMountId;
+  readonly canonicalRoot: string;
 }
 
 /** What converting a chat reads, locks, attaches, binds and appends through. */
 export interface SessionConversionDeps {
-  /** The read-only connection the session's facts, earlier conversions and skipped files are read on. */
+  /** The read-only connection the session's facts and its conversion's records are read on. */
   readonly reader: Database;
+  /** The writer the conversion and each file's outcome are recorded through. */
+  readonly writer: Pick<DatabaseWriter, "write">;
   /** The append path `session.converted` goes through. */
   readonly events: Pick<EventLogService, "append">;
   /** The session lock every session-wide transition holds for its whole run. */
   readonly lock: Pick<SessionChanges["lock"], "run">;
-  /** Attaches the typed folder, and knows where the chat's managed workspace is. */
-  readonly repoMounts: Pick<RepoMountService, "attachOrReuse" | "readManagedRoot">;
+  /** Resolves and attaches the typed folder, and knows where the chat's managed workspace is. */
+  readonly repoMounts: Pick<
+    RepoMountService,
+    "attachOrReuse" | "readManagedRoot" | "resolveFolder"
+  >;
   /** Binds the session to the project's checkout. */
   readonly workspaces: Pick<WorkspaceService, "bind">;
   /** The clock that stamps the event. Defaults to the system clock. */
@@ -140,7 +176,7 @@ class SessionConversionIncompleteError extends DaemonDomainError {
     super(
       `Converting session ${sessionId} stopped part way: the repository is attached as mount ` +
         `${repoMountId}, ${String(progress.copiedCount)} files were copied into it and ` +
-        `${String(progress.skippedFiles.length)} were not, and the session ` +
+        `${String(progress.skippedCount)} were not, and the session ` +
         (progress.isBound ? "was bound to it but " : "") +
         "is still a chat.",
       {
@@ -149,7 +185,7 @@ class SessionConversionIncompleteError extends DaemonDomainError {
           sessionId,
           repoMountId,
           copiedCount: progress.copiedCount,
-          skippedCount: progress.skippedFiles.length,
+          skippedCount: progress.skippedCount,
           isBound: progress.isBound,
         },
       },
@@ -164,19 +200,26 @@ class SessionConversionIncompleteError extends DaemonDomainError {
  */
 export class SessionConversion {
   readonly #reader: Database;
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #events: Pick<EventLogService, "append">;
   readonly #lock: Pick<SessionChanges["lock"], "run">;
   // Serializes converts that carry one key across sessions, so a second session sees the first's
   // conversion and is refused before it attaches anything. Always taken before the session lock.
   readonly #keyLock = new KeyedLock<string>();
-  readonly #repoMounts: Pick<RepoMountService, "attachOrReuse" | "readManagedRoot">;
+  readonly #repoMounts: Pick<
+    RepoMountService,
+    "attachOrReuse" | "readManagedRoot" | "resolveFolder"
+  >;
   readonly #workspaces: Pick<WorkspaceService, "bind">;
   readonly #now: () => Date;
   readonly #selectFacts: Statement<[string], SessionFacts>;
-  readonly #selectEarlierConversion: Statement<
+  readonly #selectConversionByKey: Statement<
     [string],
-    { readonly sessionId: string; readonly payload: string }
+    { readonly sessionId: string; readonly payload: string | null }
   >;
+  readonly #selectUnfinishedConversion: Statement<[string], UnfinishedConversion>;
+  readonly #selectFilesDealtWith: Statement<[string], { readonly path: string }>;
+  readonly #selectFileCounts: Statement<[string], SessionConvertResponse>;
   readonly #selectSessionExists: Statement<[string]>;
   readonly #selectSkippedFilesPage: Statement<
     [{ sessionId: string; afterPath: string; rowCount: number }],
@@ -185,13 +228,17 @@ export class SessionConversion {
 
   constructor(deps: SessionConversionDeps) {
     this.#reader = deps.reader;
+    this.#writer = deps.writer;
     this.#events = deps.events;
     this.#lock = deps.lock;
     this.#repoMounts = deps.repoMounts;
     this.#workspaces = deps.workspaces;
     this.#now = deps.now ?? (() => new Date());
     this.#selectFacts = deps.reader.prepare(SESSION_FACTS_SQL);
-    this.#selectEarlierConversion = deps.reader.prepare(EARLIER_CONVERSION_SQL);
+    this.#selectConversionByKey = deps.reader.prepare(CONVERSION_BY_KEY_SQL);
+    this.#selectUnfinishedConversion = deps.reader.prepare(UNFINISHED_CONVERSION_SQL);
+    this.#selectFilesDealtWith = deps.reader.prepare(FILES_DEALT_WITH_SQL);
+    this.#selectFileCounts = deps.reader.prepare(FILE_COUNTS_SQL);
     this.#selectSessionExists = deps.reader.prepare(SESSION_EXISTS_SQL);
     this.#selectSkippedFilesPage = deps.reader.prepare(SKIPPED_FILES_PAGE_SQL);
   }
@@ -199,12 +246,18 @@ export class SessionConversion {
   /**
    * Converts the chat into the repository at `request.path` and answers what was and was not
    * copied. A request whose `clientIdempotencyKey` already converted this session answers that
-   * conversion's counts and copies nothing. Refuses a key that converted another session, a session
-   * that is not a chat, or a chat with no managed workspace (`session.convert_refused`), one that
-   * takes no change (`session.already_closed`, `session.change_refused`), and a folder the attach
-   * refuses (`repo.root_resolution_failed`, `repo.already_attached` for a chat's own workspace),
-   * each before anything is attached or copied. A failure after the attach throws
-   * `session.convert_incomplete` naming what was done.
+   * conversion's counts and copies nothing. A conversion that stopped part way resumes, under the
+   * request's key whichever key started it, when the path names the folder it copies into: files
+   * it already dealt with are not copied again, and the counts are the whole conversion's. Refuses,
+   * each before anything is attached or copied, a key another session's conversion holds
+   * (`reason: idempotency_key_reused`), a path naming another folder than a stopped conversion's
+   * (`reason: conversion_unfinished`, with that conversion's `repoMountId`), a session that is not
+   * a chat, or a chat with no managed workspace (`session.convert_refused`); one that takes no
+   * change (`session.already_closed`, `session.change_refused`); and a folder the attach refuses
+   * (`repo.root_resolution_failed`, `repo.already_attached` for a chat's own workspace). A failure
+   * after the attach throws `session.convert_incomplete` naming what was done, every landed copy
+   * counted. A known limit: the few files whose copies landed while their records were still on
+   * their way when the daemon stopped read as `repository_has_file` when the conversion resumes.
    */
   async convert(request: SessionConvertRequest): Promise<SessionConvertResponse> {
     const { sessionId, clientIdempotencyKey } = request;
@@ -215,16 +268,16 @@ export class SessionConversion {
 
   async #convertHeld(request: SessionConvertRequest): Promise<SessionConvertResponse> {
     const { sessionId } = request;
-    const earlier = this.#selectEarlierConversion.get(request.clientIdempotencyKey);
-    if (earlier !== undefined) {
-      if (earlier.sessionId !== sessionId) {
-        throw new DaemonDomainError("This idempotency key already converted another session.", {
-          code: SESSION_CONVERT_REFUSED_CODE,
-          detail: { sessionId, reason: "idempotency_key_reused" },
-        });
-      }
+    const keyed = this.#selectConversionByKey.get(request.clientIdempotencyKey);
+    if (keyed !== undefined && keyed.sessionId !== sessionId) {
+      throw new DaemonDomainError("This idempotency key belongs to another session's conversion.", {
+        code: SESSION_CONVERT_REFUSED_CODE,
+        detail: { sessionId, reason: "idempotency_key_reused" },
+      });
+    }
+    if (keyed !== undefined && keyed.payload !== null) {
       const { copiedCount, skippedCount } = SessionConvertedPayloadSchema.parse(
-        JSON.parse(earlier.payload),
+        JSON.parse(keyed.payload),
       );
       return { copiedCount, skippedCount };
     }
@@ -236,25 +289,76 @@ export class SessionConversion {
         detail: { sessionId, reason: "no_managed_workspace" },
       });
     }
-    const project = await this.#repoMounts.attachOrReuse({ localPath: request.path });
-    const progress: ConversionProgress = { copiedCount: 0, skippedFiles: [], isBound: false };
+    const { project, record } = await this.#attachProject(request);
+    let isBound = false;
     try {
-      await copyWorkspaceFiles(workspaceRoot, project.canonicalRoot, progress);
+      await this.#writer.write([record]);
+      const dealtWith = new Set(this.#selectFilesDealtWith.all(sessionId).map((row) => row.path));
+      await copyWorkspaceFiles(workspaceRoot, project.canonicalRoot, dealtWith, (path, outcome) =>
+        this.#writer.write([{ sql: RECORD_FILE_SQL, bindings: [sessionId, path, outcome] }]),
+      );
       await this.#workspaces.bind({
         sessionId,
         repoMountId: project.repoMountId,
         executionMode: "bound-root",
       });
-      progress.isBound = true;
-      await this.#appendConverted(
-        { sessionId, repoMountId: project.repoMountId, ...outcomeOf(progress) },
-        request.clientIdempotencyKey,
-        progress.skippedFiles,
-      );
+      isBound = true;
+      const outcome = this.#fileCountsOf(sessionId);
+      await this.#appendConverted({ sessionId, repoMountId: project.repoMountId, ...outcome });
+      return outcome;
     } catch (error) {
-      throw new SessionConversionIncompleteError(sessionId, project.repoMountId, progress, error);
+      throw new SessionConversionIncompleteError(
+        sessionId,
+        project.repoMountId,
+        { ...this.#fileCountsOf(sessionId), isBound },
+        error,
+      );
     }
-    return outcomeOf(progress);
+  }
+
+  // The project the conversion copies into, and the statement recording the conversion under the
+  // request's key. A conversion that stopped part way goes on only into its own folder, taken over
+  // by this request's key on the mount that folder is attached as now, attached again if a detach
+  // let it go since.
+  async #attachProject(
+    request: SessionConvertRequest,
+  ): Promise<{ readonly project: RepoAttachResponse; readonly record: WriteStatement }> {
+    const { sessionId, clientIdempotencyKey } = request;
+    const unfinished = this.#selectUnfinishedConversion.get(sessionId);
+    if (unfinished === undefined) {
+      const project = await this.#repoMounts.attachOrReuse({ localPath: request.path });
+      return {
+        project,
+        record: {
+          sql: RECORD_CONVERSION_SQL,
+          bindings: [clientIdempotencyKey, sessionId, project.repoMountId],
+        },
+      };
+    }
+    const folder = await this.#repoMounts.resolveFolder({ localPath: request.path });
+    if (folder.canonicalRoot !== unfinished.canonicalRoot) {
+      throw new DaemonDomainError("The chat's conversion into another folder stopped part way.", {
+        code: SESSION_CONVERT_REFUSED_CODE,
+        detail: { sessionId, reason: "conversion_unfinished", repoMountId: unfinished.repoMountId },
+      });
+    }
+    const project = await this.#repoMounts.attachOrReuse({ localPath: request.path });
+    return {
+      project,
+      record: {
+        sql: TAKE_OVER_CONVERSION_SQL,
+        bindings: [clientIdempotencyKey, project.repoMountId, sessionId],
+        expectedRowCount: 1,
+      },
+    };
+  }
+
+  #fileCountsOf(sessionId: SessionId): SessionConvertResponse {
+    const counts = this.#selectFileCounts.get(sessionId);
+    if (counts === undefined) {
+      throw new Error("A count over a conversion's files answered no row");
+    }
+    return counts;
   }
 
   /**
@@ -307,11 +411,7 @@ export class SessionConversion {
     }
   }
 
-  async #appendConverted(
-    payload: SessionConvertedPayload,
-    clientIdempotencyKey: string,
-    skippedFiles: readonly SessionConvertSkippedFile[],
-  ): Promise<void> {
+  async #appendConverted(payload: SessionConvertedPayload): Promise<void> {
     try {
       await this.#events.append(
         {
@@ -327,17 +427,6 @@ export class SessionConversion {
         {
           transactionalPrelude: [
             { sql: OPEN_CHAT_SQL, bindings: [payload.sessionId], expectedRowCount: 1 },
-            {
-              sql: RECORD_CONVERT_REQUEST_SQL,
-              bindings: [clientIdempotencyKey, payload.sessionId],
-            },
-            {
-              sql: RECORD_SKIPPED_FILES_SQL,
-              bindings: {
-                sessionId: payload.sessionId,
-                skippedFiles: JSON.stringify(skippedFiles),
-              },
-            },
           ],
         },
       );
@@ -355,10 +444,6 @@ export class SessionConversion {
   }
 }
 
-function outcomeOf(progress: ConversionProgress): SessionConvertResponse {
-  return { copiedCount: progress.copiedCount, skippedCount: progress.skippedFiles.length };
-}
-
 // The cursor names the last path a page carried, encoded so a client reads nothing into it.
 function skippedFileCursorOf(path: string): SessionConvertSkippedFileCursor {
   return Buffer.from(path, "utf8").toString("base64url") as SessionConvertSkippedFileCursor;
@@ -369,20 +454,53 @@ function skippedFilePathOf(cursor: SessionConvertSkippedFileCursor): string {
   return Buffer.from(cursor, "base64url").toString("utf8");
 }
 
-// Copies each of the workspace's files into the project one at a time, recording each outcome as
-// it lands, every file not copied with its reason.
+// Copies each of the workspace's files the conversion has not yet dealt with into the project, one
+// at a time, recording each outcome as it lands, every file not copied with its reason. The copy
+// goes on while records commit, so the writer folds many into one batch; at most
+// RECORDS_IN_FLIGHT_MAX wait at once, and every one has committed before this settles, either way,
+// so a stop inside the daemon still counts each landed copy. A failed record stops the copy.
 async function copyWorkspaceFiles(
   workspaceRoot: string,
   projectRoot: string,
-  progress: ConversionProgress,
+  dealtWith: ReadonlySet<string>,
+  record: (relativePath: string, outcome: RecordedOutcome) => Promise<unknown>,
 ): Promise<void> {
-  for (const relativePath of await listWorkspaceEntries(workspaceRoot, projectRoot)) {
-    const outcome = await copyWorkspaceEntry(workspaceRoot, projectRoot, relativePath);
-    if (outcome.kind === "copied") {
-      progress.copiedCount += 1;
-    } else if (outcome.kind === "skipped") {
-      progress.skippedFiles.push({ path: relativePath, reason: outcome.reason });
+  const commits: Promise<void>[] = [];
+  // A failing writer fails every write after with the same reason, so the first one says it.
+  let recordFailure: { readonly error: unknown } | undefined;
+  const recordLanded = async (relativePath: string, outcome: RecordedOutcome): Promise<void> => {
+    commits.push(
+      record(relativePath, outcome).then(
+        () => undefined,
+        (error: unknown) => {
+          recordFailure ??= { error };
+        },
+      ),
+    );
+    if (commits.length >= RECORDS_IN_FLIGHT_MAX) {
+      await commits.shift();
     }
+  };
+  try {
+    for (const relativePath of await listWorkspaceEntries(workspaceRoot, projectRoot)) {
+      if (recordFailure !== undefined) {
+        break;
+      }
+      if (dealtWith.has(relativePath)) {
+        continue;
+      }
+      const outcome = await copyWorkspaceEntry(workspaceRoot, projectRoot, relativePath);
+      if (outcome.kind === "copied") {
+        await recordLanded(relativePath, "copied");
+      } else if (outcome.kind === "skipped") {
+        await recordLanded(relativePath, outcome.reason);
+      }
+    }
+  } finally {
+    await Promise.all(commits);
+  }
+  if (recordFailure !== undefined) {
+    throw recordFailure.error;
   }
 }
 

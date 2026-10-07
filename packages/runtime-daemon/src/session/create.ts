@@ -2,8 +2,9 @@
 // where it works in the same call. A chat's managed workspace is made before the session exists,
 // so a workspace that cannot be made leaves no session behind; a project session binds to its
 // project's mount. The session is born `provisioning` with `session.created`, which brings in its
-// lead and records the request's idempotency key, and reads `active` once bound. A create retried
-// with a key already recorded answers the session that key made and makes nothing.
+// lead and records the request's idempotency key with where the session works, and reads `active`
+// once bound. A create retried with a recorded key answers the session that key made, first
+// finishing it when it was left provisioning; the daemon's start finishes any other such session.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -33,7 +34,10 @@ import {
   type SessionCreatedPayload,
   type SessionLifecycleChangePayload,
 } from "@ai-sidekicks/contracts/session/events";
-import { SESSION_GROUP_REFUSED_CODE } from "@ai-sidekicks/contracts/session/groups";
+import {
+  SESSION_GROUP_REFUSED_CODE,
+  type SessionGroupId,
+} from "@ai-sidekicks/contracts/session/groups";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 
@@ -43,6 +47,7 @@ import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError } from "../database/writer.js";
 import type { EventLogService } from "../events/log-service.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
+import { KeyedLock } from "../keyed-lock.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import type { ManagedWorkspaceService } from "../workspace/managed/service.js";
 import type { WorkspaceService } from "../workspace/service.js";
@@ -50,11 +55,22 @@ import { sessionGroupPlacementStatement } from "./groups/store.js";
 
 const SESSION_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
-// Records the request's key against the session it makes; matches no row when the key already
-// made one, which refuses the write.
 const RECORD_CREATE_REQUEST_SQL = `INSERT INTO session_create_requests
-  (client_idempotency_key, session_id) VALUES (@clientIdempotencyKey, @sessionId)
-  ON CONFLICT (client_idempotency_key) DO NOTHING`;
+  (client_idempotency_key, session_id, repo_mount_id, execution_mode, group_id)
+  VALUES (@clientIdempotencyKey, @sessionId, @repoMountId, @executionMode, @groupId)`;
+
+const RECORDED_CREATE_SQL = `SELECT request.session_id AS sessionId,
+         request.repo_mount_id AS repoMountId, request.execution_mode AS executionMode,
+         request.group_id AS groupId, session.shape, session.state
+    FROM session_create_requests AS request
+    JOIN sessions AS session ON session.id = request.session_id
+   WHERE request.client_idempotency_key = ?`;
+
+const PROVISIONING_CREATES_SQL = `SELECT request.client_idempotency_key AS clientIdempotencyKey,
+         request.session_id AS sessionId
+    FROM session_create_requests AS request
+    JOIN sessions AS session ON session.id = request.session_id
+   WHERE session.state = 'provisioning'`;
 
 // Holds only while the account the lead was resolved to is still the provider's current one.
 const CURRENT_ACCOUNT_SQL = `SELECT 1 FROM provider_accounts
@@ -67,8 +83,7 @@ const GROUP_OF_PROJECT_SQL = `SELECT 1 FROM session_groups
 const INSERT_CONSOLE_STATE_SQL = `INSERT INTO session_console_state
   (session_id, advisor_model, updated_at) VALUES (?, ?, ?)`;
 
-// The positions of the guards in the `session.created` write.
-const CREATE_REQUEST_STATEMENT_INDEX = 0;
+// The positions of the guards in the `session.created` write, after the request's record.
 const ACCOUNT_GUARD_STATEMENT_INDEX = 1;
 const GROUP_GUARD_STATEMENT_INDEX = 2;
 
@@ -78,11 +93,27 @@ interface ResolvedAccount {
   readonly guard: WriteStatement;
 }
 
-// What the `session.created` write came to: the session born on its binding, or an earlier create
-// with the same key that made the session first.
-type CreatedOutcome =
-  | { readonly kind: "created"; readonly binding: AgentProviderBinding }
-  | { readonly kind: "earlier"; readonly response: SessionCreateResponse };
+// The lead a new session is born with: as the request sent it, the account it was resolved to
+// first, and the advisor default a Claude Code session copies.
+interface NewLead {
+  readonly lead: SessionLead;
+  readonly account: ResolvedAccount;
+  readonly advisorModel: string | null;
+}
+
+// Where a session works and the group it asked for, as its create records them.
+interface SessionPlace {
+  readonly repoMountId: RepoMountId;
+  readonly executionMode: ExecutionMode;
+  readonly groupId: SessionGroupId | null;
+}
+
+// A create's record joined with the session it made, as that session reads now.
+interface RecordedCreate extends SessionPlace {
+  readonly sessionId: SessionId;
+  readonly shape: SessionShape;
+  readonly state: SessionState;
+}
 
 /** What creating a session reads, appends and binds through. */
 export interface SessionCreationDeps {
@@ -96,17 +127,19 @@ export interface SessionCreationDeps {
   readonly managedWorkspaces: Pick<ManagedWorkspaceService, "create" | "delete">;
   /** The machine's settings file: its advisor default, and where the last lead pick is kept. */
   readonly settingsFile: Pick<MachineSettingsFile, "read" | "update">;
-  /** Where a last lead pick that could not be kept is reported. */
+  /** Where a lead pick that could not be kept, or a session left provisioning, is reported. */
   readonly writeServiceLog: ServiceLogWriter;
   /** The clock that stamps the session's events. Defaults to the system clock. */
   readonly now?: () => Date;
 }
 
 /**
- * Creates sessions as the person asks for them. Refuses a request that names a saved definition,
- * since this daemon cannot read one, and a lead whose provider has no account to run on.
+ * Creates sessions as the person asks for them, one at a time for each idempotency key. Refuses a
+ * request that names a saved definition, since this daemon cannot read one, and a lead whose
+ * provider has no account to run on.
  */
 export class SessionCreation {
+  readonly #keyLock = new KeyedLock<string>();
   readonly #events: Pick<EventLogService, "append">;
   readonly #workspaces: Pick<WorkspaceService, "bind">;
   readonly #managedWorkspaces: Pick<ManagedWorkspaceService, "create" | "delete">;
@@ -115,9 +148,10 @@ export class SessionCreation {
   readonly #now: () => Date;
   readonly #selectCurrentAccount: Statement<[ProviderName], { readonly accountId: string }>;
   readonly #selectAnyAccount: Statement<[ProviderName]>;
-  readonly #selectEarlierSession: Statement<
-    [string],
-    { readonly sessionId: SessionId; readonly shape: SessionShape; readonly state: SessionState }
+  readonly #selectRecordedCreate: Statement<[string], RecordedCreate>;
+  readonly #selectProvisioningCreates: Statement<
+    [],
+    { readonly clientIdempotencyKey: string; readonly sessionId: SessionId }
   >;
   readonly #selectCreatedPayload: Statement<[string], { readonly payload: string }>;
 
@@ -134,12 +168,8 @@ export class SessionCreation {
     this.#selectAnyAccount = deps.reader.prepare(
       "SELECT 1 FROM provider_accounts WHERE provider = ? LIMIT 1",
     );
-    this.#selectEarlierSession = deps.reader.prepare(
-      `SELECT request.session_id AS sessionId, session.shape, session.state
-         FROM session_create_requests AS request
-         JOIN sessions AS session ON session.id = request.session_id
-        WHERE request.client_idempotency_key = ?`,
-    );
+    this.#selectRecordedCreate = deps.reader.prepare(RECORDED_CREATE_SQL);
+    this.#selectProvisioningCreates = deps.reader.prepare(PROVISIONING_CREATES_SQL);
     this.#selectCreatedPayload = deps.reader.prepare(
       "SELECT payload FROM session_events WHERE session_id = ? AND type = 'session.created'",
     );
@@ -151,86 +181,124 @@ export class SessionCreation {
    * names, never on a value from the settings file, and on the provider's current account; the
    * lead's model and effort are then kept there as the last pick, and a pick that cannot be kept is
    * logged without failing the create. A request whose `clientIdempotencyKey` already made a
-   * session answers that session as it now reads, and makes nothing. Throws
-   * `agent.definition_unreadable` for a request naming a definition,
+   * session answers that session as it now reads, after binding and activating it when it was left
+   * `provisioning`, and makes nothing else; a request sent while its key's create is still under
+   * way waits for it. Throws `agent.definition_unreadable` for a request naming a definition,
    * `provideraccount.not_registered` or `provideraccount.no_default` for a lead with no account,
    * and `session.group_refused` for a group outside the session's project, each before anything is
    * written. A chat whose workspace cannot be made, or whose `session.created` is not written,
-   * leaves neither a session nor a workspace. A failure in the bind leaves the session
-   * `provisioning`. A group removed between the session's creation and its activation took its
-   * sessions out with it, so the session is activated outside any group.
+   * leaves neither a session nor a workspace. A failure after `session.created` leaves the session
+   * `provisioning` until a retry or the daemon's next start finishes it. A group removed before
+   * the activation took its sessions out with it, so the session is activated outside any group.
    */
   async create(request: SessionCreateRequest): Promise<SessionCreateResponse> {
-    const earlier = this.#readEarlierCreate(request.clientIdempotencyKey);
-    if (earlier !== undefined) {
-      return earlier;
+    return this.#keyLock.run(request.clientIdempotencyKey, async () => {
+      const recorded = this.#selectRecordedCreate.get(request.clientIdempotencyKey);
+      if (recorded !== undefined) {
+        if (recorded.state !== "provisioning") {
+          return this.#answerOf(recorded);
+        }
+        await this.#finish(recorded);
+        const response = this.#answerOf({ ...recorded, state: "active" });
+        await this.#keepLastLeadPick(recorded.sessionId, response.lead);
+        return response;
+      }
+      return this.#createNew(request);
+    });
+  }
+
+  /**
+   * Finishes every session a create left `provisioning` when the daemon stopped part way, each
+   * under its key as a retry would. One that cannot be finished is written to the service log and
+   * stays `provisioning`, for a retry of its create or the next start.
+   */
+  async finishProvisioningSessions(): Promise<void> {
+    for (const { clientIdempotencyKey, sessionId } of this.#selectProvisioningCreates.all()) {
+      try {
+        await this.#keyLock.run(clientIdempotencyKey, async () => {
+          const recorded = this.#selectRecordedCreate.get(clientIdempotencyKey);
+          if (recorded?.state === "provisioning") {
+            await this.#finish(recorded);
+          }
+        });
+      } catch (error) {
+        this.#writeServiceLog(
+          `Finishing session ${sessionId}, which its create left provisioning, failed: ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
+  }
+
+  async #createNew(request: SessionCreateRequest): Promise<SessionCreateResponse> {
     const lead = leadOf(request);
     const account = this.#resolveAccount(lead);
     const sessionId = mintUuidV7() as SessionId;
     const { settings } = await this.#settingsFile.read();
 
-    let mount: { repoMountId: RepoMountId; executionMode: ExecutionMode };
-    let outcome: CreatedOutcome;
+    let place: SessionPlace;
+    let binding: AgentProviderBinding;
     if (request.binding.kind === "chat") {
       const workspace = await this.#managedWorkspaces.create({ sessionId });
-      mount = { repoMountId: workspace.repoMountId, executionMode: "bound-root" };
-      outcome = await this.#appendCreatedOrRemoveWorkspace(
-        request,
-        sessionId,
+      place = { repoMountId: workspace.repoMountId, executionMode: "bound-root", groupId: null };
+      binding = await this.#appendCreatedOrRemoveWorkspace(request, sessionId, place, {
         lead,
         account,
-        settings.advisorModel,
-      );
+        advisorModel: settings.advisorModel,
+      });
     } else {
-      mount = request.binding;
-      outcome = await this.#appendCreated(request, sessionId, lead, account, settings.advisorModel);
+      place = {
+        repoMountId: request.binding.repoMountId,
+        executionMode: request.binding.executionMode,
+        groupId: request.groupId ?? null,
+      };
+      binding = await this.#appendCreated(request, sessionId, place, {
+        lead,
+        account,
+        advisorModel: settings.advisorModel,
+      });
     }
-    if (outcome.kind === "earlier") {
-      return outcome.response;
-    }
-    await this.#workspaces.bind({
-      sessionId,
-      repoMountId: mount.repoMountId,
-      executionMode: mount.executionMode,
-    });
-    await this.#appendActivated(sessionId, request.groupId);
+    await this.#finish({ sessionId, ...place });
     await this.#keepLastLeadPick(sessionId, lead);
-    return { sessionId, shape: request.binding.kind, state: "active", lead: outcome.binding };
+    return { sessionId, shape: request.binding.kind, state: "active", lead: binding };
   }
 
-  // The session an earlier create with this key made, as it reads now, with the lead it was born
-  // on; `undefined` when the key made none.
-  #readEarlierCreate(clientIdempotencyKey: string): SessionCreateResponse | undefined {
-    const session = this.#selectEarlierSession.get(clientIdempotencyKey);
-    if (session === undefined) {
-      return undefined;
-    }
-    const created = this.#selectCreatedPayload.get(session.sessionId);
+  // A provisioning session's remaining steps: the bind, which answers the session's workspace on
+  // the mount when an earlier bind landed, then the activation.
+  async #finish(session: SessionPlace & { readonly sessionId: SessionId }): Promise<void> {
+    await this.#workspaces.bind({
+      sessionId: session.sessionId,
+      repoMountId: session.repoMountId,
+      executionMode: session.executionMode,
+    });
+    await this.#appendActivated(session.sessionId, session.groupId);
+  }
+
+  // The session a create made, as it reads now, with the lead it was born on.
+  #answerOf(recorded: RecordedCreate): SessionCreateResponse {
+    const created = this.#selectCreatedPayload.get(recorded.sessionId);
     if (created === undefined) {
-      throw new Error(`Session ${session.sessionId} has a directory row but no session.created`);
+      throw new Error(`Session ${recorded.sessionId} has a directory row but no session.created`);
     }
     const payload = SessionCreatedPayloadSchema.parse(JSON.parse(created.payload));
     return {
-      sessionId: session.sessionId,
-      shape: session.shape,
-      state: session.state,
+      sessionId: recorded.sessionId,
+      shape: recorded.shape,
+      state: recorded.state,
       lead: payload.mainAgent.binding,
     };
   }
 
-  // A chat's workspace exists before its session does, so a session that is not born, or one an
-  // earlier create with the same key made first, takes this workspace with it.
+  // A chat's workspace exists before its session does, so a session that is not born takes this
+  // workspace with it.
   async #appendCreatedOrRemoveWorkspace(
     request: SessionCreateRequest,
     sessionId: SessionId,
-    lead: SessionLead,
-    account: ResolvedAccount,
-    advisorModel: string | null,
-  ): Promise<CreatedOutcome> {
-    let outcome: CreatedOutcome;
+    place: SessionPlace,
+    lead: NewLead,
+  ): Promise<AgentProviderBinding> {
     try {
-      outcome = await this.#appendCreated(request, sessionId, lead, account, advisorModel);
+      return await this.#appendCreated(request, sessionId, place, lead);
     } catch (creationError) {
       try {
         await this.#managedWorkspaces.delete({ sessionId });
@@ -243,27 +311,23 @@ export class SessionCreation {
       }
       throw creationError;
     }
-    if (outcome.kind === "earlier") {
-      await this.#managedWorkspaces.delete({ sessionId });
-    }
-    return outcome;
   }
 
-  // A refused account guard means the current account moved after it was read, so it is resolved
-  // again; a refused key means an earlier create with it made its session first.
+  // Appends `session.created` with the request's record, and answers the binding the lead was born
+  // on. A refused account guard means the current account moved after it was read, so it is
+  // resolved again.
   async #appendCreated(
     request: SessionCreateRequest,
     sessionId: SessionId,
-    lead: SessionLead,
-    firstAccount: ResolvedAccount,
-    advisorModel: string | null,
-  ): Promise<CreatedOutcome> {
+    place: SessionPlace,
+    { lead, account: firstAccount, advisorModel }: NewLead,
+  ): Promise<AgentProviderBinding> {
     const groupGuard: WriteStatement[] =
-      request.binding.kind === "project" && request.groupId !== undefined
+      place.groupId !== null
         ? [
             {
               sql: GROUP_OF_PROJECT_SQL,
-              bindings: { groupId: request.groupId, projectId: request.binding.repoMountId },
+              bindings: { groupId: place.groupId, projectId: place.repoMountId },
               expectedRowCount: 1,
             },
           ]
@@ -306,8 +370,13 @@ export class SessionCreation {
             transactionalPrelude: [
               {
                 sql: RECORD_CREATE_REQUEST_SQL,
-                bindings: { clientIdempotencyKey: request.clientIdempotencyKey, sessionId },
-                expectedRowCount: 1,
+                bindings: {
+                  clientIdempotencyKey: request.clientIdempotencyKey,
+                  sessionId,
+                  repoMountId: place.repoMountId,
+                  executionMode: place.executionMode,
+                  groupId: place.groupId,
+                },
               },
               account.guard,
               ...groupGuard,
@@ -315,50 +384,33 @@ export class SessionCreation {
             ],
           },
         );
-        return { kind: "created", binding };
+        return binding;
       } catch (error) {
         if (!(error instanceof WriteRefusedError)) {
           throw error;
-        }
-        if (error.statementIndex === CREATE_REQUEST_STATEMENT_INDEX) {
-          return { kind: "earlier", response: this.#readCommittedEarlierCreate(request) };
         }
         if (error.statementIndex === ACCOUNT_GUARD_STATEMENT_INDEX) {
           continue;
         }
         if (error.statementIndex === GROUP_GUARD_STATEMENT_INDEX) {
-          throw groupRefused(request.groupId);
+          throw groupRefused(place.groupId);
         }
         throw error;
       }
     }
   }
 
-  // The key was refused because an earlier create recorded it, so its session is there to read.
-  #readCommittedEarlierCreate(request: SessionCreateRequest): SessionCreateResponse {
-    const earlier = this.#readEarlierCreate(request.clientIdempotencyKey);
-    if (earlier === undefined) {
-      throw new Error(
-        `session.create key ${request.clientIdempotencyKey} is recorded for no session`,
-      );
-    }
-    return earlier;
-  }
-
   // The group was held to the session's project in the `session.created` write. An ungroup since
   // then moved every session out of it, so a placement that matches no group leaves this one out
   // too, in the same write that activates it.
-  async #appendActivated(
-    sessionId: SessionId,
-    groupId: SessionCreateRequest["groupId"],
-  ): Promise<void> {
+  async #appendActivated(sessionId: SessionId, groupId: SessionGroupId | null): Promise<void> {
     const payload: SessionLifecycleChangePayload = {
       sessionId,
       previousState: "provisioning",
       newState: "active",
     };
     const placement: WriteStatement[] = [];
-    if (groupId !== undefined) {
+    if (groupId !== null) {
       const { expectedRowCount: _anyRowCount, ...placeUnlessUngrouped } =
         sessionGroupPlacementStatement({ sessionId, groupId });
       placement.push(placeUnlessUngrouped);
@@ -432,7 +484,7 @@ function leadOf(request: SessionCreateRequest): SessionLead {
   });
 }
 
-function groupRefused(groupId: SessionCreateRequest["groupId"]): DaemonDomainError {
+function groupRefused(groupId: SessionGroupId | null): DaemonDomainError {
   return new DaemonDomainError("The session cannot sit in that group.", {
     code: SESSION_GROUP_REFUSED_CODE,
     detail: { groupId },

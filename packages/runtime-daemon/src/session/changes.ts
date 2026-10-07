@@ -11,7 +11,6 @@ import {
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
   SessionLifecycleChangePayload,
@@ -31,10 +30,11 @@ import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError } from "../database/writer.js";
 import type { EventLogService } from "../events/log-service.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
+import { translateDriverError } from "../ipc/handlers/driver/requests.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { KeyedLock } from "../keyed-lock.js";
 import type { ProviderDriver } from "../provider/driver/contract.js";
-import type { ProviderRegistry } from "../provider/driver/registry.js";
+import { DriverUnavailableError, type ProviderRegistry } from "../provider/driver/registry.js";
 import type { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 
@@ -309,11 +309,7 @@ export class SessionChanges {
   #registeredDriver(driverName: ProviderName): ProviderDriver {
     const driver = this.#providers.lookup(driverName);
     if (driver === undefined) {
-      throw new DaemonDomainError("Provider driver is currently unavailable", {
-        code: "driver.unavailable",
-        jsonRpcCode: JsonRpcErrorCode.InternalError,
-        detail: { driverId: driverName },
-      });
+      translateDriverError(new DriverUnavailableError(driverName));
     }
     return driver;
   }
@@ -335,7 +331,8 @@ export function refuseUnchangeableSession(sessionId: SessionId, state: SessionSt
   }
 }
 
-// Only an active or archived session is archived or closed; one still provisioning has neither move.
+// Only an active or archived session is archived or closed; a provisioning one is finished
+// by its create instead.
 function refuseProvisioningSession(sessionId: SessionId, state: SessionState): void {
   if (state === "provisioning") {
     throw changeRefused(sessionId, state);

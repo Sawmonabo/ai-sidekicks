@@ -1,8 +1,9 @@
 // Creating a session over a real database, a real settings file and a real managed workspace: the
 // lead runs on what the request names, never on the settings file's last pick, which the create
 // then moves to it; a chat's managed workspace is made and bound inside the create; a chat that is
-// not born leaves neither a session nor a workspace behind; and a create retried with its key,
-// even while the first is still on its way, answers the first one's session and makes nothing.
+// not born leaves neither a session nor a workspace behind; a create retried with its key, even
+// while the first is still on its way, answers the first one's session and makes nothing; and a
+// session left provisioning is finished by its create's retry or by the daemon's start.
 
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -84,10 +85,11 @@ beforeEach(async () => {
   creation = creationWith({});
 });
 
-// The create over the scratch database, with the event log, the workspace's git, the managed
-// workspaces' removal or the settings file's write swapped out.
+// The create over the scratch database, with the event log, the bind, the workspace's git, the
+// managed workspaces' removal or the settings file's write swapped out.
 function creationWith(swap: {
   readonly events?: Pick<EventLogService, "append">;
+  readonly bind?: WorkspaceService["bind"];
   readonly git?: GitRunner;
   readonly removeWorkspace?: ManagedWorkspaceService["delete"];
   readonly updateSettings?: MachineSettingsFile["update"];
@@ -98,10 +100,11 @@ function creationWith(swap: {
     ...(swap.git === undefined ? {} : { git: swap.git }),
   });
   const settingsFile = new MachineSettingsFile({ filePath: settingsPath, now: () => new Date() });
+  const workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
   return new SessionCreation({
     reader: log.scratch.reader,
     events: swap.events ?? log.eventLog,
-    workspaces: new WorkspaceService({ database: log.scratch, events: emitter }),
+    workspaces: { bind: swap.bind ?? ((input) => workspaces.bind(input)) },
     managedWorkspaces: {
       create: (input) => {
         workspacesMade += 1;
@@ -133,6 +136,29 @@ function createChat(using: SessionCreation = creation): Promise<SessionCreateRes
 function countRows(sql: string): number {
   return (log.scratch.reader.prepare(sql).get() as { count: number }).count;
 }
+
+function stateOf(sessionId: SessionId): string | undefined {
+  return (
+    log.scratch.reader.prepare("SELECT state FROM sessions WHERE id = ?").get(sessionId) as
+      | { state: string }
+      | undefined
+  )?.state;
+}
+
+function eventTypesOf(sessionId: SessionId): string[] {
+  return (
+    log.scratch.reader
+      .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY sequence")
+      .all(sessionId) as { type: string }[]
+  ).map((row) => row.type);
+}
+
+// The one session a refused create left behind.
+function onlySessionId(): SessionId {
+  return (log.scratch.reader.prepare("SELECT id FROM sessions").get() as { id: SessionId }).id;
+}
+
+const failingBind = (): Promise<never> => Promise.reject(new Error("the bind failed"));
 
 function createdPayloadOf(sessionId: SessionId): SessionCreatedPayload {
   const row = log.scratch.reader
@@ -201,38 +227,69 @@ describe("SessionCreation", () => {
     expect(await readdir(managedWorkspacesDirectoryOf(home))).toStrictEqual([]);
   });
 
-  it("answers a retried create with the session the first one made, and makes nothing", async () => {
+  it("answers a create sent again, even while the first is on its way, with its session", async () => {
     const request = chatRequest();
 
-    const first = await creation.create(request);
-    const retried = await creation.create(request);
+    const [first, again] = await Promise.all([creation.create(request), creation.create(request)]);
+    const later = await creation.create(request);
 
-    expect(retried).toStrictEqual(first);
+    expect(again).toStrictEqual(first);
+    expect(later).toStrictEqual(first);
     expect(workspacesMade).toBe(1);
     expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(1);
     expect(countRows("SELECT COUNT(*) AS count FROM repo_mounts")).toBe(1);
     expect(await readdir(managedWorkspacesDirectoryOf(home))).toHaveLength(1);
   });
 
-  it("answers a twin that lands first with its session, and removes its own workspace", async () => {
+  it("finishes a session whose bind failed when its create is retried", async () => {
     const request = chatRequest();
-    let twin: Promise<SessionCreateResponse> | undefined;
-    // The twin passes the same key check, and its session.created lands while this one's waits.
-    const racingEvents: Pick<EventLogService, "append"> = {
-      append: async (envelope, options) => {
-        if (twin === undefined && envelope.type === "session.created") {
-          twin = creation.create(request);
-          await twin;
-        }
-        return log.eventLog.append(envelope, options);
-      },
-    };
+    await expect(creationWith({ bind: failingBind }).create(request)).rejects.toThrow(
+      "the bind failed",
+    );
+    const sessionId = onlySessionId();
+    expect(stateOf(sessionId)).toBe("provisioning");
 
-    const answered = await creationWith({ events: racingEvents }).create(request);
+    const retried = await creation.create(request);
 
-    expect(answered).toStrictEqual(await twin);
-    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(1);
-    expect(await readdir(managedWorkspacesDirectoryOf(home))).toHaveLength(1);
+    expect(retried).toMatchObject({ sessionId, shape: "chat", state: "active" });
+    expect(retried.lead).toStrictEqual({ ...SENT_LEAD, providerAccountId: ACCOUNT_ID });
+    expect(stateOf(sessionId)).toBe("active");
+    expect(eventTypesOf(sessionId)).toStrictEqual([
+      "session.created",
+      "workspace.preparing",
+      "session.activated",
+    ]);
+    expect(workspacesMade).toBe(1);
+    const written = JSON.parse(await readFile(settingsPath, "utf8")) as MachineSettings;
+    expect(written.lastLeadModel).toStrictEqual({
+      driverName: "claude",
+      modelId: "claude-sonnet-5",
+      effort: "high",
+    });
+  });
+
+  it("finishes at start each session left provisioning, and logs one it cannot finish", async () => {
+    const leftBinding = creationWith({ bind: failingBind });
+    await expect(leftBinding.create(chatRequest())).rejects.toThrow("the bind failed");
+    const chatId = onlySessionId();
+    const repoMountId = await attachProject();
+    await expect(leftBinding.create(projectRequest(repoMountId))).rejects.toThrow(
+      "the bind failed",
+    );
+    const projectSessionId = (
+      log.scratch.reader.prepare("SELECT id FROM sessions WHERE shape = 'project'").get() as {
+        id: SessionId;
+      }
+    ).id;
+    // The project is detached before the start, so its session has nowhere left to bind.
+    await mounts.detach({ repoMountId: repoMountId as RepoMountId });
+
+    await creation.finishProvisioningSessions();
+
+    expect(stateOf(chatId)).toBe("active");
+    expect(stateOf(projectSessionId)).toBe("provisioning");
+    expect(serviceLogLines).toHaveLength(1);
+    expect(serviceLogLines[0]).toContain(projectSessionId);
   });
 
   it("runs the lead on the account made current while its session.created was on its way", async () => {
@@ -353,7 +410,7 @@ async function insertGroup(projectId: string): Promise<string> {
   return groupId;
 }
 
-function projectRequest(repoMountId: string, groupId: string): SessionCreateRequest {
+function projectRequest(repoMountId: string, groupId?: string): SessionCreateRequest {
   return {
     clientIdempotencyKey: mintUuidV7(),
     binding: {
@@ -362,6 +419,6 @@ function projectRequest(repoMountId: string, groupId: string): SessionCreateRequ
       executionMode: "bound-root",
     },
     lead: SENT_LEAD,
-    groupId: groupId as SessionCreateRequest["groupId"],
+    ...(groupId === undefined ? {} : { groupId: groupId as SessionCreateRequest["groupId"] }),
   };
 }

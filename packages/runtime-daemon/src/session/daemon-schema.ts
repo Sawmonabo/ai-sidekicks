@@ -182,29 +182,35 @@ CREATE TABLE session_run_activity (
   PRIMARY KEY (session_id, run_id)
 ) STRICT;
 
--- The idempotency key each session.create carried and the session it made, so a create retried
--- after a lost reply answers the session it already made instead of making a second. Written in the
--- session.created write, before the sessions row.
+-- Each session.create's idempotency key, the session it made and where that session works: its
+-- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written
+-- in the session.created write, so a retry with the key, or the daemon's start, finishes a session
+-- left provisioning.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
-  session_id              TEXT NOT NULL UNIQUE
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL,
+  execution_mode          TEXT NOT NULL
+    CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
+  group_id                TEXT
 ) STRICT;
 
--- The idempotency key the session.convert that converted a chat carried, so a convert retried after
--- a lost reply answers the conversion already made instead of a refusal. Written in the
--- session.converted write.
+-- A chat's conversion: the session.convert key it runs under, which the latest request that
+-- resumed it takes over, and the project mount it attached. Written as soon as the mount is, so a
+-- retry resumes onto that mount, and answered from session.converted once that lands. One per chat.
 CREATE TABLE session_convert_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
-  session_id              TEXT NOT NULL UNIQUE
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL
 ) STRICT;
 
--- Every file a conversion did not copy, with its reason, so the conversion's row lists each one
--- however many there are. A session converts once; written in the session.converted write.
-CREATE TABLE session_convert_skipped_files (
+-- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
+-- copied with the reason. A resumed conversion skips every path here and counts from these rows.
+CREATE TABLE session_convert_files (
   session_id  TEXT NOT NULL,
   path        TEXT NOT NULL,
-  reason      TEXT NOT NULL
-    CHECK(reason IN ('repository_has_file', 'repository_path_not_a_folder', 'link',
+  outcome     TEXT NOT NULL
+    CHECK(outcome IN ('copied', 'repository_has_file', 'repository_path_not_a_folder', 'link',
       'special_file')),
   PRIMARY KEY (session_id, path)
 ) STRICT, WITHOUT ROWID;

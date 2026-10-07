@@ -2,7 +2,8 @@
 // repository without replacing any file it holds, the session keeps its id and transcript and reads
 // as a project of the new mount, a folder that cannot be attached is refused with nothing copied,
 // no link is followed out of either folder, every file not copied is read back page by page with
-// its reason, and a convert retried with its key answers the conversion it made.
+// its reason, a convert retried with its key answers the conversion it made, and a conversion that
+// stopped part way resumes from what it recorded.
 
 import { execFileSync } from "node:child_process";
 import {
@@ -21,6 +22,7 @@ import * as path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import {
   SessionConvertSkippedFileListResponseSchema,
@@ -32,6 +34,8 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
+import type { DatabaseWriter } from "../../database/writer.js";
+import type { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { KeyedLock } from "../../keyed-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
@@ -66,17 +70,39 @@ beforeEach(async () => {
     homeDirectory: path.join(scratch, "home"),
     repoMounts: mounts,
   });
-  conversion = conversionBindingThrough(workspaces);
+  conversion = conversionWith({});
 });
 
-function conversionBindingThrough(binder: Pick<WorkspaceService, "bind">): SessionConversion {
+// The conversion over the scratch database, with its bind, its event log or its writer swapped out.
+function conversionWith(swap: {
+  readonly bind?: WorkspaceService["bind"];
+  readonly events?: Pick<EventLogService, "append">;
+  readonly writer?: Pick<DatabaseWriter, "write">;
+}): SessionConversion {
   return new SessionConversion({
     reader: log.scratch.reader,
-    events: log.eventLog,
+    writer: swap.writer ?? log.scratch.writer,
+    events: swap.events ?? log.eventLog,
     lock: new KeyedLock<SessionId>(),
     repoMounts: mounts,
-    workspaces: binder,
+    workspaces: { bind: swap.bind ?? ((input) => workspaces.bind(input)) },
   });
+}
+
+const failingBind = (): Promise<never> => Promise.reject(new Error("the bind failed"));
+
+// An event log whose first `session.converted` is refused, as a full disk would.
+function refusingFirstConverted(): Pick<EventLogService, "append"> {
+  let hasRefused = false;
+  return {
+    append: (envelope, options) => {
+      if (envelope.type === "session.converted" && !hasRefused) {
+        hasRefused = true;
+        return Promise.reject(new Error("the disk is full"));
+      }
+      return log.eventLog.append(envelope, options);
+    },
+  };
 }
 
 afterEach(async () => {
@@ -177,6 +203,18 @@ function eventsOf(sessionId: SessionId): { id: string; type: string; payload: st
   return log.scratch.reader
     .prepare("SELECT id, type, payload FROM session_events WHERE session_id = ? ORDER BY sequence")
     .all(sessionId) as { id: string; type: string; payload: string }[];
+}
+
+// The id of the attached mount for `folder`.
+function attachedMountOf(folder: string): string | undefined {
+  return (
+    log.scratch.reader
+      .prepare(
+        `SELECT id FROM repo_mounts
+          WHERE origin = 'attached' AND state = 'attached' AND canonical_root = ?`,
+      )
+      .get(folder) as { id: string } | undefined
+  )?.id;
 }
 
 function attachedMountCount(): number {
@@ -310,12 +348,11 @@ describe("SessionConversion", () => {
     const sessionId = mintUuidV7() as SessionId;
     await startChat(sessionId, { "plan.md": "the plan" });
     const repository = await makeRepository("project", {});
-    const failingBind = conversionBindingThrough({
-      bind: () => Promise.reject(new Error("the bind failed")),
-    });
     const transcriptBefore = eventsOf(sessionId);
 
-    await expect(convert(sessionId, repository, failingBind)).rejects.toMatchObject({
+    await expect(
+      convert(sessionId, repository, conversionWith({ bind: failingBind })),
+    ).rejects.toMatchObject({
       code: "session.convert_incomplete",
       detail: { sessionId, copiedCount: 1, skippedCount: 0, isBound: false },
     });
@@ -325,15 +362,19 @@ describe("SessionConversion", () => {
 
   it("reads back every file it left exactly once, in path order, over many pages", async () => {
     const sessionId = mintUuidV7() as SessionId;
-    const clashing = Object.fromEntries(
-      Array.from({ length: 7 }, (_, index) => [`notes/${String(index)}.md`, "the chat's"]),
-    );
+    const clashing = {
+      // A name of spaces alone is a file like any other.
+      "   ": "the chat's",
+      ...Object.fromEntries(
+        Array.from({ length: 7 }, (_, index) => [`notes/${String(index)}.md`, "the chat's"]),
+      ),
+    };
     await startChat(sessionId, clashing);
     const repository = await makeRepository("project", clashing);
 
     const response = await convert(sessionId, repository);
 
-    expect(response).toStrictEqual({ copiedCount: 0, skippedCount: 7 });
+    expect(response).toStrictEqual({ copiedCount: 0, skippedCount: 8 });
     expect(skippedFilesOf(sessionId, 2)).toStrictEqual(
       Object.keys(clashing)
         .sort()
@@ -351,7 +392,7 @@ describe("SessionConversion", () => {
     );
     await log.scratch.writer.write([
       {
-        sql: `INSERT INTO session_convert_skipped_files (session_id, path, reason)
+        sql: `INSERT INTO session_convert_files (session_id, path, outcome)
               SELECT ?, value, 'link' FROM json_each(?)`,
         bindings: [sessionId, JSON.stringify(paths)],
       },
@@ -415,6 +456,160 @@ describe("SessionConversion", () => {
     expect(await readdir(secondRepository)).toStrictEqual([".git"]);
     expect(sessionShape(secondChatId)).toBe("chat");
     expect(eventsOf(secondChatId)).toStrictEqual(secondChatEvents);
+  });
+
+  it("resumes a conversion that stopped before the bind, counting what it copied before", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, {
+      "README.md": "the chat's readme",
+      "plan.md": "the plan",
+      "src/main.ts": "export {};",
+    });
+    const repository = await makeRepository("project", { "README.md": "the repository's" });
+    const request = { sessionId, path: repository, clientIdempotencyKey: mintUuidV7() };
+    const outcome = { copiedCount: 2, skippedCount: 1 };
+    await expect(conversionWith({ bind: failingBind }).convert(request)).rejects.toMatchObject({
+      code: "session.convert_incomplete",
+      detail: { ...outcome, isBound: false },
+    });
+
+    const resumed = await conversion.convert(request);
+
+    expect(resumed).toStrictEqual(outcome);
+    expect(skippedFilesOf(sessionId)).toStrictEqual([
+      { path: "README.md", reason: "repository_has_file" },
+    ]);
+    expect(await readFile(path.join(repository, "plan.md"), "utf8")).toBe("the plan");
+    expect(sessionShape(sessionId)).toBe("project");
+    const converted = eventsOf(sessionId).at(-1);
+    expect(JSON.parse(converted?.payload ?? "{}")).toMatchObject(outcome);
+  });
+
+  it("stops at a file record that fails, as a conversion part way", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "a.md": "a", "b.md": "b", "c.md": "c" });
+    const repository = await makeRepository("project", {});
+    const recordFailure = new Error("the disk is full");
+    const failingRecords: Pick<DatabaseWriter, "write"> = {
+      write: (statements) =>
+        statements[0]?.sql.includes("session_convert_files") === true
+          ? Promise.reject(recordFailure)
+          : log.scratch.writer.write(statements),
+    };
+
+    await expect(
+      convert(sessionId, repository, conversionWith({ writer: failingRecords })),
+    ).rejects.toMatchObject({
+      code: "session.convert_incomplete",
+      detail: { copiedCount: 0, skippedCount: 0, isBound: false },
+      cause: recordFailure,
+    });
+    // The copy stops at the failed record instead of landing files it could not count.
+    expect((await readdir(repository)).sort()).toStrictEqual([".git", "a.md"]);
+    expect(sessionShape(sessionId)).toBe("chat");
+    expect(projectOf(sessionId)).toBeUndefined();
+  });
+
+  it("keeps copying while file records commit, with a bounded number waiting", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    const fileCount = 300;
+    await startChat(
+      sessionId,
+      Object.fromEntries(
+        Array.from({ length: fileCount }, (_, index) => [`notes/${String(index)}.md`, "n"]),
+      ),
+    );
+    const repository = await makeRepository("project", {});
+    let recordsWaiting = 0;
+    let mostRecordsWaiting = 0;
+    // Each record commits a while after it is sent, as under a busy writer.
+    const slowRecords: Pick<DatabaseWriter, "write"> = {
+      write: async (statements) => {
+        if (statements[0]?.sql.includes("session_convert_files") !== true) {
+          return log.scratch.writer.write(statements);
+        }
+        recordsWaiting += 1;
+        mostRecordsWaiting = Math.max(mostRecordsWaiting, recordsWaiting);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        recordsWaiting -= 1;
+        return log.scratch.writer.write(statements);
+      },
+    };
+
+    const response = await convert(sessionId, repository, conversionWith({ writer: slowRecords }));
+
+    expect(response).toStrictEqual({ copiedCount: fileCount, skippedCount: 0 });
+    expect(mostRecordsWaiting).toBeGreaterThan(1);
+    expect(mostRecordsWaiting).toBeLessThanOrEqual(100);
+  });
+
+  it("resumes a conversion that stopped after the bind, binding nothing twice", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "plan.md": "the plan" });
+    const repository = await makeRepository("project", {});
+    const request = { sessionId, path: repository, clientIdempotencyKey: mintUuidV7() };
+    const stopping = conversionWith({ events: refusingFirstConverted() });
+    await expect(stopping.convert(request)).rejects.toMatchObject({
+      code: "session.convert_incomplete",
+      detail: { copiedCount: 1, skippedCount: 0, isBound: true },
+    });
+
+    const resumed = await stopping.convert(request);
+
+    expect(resumed).toStrictEqual({ copiedCount: 1, skippedCount: 0 });
+    expect(sessionShape(sessionId)).toBe("project");
+    const projectMountId = projectOf(sessionId);
+    expect(
+      log.scratch.reader
+        .prepare(
+          "SELECT count(*) AS count FROM workspaces WHERE session_id = ? AND repo_mount_id = ?",
+        )
+        .get(sessionId, projectMountId),
+    ).toStrictEqual({ count: 1 });
+  });
+
+  it("resumes a stopped conversion under a new key into its folder, refusing any other", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "README.md": "the chat's", "plan.md": "the plan" });
+    const repository = await makeRepository("project", { "README.md": "the repository's" });
+    const elsewhere = await makeRepository("elsewhere", {});
+    await expect(
+      convert(sessionId, repository, conversionWith({ bind: failingBind })),
+    ).rejects.toMatchObject({ code: "session.convert_incomplete" });
+    const firstMountId = attachedMountOf(repository);
+
+    await expect(convert(sessionId, elsewhere)).rejects.toMatchObject({
+      code: "session.convert_refused",
+      detail: { sessionId, reason: "conversion_unfinished", repoMountId: firstMountId },
+    });
+    expect(attachedMountCount()).toBe(1);
+    expect(await readdir(elsewhere)).toStrictEqual([".git"]);
+
+    const request = { sessionId, path: repository, clientIdempotencyKey: mintUuidV7() };
+    const resumed = await conversion.convert(request);
+    const replayed = await conversion.convert(request);
+
+    expect(resumed).toStrictEqual({ copiedCount: 1, skippedCount: 1 });
+    expect(replayed).toStrictEqual(resumed);
+    expect(projectOf(sessionId)).toBe(firstMountId);
+  });
+
+  it("resumes into its folder attached again after a detach let it go", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "plan.md": "the plan" });
+    const repository = await makeRepository("project", {});
+    const request = { sessionId, path: repository, clientIdempotencyKey: mintUuidV7() };
+    await expect(conversionWith({ bind: failingBind }).convert(request)).rejects.toMatchObject({
+      code: "session.convert_incomplete",
+    });
+    const firstMountId = attachedMountOf(repository);
+    await mounts.detach({ repoMountId: firstMountId as RepoMountId });
+
+    const resumed = await conversion.convert(request);
+
+    expect(resumed).toStrictEqual({ copiedCount: 1, skippedCount: 0 });
+    expect(projectOf(sessionId)).toBe(attachedMountOf(repository));
+    expect(projectOf(sessionId)).not.toBe(firstMountId);
   });
 
   it("refuses the skipped files of a session it holds no row for", () => {
