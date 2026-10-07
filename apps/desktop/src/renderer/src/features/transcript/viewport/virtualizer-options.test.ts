@@ -8,7 +8,6 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
@@ -18,8 +17,10 @@ import { attachedController, syntheticRows } from "./controller.test-support.js"
 import {
   MOUNTED_ROW_COUNT,
   MOUNTED_ROW_ESTIMATE_PX,
+  MOUNTED_ROW_WIDTH_PX,
+  attachRow,
   mountViewport,
-  type MountedViewport,
+  reportRowSize,
 } from "./hooks/useTranscriptViewport.test-support.js";
 
 /**
@@ -28,42 +29,11 @@ import {
  */
 const UNUSED_VIRTUALIZER = undefined as unknown as TranscriptRowVirtualizer;
 
-/** The width every row is laid out at, until a case narrows the transcript. */
-const ROW_WIDTH_PX = 720;
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
-
-/**
- * One row's element mounted as the feed mounts it: in the document, marked with its index, at the
- * transcript's width, and handed to the library, which measures it as it lands.
- */
-function attachRow(subject: MountedViewport, index: number): HTMLElement {
-  const element = document.createElement("div");
-  element.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, String(index));
-  Object.defineProperty(element, "clientWidth", { configurable: true, value: ROW_WIDTH_PX });
-  document.body.append(element);
-  act(() => {
-    subject.binding.result.current.attachRow(element);
-  });
-  return element;
-}
-
-/** The row's border box as the platform's observer reports it, at `widthPx` wide. */
-function reportRowSize(
-  subject: MountedViewport,
-  element: HTMLElement,
-  heightPx: number,
-  widthPx = ROW_WIDTH_PX,
-): void {
-  Object.defineProperty(element, "clientWidth", { configurable: true, value: widthPx });
-  act(() => {
-    subject.resizeObserver.deliverFor(element, heightPx);
-  });
-}
 
 describe("the virtualizer options — what the library is allowed to reach", () => {
   it("routes the library's own scroll write through the chokepoint, named for whom it is made", () => {
@@ -185,7 +155,7 @@ describe("the virtualizer options — the heights a row is laid out at", () => {
 
     // A new width lets the session's heights go, and the next append lays every row out again;
     // a row laid out at a remembered height keeps it until it measures, so nothing above moves.
-    reportRowSize(second, attachRow(second, 5), 150, ROW_WIDTH_PX - 200);
+    reportRowSize(second, attachRow(second, 5), 150, MOUNTED_ROW_WIDTH_PX - 200);
     expect(rememberedRowHeights.heightOf("row-0")).toBeUndefined();
     act(() => {
       second.binding.rerender(syntheticRows(MOUNTED_ROW_COUNT + 1));
@@ -210,7 +180,7 @@ describe("the virtualizer options — the heights a row is laid out at", () => {
     reportRowSize(subject, secondRow, 260);
     expect(rememberedRowHeights.heightOf("row-0")).toBe(120);
 
-    reportRowSize(subject, secondRow, 300, ROW_WIDTH_PX - 200);
+    reportRowSize(subject, secondRow, 300, MOUNTED_ROW_WIDTH_PX - 200);
     expect(rememberedRowHeights.heightOf("row-0")).toBeUndefined();
     expect(rememberedRowHeights.heightOf("row-1")).toBe(300);
   });

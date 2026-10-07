@@ -7,6 +7,7 @@ import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import {
   createCountingScrollContainer,
@@ -28,6 +29,9 @@ export const MOUNTED_VIEWPORT_HEIGHT_PX = 400;
 
 /** How many rows the mounted viewport starts with. */
 export const MOUNTED_ROW_COUNT = 20;
+
+/** The width every mounted row is laid out at, until a case narrows the transcript. */
+export const MOUNTED_ROW_WIDTH_PX = 720;
 
 /** The height kind every mounted row is drawn as. */
 const MOUNTED_ROW_KIND: RowHeightKind = "agent-message";
@@ -101,6 +105,38 @@ export function mountViewport(
     resizeObserver,
     tailOffsetPx: () => virtualizer.getTotalSize() - scrollContainer.clientHeight,
   };
+}
+
+/**
+ * One row's element mounted as the feed mounts it: in the document, marked with its index, at the
+ * transcript's width, and handed to the library, which measures it as it lands. The suite empties
+ * `document.body` after each case.
+ */
+export function attachRow(subject: MountedViewport, index: number): HTMLElement {
+  const element = document.createElement("div");
+  element.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, String(index));
+  Object.defineProperty(element, "clientWidth", {
+    configurable: true,
+    value: MOUNTED_ROW_WIDTH_PX,
+  });
+  document.body.append(element);
+  act(() => {
+    subject.binding.result.current.attachRow(element);
+  });
+  return element;
+}
+
+/** The row's border box as the platform's observer reports it, at `widthPx` wide. */
+export function reportRowSize(
+  subject: MountedViewport,
+  element: HTMLElement,
+  heightPx: number,
+  widthPx: number = MOUNTED_ROW_WIDTH_PX,
+): void {
+  Object.defineProperty(element, "clientWidth", { configurable: true, value: widthPx });
+  act(() => {
+    subject.resizeObserver.deliverFor(element, heightPx);
+  });
 }
 
 /** Every mounted row's height kind; one function, so the binding keeps it across renders. */

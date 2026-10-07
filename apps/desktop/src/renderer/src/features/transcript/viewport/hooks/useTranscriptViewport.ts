@@ -78,8 +78,8 @@ export interface TranscriptViewportBinding {
 
 /**
  * Inputs to `useTranscriptViewport`: the viewport conditions, the clock, and where row heights
- * are remembered and how a row's kind is told. A new clock, record or kind reader mints a new
- * controller.
+ * are remembered and how a row's kind and body length are told. A new clock, record or reader
+ * mints a new controller.
  */
 export interface UseTranscriptViewportOptions extends ViewportConditions {
   /** The clock every timer in this frame is minted through; fixed for the mount. */
@@ -91,6 +91,11 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
   readonly rememberedRowHeights?: RememberedRowHeights | undefined;
   /** The height kind the feed draws a row key as, which picks an unmeasured row's estimate. */
   readonly heightKindOf?: ((rowKey: string) => RowHeightKind) | undefined;
+  /**
+   * The UTF-8 byte length of the body the feed draws for a row key, which places an unmeasured
+   * row on its kind's line of height on body length.
+   */
+  readonly bodyLengthOf?: ((rowKey: string) => number | undefined) | undefined;
   /**
    * The row a link to a message lands on, or `undefined` for none. Landed once per key, on the
    * first committed render that holds it, and the log takes focus there.
@@ -116,23 +121,26 @@ export function useTranscriptViewport(
     landingRowKey,
     rememberedRowHeights,
     heightKindOf,
+    bodyLengthOf,
   } = options;
   // The attached element, for the one act that needs the node. A ref because nothing renders
   // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const [controller, setController] = useState<ViewportController>(
-    () => new ViewportController({ clock, rememberedRowHeights, heightKindOf }),
+    () => new ViewportController({ clock, rememberedRowHeights, heightKindOf, bodyLengthOf }),
   );
 
   useEffect(() => {
     if (controller.isDisposed) {
-      setController(new ViewportController({ clock, rememberedRowHeights, heightKindOf }));
+      setController(
+        new ViewportController({ clock, rememberedRowHeights, heightKindOf, bodyLengthOf }),
+      );
       return;
     }
     return () => {
       controller.dispose();
     };
-  }, [controller, clock, rememberedRowHeights, heightKindOf]);
+  }, [controller, clock, rememberedRowHeights, heightKindOf, bodyLengthOf]);
   useObserveDisplaySettings(controller);
 
   const snapshot = useSyncExternalStore(

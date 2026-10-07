@@ -3,8 +3,10 @@
 //     invalidate its cache every frame; `acceptedHeight` is what `measureElement` returns.
 //   - Remembered heights: an accepted height is written to the session's one record of its row
 //     heights, which outlives this mount, so a transcript mounted again lays its rows out at them.
-//   - Estimates: a row with no height takes its kind's estimate, the median of the kind's newest
-//     measured rows or, before any, the kind's seed.
+//   - Estimates: a row with no height takes its kind's estimate. A row that reports its body's
+//     length, of a kind whose measured rows fit a line of height on body length, is estimated on
+//     that line; any other row at the median of its kind's newest measured rows or, before any,
+//     at the kind's seed. Both move only when published.
 //   - Layout validity: a display or row width change re-lays out every row, so the heights and
 //     the samples measured before it are dropped.
 //   - Duplicate keys: its caches are keyed by item key, so two rows sharing one would displace
@@ -25,7 +27,10 @@ export interface RowKeyProjection {
   readonly duplicateKeyCount: number;
 }
 
-/** Where a table's heights are kept and how it tells one row's kind from another's. */
+/**
+ * Where a table's heights are kept, how it tells one row's kind and body length from another's,
+ * and whom it tells of a height it accepted.
+ */
 export interface RowMeasurementTableOptions {
   /** The session's record of its row heights; a table given none keeps its own. */
   readonly rememberedHeights?: RememberedRowHeights | undefined;
@@ -34,6 +39,13 @@ export interface RowMeasurementTableOptions {
    * estimates every row as the one-line notice of a row the window no longer holds.
    */
   readonly heightKindOf?: ((rowKey: string) => RowHeightKind) | undefined;
+  /**
+   * The UTF-8 byte length of the body a row key draws, or `undefined` for a row that reports
+   * none. A table given none estimates every row at its kind's median or seed.
+   */
+  readonly bodyLengthOf?: ((rowKey: string) => number | undefined) | undefined;
+  /** Called after each height the table accepts, synchronously, inside `acceptedHeight`. */
+  readonly onHeightAccepted?: (() => void) | undefined;
 }
 
 const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount: 0 };
@@ -54,9 +66,10 @@ const REPEAT_KEY_SEPARATOR = "~repeat-";
 const INITIAL_ROOT_FONT_SIZE_PX = 16;
 
 /**
- * Rows of one kind a median is taken over: the newest thirty-one measured, about two screens of
- * them. One unusually tall row moves the median by at most one rank, and sorting so few to read
- * it when the estimates are published costs nothing measurable.
+ * Rows of one kind a median, or a line of height on body length, is taken over: the newest
+ * thirty-one measured, about two screens of them. One unusually tall row moves the median by at
+ * most one rank, and sorting or summing so few when the estimates are published costs nothing
+ * measurable.
  */
 const KIND_SAMPLE_SIZE = 31;
 
@@ -64,9 +77,16 @@ const KIND_SAMPLE_SIZE = 31;
 export class RowMeasurementTable {
   readonly #rememberedHeights: RememberedRowHeights;
   readonly #heightKindOf: (rowKey: string) => RowHeightKind;
-  readonly #sampleByKind: Readonly<Record<RowHeightKind, KindHeightSample>>;
+  readonly #bodyLengthOf: (rowKey: string) => number | undefined;
+  readonly #onHeightAccepted: () => void;
+  /** Every measured row of each kind, for its median and its smallest height. */
+  readonly #heightSampleByKind: Readonly<Record<RowHeightKind, KindHeightSample>>;
+  /** The measured rows of each kind that report a body length, for its line. */
+  readonly #bodyLengthSampleByKind: Readonly<Record<RowHeightKind, KindHeightSample>>;
   /** What an unmeasured row of each kind is laid out at, in pixels, as last published. */
   readonly #estimatePxByKind: Record<RowHeightKind, number>;
+  /** The line an unmeasured row reporting its body length is laid out on, as last published. */
+  readonly #lineByKind: Record<RowHeightKind, BodyLengthLine | undefined>;
 
   #cachedRowKeys: readonly string[] | undefined;
   #cachedProjection: RowKeyProjection = EMPTY_PROJECTION;
@@ -74,8 +94,12 @@ export class RowMeasurementTable {
   public constructor(options: RowMeasurementTableOptions = {}) {
     this.#rememberedHeights = options.rememberedHeights ?? new RememberedRowHeights();
     this.#heightKindOf = options.heightKindOf ?? (() => "not-loaded");
-    this.#sampleByKind = mapEveryKind(() => new KindHeightSample());
+    this.#bodyLengthOf = options.bodyLengthOf ?? (() => undefined);
+    this.#onHeightAccepted = options.onHeightAccepted ?? (() => undefined);
+    this.#heightSampleByKind = mapEveryKind(() => new KindHeightSample());
+    this.#bodyLengthSampleByKind = mapEveryKind(() => new KindHeightSample());
     this.#estimatePxByKind = mapEveryKind((kind) => this.#seedPxOf(kind));
+    this.#lineByKind = mapEveryKind(() => undefined);
   }
 
   /**
@@ -115,7 +139,7 @@ export class RowMeasurementTable {
    * A non-positive or non-finite observation is not a measurement (an unlaid-out element
    * reports zero, which would collapse the window), so the row's height or estimate stands. An
    * observation within the epsilon of the last one is the same height. Anything else is accepted,
-   * remembered, and replaces the row's last height in its kind's sample.
+   * remembered, replaces the row's last height in its kind's samples, and is announced.
    */
   public acceptedHeight(rowKey: string, observedHeightPx: number): number {
     const previous = this.#rememberedHeights.heightOf(rowKey);
@@ -129,19 +153,43 @@ export class RowMeasurementTable {
       return previous;
     }
     const accepted = this.#rememberedHeights.remember(rowKey, observedHeightPx);
-    this.#sampleByKind[this.#kindOf(rowKey)].replace(previous, accepted);
+    const kind = this.#kindOf(rowKey);
+    this.#heightSampleByKind[kind].replace(previous, accepted, Number.NaN);
+    const bodyLength = this.#bodyLengthOf(this.#rowKeyOf(rowKey));
+    if (bodyLength !== undefined) {
+      this.#bodyLengthSampleByKind[kind].replace(previous, accepted, bodyLength);
+    }
+    this.#onHeightAccepted();
     return accepted;
   }
 
   /**
    * Moves every kind's estimate to the median of its sample, or to its seed while the sample is
-   * empty. Called only where a moved estimate cannot shift a row already laid out above the
-   * reader, since the library reads an estimate whenever it re-lays a row out.
+   * empty, and its line to the least-squares fit of its measured rows' heights on their body
+   * lengths. A line is kept only over at least two distinct lengths and a slope that is not
+   * negative; otherwise the kind's rows take its median.
+   *
+   * Called only where a moved estimate cannot shift a row already laid out above the reader,
+   * since the library reads an estimate whenever it re-lays a row out. Answers whether any
+   * estimate moved by at least the geometry epsilon, a line's compared at the shortest and the
+   * longest body length it was fitted over, so the caller re-lays out only for a real move.
    */
-  public publishEstimates(): void {
+  public publishEstimates(): boolean {
+    let isMoved = false;
     for (const kind of ROW_HEIGHT_KINDS) {
-      this.#estimatePxByKind[kind] = this.#sampleByKind[kind].median() ?? this.#seedPxOf(kind);
+      const previousEstimatePx = this.#estimatePxByKind[kind];
+      const estimatePx = this.#heightSampleByKind[kind].median() ?? this.#seedPxOf(kind);
+      this.#estimatePxByKind[kind] = estimatePx;
+      const previousLine = this.#lineByKind[kind];
+      const line = this.#bodyLengthSampleByKind[kind].bodyLengthLine(
+        this.#heightSampleByKind[kind].smallestHeight(),
+      );
+      this.#lineByKind[kind] = line;
+      isMoved ||=
+        Math.abs(estimatePx - previousEstimatePx) >= SCROLL_GEOMETRY_EPSILON_PX ||
+        hasLineMoved(previousLine, line);
     }
+    return isMoved;
   }
 
   /**
@@ -196,16 +244,24 @@ export class RowMeasurementTable {
   }
 
   #estimateOf(measuredKey: string): number {
-    return this.#estimatePxByKind[this.#kindOf(measuredKey)];
+    const kind = this.#kindOf(measuredKey);
+    const line = this.#lineByKind[kind];
+    const bodyLength =
+      line === undefined ? undefined : this.#bodyLengthOf(this.#rowKeyOf(measuredKey));
+    return line === undefined || bodyLength === undefined
+      ? this.#estimatePxByKind[kind]
+      : heightOnLine(line, bodyLength);
   }
 
-  /** The kind of the row a measured key names; a repeat's key is resolved only while one stands. */
   #kindOf(measuredKey: string): RowHeightKind {
-    return this.#heightKindOf(
-      this.#cachedProjection.duplicateKeyCount === 0
-        ? measuredKey
-        : rowKeyOfMeasuredKey(measuredKey),
-    );
+    return this.#heightKindOf(this.#rowKeyOf(measuredKey));
+  }
+
+  /** The row a measured key names; a repeat's key is resolved only while one stands. */
+  #rowKeyOf(measuredKey: string): string {
+    return this.#cachedProjection.duplicateKeyCount === 0
+      ? measuredKey
+      : rowKeyOfMeasuredKey(measuredKey);
   }
 
   #seedPxOf(kind: RowHeightKind): number {
@@ -218,7 +274,8 @@ export class RowMeasurementTable {
 
   #clearSamples(): void {
     for (const kind of ROW_HEIGHT_KINDS) {
-      this.#sampleByKind[kind].clear();
+      this.#heightSampleByKind[kind].clear();
+      this.#bodyLengthSampleByKind[kind].clear();
     }
   }
 }
@@ -250,27 +307,73 @@ function rowKeyOfMeasuredKey(measuredKey: string): string {
 }
 
 /**
- * The newest heights measured for one kind, each row once at its latest height: a re-measured
- * row's new height replaces its old one where the sample still holds it, so a reply streaming for
- * a minute is one sample rather than a thousand. Unkeyed, so it is no second record of a row.
+ * A kind's line of height on body length, as published: an unmeasured row reporting its length is
+ * laid out on it, never below the floor.
+ */
+interface BodyLengthLine {
+  readonly interceptPx: number;
+  readonly slopePxPerByte: number;
+  /** The smallest height the kind's sample held, which no estimate on the line goes below. */
+  readonly floorPx: number;
+  /** The shortest and longest body length the line was fitted over. */
+  readonly shortestBodyLength: number;
+  readonly longestBodyLength: number;
+}
+
+function heightOnLine(line: BodyLengthLine, bodyLength: number): number {
+  return Math.max(line.floorPx, line.interceptPx + line.slopePxPerByte * bodyLength);
+}
+
+/**
+ * Whether a newly fitted line lays rows out elsewhere than the last one: one of the two absent,
+ * or a height at either end of the new line's lengths apart by at least the geometry epsilon.
+ */
+function hasLineMoved(
+  previous: BodyLengthLine | undefined,
+  next: BodyLengthLine | undefined,
+): boolean {
+  if (previous === undefined || next === undefined) {
+    return previous !== next;
+  }
+  return [next.shortestBodyLength, next.longestBodyLength].some(
+    (bodyLength) =>
+      Math.abs(heightOnLine(next, bodyLength) - heightOnLine(previous, bodyLength)) >=
+      SCROLL_GEOMETRY_EPSILON_PX,
+  );
+}
+
+/**
+ * The newest heights measured for one kind, each with its row's body length (`NaN` where the
+ * sample does not keep one), each row once at its latest height: a re-measured row's new height
+ * replaces its old one where the sample still holds it, so a reply streaming for a minute is one
+ * entry rather than a thousand. Unkeyed, so it is no second record of a row.
  */
 class KindHeightSample {
   readonly #heightsPx = new Float64Array(KIND_SAMPLE_SIZE);
+  readonly #bodyLengths = new Float64Array(KIND_SAMPLE_SIZE);
 
   #count = 0;
   /** The slot the next height that replaces nothing is written to, the oldest once full. */
   #nextSlot = 0;
 
-  /** Record `heightPx`, in place of `previousHeightPx` where the sample holds it. */
-  public replace(previousHeightPx: number | undefined, heightPx: number): void {
+  /**
+   * Record `heightPx` for a row whose body is `bodyLength` long, in place of the entry the sample
+   * holds at `previousHeightPx` and the same length.
+   */
+  public replace(previousHeightPx: number | undefined, heightPx: number, bodyLength: number): void {
     if (previousHeightPx !== undefined) {
-      const slot = this.#heightsPx.subarray(0, this.#count).indexOf(previousHeightPx);
-      if (slot >= 0) {
-        this.#heightsPx[slot] = heightPx;
-        return;
+      for (let slot = 0; slot < this.#count; slot += 1) {
+        if (
+          this.#heightsPx[slot] === previousHeightPx &&
+          Object.is(this.#bodyLengths[slot], bodyLength)
+        ) {
+          this.#heightsPx[slot] = heightPx;
+          return;
+        }
       }
     }
     this.#heightsPx[this.#nextSlot] = heightPx;
+    this.#bodyLengths[this.#nextSlot] = bodyLength;
     this.#nextSlot = (this.#nextSlot + 1) % KIND_SAMPLE_SIZE;
     this.#count = Math.min(this.#count + 1, KIND_SAMPLE_SIZE);
   }
@@ -284,8 +387,51 @@ class KindHeightSample {
     return sorted[(this.#count - 1) >> 1];
   }
 
+  /** The smallest height in the sample, or `Infinity` while it is empty. */
+  public smallestHeight(): number {
+    return Math.min(...this.#heightsPx.subarray(0, this.#count));
+  }
+
+  /**
+   * The least-squares line of height on body length, floored at `floorPx`, or `undefined` unless
+   * the sample holds at least two distinct lengths and the slope is not negative.
+   */
+  public bodyLengthLine(floorPx: number): BodyLengthLine | undefined {
+    const bodyLengths = this.#bodyLengths.subarray(0, this.#count);
+    const heightsPx = this.#heightsPx.subarray(0, this.#count);
+    const shortestBodyLength = Math.min(...bodyLengths);
+    const longestBodyLength = Math.max(...bodyLengths);
+    if (!(longestBodyLength > shortestBodyLength)) {
+      return undefined;
+    }
+    const meanBodyLength = mean(bodyLengths);
+    const meanHeightPx = mean(heightsPx);
+    let covariance = 0;
+    let variance = 0;
+    for (let slot = 0; slot < this.#count; slot += 1) {
+      const lengthDeviation = (bodyLengths[slot] ?? 0) - meanBodyLength;
+      covariance += lengthDeviation * ((heightsPx[slot] ?? 0) - meanHeightPx);
+      variance += lengthDeviation * lengthDeviation;
+    }
+    const slopePxPerByte = covariance / variance;
+    if (slopePxPerByte < 0) {
+      return undefined;
+    }
+    return {
+      interceptPx: meanHeightPx - slopePxPerByte * meanBodyLength,
+      slopePxPerByte,
+      floorPx,
+      shortestBodyLength,
+      longestBodyLength,
+    };
+  }
+
   public clear(): void {
     this.#count = 0;
     this.#nextSlot = 0;
   }
+}
+
+function mean(values: Float64Array): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }

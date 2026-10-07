@@ -30,13 +30,18 @@ import {
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow } from "./window-cap.js";
 
-/** The clock every timer and frame of the controller is minted through, and where heights live. */
+/**
+ * The clock every timer and frame of the controller is minted through, where heights live, and
+ * how a row's kind and body length are told.
+ */
 export interface ViewportControllerOptions {
   readonly clock: Clock;
   /** The session's record of its row heights; a controller given none keeps its own. */
   readonly rememberedRowHeights?: RememberedRowHeights | undefined;
   /** The height kind the feed draws a row key as; see `RowMeasurementTableOptions`. */
   readonly heightKindOf?: ((rowKey: string) => RowHeightKind) | undefined;
+  /** The UTF-8 byte length of a row key's body; see `RowMeasurementTableOptions`. */
+  readonly bodyLengthOf?: ((rowKey: string) => number | undefined) | undefined;
 }
 
 /** Wires the scroll, anchor, measurement and window-cap objects into one published snapshot. */
@@ -66,6 +71,8 @@ export class ViewportController {
   #scrollContainer: HTMLElement | undefined;
   /** Whether the reading state last heard from the anchor was following; it starts there. */
   #isFollowingTail = true;
+  /** Whether a publication of the estimates is queued behind the current batch of measurements. */
+  #isEstimatePublicationQueued = false;
   #virtualKeys: readonly string[] = [];
   #rows: readonly ViewportRow[] = [];
   #rowKeys: readonly string[] = [];
@@ -102,6 +109,10 @@ export class ViewportController {
     this.measurements = new RowMeasurementTable({
       rememberedHeights: options.rememberedRowHeights,
       heightKindOf: options.heightKindOf,
+      bodyLengthOf: options.bodyLengthOf,
+      onHeightAccepted: () => {
+        this.#queueEstimatePublication();
+      },
     });
     this.rowWindow = new TranscriptWindow();
     this.virtualizerOptions = new VirtualizerOptions({
@@ -256,12 +267,12 @@ export class ViewportController {
       this.anchor.state.mode === "following" &&
       haveDifferentEnds(previousVirtualKeys, this.#virtualKeys)
     ) {
-      // The one place a kind's estimate moves. The library lays out again from the lowest row
-      // that resized, but from row zero, reading every unmeasured row's estimate, once the row
-      // count or an end key changes, so a moved estimate would shift rows above a reader at the
-      // next append. While the reader follows, that whole layout runs under the library's end
-      // anchor, which keeps the row at the top of the viewport where it was, and the rows above
-      // it move out of sight. A reader who reads keeps the estimates the rows were laid out at.
+      // The library lays out again from the lowest row that resized, but from row zero, reading
+      // every unmeasured row's estimate, once the row count or an end key changes, so a moved
+      // estimate would shift rows above a reader at the next append. While the reader follows,
+      // that whole layout runs under the library's end anchor, which keeps the row at the top of
+      // the viewport where it was, and the rows above it move out of sight. A reader who reads
+      // keeps the estimates the rows were laid out at. A follower's measurements publish too.
       this.measurements.publishEstimates();
     }
     const compensated =
@@ -416,6 +427,30 @@ export class ViewportController {
     this.anchor.dispose();
     this.#virtualizer = undefined;
     this.#disposed = true;
+  }
+
+  /**
+   * Publishes the estimates once after the batch of measurements a follower's rows just made,
+   * and re-lays every row out if one moved, so rows above the screen take what the measured rows
+   * say while the library's end anchor keeps them out of sight. The library's cache is cleared
+   * whole, and `estimateSize` hands each measured row's remembered height back to it. A reader
+   * who reads keeps the estimates the rows were laid out at.
+   */
+  #queueEstimatePublication(): void {
+    if (this.#isEstimatePublicationQueued) {
+      return;
+    }
+    this.#isEstimatePublicationQueued = true;
+    // One microtask after the observer's callback: every row it reported has been accepted.
+    queueMicrotask(() => {
+      this.#isEstimatePublicationQueued = false;
+      if (this.anchor.state.mode !== "following") {
+        return;
+      }
+      if (this.measurements.publishEstimates()) {
+        this.#virtualizer?.measure();
+      }
+    });
   }
 
   /** Home: the first retained row at the top of the viewport, through the library's index scroll. */

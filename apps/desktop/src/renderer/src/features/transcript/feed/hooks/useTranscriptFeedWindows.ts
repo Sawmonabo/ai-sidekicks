@@ -7,6 +7,11 @@
 
 import { useCallback, useEffect } from "react";
 
+import {
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_PAYLOAD_PLAINTEXT_MAX,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
+} from "@ai-sidekicks/contracts/event/declared-variants";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
@@ -29,6 +34,7 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
+import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { densityFor, type RunGroupDisclosure } from "../run-group-fold.js";
@@ -119,12 +125,19 @@ export function useTranscriptFeedWindows(
     drawsRow,
     runGroupDisclosure,
   });
-  // One reader for the mount, over the window the tree last committed: a new reader would mint a
-  // new viewport, and the viewport asks for a row's kind only for rows that window holds.
+  // One reader of each for the mount, over the window the tree last committed and the reveal
+  // engine of the last render: a new reader would mint a new viewport, and the viewport asks for a
+  // row's kind and body length only for rows that window holds.
   const committedTranscriptWindow = useLatestRef(transcriptWindow);
+  const isRevealingRow = useLatestRef(reveal.isRevealing);
   const heightKindOf = useCallback(
     (rowKey: string) => rowHeightKindOf(committedTranscriptWindow.current, rowKey),
     [committedTranscriptWindow],
+  );
+  const bodyLengthOf = useCallback(
+    (rowKey: string) =>
+      rowBodyLengthOf(committedTranscriptWindow.current, isRevealingRow.current, rowKey),
+    [committedTranscriptWindow, isRevealingRow],
   );
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
@@ -134,6 +147,7 @@ export function useTranscriptFeedWindows(
     landingRowKey,
     rememberedRowHeights: inputs.sessionStore.rememberedRowHeights,
     heightKindOf,
+    bodyLengthOf,
   });
 
   // Registered here, where the session id and the one binding meet, so the session diagnostics a
@@ -214,4 +228,26 @@ function rowHeightKindOf(transcriptWindow: TranscriptWindowModel, rowKey: string
   return densityFor(row.id, transcriptWindow.collapsedRowIds) === "collapsed"
     ? "tool-call-collapsed"
     : "tool-call-expanded";
+}
+
+/**
+ * The UTF-8 byte length of the body a key of the feed's list draws, or `undefined` for a row that
+ * reports none. A row the reveal still holds reports none: it pairs its whole body's length with
+ * the height of the part drawn so far. A truncated body draws only its stored prefix, which the
+ * stored ceiling bounds.
+ */
+function rowBodyLengthOf(
+  transcriptWindow: TranscriptWindowModel,
+  isRevealing: RevealBinding["isRevealing"],
+  rowKey: string,
+): number | undefined {
+  const row = transcriptWindow.rowsByKey.get(rowKey);
+  if (row === undefined || isRevealing(row.id)) {
+    return undefined;
+  }
+  const payload = projectedPayload(row);
+  const contentLength = readWireCount(payload, CONTENT_LENGTH_PAYLOAD_KEY);
+  return contentLength !== undefined && payload[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
+    ? Math.min(contentLength, CONTENT_PAYLOAD_PLAINTEXT_MAX)
+    : contentLength;
 }
