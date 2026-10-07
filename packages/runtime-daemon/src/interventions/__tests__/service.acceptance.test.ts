@@ -18,6 +18,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { makeSilentDriverDiagnostics } from "../../provider/__fixtures__/silent-driver-diagnostics.js";
+import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
 import { ExecutionEpochs } from "../../session/run/epochs.js";
 import { RunInboundDispatch } from "../../session/run/inbound.js";
@@ -261,7 +262,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     const fromDaemon = await service.applyIntervention(steer(runId, readVersion(runId)), {
       deviceId: null,
     });
-    driverResult = { status: "degraded", fallbackAction: "queue_and_interrupt" };
+    driverResult = { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
     const deviceId = DeviceIdSchema.parse(randomUUID());
     const degraded = await service.applyIntervention(steer(runId, fromDaemon.runVersion), {
       deviceId,
@@ -276,7 +277,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(readIntervention(degraded.interventionId)).toEqual({
       state: "degraded",
       device_id: deviceId,
-      fallback_action: "queue_and_interrupt",
+      fallback_action: STEER_FALLBACK_ACTION,
     });
     expect(fixture.runs.getRun(runId)).toEqual({
       sessionId: fixture.sessionId,

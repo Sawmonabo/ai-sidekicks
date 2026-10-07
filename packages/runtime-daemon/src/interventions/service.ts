@@ -2,6 +2,8 @@
 // and record its outcome. Each step is one write carrying its row change, its guards and its
 // `intervention.*` event, so a crash leaves the row at the last step that committed, and every
 // decision read from the run is checked again by a guarded statement inside the write it decides.
+// Calls on one run take turns under a per-run lock, so two requests at one version never both
+// reach the driver.
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
@@ -21,11 +23,13 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
+import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError } from "../database/writer.js";
 import { SessionEventAppender, type SessionEventLog } from "../events/session/appender.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
+import { KeyedLock } from "../keyed-lock.js";
 import type { ProviderDriver } from "../provider/driver/contract.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
@@ -132,6 +136,8 @@ type DispatchOutcome =
 export class InterventionService {
   readonly #deps: InterventionServiceDeps;
   readonly #appender: SessionEventAppender;
+  // Orders each run's requests; a run id spelled in either hex case takes one lock.
+  readonly #runLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
 
   constructor(deps: InterventionServiceDeps) {
     this.#deps = deps;
@@ -143,12 +149,20 @@ export class InterventionService {
 
   /**
    * Records `request`, accepts it if the run is still at `expectedRunVersion` and in a state its
-   * type acts on, dispatches it once and answers with the state it reached. A reused idempotency
-   * key answers with the saved result and dispatches nothing. Throws `run.not_found` for a run
-   * the daemon has no row for, `intervention.idempotency_conflict` for a reused key whose request
-   * differs, and whatever the dispatch throws, leaving the row `accepted`.
+   * type acts on, dispatches it once and answers with the state it reached. Requests on one run
+   * apply one at a time in arrival order. A reused idempotency key answers with the saved result
+   * and dispatches nothing. Throws `run.not_found` for a run the daemon has no row for,
+   * `intervention.idempotency_conflict` for a reused key whose request differs, and whatever the
+   * dispatch throws, leaving the row `accepted`.
    */
   async applyIntervention(
+    request: InterventionRequestPayload,
+    origin: InterventionOrigin,
+  ): Promise<InterventionRequestResponse> {
+    return this.#runLock.run(request.targetRunId, () => this.#applyHoldingRun(request, origin));
+  }
+
+  async #applyHoldingRun(
     request: InterventionRequestPayload,
     origin: InterventionOrigin,
   ): Promise<InterventionRequestResponse> {

@@ -24,6 +24,7 @@ import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixt
 import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
+import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import { insertQueuedRunStatement, swapRunStateStatement } from "../../session/run/projection.js";
 import { RunStateReader } from "../../session/run/read.js";
 import {
@@ -215,7 +216,7 @@ describe("InterventionService", () => {
     const deviceId = DeviceIdSchema.parse(randomUUID());
 
     const applied = await service.applyIntervention(steer(1), { deviceId });
-    driverResult = { status: "degraded", fallbackAction: "queue_and_interrupt" };
+    driverResult = { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
     const degraded = await service.applyIntervention(steer(2), DAEMON_ORIGIN);
 
     expect(applied).toMatchObject({ state: "applied", runVersion: 2 });
@@ -228,7 +229,7 @@ describe("InterventionService", () => {
     expect(readRow(degraded.interventionId)).toMatchObject({
       state: "degraded",
       device_id: null,
-      fallback_action: "queue_and_interrupt",
+      fallback_action: STEER_FALLBACK_ACTION,
     });
     expect(eventTypesOf(applied.interventionId)).toEqual([
       "intervention.requested",
@@ -270,6 +271,29 @@ describe("InterventionService", () => {
     ]);
     expect(driverCalls).toHaveLength(1);
     expect(settleCalls).toHaveLength(0);
+  });
+
+  it("applies concurrent requests on one run in turn, so one version reaches the driver once", async () => {
+    await moveRun("queued", "running");
+    const first = steer(1);
+    const competing = steer(1, "use the first branch");
+
+    const [applied, expired, retried] = await Promise.all([
+      service.applyIntervention(first, DAEMON_ORIGIN),
+      service.applyIntervention(competing, DAEMON_ORIGIN),
+      service.applyIntervention(first, DAEMON_ORIGIN),
+    ]);
+
+    expect(applied).toMatchObject({ state: "applied", runVersion: 2 });
+    expect(expired).toMatchObject({ state: "expired", runVersion: 2 });
+    expect(retried).toEqual(applied);
+    expect(eventTypesOf(expired.interventionId)).toEqual([
+      "intervention.requested",
+      "intervention.expired",
+    ]);
+    expect(driverCalls).toEqual([expect.objectContaining({ expectedRunVersion: 1 })]);
+    expect(settleCalls).toHaveLength(1);
+    expect(runs.getRun(runId)?.version).toBe(2);
   });
 
   it("returns the saved result for a reused key and dispatches once, and refuses a differing body", async () => {
