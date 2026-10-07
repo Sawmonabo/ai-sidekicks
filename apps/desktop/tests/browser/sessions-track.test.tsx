@@ -4,7 +4,7 @@
 // closes, so a text-size change resizes the tracks with no transition running. The content held
 // mid-close and the transition a close starts are each the other case's negative control.
 
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
@@ -104,7 +104,10 @@ describe("the sessions track", () => {
     expect(closing?.inert).toBe(true);
     expect(gridTransitions(frame)).toHaveLength(1);
 
-    await expect.poll(() => sessionsTrackOf(frame)).toBeNull();
+    // `waitFor` lets React flush the `transitionend` settle as it lands, inside its own act.
+    await waitFor(() => {
+      expect(sessionsTrackOf(frame)).toBeNull();
+    });
     expect(gridTransitions(frame)).toStrictEqual([]);
     expect(boxOf(frame, ".meridian-frame__column").left).toBe(boxOf(frame, ".meridian-rail").right);
   });
@@ -118,7 +121,9 @@ describe("the sessions track", () => {
     // Opening again at once with the new content, not closing first and opening after.
     expect(sessionsTrackOf(frame)?.inert).toBe(false);
     expect(sessionsTrackOf(frame)?.textContent).toBe("the sessions list, again");
-    await expect.poll(() => gridTransitions(frame)).toStrictEqual([]);
+    await waitFor(() => {
+      expect(gridTransitions(frame)).toStrictEqual([]);
+    });
     const track = sessionsTrackOf(frame);
     expect(track?.textContent).toBe("the sessions list, again");
     expect(track?.inert).toBe(false);
