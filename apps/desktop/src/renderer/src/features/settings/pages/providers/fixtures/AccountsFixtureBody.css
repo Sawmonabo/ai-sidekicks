@@ -44,7 +44,10 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-accounts__row-label {
+/* An account's identity as the provider reports it, never re-cased: on its row and atop its
+   detail alike. */
+.meridian-accounts__identity {
+  margin: 0;
   font-size: var(--meridian-text-md);
   color: var(--meridian-text);
 }

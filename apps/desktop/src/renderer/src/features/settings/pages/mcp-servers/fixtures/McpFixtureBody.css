@@ -97,13 +97,6 @@
   gap: var(--meridian-space-1);
 }
 
-.meridian-mcp__detail-block-title {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-sm);
-  font-weight: 500;
-}
-
 /* Every enumeration on this pane is bounded and scrolls inside its own box, so many legs,
    tools, names or arguments do not push the controls off the page. */
 .meridian-mcp__legs,

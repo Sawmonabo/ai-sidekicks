@@ -34,6 +34,7 @@ import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
@@ -214,7 +215,7 @@ export function McpFixtureBody(props: {
     ),
   );
   if (state.kind === "not-loaded") {
-    return <Nothing kind="not-loaded" placement="block" title="Reading the server list…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Reading the server list…" />;
   }
   if (state.kind === "failed") {
     return (

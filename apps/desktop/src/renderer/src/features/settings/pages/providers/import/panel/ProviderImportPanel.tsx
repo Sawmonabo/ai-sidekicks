@@ -9,7 +9,6 @@
 import "./ProviderImportPanel.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
@@ -51,7 +50,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         <InlineRefusal
           code={model.startRefusal.code}
           detail={model.startRefusal.detail}
-          action={<TryAgainButton onPress={model.start} />}
+          onTryAgain={model.start}
         />
       )}
       <ImportProgressLine model={model} />

@@ -71,10 +71,11 @@ function fixtureRefusingFirstRegistryRead(): FixtureBridge {
 }
 
 describe("AccountsFixtureMount", () => {
-  it("reads the account list's own words while it is read, and after a refused read", async () => {
+  it("draws no reading line for a read inside the short delay, and its own words after a refusal", async () => {
     const fixture = fixtureRefusingFirstRegistryRead();
     const container = renderProvidersPage(fixture);
-    expect(container.textContent).toContain("Reading the account list…");
+    // The read is in flight, but its line waits out the short delay, and the refusal lands inside it.
+    expect(container.textContent).not.toContain("Reading the account list…");
 
     await settleScheduledRead(fixture.scenarioEngine.clock);
     expect(container.textContent).toContain("The account list could not be read.");

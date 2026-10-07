@@ -50,19 +50,23 @@ describe("ServerLegs", () => {
     expect(lines).toStrictEqual([
       ["Fix login", "·", "Connected", "· updated", "2 minutes ago"],
       ["New chat", "·", "Failed"],
-      ["Loading…", "·", "Unknown"],
+      ["Unknown"],
     ]);
     expect(container.textContent).not.toContain(UNLISTED_SESSION);
   });
 
-  it("negative control: while the list is read each name is drawn loading, never its id", () => {
+  it("negative control: while the list is read no line carries a name, never its id", () => {
     const { container } = render(
       <ServerLegs legs={LEGS} sessionDirectory={{ status: "reading" }} nowMilliseconds={NOW_MS} />,
     );
-    const names = [...container.querySelectorAll(".meridian-mcp__leg")].map(
-      (line) => line.firstChild?.textContent,
+    const lines = [...container.querySelectorAll(".meridian-mcp__leg")].map((line) =>
+      [...line.childNodes].map((part) => part.textContent),
     );
-    expect(names).toStrictEqual(["Loading…", "Loading…", "Loading…"]);
+    expect(lines).toStrictEqual([
+      ["Connected", "· updated", "2 minutes ago"],
+      ["Failed"],
+      ["Unknown"],
+    ]);
     for (const sessionId of [TITLED_SESSION, UNTITLED_SESSION, UNLISTED_SESSION]) {
       expect(container.textContent).not.toContain(sessionId);
     }

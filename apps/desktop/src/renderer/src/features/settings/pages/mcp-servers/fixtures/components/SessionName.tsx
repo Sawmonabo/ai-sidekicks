@@ -1,28 +1,15 @@
 import type { ReactNode } from "react";
 
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
-import {
-  listedSessionOf,
-  type SessionDirectoryState,
-} from "#renderer/store/session/directory/state.js";
 import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 
 /**
- * A running session as the session list names it, an untitled one faint and italic. Until the
- * list names it, its name is drawn as still loading, as the session header draws an unread title;
- * its id never reaches the screen.
+ * A running session as the session list names it, an untitled one faint and italic. A caller
+ * draws it only for a session the list has named, so its id never reaches the screen.
  */
-export function SessionName(props: {
-  readonly sessionId: string;
-  readonly sessionDirectory: SessionDirectoryState;
-}): ReactNode {
-  const { sessionId, sessionDirectory } = props;
-  const entry = listedSessionOf(sessionDirectory, sessionId);
-  if (entry === undefined) {
-    return <Nothing kind="not-loaded" placement="inline" title="Loading…" />;
-  }
-  const title = sessionDisplayTitleOf(entry);
+export function SessionName(props: { readonly entry: SessionListEntry }): ReactNode {
+  const title = sessionDisplayTitleOf(props.entry);
   return title.isUntitled ? (
     <span className="meridian-mcp__untitled-session">{title.text}</span>
   ) : (

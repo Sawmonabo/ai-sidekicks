@@ -24,6 +24,7 @@ import {
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
@@ -125,7 +126,9 @@ export function AccountsFixtureBody(props: {
   );
 
   if (registry.phase === "reading") {
-    return <Nothing kind="not-loaded" placement="block" title={ACCOUNT_LIST_READ_WORDS.reading} />;
+    return (
+      <LoadingNotice clock={clock} placement="block" title={ACCOUNT_LIST_READ_WORDS.reading} />
+    );
   }
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
@@ -139,7 +142,7 @@ export function AccountsFixtureBody(props: {
   return (
     <>
       <section className="meridian-settings-page__block">
-        <h3 className="meridian-settings-page__block-title">Readiness</h3>
+        <h3 className="meridian-settings-page__section-head">Readiness</h3>
         <ul className="meridian-settings-page__list">
           {registry.readiness.map((readiness) => (
             <ReadinessRow
@@ -180,7 +183,7 @@ export function AccountsFixtureBody(props: {
       </section>
 
       <section className="meridian-settings-page__block">
-        <h3 className="meridian-settings-page__block-title">Accounts</h3>
+        <h3 className="meridian-settings-page__section-head">Accounts</h3>
         {registry.accounts.length === 0 ? (
           <Nothing
             kind="empty"
@@ -211,8 +214,8 @@ export function AccountsFixtureBody(props: {
 
       {selected === undefined ? null : (
         <>
-          <section className="meridian-settings-page__block">
-            <h3 className="meridian-settings-page__block-title">{selected.label}</h3>
+          <section className="meridian-settings-page__block" aria-label={selected.label}>
+            <p className="meridian-accounts__identity">{selected.label}</p>
             <AccountDetail account={selected} />
             <AccountDefaultControl
               account={selected}
@@ -233,17 +236,17 @@ export function AccountsFixtureBody(props: {
           </section>
 
           <section className="meridian-settings-page__block">
-            <h3 className="meridian-settings-page__block-title">Usage</h3>
+            <h3 className="meridian-settings-page__section-head">Usage</h3>
             <QuotaTable rows={accountQuotaRowsFrom(registry, selected)} />
           </section>
         </>
       )}
 
       <section className="meridian-settings-page__block">
-        <h3 className="meridian-settings-page__block-title">Register an account</h3>
+        <h3 className="meridian-settings-page__section-head">Register an account</h3>
         {PROVIDER_NAMES.map((provider) => (
           <Fragment key={provider}>
-            <h4 className="meridian-settings-page__block-title">{PROVIDER_LABELS[provider]}</h4>
+            <h4 className="meridian-settings-page__section-head">{PROVIDER_LABELS[provider]}</h4>
             <TokenRegistrationForm
               register={operations.register}
               provider={provider}

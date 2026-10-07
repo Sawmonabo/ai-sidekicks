@@ -10,7 +10,6 @@ import { Collapsible } from "@base-ui/react/collapsible";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
@@ -37,7 +36,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
       <InlineRefusal
         code={progress.refusal.code}
         detail={progress.refusal.detail}
-        action={<TryAgainButton onPress={model.reopen} />}
+        onTryAgain={model.reopen}
       />
     );
   }
@@ -82,7 +81,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
       <InlineRefusal
         code={IMPORT_REFUSED_CODE}
         detail={settlement.reason}
-        action={<TryAgainButton onPress={model.start} />}
+        onTryAgain={model.start}
       />
     );
   }
