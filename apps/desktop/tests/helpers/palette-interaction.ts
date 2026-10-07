@@ -17,7 +17,7 @@
 // an opening to twenty seconds, while a body counting its waits against `launch-body` counts it as
 // one ten-second step, so the phase is minted once and both waits draw from what is left.
 
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page } from "playwright";
 import { expect } from "vitest";
 
 import type { AppUnderTest } from "./electron/harness.js";

@@ -17,7 +17,7 @@ The session screen has a Preview pane: a browser beside the conversation, showin
 
 A native browser view hosted beside the renderer and answering an agent's tool calls is a one-way architectural door. The case for building the browser tools by hand on Electron's in-process debugger, and avoiding the published browser-automation tool servers, rests on three objections: they pin alpha builds, they expose the whole application's debug surface, and they do not support Electron.
 
-The versions this record was checked against: `electron` 44.5.1, `playwright-core` 1.63.0 (which `@playwright/test` 1.63.0 brings), `@modelcontextprotocol/sdk` 1.30.0. The published `@playwright/mcp` 0.0.80 was read and found to be a seven-file shim over `playwright-core`'s own server, so it is not a dependency.
+The versions this record was checked against: `electron` 44.5.1, `playwright-core` 1.63.0 (which `playwright` 1.63.0 brings), `@modelcontextprotocol/sdk` 1.30.0. The published `@playwright/mcp` 0.0.80 was read and found to be a seven-file shim over `playwright-core`'s own server, so it is not a dependency.
 
 ## Problem Statement
 

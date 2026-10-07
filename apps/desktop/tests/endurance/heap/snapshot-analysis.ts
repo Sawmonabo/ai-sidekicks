@@ -25,7 +25,7 @@
 import { createWriteStream } from "node:fs";
 import { once } from "node:events";
 
-import type { CDPSession } from "@playwright/test";
+import type { CDPSession } from "playwright";
 import type { Protocol } from "devtools-protocol";
 import { getHeapFromFile } from "memlab";
 

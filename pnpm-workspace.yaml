@@ -123,7 +123,7 @@ catalogs:
     # The browser tier. `@vitest/browser-playwright` declares the same exact peer on its runner
     # (`peerDependencies: { vitest: "4.1.11" }`) that `@vitest/coverage-v8` does, so it belongs in
     # the lockstep set rather than carrying its own caret in `apps/desktop`. Its second peer,
-    # `playwright`, is `*` and is satisfied by that package's own `@playwright/test` pin.
+    # `playwright`, is `*` and is satisfied by that package's own `playwright` pin.
     "@vitest/browser-playwright": 4.1.11
 
 patchedDependencies:

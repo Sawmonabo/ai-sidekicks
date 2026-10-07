@@ -2,7 +2,7 @@
 // a window's root carries, the View menu's ticks, and a View-menu row clicked in main as a
 // person's click runs it.
 
-import type { Page } from "@playwright/test";
+import type { Page } from "playwright";
 
 import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import type { AppUnderTest } from "../../helpers/electron/harness.js";

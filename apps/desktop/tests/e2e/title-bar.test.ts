@@ -8,7 +8,7 @@
 // What this reads is the style the window's own document computes, not a native drag: no test
 // here moves the pointer.
 
-import type { Page } from "@playwright/test";
+import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";

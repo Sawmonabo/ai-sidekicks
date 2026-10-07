@@ -63,9 +63,9 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
   },
   {
     // Tier: accessibility. `axe-core` runs inside the browser-mode page rather than through
-    // `@axe-core/playwright`, which needs a `@playwright/test` `Page`; Vitest browser mode hands
-    // that only to server-side custom commands, and it is the orchestrator page, not the tester
-    // iframe. Runs only by name until the accessibility sweeps become a gate on every PR.
+    // `@axe-core/playwright`, which needs a Playwright `Page`; Vitest browser mode hands that only
+    // to server-side custom commands, and it is the orchestrator page, not the tester iframe. Runs
+    // only by name until the accessibility sweeps become a gate on every PR.
     define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
