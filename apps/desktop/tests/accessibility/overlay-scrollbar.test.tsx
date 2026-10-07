@@ -201,15 +201,15 @@ describe("accessibility — the overlay scrollbar", () => {
     }
     // The pane holds the diff to a height, so its rows overflow it.
     paneDiff.style.maxBlockSize = "8rem";
-    const [firstCard, secondCard, runEntries, payloadRows, payloadText, ...rest] =
+    const conversationScrollers = Array.from(
       conversation.querySelectorAll<HTMLElement>(
         ".meridian-diff, .meridian-run-group-body__scroller, " +
           ".meridian-workflow-payload__window, .meridian-artifact-payload__preview",
-      );
-    if (payloadText === undefined || rest.length > 0) {
-      throw new Error("the conversation drew other than five scrollers");
-    }
-    await showEveryBar([paneDiff, firstCard, secondCard, runEntries, payloadRows, payloadText]);
+      ),
+    );
+    expect(conversationScrollers).toHaveLength(5);
+    const [firstCard, secondCard, runEntries, payloadRows, payloadText] = conversationScrollers;
+    await showEveryBar([paneDiff, ...conversationScrollers]);
     expect(barsInsideTableOrListbox(document)).toStrictEqual([]);
     // Nothing here adds a landmark: two diff cards over the same refs would be two landmarks of
     // one name, which `landmark-unique` reports.
