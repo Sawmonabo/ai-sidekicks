@@ -77,7 +77,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <p className="meridian-callback-tools__note">
         The background service hosts these tools, not a provider. A sidekick's call to one is an
         ordinary tool call under the permission level of the session or workflow run it works in, so
-        a level that asks first asks for approval before the tool runs.
+        a level that asks first raises the approval card before the tool runs.
       </p>
       <CallbackToolRows tools={props.registry.tools} />
     </div>
