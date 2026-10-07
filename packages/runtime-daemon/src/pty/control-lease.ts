@@ -1,8 +1,9 @@
 // One shell's control lease: who may write to it, size it and close it.
 //
-// The lease is held by one connection of one of the person's devices, or by an agent's running
-// command on this machine, and lives only in this daemon's memory. Nothing gives a shell back: a
-// device's hold ends when another device takes it or its connection ends, a run's hold when the
+// The lease is held by one of the person's devices, or by an agent's run on this machine, and lives
+// only in this daemon's memory. Beside that holder it keeps bindings: the connections a device took
+// it from, and the command a run last took it for. Nothing gives a shell back: a device's hold ends
+// when another device takes it or every connection that took it has ended, a run's hold when the
 // run leaves its running state. A run's hold is never taken by a device, forced or not.
 //
 // Every decision reads and replaces the holder with no `await` in between, so two takes in one
@@ -51,7 +52,7 @@ export interface ShellControlLeaseOptions {
 }
 
 type LeaseHolder =
-  | { kind: "device"; deviceId: DeviceId; transportId: number }
+  | { kind: "device"; deviceId: DeviceId; transportIds: ReadonlySet<number> }
   | { kind: "run"; runId: RunId; commandId: CommandId };
 
 /** A take, resize or close refused because another device or a run holds the shell. */
@@ -87,7 +88,10 @@ export class ShellControlLease {
   readonly #machineDeviceId: DeviceId;
   readonly #broadcast: (change: PtyControlChangedPayload) => Promise<void>;
   #holder: LeaseHolder | null = null;
+  // Counts changes of holder, so a failed broadcast undoes its change only while it stands.
   #changeCount = 0;
+  // The broadcast of the change that set the holder, while it is pending; a retake awaits it.
+  #pendingBroadcast: Promise<void> | undefined;
 
   constructor(options: ShellControlLeaseOptions) {
     this.#sessionId = options.sessionId;
@@ -97,32 +101,45 @@ export class ShellControlLease {
   }
 
   /**
-   * Takes the shell for a device connection. A device's retake of a shell it holds succeeds
-   * without a change. `force` moves the shell off another device; nothing moves it off a run.
+   * Takes the shell for a device connection. A device's retake of a shell it holds sends no
+   * broadcast, and its connection then keeps the hold too; while the take that gave the device the
+   * hold is still being broadcast, the retake waits for it and fails with it. `force` moves the shell off another
+   * device; nothing moves it off a run.
    */
   async take(caller: ShellLeaseCaller, force: boolean): Promise<SessionTakeControlResponse> {
     const current = this.#holder;
     const response = { terminalId: this.#terminalId, holderDeviceId: caller.deviceId };
     if (current?.kind === "device" && current.deviceId === caller.deviceId) {
+      if (!current.transportIds.has(caller.transportId)) {
+        const transportIds = new Set([...current.transportIds, caller.transportId]);
+        this.#rebind({ ...current, transportIds });
+      }
+      await this.#pendingBroadcast;
       return response;
     }
     if (current?.kind === "run" || (current !== null && !force)) {
       throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
     }
     await this.#changeHolder(
-      { kind: "device", deviceId: caller.deviceId, transportId: caller.transportId },
+      { kind: "device", deviceId: caller.deviceId, transportIds: new Set([caller.transportId]) },
       current === null ? "taken" : "taken_by_force",
     );
     return response;
   }
 
   /**
-   * Takes the shell for an agent's running command. The same run's retake changes nothing, and a
-   * different run's take moves the hold to it; a device's hold is never taken by a run.
+   * Takes the shell for an agent's running command. The same run's retake keeps the run as holder:
+   * from the same command it changes nothing, waiting on a pending broadcast of the hold as a
+   * device's retake does, and from another it names that command, broadcast as a take. A different run's take moves the hold to it; a device's hold is never taken by a run.
    */
   async takeForRun(run: ShellLeaseRun): Promise<void> {
     const current = this.#holder;
     if (current?.kind === "run" && current.runId === run.runId) {
+      if (current.commandId === run.commandId) {
+        await this.#pendingBroadcast;
+      } else {
+        await this.#changeHolder({ ...current, commandId: run.commandId }, "taken");
+      }
       return;
     }
     if (current?.kind === "device") {
@@ -165,10 +182,16 @@ export class ShellControlLease {
     }
   }
 
-  /** Gives the shell back when the device connection holding it ends. */
+  /** Drops an ended connection from the device's hold, giving the shell back once none remains. */
   async releaseConnection(transportId: number): Promise<void> {
     const current = this.#holder;
-    if (current?.kind !== "device" || current.transportId !== transportId) {
+    if (current?.kind !== "device" || !current.transportIds.has(transportId)) {
+      return;
+    }
+    const remaining = new Set(current.transportIds);
+    remaining.delete(transportId);
+    if (remaining.size > 0) {
+      this.#rebind({ ...current, transportIds: remaining });
       return;
     }
     await this.#changeHolder(null, "auto_released_disconnect");
@@ -202,6 +225,12 @@ export class ShellControlLease {
     return { terminalId: this.#terminalId, ...this.#describeHolder(holder) };
   }
 
+  // Changes a binding beside the holder, which nobody is told of. A failed broadcast of the change
+  // that set the holder still undoes it, dropping the binding with it.
+  #rebind(next: LeaseHolder): void {
+    this.#holder = next;
+  }
+
   // Replaces the holder at once, then broadcasts the change, naming the holder after it, or nobody
   // after a release, and the device it moved off. A failed broadcast puts the previous holder back
   // unless a later change has replaced this one, so no change stands without its event.
@@ -210,20 +239,26 @@ export class ShellControlLease {
     this.#holder = next;
     this.#changeCount += 1;
     const change = this.#changeCount;
+    const broadcasting = this.#broadcast({
+      sessionId: this.#sessionId,
+      terminalId: this.#terminalId,
+      ...(next === null ? { holderDeviceId: null } : this.#describeHolder(next)),
+      previousHolderDeviceId:
+        previous === null ? null : this.#describeHolder(previous).holderDeviceId,
+      reason,
+    });
+    this.#pendingBroadcast = broadcasting;
     try {
-      await this.#broadcast({
-        sessionId: this.#sessionId,
-        terminalId: this.#terminalId,
-        ...(next === null ? { holderDeviceId: null } : this.#describeHolder(next)),
-        previousHolderDeviceId:
-          previous === null ? null : this.#describeHolder(previous).holderDeviceId,
-        reason,
-      });
+      await broadcasting;
     } catch (error) {
       if (this.#changeCount === change) {
         this.#holder = previous;
       }
       throw error;
+    } finally {
+      if (this.#pendingBroadcast === broadcasting) {
+        this.#pendingBroadcast = undefined;
+      }
     }
   }
 }
