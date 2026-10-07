@@ -13,8 +13,10 @@
 // away builds the hidden window again, the third loss in a row as a safe start that leaves every
 // kept place as it is until the console document ends it. The registry carries the `window`
 // pushes to the console document, the one document with the bridge, and holds the latest navigation
-// request (a link or a notification click) until that document reads it, pushing every later one;
-// a second launch carrying a link is that request, never a launch that brings a window forward.
+// request (a link or a notification click) until that document reads it, pushing every later one.
+// While a navigation replaces the console document, the outgoing document may still ask: its read
+// takes nothing, and the request stays held until the navigation commits, for the new document, or
+// ends without committing, for the document that stays.
 
 import { randomUUID } from "node:crypto";
 
@@ -41,7 +43,6 @@ import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { WindowDefaultSizes } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
-import { findAppLinkArgument } from "../services/app-link.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./places/key.js";
@@ -120,6 +121,10 @@ export class OpenWindows {
   #heldNavigationRequest: NavigationRequest | undefined;
   /** Whether the console document loaded now has read its held request and hears the pushes. */
   #isConsoleDocumentListening = false;
+  /** Set from a main-frame navigation's start in the console document until it commits or ends. */
+  #isConsoleDocumentBeingReplaced = false;
+  /** Whether the outgoing document asked for its request while being replaced, answered none. */
+  #wasReadDeferred = false;
 
   /** Reads the kept places, so every window opens where it was. Safe before `ready`. */
   public constructor(options: OpenWindowsOptions) {
@@ -163,12 +168,11 @@ export class OpenWindows {
    * Installs the app's window lifecycle; call it before `ready`, so a second launch that arrives
    * while the app starts is heard. Closing the last window a person sees quits on Windows and
    * Linux and leaves the app running on macOS, where a Dock click or a menu-bar icon click opens a
-   * window again; a second launch or a menu-bar icon click brings the window used last forward,
-   * except a second launch carrying a link, which the link handler routes to its own place. A
+   * window again; a menu-bar icon click brings the window used last forward. A
    * quit closes the hidden window first and the windows a person sees once its document is gone,
    * so the console document never hears them close one by one as a person would close them.
-   * During a quit, and before start has built the hidden window, no Dock click, menu-bar icon click
-   * or second launch opens a window.
+   * During a quit, and before start has built the hidden window, no Dock click or menu-bar icon
+   * click opens a window.
    */
   public installLifecycle(app: Pick<App, "on" | "quit">): void {
     this.#app = app;
@@ -199,11 +203,6 @@ export class OpenWindows {
         this.#reopenWindowUsedLast();
       }
     });
-    app.on("second-instance", (_event, commandLine) => {
-      if (findAppLinkArgument(commandLine) === undefined) {
-        this.#showWindowUsedLast();
-      }
-    });
   }
 
   /**
@@ -213,7 +212,7 @@ export class OpenWindows {
   public installMenuBarIcon(menuBarIcon: Pick<Tray, "on">): void {
     this.#menuBarIcon = menuBarIcon;
     this.#menuBarIcon.on("click", () => {
-      this.#showWindowUsedLast();
+      this.showWindowUsedLast();
     });
   }
 
@@ -257,16 +256,17 @@ export class OpenWindows {
     if (this.#isQuitting) {
       return;
     }
-    if (this.#isConsoleDocumentListening) {
-      this.#sendToConsoleDocument(NAVIGATION_REQUEST_CHANNEL, request);
-      return;
-    }
-    this.#heldNavigationRequest = request;
     const hiddenWindow = this.#hiddenWindow;
     if (hiddenWindow === undefined) {
+      this.#heldNavigationRequest = request;
       this.#rebuildHiddenWindow();
-    } else if (hiddenWindow.baseWindow.isVisible()) {
-      bringWindowForward(hiddenWindow.baseWindow, this.#platform);
+    } else if (this.#isConsoleDocumentListening && !this.#isConsoleDocumentBeingReplaced) {
+      this.#sendToConsoleDocument(NAVIGATION_REQUEST_CHANNEL, request);
+    } else {
+      this.#heldNavigationRequest = request;
+      if (hiddenWindow.baseWindow.isVisible()) {
+        bringWindowForward(hiddenWindow.baseWindow, this.#platform);
+      }
     }
   }
 
@@ -275,6 +275,11 @@ export class OpenWindows {
    * then on the document listens, and every request is pushed until another document loads.
    */
   public readNavigationRequest(): NavigationRequest | null {
+    if (this.#isConsoleDocumentBeingReplaced) {
+      // The asker may be the outgoing document: the request waits for the document that remains.
+      this.#wasReadDeferred = true;
+      return null;
+    }
     this.#isConsoleDocumentListening = true;
     const held = this.#heldNavigationRequest ?? null;
     this.#heldNavigationRequest = undefined;
@@ -287,10 +292,10 @@ export class OpenWindows {
   }
 
   /**
-   * A second launch or a menu-bar icon click: the window used last comes forward, or, with none
-   * open, the console document opens it again. During a quit nothing opens.
+   * A second launch carrying no link, or a menu-bar icon click: the window used last comes forward,
+   * or, with none open, the console document opens it again. During a quit nothing opens.
    */
-  #showWindowUsedLast(): void {
+  public showWindowUsedLast(): void {
     if (this.#isQuitting) {
       return;
     }
@@ -336,6 +341,10 @@ export class OpenWindows {
   }
 
   #buildHiddenWindow(beforeLoad: HiddenWindowOptions["beforeLoad"]): RendererWindow {
+    // A new console document has asked for nothing yet.
+    this.#isConsoleDocumentListening = false;
+    this.#isConsoleDocumentBeingReplaced = false;
+    this.#wasReadDeferred = false;
     const hiddenWindow = openHiddenWindow({
       background: this.#appearance.ground,
       openChildWindow: this.#openChildWindow,
@@ -384,11 +393,46 @@ export class OpenWindows {
     // document drew close, their places kept, and the new document reopens them.
     hiddenWindow.view.webContents.on("did-start-navigation", (details) => {
       if (this.#hiddenWindow === hiddenWindow && details.isMainFrame && !details.isSameDocument) {
-        this.#isConsoleDocumentListening = false;
+        this.#isConsoleDocumentBeingReplaced = true;
         this.#closeWindowsOfReplacedDocument();
       }
     });
+    hiddenWindow.view.webContents.on("did-navigate", () => {
+      if (this.#hiddenWindow === hiddenWindow) {
+        this.#consoleDocumentReplaced();
+      }
+    });
+    // A failed load commits an error page in the document's place, with no `did-navigate`.
+    hiddenWindow.view.webContents.on(
+      "did-fail-load",
+      (_event, _code, _description, _url, isMainFrame: boolean) => {
+        if (this.#hiddenWindow === hiddenWindow && isMainFrame) {
+          this.#consoleDocumentReplaced();
+        }
+      },
+    );
+    // A navigation that ends without committing (a stop, a response with no content) emits neither
+    // of those, only the end of loading: the outgoing document stays the console document.
+    hiddenWindow.view.webContents.on("did-stop-loading", () => {
+      if (this.#hiddenWindow === hiddenWindow && this.#isConsoleDocumentBeingReplaced) {
+        this.#isConsoleDocumentBeingReplaced = false;
+        this.#isConsoleDocumentListening ||= this.#wasReadDeferred;
+        this.#wasReadDeferred = false;
+        const held = this.#heldNavigationRequest;
+        if (this.#isConsoleDocumentListening && held !== undefined) {
+          this.#heldNavigationRequest = undefined;
+          this.#sendToConsoleDocument(NAVIGATION_REQUEST_CHANNEL, held);
+        }
+      }
+    });
     return hiddenWindow;
+  }
+
+  /** A new document committed in the console document's place, and has asked for nothing yet. */
+  #consoleDocumentReplaced(): void {
+    this.#isConsoleDocumentBeingReplaced = false;
+    this.#wasReadDeferred = false;
+    this.#isConsoleDocumentListening = false;
   }
 
   /**

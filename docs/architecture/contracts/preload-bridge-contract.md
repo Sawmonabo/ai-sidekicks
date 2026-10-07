@@ -133,7 +133,7 @@ interface PlatformBridge {
     setDefaultSizes(sizes: { paneWidths: Record<string, number> }): Promise<void>;
     // ends a safe start once `Restore windows` reopened the kept windows, so main keeps each window's place again
     endSafeStart(): Promise<void>;
-    // main's ask, by window id, to open the window used last again when no window a person sees is open: a Dock click or a second launch
+    // main's ask, by window id, to open the window used last again when no window a person sees is open: a Dock click or a second launch carrying no link
     subscribeToReopenRequest(handler: (windowId: string) => void): Unsubscribe;
     // a session view dragged by its title past its window's edge: the id of the app's window under a point on the screen, hit-tested by main against its registry's window bounds, never the hidden console window; null over the desktop or another app
     findWindowAt(point: { x: number; y: number }): Promise<string | null>;
@@ -145,7 +145,7 @@ interface PlatformBridge {
     endTearOff(): Promise<void>;
     // released over another of the app's windows: main stops moving any torn-off window and brings that window forward, while the renderer moves the view into its row and closes the window the view left if it holds no view
     dockView(targetWindowId: string): Promise<void>;
-    // a `sidekicks://` address or a notification click, which main hands over for the renderer to route
+    // a `sidekicks://` address or a notification click, which main hands over for the renderer to route; main holds the latest one until the console document first subscribes, which receives it first, once
     subscribeToNavigationRequest(handler: (request: NavigationRequest) => void): Unsubscribe;
   };
 

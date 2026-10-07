@@ -12,12 +12,17 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
+
 import type { AppearanceRecord } from "#shared/appearance.js";
 import {
   BRIDGE_CHANNELS,
+  NAVIGATION_REQUEST_CHANNEL,
   REOPEN_WINDOW_CHANNEL,
   UNKEPT_SCHEME_CHANNEL,
 } from "#shared/bridge-channels.js";
+import type { NavigationRequest } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 
 const electronMock = createElectronMock();
@@ -41,6 +46,10 @@ let revealCalls: string[];
 let isAskedFromTheConsole: boolean;
 /** How many times main's registry was told the safe start ended. */
 let safeStartEnds: number;
+/** The navigation request main holds for the console document, answered to its first read. */
+let heldNavigationRequest: NavigationRequest | null;
+/** How many times the page read the held navigation request. */
+let navigationRequestReads: number;
 /** The listeners the preload put on each channel main pushes on. */
 let pushListeners: Map<string, (event: unknown, ...args: unknown[]) => void>;
 
@@ -86,7 +95,12 @@ async function connectWindowBridge() {
         endSafeStart: () => {
           safeStartEnds += 1;
         },
-        readNavigationRequest: () => null,
+        readNavigationRequest: () => {
+          navigationRequestReads += 1;
+          const held = heldNavigationRequest;
+          heldNavigationRequest = null;
+          return held;
+        },
       },
     }),
   )) {
@@ -110,6 +124,8 @@ beforeEach(async () => {
   revealCalls = [];
   isAskedFromTheConsole = true;
   safeStartEnds = 0;
+  heldNavigationRequest = null;
+  navigationRequestReads = 0;
   pushListeners = new Map();
 });
 
@@ -194,6 +210,34 @@ describe("the window members", () => {
     expect(safeStartEnds).toBe(1);
     expect(reopened).toStrictEqual([OPEN_WINDOW_ID]);
     expect(unkeptSchemes).toBe(1);
+  });
+
+  it("hand the page main's held navigation request once, though the first subscription left while it was read", async () => {
+    const sessionRequest: NavigationRequest = {
+      kind: "session",
+      sessionId: "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6e" as SessionId,
+    };
+    const runRequest: NavigationRequest = {
+      kind: "workflowRun",
+      workflowRunId: "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6f" as WorkflowRunId,
+    };
+    heldNavigationRequest = sessionRequest;
+    const windowBridge = await connectWindowBridge();
+    const heard: NavigationRequest[] = [];
+
+    // An effect's re-run: the first subscription leaves before main's answer lands.
+    windowBridge.subscribeToNavigationRequest((request) => heard.push(request))();
+    const stopHearing = windowBridge.subscribeToNavigationRequest((request) => heard.push(request));
+    await vi.waitFor(() => {
+      expect(heard).toStrictEqual([sessionRequest]);
+    });
+    // A push that lands while no handler is subscribed waits for the next one.
+    stopHearing();
+    pushListeners.get(NAVIGATION_REQUEST_CHANNEL)?.({}, runRequest);
+    windowBridge.subscribeToNavigationRequest((request) => heard.push(request));
+
+    expect(heard).toStrictEqual([sessionRequest, runRequest]);
+    expect(navigationRequestReads).toBe(1);
   });
 
   it("answer no document but the console's, on every member", async () => {

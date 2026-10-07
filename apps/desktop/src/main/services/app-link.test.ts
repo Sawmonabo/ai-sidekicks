@@ -1,11 +1,15 @@
 // The `sidekicks://` link handler over main's real registry of windows and the bridge's read of the
 // held request: a link that arrives before the console document listens, from the operating system
 // or a command line, is held and handed over once the document reads, and every later one is
-// pushed until another console document loads or the renderer's process goes; a request with the
-// hidden window closed builds it again, except during a quit, and with the load-failure page
-// showing brings that page forward; a refused link routes nothing and its log line holds no part of
-// it; and an installed app takes the scheme at every start, logging the app it displaced or the
-// system's refusal, while an unpackaged run leaves it alone. `electron` is mocked.
+// pushed until another console document loads or the renderer's process goes; while a navigation
+// replaces the console document the outgoing document's late read takes nothing, and the request
+// goes to the new document at the commit, or to the document that stays when the navigation ends
+// without committing; a request with the hidden window gone builds it again, except during a quit,
+// and with the load-failure page showing brings that page forward; a second launch carrying a link
+// brings no window forward, one carrying none brings the window used last; a refused link routes
+// nothing and its log line holds no part of it; and an installed app takes the scheme at every
+// start, logging the app it displaced or the system's refusal, while an unpackaged run leaves it
+// alone. `electron` is mocked.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,7 +22,13 @@ import { BRIDGE_CHANNELS, NAVIGATION_REQUEST_CHANNEL } from "#shared/bridge-chan
 import type { NavigationRequest } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import type { MockBaseWindow } from "#test/helpers/electron/mock/window.js";
-import { INDEX_URL, loggedMessages, testWindowFrame } from "#test/helpers/electron/mock/readers.js";
+import {
+  handedDocument,
+  INDEX_URL,
+  loggedMessages,
+  testWindowFrame,
+  windowOpenHandlerOf,
+} from "#test/helpers/electron/mock/readers.js";
 
 const electronMock = createElectronMock();
 
@@ -114,6 +124,24 @@ function sentToConsoleDocument(): readonly { channel: string; value: unknown }[]
   return latestHiddenWindow().contentView.children[0]?.webContents.sent ?? [];
 }
 
+/** Fires `eventName` on the console document of the hidden window built last, as Electron does. */
+function emitOnConsoleDocument(eventName: string, ...args: unknown[]): void {
+  latestHiddenWindow().contentView.children[0]?.webContents.emit(eventName, ...args);
+}
+
+/** A main-frame navigation to a new document starts in the console document's place. */
+const NEW_DOCUMENT_NAVIGATION = { isMainFrame: true, isSameDocument: false };
+
+/** Opens a window a person sees from the console document, as its `window.open` does. */
+function openChildWindow(frameName: string): MockBaseWindow {
+  const answer = windowOpenHandlerOf({
+    baseWindow: latestHiddenWindow(),
+    view: latestHiddenWindow().contentView.children[0],
+  })({ url: "about:blank", frameName }) as { createWindow: (options: object) => unknown };
+  answer.createWindow({ webContents: handedDocument() });
+  return electronMock.constructed.at(-1) ?? expect.fail("the window was built");
+}
+
 describe("a link", () => {
   it.each([
     {
@@ -159,12 +187,10 @@ describe("a link", () => {
     ]);
 
     // A reload replaces the console document, which has not listened yet: only the latest is held.
-    latestHiddenWindow().contentView.children[0]?.webContents.emit("did-start-navigation", {
-      isMainFrame: true,
-      isSameDocument: false,
-    });
+    emitOnConsoleDocument("did-start-navigation", NEW_DOCUMENT_NAVIGATION);
     electronMock.emitAppEvent("open-url", SESSION_LINK);
     electronMock.emitAppEvent("open-url", RUN_LINK);
+    emitOnConsoleDocument("did-navigate", {}, INDEX_URL, -1, "");
     expect(sentToConsoleDocument()).toHaveLength(2);
     expect(readFromConsoleDocument()).toEqual(RUN_REQUEST);
 
@@ -206,15 +232,103 @@ describe("a link", () => {
     expect(rebuilt).not.toBe(failurePage);
     expect(readFromConsoleDocument()).toEqual(RUN_REQUEST);
 
-    // During a quit nothing opens: the hidden window, closed first while its document reloads, is
-    // not built again for a link.
-    rebuilt.contentView.children[0]?.webContents.emit("did-start-navigation", {
-      isMainFrame: true,
-      isSameDocument: false,
-    });
+    // During a quit nothing opens: the hidden window, closed first, is not built again for a link.
     electronMock.emitAppEvent("before-quit");
     electronMock.emitAppEvent("open-url", SESSION_LINK);
     expect(latestHiddenWindow()).toBe(rebuilt);
+  });
+
+  it("builds the hidden window again once it closed outside a quit, and holds for the new document", async () => {
+    const { openWindows, readFromConsoleDocument } = await startLinkHandler();
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    expect(readFromConsoleDocument()).toBeNull();
+    const closed = latestHiddenWindow();
+    // As a probe closing every window does: the document that listened is gone with it.
+    closed.close();
+
+    electronMock.emitAppEvent("open-url", SESSION_LINK);
+    electronMock.emitAppEvent("open-url", RUN_LINK);
+
+    expect(latestHiddenWindow()).not.toBe(closed);
+    // The new document has asked for nothing, so the later link waits for it too, the latest only.
+    expect(sentToConsoleDocument()).toEqual([]);
+    expect(readFromConsoleDocument()).toEqual(RUN_REQUEST);
+  });
+
+  it("waits out a navigation replacing the console document, whose late read takes nothing", async () => {
+    const { openWindows, readFromConsoleDocument } = await startLinkHandler();
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    expect(readFromConsoleDocument()).toBeNull();
+
+    emitOnConsoleDocument("did-start-navigation", NEW_DOCUMENT_NAVIGATION);
+    electronMock.emitAppEvent("open-url", SESSION_LINK);
+    // The outgoing document shares the console document until the new one commits.
+    expect(readFromConsoleDocument()).toBeNull();
+    emitOnConsoleDocument("did-navigate", {}, INDEX_URL, -1, "");
+    emitOnConsoleDocument("did-stop-loading");
+    // The new document has asked for nothing yet, so a link after the commit waits for it too.
+    electronMock.emitAppEvent("open-url", RUN_LINK);
+
+    expect(sentToConsoleDocument()).toEqual([]);
+    expect(readFromConsoleDocument()).toEqual(RUN_REQUEST);
+  });
+
+  it("goes to the document that stays when a navigation ends without committing, and not to an error page", async () => {
+    const { openWindows, readFromConsoleDocument } = await startLinkHandler();
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    expect(readFromConsoleDocument()).toBeNull();
+
+    // A stopped navigation leaves the listening document in place: what came meanwhile is pushed.
+    emitOnConsoleDocument("did-start-navigation", NEW_DOCUMENT_NAVIGATION);
+    electronMock.emitAppEvent("open-url", RUN_LINK);
+    expect(sentToConsoleDocument()).toEqual([]);
+    emitOnConsoleDocument("did-stop-loading");
+    expect(sentToConsoleDocument()).toEqual([
+      { channel: NAVIGATION_REQUEST_CHANNEL, value: RUN_REQUEST },
+    ]);
+
+    // A new document that first asked while another navigation was under way listens once that
+    // navigation ends without committing.
+    emitOnConsoleDocument("did-start-navigation", NEW_DOCUMENT_NAVIGATION);
+    emitOnConsoleDocument("did-navigate", {}, INDEX_URL, -1, "");
+    emitOnConsoleDocument("did-start-navigation", NEW_DOCUMENT_NAVIGATION);
+    expect(readFromConsoleDocument()).toBeNull();
+    electronMock.emitAppEvent("open-url", SESSION_LINK);
+    emitOnConsoleDocument("did-stop-loading");
+    expect(sentToConsoleDocument()).toHaveLength(2);
+    expect(sentToConsoleDocument()[1]).toEqual({
+      channel: NAVIGATION_REQUEST_CHANNEL,
+      value: SESSION_REQUEST,
+    });
+
+    // A failed load puts an error page in the document's place: nothing is pushed to it.
+    emitOnConsoleDocument("did-start-navigation", NEW_DOCUMENT_NAVIGATION);
+    electronMock.emitAppEvent("open-url", RUN_LINK);
+    emitOnConsoleDocument("did-fail-load", {}, -6, "ERR_FILE_NOT_FOUND", INDEX_URL, true);
+    emitOnConsoleDocument("did-stop-loading");
+    expect(sentToConsoleDocument()).toHaveLength(2);
+    expect(readFromConsoleDocument()).toEqual(RUN_REQUEST);
+  });
+
+  it("on a second launch is routed and brings no window forward; a launch carrying none does", async () => {
+    const { openWindows, log } = await startLinkHandler();
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    const usedLast = openChildWindow("window/w-1");
+    const focusesBefore = usedLast.focusCount;
+
+    // Found by its scheme in any case and in any place, so even one the parser refuses is a link's
+    // launch: a link to a session shown in another window never brings the wrong one forward first.
+    electronMock.emitAppEvent(
+      "second-instance",
+      [PROGRAM, SESSION_LINK.toUpperCase(), "--original-process-start-time=1"],
+      "/",
+      {},
+    );
+    expect(usedLast.focusCount).toBe(focusesBefore);
+    expect(loggedMessages(log).filter((message) => message.includes("refused"))).toHaveLength(1);
+
+    electronMock.emitAppEvent("second-instance", [PROGRAM], "/", {});
+    expect(usedLast.focusCount).toBe(focusesBefore + 1);
   });
 
   it("not in the one form routes nothing, and its log line holds no part of it", async () => {

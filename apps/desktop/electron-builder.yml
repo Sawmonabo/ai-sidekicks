@@ -16,9 +16,10 @@ files:
   - "!node_modules/notify-status-*/**"
   - "!node_modules/notify-status/!(notify-status.${platform}-${arch}*).node"
 # The `sidekicks://` links. electron-builder declares the scheme in the macOS bundle's
-# `CFBundleURLTypes` and in the Linux targets' `.desktop` file as `x-scheme-handler/sidekicks`; on
-# Windows its installer registers none, and the app's own `setAsDefaultProtocolClient` at start
-# writes the registry entry.
+# `CFBundleURLTypes` and in the Linux targets' `.desktop` file as `x-scheme-handler/sidekicks`, which
+# only makes the app eligible to open them. The installed app's own `setAsDefaultProtocolClient` at
+# every start makes it the handler on all three platforms; on Windows it also writes the registry
+# entry, which the installer does not.
 protocols:
   - name: AI Sidekicks
     schemes:

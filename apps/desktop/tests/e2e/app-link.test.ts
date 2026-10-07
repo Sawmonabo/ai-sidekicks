@@ -1,5 +1,5 @@
-// A `sidekicks://` link reaches the console document through the real main, preload and bridge,
-// parsed: one the running app is handed through the platform's own event (`open-url` on macOS, a
+// A `sidekicks://` link, a session's or a workflow run's, reaches the console document through the
+// real main, preload and bridge, parsed: one the running app is handed through the platform's own event (`open-url` on macOS, a
 // second launch's command line elsewhere), held until the console document subscribes and pushed
 // after, and one on the command line the app was launched with. A link main's parser refuses
 // reaches the document as nothing.
@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { composeAppLink } from "@ai-sidekicks/contracts/app-link";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import type { NavigationRequest, PreloadApi } from "#shared/preload-api.js";
 import { type AppUnderTest, withLaunchedApp } from "../helpers/electron/harness.js";
@@ -23,6 +24,10 @@ const FIRST_SESSION: NavigationRequest = {
   sessionId: "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6e" as SessionId,
 };
 const SECOND_SESSION: NavigationRequest = { kind: "session", sessionId: SECOND_SESSION_ID };
+const WORKFLOW_RUN: NavigationRequest = {
+  kind: "workflowRun",
+  workflowRunId: "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d70" as WorkflowRunId,
+};
 
 /** The console document's own record of what its subscription heard, on its global object. */
 interface HeardRequests {
@@ -87,7 +92,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — a sidekicks:// link", () => {
       // their order, so a malformed link routed as anything would be heard first.
       await handOverLink(appUnderTest.application, `sidekicks://session//${SECOND_SESSION_ID}`);
       await handOverLink(appUnderTest.application, composeAppLink(SECOND_SESSION));
-      await expectHeard(appUnderTest, [FIRST_SESSION, SECOND_SESSION]);
+      await handOverLink(appUnderTest.application, composeAppLink(WORKFLOW_RUN));
+      await expectHeard(appUnderTest, [FIRST_SESSION, SECOND_SESSION, WORKFLOW_RUN]);
     });
   });
 
