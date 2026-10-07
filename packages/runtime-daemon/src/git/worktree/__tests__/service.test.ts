@@ -588,6 +588,28 @@ describe("WorktreeService.cleanupPass", () => {
     expect(readWorktreeRow(created.worktreeId).cleaned_at).toBeNull();
   });
 
+  it("retires a worktree on a detached mount and skips one on a chat's managed mount", async () => {
+    insertMount({ repoMountId: OTHER_REPO_MOUNT_ID, canonicalRoot: OTHER_CANONICAL_ROOT });
+    const service = makeService();
+    const onAttachedMount = await createReadyWorktree(service);
+    const onManagedMount = await service.create({
+      repoMountId: OTHER_REPO_MOUNT_ID,
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      branchName: "feature/managed",
+      onCollision: "refuse",
+    });
+    ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached'`).run();
+    ctx.db
+      .prepare(`UPDATE repo_mounts SET origin = 'managed', managed_session_id = ? WHERE id = ?`)
+      .run(SESSION_ID, OTHER_REPO_MOUNT_ID);
+
+    const result = await service.cleanupPass();
+
+    expect(result.retiredWorktreeIds).toEqual([onAttachedMount.worktreeId]);
+    expect(readWorktreeRow(onManagedMount.worktreeId).state).toBe("ready");
+  });
+
   it("leaves a live worktree on an attached mount alone", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);

@@ -1,7 +1,8 @@
 /**
- * Repo-mount lifecycle service, the daemon-side owner of the `repo_mounts` table. A mount belongs
- * to the machine, not a session: attach stamps the daemon's node id, writes no workspace and
- * appends no event.
+ * Repo-mount lifecycle service, the daemon-side owner of the `repo_mounts` table. An attached
+ * mount belongs to the machine, not a session: attach stamps the daemon's node id, writes no
+ * workspace and appends no event. A managed mount is one chat's own workspace folder, attached at
+ * that chat's create and deleted with it.
  *
  * - Attach has no containment check: attaching a path is what admits it to the trust envelope.
  * - A duplicate root is caught by `idx_repo_mounts_active_root` on the INSERT; a pre-read races.
@@ -16,6 +17,7 @@ import type { Statement } from "better-sqlite3";
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import {
   RepoAttachResponseSchema,
+  type RepoMountOrigin,
   type RepoAttachRequest,
   type RepoAttachResponse,
   type RepoDetachRequest,
@@ -29,8 +31,10 @@ import {
   WorkspaceIdSchema,
   type RepoMountId,
   type RepoMountState,
+  type VcsType,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { DatabaseConnections } from "../../database/connections.js";
 import type { DatabaseWriter } from "../../database/writer.js";
@@ -147,6 +151,14 @@ export type RepoMountDetachOutcome = Omit<
   "archivedSessionIds" | "forgottenProjectId"
 >;
 
+/** Inputs for {@link RepoMountService.attachManaged}. */
+export interface AttachManagedMountInput {
+  /** The one chat the mount belongs to. */
+  readonly sessionId: SessionId;
+  /** The workspace folder: absolute and symlink-resolved, as every mount root is. */
+  readonly canonicalRoot: string;
+}
+
 /** Inputs for {@link RepoMountService.detach}. */
 export interface DetachRepoMountInput extends RepoDetachRequest {
   /** Envelope actor; defaults to the system actor. */
@@ -165,12 +177,26 @@ const ARCHIVED_WORKSPACE_STATE = "archived" satisfies WorkspaceState;
 
 const BUSY_WORKSPACE_STATE = "busy" satisfies WorkspaceState;
 
+const ATTACHED_MOUNT_ORIGIN = "attached" satisfies RepoMountOrigin["kind"];
+
+const MANAGED_MOUNT_ORIGIN = "managed" satisfies RepoMountOrigin["kind"];
+
+// A chat's workspace is a git repository the daemon itself initialized.
+const MANAGED_MOUNT_VCS_TYPE = "git" satisfies VcsType;
+
 const INSERT_MOUNT_SQL = `INSERT INTO repo_mounts (
-     id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
+     id, node_id, local_path, canonical_root, vcs_type, origin, managed_session_id, state,
+     attached_at, updated_at, metadata
    ) VALUES (
-     @id, @node_id, @local_path, @canonical_root, @vcs_type, '${ATTACHED_MOUNT_STATE}', @now,
-     @now, '{}'
+     @id, @node_id, @local_path, @canonical_root, @vcs_type, @origin, @managed_session_id,
+     '${ATTACHED_MOUNT_STATE}', @now, @now, '{}'
    )`;
+
+// A chat's workspace rows go with its mount, because no workspace may outlive the mount it names.
+const DELETE_MANAGED_WORKSPACES_SQL = `DELETE FROM workspaces
+    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)`;
+
+const DELETE_MANAGED_MOUNT_SQL = `DELETE FROM repo_mounts WHERE managed_session_id = @session_id`;
 
 // A dependent with an agent running in it: `busy`, or holding a run whose execution root is
 // unreleased, since a run releases its workspace hold and its execution root separately.
@@ -222,7 +248,8 @@ const DETACH_MOUNT_SQL = `UPDATE repo_mounts
 
 /**
  * Owns every read and write of the `repo_mounts` table. The detach cascade also archives the
- * mount's `workspaces` rows here, because they must share one write with the mount flip.
+ * mount's `workspaces` rows here, and a managed mount's deletion deletes them, because each must
+ * share one write with the mount row it follows.
  */
 export class RepoMountService {
   readonly #events: WorkspaceEventEmitter;
@@ -320,10 +347,41 @@ export class RepoMountService {
       localPath: input.localPath,
       canonicalRoot: resolution.canonicalRoot,
       vcsType: resolution.vcsType,
+      managedSessionId: null,
       attachedAt,
     });
 
     return response;
+  }
+
+  /**
+   * Register a chat's workspace folder as its managed mount, before the folder exists: the
+   * daemon chose the root, so nothing is resolved. Throws `RepoAlreadyAttachedError` when the
+   * root, which the session id names, is already attached.
+   */
+  async attachManaged(input: AttachManagedMountInput): Promise<RepoMountId> {
+    const repoMountId = RepoMountIdSchema.parse(this.#newRepoMountId());
+    await this.#insertMountRow({
+      repoMountId,
+      localPath: input.canonicalRoot,
+      canonicalRoot: input.canonicalRoot,
+      vcsType: MANAGED_MOUNT_VCS_TYPE,
+      managedSessionId: input.sessionId,
+      attachedAt: this.#now(),
+    });
+    return repoMountId;
+  }
+
+  /**
+   * Delete a chat's managed mount row and the workspace rows on it, in one write. A session with
+   * no managed mount writes nothing, so a repeat after a partial purge is safe.
+   */
+  async deleteManaged(sessionId: SessionId): Promise<void> {
+    const bindings = { session_id: sessionId };
+    await this.#writer.write([
+      { sql: DELETE_MANAGED_WORKSPACES_SQL, bindings },
+      { sql: DELETE_MANAGED_MOUNT_SQL, bindings },
+    ]);
   }
 
   /**
@@ -417,6 +475,8 @@ export class RepoMountService {
     readonly localPath: string;
     readonly canonicalRoot: string;
     readonly vcsType: string;
+    /** The chat a managed mount belongs to; `null` makes the mount an attached one. */
+    readonly managedSessionId: SessionId | null;
     readonly attachedAt: string;
   }): Promise<void> {
     try {
@@ -429,6 +489,8 @@ export class RepoMountService {
             local_path: fields.localPath,
             canonical_root: fields.canonicalRoot,
             vcs_type: fields.vcsType,
+            origin: fields.managedSessionId === null ? ATTACHED_MOUNT_ORIGIN : MANAGED_MOUNT_ORIGIN,
+            managed_session_id: fields.managedSessionId,
             now: fields.attachedAt,
           },
         },

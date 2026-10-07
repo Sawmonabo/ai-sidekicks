@@ -1,6 +1,6 @@
-// The whole-session purge: deletes the event, snapshot, run and projection cursor rows of each
-// session a person deletes, outright, appends one receipt naming every session that lost rows,
-// then truncates the write-ahead log.
+// The whole-session purge: deletes the event, snapshot, run, projection cursor and directory rows
+// of each session a person deletes, outright, then a chat's managed workspace, appends one receipt
+// naming every session that lost rows, then truncates the write-ahead log.
 //
 // It is the only operation in this package that removes a committed row of the append-only log.
 // Nothing in the background calls it. The caller chooses the sessions and owns the precondition
@@ -20,6 +20,8 @@
 //     does not name it. Each refusal is on that session's outcome.
 //   - Each session is deleted under one hold of its append lock. The receipt is appended after
 //     every session, outside every hold, because the append takes its own lock.
+//   - A chat's managed workspace is deleted once its session's rows have committed, so a refused
+//     session keeps its folder. A deletion that fails then is on the deletion's `refusedReason`.
 
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
@@ -42,6 +44,7 @@ import type {
 } from "../log-service.js";
 import { sessionAppendLock } from "./append-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
+import type { ManagedWorkspaceService } from "../../workspace/managed/service.js";
 
 /** The category a purge never touches: maintenance records, its own receipt included. */
 const NEVER_PURGED_EVENT_CATEGORIES: readonly EventCategory[] = ["event_maintenance"];
@@ -82,8 +85,9 @@ export interface SessionPurgeResult {
   readonly outcomes: readonly SessionPurgeOutcome[];
   /**
    * Present iff the deletion as a whole was refused or did not finish: before any session was
-   * touched (the lock-hold check; `outcomes` is then empty), when the receipt could not be
-   * appended after rows were deleted, or when the write-ahead log could not be truncated.
+   * touched (the lock-hold check; `outcomes` is then empty), when a chat's managed workspace or
+   * the receipt could not be deleted or appended after rows were deleted, or when the write-ahead
+   * log could not be truncated.
    */
   readonly refusedReason?: string | undefined;
 }
@@ -104,6 +108,8 @@ export interface SessionPurgeDeps {
   readonly nodeId: NodeId;
   /** Where the receipt is appended. */
   readonly eventLog: SessionPurgeEventLog;
+  /** Deletes a chat's managed workspace; a project session has none, and nothing is deleted. */
+  readonly managedWorkspaces: Pick<ManagedWorkspaceService, "delete">;
   /** The clock for the receipt's timestamps. */
   readonly now?: () => Date;
   /** Mints the receipt's `operationId`. Defaults to `mintUuidV7`. */
@@ -133,6 +139,7 @@ export class SessionPurge {
   readonly #writer: Pick<DatabaseWriter, "write" | "checkpoint">;
   readonly #nodeId: NodeId;
   readonly #eventLog: SessionPurgeEventLog;
+  readonly #managedWorkspaces: Pick<ManagedWorkspaceService, "delete">;
   readonly #now: () => Date;
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
@@ -141,14 +148,15 @@ export class SessionPurge {
     this.#writer = deps.writer;
     this.#nodeId = deps.nodeId;
     this.#eventLog = deps.eventLog;
+    this.#managedWorkspaces = deps.managedWorkspaces;
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
   }
 
   /**
-   * Deletes every purgeable row of each session in `sessionIds`, appends one receipt naming every
-   * session that lost rows, and truncates the write-ahead log.
+   * Deletes every purgeable row of each session in `sessionIds` and a chat's managed workspace,
+   * appends one receipt naming every session that lost rows, and truncates the write-ahead log.
    *
    * Never throws: every failure becomes a `refusedReason`, on the session it belongs to or on the
    * deletion.
@@ -168,8 +176,20 @@ export class SessionPurge {
     }
 
     const outcomes: SessionPurgeOutcome[] = [];
+    const failures: string[] = [];
     for (const sessionId of sessionIds) {
-      outcomes.push(await this.#purgeSession(sessionId));
+      const outcome = await this.#purgeSession(sessionId);
+      outcomes.push(outcome);
+      if (outcome.refusedReason === undefined) {
+        try {
+          await this.#managedWorkspaces.delete({ sessionId });
+        } catch (error) {
+          failures.push(
+            `the managed workspace of session ${sessionId} could not be deleted after its rows ` +
+              `were: ${describeError(error)}`,
+          );
+        }
+      }
     }
 
     // Destruction must never go unrecorded: the receipt names every session that lost rows.
@@ -184,7 +204,6 @@ export class SessionPurge {
           ]
         : [],
     );
-    const failures: string[] = [];
     if (removedSessions.length > 0) {
       try {
         await this.#appendReceipt(operationId, purgeInstant, removedSessions);
@@ -215,7 +234,8 @@ export class SessionPurge {
     }
   }
 
-  // One write: the range read, the snapshots and the events commit or roll back together.
+  // One write: the range read, the snapshots, the events and the directory rows commit or roll
+  // back together.
   async #deleteSessionRows(sessionId: SessionId): Promise<SessionPurgeOutcome> {
     const [rangeResult, , eventsResult] = await this.#writer
       .write(deleteSessionRowsStatements(sessionId))
@@ -288,7 +308,9 @@ export class SessionPurge {
  * stored sequences are safe integers, so a range the receipt could not name refuses the write
  * before anything is deleted. A snapshot names the event it reflects, so snapshots go first; the
  * run rows and the projection cursor are built from the events, so they go with them, and a
- * restart never settles a run of a purged session.
+ * restart never settles a run of a purged session. A link or a related-list entry goes whichever side names the session. A group row is named by its
+ * sessions, so the group the session leaves empty goes after the session's row; no other group is
+ * ever empty, because each group write keeps at least one session in it.
  */
 function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
   return [
@@ -306,6 +328,22 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM session_run_activity WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM session_console_state WHERE session_id = ?", bindings: [sessionId] },
+    {
+      sql: "DELETE FROM session_links WHERE source_session_id = ? OR target_session_id = ?",
+      bindings: [sessionId, sessionId],
+    },
+    { sql: "DELETE FROM session_tags WHERE session_id = ?", bindings: [sessionId] },
+    {
+      sql: "DELETE FROM session_related WHERE session_id = ? OR related_session_id = ?",
+      bindings: [sessionId, sessionId],
+    },
+    { sql: "DELETE FROM sessions WHERE id = ?", bindings: [sessionId] },
+    {
+      sql: `DELETE FROM session_groups
+             WHERE NOT EXISTS (SELECT 1 FROM sessions WHERE sessions.group_id = session_groups.id)`,
+    },
   ];
 }
 

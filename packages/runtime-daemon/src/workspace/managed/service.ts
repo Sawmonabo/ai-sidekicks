@@ -1,0 +1,116 @@
+// A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
+// id>` the daemon makes at the chat's create and registers as the chat's managed mount, kept while
+// the chat is archived, and deleted whole with its mount row when the chat is purged.
+
+import { realpath } from "node:fs/promises";
+import * as path from "node:path";
+
+import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
+import { DEFAULT_GIT_FILESYSTEM } from "../../git/filesystem.js";
+import { DEFAULT_GIT_EXECUTABLE, runGitWithExecFile, type GitRunner } from "../../git/process.js";
+import type { RepoMountService } from "../repo/mount-service.js";
+
+const MANAGED_WORKSPACES_FOLDER_NAME = "workspaces";
+
+// `git init` writes a handful of files; a slow disk still finishes well inside this.
+const GIT_INIT_TIMEOUT_MS = 10_000;
+
+/** The folder holding every chat's managed workspace, one subfolder per session id. */
+export function managedWorkspacesDirectoryOf(homeDirectory: string): string {
+  return path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, MANAGED_WORKSPACES_FOLDER_NAME);
+}
+
+/** A chat's managed workspace as its create made it. */
+export interface ManagedWorkspace {
+  readonly repoMountId: RepoMountId;
+  /** The workspace folder, absolute and symlink-resolved: the mount's canonical root. */
+  readonly path: string;
+}
+
+/** Constructor dependencies. Every optional member defaults to the real one. */
+export interface ManagedWorkspaceServiceDeps {
+  /** The person's home folder; the workspaces sit in the daemon's data folder inside it. */
+  readonly homeDirectory: string;
+  /** The one writer of mount rows. */
+  readonly repoMounts: Pick<RepoMountService, "attachManaged" | "deleteManaged">;
+  /** Defaults to the daemon's shared `execFile` runner. */
+  readonly git?: GitRunner;
+  /** Absolute `git` path; required on `win32`, where bare `git` resolves from the working folder. */
+  readonly gitExecutablePath?: string;
+  /** Platform for the win32 `git`-pinning guard; defaults to `process.platform`. */
+  readonly platform?: NodeJS.Platform;
+}
+
+/** Makes and deletes chats' managed workspaces, each with its managed mount row. */
+export class ManagedWorkspaceService {
+  readonly #workspacesDirectory: string;
+  readonly #repoMounts: Pick<RepoMountService, "attachManaged" | "deleteManaged">;
+  readonly #git: GitRunner;
+  readonly #gitExecutable: string;
+
+  constructor(deps: ManagedWorkspaceServiceDeps) {
+    if ((deps.platform ?? process.platform) === "win32" && deps.gitExecutablePath === undefined) {
+      // Fail closed: a git.exe planted in the daemon's working folder would run instead.
+      throw new TypeError(
+        "ManagedWorkspaceService: on win32 you must supply an absolute gitExecutablePath.",
+      );
+    }
+    this.#workspacesDirectory = managedWorkspacesDirectoryOf(deps.homeDirectory);
+    this.#repoMounts = deps.repoMounts;
+    this.#git = deps.git ?? runGitWithExecFile;
+    this.#gitExecutable = deps.gitExecutablePath ?? DEFAULT_GIT_EXECUTABLE;
+  }
+
+  /**
+   * Makes the chat's workspace folder, initializes it as a git repository and registers it as the
+   * chat's managed mount. Throws `RepoAlreadyAttachedError` when the session already has one,
+   * before touching any folder; a failure after the mount row is written removes the folder and
+   * the row, and throws an `AggregateError` when that removal fails too.
+   */
+  async create(input: { readonly sessionId: SessionId }): Promise<ManagedWorkspace> {
+    await DEFAULT_GIT_FILESYSTEM.createDirectory(this.#workspacesDirectory);
+    // Every mount root is symlink-resolved; the session id below it adds no link.
+    const workspacePath = path.join(await realpath(this.#workspacesDirectory), input.sessionId);
+    // The row first: its unique index refuses a second create before the first's folder is touched.
+    const repoMountId = await this.#repoMounts.attachManaged({
+      sessionId: input.sessionId,
+      canonicalRoot: workspacePath,
+    });
+    try {
+      await DEFAULT_GIT_FILESYSTEM.createDirectory(workspacePath);
+      await this.#git(["-C", workspacePath, "init", "--quiet"], {
+        timeoutMs: GIT_INIT_TIMEOUT_MS,
+        executable: this.#gitExecutable,
+      });
+    } catch (creationError) {
+      try {
+        await this.#remove(input.sessionId, workspacePath);
+      } catch (removalError) {
+        throw new AggregateError(
+          [creationError, removalError],
+          "Making a chat's managed workspace failed, and removing what it had made failed too",
+          { cause: removalError },
+        );
+      }
+      throw creationError;
+    }
+    return { repoMountId, path: workspacePath };
+  }
+
+  /**
+   * Deletes the chat's workspace folder whole, then its mount row and the workspace rows on it. A
+   * session with no managed workspace changes nothing, so a repeat is safe.
+   */
+  async delete(input: { readonly sessionId: SessionId }): Promise<void> {
+    await this.#remove(input.sessionId, path.join(this.#workspacesDirectory, input.sessionId));
+  }
+
+  // The folder before the rows: a removal that fails leaves the row naming what is still on disk.
+  async #remove(sessionId: SessionId, workspacePath: string): Promise<void> {
+    await DEFAULT_GIT_FILESYSTEM.removePath(workspacePath);
+    await this.#repoMounts.deleteManaged(sessionId);
+  }
+}

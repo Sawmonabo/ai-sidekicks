@@ -1,8 +1,11 @@
-// The whole-session purge deletes every purgeable row outright, refuses a session whose range the
-// receipt could not name, leaves no copy of the content in the database file or its write-ahead
-// log, and never runs inside an append-lock hold. Rows are seeded raw to sit at an exact sequence.
+// The whole-session purge deletes every purgeable row outright, with the session's directory rows
+// and a chat's managed workspace, refuses a session whose range the receipt could not name, leaves
+// no copy of the content in the database file or its write-ahead log, and never runs inside an
+// append-lock hold. Rows are seeded raw to sit at an exact sequence.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -15,6 +18,10 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { sessionAppendLock } from "../append-lock.js";
+import { EventLogService } from "../../log-service.js";
+import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
+import { ManagedWorkspaceService } from "../../../workspace/managed/service.js";
+import { RepoMountService } from "../../../workspace/repo/mount-service.js";
 import {
   SessionPurge,
   type SessionPurgeEventLog,
@@ -61,14 +68,28 @@ class RecordingEventLog implements SessionPurgeEventLog {
 
 let scratch: ScratchDatabase;
 let nextSequence: number;
+let homeDirectory: string;
+let managedWorkspaces: ManagedWorkspaceService;
 
 beforeEach(async () => {
   scratch = await openScratchDatabase();
   nextSequence = 0;
+  homeDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-purge-home-"));
+  managedWorkspaces = new ManagedWorkspaceService({
+    homeDirectory,
+    repoMounts: new RepoMountService({
+      database: scratch,
+      events: new WorkspaceEventEmitter({
+        sessionEvents: new EventLogService({ writer: scratch.writer, reader: scratch.reader }),
+      }),
+      nodeId: NODE,
+    }),
+  });
 });
 
 afterEach(async () => {
   await scratch.close();
+  rmSync(homeDirectory, { recursive: true, force: true });
 });
 
 interface SeedOptions {
@@ -146,8 +167,37 @@ function buildPurge(eventLog: SessionPurgeEventLog = new RecordingEventLog()): S
     writer: scratch.writer,
     nodeId: NODE,
     eventLog,
+    managedWorkspaces,
     now: () => new Date(PURGE_INSTANT),
   });
+}
+
+// One project session's directory row, in the group named, when one is.
+async function seedSessionRow(sessionId: SessionId, groupId: string | null = null): Promise<void> {
+  await scratch.writer.write([
+    {
+      sql: `INSERT INTO sessions (id, shape, state, group_id, created_at, updated_at,
+                                  last_activity_at)
+            VALUES (?, 'project', 'archived', ?, ?, ?, ?)`,
+      bindings: [sessionId, groupId, PURGE_INSTANT, PURGE_INSTANT, PURGE_INSTANT],
+    },
+  ]);
+}
+
+// The rows each directory table holds, as one line per row, so an arm compares them whole.
+function readDirectoryRows() {
+  const read = (sql: string): readonly string[] =>
+    (scratch.reader.prepare(sql).raw().all() as unknown[][]).map((row) => row.join(" "));
+  return {
+    sessions: read("SELECT id FROM sessions ORDER BY id"),
+    groups: read("SELECT id FROM session_groups ORDER BY id"),
+    runActivity: read("SELECT session_id FROM session_run_activity ORDER BY session_id"),
+    consoleState: read("SELECT session_id FROM session_console_state ORDER BY session_id"),
+    links: read("SELECT source_session_id, target_session_id FROM session_links ORDER BY 1, 2"),
+    tags: read("SELECT session_id FROM session_tags ORDER BY session_id"),
+    related: read("SELECT session_id, related_session_id FROM session_related ORDER BY 1, 2"),
+    mounts: read("SELECT managed_session_id FROM repo_mounts ORDER BY 1"),
+  };
 }
 
 /**
@@ -202,6 +252,93 @@ describe("SessionPurge — the whole session", () => {
     expect(eventLog.appended[0]?.payload.removedSessions).toEqual([
       { sessionId: SESSION, fromSeq: first.sequence, toSeq: newest.sequence },
     ]);
+  });
+});
+
+describe("SessionPurge — the session's directory rows and managed workspace", () => {
+  it("deletes every row naming the session, the group it empties and its workspace", async () => {
+    await scratch.writer.write([
+      {
+        sql: `INSERT INTO session_groups (id, project_id, name, name_folded, created_at)
+              VALUES ('group-emptied', 'project-1', 'Emptied', 'emptied', ?),
+                     ('group-kept', 'project-1', 'Kept', 'kept', ?)`,
+        bindings: [PURGE_INSTANT, PURGE_INSTANT],
+      },
+    ]);
+    await seedSessionRow(SESSION, "group-emptied");
+    await seedSessionRow(SECOND_SESSION, "group-kept");
+    await seedSessionRow(THIRD_SESSION, "group-kept");
+    await seedMessage("hi");
+    const purgedWorkspace = await managedWorkspaces.create({ sessionId: SESSION });
+    const keptWorkspace = await managedWorkspaces.create({ sessionId: SECOND_SESSION });
+    for (const sessionId of [SESSION, SECOND_SESSION]) {
+      await scratch.writer.write([
+        {
+          sql: "INSERT INTO session_run_activity (session_id, run_id, activity) VALUES (?, ?, ?)",
+          bindings: [sessionId, `run-${sessionId}`, "running"],
+        },
+        {
+          sql: "INSERT INTO session_console_state (session_id, updated_at) VALUES (?, ?)",
+          bindings: [sessionId, PURGE_INSTANT],
+        },
+        {
+          sql: "INSERT INTO session_tags (session_id, tag, tag_folded) VALUES (?, 'Billing', 'billing')",
+          bindings: [sessionId],
+        },
+      ]);
+    }
+    for (const [source, target] of [
+      [SESSION, SECOND_SESSION],
+      [SECOND_SESSION, SESSION],
+      [SECOND_SESSION, THIRD_SESSION],
+    ]) {
+      await scratch.writer.write([
+        {
+          sql: `INSERT INTO session_links (source_session_id, target_session_id, kind, first_at,
+                                           last_at)
+                VALUES (?, ?, 'related', ?, ?)`,
+          bindings: [source, target, PURGE_INSTANT, PURGE_INSTANT],
+        },
+        {
+          sql: `INSERT INTO session_related (session_id, related_session_id, score)
+                VALUES (?, ?, 0.5)`,
+          bindings: [source, target],
+        },
+      ]);
+    }
+
+    const result = await buildPurge().purge([SESSION]);
+
+    expect(result.refusedReason).toBeUndefined();
+    expect(onlyOutcome(result).refusedReason).toBeUndefined();
+    expect(readDirectoryRows()).toEqual({
+      sessions: [SECOND_SESSION, THIRD_SESSION],
+      groups: ["group-kept"],
+      runActivity: [SECOND_SESSION],
+      consoleState: [SECOND_SESSION],
+      links: [`${SECOND_SESSION} ${THIRD_SESSION}`],
+      tags: [SECOND_SESSION],
+      related: [`${SECOND_SESSION} ${THIRD_SESSION}`],
+      mounts: [SECOND_SESSION],
+    });
+    expect(existsSync(purgedWorkspace.path)).toBe(false);
+    expect(existsSync(keptWorkspace.path)).toBe(true);
+  });
+
+  it("keeps the managed workspace of a session whose rows were refused", async () => {
+    await seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { text: "far" },
+      sequence: BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+    });
+    const workspace = await managedWorkspaces.create({ sessionId: SESSION });
+
+    const outcome = onlyOutcome(await buildPurge().purge([SESSION]));
+
+    expect(outcome.refusedReason).toContain("not safe integers");
+    expect(existsSync(join(workspace.path, ".git"))).toBe(true);
+    expect(readDirectoryRows().mounts).toEqual([SESSION]);
   });
 });
 
