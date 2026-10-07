@@ -124,7 +124,7 @@ export function useRunPage(options: {
 
 /** The node the panel opens on: the step waiting on a person, or a failed run's failed step. */
 function openingNode(run: WorkflowRunReadResponse | undefined): string | undefined {
-  return run?.state === "failed"
+  return run?.status === "failed"
     ? latestStepWith(run.steps, "failed")?.nodeId
     : personWaitNode(run)?.nodeId;
 }

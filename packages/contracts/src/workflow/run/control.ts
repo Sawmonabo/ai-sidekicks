@@ -108,20 +108,20 @@ export const WorkflowRunStartRequestSchema: z.ZodType<
 
 /**
  * The `workflow.runStart` result. A start can only leave the run admitted but not yet
- * dispatched (`new`) or already `running`, so `state` allows only those two. `sessionId`
+ * dispatched (`new`) or already `running`, so `status` allows only those two. `sessionId`
  * is the session the run lives in.
  */
 export interface WorkflowRunStartResponse {
   workflowRunId: WorkflowRunId;
   sessionId: SessionId;
-  state: Extract<WorkflowRunStatus, "new" | "running">;
+  status: Extract<WorkflowRunStatus, "new" | "running">;
 }
 /** Wire schema for {@link WorkflowRunStartResponse}. */
 export const WorkflowRunStartResponseSchema: z.ZodType<WorkflowRunStartResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
     sessionId: SessionIdSchema,
-    state: WorkflowRunStatusSchema.extract(["new", "running"]),
+    status: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict();
 
@@ -211,14 +211,14 @@ export const WorkflowRunCancelRequestSchema: z.ZodType<
 /**
  * The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
  * failed run parked on its failed step waiting to be resumed; every branch still going is
- * canceled with it. `state` has one value because a successful cancel has
+ * canceled with it. `status` has one value because a successful cancel has
  * one outcome. `alreadyCanceled` is true when the run was already canceled and this call returned
  * the first cancel's saved result: no second event is written, and `canceledEventId` names the
  * original.
  */
 export interface WorkflowRunCancelResponse {
   workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "canceled">;
+  status: Extract<WorkflowRunStatus, "canceled">;
   canceledEventId: string;
   alreadyCanceled: boolean;
 }
@@ -226,7 +226,7 @@ export interface WorkflowRunCancelResponse {
 export const WorkflowRunCancelResponseSchema: z.ZodType<WorkflowRunCancelResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
-    state: WorkflowRunStatusSchema.extract(["canceled"]),
+    status: WorkflowRunStatusSchema.extract(["canceled"]),
     canceledEventId: z.string().min(1),
     alreadyCanceled: z.boolean(),
   })
@@ -265,11 +265,11 @@ export const WorkflowRunResumeRequestSchema: z.ZodType<
  */
 export type WorkflowRunResumeResponse = {
   workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "running" | "waiting">;
+  status: Extract<WorkflowRunStatus, "running" | "waiting">;
 } & WorkflowVersionRepin;
 const workflowRunResumeResponseFields = {
   workflowRunId: WorkflowRunIdSchema,
-  state: WorkflowRunStatusSchema.extract(["running", "waiting"]),
+  status: WorkflowRunStatusSchema.extract(["running", "waiting"]),
 };
 /** Wire schema for {@link WorkflowRunResumeResponse}; a re-pin names both versions or neither. */
 export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z.union([
@@ -297,14 +297,14 @@ export const WorkflowRunRetryRequestSchema: z.ZodType<
 export interface WorkflowRunRetryResponse {
   workflowRunId: WorkflowRunId;
   sourceWorkflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "new" | "running">;
+  status: Extract<WorkflowRunStatus, "new" | "running">;
 }
 /** Wire schema for {@link WorkflowRunRetryResponse}; the new run is never its own source. */
 export const WorkflowRunRetryResponseSchema: z.ZodType<WorkflowRunRetryResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
     sourceWorkflowRunId: WorkflowRunIdSchema,
-    state: WorkflowRunStatusSchema.extract(["new", "running"]),
+    status: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict()
   .refine((reply) => reply.workflowRunId !== reply.sourceWorkflowRunId, {
@@ -516,7 +516,7 @@ export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
   "workflow.repair_version_unaccountable" as const;
 
 /**
- * A run or step move its state does not allow: retrying from a step that did not fail,
+ * A run or step move its status does not allow: retrying from a step that did not fail,
  * posting the results of an unfinished run, or opening a fix session on a step that did
  * not fail.
  */

@@ -43,7 +43,7 @@ describe("workflow.runRead", () => {
     sessionId: SESSION_ID,
     definitionId: "wfd-1",
     workflowVersionId: "wfv-5",
-    state: "succeeded",
+    status: "succeeded",
     mode: "sub-workflow",
     triggerKind: "trigger.sub-workflow",
     startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
@@ -58,7 +58,7 @@ describe("workflow.runRead", () => {
     keep: false,
     steps: [],
     startedAt: "2026-09-29T06:00:01Z",
-    endedAt: "2026-09-29T06:04:00Z",
+    finishedAt: "2026-09-29T06:04:00Z",
     edgeItemCounts: [{ edgeId: "e-read-summarize", itemCount: 3 }],
     review: { state: "pinned", epoch: 1 },
   };
@@ -73,12 +73,12 @@ describe("workflow.runRead", () => {
   });
 
   it("keeps Review, the live step and the chain's question to the runs they belong on", () => {
-    const { endedAt: _ended, ...going } = run;
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "running" }).success).toBe(
+    const { finishedAt: _finished, ...going } = run;
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, status: "running" }).success).toBe(
       false,
     );
     // A failed run parked on its step has not ended, so it is not reviewed yet.
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "failed" }).success).toBe(
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, status: "failed" }).success).toBe(
       false,
     );
     const liveStep = { index: 2, total: 3, nodeName: "Summarize" };
@@ -90,18 +90,20 @@ describe("workflow.runRead", () => {
   });
 
   it("carries an end exactly once the run has ended, which a failed run parked on its step has not", () => {
-    const { endedAt: _ended, review: _review, ...unended } = run;
+    const { finishedAt: _finished, review: _review, ...unended } = run;
     expect(WorkflowRunReadResponseSchema.safeParse(unended).success).toBe(false);
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...unended, state: "failed" }).success).toBe(
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...unended, status: "failed" }).success).toBe(
       true,
     );
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, state: "failed" }).success).toBe(true);
-    const goingWithEnd = { ...run, state: "waiting", review: undefined };
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, status: "failed" }).success).toBe(
+      true,
+    );
+    const goingWithEnd = { ...run, status: "waiting", review: undefined };
     expect(WorkflowRunReadResponseSchema.safeParse(goingWithEnd).success).toBe(false);
   });
 
   it("refuses a waiting run that carries no step that waits", () => {
-    const { endedAt: _ended, review: _review, ...unended } = run;
+    const { finishedAt: _finished, review: _review, ...unended } = run;
     const waitingStep = {
       workflowRunId: RUN_ID,
       nodeId: "approve",
@@ -115,7 +117,7 @@ describe("workflow.runRead", () => {
       outputRef: { kind: "inline", items: [] },
       logRef: { kind: "inline", items: [] },
     };
-    const waiting = { ...unended, state: "waiting", steps: [waitingStep] };
+    const waiting = { ...unended, status: "waiting", steps: [waitingStep] };
     expect(WorkflowRunReadResponseSchema.safeParse(waiting).success).toBe(true);
     const noStepWaits = {
       ...waiting,

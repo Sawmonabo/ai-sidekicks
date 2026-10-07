@@ -211,7 +211,7 @@ interface WorkflowRunRetryRequest {
 interface WorkflowRunRetryResponse {
   workflowRunId: WorkflowRunId; // the new run, never the source
   sourceWorkflowRunId: WorkflowRunId;
-  state: "new" | "running";
+  status: "new" | "running";
 }
 
 // WorkflowRunRerun — workflow.runRerun. Re-run on a run's page: a NEW run of the named run's own pinned

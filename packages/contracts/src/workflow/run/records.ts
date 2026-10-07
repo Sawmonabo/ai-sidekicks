@@ -17,9 +17,11 @@ import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowNodeIdSchema,
+  WorkflowStepErrorSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
   type WorkflowNodeId,
+  type WorkflowStepError,
 } from "../definition/document.js";
 import {
   WorkflowDefinitionSummarySchema,
@@ -65,7 +67,7 @@ interface WorkflowRunFields {
   /** The Keep mark, which `Delete runs older than…` leaves. */
   keep: boolean;
   /** Why the run failed, or why it was canceled. */
-  failureReason?: string | undefined;
+  error?: WorkflowStepError | undefined;
   startedAt: string;
 }
 
@@ -77,9 +79,12 @@ interface WorkflowRunFields {
  */
 export type WorkflowRun = WorkflowRunFields &
   (
-    | { state: Extract<WorkflowRunStatus, "new" | "running" | "waiting">; endedAt?: undefined }
-    | { state: "failed"; endedAt?: string | undefined }
-    | { state: Extract<WorkflowRunStatus, "succeeded" | "canceled" | "crashed">; endedAt: string }
+    | { status: Extract<WorkflowRunStatus, "new" | "running" | "waiting">; finishedAt?: undefined }
+    | { status: "failed"; finishedAt?: string | undefined }
+    | {
+        status: Extract<WorkflowRunStatus, "succeeded" | "canceled" | "crashed">;
+        finishedAt: string;
+      }
   );
 const workflowRunFields = {
   workflowRunId: WorkflowRunIdSchema,
@@ -90,23 +95,23 @@ const workflowRunFields = {
   triggerKind: WorkflowTriggerKindSchema,
   startedBy: WorkflowStartedBySchema,
   keep: z.boolean(),
-  failureReason: z.string().min(1).optional(),
+  error: WorkflowStepErrorSchema.optional(),
   startedAt: isoDateTimeSchema,
 };
 
 // The run's status and its end, one arm per kind of status: a going run has not ended, an ended
 // one carries its end, and a failed one may be parked on its failed step without one.
 const goingRunEndFields = {
-  state: WorkflowRunStatusSchema.extract(["new", "running", "waiting"]),
-  endedAt: z.undefined().optional(),
+  status: WorkflowRunStatusSchema.extract(["new", "running", "waiting"]),
+  finishedAt: z.undefined().optional(),
 };
 const failedRunEndFields = {
-  state: WorkflowRunStatusSchema.extract(["failed"]),
-  endedAt: isoDateTimeSchema.optional(),
+  status: WorkflowRunStatusSchema.extract(["failed"]),
+  finishedAt: isoDateTimeSchema.optional(),
 };
 const endedRunEndFields = {
-  state: WorkflowRunStatusSchema.extract(["succeeded", "canceled", "crashed"]),
-  endedAt: isoDateTimeSchema,
+  status: WorkflowRunStatusSchema.extract(["succeeded", "canceled", "crashed"]),
+  finishedAt: isoDateTimeSchema,
 };
 
 /**
@@ -114,7 +119,7 @@ const endedRunEndFields = {
  *
  * @consumedBy the daemon's run service, which reads and writes the run row
  */
-export const WorkflowRunSchema: z.ZodType<WorkflowRun> = z.discriminatedUnion("state", [
+export const WorkflowRunSchema: z.ZodType<WorkflowRun> = z.discriminatedUnion("status", [
   z.object({ ...workflowRunFields, ...goingRunEndFields }).strict(),
   z.object({ ...workflowRunFields, ...failedRunEndFields }).strict(),
   z.object({ ...workflowRunFields, ...endedRunEndFields }).strict(),
@@ -261,22 +266,25 @@ const workflowRunReadFields = {
 };
 /** Wire schema for {@link WorkflowRunReadResponse}. */
 export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> = z
-  .discriminatedUnion("state", [
+  .discriminatedUnion("status", [
     z.object({ ...workflowRunReadFields, ...goingRunEndFields }).strict(),
     z.object({ ...workflowRunReadFields, ...failedRunEndFields }).strict(),
     z.object({ ...workflowRunReadFields, ...endedRunEndFields }).strict(),
   ])
-  .refine((run) => GOING_RUN_STATUSES.includes(run.state) || run.liveStep === undefined, {
+  .refine((run) => GOING_RUN_STATUSES.includes(run.status) || run.liveStep === undefined, {
     path: ["liveStep"],
     message: "Only a going run has a live step.",
   })
-  .refine((run) => run.state !== "waiting" || run.steps.some((step) => step.status === "waiting"), {
-    path: ["steps"],
-    message: "A waiting run carries the step that waits.",
-  })
+  .refine(
+    (run) => run.status !== "waiting" || run.steps.some((step) => step.status === "waiting"),
+    {
+      path: ["steps"],
+      message: "A waiting run carries the step that waits.",
+    },
+  )
   .refine(
     (run) =>
-      run.review === undefined || (run.executionContextCaptured && run.endedAt !== undefined),
+      run.review === undefined || (run.executionContextCaptured && run.finishedAt !== undefined),
     { path: ["review"], message: "Only a finished run with a captured checkout is reviewed." },
   )
   .refine((run) => run.chainQuestion === undefined || run.chainRoot.runId === run.workflowRunId, {

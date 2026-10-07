@@ -54,7 +54,7 @@ export function runHeaderLines(
 ): RunHeaderLines {
   // Until the workflow's name is read the run goes by "This run".
   const runName = names.workflowName ?? "This run";
-  switch (run.state) {
+  switch (run.status) {
     case "new":
       return {
         happened: `${runName} has not started yet.`,
@@ -87,7 +87,7 @@ export function runLiveLine(
   run: WorkflowRunReadResponse,
   nowMs: number,
 ): readonly RunLiveLinePart[] | undefined {
-  if (!isGoing(run.state)) {
+  if (!isGoing(run.status)) {
     return undefined;
   }
   const parts: RunLiveLinePart[] = [];
@@ -176,7 +176,7 @@ function failedLines(
   names: RunHeaderNames,
 ): RunHeaderLines {
   if (step === undefined) {
-    return { happened: run.failureReason ?? "This run failed.", needs: FIX_AND_RESUME };
+    return { happened: run.error?.message ?? "This run failed.", needs: FIX_AND_RESUME };
   }
   const kind = names.nodeKind(step.nodeId);
   const subject = stepSubject(kind);

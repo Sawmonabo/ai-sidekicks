@@ -167,7 +167,7 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
     resultFor: (request, _at, _ordinal, answered): WorkflowRunStartResponse => ({
       workflowRunId: mintedRunId("start", answered("workflow.runStart").length),
       sessionId: WORKFLOW_OWN_SESSION,
-      state: "new",
+      status: "new",
     }),
     noticesFor: runChanged,
   },
@@ -326,7 +326,7 @@ function answerRunList(request: unknown, playback: WorkflowPlayback): WorkflowRu
   const runs = currentRuns(playback)
     .filter(
       (run) =>
-        (!Array.isArray(statuses) || statuses.includes(run.read.state)) &&
+        (!Array.isArray(statuses) || statuses.includes(run.read.status)) &&
         (!Array.isArray(triggerKinds) || triggerKinds.includes(run.read.triggerKind)) &&
         (definitionId === undefined || run.read.definitionId === definitionId) &&
         (versionId === undefined || run.read.workflowVersionId === versionId) &&
@@ -497,32 +497,33 @@ function answerGate(request: unknown, playback: WorkflowPlayback): WorkflowGateR
 
 function answerCancel(request: unknown, playback: WorkflowPlayback): WorkflowRunCancelResponse {
   const run = requireRun(request, playback);
-  const state = run.read.state;
-  if (state !== "canceled" && run.read.endedAt !== undefined) {
+  const status = run.read.status;
+  if (status !== "canceled" && run.read.finishedAt !== undefined) {
     throw refusal(WORKFLOW_RUN_NOT_CANCELABLE_CODE, "This run has already ended.");
   }
   return {
     workflowRunId: run.read.workflowRunId,
-    state: "canceled",
+    status: "canceled",
     canceledEventId: `cancel-${run.read.workflowRunId}`,
-    alreadyCanceled: state === "canceled",
+    alreadyCanceled: status === "canceled",
   };
 }
 
 function answerResume(request: unknown, playback: WorkflowPlayback): WorkflowRunResumeResponse {
   const run = requireRun(request, playback);
   const isParked =
-    run.read.state === "waiting" || (run.read.state === "failed" && run.read.endedAt === undefined);
+    run.read.status === "waiting" ||
+    (run.read.status === "failed" && run.read.finishedAt === undefined);
   if (!isParked) {
     throw refusal(WORKFLOW_RESUME_NOT_PARKED_CODE, "This run is not waiting on anything.");
   }
-  return { workflowRunId: run.read.workflowRunId, state: "running" };
+  return { workflowRunId: run.read.workflowRunId, status: "running" };
 }
 
 function answerRetry(request: unknown, playback: WorkflowPlayback): WorkflowRunRetryResponse {
   const run = requireRun(request, playback);
   const fromNodeId = readString(request, "fromNodeId");
-  if (run.read.state === "new" || run.read.state === "running" || run.read.state === "waiting") {
+  if (run.read.status === "new" || run.read.status === "running" || run.read.status === "waiting") {
     const details = { reason: "source_running" } satisfies WorkflowRetryUnavailableDetails;
     throw refusal(WORKFLOW_RETRY_UNAVAILABLE_CODE, "This run is still going.", details);
   }
@@ -533,7 +534,7 @@ function answerRetry(request: unknown, playback: WorkflowPlayback): WorkflowRunR
   return {
     workflowRunId: mintedRunId("retry", playback.answered("workflow.runRetry").length),
     sourceWorkflowRunId: run.read.workflowRunId,
-    state: "new",
+    status: "new",
   };
 }
 
@@ -542,7 +543,7 @@ function answerRerun(request: unknown, playback: WorkflowPlayback): WorkflowRunS
   return {
     workflowRunId: mintedRunId("rerun", playback.answered("workflow.runRerun").length),
     sessionId: run.read.sessionId,
-    state: "new",
+    status: "new",
   };
 }
 
@@ -563,7 +564,7 @@ function answerDeletePreview(
   return {
     deleteCount: runsOlderThan(request, playback).length,
     keptCount: older.filter((run) => run.read.keep).length,
-    waitingCount: older.filter((run) => run.read.state === "waiting").length,
+    waitingCount: older.filter((run) => run.read.status === "waiting").length,
   };
 }
 

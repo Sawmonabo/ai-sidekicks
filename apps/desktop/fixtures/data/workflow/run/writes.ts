@@ -112,7 +112,7 @@ function applyWrites(run: WorkflowRunRecord, answered: AnsweredRequests): Workfl
   if (forRun("workflow.runResume").length > 0 && !isEnded(applied)) {
     applied = resumed(applied);
   }
-  if (forRun("workflow.runCancel").length > 0 && applied.read.state !== "succeeded") {
+  if (forRun("workflow.runCancel").length > 0 && applied.read.status !== "succeeded") {
     applied = canceled(applied);
   }
   const keep = forRun("workflow.runKeepSet").at(-1);
@@ -142,8 +142,8 @@ function settleWait(
       resolution: { kind: resolution, at: NOW },
     };
   });
-  const { endedAt: _ended, ...read } = run.read;
-  return { ...run, read: { ...read, state: "running", steps } };
+  const { finishedAt: _finished, ...read } = run.read;
+  return { ...run, read: { ...read, status: "running", steps } };
 }
 
 /**
@@ -170,8 +170,8 @@ function decideChain(run: WorkflowRunRecord, decision: ApprovalDecision): Workfl
   const steps = decided.read.steps.map(
     (step): WorkflowStep => (step.waitCause === "chain" ? withoutWait(step, "running") : step),
   );
-  const { endedAt: _ended, ...read } = decided.read;
-  return { ...decided, read: { ...read, state: "running", steps } };
+  const { finishedAt: _finished, ...read } = decided.read;
+  return { ...decided, read: { ...read, status: "running", steps } };
 }
 
 /** One `question.resolve` applied to a run: the reply wait holding that question is answered. */
@@ -213,7 +213,7 @@ function resumed(run: WorkflowRunRecord): WorkflowRunRecord {
   });
   const failed = steps.findLast((step) => step.status === "failed");
   const rerun: WorkflowStep[] =
-    run.read.state === "failed" && failed !== undefined
+    run.read.status === "failed" && failed !== undefined
       ? [
           {
             ...withoutWait(failed, "running"),
@@ -225,13 +225,13 @@ function resumed(run: WorkflowRunRecord): WorkflowRunRecord {
           },
         ]
       : [];
-  const { endedAt: _ended, ...read } = run.read;
+  const { finishedAt: _finished, ...read } = run.read;
   const { durationMs: _duration, ...rest } = run;
-  return { ...rest, read: { ...read, state: "running", steps: [...steps, ...rerun] } };
+  return { ...rest, read: { ...read, status: "running", steps: [...steps, ...rerun] } };
 }
 
 function canceled(run: WorkflowRunRecord): WorkflowRunRecord {
-  if (run.read.state === "canceled") {
+  if (run.read.status === "canceled") {
     return run;
   }
   const steps = run.read.steps.map((step): WorkflowStep => {
@@ -246,9 +246,9 @@ function canceled(run: WorkflowRunRecord): WorkflowRunRecord {
     durationMs: run.startedMinutesAgo * 60_000,
     read: {
       ...read,
-      state: "canceled",
+      status: "canceled",
       steps,
-      endedAt: NOW,
+      finishedAt: NOW,
       ...(read.executionContextCaptured ? { review: { state: "pinned", epoch: 1 } as const } : {}),
     },
   };
@@ -290,7 +290,7 @@ function mintedRun(
       sessionId: started.sessionId ?? WORKFLOW_OWN_SESSION,
       definitionId,
       workflowVersionId,
-      state: "new",
+      status: "new",
       mode: started.mode,
       triggerKind: started.triggerKind,
       startedBy: WORKFLOW_STARTED_BY_PERSON,
@@ -317,7 +317,9 @@ export function startedAtMs(run: WorkflowRunRecord): number {
 /** Whether the run has ended for good: succeeded, crashed or canceled. */
 export function isEnded(run: WorkflowRunRecord): boolean {
   return (
-    run.read.state === "succeeded" || run.read.state === "crashed" || run.read.state === "canceled"
+    run.read.status === "succeeded" ||
+    run.read.status === "crashed" ||
+    run.read.status === "canceled"
   );
 }
 

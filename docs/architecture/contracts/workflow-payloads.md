@@ -194,7 +194,7 @@ interface WorkflowRunStartResponse {
   sessionId: SessionId;
   // Two of the run statuses are reachable from a start: the run is admitted and not yet dispatched, or
   // it is already running. Narrowing here keeps callers from switching on statuses a start cannot produce.
-  state: "new" | "running";
+  status: "new" | "running";
 }
 
 // WorkflowRunRead — workflow.runRead. Run header plus the step array;
@@ -204,10 +204,10 @@ interface WorkflowRunReadRequest {
   workflowRunId: WorkflowRunId;
 }
 // One workflow run as its row records it; the run read and the runs table's row are built from it.
-// `state` is the status list, and nothing else is displayed: a run is new, running, waiting on a person
+// `status` is the status list, and nothing else is displayed: a run is new, running, waiting on a person
 // or a provider, succeeded, failed, canceled or crashed. A gated run is `waiting`, which is the one
 // status never swept on a daemon start and never pruned, so a run parked on a person survives a
-// restart. The stored status CHECK is in lockstep with this union. `endedAt` is present exactly once
+// restart. The stored status CHECK is in lockstep with this union. `finishedAt` is present exactly once
 // the run has ended. A `failed` run parked on its failed step has not ended and carries none, which is
 // how the header tells it from a failed run that ended: `Cancel` and `Resume` act on the first and
 // refuse on the second.
@@ -229,14 +229,15 @@ type WorkflowRun = {
   startedBy: WorkflowStartedBy;
   // Whether the person marked the run Keep, which `workflow.runsDelete` leaves untouched.
   keep: boolean;
-  failureReason?: string; // preserved on any bound breach (SA-1, SA-2); also carries
-  // the cancellation reason when `state` is `canceled`, mirroring the
-  // `workflow_runs.failure_reason` / `failure_detail` split
+  // Why the run failed, preserved on any bound breach (SA-1, SA-2), or why it was canceled when `status`
+  // is `canceled`: the message is the reason, and `code` and `details` the typed detail, stored as
+  // `workflow_runs.failure_reason` and `failure_detail`.
+  error?: WorkflowStepError;
   startedAt: string;
 } & (
-  | { state: "new" | "running" | "waiting" }
-  | { state: "failed"; endedAt?: string }
-  | { state: "succeeded" | "canceled" | "crashed"; endedAt: string }
+  | { status: "new" | "running" | "waiting" }
+  | { status: "failed"; finishedAt?: string }
+  | { status: "succeeded" | "canceled" | "crashed"; finishedAt: string }
 );
 type WorkflowRunReadResponse = WorkflowRun & {
   // The step array, one entry per execution of one node, each carrying its input, output and log
@@ -308,9 +309,9 @@ interface WorkflowRunCancelRequest {
 interface WorkflowRunCancelResponse {
   workflowRunId: WorkflowRunId;
   // A literal rather than the run-status union: a successful cancel has exactly
-  // one outcome, and narrowing here keeps callers from switching on states this
+  // one outcome, and narrowing here keeps callers from switching on statuses this
   // operation cannot produce.
-  state: "canceled";
+  status: "canceled";
   // The `session_events.id` of the workflow.canceled event this call appended, in
   // the same unit of work as the status write (I-014-21). Returned so a caller can
   // correlate without a transcript read.
@@ -352,7 +353,7 @@ type WorkflowRunResumeResponse = {
   // what happened. Resuming ahead of an armed `resumeAt` is therefore permitted
   // and needs no override flag: the machine's own schedule was advisory pacing, and
   // the worst case is one observable re-park.
-  state: "running" | "waiting";
+  status: "running" | "waiting";
 } & WorkflowVersionRepin;
 // Present only on an ACCEPTED re-pin, and then both: the version the run left and the
 // one it joined — the same pair the audited workflow.resumed payload carries, so the

@@ -53,7 +53,7 @@ describe("a resume's re-pin", () => {
   const repin = { repinnedFromWorkflowVersionId: "wfv-4", repinnedToWorkflowVersionId: "wfv-5" };
 
   it("names both versions or neither, on the reply and on the resumed event", () => {
-    const reply = { workflowRunId: RUN_ID, state: "running" };
+    const reply = { workflowRunId: RUN_ID, status: "running" };
     const resumed = { ...RUN_EVENT, resumptionPoint };
     for (const [schema, base] of [
       [WorkflowRunResumeResponseSchema, reply],
@@ -82,7 +82,7 @@ describe("workflow.runStart", () => {
 
 describe("workflow.runRetry", () => {
   it("refuses a retry that answers with its own source run", () => {
-    const reply = { workflowRunId: RUN_ID, sourceWorkflowRunId: RUN_ID, state: "new" };
+    const reply = { workflowRunId: RUN_ID, sourceWorkflowRunId: RUN_ID, status: "new" };
     expect(WorkflowRunRetryResponseSchema.safeParse(reply).success).toBe(false);
   });
 });

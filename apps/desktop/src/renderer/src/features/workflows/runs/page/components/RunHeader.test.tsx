@@ -231,7 +231,7 @@ describe("a run's header", () => {
 
     // A failed run parked on its failed step has not ended: Resume picks it up, Cancel ends it.
     const parked = fixtureRun(WORKFLOW_RUN_IDS.failed);
-    if (parked.state !== "failed") {
+    if (parked.status !== "failed") {
       throw new Error("the fixture's failed run is not failed");
     }
     const failedCalls = renderHeader(parked).calls;
@@ -244,7 +244,7 @@ describe("a run's header", () => {
     cleanup();
 
     // A failed run that ended refuses both, in words.
-    const endedFailedCalls = renderHeader({ ...parked, endedAt: parked.startedAt }).calls;
+    const endedFailedCalls = renderHeader({ ...parked, finishedAt: parked.startedAt }).calls;
     expect(control("Resume")).toHaveProperty("disabled", true);
     expect(control("Cancel")).toHaveProperty("disabled", true);
     expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
