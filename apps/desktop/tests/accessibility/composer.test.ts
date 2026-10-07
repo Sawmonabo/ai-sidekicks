@@ -15,6 +15,7 @@ import {
 } from "./feature-mounts/composer.js";
 import { type MountedView } from "./feature-mounts/queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
+import { untilInsideAct } from "../helpers/settle.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
@@ -71,12 +72,15 @@ describe("accessibility — the composer's command list", () => {
     if (line === null) {
       throw new Error("the composer drew no message line");
     }
-    await userEvent.type(line, "/");
     const findConsoleRow = (): Element | undefined =>
       Array.from(mounted.element.querySelectorAll('[role="option"]')).find((option) =>
         option.textContent?.includes(LISTED_COMMAND_ID),
       );
-    await expect.poll(findConsoleRow).toBeDefined();
+    // Inside `act`, so the list's own reads as it opens are flushed by React rather than reported.
+    await untilInsideAct(async () => {
+      await userEvent.type(line, "/");
+      await expect.poll(findConsoleRow).toBeDefined();
+    });
 
     expect(describeViolations(await runTierAxe(mounted.element))).toStrictEqual([]);
 
