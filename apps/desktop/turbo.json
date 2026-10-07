@@ -52,7 +52,8 @@
     "typecheck": {
       // `scripts/**` is an input because the scripts there are TypeScript that
       // `tsconfig.scripts.json` typechecks, so a change to one must invalidate this task.
-      // The Vitest config and the root module it imports are typechecked by `tsconfig.test.json`.
+      // The Vitest config, the root module it imports and the size-limit config are typechecked
+      // by `tsconfig.test.json`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -62,6 +63,7 @@
         "tsconfig*.json",
         "package.json",
         "vitest.config.ts",
+        ".size-limit.ts",
         "vitest/**",
         "$TURBO_ROOT$/vitest.shared.ts"
       ],
@@ -104,6 +106,7 @@
         "scripts/**",
         "$TURBO_ROOT$/knip.json",
         "vitest.config.ts",
+        ".size-limit.ts",
         "vitest/**",
         "electron.vite.config.ts",
         "tsconfig*.json",
