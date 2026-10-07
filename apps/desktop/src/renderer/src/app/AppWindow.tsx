@@ -32,6 +32,7 @@ import { useWindowTitle } from "./hooks/useWindowTitle.js";
 import { AppRouter } from "./AppRouter.js";
 import { discloseUnkeptScheme } from "./unkept-scheme.js";
 import { windowMountPoint } from "./window-document.js";
+import { recordWindowRequestFailure } from "./window-request-failure.js";
 
 /** The stores every window shares, which the app keeps for as long as it runs. */
 export interface AppStores {
@@ -134,7 +135,9 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       // grow with the text size.
       minimumPaneWidthPx={PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX}
       onWindowFloorChange={(floor) => {
-        void bridge.window.setMinimumSize(props.openWindow.windowId, floor);
+        bridge.window.setMinimumSize(props.openWindow.windowId, floor).catch((failure: unknown) => {
+          recordWindowRequestFailure("app/AppWindow", "minimum-size-not-set", failure);
+        });
       }}
     >
       <AppRouter context={screenContext} />
