@@ -213,9 +213,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
         // "esbuild"`; electron-vite overrides it to `false` for every target on the reasoning that
         // a desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
-        // text and the initial-code budgets in `.size-limit.ts` measure bytes the app would not need
-        // (measured: 443 585 B gzip unminified, 244 546 B minified). Source maps stay `hidden`
-        // above, so a stack trace is still resolvable by anyone holding the map.
+        // text and the initial-code budgets in `.size-limit.ts` measure bytes the app would not
+        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Source maps stay
+        // `hidden` above, so a stack trace is still resolvable by anyone holding the map.
         minify: "esbuild",
         // `.vite/manifest.json`: the chunk graph Rollup already computed, written out on request.
         // It carries `isEntry`, the static `imports` of every chunk, its `dynamicImports`, `css`

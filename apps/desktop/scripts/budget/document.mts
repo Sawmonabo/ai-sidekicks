@@ -45,7 +45,7 @@ export interface Budget {
   readonly limit: BudgetLimit;
   /**
    * `product` rows are the app's own product budgets, a closed list. `harness` rows bound the test
-   * scaffolding or a shipped artifact the product list does not cover.
+   * scaffolding or what the endurance tier reads off the app.
    */
   readonly scope: "product" | "harness";
   readonly status: "enforced" | "n/a";

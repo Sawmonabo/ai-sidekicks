@@ -10,13 +10,11 @@
 // No read skips when its subject is missing: a check that passes because it read nothing is worse
 // than none, so a missing or empty directory, a target with no source maps, or a chunk manifest
 // that names nothing to measure throws with what to run or fix.
-//
-// `.size-limit.ts` loads this module through Node itself, so it imports nothing but Node's own
-// modules.
 
 import { existsSync, globSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+
+import { DESKTOP_PACKAGE_ROOT } from "#scripts/budget/registry.mts";
 
 /** One built file: where it sits in the renderer output, and what it holds. */
 export interface BuiltFile {
@@ -35,7 +33,7 @@ export interface BuiltSourceMap {
 
 /**
  * The files the renderer's entry document loads before any lazy chunk, as absolute paths, split by
- * how their size is budgeted: scripts and stylesheets compressed, fonts as they are.
+ * budget kind: scripts and stylesheets are budgeted compressed, fonts as they are.
  */
 export interface InitialGraph {
   readonly code: string[];
@@ -49,7 +47,7 @@ export const SMOKE_PROBE_FOLDER = "/src/main/probes/";
 export const BUILD_TARGETS = ["main", "preload", "renderer"] as const;
 
 /** `out/`, the directory every build target writes beneath. */
-const BUILD_OUTPUT_DIRECTORY: string = fileURLToPath(new URL("../../out/", import.meta.url));
+const BUILD_OUTPUT_DIRECTORY: string = join(DESKTOP_PACKAGE_ROOT, "out");
 
 /** `out/renderer/`, the `renderer.build.outDir` of `electron.vite.config.ts`. */
 const RENDERER_OUTPUT_DIRECTORY: string = join(BUILD_OUTPUT_DIRECTORY, "renderer");
@@ -109,13 +107,10 @@ export function readSourceMapsOrFailLoudly(
 }
 
 /**
- * The renderer build's initial graph: every entry chunk and what it reaches by static import, with
- * its stylesheets and assets, never crossing a dynamic import, so lazy chunks stay out. The split
- * is the bundler's, read from its chunk manifest rather than worked out again.
- *
- * Each path is checked as size-limit will glob it, since size-limit drops a path that globs to
- * nothing and sums the rest. Throws when the manifest is missing or marks no entry, or names a file
- * that is neither code nor a font, or one that does not glob to itself.
+ * The renderer build's initial graph, read off the bundler's chunk manifest: every entry chunk and
+ * what it reaches by static import, with its stylesheets and assets, so lazy chunks stay out.
+ * Throws when the manifest is missing, marks no entry, names a chunk it does not hold, or names a
+ * file of no budget kind or one that does not glob to itself, which size-limit would drop.
  */
 export function readInitialGraphOrFailLoudly(): InitialGraph {
   if (!existsSync(RENDERER_MANIFEST_PATH)) {
@@ -133,9 +128,12 @@ export function readInitialGraphOrFailLoudly(): InitialGraph {
   const visitedKeys = new Set<string>();
   const emittedFiles = new Set<string>();
   for (const key of pendingKeys) {
-    const chunk = manifest[key];
-    if (chunk === undefined || visitedKeys.has(key)) {
+    if (visitedKeys.has(key)) {
       continue;
+    }
+    const chunk = manifest[key];
+    if (chunk === undefined) {
+      throw new Error(`${RENDERER_MANIFEST_PATH} imports a chunk \`${key}\` it does not hold.`);
     }
     visitedKeys.add(key);
     for (const emitted of [chunk.file, ...(chunk.css ?? []), ...(chunk.assets ?? [])]) {
@@ -147,11 +145,12 @@ export function readInitialGraphOrFailLoudly(): InitialGraph {
   const initialGraph: InitialGraph = { code: [], fonts: [] };
   for (const emitted of [...emittedFiles].sort()) {
     const path = join(RENDERER_OUTPUT_DIRECTORY, emitted);
-    const side = initialGraphSideOf(emitted);
-    if (side === undefined) {
+    const budgetKind = budgetKindOf(emitted);
+    if (budgetKind === undefined) {
       throw new Error(
-        `${emitted} is on the renderer's initial graph but is neither code nor a font, so no ` +
-          "bundle budget would count it. Give its extension a side before it ships.",
+        `${emitted} is on the renderer's initial graph but its extension is in neither ` +
+          "`CODE_EXTENSIONS` nor `FONT_EXTENSIONS` in `tests/budget/built-renderer-tree.ts`, " +
+          "so no bundle budget would count it. Add it to the one whose budget should hold it.",
       );
     }
     const globbed = globSync(path);
@@ -162,7 +161,7 @@ export function readInitialGraphOrFailLoudly(): InitialGraph {
           "would leave it out of the sum.",
       );
     }
-    initialGraph[side].push(path);
+    initialGraph[budgetKind].push(path);
   }
   return initialGraph;
 }
@@ -177,7 +176,7 @@ interface ManifestChunk {
   readonly assets?: readonly string[];
 }
 
-function initialGraphSideOf(emitted: string): keyof InitialGraph | undefined {
+function budgetKindOf(emitted: string): keyof InitialGraph | undefined {
   if (CODE_EXTENSIONS.test(emitted)) {
     return "code";
   }

@@ -13,7 +13,7 @@ const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 export const DESKTOP_PACKAGE_ROOT: string = path.resolve(THIS_DIRECTORY, "..", "..");
 
 /** Absolute path of the checked-in `tests/budget/document.json`. */
-export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
+const BUDGETS_FILE_PATH: string = path.join(
   DESKTOP_PACKAGE_ROOT,
   "tests",
   "budget",
@@ -31,8 +31,8 @@ export class BudgetRegistry {
   }
 
   /** @throws {BudgetRegistryError} on a missing, unreadable, or malformed registry. */
-  static load(budgetsFilePath: string = DEFAULT_BUDGETS_FILE_PATH): BudgetRegistry {
-    return new BudgetRegistry(budgetsFilePath, readBudgetDocument(budgetsFilePath).budgets);
+  static load(): BudgetRegistry {
+    return new BudgetRegistry(BUDGETS_FILE_PATH, readBudgetDocument(BUDGETS_FILE_PATH).budgets);
   }
 
   /** @throws {BudgetRegistryError} rather than returning a vacuous pass. */

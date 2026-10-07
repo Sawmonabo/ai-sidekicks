@@ -33,10 +33,10 @@
   // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, the
   // executables' tests under `scripts/`, the smoke and GC launches directly under `tests/`, and the
   // bundle tier; the size-limit config; and the Vitest config, the modules it composes under
-  // `vitest/` and the root `vitest.shared.ts` it imports. The other folders under `tests/` hold DOM or Electron-driving
-  // code and are typechecked by `tsconfig.browser-test.json`, `tsconfig.electron-test.json` and the
-  // renderer's `tsconfig.test.json`. A helper under `tests/helpers/` is typechecked here when a
-  // test here imports it.
+  // `vitest/` and the root `vitest.shared.ts` it imports. The other folders under `tests/` hold DOM
+  // or Electron-driving code and are typechecked by `tsconfig.browser-test.json`,
+  // `tsconfig.electron-test.json` and the renderer's `tsconfig.test.json`. A helper under
+  // `tests/helpers/` is typechecked here when a test here imports it.
   "include": [
     "src/**/*",
     "scripts/**/*.test.ts",

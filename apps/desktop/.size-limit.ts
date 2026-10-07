@@ -19,7 +19,7 @@ const sizeLimitConfig: SizeLimitConfig = [
   },
   {
     // The gzip ceiling's headroom carried over: the measured 268,179 B brotli scaled by 450 kB over
-    // the measured 309,059 B gzip, rounded down, so both trip on the same growth.
+    // the measured 309,059 B gzip, rounded down, so both trip at about the same growth.
     name: "Renderer initial code, brotli",
     path: initialGraph.code,
     limit: "390 kB",
