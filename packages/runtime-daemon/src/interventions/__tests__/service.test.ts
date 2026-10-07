@@ -33,7 +33,6 @@ import {
   type FasterModelRetryOutcome,
   type FasterModelRetryRequest,
   type InterventionOrigin,
-  type SettledInterventionOutcome,
 } from "../service.js";
 import { InterventionReader } from "../store.js";
 
@@ -46,7 +45,6 @@ interface InterventionRow {
   readonly rejection_reason: string | null;
   readonly failure_reason: string | null;
   readonly fallback_action: string | null;
-  readonly outcome_run_version: number | null;
   readonly resolved_at: string | null;
 }
 
@@ -63,7 +61,6 @@ describe("InterventionService", () => {
   let duringDispatch: () => Promise<void>;
   let retryCalls: FasterModelRetryRequest[];
   let retryOutcome: FasterModelRetryOutcome;
-  let settleCalls: SettledInterventionOutcome[];
 
   beforeEach(async () => {
     database = await openScratchDatabase();
@@ -80,7 +77,6 @@ describe("InterventionService", () => {
     duringDispatch = async () => {};
     retryCalls = [];
     retryOutcome = { state: "applied" };
-    settleCalls = [];
     service = new InterventionService({
       runs,
       interventions: new InterventionReader(database.reader),
@@ -97,9 +93,9 @@ describe("InterventionService", () => {
         return retryOutcome;
       },
       runEngine: {
-        settleInterventionOutcome: async (outcome) => {
-          settleCalls.push(outcome);
-        },
+        // Only an interrupt's verdict ends its run; a steer or a retry reaching here fails the test.
+        endRunForInterrupt: () =>
+          Promise.reject(new Error("A steer or a faster-model retry never ends its run")),
         routeInterrupt: () => Promise.resolve("driver"),
       },
     });
@@ -147,7 +143,7 @@ describe("InterventionService", () => {
     return database.reader
       .prepare<[InterventionId], InterventionRow>(
         `SELECT state, payload, device_id, rejection_reason, failure_reason, fallback_action,
-                outcome_run_version, resolved_at
+                resolved_at
            FROM interventions WHERE id = ?`,
       )
       .get(interventionId);
@@ -227,7 +223,7 @@ describe("InterventionService", () => {
     expect(runs.getRun(runId)?.version).toBe(0);
   });
 
-  it("lands applied and degraded on the row with one version advance each, and settles each once", async () => {
+  it("lands applied and degraded on the row with one version advance each", async () => {
     await moveRun("queued", "running");
     const deviceId = DeviceIdSchema.parse(randomUUID());
 
@@ -241,13 +237,11 @@ describe("InterventionService", () => {
       state: "applied",
       device_id: deviceId,
       fallback_action: null,
-      outcome_run_version: 2,
     });
     expect(readRow(degraded.interventionId)).toMatchObject({
       state: "degraded",
       device_id: null,
       fallback_action: STEER_FALLBACK_ACTION,
-      outcome_run_version: 3,
     });
     // Every event names who asked, the calling device or the daemon, on its envelope too.
     expect(eventActorsOf(applied.interventionId)).toEqual(Array(3).fill([deviceId, deviceId]));
@@ -274,10 +268,6 @@ describe("InterventionService", () => {
       },
       expect.objectContaining({ expectedRunVersion: 2 }),
     ]);
-    expect(settleCalls).toEqual([
-      { runId, interventionType: "steer", state: "applied" },
-      { runId, interventionType: "steer", state: "degraded" },
-    ]);
   });
 
   it("records the driver's verdict when the run moved after dispatch, advancing from where it is", async () => {
@@ -287,10 +277,7 @@ describe("InterventionService", () => {
     const response = await service.applyIntervention(steer(1), DAEMON_ORIGIN);
 
     expect(response).toMatchObject({ state: "applied", runVersion: 3 });
-    expect(readRow(response.interventionId)).toMatchObject({
-      state: "applied",
-      outcome_run_version: 3,
-    });
+    expect(readRow(response.interventionId)).toMatchObject({ state: "applied" });
     expect(eventTypesOf(response.interventionId)).toEqual([
       "intervention.requested",
       "intervention.accepted",
@@ -298,7 +285,6 @@ describe("InterventionService", () => {
     ]);
     expect(runs.getRun(runId)).toMatchObject({ state: "waiting_for_input", version: 3 });
     expect(driverCalls).toHaveLength(1);
-    expect(settleCalls).toEqual([{ runId, interventionType: "steer", state: "applied" }]);
   });
 
   it.each([
@@ -330,7 +316,6 @@ describe("InterventionService", () => {
       expect(readRow(retried.interventionId)).toMatchObject({
         state: "failed",
         failure_reason: failureReason,
-        outcome_run_version: null,
         resolved_at: expect.any(String),
       });
       expect(eventTypesOf(retried.interventionId)).toEqual([
@@ -339,7 +324,6 @@ describe("InterventionService", () => {
         "intervention.failed",
       ]);
       expect(driverCalls).toHaveLength(1);
-      expect(settleCalls).toHaveLength(0);
     },
   );
 
@@ -362,7 +346,6 @@ describe("InterventionService", () => {
       "intervention.expired",
     ]);
     expect(driverCalls).toEqual([expect.objectContaining({ expectedRunVersion: 1 })]);
-    expect(settleCalls).toHaveLength(1);
     expect(runs.getRun(runId)?.version).toBe(2);
   });
 
@@ -419,8 +402,5 @@ describe("InterventionService", () => {
       runVersion: 2,
     });
     expect(readRow(refused.interventionId)).toMatchObject({ rejection_reason: "turn_not_latest" });
-    expect(settleCalls).toEqual([
-      { runId, interventionType: "faster_model_retry", state: "applied" },
-    ]);
   });
 });

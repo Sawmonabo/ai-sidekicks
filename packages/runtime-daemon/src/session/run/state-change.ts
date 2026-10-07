@@ -12,7 +12,7 @@ import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
-import type { SessionEventAppender } from "../../events/session/appender.js";
+import type { SessionEventAppender, SessionEventDraft } from "../../events/session/appender.js";
 import { swapRunStateStatement } from "./projection.js";
 import type { RunRead, RunStateReader } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError, RunNotFoundError } from "./refusals.js";
@@ -43,11 +43,21 @@ const SELECT_TERMINAL_RECORD_SQL = `SELECT 1 FROM session_events
     AND json_extract(payload, '$.runVersion') = @run_version
   LIMIT 1`;
 
+/**
+ * What commits with a run state change in its write: statements run after the run's swap, so one
+ * that reads the run sees the version the change reached, and events appended just before the
+ * change's own. A statement refusing refuses the whole write.
+ */
+export interface RunStateChangeCompanions {
+  readonly statements?: readonly WriteStatement[] | undefined;
+  readonly precedingEvents?: readonly SessionEventDraft[] | undefined;
+}
+
 // How many times a change is read and written before a run that keeps moving under it is refused.
 const MAX_WRITE_ATTEMPTS = 3;
 
-// A terminal write's statements, in order: the guard, the swap, then the caller's own guards; any
-// other change's start at the swap.
+// A terminal write's statements, in order: the guard, the swap, then the companion statements;
+// any other change's start at the swap.
 const TERMINAL_GUARD_INDEX = 0;
 
 /** Writes run state changes; the run's row and its event move in the same write. */
@@ -66,15 +76,12 @@ export class RunStateChangeWriter {
    * and the run has not ended, up to a few times. Throws {@link RunNotFoundError} for an unknown run,
    * {@link RunAlreadyEndedError} for a terminal of a run that has ended or whose run version already
    * holds one, and {@link RunInvalidTransitionError} for a move the table does not allow from the
-   * state the run is in; any of `extraGuards` refusing throws its `WriteRefusedError`. Each refusal
-   * writes nothing.
+   * state the run is in; a companion statement refusing throws its `WriteRefusedError`. Each
+   * refusal writes nothing.
    */
-  async write(
-    change: RunStateChange,
-    extraGuards: readonly WriteStatement[] = [],
-  ): Promise<RunRead> {
+  async write(change: RunStateChange, companions: RunStateChangeCompanions = {}): Promise<RunRead> {
     for (let attempt = 1; ; attempt += 1) {
-      const outcome = await this.#attempt(change, extraGuards, attempt > 1);
+      const outcome = await this.#attempt(change, companions, attempt > 1);
       if (outcome.written !== undefined) {
         return outcome.written;
       }
@@ -89,7 +96,7 @@ export class RunStateChangeWriter {
   // first read, never a change that lost its race to the run's end.
   async #attempt(
     change: RunStateChange,
-    extraGuards: readonly WriteStatement[],
+    companions: RunStateChangeCompanions,
     isRetry: boolean,
   ): Promise<{ written: RunRead; swapRefusal?: never } | { written?: never; swapRefusal: Error }> {
     const { runId, newState, expectedState, ...members } = change;
@@ -116,9 +123,10 @@ export class RunStateChangeWriter {
       runVersion,
     });
     const isTerminal = isTerminalState(newState);
+    const companionStatements = companions.statements ?? [];
     const transactionalPrelude = isTerminal
-      ? [noTerminalRecordStatement(runId, runVersion), swap, ...extraGuards]
-      : [swap, ...extraGuards];
+      ? [noTerminalRecordStatement(runId, runVersion), swap, ...companionStatements]
+      : [swap, ...companionStatements];
     const swapIndex = transactionalPrelude.indexOf(swap);
     const type: SessionEventType = `run.${newState}`;
     const payload = {
@@ -130,7 +138,10 @@ export class RunStateChangeWriter {
       newState,
     };
     try {
-      await this.#appender.append(type, payload, { transactionalPrelude });
+      await this.#appender.append(type, payload, {
+        transactionalPrelude,
+        precedingEvents: companions.precedingEvents,
+      });
     } catch (error) {
       if (!(error instanceof WriteRefusedError)) {
         throw error;

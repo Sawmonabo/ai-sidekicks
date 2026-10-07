@@ -11,22 +11,22 @@ import {
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { ProcessExit, RunSetupFailedCause } from "@ai-sidekicks/contracts/run/control";
 import type { InterruptReason } from "@ai-sidekicks/contracts/orchestration";
+import type { InterventionEventPayload } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import type { InterventionType } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionNoticePayload } from "@ai-sidekicks/contracts/session/controls/events";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { WriteStatement } from "../../database/statement.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import {
   SessionEventAppender,
   type SessionEventAppenderDeps,
 } from "../../events/session/appender.js";
+import { moveInterventionStatement } from "../../interventions/store.js";
 import {
   boundFailureDetail,
   type ProviderDriver,
@@ -38,10 +38,15 @@ import { RunAlreadyEndedError, RunInvalidTransitionError, RunNotFoundError } fro
 import {
   PendingInterruptReader,
   decideRestartSettlement,
-  pendingInterruptStatement,
+  noPendingInterruptStatement,
+  type PendingInterrupt,
 } from "./restart.js";
 import { RunSetupGates, type RunSetupGate } from "./setup-gates.js";
-import { RunStateChangeWriter, type RunStateChange } from "./state-change.js";
+import {
+  RunStateChangeWriter,
+  type RunStateChange,
+  type RunStateChangeCompanions,
+} from "./state-change.js";
 import { isTerminalState } from "./transitions.js";
 
 // Parsed at load so a bad literal throws at import, not at the first change.
@@ -273,27 +278,21 @@ export class RunEngine {
   }
 
   /**
-   * Carries a recorded intervention outcome into the run's state: an interrupt, applied or
-   * degraded, ends the run `interrupted`, or leaves it as it is when it has already ended; a steer
-   * or a faster-model retry changes no state.
+   * Ends the run `interrupted` for an applied or degraded interrupt, committing `verdict`, the
+   * interrupt's row move and its event, in the same write, and resolves `true`. Resolves `false`
+   * with nothing written when the run has already ended, which is what the interrupt asked for;
+   * the caller then records the verdict alone.
    */
-  async settleInterventionOutcome(outcome: {
-    runId: RunId;
-    interventionType: InterventionType;
-    state: "applied" | "degraded";
-  }): Promise<void> {
-    if (outcome.interventionType !== "interrupt") {
-      return;
-    }
+  async endRunForInterrupt(runId: RunId, verdict: RunStateChangeCompanions): Promise<boolean> {
     try {
-      await this.#change({ runId: outcome.runId, newState: "interrupted" });
+      await this.#change({ runId, newState: "interrupted" }, verdict);
     } catch (error) {
-      // The run ended before the settle, which is what the interrupt asked for.
       if (error instanceof RunAlreadyEndedError) {
-        return;
+        return false;
       }
       throw error;
     }
+    return true;
   }
 
   /**
@@ -325,25 +324,30 @@ export class RunEngine {
 
   /**
    * Settles one run a restart left live that recovery could not resume, without calling any
-   * driver: `interrupted` when the person's interrupt was pending, or with the restart's trigger
-   * when it is a child held in a pause, otherwise `failed` as a provider failure that needs
-   * recovery, carrying `failureDetail`. A queued run is left as it is.
+   * driver: `interrupted` when the person's interrupt was pending, its row moved to `applied` in
+   * the run's end write, or with the restart's trigger when it is a child held in a pause,
+   * otherwise `failed` as a provider failure that needs recovery, carrying `failureDetail`. A
+   * queued run is left as it is.
    */
   async settleRunAfterRestart(run: LiveRun, failureDetail: string): Promise<RunRead> {
-    const hasPendingInterrupt = this.#pendingInterrupts.hasPendingInterrupt(run);
-    const settlement = decideRestartSettlement(run, hasPendingInterrupt);
+    const pendingInterrupt = this.#pendingInterrupts.readPendingInterrupt(run.runId);
+    const settlement = decideRestartSettlement(run, pendingInterrupt);
     if (settlement === undefined) {
       return run;
     }
-    const guard = [pendingInterruptStatement(run, hasPendingInterrupt)];
-    if (settlement === "interrupted") {
+    if (pendingInterrupt !== undefined) {
       // The person's pending interrupt stays theirs; only a held child's end is the daemon's.
       return this.#change(
-        {
-          runId: run.runId,
-          newState: "interrupted",
-          ...(hasPendingInterrupt ? {} : { trigger: RESTART_INTERRUPT_TRIGGER }),
-        },
+        { runId: run.runId, newState: "interrupted" },
+        appliedInterruptOf(run, pendingInterrupt),
+      );
+    }
+    const guard: RunStateChangeCompanions = {
+      statements: [noPendingInterruptStatement(run.runId)],
+    };
+    if (settlement === "interrupted") {
+      return this.#change(
+        { runId: run.runId, newState: "interrupted", trigger: RESTART_INTERRUPT_TRIGGER },
         guard,
       );
     }
@@ -372,8 +376,8 @@ export class RunEngine {
     }
   }
 
-  async #change(change: RunStateChange, extraGuards?: readonly WriteStatement[]): Promise<RunRead> {
-    const run = await this.#changes.write(change, extraGuards);
+  async #change(change: RunStateChange, companions?: RunStateChangeCompanions): Promise<RunRead> {
+    const run = await this.#changes.write(change, companions);
     if (isTerminalState(run.state)) {
       this.#carriedOutputSpeedByRun.delete(change.runId);
       this.#markStartingRunEnded(change.runId);
@@ -428,6 +432,30 @@ export class RunEngine {
       );
     }
   }
+}
+
+// The pending interrupt's row moved to `applied`, with its event, for the run's end write.
+function appliedInterruptOf(
+  run: LiveRun,
+  pendingInterrupt: PendingInterrupt,
+): RunStateChangeCompanions {
+  const payload: InterventionEventPayload<"applied"> = {
+    sessionId: run.sessionId,
+    interventionId: pendingInterrupt.interventionId,
+    targetRunId: run.runId,
+    type: "interrupt",
+    state: "applied",
+    actor: pendingInterrupt.actor,
+  };
+  return {
+    statements: [
+      moveInterventionStatement(pendingInterrupt.interventionId, {
+        from: pendingInterrupt.state,
+        to: "applied",
+      }),
+    ],
+    precedingEvents: [{ type: "intervention.applied", payload }],
+  };
 }
 
 // The cause a gate's throw records: a coded daemon error's code, and the error's own words.

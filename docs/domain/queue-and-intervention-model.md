@@ -70,12 +70,16 @@ Intervention states:
 | `requested` | `accepted` | Valid target, authorized | Target run is in a state that accepts this intervention type |
 | `requested` | `rejected` | Invalid target, unauthorized, or static capability refusal | Target run state incompatible, the policy refuses it, or the type has no documented fallback under a driver capability exclusion (`driver.capability_unsupported` — §Driver Result To Lifecycle Mapping) |
 | `requested` | `expired` | Version guard mismatch | `expectedRunVersion` does not match current run version |
+| `requested` | `applied` | A restart found the stop pending | The daemon went down before accepting the stop, and the restart ends the run `interrupted` |
 | `accepted` | `applied` | Driver successfully executed | Provider confirmed the intervention took effect |
 | `accepted` | `applied` | The daemon ended a run no driver has | An interrupt of a run in its setup gates, or of a run whose failed start could not write its end, ends the run `interrupted` without calling a driver |
 | `accepted` | `degraded` | Driver fallback used | Driver can deliver this type neither natively nor through the orchestration leg above it, and the orchestration layer fell back — a path neither V1 provider reaches |
 | `accepted` | `expired` | The run ended before dispatch | An interrupt waited for the run's start to settle, and a failed setup gate or a failed driver start ended the run meanwhile |
 | `accepted` | `rejected` | The daemon's own leg refused | The faster-model retry the daemon carries out itself refused after acceptance |
+| `accepted` | `applied` | A restart found the stop pending | The daemon went down before the stop's outcome, and the restart ends the run `interrupted` |
 | `accepted` | `failed` | Dispatch threw | The driver or the leg above it threw instead of returning a verdict |
+
+An interrupt's `applied` or `degraded` record and the run's `interrupted` end commit in one write, so no restart finds one without the other; a run that ended first keeps its end, and the record lands alone. A restart's own end of a run with a pending stop moves that stop's record to `applied` in the same write.
 
 ## Intervention Entity Relationship
 

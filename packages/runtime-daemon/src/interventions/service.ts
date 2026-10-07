@@ -4,7 +4,8 @@
 // decision read from the run is checked again by a guarded statement inside the write it decides.
 //
 // The accept is the version gate: a request whose run moved before it expires undispatched, and
-// once dispatched the driver's verdict is recorded whatever the run did meanwhile. A dispatch that
+// once dispatched the driver's verdict is recorded whatever the run did meanwhile. An applied or
+// degraded interrupt's verdict is written with the run's end, in the same write. A dispatch that
 // throws ends the request `failed`. Steers and retries on one run take turns under a per-run lock,
 // so two at one version never both reach the driver; an interrupt takes a lock of its own, so a
 // stop never waits behind a steer, and a steer still queued when it lands meets the advanced
@@ -43,6 +44,7 @@ import type { InterruptRoute } from "../session/run/engine.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
+import type { RunStateChangeCompanions } from "../session/run/state-change.js";
 import { statesThatMayEnter } from "../session/run/transitions.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import {
@@ -77,17 +79,10 @@ export type FasterModelRetryOutcome =
   | { readonly state: "applied" }
   | { readonly state: "rejected"; readonly rejectionReason: string };
 
-/** An applied or degraded intervention, as the run engine settles the run it acted on. */
-export interface SettledInterventionOutcome {
-  readonly runId: RunId;
-  readonly interventionType: InterventionType;
-  readonly state: "applied" | "degraded";
-}
-
 /** The run engine as the intervention service uses it. */
 interface InterventionRunEngine {
-  /** Ends the run `interrupted` for an applied or degraded interrupt; changes nothing otherwise. */
-  settleInterventionOutcome(outcome: SettledInterventionOutcome): Promise<void>;
+  /** Ends the run with an interrupt's verdict in one write; see `RunEngine.endRunForInterrupt`. */
+  endRunForInterrupt(runId: RunId, verdict: RunStateChangeCompanions): Promise<boolean>;
   /** Where an interrupt of the run goes; see `RunEngine.routeInterrupt`. */
   routeInterrupt(runId: RunId): Promise<InterruptRoute>;
 }
@@ -248,16 +243,24 @@ export class InterventionService {
     if (outcome.to === "rejected" || outcome.to === "expired") {
       return this.#resolve(target, outcome);
     }
-    // The verdict stands whatever the run did since the accept, so the advance holds no comparand.
-    await this.#appendIntervention(target, outcome.to, [
-      advanceRunVersionStatement({ sessionId: target.sessionId, runId: target.targetRunId }),
-      moveInterventionStatement(target.interventionId, outcome),
-    ]);
-    await this.#deps.runEngine.settleInterventionOutcome({
-      runId: target.targetRunId,
-      interventionType: target.type,
-      state: outcome.to,
-    });
+    const move = moveInterventionStatement(target.interventionId, outcome);
+    // An interrupt ends its run in the verdict's own write; a run that ended first keeps its end.
+    const hasEndedRun =
+      target.type === "interrupt" &&
+      (await this.#deps.runEngine.endRunForInterrupt(target.targetRunId, {
+        statements: [move],
+        precedingEvents: [
+          { type: `intervention.${outcome.to}`, payload: interventionEventOf(target, outcome.to) },
+        ],
+      }));
+    if (!hasEndedRun) {
+      // The verdict stands whatever the run did since the accept, so the advance holds no
+      // comparand.
+      await this.#appendIntervention(target, outcome.to, [
+        advanceRunVersionStatement({ sessionId: target.sessionId, runId: target.targetRunId }),
+        move,
+      ]);
+    }
     return this.#answer(target, outcome.to, undefined);
   }
 
@@ -393,9 +396,17 @@ export class InterventionService {
     state: TState,
     transactionalPrelude: readonly WriteStatement[],
   ): Promise<void> {
-    const payload: InterventionEventPayload<TState> = { ...target, state };
-    await this.#appender.append(`intervention.${state}`, payload, { transactionalPrelude });
+    await this.#appender.append(`intervention.${state}`, interventionEventOf(target, state), {
+      transactionalPrelude,
+    });
   }
+}
+
+function interventionEventOf<TState extends InterventionState>(
+  target: InterventionTarget,
+  state: TState,
+): InterventionEventPayload<TState> {
+  return { ...target, state };
 }
 
 // What a dispatch throw records: a domain error's code, else its message.

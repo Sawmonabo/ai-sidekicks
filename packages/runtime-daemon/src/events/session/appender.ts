@@ -41,6 +41,12 @@ export interface SessionEventAppenderDeps {
   readonly newEventId?: () => string;
 }
 
+/** An event built to go in another event's write: its type and its payload. */
+export interface SessionEventDraft {
+  readonly type: SessionEventType;
+  readonly payload: AppendedPayload;
+}
+
 /** The envelope linkage and atomic table write one emission carries. */
 export interface SessionEventLinkage {
   readonly correlationId?: string | null | undefined;
@@ -49,6 +55,8 @@ export interface SessionEventLinkage {
   readonly transactionalPrelude?: readonly WriteStatement[] | undefined;
   /** A body-bearing event's prose, stored beside its payload (see `EventLogAppendOptions.content`). */
   readonly content?: EventLogAppendOptions["content"] | undefined;
+  /** Events committed just before this one in its write (see `EventLogAppendOptions`). */
+  readonly precedingEvents?: readonly SessionEventDraft[] | undefined;
 }
 
 /** The members the envelope reads back from a payload: its session and, when one acted, its actor. */
@@ -74,14 +82,36 @@ export class SessionEventAppender {
   }
 
   /**
-   * Appends `type` with `payload`. The envelope's session and actor are read back from the
-   * payload, so the two cannot disagree. Throws when the type has no registered category.
+   * Appends `type` with `payload`, after any of `linkage.precedingEvents` in the same write. The
+   * envelope's session and actor are read back from the payload, so the two cannot disagree.
+   * Throws when a type has no registered category.
    */
   async append(
     type: SessionEventType,
     payload: AppendedPayload,
     linkage: SessionEventLinkage,
   ): Promise<EventLogAppendReceipt> {
+    // Built in write order, so the ids minted for them rise with their sequences.
+    const precedingEvents = (linkage.precedingEvents ?? []).map((preceding) =>
+      this.#envelopeOf(preceding.type, preceding.payload, {}),
+    );
+    const envelope = this.#envelopeOf(type, payload, linkage);
+    return this.#sessionEvents.append(envelope, {
+      monotonicNs: this.#monotonicNow(),
+      // Spread, because `exactOptionalPropertyTypes` rejects an explicit `undefined`.
+      ...(linkage.transactionalPrelude !== undefined
+        ? { transactionalPrelude: linkage.transactionalPrelude }
+        : {}),
+      ...(linkage.content !== undefined ? { content: linkage.content } : {}),
+      ...(precedingEvents.length > 0 ? { precedingEvents } : {}),
+    });
+  }
+
+  #envelopeOf(
+    type: SessionEventType,
+    payload: AppendedPayload,
+    linkage: Pick<SessionEventLinkage, "correlationId" | "causationId">,
+  ): UnsequencedEventEnvelope {
     // Looked up from the registry: the strict layer refuses an envelope whose category disagrees
     // with its type.
     const category: EventCategory | undefined = SESSION_EVENT_CATEGORY_BY_TYPE.get(type);
@@ -91,7 +121,7 @@ export class SessionEventAppender {
           "in SESSION_EVENT_CATEGORY_BY_TYPE for the strict layer to interpret what is written.",
       );
     }
-    const envelope: UnsequencedEventEnvelope = {
+    return {
       id: this.#newEventId(),
       sessionId: payload.sessionId,
       occurredAt: this.#now(),
@@ -104,13 +134,5 @@ export class SessionEventAppender {
       ...(linkage.causationId != null ? { causationId: linkage.causationId } : {}),
       version: this.#version,
     };
-    return this.#sessionEvents.append(envelope, {
-      monotonicNs: this.#monotonicNow(),
-      // Spread, because `exactOptionalPropertyTypes` rejects an explicit `undefined`.
-      ...(linkage.transactionalPrelude !== undefined
-        ? { transactionalPrelude: linkage.transactionalPrelude }
-        : {}),
-      ...(linkage.content !== undefined ? { content: linkage.content } : {}),
-    });
   }
 }

@@ -73,7 +73,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       }),
       retryOnFasterModel: () => Promise.reject(new Error("No faster-model retry is sent here")),
       runEngine: {
-        settleInterventionOutcome: (outcome) => fixture.engine.settleInterventionOutcome(outcome),
+        endRunForInterrupt: (runId, verdict) => fixture.engine.endRunForInterrupt(runId, verdict),
         routeInterrupt: (runId) => routeInterrupt(runId),
       },
     });

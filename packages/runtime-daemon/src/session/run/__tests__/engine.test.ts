@@ -191,11 +191,7 @@ describe("run engine", () => {
       const terminals: RunTerminalContext[] = [];
       fixture.engine.registerSetupGate({
         assertRunReady: async () => {
-          await fixture.engine.settleInterventionOutcome({
-            runId,
-            interventionType: "interrupt",
-            state: "applied",
-          });
+          await fixture.engine.endRunForInterrupt(runId, {});
           throw gateError;
         },
         onRunTerminal: (context) => {
@@ -222,12 +218,9 @@ describe("run engine", () => {
     it("does not hand the driver a run interrupted while a gate checked it", async () => {
       const runId = await fixture.queueRun();
       fixture.engine.registerSetupGate({
-        assertRunReady: () =>
-          fixture.engine.settleInterventionOutcome({
-            runId,
-            interventionType: "interrupt",
-            state: "applied",
-          }),
+        assertRunReady: async () => {
+          await fixture.engine.endRunForInterrupt(runId, {});
+        },
       });
       const driver = makeRecordingDriver();
 
@@ -284,11 +277,7 @@ describe("run engine", () => {
       await startRun(runId);
       log.length = 0;
 
-      await fixture.engine.settleInterventionOutcome({
-        runId,
-        interventionType: "interrupt",
-        state: "degraded",
-      });
+      await fixture.engine.endRunForInterrupt(runId, {});
       // A second terminal of the same run version is refused and releases nothing again.
       await expect(
         fixture.engine.transition({ runId, newState: "interrupted" }),
@@ -312,7 +301,7 @@ describe("run engine", () => {
       ]);
     });
 
-    it("leaves a run the provider ended first as it is when the interrupt's settle arrives, and surfaces any other refusal", async () => {
+    it("leaves a run the provider ended first as it is when the interrupt's end arrives, and surfaces any other refusal", async () => {
       const log: string[] = [];
       fixture.engine.registerSetupGate(recordingGate("gate", log));
       const runId = await fixture.queueRun();
@@ -323,13 +312,7 @@ describe("run engine", () => {
         completionKind: "turn",
       });
 
-      await expect(
-        fixture.engine.settleInterventionOutcome({
-          runId,
-          interventionType: "interrupt",
-          state: "applied",
-        }),
-      ).resolves.toBeUndefined();
+      await expect(fixture.engine.endRunForInterrupt(runId, {})).resolves.toBe(false);
 
       expect(fixture.runs.getRun(runId)).toMatchObject({ state: "completed", version: 3 });
       expect(fixture.readRunEvents(runId).some((row) => row.type === "run.interrupted")).toBe(
@@ -340,11 +323,7 @@ describe("run engine", () => {
       // A run that has not ended and cannot end interrupted is still refused.
       const queued = await fixture.queueRun();
       const refusal: unknown = await fixture.engine
-        .settleInterventionOutcome({
-          runId: queued,
-          interventionType: "interrupt",
-          state: "applied",
-        })
+        .endRunForInterrupt(queued, {})
         .catch((error: unknown) => error);
       expect(refusal).toBeInstanceOf(RunInvalidTransitionError);
       expect(refusal).not.toBeInstanceOf(RunAlreadyEndedError);
@@ -429,18 +408,7 @@ describe("run engine", () => {
     const waiting = await fixture.engine.transition({ runId, newState: "waiting_for_approval" });
     const resumed = await fixture.engine.transition({ runId, newState: "running" });
     await fixture.engine.transition({ runId, newState: "waiting_for_input" });
-    // A steer changes no state; only the interrupt ends the run.
-    await fixture.engine.settleInterventionOutcome({
-      runId,
-      interventionType: "steer",
-      state: "applied",
-    });
-    expect(fixture.runs.getRun(runId)?.state).toBe("waiting_for_input");
-    await fixture.engine.settleInterventionOutcome({
-      runId,
-      interventionType: "interrupt",
-      state: "applied",
-    });
+    await fixture.engine.endRunForInterrupt(runId, {});
 
     expect([waiting.version, resumed.version]).toEqual([3, 4]);
     expect(fixture.runs.getRun(runId)).toEqual({

@@ -73,6 +73,12 @@ export interface EventLogAppendOptions extends ThinkingUpdateAppendOptions {
    * not the one it expects refuses the write with `WriteRefusedError`, and nothing of it is kept.
    */
   readonly transactionalPrelude?: readonly WriteStatement[];
+
+  /**
+   * Events of the same session committed in the same write, in order, just before this one, each
+   * at its own sequence; each is checked as this one is and carries no content.
+   */
+  readonly precedingEvents?: readonly UnsequencedEventEnvelope[];
 }
 
 /** Construction dependencies. */
@@ -97,20 +103,32 @@ export class EventLogService {
   }
 
   /**
-   * Appends one event and resolves once it has committed, with its allocated `sequence`. Refuses
-   * an assistant's thinking update, which goes through {@link appendThinkingUpdate}, a seeded
-   * content description member, a content partition on a type that carries none, a failed
-   * strict-variant parse, or a payload with no canonical form. An event is never refused for its
-   * size.
+   * Appends one event, after any `precedingEvents`, and resolves once it has committed, with its
+   * allocated `sequence`. Refuses an assistant's thinking update, which goes through
+   * {@link appendThinkingUpdate}, a preceding event of another session, a seeded content
+   * description member, a content partition on a type that carries none, a failed strict-variant
+   * parse, or a payload with no canonical form. An event is never refused for its size.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
     options?: EventLogAppendOptions,
   ): Promise<EventLogAppendReceipt> {
-    const row = this.#composeRow(envelope, options);
-    const [sequence] = await this.#queueInSessionOrder(envelope.sessionId, () =>
-      this.#writer.appendEvents([row], options?.transactionalPrelude),
+    // One clock reading for every event of the write.
+    const monotonicNs = options?.monotonicNs ?? this.#monotonicNow();
+    const precedingRows = (options?.precedingEvents ?? []).map((preceding) => {
+      if (preceding.sessionId !== envelope.sessionId) {
+        throw new Error(
+          `A preceding ${preceding.type} event of session ${preceding.sessionId} cannot share ` +
+            `the write of an event of session ${envelope.sessionId}`,
+        );
+      }
+      return this.#composeRow(preceding, { monotonicNs });
+    });
+    const row = this.#composeRow(envelope, { ...options, monotonicNs });
+    const sequences = await this.#queueInSessionOrder(envelope.sessionId, () =>
+      this.#writer.appendEvents([...precedingRows, row], options?.transactionalPrelude),
     );
+    const sequence = sequences.at(-1);
     if (sequence === undefined) {
       throw new Error("The database writer committed the event without a sequence");
     }

@@ -3,31 +3,40 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import { RUN_LIFECYCLE_EVENT_TYPES } from "@ai-sidekicks/contracts/event/registry";
+import type { InterventionId } from "@ai-sidekicks/contracts/run/control";
+import {
+  DAEMON_INTERVENTION_ACTOR,
+  type InterventionActor,
+} from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { WriteStatement } from "../../database/statement.js";
 import type { LiveRun } from "./read.js";
 
-// An interrupt the person asked for that has not ended the run: one with no outcome yet, or one
-// whose outcome landed with no run event after it. A later verdict advances the version without
-// a run event, so only a run event above the outcome's version means the run moved on. Listing
-// the run event types lets the read seek the session's type index rather than scan its log.
-const SELECT_PENDING_INTERRUPT_SQL = `SELECT 1 FROM interventions
+// An interrupt the person asked for that has no outcome yet. An applied one ends its run in the
+// outcome's own write, so a live run never holds one.
+const SELECT_PENDING_INTERRUPT_SQL = `SELECT id, state, device_id FROM interventions
   WHERE target_run_id = @run_id
     AND type = 'interrupt'
-    AND (state IN ('requested', 'accepted')
-      OR (state IN ('applied', 'degraded') AND NOT EXISTS (
-        SELECT 1 FROM session_events
-          WHERE session_id = @session_id
-            AND type IN (${RUN_LIFECYCLE_EVENT_TYPES.map((type) => `'${type}'`).join(", ")})
-            AND json_extract(payload, '$.runId') = @run_id
-            AND json_extract(payload, '$.runVersion') > interventions.outcome_run_version)))
+    AND state IN ('requested', 'accepted')
   LIMIT 1`;
 
 /** The state a run a restart left live settles in, or `undefined` for a run left as it is. */
 export type RestartSettlement = "interrupted" | "failed" | undefined;
+
+/** The person's interrupt a restart found with no outcome: its row, its state and who asked. */
+export interface PendingInterrupt {
+  readonly interventionId: InterventionId;
+  readonly state: "requested" | "accepted";
+  readonly actor: InterventionActor;
+}
+
+interface PendingInterruptRow {
+  readonly id: InterventionId;
+  readonly state: "requested" | "accepted";
+  readonly device_id: DeviceId | null;
+}
 
 /**
  * Decides how `run` settles. The person's pending interrupt comes first; a child held in a pause
@@ -36,12 +45,12 @@ export type RestartSettlement = "interrupted" | "failed" | undefined;
  */
 export function decideRestartSettlement(
   run: LiveRun,
-  hasPendingInterrupt: boolean,
+  pendingInterrupt: PendingInterrupt | undefined,
 ): RestartSettlement {
   if (run.state === "queued") {
     return undefined;
   }
-  if (hasPendingInterrupt) {
+  if (pendingInterrupt !== undefined) {
     return "interrupted";
   }
   if (run.parentRunId !== undefined && (run.state === "paused" || run.state === "pausing")) {
@@ -50,40 +59,35 @@ export function decideRestartSettlement(
   return "failed";
 }
 
-// A live run as the pending-interrupt read takes it: its id and its session.
-type PendingInterruptTarget = Pick<LiveRun, "runId" | "sessionId">;
-
-/**
- * Reads whether the person's interrupt of a live run is still to end it: waiting for its outcome,
- * or applied with the run's end not yet written.
- */
+/** Reads the person's interrupt of a live run that has no outcome yet. */
 export class PendingInterruptReader {
-  readonly #selectPendingInterrupt: Statement<[{ run_id: RunId; session_id: SessionId }], unknown>;
+  readonly #selectPendingInterrupt: Statement<[{ run_id: RunId }], PendingInterruptRow>;
 
   constructor(reader: Database) {
     this.#selectPendingInterrupt = reader.prepare(SELECT_PENDING_INTERRUPT_SQL);
   }
 
-  hasPendingInterrupt(run: PendingInterruptTarget): boolean {
-    return (
-      this.#selectPendingInterrupt.get({ run_id: run.runId, session_id: run.sessionId }) !==
-      undefined
-    );
+  readPendingInterrupt(runId: RunId): PendingInterrupt | undefined {
+    const row = this.#selectPendingInterrupt.get({ run_id: runId });
+    if (row === undefined) {
+      return undefined;
+    }
+    return {
+      interventionId: row.id,
+      state: row.state,
+      actor: row.device_id ?? DAEMON_INTERVENTION_ACTOR,
+    };
   }
 }
 
 /**
- * The statement that refuses the settle's write when the pending interrupt it was decided from
- * has since appeared or gone, so the settle never contradicts the person's last word. It runs
- * ahead of the settle's own run event, which it would otherwise count.
+ * The statement that refuses a settle decided with no pending interrupt once one has appeared, so
+ * the settle never contradicts the person's last word.
  */
-export function pendingInterruptStatement(
-  run: PendingInterruptTarget,
-  hasPendingInterrupt: boolean,
-): WriteStatement {
+export function noPendingInterruptStatement(runId: RunId): WriteStatement {
   return {
     sql: SELECT_PENDING_INTERRUPT_SQL,
-    bindings: { run_id: run.runId, session_id: run.sessionId },
-    expectedRowCount: hasPendingInterrupt ? 1 : 0,
+    bindings: { run_id: runId },
+    expectedRowCount: 0,
   };
 }
