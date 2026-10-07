@@ -30,8 +30,14 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
     const markup = { __html: state.mathMarkup };
     return props.isDisplayMode ? (
       // The markup sits one element in: written straight into the scroller, it would replace
-      // the scrollbar drawn inside it.
-      <span className="meridian-math--display" data-math="" ref={displayScrollbarRef}>
+      // the scrollbar drawn inside it. A tab stop, so a keyboard alone can scroll a formula wider
+      // than the column.
+      <span
+        className="meridian-math--display meridian-focus-inset"
+        data-math=""
+        ref={displayScrollbarRef}
+        tabIndex={0}
+      >
         <span dangerouslySetInnerHTML={markup} />
       </span>
     ) : (

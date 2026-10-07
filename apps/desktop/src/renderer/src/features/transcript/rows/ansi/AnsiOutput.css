@@ -10,7 +10,6 @@
   border-radius: var(--meridian-radius-md);
   color: var(--meridian-ansi-default-foreground);
   background: var(--meridian-ansi-default-background);
-  overflow-x: auto;
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-sm);
   line-height: 1.5;

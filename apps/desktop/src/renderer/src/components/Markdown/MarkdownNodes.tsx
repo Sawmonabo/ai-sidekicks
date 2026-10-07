@@ -8,8 +8,6 @@ import "./MarkdownNodes.css";
 import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
 
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
-
 import { isDeferredFenceLanguage } from "./rules.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
@@ -151,7 +149,10 @@ function renderNode(
       // alt text is the author's words and is kept.
       return <span className="meridian-markdown__image-alt">{node.alt ?? ""}</span>;
     case "table":
-      return <MarkdownTable node={node} context={context} />;
+      // No box of its own: the cells wrap to the column, so the table never scrolls sideways.
+      return (
+        <table className="meridian-markdown__table">{renderTableSections(node, context)}</table>
+      );
     case "footnoteDefinition":
       // Drawn from the footnote registry, not inline, which would show the text twice.
       return null;
@@ -183,23 +184,6 @@ function renderChildren(
 /** A node's children, or an empty list for a leaf. The one structural read left. */
 function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
   return "children" in node ? node.children : [];
-}
-
-/** A GFM table in a box that scrolls sideways under the overlay scrollbar when it is too wide. */
-function MarkdownTable(props: {
-  readonly node: Table;
-  readonly context: MarkdownRenderContext;
-}): React.JSX.Element {
-  const tableScrollbarRef = useOverlayScrollbar<HTMLDivElement>(undefined, {
-    start: "on-first-interaction",
-  });
-  return (
-    <div className="meridian-markdown__table-scroll" ref={tableScrollbarRef}>
-      <table className="meridian-markdown__table">
-        {renderTableSections(props.node, props.context)}
-      </table>
-    </div>
-  );
 }
 
 /**

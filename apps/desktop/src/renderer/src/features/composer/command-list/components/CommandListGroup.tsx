@@ -26,12 +26,13 @@ export interface CommandListGroupProps {
   /** The DOM id of one row, composed by the popover so both halves agree on it. */
   readonly rowElementId: (flatIndex: number) => string;
   readonly onSelect: (flatIndex: number) => void;
-  readonly onRun: (commandId: string) => void;
+  /** A press on one row, acting on its entry as Enter does. */
+  readonly onActivate: (entry: CommandListEntry) => void;
 }
 
 /** A labeled group of command rows inside the discovery listbox. */
 export function CommandListGroup(props: CommandListGroupProps): React.JSX.Element {
-  const { rows, activeFlatIndex, rowElementId, onSelect, onRun } = props;
+  const { rows, activeFlatIndex, rowElementId, onSelect, onActivate } = props;
   return (
     <li
       className="meridian-command-discovery__group"
@@ -56,7 +57,9 @@ export function CommandListGroup(props: CommandListGroupProps): React.JSX.Elemen
             onSelect={() => {
               onSelect(row.flatIndex);
             }}
-            onRun={onRun}
+            onActivate={() => {
+              onActivate(row.entry);
+            }}
           />
         ))}
       </ul>

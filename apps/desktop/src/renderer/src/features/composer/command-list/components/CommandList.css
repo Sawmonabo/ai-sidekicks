@@ -57,17 +57,6 @@
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-command-discovery__run {
-  flex: 0 0 auto;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface);
-  color: var(--meridian-text);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-xs);
-}
-
 .meridian-command-discovery__state {
   display: flex;
 }

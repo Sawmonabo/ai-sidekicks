@@ -112,11 +112,21 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     }
   }, [stepIntoListToken]);
 
-  const runConsoleCommand = useCallback(
-    (commandId: string) => {
-      setActionOutcome(undefined);
-      setActivationNotice(undefined);
-      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
+  // Enter, Space and a press on a row act through here: a console entry runs, a provider entry
+  // is answered with why nothing ran.
+  const activateEntry = useCallback(
+    (entry: CommandListEntry) => {
+      if (entry.source === "console") {
+        setActionOutcome(undefined);
+        setActivationNotice(undefined);
+        void executor({ commandName: entry.commandId, text: `/${entry.commandId}` }).then(
+          setActionOutcome,
+        );
+        return;
+      }
+      setActivationNotice(
+        isDeclaredUnavailable(entry) ? PROVIDER_ENTRY_DISABLED : PROVIDER_ENTRY_NOT_RUNNABLE,
+      );
     },
     [executor],
   );
@@ -140,18 +150,9 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
-        if (activeEntry === undefined) {
-          return;
+        if (activeEntry !== undefined) {
+          activateEntry(activeEntry);
         }
-        if (activeEntry.source === "console") {
-          runConsoleCommand(activeEntry.commandId);
-          return;
-        }
-        setActivationNotice(
-          isDeclaredUnavailable(activeEntry)
-            ? PROVIDER_ENTRY_DISABLED
-            : PROVIDER_ENTRY_NOT_RUNNABLE,
-        );
         return;
       }
       if (event.key === "Escape") {
@@ -159,7 +160,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         onDismiss();
       }
     },
-    [boundedIndex, entries, onDismiss, runConsoleCommand],
+    [activateEntry, boundedIndex, entries, onDismiss],
   );
 
   return (
@@ -193,7 +194,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
                 activeFlatIndex={boundedIndex}
                 rowElementId={(flatIndex) => rowId(listId, flatIndex)}
                 onSelect={setActiveIndex}
-                onRun={runConsoleCommand}
+                onActivate={activateEntry}
               />
             )}
             {providerRows.length === 0 ? null : (
@@ -204,7 +205,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
                 activeFlatIndex={boundedIndex}
                 rowElementId={(flatIndex) => rowId(listId, flatIndex)}
                 onSelect={setActiveIndex}
-                onRun={runConsoleCommand}
+                onActivate={activateEntry}
               />
             )}
           </ul>

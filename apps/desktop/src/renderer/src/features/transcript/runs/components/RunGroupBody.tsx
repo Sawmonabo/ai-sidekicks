@@ -49,11 +49,13 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
       {/* Never the scroll anchor: an anchored overlay would hold the fade still. */}
       {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
       {/* The bar is drawn inside the scroller, so the scroller is not the list: a list holds
-          only its items. */}
+          only its items. A tab stop, so a keyboard alone can scroll rows that hold nothing
+          focusable. */}
       <div
         ref={scrollerScrollbarRef}
-        className="meridian-run-group-body__scroller"
+        className="meridian-run-group-body__scroller meridian-focus-inset"
         style={{ maxBlockSize }}
+        tabIndex={0}
         onScroll={(event) => {
           const clippedAbove = event.currentTarget.scrollTop > 0;
           if (clippedAbove !== isClippedAbove) {
