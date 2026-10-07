@@ -187,7 +187,7 @@ describe("the mutating-method gate", () => {
       handler,
       { mutating: true },
     );
-    const ctx: HandlerContext = { transportId: 201, deviceId: DEVICE_ID };
+    const ctx: HandlerContext = { transportId: 201 };
     for (const method of ["session.read", "session.create", "daemon.start"]) {
       const caught = await captureRejection(gated.dispatch(method, {}, ctx));
       expect(caught).toBeInstanceOf(NegotiationError);
