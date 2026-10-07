@@ -72,6 +72,7 @@ export function transitionEvent(
         : { holderCommandId: options.holderCommandId }),
       previousHolderDeviceId,
       reason,
+      leaseVersion: options.leaseVersion ?? sequence,
     },
     holderDeviceId ?? undefined,
   );
@@ -82,4 +83,6 @@ interface TransitionEventOptions {
   readonly terminalId?: TerminalId;
   readonly holderRunId?: RunId;
   readonly holderCommandId?: CommandId;
+  /** The shell's lease version after the transition; the event's sequence unless a case says. */
+  readonly leaseVersion?: number;
 }

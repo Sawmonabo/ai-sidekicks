@@ -1,39 +1,75 @@
-// The lease line's one control: take the shell. It never derives the holder from the last take
-// (the line moves when a `pty.control_changed` transition reaches the fold), never queues or
-// retries one, and is absent while this device holds the shell, nobody does, a run holds it, or
-// this device's identity has not been read.
+// The lease line's take control: `Take the shell`, which opens the confirm in place, and the
+// confirm's `Cancel` and `Take it`. `Take it` takes focus when the confirm opens and Escape
+// cancels it, and once it closes focus goes back to `Take the shell`. It never derives the holder
+// from the take: the line moves when a `pty.control_changed` transition reaches the fold.
 
-import { resolveTakeShellAvailability } from "../take-shell-availability.js";
+import { useEffect, useRef } from "react";
+
+import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
 import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
-import type { TerminalLeaseHolder } from "../state.js";
-import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 
-/** What the take control needs: its call state, the holder, and which device this is. */
+/** The take, and the id of the sentence that asks the confirm's question. */
 export interface LeaseTakeControlProps {
-  /** The take control's call state. */
   readonly takeShell: UseTakeShellResult;
-  readonly holder: TerminalLeaseHolder;
-  /**
-   * Which device this is. Without it no control is offered: the fold names holders by device
-   * id, so a take could come back as a hold the line cannot recognize as this device's.
-   */
-  readonly deviceIdentity: TerminalDeviceIdentity;
+  readonly questionId: string;
 }
 
-/** The button that takes the shell, drawn only where this device may take it. */
-export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Element | null {
-  const { takeShell, holder, deviceIdentity } = props;
-  if (resolveTakeShellAvailability({ holder, deviceIdentity }).control === "none") {
-    return null;
+/** `Take the shell`, or the confirm's two buttons while it is open. */
+export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Element {
+  const { takeShell, questionId } = props;
+  const takeShellButton = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(takeShell.isConfirming);
+
+  useEffect(() => {
+    if (wasConfirming.current && !takeShell.isConfirming) {
+      takeShellButton.current?.focus();
+    }
+    wasConfirming.current = takeShell.isConfirming;
+  }, [takeShell.isConfirming]);
+
+  if (takeShell.isConfirming) {
+    return <TakeShellConfirm takeShell={takeShell} questionId={questionId} />;
   }
   return (
     <button
+      ref={takeShellButton}
       type="button"
-      className="meridian-lease-line__take meridian-action-button"
-      onClick={takeShell.take}
-      disabled={takeShell.isInFlight}
+      className="meridian-action-button meridian-action-button--regular meridian-lease-line__take"
+      onClick={takeShell.openConfirm}
     >
       Take the shell
     </button>
+  );
+}
+
+// Mounted only while the confirm is open, so its focus lands on `Take it` as it opens.
+function TakeShellConfirm(props: LeaseTakeControlProps): React.JSX.Element {
+  const { takeShell, questionId } = props;
+  const confirm = useInlineConfirm(takeShell.cancelConfirm, "last-button");
+  return (
+    <div
+      ref={confirm.ref}
+      className="meridian-lease-line__controls"
+      role="group"
+      aria-labelledby={questionId}
+      onKeyDown={confirm.onKeyDown}
+    >
+      <button
+        type="button"
+        className="meridian-action-button meridian-action-button--regular meridian-action-button--outline meridian-lease-line__confirm"
+        disabled={takeShell.isInFlight}
+        onClick={takeShell.cancelConfirm}
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        className="meridian-action-button meridian-action-button--regular meridian-accent-fill meridian-lease-line__confirm"
+        disabled={takeShell.isInFlight}
+        onClick={takeShell.take}
+      >
+        Take it
+      </button>
+    </div>
   );
 }

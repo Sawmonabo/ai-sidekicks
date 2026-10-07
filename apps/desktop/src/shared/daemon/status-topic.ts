@@ -21,11 +21,16 @@ export type DaemonStatusTopic = typeof DAEMON_STATUS_TOPIC;
 export type DaemonStatusRequest = Readonly<Record<string, never>>;
 
 /**
- * What the handshake settled, as `DaemonHelloAck` carries it. The members are the ack's own;
- * the app renders them and compares nothing.
+ * What the handshake settled, as `DaemonHelloAck` carries it. The members are the ack's own: the
+ * app renders them, and reads `deviceId` to tell this device's shell holds from another's.
  */
 export interface MainProcessNegotiation {
   readonly compatible: boolean;
+  /**
+   * This device as the service names it: the device of main's one connection, which every window
+   * shares, so a shell's holder is this device when the service names this id.
+   */
+  readonly deviceId: string;
   /** The daemon's chosen protocol version, verbatim. */
   readonly daemonProtocolVersion: string;
   /** The version this build proposed, verbatim. */

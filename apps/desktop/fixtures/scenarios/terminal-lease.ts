@@ -4,15 +4,15 @@
 // lease transitions are wire-true. Terminal output (bytes, scrollback, resize) has no
 // registered type and is absent rather than invented.
 //
-// The script moves the hold every way but a forced take: another device takes the shell (a shell
-// has no release control), the holder's connection ends, the command a run holds the shell for ends
-// with nobody to hand it back to, a device's first keystroke takes the free shell, a run's next
-// command takes it off that device, and the holding run leaves `running`, which hands it back. Each
-// is reached as the daemon reaches it: after the run's queued, starting and `running` beats, an
-// agent-path take bound to the run and its first command, that command's stored ending and the
-// release that follows it, the owner's take, the run's take for its next command off the owner, and
-// the run leaving `running`. That last release is the holding run's first transition out of
-// `running`.
+// The script moves the hold every way but a forced take and a closed pane: another device takes the
+// shell (a shell has no release control), the holder's connection ends, the command a run holds the
+// shell for ends with nobody to hand it back to, a device's first keystroke takes the free shell, a
+// run's next command takes it off that device, and the holding run leaves `running`, which hands it
+// back. Each is reached as the daemon reaches it: after the run's queued, starting and `running`
+// beats, an agent-path take bound to the run and its first command, that command's stored ending
+// and the release that follows it, the owner's take, the run's take for its next command off the
+// owner, and the run leaving `running`. That last release is the holding run's first transition out
+// of `running`.
 //
 // The lease is per shell and the holder is a device: every transition names its shell, and a
 // run's hold names the machine's own device and the run.
@@ -104,6 +104,8 @@ interface TerminalLeaseTransitionInput {
   readonly previousHolderDeviceId: string | null;
   /** One of the reasons the wire closes the set at. */
   readonly reason: string;
+  /** The shell's lease version after this transition: one more for every change of holder. */
+  readonly leaseVersion: number;
   /** Omitted for a take the daemon's own lease authority performed. */
   readonly actorId?: string;
 }
@@ -124,6 +126,7 @@ function leaseTransitionEntry(transition: TerminalLeaseTransitionInput): ScriptE
         : { holderCommandId: transition.holderCommandId }),
       previousHolderDeviceId: transition.previousHolderDeviceId,
       reason: transition.reason,
+      leaseVersion: transition.leaseVersion,
     },
   };
 }
@@ -163,6 +166,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   },
   leaseTransitionEntry({
     atMs: 1200,
+    leaseVersion: 1,
     holderDeviceId: OTHER_DEVICE_ID,
     previousHolderDeviceId: null,
     reason: "taken",
@@ -170,6 +174,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   }),
   leaseTransitionEntry({
     atMs: 1800,
+    leaseVersion: 2,
     holderDeviceId: null,
     previousHolderDeviceId: OTHER_DEVICE_ID,
     reason: "auto_released_disconnect",
@@ -201,6 +206,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   // The holder is the machine's own device, with the run and its command named beside it.
   leaseTransitionEntry({
     atMs: 3300,
+    leaseVersion: 3,
     holderDeviceId: OWNER_ID,
     holderRunId: TERMINAL_AGENT_RUN_ID,
     holderCommandId: TERMINAL_AGENT_COMMAND_ID,
@@ -222,6 +228,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   },
   leaseTransitionEntry({
     atMs: 3450,
+    leaseVersion: 4,
     holderDeviceId: null,
     previousHolderDeviceId: OWNER_ID,
     reason: "auto_released_command_ended",
@@ -229,6 +236,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   // The owner's first keystroke into the free shell takes it.
   leaseTransitionEntry({
     atMs: 3480,
+    leaseVersion: 5,
     holderDeviceId: OWNER_ID,
     previousHolderDeviceId: null,
     reason: "taken",
@@ -237,6 +245,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   // The run's next command takes the idle shell off the owner, whose hold is kept aside.
   leaseTransitionEntry({
     atMs: 3500,
+    leaseVersion: 6,
     holderDeviceId: OWNER_ID,
     holderRunId: TERMINAL_AGENT_RUN_ID,
     holderCommandId: TERMINAL_AGENT_NEXT_COMMAND_ID,
@@ -253,6 +262,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
   // The release hands the shell back to the owner, and the script ends held.
   leaseTransitionEntry({
     atMs: 3700,
+    leaseVersion: 7,
     holderDeviceId: OWNER_ID,
     previousHolderDeviceId: OWNER_ID,
     reason: "auto_released_run_idle",

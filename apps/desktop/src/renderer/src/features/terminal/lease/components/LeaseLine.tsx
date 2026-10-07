@@ -1,48 +1,51 @@
-// The lease line: where one of the session's shells is held, and the control region beside it.
-// It states the holder from the fold and never derives it from a take: the line moves when a
-// `pty.control_changed` transition reaches the fold. Nothing is drawn until the holder has been
-// read, while nobody holds the shell, or while this device does. The take control is
-// `LeaseTakeControl.tsx`, passed in `controls`.
+// The lease line: who holds one of the session's shells, the take control beside it, and why a
+// take was refused. It states the holder from the fold and never derives it from a take: the line
+// moves when a `pty.control_changed` transition reaches the fold. Nothing is drawn until the
+// holder and its name have been read, while nobody holds the shell, or while this device does.
+// The take is offered only against another device's hold; a run's hold is never taken.
 
 import "./LeaseLine.css";
 
-import type { ReactNode } from "react";
+import { useId } from "react";
 
-import { Chip } from "#renderer/components/Chip/Chip.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
+import { isLeaseLineDrawn, type TerminalLeaseState } from "../state.js";
 import { LeaseHolderSentence } from "./LeaseHolderSentence.js";
-import { type DrawnLeaseHolder, isLeaseLineDrawn, type TerminalLeaseState } from "../state.js";
+import { LeaseTakeControl } from "./LeaseTakeControl.js";
 
-/** What the lease line shows: the folded state and an optional control. */
+/** What the lease line shows: the folded holder, its name, and the take for the same shell. */
 export interface LeaseLineProps {
   readonly state: TerminalLeaseState;
-  /** What sits beside the holder statement: the take control, where a caller has one. */
-  readonly controls?: ReactNode;
+  /** The holding device's name, or the holding run's agent's name; `undefined` until read. */
+  readonly holderName: string | undefined;
+  readonly takeShell: UseTakeShellResult;
 }
 
-/** What the chip says for each drawn holder; `null` draws no chip. */
-const HOLDER_CHIP_LABELS: Readonly<Record<DrawnLeaseHolder, string | null>> = {
-  "held-by-another-device": "Held",
-  "held-by-run": null,
-  "unrecognized-transition": null,
-};
-
-/** The lease line: the holder chip and statement and the control region, or nothing. */
+/** The lease line: the holder sentence, the take control and its refusal, or nothing. */
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element | null {
-  const { holder } = props.state;
-  if (!isLeaseLineDrawn(holder)) {
+  const { state, holderName, takeShell } = props;
+  const questionId = useId();
+  const { holder } = state;
+  if (!isLeaseLineDrawn(holder) || holderName === undefined) {
     return null;
   }
-  const chipLabel = HOLDER_CHIP_LABELS[holder];
+  const isTakeOffered = holder === "held-by-another-device";
 
   return (
     <div className="meridian-lease-line" role="group" aria-label="Terminal lease">
       <div className="meridian-lease-line__head">
-        <span className="meridian-lease-line__holder">
-          {chipLabel === null ? null : <Chip tone="neutral" label={chipLabel} />}
-          <LeaseHolderSentence holder={holder} />
-        </span>
-        <div className="meridian-lease-line__controls">{props.controls}</div>
+        <LeaseHolderSentence
+          id={questionId}
+          holder={holder}
+          holderName={holderName}
+          isConfirming={isTakeOffered && takeShell.isConfirming}
+        />
+        {isTakeOffered ? <LeaseTakeControl takeShell={takeShell} questionId={questionId} /> : null}
       </div>
+      {isTakeOffered && takeShell.refusal !== undefined ? (
+        <InlineRefusal code={takeShell.refusal.code} detail={takeShell.refusal.detail} />
+      ) : null}
     </div>
   );
 }

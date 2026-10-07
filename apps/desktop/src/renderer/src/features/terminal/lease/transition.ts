@@ -25,6 +25,8 @@ export interface TerminalLeaseTransition {
   readonly holderRunId: RunId | undefined;
   /** The run's command holding the shell, named whenever the run is. */
   readonly holderCommandId: CommandId | undefined;
+  /** The shell's lease version after this transition; a newer reading has a higher one. */
+  readonly leaseVersion: number;
 }
 
 /**
@@ -45,6 +47,7 @@ export function readTerminalLeaseTransition(
     holderDeviceId: payload.holderDeviceId,
     holderRunId: payload.holderRunId,
     holderCommandId: payload.holderCommandId,
+    leaseVersion: payload.leaseVersion,
   };
 }
 

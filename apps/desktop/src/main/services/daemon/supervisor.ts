@@ -696,6 +696,7 @@ export class DaemonSupervisor {
 function negotiationOf(hello: DaemonHelloAck): MainProcessNegotiation {
   return {
     compatible: hello.compatible,
+    deviceId: hello.deviceId,
     daemonProtocolVersion: hello.protocolVersion,
     appProtocolVersion: CURRENT_PROTOCOL_VERSION,
     daemonSupportedProtocols: hello.daemonSupportedProtocols ?? [],

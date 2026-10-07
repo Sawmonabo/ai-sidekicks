@@ -1,11 +1,11 @@
 /*
- * The lease line: who holds the write lease and the control that asks for it.
+ * The lease line: who holds the shell, and the control that takes it.
  *
- * No literal color; every value comes from a custom property. One of the terminal feature's
- * three sheets, each imported only from `pane/body.ts`, so the bundler sees one
- * edge into each and the styles stay out of the initial document.
+ * No literal color; every value comes from a custom property. `LeaseLine.tsx` owns and imports
+ * it.
  *
- * Cyan is spent only on the interactive take control, and motion settles with no overshoot.
+ * Cyan is spent only on the take control and the confirm's `Take it`, and motion settles with no
+ * overshoot.
  */
 
 .meridian-lease-line {
@@ -24,11 +24,15 @@
   flex-wrap: wrap;
 }
 
-.meridian-lease-line__holder {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
+.meridian-lease-line__sentence {
+  flex: 1;
   min-inline-size: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-lease-line__holder-name {
+  font-weight: 600;
+  color: var(--meridian-text);
 }
 
 .meridian-lease-line__controls {
@@ -41,20 +45,18 @@
    label: `--meridian-accent` is a non-text token held only to the 3:1 boundary floor, so the
    label uses `--meridian-accent-text`, which clears 4.5:1 against every ground. */
 .meridian-lease-line__take {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);
   background: var(--meridian-surface);
   border-color: var(--meridian-accent);
-  transition:
-    background var(--meridian-motion-quick) var(--meridian-ease-settle),
-    opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-lease-line__take:hover:enabled {
+.meridian-lease-line__take:hover {
   background: var(--meridian-surface-raised);
 }
 
-.meridian-lease-line__take:disabled {
+/* While a take is out neither of the confirm's buttons answers. */
+.meridian-lease-line__confirm:disabled {
   cursor: progress;
   opacity: 0.6;
 }

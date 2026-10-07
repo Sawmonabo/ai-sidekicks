@@ -21,7 +21,7 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
-import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
+import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { expect, vi } from "vitest";
 
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
@@ -33,8 +33,8 @@ import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/proce
 /** The process id of the service the supervisor finds running. */
 export const FOUND_SERVICE_PROCESS_ID = 3000;
 
-// The service's own device id, which its hello names as the calling device.
-const SERVICE_DEVICE_ID = DeviceIdSchema.parse("service-device");
+/** The service's own device id, which its hello names as the calling device. */
+export const SERVICE_DEVICE_ID: DeviceId = DeviceIdSchema.parse("service-device");
 
 /** A service on the protocol main speaks. */
 export const COMPATIBLE_HELLO: DaemonHelloAck = {

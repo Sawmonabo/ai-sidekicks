@@ -1,6 +1,6 @@
-// The lease fold, which the pane's write gate opens on: the holder is the newest readable
-// transition's, and every arm it cannot read reads `unrecognized-transition` rather than the
-// holder before it or a free shell, so stdin is never left open on a guess.
+// The lease fold, which the pane's write gate opens on: the holder is the newest reading's by lease
+// version, the shell list's or a transition's, and every arm it cannot read reads `not-checked`
+// rather than the holder before it or a free shell, so stdin is never left open on a guess.
 
 import { describe, expect, it } from "vitest";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
@@ -54,6 +54,50 @@ describe("the lease fold — what the wire said, and only that", () => {
     expect(state.holderDeviceId).toBe(THIS_DEVICE_ID);
   });
 
+  it("keeps whichever of the listed holder and a transition is newer by lease version", () => {
+    const listedLease = { holder: { holderDeviceId: THIS_DEVICE_ID }, leaseVersion: 5 };
+    // The log delivers an older change after the list was read: the list's newer holder stands.
+    const olderAfterList = [
+      transitionEvent(9, "taken", OTHER_DEVICE_ID, null, { leaseVersion: 4 }),
+    ];
+    expect(
+      projectTerminalLease(olderAfterList, {
+        terminalId: SHELL_ID,
+        thisDeviceId: THIS_DEVICE_ID,
+        listedLease,
+      }).holder,
+    ).toBe("held-by-this-device");
+    // A newer change replaces it, and a free listing at a newer version frees the shell.
+    const newer = [
+      transitionEvent(10, "taken_by_force", OTHER_DEVICE_ID, THIS_DEVICE_ID, { leaseVersion: 6 }),
+    ];
+    expect(
+      projectTerminalLease(newer, {
+        terminalId: SHELL_ID,
+        thisDeviceId: THIS_DEVICE_ID,
+        listedLease,
+      }).holder,
+    ).toBe("held-by-another-device");
+    expect(
+      projectTerminalLease(newer, {
+        terminalId: SHELL_ID,
+        thisDeviceId: THIS_DEVICE_ID,
+        listedLease: { holder: null, leaseVersion: 7 },
+      }).holder,
+    ).toBe("unheld");
+    // A change this build cannot read may be the newest, and an older one after it does not clear
+    // it: the shell stays unread rather than live on the strength of a stale reading.
+    expect(
+      projectTerminalLease(
+        [
+          leaseEventWithPayload(11, { reason: "seized", terminalId: SHELL_ID }),
+          transitionEvent(12, "taken", THIS_DEVICE_ID, null, { leaseVersion: 4 }),
+        ],
+        { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID, listedLease },
+      ).holder,
+    ).toBe("not-checked");
+  });
+
   it("tells this device's hold apart from another device's", () => {
     const events = [transitionEvent(1, "taken", OTHER_DEVICE_ID)];
     expect(
@@ -62,10 +106,28 @@ describe("the lease fold — what the wire said, and only that", () => {
     expect(
       projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: OTHER_DEVICE_ID }).holder,
     ).toBe("held-by-this-device");
-    // No device read at all fails closed: nobody is told they may type on an unknown identity.
+    // Before this device's id is known a device's hold is unread: no live body, and no
+    // `Take the shell` offered against a hold that may be this device's own.
     expect(
       projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: undefined }).holder,
-    ).toBe("held-by-another-device");
+    ).toBe("not-checked");
+    // A run's hold and a free shell need no device id, so they read as they are.
+    const runHold = [
+      transitionEvent(1, "taken", OTHER_DEVICE_ID, null, {
+        holderRunId: RUN_ID,
+        holderCommandId: COMMAND_ID,
+      }),
+    ];
+    expect(
+      projectTerminalLease(runHold, { terminalId: SHELL_ID, thisDeviceId: undefined }).holder,
+    ).toBe("held-by-run");
+    expect(
+      projectTerminalLease([], {
+        terminalId: SHELL_ID,
+        thisDeviceId: undefined,
+        listedLease: { holder: null, leaseVersion: 3 },
+      }).holder,
+    ).toBe("unheld");
   });
 
   it("reads a run's hold as the run's, even where the run's machine is this device", () => {
@@ -98,7 +160,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     expect(
       projectTerminalLease(events, { terminalId: OTHER_SHELL_ID, thisDeviceId: THIS_DEVICE_ID })
         .holder,
-    ).toBe("unrecognized-transition");
+    ).toBe("not-checked");
   });
 
   it("ignores every event that is not a lease transition", () => {
@@ -137,7 +199,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
     // The one reading that would keep stdin open for somebody who no longer holds the shell;
     // `SessionTerminalPane` opens the write gate on this value and on the free shell.
     expect(state.holder).not.toBe("held-by-this-device");
-    expect(state.holder).toBe("unrecognized-transition");
+    expect(state.holder).toBe("not-checked");
     expect(state.holderDeviceId).toBeNull();
   });
 
@@ -151,7 +213,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.holder).toBe("unrecognized-transition");
+    expect(state.holder).toBe("not-checked");
   });
 
   it("stays unread when the readable transition came FIRST", () => {
@@ -165,7 +227,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.holder).toBe("unrecognized-transition");
+    expect(state.holder).toBe("not-checked");
   });
 });
 
@@ -178,7 +240,7 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
     // The one reading that opens stdin for somebody the daemon just took the shell from.
-    expect(state.holder).toBe("unrecognized-transition");
+    expect(state.holder).toBe("not-checked");
     expect(state.holderDeviceId).toBeNull();
   });
 });

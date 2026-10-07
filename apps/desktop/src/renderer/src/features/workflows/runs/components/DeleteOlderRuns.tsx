@@ -1,13 +1,13 @@
 import { useId } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import {
   DELETE_OLDER_THAN_DAYS,
   useDeleteOlderRuns,
   type DeleteOlderThanDays,
 } from "../hooks/useDeleteOlderRuns.js";
-import { useInlineConfirm } from "../hooks/useInlineConfirm.js";
 import { runCountWords } from "../../words.js";
 import { ActionButton } from "../../components/ActionButton.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";

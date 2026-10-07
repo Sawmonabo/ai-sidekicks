@@ -6,16 +6,25 @@ export interface InlineConfirmBinding {
   readonly onKeyDown: (event: React.KeyboardEvent) => void;
 }
 
+/** Which of the confirm's enabled buttons takes focus when it opens. */
+export type InlineConfirmFocus = "first-button" | "last-button";
+
 /**
  * A confirm drawn in place of the control that opened it. It takes focus when it opens, on its
- * first button, so the next key reaches it; Escape closes it as its `Cancel` does, first in the
- * screen's Escape order, and nothing behind it hears that press.
+ * first enabled button unless `focusOn` names its last, so the next key reaches it; Escape closes
+ * it as its `Cancel` does, first in the screen's Escape order, and nothing behind it hears that
+ * press.
  */
-export function useInlineConfirm(onCancel: () => void): InlineConfirmBinding {
+export function useInlineConfirm(
+  onCancel: () => void,
+  focusOn: InlineConfirmFocus = "first-button",
+): InlineConfirmBinding {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-  }, []);
+    const buttons = ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+    const target = focusOn === "first-button" ? buttons?.[0] : buttons?.[buttons.length - 1];
+    target?.focus();
+  }, [focusOn]);
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) {
