@@ -43,10 +43,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
 
       <p className="meridian-agent-card__effective">
         <span className="meridian-form__label">Running under</span>{" "}
-        <span className="meridian-agent-card__axis">
-          <span className="meridian-form__label">provider</span>{" "}
-          {PROVIDER_LABELS[binding.driverName]}
-        </span>
+        <BindingAxis label="provider" words={PROVIDER_LABELS[binding.driverName]} />
         <BindingAxis label="model" value={binding.modelId} />
         <BindingAxis
           label="account"

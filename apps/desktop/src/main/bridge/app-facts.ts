@@ -16,6 +16,8 @@ import {
   type HourCycle,
   type MachineClock,
 } from "#shared/app-facts.js";
+import { describeFailure } from "#shared/failure-message.js";
+import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 
 /**
  * The app's facts, read from Electron and the machine; call it after ready, when the locales are
@@ -61,16 +63,34 @@ export function readMachineClock(): MachineClock {
 
 /**
  * Hands `announce` the machine's region and clock each time macOS posts that the person's locale
- * settings changed, for the life of main. Windows and Linux post main no such notice here.
+ * settings changed, for the life of main. Windows and Linux post main no such notice here. A
+ * changed region or clock in a form no locale has is logged as an error and never announced, so
+ * the pages keep the last clock that was read.
  */
-export function watchMachineClock(announce: (clock: MachineClock) => void): void {
-  if (process.platform !== "darwin") {
+export function watchMachineClock(
+  announce: (clock: MachineClock) => void,
+  log: Pick<MainDiagnosticLog, "write">,
+): void {
+  if (supportedPlatform(process.platform) !== "darwin") {
     return;
   }
   systemPreferences.subscribeLocalNotification(LOCALE_CHANGE_NOTIFICATION, () => {
-    announce(readMachineClock());
+    let clock: MachineClock;
+    try {
+      clock = readMachineClock();
+    } catch (failure) {
+      log.write({
+        level: "error",
+        source: LOG_SOURCE,
+        message: `the machine's changed region or clock was not read: ${describeFailure(failure)}`,
+      });
+      return;
+    }
+    announce(clock);
   });
 }
+
+const LOG_SOURCE = "main/bridge/app-facts";
 
 /** The name Foundation posts `NSCurrentLocaleDidChangeNotification` under. */
 const LOCALE_CHANGE_NOTIFICATION = "kCFLocaleCurrentLocaleDidChangeNotification";

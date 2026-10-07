@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import { usePlatformBridge } from "./usePlatformBridge.js";
 
@@ -9,8 +9,10 @@ import { usePlatformBridge } from "./usePlatformBridge.js";
  */
 export function useClockLocale(): string {
   const { clockLocale } = usePlatformBridge();
-  return useSyncExternalStore(
-    (onStoreChange) => clockLocale.subscribe(onStoreChange),
-    () => clockLocale.current,
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => clockLocale.subscribe(onStoreChange),
+    [clockLocale],
   );
+  const read = useCallback(() => clockLocale.current, [clockLocale]);
+  return useSyncExternalStore(subscribe, read);
 }

@@ -10,10 +10,12 @@ export function BindingAxis(props: BindingAxisProps): React.JSX.Element {
 }
 
 /**
- * One axis of the effective binding. An axis that may be unset is neither blank nor a fault:
- * each unset state means something specific, so the caller says which.
+ * One axis of the effective binding: a wire value, or plain words for one the screen names (a
+ * provider's own name). An axis that may be unset is neither blank nor a fault: each unset state
+ * means something specific, so the caller says which.
  */
 type BindingAxisProps =
+  | { readonly label: string; readonly words: string }
   | { readonly label: string; readonly value: string }
   | {
       readonly label: string;
@@ -21,8 +23,11 @@ type BindingAxisProps =
       readonly absenceMeaning: string;
     };
 
-/** The value in mono, or what its unset state means. */
-function axisReading(props: BindingAxisProps): React.JSX.Element {
+/** The words as they are, the value in mono, or what its unset state means. */
+function axisReading(props: BindingAxisProps): React.JSX.Element | string {
+  if ("words" in props) {
+    return props.words;
+  }
   if (!("absenceMeaning" in props)) {
     return <WireFigure value={props.value} />;
   }

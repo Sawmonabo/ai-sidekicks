@@ -1,5 +1,5 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 
 /**
@@ -21,7 +21,10 @@ export function NotificationEntry(props: {
       />
       <span className="meridian-attention__name">{item.displayName}</span>
       <span className="meridian-attention__state">{item.stateWord}</span>
-      <DerivedFigure text={formatRelativeTime(item.createdAt, props.nowMilliseconds)} />
+      <WireFigure
+        value={formatRelativeTime(item.createdAt, props.nowMilliseconds)}
+        title={item.createdAt}
+      />
     </>
   );
   if (onOpen === undefined) {

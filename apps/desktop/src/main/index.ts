@@ -291,7 +291,7 @@ function startApplication(): void {
       // Heard from here on, so a region or clock changed while the app runs redraws every figure.
       watchMachineClock((clock) => {
         openWindows.announceMachineClock(clock);
-      });
+      }, log);
 
       // The probes in `./probes/` are gated twice: the compile-time `__SMOKE_BUILD__` (a release
       // bundle references nothing there, so Rollup drops the modules) and a per-run env var, so

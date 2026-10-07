@@ -128,7 +128,10 @@ export interface LaunchAppOptions {
   readonly isWindowOnScreen?: boolean;
   /** A `sidekicks://` link on the command line, as a link that launches the app hands it over. */
   readonly appLink?: string;
-  /** macOS user defaults this launch alone reads, standing it on a machine setting (`launch/args.ts`). */
+  /**
+   * macOS user defaults this launch alone reads, standing it on a machine setting
+   * (`launch/args.ts`).
+   */
   readonly macUserDefaults?: Readonly<Record<string, string>>;
 }
 

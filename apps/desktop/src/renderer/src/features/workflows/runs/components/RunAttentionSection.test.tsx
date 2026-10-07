@@ -23,12 +23,12 @@ import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 // Local calendar instants, so every figure below falls on the same day as now.
 const NOW_MS = new Date(2026, 0, 1, 14, 20).getTime();
-
-/** The clock locale the section writes its figures in. */
-const CLOCK_LOCALE = "en-US";
 const RESUME_AT = new Date(2026, 0, 1, 15, 0).toISOString();
 const NEWER_WAIT = new Date(2026, 0, 1, 14, 5).toISOString();
 const OLDER_WAIT = new Date(2026, 0, 1, 8, 30).toISOString();
+
+/** The clock locale the section writes its figures in. */
+const CLOCK_LOCALE = "en-US";
 
 /**
  * Two accounts, then two runs whose waits are out of time order, as a daemon may send them:

@@ -16,6 +16,7 @@ import {
 } from "#renderer/lib/provider-binding/account/reading.test-support.js";
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 
 /**
  * Two accounts under `claude` and one under `codex`. `acct-team` is marked default while the
@@ -47,6 +48,17 @@ interface AxisCase extends Pick<
   readonly onReopenRegistry?: () => void;
 }
 
+const BridgeWrapper = liveBridgeWrapper();
+
+/** The announcer the field speaks through, inside the bridge its clock locale comes from. */
+function AxisWrapper(props: { readonly children: React.ReactNode }): React.JSX.Element {
+  return (
+    <BridgeWrapper>
+      <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
+    </BridgeWrapper>
+  );
+}
+
 /** The field on its own, over a served registry. */
 function renderedAxis(axis: AxisCase): HTMLElement {
   const { container } = render(
@@ -58,9 +70,8 @@ function renderedAxis(axis: AxisCase): HTMLElement {
       inheritedValue={axis.inheritedValue}
       isOverridden={axis.isOverridden}
       onValueChange={axis.onValueChange ?? ((): void => {})}
-      clockLocale="en-US"
     />,
-    { wrapper: LiveAnnouncerProvider },
+    { wrapper: AxisWrapper },
   );
   return container;
 }

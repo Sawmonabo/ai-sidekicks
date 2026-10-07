@@ -151,7 +151,7 @@ export function numberFormatFor(style: NumberStyle, locale?: string): Intl.Numbe
 }
 
 /** The one `Intl.DateTimeFormat` held for `style` in `locale`; two asks answer with one object. */
-export function dateTimeFormatFor(style: DateTimeStyle, locale?: string): Intl.DateTimeFormat {
+export function dateTimeFormatFor(style: DateTimeStyle, locale: string): Intl.DateTimeFormat {
   let formatters = dateTimeFormatters.get(style);
   if (formatters === undefined) {
     formatters = new LocaleKeyedFormatters(

@@ -1,6 +1,6 @@
 // The `app` members as the preload carries them: the facts main started the window with, and the
 // machine's region and clock as main pushes each change. The newest clock is held here, so a page
-// that subscribes late, or a push that came before the page subscribed, still reads the current one.
+// that subscribes late, or a push that came before it subscribed, still reads the current one.
 
 import { readAppFactsSwitches, type MachineClock } from "#shared/app-facts.js";
 import { MACHINE_CLOCK_CHANNEL } from "#shared/bridge-channels.js";
@@ -30,6 +30,7 @@ class HeldMachineClock {
   #newest: MachineClock;
 
   public constructor(started: MachineClock) {
+    // Copied out of the facts, so the first handing carries the clock alone, as each push does.
     this.#newest = { regionLocale: started.regionLocale, hourCycle: started.hourCycle };
   }
 

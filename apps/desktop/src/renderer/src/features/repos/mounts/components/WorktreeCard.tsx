@@ -10,7 +10,6 @@ import { useId } from "react";
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -105,7 +104,10 @@ function summaryCell(
       // `title` carries the exact stamp beside the derived reading.
       return (
         <dd title={record.createdAt}>
-          <DerivedFigure text={formatRelativeTime(record.createdAt, nowMilliseconds)} />
+          <WireFigure
+            value={formatRelativeTime(record.createdAt, nowMilliseconds)}
+            title={record.createdAt}
+          />
         </dd>
       );
   }

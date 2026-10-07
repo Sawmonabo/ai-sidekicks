@@ -207,6 +207,9 @@ function pathologicalPatchText(): string {
 /** How many times each band is timed; the fastest of them is the band's cost. */
 const ROW_READ_TRIAL_COUNT = 21;
 
+/** The coarsest step a page's `performance.now()` may report, a tenth of a millisecond. */
+const TIMER_STEP_MILLISECONDS = 0.1;
+
 /** How many reads one trial makes, cycling through its band, so a trial outlasts timer noise. */
 const ROW_READS_PER_TRIAL = 5_000;
 
@@ -229,8 +232,9 @@ function expectTailReadsAsCheapAsHead(index: DiffRowIndex): void {
       timeRowReads(index, tailStartRowIndex, bandRowCount),
     );
   }
-  // The tail may cost a little more, never a multiple: a walk from the top costs it hundreds.
-  expect(tailMilliseconds).toBeLessThan(headMilliseconds * 4);
+  // The tail may cost a little more, never a multiple: a walk from the top costs it hundreds. The
+  // head counts as at least one timer step, so a head that read as no time cannot fail the tail.
+  expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds, TIMER_STEP_MILLISECONDS) * 4);
 }
 
 /** Read a band of rows over and over, and report how long the reads took, in milliseconds. */
