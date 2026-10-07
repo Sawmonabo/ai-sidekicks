@@ -14,12 +14,14 @@ import type {
 import type {
   InterventionId,
   InterventionRequestPayload,
+  InterventionRequestResponse,
 } from "@ai-sidekicks/contracts/run/control";
 import { DAEMON_INTERVENTION_ACTOR } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { makeSilentDriverDiagnostics } from "../../provider/__fixtures__/silent-driver-diagnostics.js";
+import { CodexRequestTimeoutError } from "../../provider/driver/codex/session/errors.js";
 import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
 import type { InterruptRoute } from "../../session/run/engine.js";
@@ -346,68 +348,75 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(countTerminals(runId)).toBe(1);
   });
 
-  it("holds a stop that lands while the driver starts the run until the driver has it", async () => {
-    // A driver that binds a run as its start returns, as Codex's does once `turn/start` answers,
-    // and refuses to stop a run it has not bound.
+  // Starts a run on a driver that binds it as its start returns, as Codex's does once `turn/start`
+  // answers, and refuses to stop a run it has not bound; then sends a stop and resolves once the
+  // stop is routed, inside the start's window. `settleStart` ends the driver's start.
+  async function holdStopInDriverStart(): Promise<{
+    runId: RunId;
+    settleStart: PromiseWithResolvers<void>;
+    started: Promise<unknown>;
+    stop: Promise<InterventionRequestResponse>;
+  }> {
     const boundRuns = new Set<RunId>();
     answerDriver = (params) =>
       boundRuns.has(params.targetRunId)
         ? Promise.resolve(driverResult)
         : Promise.reject(new Error("No live run to interrupt"));
-    const startsCalled = new Map<RunId, PromiseWithResolvers<void>>();
-    const startsReleased = new Map<RunId, PromiseWithResolvers<void>>();
-    const providerDriver = {
-      startRun: async (params: { readonly runId: RunId }) => {
-        startsCalled.get(params.runId)?.resolve();
-        await startsReleased.get(params.runId)?.promise;
-        boundRuns.add(params.runId);
-      },
+    const startCalled = Promise.withResolvers<void>();
+    const settleStart = Promise.withResolvers<void>();
+    const runId = await fixture.queueRun();
+    const started = fixture.engine
+      .startRun({
+        runId,
+        queueItem: makeQueueItem(),
+        provider: "codex",
+        driver: {
+          startRun: async (params) => {
+            startCalled.resolve();
+            await settleStart.promise;
+            boundRuns.add(params.runId);
+          },
+        },
+        driverParams: { agentConfig: {} },
+        executionPosture: TEST_EXECUTION_POSTURE,
+      })
+      .catch((error: unknown) => error);
+    await startCalled.promise;
+    const routed = Promise.withResolvers<void>();
+    routeInterrupt = (routedRunId) => {
+      const route = fixture.engine.routeInterrupt(routedRunId);
+      routed.resolve();
+      return route;
     };
-    const origin = { actor: DeviceIdSchema.parse(randomUUID()) };
-    const startAndStop = async (runId: RunId) => {
-      startsCalled.set(runId, Promise.withResolvers<void>());
-      startsReleased.set(runId, Promise.withResolvers<void>());
-      const started = fixture.engine
-        .startRun({
-          runId,
-          queueItem: makeQueueItem(),
-          provider: "claude",
-          driver: providerDriver,
-          driverParams: { agentConfig: {} },
-          executionPosture: TEST_EXECUTION_POSTURE,
-        })
-        .catch((error: unknown) => error);
-      await startsCalled.get(runId)?.promise;
-      const routed = Promise.withResolvers<void>();
-      routeInterrupt = (routedRunId) => {
-        const route = fixture.engine.routeInterrupt(routedRunId);
-        routed.resolve();
-        return route;
-      };
-      const stop = service.applyIntervention(interrupt(runId, readVersion(runId)), origin);
-      // Released only once the stop has been routed, inside the start's window.
-      await routed.promise;
-      return { started, stop };
-    };
-
-    const bound = await fixture.queueRun();
-    const boundStart = await startAndStop(bound);
-    startsReleased.get(bound)?.resolve();
-    expect(await boundStart.stop).toMatchObject({
-      interventionType: "interrupt",
-      state: "applied",
+    const stop = service.applyIntervention(interrupt(runId, readVersion(runId)), {
+      actor: DeviceIdSchema.parse(randomUUID()),
     });
-    expect(await boundStart.started).toMatchObject({ state: "running" });
-    expect(fixture.runs.getRun(bound)?.state).toBe("interrupted");
-    expect(driverCalls.map((params) => params.targetRunId)).toEqual([bound]);
+    await routed.promise;
+    return { runId, settleStart, started, stop };
+  }
 
-    const unstarted = await fixture.queueRun();
-    const unstartedStart = await startAndStop(unstarted);
-    startsReleased.get(unstarted)?.reject(new Error("spawn claude ENOENT"));
-    expect(await unstartedStart.stop).toMatchObject({ state: "expired" });
-    expect(await unstartedStart.started).toMatchObject({ message: "spawn claude ENOENT" });
-    expect(fixture.runs.getRun(unstarted)?.state).toBe("failed");
-    expect(driverCalls).toHaveLength(1);
+  it("holds a stop that lands while the driver starts the run until the driver has it", async () => {
+    const held = await holdStopInDriverStart();
+    held.settleStart.resolve();
+
+    expect(await held.stop).toMatchObject({ interventionType: "interrupt", state: "applied" });
+    expect(await held.started).toMatchObject({ state: "running" });
+    expect(fixture.runs.getRun(held.runId)?.state).toBe("interrupted");
+    expect(driverCalls.map((params) => params.targetRunId)).toEqual([held.runId]);
+  });
+
+  it("expires a held stop when the driver's start fails at its request deadline", async () => {
+    const held = await holdStopInDriverStart();
+    const deadline = new CodexRequestTimeoutError(
+      'Codex app-server did not answer "turn/start" within 60000ms.',
+      { method: "turn/start", timeoutMs: "60000" },
+    );
+    held.settleStart.reject(deadline);
+
+    expect(await held.stop).toMatchObject({ interventionType: "interrupt", state: "expired" });
+    expect(await held.started).toBe(deadline);
+    expect(fixture.runs.getRun(held.runId)?.state).toBe("failed");
+    expect(driverCalls).toEqual([]);
   });
 
   it("expires a stop that lands while a failed setup gate's end is written, dispatching nothing", async () => {

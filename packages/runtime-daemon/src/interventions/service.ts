@@ -270,7 +270,7 @@ export class InterventionService {
     }
     if (request.type === "interrupt") {
       // A stop never reaches a driver that does not have the run. One that lands while the driver
-      // starts the run waits for that start, which ends when the driver's own start requests do.
+      // starts the run waits for that start, which fails at its control-request deadline.
       const route = await this.#deps.runEngine.routeInterrupt(request.targetRunId);
       // A run the engine never hands to a driver is ended by the outcome's own write.
       if (route === "claimed") {
