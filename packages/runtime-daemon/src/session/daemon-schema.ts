@@ -365,9 +365,7 @@ CREATE TABLE interventions (
   client_idempotency_key  TEXT NOT NULL,              -- requester-generated UUID
   -- The admitting connection's device; NULL when the daemon itself wrote the row.
   device_id               TEXT,
-  result                  TEXT,                       -- JSON outcome
-  -- Why a request was rejected. A rejected outcome carries no result, so a retry's
-  -- saved result is rebuilt from here.
+  -- Why a request was rejected, so a retry's saved reply carries the same reason.
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
