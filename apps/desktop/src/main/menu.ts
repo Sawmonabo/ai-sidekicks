@@ -118,6 +118,8 @@ function applicationMenuTemplate(
         ),
         { type: "separator" },
         { role: "togglefullscreen" },
+        // Only a development build carries the developer-tools row.
+        ...(import.meta.env.DEV ? [{ role: "toggleDevTools" } as const] : []),
       ],
     },
     { role: "windowMenu" },

@@ -18,6 +18,10 @@
     { "path": "../../packages/search-ranking" },
     { "path": "./src/renderer" }
   ],
+  // Vite's build signals, which main reads too (the developer tools exist only in a development
+  // build), are declared once, in the renderer's environment file; a `files` entry is unconditional,
+  // so the `src/renderer/**` exclude below does not drop it.
+  "files": ["src/renderer/src/vite-env.d.ts"],
   "include": ["src/**/*"],
   // `src/**/*.test.ts` is excluded because the `main-unit` Vitest project co-locates main-process
   // units beside the modules they cover (for example `src/main/services/renderer/assets.test.ts`),

@@ -89,6 +89,10 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
       nodeIntegration: false,
       nodeIntegrationInWorker: false,
       webSecurity: true,
+      // Vite's development flag, a literal in the bundle, so outside a development build this
+      // document has no developer tools to open. An adopted `webContents` ignores the block, and
+      // Electron enables a `window.open` child's developer tools whatever its opener's setting.
+      devTools: import.meta.env.DEV,
       preload: PRELOAD_PATH,
       additionalArguments: [...options.additionalArguments],
     },
