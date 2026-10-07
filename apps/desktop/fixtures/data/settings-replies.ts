@@ -330,6 +330,7 @@ export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
         runningChat(SESSION_B, "Refresh-token expiry"),
       ],
       chatCount: 2,
+      isComplete: true,
     }),
   },
 ];

@@ -1,9 +1,13 @@
 // The service's session list, one feed per window however many views read it. The feed opens with
-// the first reader and closes with the last; each list it delivers replaces what is held, and each
-// change after it moves one entry. Nothing polls: a settled act that implies the list moved asks
-// for it again with `reread`, which opens the feed afresh.
+// the first reader and closes with the last; each list it delivers replaces what is held once its
+// last page lands, so no view reads part of a list as all of it, and each change after it moves
+// one entry. Nothing polls: a settled act that implies the list moved asks for it again with
+// `reread`, which opens the feed afresh.
 
-import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
+import type {
+  SessionListChange,
+  SessionListEntry,
+} from "@ai-sidekicks/contracts/session/directory";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 
@@ -55,11 +59,19 @@ export class SessionDirectoryFeeds {
 /** The app's session lists, one per window's feed. */
 export const sessionDirectoryFeeds: SessionDirectoryFeeds = new SessionDirectoryFeeds();
 
+/** A list arriving in pages: the entries so far and the chat count the latest page carried. */
+interface IncomingSessionList {
+  readonly sessions: SessionListEntry[];
+  chatCount: number;
+}
+
 /** One feed's state and its readers, with the feed open while any reader is. */
 class HeldSessionDirectory {
   readonly #feed: SessionDirectoryFeed;
   readonly #readers = new Set<() => void>();
   #state: SessionDirectoryState = READING;
+  // The list being delivered, page by page, until its last page makes it the state.
+  #incoming: IncomingSessionList | undefined;
   #release: Unsubscribe | undefined;
 
   public constructor(feed: SessionDirectoryFeed) {
@@ -103,11 +115,13 @@ class HeldSessionDirectory {
   #close(): void {
     const release = this.#release;
     this.#release = undefined;
+    // A closed stream finishes no list it was delivering.
+    this.#incoming = undefined;
     release?.();
   }
 
   #apply(frame: SessionDirectoryFrame): void {
-    const next = foldFrame(this.#state, frame);
+    const next = this.#stateAfter(frame);
     if (next === this.#state) {
       return;
     }
@@ -116,36 +130,66 @@ class HeldSessionDirectory {
       onChange();
     }
   }
+
+  // Until a list's last page lands, the state stays what it was: reading, or on a reread the
+  // list it replaces.
+  #stateAfter(frame: SessionDirectoryFrame): SessionDirectoryState {
+    switch (frame.kind) {
+      case "list":
+        return this.#receive(
+          { sessions: [...frame.sessions], chatCount: frame.chatCount },
+          frame.isComplete,
+        );
+      case "lost":
+        this.#incoming = undefined;
+        return { status: "failed" };
+      case "change": {
+        const { change } = frame;
+        if (change.kind !== "page") {
+          return changedState(this.#state, change);
+        }
+        const incoming = this.#incoming;
+        // A page with no list before it, like a change, moves nothing: the next list restates it.
+        if (incoming === undefined) {
+          return this.#state;
+        }
+        incoming.sessions.push(...change.sessions);
+        incoming.chatCount = change.chatCount;
+        return this.#receive(incoming, change.isComplete);
+      }
+    }
+  }
+
+  // Holds the list being delivered, or serves it once its last page has landed.
+  #receive(incoming: IncomingSessionList, isComplete: boolean): SessionDirectoryState {
+    if (!isComplete) {
+      this.#incoming = incoming;
+      return this.#state;
+    }
+    this.#incoming = undefined;
+    return { status: "served", sessions: incoming.sessions, chatCount: incoming.chatCount };
+  }
 }
 
 /**
- * The state after one frame. A change before the list arrives moves nothing: the list it follows
- * restates every session, that one included.
+ * The state after one entry's change. A change before the list arrives moves nothing: the list it
+ * follows restates every session, that one included.
  */
-function foldFrame(
+function changedState(
   state: SessionDirectoryState,
-  frame: SessionDirectoryFrame,
+  change: Exclude<SessionListChange, { kind: "page" }>,
 ): SessionDirectoryState {
-  switch (frame.kind) {
-    case "list":
-      return { status: "served", sessions: frame.sessions, chatCount: frame.chatCount };
-    case "lost":
-      return { status: "failed" };
-    case "change": {
-      if (state.status !== "served") {
-        return state;
-      }
-      const { change } = frame;
-      return {
-        status: "served",
-        sessions:
-          change.kind === "upsert"
-            ? upsertInPlace(state.sessions, change.entry)
-            : state.sessions.filter((session) => session.sessionId !== change.sessionId),
-        chatCount: change.chatCount,
-      };
-    }
+  if (state.status !== "served") {
+    return state;
   }
+  return {
+    status: "served",
+    sessions:
+      change.kind === "upsert"
+        ? upsertInPlace(state.sessions, change.entry)
+        : state.sessions.filter((session) => session.sessionId !== change.sessionId),
+    chatCount: change.chatCount,
+  };
 }
 
 /** The list with `entry` where its session stood, or at the end for a session new to it. */

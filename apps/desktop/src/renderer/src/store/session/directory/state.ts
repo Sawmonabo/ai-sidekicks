@@ -26,14 +26,16 @@ export type SessionDirectoryState =
 
 /**
  * One delivery on the service's session list feed: the list as it stands with its chat count,
- * one change to it, which carries the count after it, or word that the feed lost its place, so
- * the list is not to be trusted until it is restated.
+ * whole once `isComplete` is true and otherwise continued by `page` changes; one change to it,
+ * which carries the count after it; or word that the feed lost its place, so the list is not to
+ * be trusted until it is restated.
  */
 export type SessionDirectoryFrame =
   | {
       readonly kind: "list";
       readonly sessions: readonly SessionListEntry[];
       readonly chatCount: number;
+      readonly isComplete: boolean;
     }
   | { readonly kind: "change"; readonly change: SessionListChange }
   | { readonly kind: "lost" };

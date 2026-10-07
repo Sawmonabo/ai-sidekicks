@@ -1,5 +1,5 @@
 // The service's session list, read off `session.list`: the list as it stands when the stream
-// opens, then each change to it. Every delivery is parsed here against the contract. One that does
+// opens, in pages when it outgrows one message, then each change to it. Every delivery is parsed here against the contract. One that does
 // not match, or a re-open the daemon refuses, is handed on as the list being lost, so its reader
 // says the list could not be read rather than show a list that may be wrong; the cause goes to the
 // window's diagnostic capture. A stream that ends is opened again and restates the list.
@@ -56,6 +56,7 @@ function sessionListFeedOver(bridge: PlatformBridge): SessionDirectoryFeed {
             kind: "list",
             sessions: listed.data.sessions,
             chatCount: listed.data.chatCount,
+            isComplete: listed.data.isComplete,
           });
           return;
         }

@@ -5,7 +5,7 @@
 // be read may have made a session it cannot name, so every later send answers from memory with
 // nothing on the wire. `send.ts` owns what the choices become on the wire.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
+import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -31,7 +31,7 @@ export interface NewSessionDraftState {
 export class NewSessionDraft {
   readonly #bridge: PlatformBridge;
   readonly #queueFirstTurn: FirstTurnQueueCall;
-  readonly #lead: AgentProviderBinding;
+  readonly #lead: SessionLead;
   /** The key every create this draft sends carries, so a repeat names the session made. */
   readonly #clientIdempotencyKey: string = crypto.randomUUID();
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
@@ -63,7 +63,7 @@ export class NewSessionDraft {
     readonly bridge: PlatformBridge;
     readonly queueFirstTurn: FirstTurnQueueCall;
     /** The lead the session starts on, as the composition that mounts the draft chose it. */
-    readonly lead: AgentProviderBinding;
+    readonly lead: SessionLead;
   }) {
     this.#bridge = options.bridge;
     this.#queueFirstTurn = options.queueFirstTurn;

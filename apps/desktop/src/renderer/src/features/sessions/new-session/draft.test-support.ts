@@ -4,7 +4,9 @@
 // suites never script slightly different replies.
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { withDaemonCall, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
@@ -20,10 +22,9 @@ import { SESSION_CREATE_METHOD } from "./settlement.js";
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
 /** The lead every new session in these suites starts on. */
-export const NEW_SESSION_LEAD: AgentProviderBinding = {
+export const NEW_SESSION_LEAD: SessionLead = {
   driverName: "claude",
   modelId: "claude-opus-4-5",
-  providerAccountId: null,
   effort: "high",
 };
 
@@ -44,10 +45,12 @@ export const CREATE_REPLY: {
   readonly sessionId: string;
   readonly shape: "chat";
   readonly state: "active";
+  readonly lead: AgentProviderBinding;
 } = {
   sessionId: CREATED_SESSION_ID,
   shape: "chat",
   state: "active",
+  lead: { ...NEW_SESSION_LEAD, providerAccountId: "claude-work-account" as ProviderAccountId },
 };
 
 /** What a case scripts, so it says which legs answer and which the first-turn call rejects. */
@@ -142,8 +145,8 @@ function scenario(options: { readonly scriptsCreate: boolean }): Scenario {
 }
 
 /**
- * A reply to `session.create` the registered response schema refuses. It is short of `shape`
- * and `state`, so the call fulfills and `callDaemon` answers `reply-unreadable`: the daemon
+ * A reply to `session.create` the registered response schema refuses. It is short of `shape`,
+ * `state` and `lead`, so the call fulfills and `callDaemon` answers `reply-unreadable`: the daemon
  * answered and only this build's reading failed.
  */
 const UNREADABLE_CREATE_REPLY = { sessionId: CREATED_SESSION_ID } as const;
