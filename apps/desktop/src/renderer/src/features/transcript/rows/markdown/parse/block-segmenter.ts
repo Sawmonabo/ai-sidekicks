@@ -207,7 +207,9 @@ export class MarkdownBlockSegmenter {
     if (block.trim() === "") {
       return;
     }
-    this.#completeBlocks.push(block);
+    // A copy, not the slice: the engine keeps a slice's whole source string alive, and each frame's
+    // snapshot is a new string, so kept slices would hold every snapshot of a long reply.
+    this.#completeBlocks.push(structuredClone(block));
   }
 }
 
