@@ -397,6 +397,32 @@ CREATE TABLE command_receipts (
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
+-- Run state: one row per run, the read every run write guards against.
+-- ---------------------------------------------------------------------------
+-- Each row is written in the same write as the run event that moves it, so it
+-- always equals a rebuild from the log. run_version counts every progression of
+-- the run, a state change or an applied intervention.
+CREATE TABLE runs (
+  run_id         TEXT NOT NULL PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  parent_run_id  TEXT,                          -- NULL on a lead run
+  -- How a child run was reached; NULL on a lead run.
+  reached_by     TEXT
+                 CHECK(reached_by IS NULL
+                   OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+  state          TEXT NOT NULL
+    CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
+                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
+  run_version    INTEGER NOT NULL CHECK(run_version >= 0)
+) STRICT;
+
+CREATE INDEX idx_runs_session ON runs(session_id);
+CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+-- The runs not yet ended, which the restart settle scans.
+CREATE INDEX idx_runs_live ON runs(state)
+  WHERE state NOT IN ('completed', 'interrupted', 'stopped', 'failed');
+
+-- ---------------------------------------------------------------------------
 -- Provider accounts and their quota readings.
 -- ---------------------------------------------------------------------------
 -- No credential material in any column: credentials live in each account's
