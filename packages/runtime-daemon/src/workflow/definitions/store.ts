@@ -38,11 +38,8 @@ import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { hashWorkflowDocument } from "./content-hash.js";
 import { clearWorkflowDraftStatement } from "./drafts.js";
-import {
-  WorkflowDefinitionRefusedError,
-  WorkflowNotFoundError,
-  WorkflowVersionStaleError,
-} from "./errors.js";
+import { WorkflowNotFoundError } from "../not-found.js";
+import { WorkflowDefinitionRefusedError, WorkflowVersionStaleError } from "./errors.js";
 import { clearKeptValuesStatement } from "./kept-values.js";
 import { nameHolderStatement, type WorkflowLibrary } from "./library.js";
 

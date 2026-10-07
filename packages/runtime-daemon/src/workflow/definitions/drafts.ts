@@ -15,7 +15,7 @@ import type {
 import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
-import { WorkflowNotFoundError } from "./errors.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 
 // The key of the new workflow's draft, which names no definition.
 const NEW_WORKFLOW_DRAFT_KEY = "";

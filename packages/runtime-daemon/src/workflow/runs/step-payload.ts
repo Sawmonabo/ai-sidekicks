@@ -11,7 +11,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 
 import type { DatabaseConnections } from "../../database/connections.js";
-import { workflowStepNotFound } from "./refusals.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 
 interface PayloadRow {
   readonly node_id: string;
@@ -52,7 +52,7 @@ export class WorkflowStepPayloadReader {
       executionIndex: request.executionIndex,
     });
     if (row === undefined || row.node_id !== request.nodeId || row.attempt !== request.attempt) {
-      throw workflowStepNotFound(request);
+      throw new WorkflowNotFoundError(request);
     }
     // The row stores the reference the engine wrote from a typed value.
     const payload = JSON.parse(row.payload_ref) as WorkflowPayloadRef;

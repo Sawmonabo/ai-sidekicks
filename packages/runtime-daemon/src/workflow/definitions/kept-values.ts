@@ -10,7 +10,7 @@ import type { WorkflowKeptVarsClearResponse } from "@ai-sidekicks/contracts/work
 import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
-import { WorkflowNotFoundError } from "./errors.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 
 // Returns one row for any workflow ever created, deleted or not.
 const DEFINITION_EXISTS_SQL = "SELECT 1 FROM workflow_definitions WHERE id = ?";

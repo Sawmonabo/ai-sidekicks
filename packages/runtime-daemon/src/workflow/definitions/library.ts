@@ -19,7 +19,7 @@ import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/sta
 
 import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
-import { WorkflowNotFoundError } from "./errors.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 import { readStoredWorkflowDocument } from "./stored-document.js";
 
 // A definition never has the empty id, so binding it excludes no workflow.

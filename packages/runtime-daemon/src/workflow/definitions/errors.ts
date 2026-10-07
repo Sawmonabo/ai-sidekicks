@@ -1,33 +1,11 @@
 // The refusals the workflow definition store raises, each carrying its contract code.
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { WORKFLOW_VERSION_STALE_CODE } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import {
   WORKFLOW_DEFINITION_REFUSED_CODE,
   type WorkflowDefinitionFinding,
 } from "@ai-sidekicks/contracts/workflow/definition/refusals";
-import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-
-/** What a missing workflow was addressed by: its definition, one of its versions, or a version. */
-export type WorkflowNotFoundSubject =
-  | { readonly definitionId: string }
-  | { readonly definitionId: string; readonly versionNumber: number }
-  | { readonly workflowVersionId: string };
-
-/**
- * `workflow.not_found`: no workflow, or no version, answers to the id given. A write to a
- * deleted workflow is refused this way too, since it is no longer in the library.
- */
-export class WorkflowNotFoundError extends DaemonDomainError {
-  constructor(subject: WorkflowNotFoundSubject) {
-    super(`No workflow answers to ${JSON.stringify(subject)}.`, {
-      code: WORKFLOW_NOT_FOUND_CODE,
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      detail: { ...subject },
-    });
-  }
-}
 
 /** `workflow.definition_refused`: the document broke one or more rules, every finding listed. */
 export class WorkflowDefinitionRefusedError extends DaemonDomainError {

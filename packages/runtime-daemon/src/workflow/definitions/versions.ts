@@ -18,7 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
 import type { DatabaseConnections } from "../../database/connections.js";
-import { WorkflowNotFoundError } from "./errors.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 import { parseStoredWorkflowBody, readStoredWorkflowDocument } from "./stored-document.js";
 import { countWorkflowChanges, diffWorkflowBodies } from "./version-diff.js";
 

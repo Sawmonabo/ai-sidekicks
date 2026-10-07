@@ -17,7 +17,7 @@ import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { storedInstant } from "./record.js";
-import { workflowRunNotFound } from "./refusals.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 
 /** What `Delete runs older than…` removed: the deleted runs' ids. */
 export interface WorkflowRunsDeletion {
@@ -133,7 +133,7 @@ export class WorkflowRunDeletion {
       ]);
     } catch (error) {
       if (error instanceof WriteRefusedError) {
-        throw workflowRunNotFound(keepSet.workflowRunId);
+        throw new WorkflowNotFoundError({ workflowRunId: keepSet.workflowRunId });
       }
       throw error;
     }
@@ -144,7 +144,7 @@ export class WorkflowRunDeletion {
   #refusal(workflowRunId: WorkflowRunId): DaemonDomainError {
     const status = this.#readStatus.get(workflowRunId)?.status;
     if (status === undefined) {
-      return workflowRunNotFound(workflowRunId);
+      return new WorkflowNotFoundError({ workflowRunId });
     }
     return new DaemonDomainError(`The run is ${status}. Cancel it first.`, {
       code: WORKFLOW_RUN_NOT_DELETABLE_CODE,

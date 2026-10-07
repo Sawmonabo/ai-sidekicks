@@ -22,7 +22,7 @@ import {
   type StoredWorkflowRun,
   type StoredWorkflowStep,
 } from "./record.js";
-import { workflowRunNotFound } from "./refusals.js";
+import { WorkflowNotFoundError } from "../not-found.js";
 import { spentAccountColumns } from "./spent-account.js";
 
 /**
@@ -177,7 +177,7 @@ export class WorkflowRunStore {
     const rows = this.#readRun.all(workflowRunId);
     const [first] = rows;
     if (first === undefined) {
-      throw workflowRunNotFound(workflowRunId);
+      throw new WorkflowNotFoundError({ workflowRunId });
     }
     const steps: StoredWorkflowStep[] = [];
     for (const row of rows) {
