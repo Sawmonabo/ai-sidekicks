@@ -4,7 +4,17 @@
 // misconfigured dev instance gives a bare 503 with no hint of the missing variable.
 
 import { describe, expect, it } from "vitest";
-import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../host.js";
+
+import type { RateLimitIdentityEnv } from "../../rate-limit/cloudflare-limiter.js";
+import type { DevEnvironmentEnv } from "../dev-environment-gate.js";
+import type { FeatureFlagEnv } from "../feature-flag-gate.js";
+import { buildControlPlaneFetchHandler } from "../host.js";
+
+// What the two gates read; each run adds a counter binding.
+type GateEnv = FeatureFlagEnv & DevEnvironmentEnv;
+
+// No gate case reaches a counted procedure, so nothing calls the binding; a call would throw.
+const uncalledCounterBinding = {} as RateLimitIdentityEnv["RATE_LIMIT_IDENTITY"];
 
 interface HarnessResult {
   readonly status: number;
@@ -12,16 +22,16 @@ interface HarnessResult {
   readonly logs: readonly string[];
 }
 
-async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
+async function runGate(gateEnv: GateEnv): Promise<HarnessResult> {
   const logs: string[] = [];
   const handler = buildControlPlaneFetchHandler({
     refusalLogger: (msg) => logs.push(msg),
     requestIdGenerator: () => "req-test-1",
   });
-  const response = await handler(
-    new Request("https://control-plane.test/trpc/unknown.procedure"),
-    env,
-  );
+  const response = await handler(new Request("https://control-plane.test/trpc/unknown.procedure"), {
+    ...gateEnv,
+    RATE_LIMIT_IDENTITY: uncalledCounterBinding,
+  });
   return {
     status: response.status,
     body: await response.text(),
@@ -51,7 +61,7 @@ describe("feature-flag gate", () => {
 
 interface RefusalRow {
   readonly label: string;
-  readonly env: ControlPlaneEnv;
+  readonly env: GateEnv;
 }
 
 // Each row pins the feature flag to its passing value so the environment gate is the sole driver.

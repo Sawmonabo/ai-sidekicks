@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Spec-019 — Rate Limiting
 
-Shapes below are canonical per [Plan-018](../../plans/018-rate-limiting-policy.md) (D-018-3/D-018-4/D-018-5). The relay counts requests on its sign-in routes only; code home is the control plane's `packages/control-plane/src/rate-limit/` for the limiter and its check types, and `packages/contracts/src/rate-limiter.ts` for the 429 envelope `RateLimitResponse` alone (Plan-018 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
+Shapes below are canonical per [Plan-018](../../plans/018-rate-limiting-policy.md) (D-018-3/D-018-4/D-018-5). The relay counts requests on its sign-in routes only; code home is the control plane's `packages/control-plane/src/rate-limit/` for the limiter and its check types, and `packages/contracts/src/rate-limiter.ts` for what a device reads: the 429 envelope `RateLimitResponse` with its schema `RateLimitResponseSchema`, and the sign-in routes' two refusal codes, `RATE_LIMITED_CODE` and `SOURCE_ADDRESS_UNRESOLVABLE_CODE` (Plan-018 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
 
 ```ts
 // RateLimitCheck (internal operation, both backends). A counter error fails that one request like
