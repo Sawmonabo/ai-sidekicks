@@ -1,7 +1,7 @@
 // A ranking split across the rankers' rowid ranges pages as one read's ranking does, for words
 // alone and for a tag whose sessions are too many to rank through their keys; the rankers rank
-// within the reads they opened, whatever commits after; and a read-ahead the index has moved past
-// since its plan or its reads is refused.
+// within the reads they opened, whatever commits after; a read-ahead the index has moved past
+// since its plan or its reads is refused; and the rankers started leave the main thread a core.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,7 +27,7 @@ import {
 } from "../../../__fixtures__/index-rows.js";
 import { indexRowidSql } from "../../../index/columns.js";
 import { SessionSearchService, type WholeIndexRankingPlan } from "../../../service.js";
-import { RankerPool, type SplitRanking } from "../pool.js";
+import { RankerPool, rankerCountFor, type SplitRanking } from "../pool.js";
 
 // More tagged sessions than a ranking narrows to through their keys, so the tag's ranking reads
 // every match with its session.
@@ -168,6 +168,17 @@ describe("the rankers", () => {
         .get() ?? 0
     );
   }
+});
+
+describe("the ranker count", () => {
+  it("leaves the main thread a core wherever the daemon's own threads fit", () => {
+    // The database writer and the search thread run beside the rankers.
+    const otherWorkerThreads = 2;
+    for (let cores = otherWorkerThreads + 1; cores <= 64; cores += 1) {
+      expect(otherWorkerThreads + rankerCountFor(cores)).toBeLessThanOrEqual(cores - 1);
+    }
+    expect([2, 3, 4, 7, 8, 64].map(rankerCountFor)).toEqual([0, 0, 1, 4, 4, 4]);
+  });
 });
 
 function groupIdOf(index: number): string {

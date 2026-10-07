@@ -17,6 +17,21 @@ const WORKER_URL = workerModuleUrlBeside(import.meta.url);
 // ranking's rows live in typed arrays outside it.
 const YOUNG_GENERATION_MB = 8;
 
+// The most rankers a ranking is split across.
+const MOST_RANKERS = 4;
+
+// The daemon's worker threads besides the rankers: the database writer and the search thread.
+const OTHER_WORKER_THREADS = 2;
+
+/**
+ * How many rankers to start on a machine with `cores` logical cores: at most four, and never so
+ * many that the daemon's worker threads, rankers included, outnumber every core but one, which
+ * stays the main thread's. Zero when the cores leave none for rankers.
+ */
+export function rankerCountFor(cores: number): number {
+  return Math.max(0, Math.min(MOST_RANKERS, cores - 1 - OTHER_WORKER_THREADS));
+}
+
 /** A ranking split across the rankers: its ranges in rowid order, and each one's index version. */
 export interface SplitRanking {
   readonly ranges: readonly RankedRange[];

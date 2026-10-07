@@ -7,6 +7,7 @@
 // is read again, and after a few tries here. The rankers start when the main thread asks, once the
 // daemon listens, so their load stays out of its start, or at the first ranking that needs them.
 
+import { availableParallelism } from "node:os";
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
 import Database from "better-sqlite3";
@@ -27,10 +28,11 @@ import {
   type SearchThreadRequest,
   type SearchThreadWorkerData,
 } from "./messages.js";
-import { RankerPool, type RankerRead } from "./ranker/pool.js";
+import { RankerPool, rankerCountFor, type RankerRead } from "./ranker/pool.js";
 
-// How many rankers a ranking across the whole index is split across.
-const RANKER_COUNT = 4;
+// How many rankers a ranking across the whole index is split across on this machine; with none,
+// every ranking runs on this thread.
+const RANKER_COUNT = rankerCountFor(availableParallelism());
 // How many times a split ranking is read before the search ranks on this thread: a write that
 // commits between the start of this thread's read and a ranker's moves the index's version, and
 // the ranking is read again.
@@ -86,7 +88,9 @@ function serve(connection: DatabaseType): void {
     try {
       switch (request.type) {
         case "start-rankers":
-          rankers ??= RankerPool.start(databasePath, RANKER_COUNT);
+          if (RANKER_COUNT > 0) {
+            rankers ??= RankerPool.start(databasePath, RANKER_COUNT);
+          }
           return;
         case "session.search":
           post({ type: "session-searched", response: await searchSessions(request.request) });
@@ -125,7 +129,7 @@ function serve(connection: DatabaseType): void {
   ): Promise<SessionSearchResponse | undefined> {
     connection.exec("BEGIN");
     try {
-      if (!sessionSearch.mayRankWholeIndex(request)) {
+      if (RANKER_COUNT === 0 || !sessionSearch.mayRankWholeIndex(request)) {
         return sessionSearch.search(request);
       }
       // A read's first statement fixes what it sees, so this one's is fixed before theirs.
@@ -185,14 +189,12 @@ function serve(connection: DatabaseType): void {
   }
 
   // What the rankers answer. A ranker that fails fails this search with what it threw, and the
-  // rankers are started again for the next one.
+  // rankers are started again for the next one once the failed ones are closed, so the two sets
+  // never run at once.
   async function settle<Answer>(pool: RankerPool, answer: Promise<Answer>): Promise<Answer> {
     try {
       return await answer;
     } catch (error) {
-      if (rankers === pool) {
-        rankers = RankerPool.start(databasePath, RANKER_COUNT);
-      }
       try {
         await pool.close();
       } catch (closeError) {
@@ -201,6 +203,10 @@ function serve(connection: DatabaseType): void {
           "A ranker failed, and closing the rankers after it failed too",
           { cause: closeError },
         );
+      } finally {
+        if (rankers === pool) {
+          rankers = RankerPool.start(databasePath, RANKER_COUNT);
+        }
       }
       throw error;
     }
