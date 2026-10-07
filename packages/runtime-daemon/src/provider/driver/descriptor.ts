@@ -64,6 +64,11 @@ export interface ProviderDriverDescriptor {
    */
   readonly outputSpeedLevels?: readonly string[] | undefined;
   /**
+   * The provider's own word for standard output speed, as its declared state reads it. A run that
+   * carried any other level and settles on another state is told fast output is unavailable.
+   */
+  readonly standardOutputSpeed: string;
+  /**
    * The provider's own tools, in the names a person picks for an agent's allowlist. A constant of
    * the driver, composed onto every capability report and never stored.
    */

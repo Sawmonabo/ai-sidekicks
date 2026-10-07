@@ -13,10 +13,10 @@ import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import { isPlainObject } from "../../record-readers.js";
 import {
   CODEX_DRIVER_NAME,
-  CODEX_STANDARD_OUTPUT_SPEED,
   resolveCodexModelCatalog,
   type CodexModelCatalogExchange,
 } from "./capabilities.js";
+import { CODEX_STANDARD_OUTPUT_SPEED } from "./descriptor.js";
 import {
   CODEX_ITEM_STARTED_METHOD,
   CODEX_THREAD_SETTINGS_UPDATED_METHOD,

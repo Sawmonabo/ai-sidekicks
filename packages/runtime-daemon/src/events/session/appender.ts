@@ -47,6 +47,8 @@ export interface SessionEventLinkage {
   readonly causationId?: string | null | undefined;
   /** Forwarded to the append path (see `EventLogAppendOptions.transactionalPrelude`). */
   readonly transactionalPrelude?: readonly WriteStatement[] | undefined;
+  /** A body-bearing event's prose, stored beside its payload (see `EventLogAppendOptions.content`). */
+  readonly content?: EventLogAppendOptions["content"] | undefined;
 }
 
 /** The members the envelope reads back from a payload: its session and, when one acted, its actor. */
@@ -108,6 +110,7 @@ export class SessionEventAppender {
       ...(linkage.transactionalPrelude !== undefined
         ? { transactionalPrelude: linkage.transactionalPrelude }
         : {}),
+      ...(linkage.content !== undefined ? { content: linkage.content } : {}),
     });
   }
 }

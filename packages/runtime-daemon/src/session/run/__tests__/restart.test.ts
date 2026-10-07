@@ -33,6 +33,7 @@ describe("run settle after a restart", () => {
     await fixture.engine.startRun({
       runId,
       queueItem: makeQueueItem(),
+      provider: "claude",
       driver,
       driverParams: { agentConfig: {} },
       executionPosture: TEST_EXECUTION_POSTURE,

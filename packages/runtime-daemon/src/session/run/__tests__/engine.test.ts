@@ -1,10 +1,12 @@
 // The run engine over a real database: the setup gates around a run's start, the terminal hooks,
-// a provider process that ends on its own, and a run that waits and comes back on its own id.
+// a provider process that ends on its own, a run that waits and comes back on its own id, and the
+// notice a run gets when its provider does not run it at the fast output level it carried.
 
 import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
@@ -56,6 +58,7 @@ describe("run engine", () => {
     await fixture.engine.startRun({
       runId,
       queueItem: makeQueueItem(),
+      provider: "claude",
       driver: makeRecordingDriver(),
       driverParams: { agentConfig: {} },
       executionPosture: TEST_EXECUTION_POSTURE,
@@ -77,6 +80,7 @@ describe("run engine", () => {
       await fixture.engine.startRun({
         runId: gated,
         queueItem: makeQueueItem(),
+        provider: "claude",
         driver: {
           startRun: async (params) => {
             log.push("driver");
@@ -108,6 +112,7 @@ describe("run engine", () => {
         .startRun({
           runId,
           queueItem: makeQueueItem(),
+          provider: "claude",
           driver,
           driverParams: { agentConfig: {} },
           executionPosture: TEST_EXECUTION_POSTURE,
@@ -145,6 +150,7 @@ describe("run engine", () => {
         fixture.engine.startRun({
           runId,
           queueItem: makeQueueItem(),
+          provider: "claude",
           driver,
           driverParams: { agentConfig: {} },
           executionPosture: TEST_EXECUTION_POSTURE,
@@ -162,6 +168,7 @@ describe("run engine", () => {
         .startRun({
           runId,
           queueItem: makeQueueItem(),
+          provider: "claude",
           driver: { startRun: () => Promise.reject(driverError) },
           driverParams: { agentConfig: {} },
           executionPosture: TEST_EXECUTION_POSTURE,
@@ -341,6 +348,78 @@ describe("run engine", () => {
     ]);
     expect(fixture.database.reader.prepare("SELECT COUNT(*) AS runs FROM runs").get()).toEqual({
       runs: 1,
+    });
+  });
+
+  describe("fast output notice", () => {
+    async function startRunAt(provider: ProviderName, outputSpeed: string): Promise<RunId> {
+      const runId = await fixture.queueRun();
+      await fixture.engine.startRun({
+        runId,
+        queueItem: makeQueueItem(),
+        provider,
+        driver: makeRecordingDriver(),
+        driverParams: { agentConfig: {}, outputSpeed },
+        executionPosture: TEST_EXECUTION_POSTURE,
+      });
+      return runId;
+    }
+
+    function readNotices(): Record<string, unknown>[] {
+      return fixture.database.reader
+        .prepare<[], { payload: string }>(
+          "SELECT payload FROM session_events WHERE type = 'session.notice'",
+        )
+        .all()
+        .map((row) => JSON.parse(row.payload) as Record<string, unknown>);
+    }
+
+    it("appends one notice with the provider's reason for a session whose very first run is denied", async () => {
+      const runId = await startRunAt("claude", "on");
+
+      await fixture.engine.recordSettledOutputSpeed(fixture.sessionId, runId, {
+        declared: "cooldown",
+        reason: "Fast mode is cooling down after a rate limit",
+      });
+
+      expect(readNotices()).toEqual([
+        {
+          sessionId: fixture.sessionId,
+          kind: "fast_output_unavailable",
+          reason: "Fast mode is cooling down after a rate limit",
+        },
+      ]);
+    });
+
+    it("appends nothing for a run that settles at the level it carried", async () => {
+      const runId = await startRunAt("claude", "on");
+
+      await fixture.engine.recordSettledOutputSpeed(fixture.sessionId, runId, { declared: "on" });
+
+      expect(readNotices()).toEqual([]);
+    });
+
+    it("appends exactly one notice for a later run that carried fast output and settles at standard", async () => {
+      const acceptedRunId = await startRunAt("codex", "priority");
+      await fixture.engine.recordSettledOutputSpeed(fixture.sessionId, acceptedRunId, {
+        declared: "priority",
+      });
+      await fixture.engine.transition({
+        runId: acceptedRunId,
+        newState: "completed",
+        completionKind: "turn",
+      });
+      const deniedRunId = await startRunAt("codex", "priority");
+
+      for (let report = 0; report < 2; report += 1) {
+        await fixture.engine.recordSettledOutputSpeed(fixture.sessionId, deniedRunId, {
+          declared: "default",
+        });
+      }
+
+      expect(readNotices()).toEqual([
+        { sessionId: fixture.sessionId, kind: "fast_output_unavailable" },
+      ]);
     });
   });
 });

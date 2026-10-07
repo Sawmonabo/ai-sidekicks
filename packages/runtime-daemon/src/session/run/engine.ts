@@ -1,5 +1,6 @@
 // The run engine: every run state change goes through it, each checked against the table and
 // written with the run's row, and each terminal followed by the terminal hooks of the setup gates.
+// It also tells a session when a run's provider does not run it at the fast output level it carried.
 
 import type { Database } from "better-sqlite3";
 
@@ -9,11 +10,17 @@ import {
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { InterventionType } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { SessionNoticePayload } from "@ai-sidekicks/contracts/session/controls/events";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { WriteRefusedError } from "../../database/writer.js";
 import {
   SessionEventAppender,
   type SessionEventAppenderDeps,
@@ -23,8 +30,9 @@ import {
   type ProviderDriver,
   type StartRunParams,
 } from "../../provider/driver/contract.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../../provider/driver/descriptor.js";
 import { RunStateReader, type LiveRun, type RunRead } from "./read.js";
-import { RunInvalidTransitionError } from "./refusals.js";
+import { RunAlreadyEndedError, RunInvalidTransitionError } from "./refusals.js";
 import {
   PendingInterruptReader,
   decideRestartSettlement,
@@ -35,8 +43,7 @@ import { RunStateChangeWriter, type RunStateChange } from "./state-change.js";
 import { isTerminalState } from "./transitions.js";
 
 // Parsed at load so a bad literal throws at import, not at the first change.
-const RUN_STATE_CHANGE_EVENT_VERSION: EventEnvelopeVersion =
-  EventEnvelopeVersionSchema.parse("1.0");
+const RUN_ENGINE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
 const DRIVER_START_FAILURE_FALLBACK = "The provider could not start the run";
 const RESTART_FAILURE_FALLBACK = "The run could not be resumed after the service restarted";
@@ -53,6 +60,8 @@ export type RunTransitionRequest =
 export interface RunStartRequest {
   readonly runId: RunId;
   readonly queueItem: QueueItemSummary;
+  /** The provider the run runs on, whose standard output speed its settled state is read against. */
+  readonly provider: ProviderName;
   readonly driver: Pick<ProviderDriver, "startRun">;
   readonly driverParams: Omit<StartRunParams, "runId" | "executionPosture">;
   /** The run's effective posture: handed to the driver and stamped on `run.running` as is. */
@@ -70,15 +79,17 @@ export class RunEngine {
   readonly #runs: RunStateReader;
   readonly #pendingInterrupts: PendingInterruptReader;
   readonly #changes: RunStateChangeWriter;
+  readonly #appender: SessionEventAppender;
   readonly #gates = new RunSetupGates();
+  // The fast output level each started run carried, until its settled state is reported or it
+  // ends, so the map holds at most the runs started and not yet settled or ended.
+  readonly #carriedOutputSpeedByRun = new Map<RunId, string>();
 
   constructor(deps: RunEngineDeps) {
     this.#runs = new RunStateReader(deps.reader);
     this.#pendingInterrupts = new PendingInterruptReader(deps.reader);
-    this.#changes = new RunStateChangeWriter(
-      this.#runs,
-      new SessionEventAppender(deps, RUN_STATE_CHANGE_EVENT_VERSION),
-    );
+    this.#appender = new SessionEventAppender(deps, RUN_ENGINE_EVENT_VERSION);
+    this.#changes = new RunStateChangeWriter(this.#runs, this.#appender);
   }
 
   /** Adds a setup gate after those already registered; its terminal hook runs before theirs. */
@@ -101,7 +112,7 @@ export class RunEngine {
    * and throws `RunParkedInSetupError`; a driver's throw ends the run `failed` and is rethrown.
    */
   async startRun(request: RunStartRequest): Promise<RunRead> {
-    const { runId, queueItem, driver, driverParams, executionPosture } = request;
+    const { runId, queueItem, provider, driver, driverParams, executionPosture } = request;
     const starting = await this.#change({ runId, expectedState: "queued", newState: "starting" });
     await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
 
@@ -111,6 +122,14 @@ export class RunEngine {
       throw new RunInvalidTransitionError(runId, afterGates.state, "running");
     }
 
+    // Held before the driver starts, since the driver may report the settled state at once.
+    const carriedOutputSpeed = driverParams.outputSpeed;
+    if (
+      carriedOutputSpeed !== undefined &&
+      carriedOutputSpeed !== PROVIDER_DRIVER_DESCRIPTORS[provider].standardOutputSpeed
+    ) {
+      this.#carriedOutputSpeedByRun.set(runId, carriedOutputSpeed);
+    }
     try {
       await driver.startRun({ ...driverParams, runId, executionPosture });
     } catch (driverError) {
@@ -123,6 +142,58 @@ export class RunEngine {
       newState: "running",
       executionPosture,
     });
+  }
+
+  /**
+   * Moves the run as a provider reported, as {@link transition} does, unless the run has already
+   * ended: then a terminal is refused with {@link RunAlreadyEndedError} and any other change with
+   * {@link RunInvalidTransitionError} from the ended state, whether the run read ended or ended
+   * inside the write. A send's re-open of an ended run is the daemon's, never a provider's.
+   */
+  async applyProviderStateChange(change: RunTransitionRequest): Promise<RunRead> {
+    const run = this.#runs.getRun(change.runId);
+    if (run !== undefined && isTerminalState(run.state)) {
+      throw endedRunRefusal(change, run.state);
+    }
+    try {
+      return await this.#change(change);
+    } catch (error) {
+      // The swap refused: the run moved after it was read, and only an end makes that a refusal.
+      if (!(error instanceof WriteRefusedError)) {
+        throw error;
+      }
+      const now = this.#runs.getRun(change.runId);
+      if (now === undefined || !isTerminalState(now.state)) {
+        throw error;
+      }
+      throw endedRunRefusal(change, now.state, error);
+    }
+  }
+
+  /**
+   * Compares a run's settled output speed with the fast level it carried and, where the provider
+   * runs it at another state, appends one `fast_output_unavailable` notice with the provider's
+   * reason. Only the first report for a started run is compared; a later one finds nothing.
+   */
+  async recordSettledOutputSpeed(
+    sessionId: SessionId,
+    runId: RunId,
+    state: ProviderOutputSpeedState,
+  ): Promise<void> {
+    const carried = this.#carriedOutputSpeedByRun.get(runId);
+    if (carried === undefined) {
+      return;
+    }
+    this.#carriedOutputSpeedByRun.delete(runId);
+    if (state.declared === carried) {
+      return;
+    }
+    const notice: SessionNoticePayload = {
+      sessionId,
+      kind: "fast_output_unavailable",
+      ...(state.reason === undefined ? {} : { reason: state.reason }),
+    };
+    await this.#appender.append("session.notice", notice, {});
   }
 
   /**
@@ -197,6 +268,7 @@ export class RunEngine {
   async #change(change: RunStateChange, extraGuards?: readonly WriteStatement[]): Promise<RunRead> {
     const run = await this.#changes.write(change, extraGuards);
     if (isTerminalState(run.state)) {
+      this.#carriedOutputSpeedByRun.delete(change.runId);
       await this.#gates.releaseForTerminal({
         runId: change.runId,
         sessionId: run.sessionId,
@@ -247,4 +319,16 @@ export class RunEngine {
     }
     return reached;
   }
+}
+
+// The refusal of a provider's change to a run that has ended in `endedState`.
+function endedRunRefusal(
+  change: RunTransitionRequest,
+  endedState: RunState,
+  cause?: unknown,
+): RunInvalidTransitionError {
+  const options = cause === undefined ? undefined : { cause };
+  return isTerminalState(change.newState)
+    ? new RunAlreadyEndedError(change.runId, endedState, change.newState, options)
+    : new RunInvalidTransitionError(change.runId, endedState, change.newState, options);
 }
