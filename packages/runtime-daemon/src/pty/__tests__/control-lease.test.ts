@@ -252,6 +252,37 @@ describe("ShellControlLease", () => {
     expect(second.changes).toHaveLength(1);
   });
 
+  it("undoes a change whose broadcast fails, so no holder changes unannounced", async () => {
+    let isBroadcastFailing = true;
+    const lease = new ShellControlLease({
+      sessionId: SESSION_ID,
+      terminalId: TERMINAL_ID,
+      machineDeviceId: MACHINE,
+      broadcast: async () => {
+        if (isBroadcastFailing) {
+          throw new Error("the event log is unavailable");
+        }
+      },
+    });
+
+    await expect(lease.take({ deviceId: LAPTOP, transportId: 1 }, false)).rejects.toThrow(
+      "the event log is unavailable",
+    );
+    expect(lease.holder()).toBeNull();
+    expect(refusalOf(() => lease.admitWrite({ kind: "device", deviceId: LAPTOP }))).toMatchObject(
+      NOT_HELD,
+    );
+
+    isBroadcastFailing = false;
+    await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
+    isBroadcastFailing = true;
+    await expect(lease.take({ deviceId: PHONE, transportId: 2 }, true)).rejects.toThrow(
+      "the event log is unavailable",
+    );
+    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
+    lease.admitWrite({ kind: "device", deviceId: LAPTOP });
+  });
+
   it("refuses writes to an unheld shell, and a non-holder's resize and plain close", async () => {
     const { lease } = openLease();
     expect(refusalOf(() => lease.admitWrite({ kind: "device", deviceId: LAPTOP }))).toMatchObject(

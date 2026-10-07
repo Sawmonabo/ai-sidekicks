@@ -450,7 +450,10 @@ export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOther
   .strict()
   .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND);
 
-/** A write to a shell the writing device does not hold; it takes the shell first. */
+/**
+ * A write to a shell its writer does not hold, or a resize of a shell nobody holds; the caller
+ * takes the shell first.
+ */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
 /**
  * Type of {@link PTY_CONTROL_NOT_HELD_CODE}.

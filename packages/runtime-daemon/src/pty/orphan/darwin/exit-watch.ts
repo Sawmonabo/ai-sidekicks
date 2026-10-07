@@ -25,7 +25,10 @@ export class DarwinProcessExitWatch implements ProcessExitWatch {
   #pendingWait: Promise<void> | undefined;
   #isClosed = false;
 
-  /** Opens the queue; `onWaitFailure` hears a failed wait, after which exits are no longer seen. */
+  /**
+   * Opens the queue. `onWaitFailure` hears a wait the system refused; exits are then seen again
+   * from the next `watch()`, which starts a new wait.
+   */
   constructor(library: DarwinSystemLibrary, onWaitFailure: (error: Error) => void) {
     this.#library = library;
     this.#onWaitFailure = onWaitFailure;
@@ -89,16 +92,27 @@ export class DarwinProcessExitWatch implements ProcessExitWatch {
       return;
     }
     this.#pendingWait = new Promise((resolve) => {
-      this.#library.waitForKernelEvent(this.#queue, (event) => {
+      this.#library.waitForKernelEvent(this.#queue, (outcome) => {
         this.#pendingWait = undefined;
         resolve();
-        if (event === undefined) {
-          this.#onWaitFailure(new Error("Waiting on the kernel queue for a process's exit failed"));
+        if ("failure" in outcome) {
+          this.#onWaitFailure(outcome.failure);
           return;
         }
-        if (event.filter === EVFILT_PROC) {
-          const onExit = this.#watched.get(event.ident);
-          this.#watched.delete(event.ident);
+        if ("errno" in outcome) {
+          // A signal that interrupts the wait is no failure; the wait simply starts again.
+          if (outcome.errno !== this.#library.interruptedErrno) {
+            this.#onWaitFailure(
+              new Error(
+                `Waiting on the kernel queue for a process's exit failed with errno ` +
+                  String(outcome.errno),
+              ),
+            );
+            return;
+          }
+        } else if (outcome.event.filter === EVFILT_PROC) {
+          const onExit = this.#watched.get(outcome.event.ident);
+          this.#watched.delete(outcome.event.ident);
           onExit?.();
         }
         this.#waitWhileWatching();

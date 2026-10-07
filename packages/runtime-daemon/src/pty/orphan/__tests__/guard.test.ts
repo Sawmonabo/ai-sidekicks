@@ -54,7 +54,7 @@ function openGuard(
     dataFolder,
     bootId: BOOT,
     readProcessIdentity,
-    operatingSystem: { findProcessesCarryingNonce: () => Promise.resolve([]) },
+    operatingSystem: { findProcessesCarryingNonces: () => Promise.resolve(new Map()) },
     writeServiceLog: (line) => {
       serviceLog.push(line);
     },
@@ -92,13 +92,23 @@ describe("OrphanGuard", () => {
 
   it("kills a child whose process cannot be recorded and refuses its spawn", async () => {
     const { guard } = await openGuard(() => Promise.reject(new Error("ps is unavailable")));
-    const { child } = makeFakeChild(4300);
+    const { child, triggerExit } = makeFakeChild(4300);
+    const groupSignals: Array<[number, NodeJS.Signals]> = [];
+    const signalProcessGroup = (leaderId: number, signal: NodeJS.Signals): void => {
+      groupSignals.push([leaderId, signal]);
+    };
 
     await expect(
-      new NodePtyHost(guard, { ptySpawn: () => child, platform: "darwin" }).spawn(SHELL_SPAWN),
+      new NodePtyHost(guard, {
+        ptySpawn: () => child,
+        platform: "darwin",
+        signalProcessGroup,
+      }).spawn(SHELL_SPAWN),
     ).rejects.toThrow("ps is unavailable");
 
-    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    expect(groupSignals).toEqual([[4300, "SIGKILL"]]);
+    // Its exit retires the intent the spawn wrote.
+    triggerExit(0, 9);
     await guard.close();
     expect(await readRegistryFile()).toEqual({ entries: [] });
   });

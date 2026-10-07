@@ -112,10 +112,18 @@ export class OrphanRegistry {
     return this.#write();
   }
 
-  /** Records that a child carrying `nonce` is about to start; resolves once durable. */
-  recordIntent(nonce: string, bootId: string): Promise<void> {
+  /**
+   * Records that a child carrying `nonce` is about to start; resolves once durable. A failed write
+   * forgets the intent, since no child will start under it.
+   */
+  async recordIntent(nonce: string, bootId: string): Promise<void> {
     this.#entries.set(nonce, { nonce, bootId });
-    return this.#write();
+    try {
+      await this.#write();
+    } catch (error) {
+      this.#entries.delete(nonce);
+      throw error;
+    }
   }
 
   /** Records the started child of an intent; an intent already retired stays retired. */

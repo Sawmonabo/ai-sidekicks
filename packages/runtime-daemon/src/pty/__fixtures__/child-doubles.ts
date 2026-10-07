@@ -17,21 +17,27 @@ import type { RustSidecarPtyHost } from "../sidecar/host.js";
 type NodePtyExitEvent = { exitCode: number; signal?: number | undefined };
 
 /**
- * Build a fake `NodePtyChild` that captures its `onExit` listener so a test can trigger an exit
- * with `triggerExit`, which throws if no listener is attached yet. `pid` defaults to 12345;
- * suites pass their own so the pid is distinctive in assertion failures.
+ * Builds a fake `NodePtyChild` that keeps its `onData` and `onExit` listeners until disposed, so a
+ * test can emit output with `emitData` and an exit with `triggerExit`, which throws if no exit
+ * listener is attached. `pid` defaults to 12345; suites pass their own so the pid is distinctive
+ * in assertion failures.
  */
 export function makeFakeChild(pid: number = 12345): {
   child: NodePtyChild;
+  emitData: (chunk: string | Uint8Array) => void;
   triggerExit: (exitCode: number, signal?: number) => void;
 } {
-  let exitListener: ((event: NodePtyExitEvent) => void) | null = null;
+  const dataListeners = new Set<(chunk: string | Uint8Array) => void>();
+  const exitListeners = new Set<(event: NodePtyExitEvent) => void>();
   const child: NodePtyChild = {
     pid,
-    onData: () => ({ dispose: () => undefined }),
+    onData: (listener) => {
+      dataListeners.add(listener);
+      return { dispose: () => dataListeners.delete(listener) };
+    },
     onExit: (listener) => {
-      exitListener = listener;
-      return { dispose: () => undefined };
+      exitListeners.add(listener);
+      return { dispose: () => exitListeners.delete(listener) };
     },
     kill: vi.fn(),
     resize: vi.fn(),
@@ -41,15 +47,22 @@ export function makeFakeChild(pid: number = 12345): {
   };
   return {
     child,
+    emitData: (chunk) => {
+      for (const listener of dataListeners) {
+        listener(chunk);
+      }
+    },
     triggerExit: (exitCode: number, signal?: number) => {
-      if (exitListener === null) {
+      if (exitListeners.size === 0) {
         throw new Error(
           "makeFakeChild.triggerExit: onExit listener not yet attached " +
             "(was the child spawned via NodePtyHost.spawn?)",
         );
       }
       const event: NodePtyExitEvent = signal === undefined ? { exitCode } : { exitCode, signal };
-      exitListener(event);
+      for (const listener of exitListeners) {
+        listener(event);
+      }
     },
   };
 }

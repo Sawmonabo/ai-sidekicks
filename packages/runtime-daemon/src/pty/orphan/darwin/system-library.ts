@@ -20,8 +20,8 @@ export interface DarwinSystemLibrary {
   openKernelQueue(): number;
   /** Applies one change to a queue without waiting; answers the system's `errno` on a refusal. */
   changeKernelQueue(queue: number, change: KernelEvent): { errno: number } | undefined;
-  /** Waits off the main thread for one event; `event` is undefined when the wait failed. */
-  waitForKernelEvent(queue: number, onEvent: (event: KernelEvent | undefined) => void): void;
+  /** Waits off the main thread for one event, or for the system's refusal of the wait. */
+  waitForKernelEvent(queue: number, onOutcome: (outcome: KernelWaitOutcome) => void): void;
   /** Closes a descriptor the library opened. */
   closeDescriptor(descriptor: number): void;
   /** Lists the processes the user with `userId` runs. */
@@ -30,7 +30,12 @@ export interface DarwinSystemLibrary {
   readProcessEnvironment(processId: number): string[] | undefined;
   /** The `errno` that says no process has the id. */
   readonly noSuchProcessErrno: number;
+  /** The `errno` that says a signal interrupted a wait, which is then simply waited again. */
+  readonly interruptedErrno: number;
 }
+
+/** How one wait on a kernel queue ended: an event, the system's `errno`, or the library's error. */
+type KernelWaitOutcome = { event: KernelEvent } | { errno: number } | { failure: Error };
 
 // <sys/sysctl.h>: CTL_KERN, KERN_ARGMAX and KERN_PROCARGS2. <libproc.h>: PROC_UID_ONLY.
 const CTL_KERN = 1;
@@ -39,8 +44,21 @@ const KERN_PROCARGS2 = 49;
 const PROC_UID_ONLY = 4;
 const PROCESS_ID_BYTES = 4;
 
-/** Loads the calls from the system library; throws when `koffi` is missing. */
-export async function loadDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
+let libraryLoading: Promise<DarwinSystemLibrary> | undefined;
+
+/**
+ * Loads the calls from the system library once per process; throws when `koffi` cannot be
+ * loaded. A failed load is dropped, so the next one tries again.
+ */
+export function loadDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
+  libraryLoading ??= bindDarwinSystemLibrary().catch((failure: unknown) => {
+    libraryLoading = undefined;
+    throw failure;
+  });
+  return libraryLoading;
+}
+
+async function bindDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
   const koffi = await importKoffi("watching terminal children for their exit on macOS");
   const system = koffi.load("/usr/lib/libSystem.B.dylib");
   koffi.struct("kevent", {
@@ -69,10 +87,12 @@ export async function loadDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
   if (sysctl([CTL_KERN, KERN_ARGMAX], 2, argumentBytesBuffer, [4], null, 0) !== 0) {
     throw new Error(`sysctl(KERN_ARGMAX) failed with errno ${String(koffi.errno())}`);
   }
-  const argumentBytesMax = argumentBytesBuffer.readInt32LE(0);
+  // One buffer for every environment read: each read is synchronous and copies what it parses.
+  const argumentsBuffer = Buffer.alloc(argumentBytesBuffer.readInt32LE(0));
   const noSuchProcessErrno = koffi.os.errno["ESRCH"];
-  if (noSuchProcessErrno === undefined) {
-    throw new Error("koffi names no ESRCH among the system's error codes");
+  const interruptedErrno = koffi.os.errno["EINTR"];
+  if (noSuchProcessErrno === undefined || interruptedErrno === undefined) {
+    throw new Error("koffi names no ESRCH or EINTR among the system's error codes");
   }
 
   return {
@@ -85,10 +105,17 @@ export async function loadDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
     },
     changeKernelQueue: (queue, change) =>
       kevent(queue, change, 1, null, 0, null) === -1 ? { errno: koffi.errno() } : undefined,
-    waitForKernelEvent: (queue, onEvent) => {
+    waitForKernelEvent: (queue, onOutcome) => {
       const event = {} as KernelEvent;
       kevent.async(queue, null, 0, event, 1, null, (error: unknown, count: number) => {
-        onEvent(error === null && count === 1 ? event : undefined);
+        if (error !== null) {
+          onOutcome({ failure: error instanceof Error ? error : new Error(String(error)) });
+        } else if (count === -1) {
+          // The callback sees the wait's own `errno`.
+          onOutcome({ errno: koffi.errno() });
+        } else {
+          onOutcome({ event });
+        }
       });
     },
     closeDescriptor: (descriptor) => {
@@ -114,15 +141,17 @@ export async function loadDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
       return processIds;
     },
     readProcessEnvironment: (processId) => {
-      const buffer = Buffer.alloc(argumentBytesMax);
-      const length = [argumentBytesMax];
+      const length = [argumentsBuffer.length];
       // The system refuses a process that ended or that it hides; either way it shows nothing.
-      if (sysctl([CTL_KERN, KERN_PROCARGS2, processId], 3, buffer, length, null, 0) !== 0) {
+      if (
+        sysctl([CTL_KERN, KERN_PROCARGS2, processId], 3, argumentsBuffer, length, null, 0) !== 0
+      ) {
         return undefined;
       }
-      return parseProcessEnvironment(buffer.subarray(0, length[0]));
+      return parseProcessEnvironment(argumentsBuffer.subarray(0, length[0]));
     },
     noSuchProcessErrno,
+    interruptedErrno,
   };
 }
 

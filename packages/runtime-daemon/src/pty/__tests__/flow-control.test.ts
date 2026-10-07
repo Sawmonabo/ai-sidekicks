@@ -61,7 +61,7 @@ describe("ShellFlowControl", () => {
     expect(hostCalls).toEqual(["pause", "resume", "pause", "resume"]);
   });
 
-  it("applies host calls in order; a failed one rejects only the act behind it", async () => {
+  it("applies host calls in order; a failed one rejects its act and is retried next", async () => {
     const hostCalls: string[] = [];
     let finishPause: (() => void) | undefined;
     const options: ShellFlowControlOptions = {
@@ -90,5 +90,9 @@ describe("ShellFlowControl", () => {
     await expect(behind).resolves.toEqual({ accepted: true });
     await expect(caughtUp).rejects.toThrow("the shell is gone");
     expect(hostCalls).toEqual(["pause started", "pause finished", "resume"]);
+
+    // The read is still paused, so the next declaration asks for the resume again.
+    await expect(declare(FIRST, false)).rejects.toThrow("the shell is gone");
+    expect(hostCalls).toEqual(["pause started", "pause finished", "resume", "resume"]);
   });
 });

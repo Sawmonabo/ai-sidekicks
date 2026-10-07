@@ -7,7 +7,7 @@
 //
 // Every decision reads and replaces the holder with no `await` in between, so two takes in one
 // tick cannot both win; the broadcast is called right after the change, in change order, and
-// awaited, so its failure reaches the caller.
+// awaited, so its failure reaches the caller, and the change is undone, so none stands unannounced.
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import {
   PTY_CONTROL_HELD_BY_OTHER_CODE,
@@ -87,6 +87,7 @@ export class ShellControlLease {
   readonly #machineDeviceId: DeviceId;
   readonly #broadcast: (change: PtyControlChangedPayload) => Promise<void>;
   #holder: LeaseHolder | null = null;
+  #changeCount = 0;
 
   constructor(options: ShellControlLeaseOptions) {
     this.#sessionId = options.sessionId;
@@ -108,8 +109,10 @@ export class ShellControlLease {
     if (current?.kind === "run" || (current !== null && !force)) {
       throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
     }
-    this.#holder = { kind: "device", deviceId: caller.deviceId, transportId: caller.transportId };
-    await this.#broadcastChange(current, current === null ? "taken" : "taken_by_force");
+    await this.#changeHolder(
+      { kind: "device", deviceId: caller.deviceId, transportId: caller.transportId },
+      current === null ? "taken" : "taken_by_force",
+    );
     return response;
   }
 
@@ -125,8 +128,7 @@ export class ShellControlLease {
     if (current?.kind === "device") {
       throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
     }
-    this.#holder = { kind: "run", runId: run.runId, commandId: run.commandId };
-    await this.#broadcastChange(current, "taken");
+    await this.#changeHolder({ kind: "run", runId: run.runId, commandId: run.commandId }, "taken");
   }
 
   /** Lets one write frame through only when its writer holds the shell. */
@@ -169,8 +171,7 @@ export class ShellControlLease {
     if (current?.kind !== "device" || current.transportId !== transportId) {
       return;
     }
-    this.#holder = null;
-    await this.#broadcastChange(current, "auto_released_disconnect");
+    await this.#changeHolder(null, "auto_released_disconnect");
   }
 
   /** Gives the shell back when the run holding it leaves its running state. */
@@ -179,8 +180,7 @@ export class ShellControlLease {
     if (current?.kind !== "run" || current.runId !== runId) {
       return;
     }
-    this.#holder = null;
-    await this.#broadcastChange(current, "auto_released_run_idle");
+    await this.#changeHolder(null, "auto_released_run_idle");
   }
 
   /** Who holds the shell now, or `null` while nobody does. */
@@ -202,16 +202,28 @@ export class ShellControlLease {
     return { terminalId: this.#terminalId, ...this.#describeHolder(holder) };
   }
 
-  // Names the holder after the change, or nobody after a release, and the device it moved off.
-  #broadcastChange(previous: LeaseHolder | null, reason: PtyControlChangedReason): Promise<void> {
-    const after = this.#holder;
-    return this.#broadcast({
-      sessionId: this.#sessionId,
-      terminalId: this.#terminalId,
-      ...(after === null ? { holderDeviceId: null } : this.#describeHolder(after)),
-      previousHolderDeviceId:
-        previous === null ? null : this.#describeHolder(previous).holderDeviceId,
-      reason,
-    });
+  // Replaces the holder at once, then broadcasts the change, naming the holder after it, or nobody
+  // after a release, and the device it moved off. A failed broadcast puts the previous holder back
+  // unless a later change has replaced this one, so no change stands without its event.
+  async #changeHolder(next: LeaseHolder | null, reason: PtyControlChangedReason): Promise<void> {
+    const previous = this.#holder;
+    this.#holder = next;
+    this.#changeCount += 1;
+    const change = this.#changeCount;
+    try {
+      await this.#broadcast({
+        sessionId: this.#sessionId,
+        terminalId: this.#terminalId,
+        ...(next === null ? { holderDeviceId: null } : this.#describeHolder(next)),
+        previousHolderDeviceId:
+          previous === null ? null : this.#describeHolder(previous).holderDeviceId,
+        reason,
+      });
+    } catch (error) {
+      if (this.#changeCount === change) {
+        this.#holder = previous;
+      }
+      throw error;
+    }
   }
 }

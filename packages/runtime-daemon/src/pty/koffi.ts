@@ -1,6 +1,6 @@
 // Loads `koffi`, the library that calls the operating system's own functions where Node offers no
-// call of its own. It is an optional dependency, loaded only when a caller first needs it, through
-// a specifier in a variable so nothing resolves it when the module loads.
+// call of its own. It is loaded only when a caller first needs it, through a specifier in a
+// variable, so a system whose code never calls it never loads its native binding.
 
 import type KoffiModule from "koffi";
 
@@ -8,8 +8,8 @@ import type KoffiModule from "koffi";
 export type Koffi = typeof KoffiModule;
 
 /**
- * Loads `koffi`, throwing with an install hint that names `neededFor` when it is missing, so a
- * missing install fails loudly where the system call is needed.
+ * Loads `koffi`, throwing with an install hint that names `neededFor` when it cannot be loaded,
+ * so the failure is loud where the system call is needed.
  */
 export async function importKoffi(neededFor: string): Promise<Koffi> {
   const specifier: string = "koffi";
@@ -18,8 +18,8 @@ export async function importKoffi(neededFor: string): Promise<Koffi> {
     imported = (await import(specifier)) as { default?: Koffi; load?: unknown };
   } catch (cause) {
     throw new Error(
-      `\`koffi\` is required for ${neededFor} but is not installed. Restore the optional ` +
-        "dependency with `pnpm install` (without `--no-optional`).",
+      `\`koffi\` is required for ${neededFor} but could not be loaded. Reinstall the ` +
+        "package's dependencies with `pnpm install`.",
       { cause },
     );
   }

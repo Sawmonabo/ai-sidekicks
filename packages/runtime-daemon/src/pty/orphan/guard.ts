@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import pidtree from "pidtree";
 
+import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { OrphanOperatingSystem, ProcessExitWatch } from "./operating-system.js";
 import { OrphanRegistry } from "./registry.js";
 import { sweepOrphans, type OrphanSweepResult } from "./sweep.js";
@@ -50,8 +51,9 @@ export class OrphanGuard {
   }
 
   /**
-   * Records the started child and watches it for its end. Rejects when it cannot, and the caller
-   * then kills the child, so no child runs unrecorded.
+   * Records the started child and watches it for its end. Rejects when it cannot record it, and
+   * the caller then kills the child, so no child runs unrecorded; a watch the system refuses goes
+   * to the service log, and the recorded child is kept.
    */
   async completeSpawn(nonce: string, processId: number): Promise<void> {
     const identity = await this.#readProcessIdentity(processId);
@@ -64,9 +66,17 @@ export class OrphanGuard {
       processId,
       processStartTime: identity.processStartTime,
     });
-    this.#exitWatch?.watch(processId, () => {
-      this.retire(nonce);
-    });
+    try {
+      this.#exitWatch?.watch(processId, () => {
+        this.retire(nonce);
+      });
+    } catch (error) {
+      // The registry already holds the child, so the next start's sweep still finds it.
+      this.#writeServiceLog(
+        `The kernel would not watch terminal child ${String(processId)} for its exit: ` +
+          describeError(error),
+      );
+    }
   }
 
   /** Forgets a child that has ended. A failed write goes to the service log. */
@@ -96,22 +106,34 @@ export interface OrphanGuardOpening {
 
 /**
  * Sweeps what a previous run left in the data folder's registry, empties it, and answers a guard
- * over it with what the sweep did. Throws when a kill or the registry's write fails.
+ * over it with what the sweep did. Throws when a kill or the registry's write fails, after closing
+ * the system's exit watch.
  */
 export async function openOrphanGuard(
   opening: OrphanGuardOpening,
 ): Promise<{ guard: OrphanGuard; sweep: OrphanSweepResult }> {
   const registry = new OrphanRegistry(opening.dataFolder);
-  const sweep = await sweepOrphans(await registry.readLeftover(), {
-    bootId: opening.bootId,
-    readProcessIdentity: opening.readProcessIdentity,
-    findProcessesCarryingNonce: opening.operatingSystem.findProcessesCarryingNonce,
-    listDescendants: listDescendantProcesses,
-    killProcess: (processId) => {
-      process.kill(processId, "SIGKILL");
-    },
-  });
-  await registry.forget();
+  let sweep: OrphanSweepResult;
+  try {
+    sweep = await sweepOrphans(await registry.readLeftover(), {
+      bootId: opening.bootId,
+      readProcessIdentity: opening.readProcessIdentity,
+      findProcessesCarryingNonces: opening.operatingSystem.findProcessesCarryingNonces,
+      listDescendants: listDescendantProcesses,
+      killProcess: (processId) => {
+        process.kill(processId, "SIGKILL");
+      },
+    });
+    await registry.forget();
+  } catch (error) {
+    const cleanupFailures: unknown[] = [];
+    try {
+      await opening.operatingSystem.exitWatch?.close();
+    } catch (closeFailure) {
+      cleanupFailures.push(closeFailure);
+    }
+    throw withCleanupFailures(error, cleanupFailures, "The orphan sweep");
+  }
   const guard = new OrphanGuard({
     registry,
     bootId: opening.bootId,

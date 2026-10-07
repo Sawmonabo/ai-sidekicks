@@ -12,7 +12,8 @@ export interface ShellFlowControlOptions {
 /**
  * Tracks which watching connections are behind and pauses or resumes the shell's read when the
  * answer to "is every watcher behind" changes. Host calls run one at a time in the order the
- * changes happened, and each act's promise rejects when the host call it produced fails.
+ * changes happened, and each act's promise rejects when the host call it produced fails; the
+ * next declaration then asks for it again.
  */
 export class ShellFlowControl {
   readonly #pauseRead: () => Promise<void>;
@@ -20,6 +21,7 @@ export class ShellFlowControl {
   // Each watching connection, true while it is behind.
   readonly #watchers = new Map<number, boolean>();
   #isReadPaused = false;
+  #changeCount = 0;
   #lastHostCall: Promise<void> = Promise.resolve();
 
   constructor(options: ShellFlowControlOptions) {
@@ -60,7 +62,18 @@ export class ShellFlowControl {
       return Promise.resolve();
     }
     this.#isReadPaused = shouldPause;
-    const hostCall = this.#lastHostCall.then(shouldPause ? this.#pauseRead : this.#resumeRead);
+    this.#changeCount += 1;
+    const change = this.#changeCount;
+    const hostCall = this.#lastHostCall
+      .then(shouldPause ? this.#pauseRead : this.#resumeRead)
+      .catch((error: unknown) => {
+        // The read never changed, so it is recorded as it was and the next declaration retries,
+        // unless a later change has already asked for a state of its own.
+        if (this.#changeCount === change) {
+          this.#isReadPaused = !shouldPause;
+        }
+        throw error;
+      });
     // The failure reaches the act that made this change through `hostCall`; the queue only orders
     // the next call after this one, whatever its outcome.
     this.#lastHostCall = hostCall.catch(() => undefined);

@@ -6,7 +6,7 @@
 import { userInfo } from "node:os";
 
 import { DarwinProcessExitWatch } from "./darwin/exit-watch.js";
-import { findDarwinProcessesCarryingNonce } from "./darwin/nonce-search.js";
+import { findDarwinProcessesCarryingNonces } from "./darwin/nonce-search.js";
 import { loadDarwinSystemLibrary } from "./darwin/system-library.js";
 
 /** The kernel's own watch on processes' exits, immune to a reused process id. */
@@ -23,8 +23,10 @@ export interface ProcessExitWatch {
 /** The parts of the orphan defense this system supplies. */
 export interface OrphanOperatingSystem {
   readonly exitWatch?: ProcessExitWatch | undefined;
-  /** Finds this user's processes whose environment carries a nonce. */
-  readonly findProcessesCarryingNonce?: ((nonce: string) => Promise<number[]>) | undefined;
+  /** Finds this user's processes whose environment carries one of `nonces`, by process id. */
+  readonly findProcessesCarryingNonces?:
+    | ((nonces: ReadonlySet<string>) => Promise<Map<number, string>>)
+    | undefined;
 }
 
 /**
@@ -42,7 +44,7 @@ export async function openOrphanOperatingSystem(
   const userId = userInfo().uid;
   return {
     exitWatch: new DarwinProcessExitWatch(library, onWatchFailure),
-    findProcessesCarryingNonce: (nonce) =>
-      Promise.resolve(findDarwinProcessesCarryingNonce(library, userId, nonce)),
+    findProcessesCarryingNonces: (nonces) =>
+      Promise.resolve(findDarwinProcessesCarryingNonces(library, userId, nonces)),
   };
 }

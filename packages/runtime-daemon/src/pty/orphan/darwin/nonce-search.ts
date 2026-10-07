@@ -1,19 +1,32 @@
-// Finds a terminal child whose start the daemon recorded but whose process it never did, by the
-// nonce in its environment. macOS shows the environment of the person's own programs, such as a
-// provider's Node process, but strips it from its own, such as `/bin/zsh`, so a login shell started
-// in that moment cannot be found this way.
+// Finds terminal children by the nonce in their environment, for children whose process the daemon
+// never recorded and for descendants that left their parent's tree. macOS hides the environment of
+// its own programs, such as `/bin/zsh` and `/bin/sh`, so such a child cannot be found by its nonce.
 
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../registry.js";
 import type { DarwinSystemLibrary } from "./system-library.js";
 
-/** Lists the processes of the user with `userId` whose environment carries `nonce`. */
-export function findDarwinProcessesCarryingNonce(
+/**
+ * Reads the environment of each process the user with `userId` runs, once, and answers which of
+ * `nonces` each carries, by process id.
+ */
+export function findDarwinProcessesCarryingNonces(
   library: DarwinSystemLibrary,
   userId: number,
-  nonce: string,
-): number[] {
-  const nonceEntry = `${SPAWN_NONCE_ENVIRONMENT_NAME}=${nonce}`;
-  return library
-    .listUserProcessIds(userId)
-    .filter((processId) => library.readProcessEnvironment(processId)?.includes(nonceEntry));
+  nonces: ReadonlySet<string>,
+): Map<number, string> {
+  const carriers = new Map<number, string>();
+  if (nonces.size === 0) {
+    return carriers;
+  }
+  const prefix = `${SPAWN_NONCE_ENVIRONMENT_NAME}=`;
+  for (const processId of library.listUserProcessIds(userId)) {
+    const nonce = library
+      .readProcessEnvironment(processId)
+      ?.find((entry) => entry.startsWith(prefix))
+      ?.slice(prefix.length);
+    if (nonce !== undefined && nonces.has(nonce)) {
+      carriers.set(processId, nonce);
+    }
+  }
+  return carriers;
 }
