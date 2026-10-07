@@ -59,6 +59,8 @@
     "src/renderer/src/vite-env.d.ts",
     // Vite's build signals that graph reads, declared once for main and the renderer.
     "src/shared/development-build.d.ts",
+    // The test-tier flag main's window reveal reads, which the harness imports.
+    "src/shared/test-tier-build.d.ts",
     // The other ambient declaration that graph needs: renderer modules this tier reaches read
     // `window.desktopBridge`, so the preload global's declaration is part of this program too.
     "src/renderer/src/desktop-bridge.d.ts"

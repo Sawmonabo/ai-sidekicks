@@ -17,12 +17,6 @@
 
 import type { App, BaseWindow, WebContents } from "electron";
 
-// Substituted by the `define` block in `electron.vite.config.ts` and by the Vitest project
-// (`vitest.config.ts`): `true` in the smoke and fixtures builds the automated tiers launch,
-// `false` otherwise. Not the fixture flag, which the development build also turns on; a
-// developer's window is never hidden.
-declare const __TEST_TIER_BUILD__: boolean;
-
 /**
  * The environment variable the automated tiers set to `"1"`. The harnesses that spawn Electron
  * import it, so a rename is a compile error rather than a tier that steals focus again.

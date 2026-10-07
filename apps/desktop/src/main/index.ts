@@ -49,6 +49,7 @@ import {
   type MainDiagnosticLog,
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
+import { refuseRemoteDebugging } from "./services/remote-debugging.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
@@ -96,6 +97,12 @@ startCrashReporter(
     "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG,
   ),
 );
+
+// A release build serves no debugging connection; the development build and the builds the test
+// tiers drive keep it, since a debugger and Playwright attach through it.
+if (!import.meta.env.DEV && !__TEST_TIER_BUILD__) {
+  refuseRemoteDebugging(app.commandLine, "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG);
+}
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
 // build. In a release bundle the smoke branch folds away and Rollup drops the probe modules.
