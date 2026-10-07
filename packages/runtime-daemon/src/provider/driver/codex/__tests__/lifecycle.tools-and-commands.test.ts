@@ -1,6 +1,7 @@
-// The provider's callback-tool asks and the daemon's native commands. A tool call must reach the
-// host attributed to the run that made it, or be refused before anything runs; compaction settles
-// only on the provider's typed evidence; the command list is a live read that never goes stale.
+// The provider's callback-tool asks and the daemon's native commands. A goal is set and cleared as
+// the person's own act; a tool call must reach the host attributed to the run that made it, or be
+// refused before anything runs; compaction settles only on the provider's typed evidence; the
+// command list is a live read that never goes stale.
 
 import { describe, expect, it } from "vitest";
 
