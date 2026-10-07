@@ -4,7 +4,10 @@
 // An entry the provider declared disabled is rendered disabled and never explained, because the
 // entry has no reason member.
 
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { isDeclaredUnavailable, type CommandListEntry } from "../entries.js";
 
@@ -40,7 +43,7 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
       </span>
       {entry.source === "provider" ? (
         <span className="meridian-command-discovery__binding">
-          {entry.kind} · <WireFigure value={entry.driverName} />
+          {codeWords(entry.kind)} · {PROVIDER_LABELS[entry.driverName]}
         </span>
       ) : null}
       {isUnavailable ? (

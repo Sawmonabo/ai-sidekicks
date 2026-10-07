@@ -56,8 +56,8 @@ describe("WorkspaceCard — the row wears what the list gave it", () => {
     );
     const chips = container.querySelectorAll(".meridian-chip__label");
     expect([...chips].map((chip) => chip.textContent)).toStrictEqual([
-      "provisioned-worktree",
-      "busy",
+      "Provisioned worktree",
+      "Busy",
     ]);
   });
 });

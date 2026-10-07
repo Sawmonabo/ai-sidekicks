@@ -108,7 +108,7 @@ describe("transcript commands — the contribution reaches the palette and the k
     registerTranscriptCommands(commandContributionRegistry, new MountedTranscript());
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(raised).toHaveLength(1);
-    expect(raised[0]?.code).toBe("transcript.no_mounted_transcript");
+    expect(raised[0]?.code).toBe("no-mounted-transcript");
     expect(raised[0]?.origin).toBe("transcript");
     withdrawSink();
   });

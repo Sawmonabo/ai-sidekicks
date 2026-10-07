@@ -261,7 +261,7 @@ function FolderPicker(
 /** What `Browse…` says when main could not show the folder chooser and named no reason. */
 const FOLDER_CHOOSER_FAILED = refuse(
   "workflows",
-  "workflows.folder_chooser_failed",
+  "folder-chooser-failed",
   "Could not open the folder chooser.",
 );
 

@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import type { WireRefusal } from "#renderer/lib/wire/rejection.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import type { ProviderAccountSetCurrentCall } from "../sign-in/flow.js";
 
 /** Where the newest `Set as default` press has got to, and on which account. */
@@ -13,7 +13,7 @@ export type AccountDefaultMove =
   | {
       readonly kind: "refused";
       readonly accountId: ProviderAccountId;
-      readonly refusal: WireRefusal;
+      readonly refusal: ExtendedRefusal;
     };
 
 /**

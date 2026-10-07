@@ -10,6 +10,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import type { ComposerAttachmentChipModel } from "./chip.js";
 
@@ -39,7 +40,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
           <span className="meridian-composer-attachment__qualifier">{chip.mediaTypeQualifier}</span>
         )}
         <WireFigure value={chip.sizeText} title={chip.sizeTitle} />
-        <Chip label={chip.state} mono tone={chip.tone} />
+        <Chip label={codeWords(chip.state)} tone={chip.tone} />
         {chip.progressFraction === undefined ? null : (
           // Named for the file it measures so several bars announce distinctly.
           <progress

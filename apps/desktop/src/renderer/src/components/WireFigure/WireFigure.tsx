@@ -1,10 +1,9 @@
-// A figure the daemon sent, wearing the mono provenance signature. Mono marks a value that came
-// from the wire; prose never paraphrases a figure.
-//
-// Both wire classes render here: a byte-for-byte string (an id, digest, state name, error code)
-// and a quantity formatted from the exact wire value through `Intl` in `lib/wire/figures.ts`, the
-// only module that formats. It is selectable, so a digest can be copied. `DerivedFigure` is a
-// separate module so a call site cannot pick the wrong class by omission.
+// A figure the wire sent, drawn in mono to mark that it came from the wire. It draws two things:
+// a string kept exactly as sent because it is the person's own data (an id, a digest, a path, a
+// branch, a file name, a model id, a version), and a quantity read through `Intl` in
+// `lib/wire/figures.ts`, the only module that formats. It is selectable, so a digest can be copied.
+// It never draws a state, kind, status, mode or code: those reach the screen as words.
+// `DerivedFigure` is a separate module so a call site cannot pick the wrong class by omission.
 //
 // `title` carries the exact wire value when the visible text is a formatted reading of it.
 

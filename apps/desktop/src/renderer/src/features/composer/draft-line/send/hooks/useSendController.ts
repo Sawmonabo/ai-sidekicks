@@ -16,6 +16,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
+import { CALL_REJECTED_FALLBACK } from "#renderer/services/daemon/reply.js";
 import { composerDraftKey } from "../../draft-key.js";
 import { useComposerActState } from "../../hooks/useComposerActState.js";
 import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js";
@@ -137,7 +138,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       }
     } catch (rejection) {
       // A rejected daemon call is held as the daemon's own refusal; the text stays in the line.
-      settle(identity, normalizeWireRejection(DAEMON_REFUSAL_ORIGIN, rejection));
+      settle(
+        identity,
+        normalizeWireRejection(DAEMON_REFUSAL_ORIGIN, rejection, CALL_REJECTED_FALLBACK),
+      );
     } finally {
       // Releases the round this act claimed even after a re-address; the reading is published
       // through this address's publisher, so it lands only while the address is current.

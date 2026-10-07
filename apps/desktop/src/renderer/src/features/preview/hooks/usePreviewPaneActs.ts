@@ -7,7 +7,8 @@
 import { useCallback } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -57,13 +58,13 @@ const PREVIEW_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<PreviewActSequence> =
 /** The pane's acts, and the one refusal they report between them. */
 export interface PreviewPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
-  readonly refusal: Refusal | undefined;
+  readonly refusal: ExtendedRefusal | undefined;
   /**
    * Dispatch one act. The thunk answers with the refusal to render, or `undefined` where the act
    * was served; a rejection is normalized through the wire-rejection reader, so a code the
    * other side sent survives.
    */
-  run(act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void;
+  run(act: () => Promise<ExtendedRefusal | undefined>, fallback: RejectionFallback): void;
   /**
    * Refuse here and now, without crossing the boundary. Outranks anything in flight. The code
    * is one of the pane's own closed set, so a new one is a decision.
@@ -85,14 +86,14 @@ export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): Prev
     () => new PreviewActSequence(),
     PREVIEW_ACT_SEQUENCE_DISPOSAL,
   );
-  const { value: refusal, publish } = useSubjectScopedState<Refusal | undefined>(
+  const { value: refusal, publish } = useSubjectScopedState<ExtendedRefusal | undefined>(
     bridge,
     paneId,
     () => undefined,
   );
 
   const run = useCallback(
-    (act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void => {
+    (act: () => Promise<ExtendedRefusal | undefined>, fallback: RejectionFallback): void => {
       const token = sequence.begin();
       void act().then(
         (outcome) => {

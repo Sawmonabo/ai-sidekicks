@@ -31,7 +31,7 @@ export interface NothingProps {
    * the mount differs, such as a whole pane of `not-checked`, which is `block`.
    */
   readonly placement?: NothingPlacement;
-  /** What is missing, in one sentence. For `error`, the refusal's code or headline. */
+  /** What is missing, in one sentence. For `error`, the refusal's code as words, or a headline. */
   readonly title: string;
   /**
    * The second line. For `error` it is the daemon's message text, rendered verbatim; for every

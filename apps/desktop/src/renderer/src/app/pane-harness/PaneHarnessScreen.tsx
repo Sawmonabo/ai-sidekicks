@@ -50,7 +50,7 @@ export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Elem
           kind="error"
           placement="block"
           title="That address does not name a pane this build can open."
-          detail={`${address.code}: ${address.detail}`}
+          detail={address.detail}
         />
       </PaneHarnessFrame>
     );

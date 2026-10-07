@@ -19,7 +19,7 @@ import {
 import { QueueOrder } from "./order.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { type WireReadPhase, type WireReadState } from "#renderer/lib/reads/wire-state.js";
 
 /**
@@ -78,7 +78,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
   #isRetired = false;
   #closeTail: (() => void) | undefined = undefined;
   #phase: WireReadPhase = "reading";
-  #readRefusal: Refusal | undefined = undefined;
+  #readRefusal: ExtendedRefusal | undefined = undefined;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #feed: QueueFeed;
 

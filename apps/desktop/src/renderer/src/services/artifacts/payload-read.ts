@@ -32,7 +32,7 @@ export interface ArtifactPayloadRead {
 
 /**
  * Read one artifact's whole payload. Answers the call's own refusal, or
- * `artifacts.payload_unreadable` when a window comes back without its bytes or short of them.
+ * `payload-unreadable` when a window comes back without its bytes or short of them.
  * Base64 that will not decode and bytes that are not UTF-8 are answers, on `content`.
  */
 export async function readArtifactPayload(
@@ -95,7 +95,7 @@ function unreadablePayload(): DaemonReply<never> {
     status: "refused",
     refusal: refuse(
       "artifacts",
-      "artifacts.payload_unreadable",
+      "payload-unreadable",
       "This artifact's stored bytes could not be read whole.",
     ),
   };

@@ -31,7 +31,10 @@ import {
   type InvokedBridgeChannel,
 } from "#shared/bridge-channels.js";
 import { DEFAULT_APPEARANCE_RECORD, THEME_GROUNDS } from "#shared/appearance.js";
-import type { DaemonSubscriptionRequest } from "#shared/daemon/forwarding.js";
+import {
+  REQUEST_UNSENDABLE_MESSAGE,
+  type DaemonSubscriptionRequest,
+} from "#shared/daemon/forwarding.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
@@ -202,6 +205,10 @@ async function openToken(): Promise<string> {
 async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> {
   try {
     const value = (await answer) as { outcome?: unknown; message?: unknown } | undefined;
+    if (value?.outcome === "unsendable") {
+      // The words the page reads for it.
+      return REQUEST_UNSENDABLE_MESSAGE;
+    }
     return value?.outcome === "failed" ? String(value.message) : undefined;
   } catch (error: unknown) {
     return describeFailure(error);
@@ -250,7 +257,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       member: "the machine settings feed",
       contract: MachineSettingsSubscribeRequestSchema,
       refused: [{ everyDevice: true }, "all", null],
-      refusal: "The daemon.machineSettingsSubscribe request does not match its contract.",
+      refusal: REQUEST_UNSENDABLE_MESSAGE,
       accepted: {},
       send: async (payload) =>
         bridge.daemon.subscribe(
@@ -269,7 +276,8 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         "session.read",
         null,
       ],
-      refusal: /failed schema validation|The app does not call|"code": "invalid_type"/,
+      refusal:
+        /failed schema validation|could not be sent to the background service|"code": "invalid_type"/,
       accepted: { method: "presence.read", params: {} },
       send: (payload) => invoke(BRIDGE_CHANNELS.daemonCall, payload),
       acted: () => connection.requests.length,
@@ -286,7 +294,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       member: "native.getDroppedFileRef",
       refused: [7, "dropped.txt", "", userData, path.join(userData, "missing.txt"), null],
       refusal:
-        /Only a file dropped from this computer|A dropped folder cannot be|failed \(ENOENT\)/,
+        /Only a file dropped from this computer|A dropped folder cannot be|The operating system refused this request/,
       accepted: droppedFile,
       send: async (payload) => {
         droppedTokens.push(await invoke(BRIDGE_CHANNELS.getDroppedFileRef, payload));
@@ -449,11 +457,10 @@ describe("intake parity", () => {
         { sessionId: randomUUID() } as never,
         () => undefined,
       ),
-    ).toThrow("The daemon.status topic is opened with nothing.");
+    ).toThrow(REQUEST_UNSENDABLE_MESSAGE);
 
     expect(openSubscription({ subscriptionId: "1", event: "daemon.status", params: {} })).toEqual({
-      outcome: "failed",
-      message: "A daemon subscription is opened with a new id, an event name and its request.",
+      outcome: "unsendable",
     });
     expect(connection.requests).toEqual([]);
   });
@@ -464,8 +471,7 @@ describe("intake parity", () => {
       ["session.attachmentAdd", { sessionId: SESSION_ID, items: [{ path: "/etc/passwd" }] }],
     ] as const) {
       expect(openSubscription({ subscriptionId: randomUUID(), event, params }), event).toEqual({
-        outcome: "failed",
-        message: `The app does not subscribe to ${event}.`,
+        outcome: "unsendable",
       });
     }
     await setImmediate();

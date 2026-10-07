@@ -4,13 +4,15 @@
 // Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/position.js";
 
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
- * mono; `composed` is a sentence or count this module composed, which mono would misattribute.
+ * mono; `composed` is a word, sentence or count this module composed, which mono would
+ * misattribute.
  */
 export const AGENT_AXIS_SOURCES = ["wire", "composed"] as const;
 
@@ -118,7 +120,7 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
     description: definition.description,
     // Declared-shape order, so the projection can be checked against the shape by reading down.
     axes: [
-      wireAxis("driver", "Driver", binding.driverName),
+      composedAxis("driver", "Driver", PROVIDER_LABELS[binding.driverName]),
       wireAxis("model", "Model", binding.modelId),
       pinnedAxis("account", "Account", binding.providerAccountId, "The provider's default"),
       pinnedAxis("effort", "Effort", binding.effort, "The driver's default"),

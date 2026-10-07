@@ -45,6 +45,11 @@ export interface RefusalExtensions {
   readonly remedy?: WireRefusalRemedy;
   /** Registered by `wire/rejection.ts`: the one word saying why, such as a keychain's state. */
   readonly cause?: string;
+  /**
+   * Registered by `wire/rejection.ts`: which of the code's listed reasons applies, such as
+   * `account_unavailable`; a refusal shape reads it as words after the code's.
+   */
+  readonly reason?: string;
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -52,15 +57,17 @@ export type ExtendedRefusal = Refusal & RefusalExtensions;
 
 /**
  * The named members a wire envelope's structured part carries (`data.fields` on JSON-RPC,
- * `details` on a flat envelope), as extensions. Only `remedy` and `cause` are read; every other
- * member there can be a request value, a path or a token, and is left behind.
+ * `details` on a flat envelope), as extensions. Only `remedy`, `cause` and `reason` are read;
+ * every other member there can be a request value, a path or a token, and is left behind.
  */
 export function wireDetailsExtension(source: unknown): RefusalExtensions {
   const remedy = readRemedy(readGuardedProperty(source, "remedy"));
   const cause = readCause(readGuardedProperty(source, "cause"));
+  const reason = readListedReason(readGuardedProperty(source, "reason"));
   return {
     ...(remedy === undefined ? {} : { remedy }),
     ...(cause === undefined ? {} : { cause }),
+    ...(reason === undefined ? {} : { reason }),
   };
 }
 
@@ -113,6 +120,17 @@ function readCause(cause: unknown): string | undefined {
   return typeof cause === "string" ? cause : undefined;
 }
 
+/** A listed reason is one snake_case word list; anything else is not one and is left behind. */
+const LISTED_REASON_SHAPE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+
+/**
+ * A reason where it has the listed-reason shape, or `undefined`, so a free-text value such as a
+ * system error code never reads as words on the screen.
+ */
+function readListedReason(reason: unknown): string | undefined {
+  return typeof reason === "string" && LISTED_REASON_SHAPE.test(reason) ? reason : undefined;
+}
+
 /** A hint a refusal already carries, in this app's own spelling, read guardedly. */
 function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
   // One read of `retry`, so a getter answering differently the second time cannot mix two objects.
@@ -132,6 +150,7 @@ const REFUSAL_EXTENSION_READERS: {
   retry: carriedRetryHint,
   remedy: (candidate) => readRemedy(readGuardedProperty(candidate, "remedy")),
   cause: (candidate) => readCause(readGuardedProperty(candidate, "cause")),
+  reason: (candidate) => readListedReason(readGuardedProperty(candidate, "reason")),
 };
 
 /**

@@ -11,6 +11,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { controlHoldSentence, type BindControlAvailability } from "../../health.js";
@@ -153,7 +154,7 @@ function renderSettlement(
       return (
         <div className="meridian-form__settlement meridian-form__settlement--inline" role="status">
           <WireFigure value={reading.executionRoot} title={reading.executionRoot} />
-          <WireFigure value={reading.state} />
+          <span>{codeWords(reading.state)}</span>
           {/* The re-read is a control, not an effect: it stays after the first press because the
               list can be asked again. */}
           <button type="button" className={BUTTON_CLASS_NAME} onClick={onPrepared}>

@@ -16,7 +16,7 @@ import { readArtifactPayload } from "./payload-read.js";
 
 /**
  * Read one step payload's artifact and answer its items, or a refusal: the read's, or
- * `workflows.payload_unreadable` when the stored bytes are not a payload. Abandoned with `signal`,
+ * `payload-unreadable` when the stored bytes are not a payload. Abandoned with `signal`,
  * like any read.
  */
 export async function readWorkflowPayloadItems(
@@ -58,7 +58,7 @@ function unreadablePayload(parseDetail?: string): DaemonReply<never> {
     status: "refused",
     refusal: refuse(
       "workflows",
-      "workflows.payload_unreadable",
+      "payload-unreadable",
       parseDetail === undefined ? sentence : `${sentence} ${parseDetail}`,
     ),
   };

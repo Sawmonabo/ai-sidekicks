@@ -117,9 +117,17 @@ export interface JsonRpcErrorData {
 
 /**
  * The error code (`error.data.type`) a client reports when the daemon cannot be reached: nothing
- * listens on its socket, or the link to it is down. `fields.reason` says why.
+ * listens on its socket, or the link to it is down. A socket failure says why in `fields.reason`,
+ * a {@link TransportUnavailableReason}.
  */
 export const TRANSPORT_UNAVAILABLE_CODE = "transport.unavailable" as const;
+
+/**
+ * Why a socket cannot reach the daemon: one nobody answers is `not_listening` (the operating
+ * system's `ENOENT` or `ECONNREFUSED`), one the client may not open is `access_denied` (`EACCES`,
+ * `EPERM`), and any other socket failure is `unreachable`.
+ */
+export type TransportUnavailableReason = "not_listening" | "access_denied" | "unreachable";
 
 /**
  * The five numeric error codes JSON-RPC 2.0 reserves and the only ones the daemon emits;

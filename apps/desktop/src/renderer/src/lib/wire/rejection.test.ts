@@ -102,7 +102,10 @@ describe("normalizeWireRejection — the detail is a sentence, never the rejecti
     return {
       code: -32603,
       message: { notAString: true },
-      data: { type: "repo.not_found", fields: { path: PLANTED_REQUEST_VALUE } },
+      data: {
+        type: "repo.root_resolution_failed",
+        fields: { path: PLANTED_REQUEST_VALUE, reason: "not_a_repository" },
+      },
       toString(): string {
         return `repo read failed for ${PLANTED_REQUEST_VALUE}`;
       },
@@ -111,10 +114,22 @@ describe("normalizeWireRejection — the detail is a sentence, never the rejecti
 
   it("keeps the dotted code and renders the constant rather than the envelope", () => {
     const refusal = normalizeWireRejection("repos", envelopeCarryingContent());
-    expect(refusal.code).toBe("repo.not_found");
+    expect(refusal.code).toBe("repo.root_resolution_failed");
     expect(refusal.detail).toBe(UNREPRESENTABLE_VALUE_TEXT);
-    // The whole answer, not only the sentence: no rejection member reaches the renderer.
+    // The whole answer, not only the sentence: no rejection member reaches the renderer except
+    // the listed reason the screen reads as words.
     expect(JSON.stringify(refusal)).not.toContain(PLANTED_REQUEST_VALUE);
+    expect(refusal.reason).toBe("not_a_repository");
+  });
+
+  it("drops a reason that is not a listed reason, such as a system error code", () => {
+    const refusal = normalizeWireRejection("daemon-call", {
+      code: -32603,
+      message: "The background service is not answering.",
+      data: { type: "transport.unavailable", fields: { reason: "ECONNREFUSED" } },
+    });
+    expect(refusal.code).toBe("transport.unavailable");
+    expect(refusal.reason).toBeUndefined();
   });
 
   it("refuses to serialize a structure on the terminal arm either", () => {

@@ -5,6 +5,12 @@
 // daemon's method map because it must speak while no service answers: at boot, while a start
 // is retried, and on Windows when the service wrote down why it cannot start.
 
+/**
+ * What the app says when the background service does not answer: a call the operating system
+ * broke, a call rejected with no code of its own, and a link main gave up on.
+ */
+export const NOT_ANSWERING_MESSAGE = "The background service is not answering.";
+
 /** The topic's name on `daemon.subscribe`. */
 export const DAEMON_STATUS_TOPIC = "daemon.status";
 

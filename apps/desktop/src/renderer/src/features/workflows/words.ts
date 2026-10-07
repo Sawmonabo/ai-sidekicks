@@ -1,7 +1,7 @@
 // The words the workflows screens put on wire values: a run's status, a step's state, what a
-// wait is on, how a run was started and who started it, and the labels its codes register. No
-// wire spelling reaches the screen; each closed set is keyed by its contract's own union, so a
-// value the contract adds fails to compile here until it has words.
+// wait is on, and how a run was started and who started it. No wire spelling reaches the screen;
+// each closed set is keyed by its contract's own union, so a value the contract adds fails to
+// compile here until it has words.
 
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type {
@@ -14,11 +14,6 @@ import type {
   WorkflowStartedBy,
   WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
-import {
-  WORKFLOW_SANDBOX_UNAVAILABLE_CODE,
-  WORKFLOW_STEP_THREAD_FAILED_CODE,
-  WORKFLOW_STEP_TIMED_OUT_CODE,
-} from "@ai-sidekicks/contracts/workflow/run/failures";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
 
@@ -78,16 +73,6 @@ const STARTED_BY_WORDS: Readonly<Record<WorkflowStartedBy["kind"], string>> = {
   webhook: "a webhook",
   fileEvent: "a file event",
   parentWorkflow: "a parent workflow",
-};
-
-/**
- * The workflow codes that register their own label with the shared code-to-words mapper; every
- * other workflow code reads as its own words.
- */
-export const WORKFLOW_CODE_LABELS: Readonly<Record<string, string>> = {
-  [WORKFLOW_STEP_TIMED_OUT_CODE]: "Step timed out",
-  [WORKFLOW_SANDBOX_UNAVAILABLE_CODE]: "Sandbox unavailable",
-  [WORKFLOW_STEP_THREAD_FAILED_CODE]: "Step thread failed",
 };
 
 /**

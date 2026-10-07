@@ -7,9 +7,9 @@
 
 import { readGuardedProperty } from "../wire/errors.js";
 
-/** A refusal as every renderer consumes it; only `detail` reaches the screen. */
+/** A refusal as every renderer consumes it; `detail` and the code's words reach the screen. */
 export interface Refusal {
-  /** Machine-readable; never drawn, kept for logs and diagnostics. */
+  /** Machine-readable; drawn only as words (`lib/code-words.ts`), verbatim in diagnostics. */
   readonly code: string;
   /** One actionable sentence. Never the refused value, which may be user content. */
   readonly detail: string;

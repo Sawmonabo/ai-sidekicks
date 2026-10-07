@@ -1,8 +1,8 @@
 // What every workflows body leads with: one line saying what it is for, and whichever empty state
 // or refusal the current state calls for. It draws no heading and no frame: the pane frame's
 // crumb trail is the pane's accessible name, so a second heading would name it twice.
-// A refusal is not an empty state: it keeps the daemon's code in mono and message verbatim, and
-// folding it into an empty state would drop the code a person pastes into a search.
+// A refusal is not an empty state: it draws the code as words over the daemon's message verbatim,
+// and folding it into an empty state would drop the code's words.
 
 import "./WorkflowStateStrip.css";
 
@@ -41,7 +41,13 @@ function renderState(props: WorkflowStateStripProps): React.ReactNode {
     case "empty":
       return <Nothing kind="empty" placement="block" title={state.title} />;
     case "refused":
-      return <RefusalBanner code={state.refusal.code} detail={state.refusal.detail} />;
+      return (
+        <RefusalBanner
+          code={state.refusal.code}
+          reason={state.refusal.reason}
+          detail={state.refusal.detail}
+        />
+      );
     case "ready":
       return props.children;
   }

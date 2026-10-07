@@ -11,6 +11,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
@@ -113,7 +114,10 @@ function renderIngesting(
           <DerivedFigure text="of" />
           <WireFigure value={declaredFigure.text} title={String(entry.declared.byteLength)} />
         </span>
-        <Chip label={entry.state} mono tone={entry.state === "refused" ? "failure" : "neutral"} />
+        <Chip
+          label={codeWords(entry.state)}
+          tone={entry.state === "refused" ? "failure" : "neutral"}
+        />
       </div>
 
       {/* The raw counts are a measurement; the scaled pair above is what a reader sees. */}

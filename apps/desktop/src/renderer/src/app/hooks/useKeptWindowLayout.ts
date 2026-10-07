@@ -10,6 +10,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { RealClock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
+
 import { DEFAULT_ROUTE, formatRoute, parseRoute, type AppRoute } from "#renderer/routing/routes.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWindowRestore } from "#renderer/services/window/hooks/useWindowRestore.js";
@@ -121,13 +128,25 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
   const endSafeStart = useWindowRestore(bridge.window, reopenWindow);
 
   const restoreWindows = useCallback(() => {
-    void readKeptWindows(uiStateStore).then((keptWindows) => {
-      for (const keptWindow of keptWindows) {
-        openAt(openWindows, keptWindow.windowId, keptWindow.route);
-      }
-      setLayoutKept(true);
-      return endSafeStart();
-    });
+    readKeptWindows(uiStateStore)
+      .then((keptWindows) => {
+        for (const keptWindow of keptWindows) {
+          openAt(openWindows, keptWindow.windowId, keptWindow.route);
+        }
+        setLayoutKept(true);
+        return endSafeStart();
+      })
+      // A read that failed leaves `Restore windows` offered, so it can be pressed again; either
+      // failure goes to the diagnostic capture.
+      .catch((failure: unknown) => {
+        windowDiagnosticCapture.record({
+          at: diagnosticStampAt(new RealClock()),
+          severity: "error",
+          source: KEPT_WINDOW_LAYOUT_SOURCE,
+          kind: "restore-windows-failed",
+          detail: normalizeWireRejection(KEPT_WINDOW_LAYOUT_SOURCE, failure).detail,
+        });
+      });
   }, [openWindows, uiStateStore, endSafeStart]);
 
   return { isRestoreOffered: isSafeStart && !isLayoutKept, restoreWindows };
@@ -154,3 +173,6 @@ function returnToKeptAddress(openWindows: OpenWindows, keptWindow: KeptWindow): 
     opened.window.location.hash = formatRoute(keptWindow.route);
   }
 }
+
+// The subsystem a failed restore of the kept windows names in its diagnostic record.
+const KEPT_WINDOW_LAYOUT_SOURCE = "app/hooks/useKeptWindowLayout";

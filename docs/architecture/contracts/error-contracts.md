@@ -68,7 +68,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 `data.fields` shape per code:
 
 - `unknown_setting`: `{ setting: string, value: unknown }`
-- `transport.unavailable`: `{ reason: string }`, the system's error code for a socket nothing answers, or the link's state for a link that is down
+- `transport.unavailable`: for a socket the client cannot reach, `{ reason }`, one listed reason (`TransportUnavailableReason` in `packages/contracts/src/jsonrpc/message.ts`): `not_listening` when nothing answers on it (the system's `ENOENT` or `ECONNREFUSED`), `access_denied` when the client may not open it (`EACCES`, `EPERM`) and `unreachable` for any other socket failure. The system's own error code never rides in `reason`. A link that is down carries no `fields`
 - `transport.message_too_large`: `{ limit: number, observed: number }`
 - `transport.invalid_protocol_version`: `{ reason: "missing" | "wrong_type" | "invalid_format", observedType?: string }` (`observedType` is the JS-typeof tag of the offending value, present only when `reason === "wrong_type"`; the offending VALUE itself is NOT echoed back so client-supplied content does not leak through observability)
 
@@ -458,7 +458,7 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `transport.unavailable` | The client cannot reach the daemon's OS-local socket or named pipe; no fallback transport exists | 503 |
+| `transport.unavailable` | The client cannot reach the daemon's OS-local socket or named pipe, or its link to the daemon is down; no fallback transport exists. A socket failure's `data.fields.reason` is one of the listed reasons in §JSON-RPC Wire Mapping | 503 |
 | `transport.message_too_large` | Inbound frame's declared body length exceeded the 4 MB cap, or daemon-side outbound build exceeded it (Plan-005 Phase 2). 413 semantic. | 413 |
 | `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-005-6). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 

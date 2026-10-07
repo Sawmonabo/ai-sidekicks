@@ -22,8 +22,11 @@ import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,
 } from "#shared/daemon/method-bindings.js";
+import { REQUEST_UNSENDABLE_CODE, REQUEST_UNSENDABLE_MESSAGE } from "#shared/daemon/forwarding.js";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
-import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
+import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/scope.js";
 import type { FilePathRef, ServedDaemonCall } from "#shared/preload-api.js";
@@ -40,22 +43,32 @@ const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
  * Why the app refused a call on its own side of the wire. None overlaps a daemon code: a
  * typed wire refusal keeps its own code verbatim.
  *
- *   • `request-unsendable`: the request does not satisfy the registered schema; nothing was sent.
+ *   • `request-unsendable`: the request does not satisfy the registered schema, here or in main;
+ *     nothing was sent.
  *   • `reply-unreadable`: the call fulfilled with a value that is not the registered shape.
  *   • `call-rejected`: the call rejected with nothing carrying a machine-readable code.
  *   • `read-abandoned`: the view that asked for this read is gone or a newer read replaced it;
  *     nothing is read from the reply. It is a refusal, not a silent resolution, so the call's
  *     answer stays total.
  */
-export const DAEMON_REPLY_REFUSAL_CODES = [
-  "request-unsendable",
+export const DAEMON_REPLY_REFUSAL_CODES: readonly [
+  typeof REQUEST_UNSENDABLE_CODE,
   "reply-unreadable",
   "call-rejected",
   "read-abandoned",
-] as const;
+] = [REQUEST_UNSENDABLE_CODE, "reply-unreadable", "call-rejected", "read-abandoned"] as const;
 
 /** One app-side call refusal code, derived from `DAEMON_REPLY_REFUSAL_CODES`. */
 export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number];
+
+/**
+ * What a daemon call that rejected with no code of its own reads as. It never quotes the rejected
+ * value, which can carry user content.
+ */
+export const CALL_REJECTED_FALLBACK: RejectionFallback = {
+  code: "call-rejected" satisfies DaemonReplyRefusalCode,
+  detail: NOT_ANSWERING_MESSAGE,
+};
 
 /**
  * A parsed reply, or the refusal standing in its place. Never both, never neither. A served reply
@@ -63,7 +76,8 @@ export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number]
  * `native.openInEditor` the token and never the path.
  *
  * `status` is the discriminant rather than the presence of `value`, so a response
- * type that is legitimately `undefined`-shaped still narrows.
+ * type that is legitimately `undefined`-shaped still narrows. A refusal keeps the registered
+ * members the daemon sent with it, such as its listed `reason`.
  */
 export type DaemonReply<TValue> =
   | {
@@ -71,7 +85,7 @@ export type DaemonReply<TValue> =
       readonly value: TValue;
       readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
     }
-  | { readonly status: "refused"; readonly refusal: Refusal };
+  | { readonly status: "refused"; readonly refusal: ExtendedRefusal };
 
 /**
  * How a caller says this call has an owner who may walk away from it. A mutation passes nothing:
@@ -136,7 +150,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "request-unsendable" satisfies DaemonReplyRefusalCode,
-        "This request could not be sent to the background service.",
+        REQUEST_UNSENDABLE_MESSAGE,
       ),
     };
   }
@@ -157,12 +171,12 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       // fact that explains the settlement.
       return abandonedRead();
     }
-    // The fallback applies only to a rejection with no code of its own, and never quotes the
-    // rejected value, which can carry user content.
-    const refusal = normalizeWireRejection(DAEMON_REPLY_REFUSAL_ORIGIN, rejection, {
-      code: "call-rejected" satisfies DaemonReplyRefusalCode,
-      detail: "The background service is not answering.",
-    });
+    // The fallback applies only to a rejection with no code of its own.
+    const refusal = normalizeWireRejection(
+      DAEMON_REPLY_REFUSAL_ORIGIN,
+      rejection,
+      CALL_REJECTED_FALLBACK,
+    );
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
       kind: refusal.code,

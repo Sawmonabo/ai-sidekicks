@@ -45,12 +45,6 @@ export interface RejectionFallback {
 }
 
 /**
- * A rejection as the one shape the app renders: a `Refusal` widened only by the registered
- * extension members (`lib/refusal/extensions.ts`), so any renderer that takes a refusal takes it.
- */
-export type WireRefusal = ExtendedRefusal;
-
-/**
  * Normalizes any rejection into the app's one refusal shape. Total: it answers a refusal for
  * every input and never throws. `origin` is the calling subsystem and builds the synthesized
  * `<origin>-call-failed` code, so even an unreadable rejection names its seam.
@@ -62,7 +56,7 @@ export function normalizeWireRejection(
   origin: string,
   rejection: unknown,
   fallback?: RejectionFallback,
-): WireRefusal {
+): ExtendedRefusal {
   const classified = classifyRejection(origin, rejection, fallback);
   if (classified !== undefined) {
     return classified;
@@ -119,7 +113,7 @@ function readRefusalMembers(candidate: unknown): RefusalMembers {
  * Rebuilds a refusal from members already read, never returning the candidate by reference: a
  * getter or Proxy trap that throws on its second read would otherwise throw inside the renderer.
  */
-function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
+function rebuiltRefusal(members: RefusalMembers): ExtendedRefusal | undefined {
   const { code, detail, origin } = members;
   if (typeof code !== "string" || typeof detail !== "string" || typeof origin !== "string") {
     return undefined;
@@ -140,14 +134,14 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
  *   4. A flat `{ code, message }` wire envelope keeps its code verbatim, extensions from
  *      `details`.
  *
- * Both wire arms are admitted by their code alone; the sentence is whatever
+ * Both wire arms are admitted by a non-empty code alone; the sentence is whatever
  * {@link envelopeDetail} allows.
  */
 function classifyRejection(
   origin: string,
   rejection: unknown,
   fallback: RejectionFallback | undefined,
-): WireRefusal | undefined {
+): ExtendedRefusal | undefined {
   const members = readRefusalMembers(rejection);
   const own = rebuiltRefusal(members);
   if (own !== undefined) {
@@ -170,7 +164,7 @@ function classifyRejection(
   }
   // The flat envelope, from the readings already taken. It carries its retry bound at the root
   // and its named members on `details`.
-  if (typeof members.code === "string") {
+  if (typeof members.code === "string" && members.code.length > 0) {
     return withRefusalExtensions(refuse(origin, members.code, envelopeDetail(message, fallback)), {
       ...wireRetryExtension(rejection),
       ...wireDetailsExtension(readGuardedProperty(rejection, "details")),

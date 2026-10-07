@@ -14,11 +14,11 @@ import {
   type KeychainRefusalCause,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import type { WireRefusal } from "#renderer/lib/wire/rejection.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 /** The remedy a refused `providerAccount.setCurrent` names for its account, where it names one. */
 export function readCarriedLoginRemedy(
-  refusal: WireRefusal,
+  refusal: ExtendedRefusal,
 ): ProviderLoginExpiredRemedy | undefined {
   if (refusal.code !== PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE) {
     return undefined;
@@ -30,7 +30,9 @@ export function readCarriedLoginRemedy(
 }
 
 /** Why the keychain refused to seal a pasted token, where the refusal says so. */
-export function readKeychainRefusalCause(refusal: WireRefusal): KeychainRefusalCause | undefined {
+export function readKeychainRefusalCause(
+  refusal: ExtendedRefusal,
+): KeychainRefusalCause | undefined {
   if (refusal.code !== PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE) {
     return undefined;
   }

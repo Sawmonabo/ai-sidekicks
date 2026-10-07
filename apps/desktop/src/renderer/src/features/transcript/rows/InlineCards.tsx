@@ -1,6 +1,7 @@
 // The inline cards a message carries: a chip each, and the body registered for that kind.
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import {
   inlineCardRegistry,
   type InlineCardProps,
@@ -24,7 +25,7 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
     <div className="meridian-message-card__cards">
       {props.cards.map((card) => (
         <div className="meridian-message-card__card" key={inlineCardKey(card)}>
-          <Chip label={card.kind} mono />
+          <Chip label={codeWords(card.kind)} />
           {inlineCardRegistry.render(card)}
         </div>
       ))}

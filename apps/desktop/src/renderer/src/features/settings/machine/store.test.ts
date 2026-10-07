@@ -11,6 +11,7 @@ import {
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import { REOPEN_WAITS_MS } from "#renderer/services/transport/reopen-backoff.js";
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
@@ -222,12 +223,19 @@ describe("machine settings — a write", () => {
     service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 
     const chosen = store.choose("updatesAutomatic", false);
-    service.refuse(0, new Error("read-only"));
+    // As Electron rejects a call main's answer threw on: the channel's name rides the message.
+    service.refuse(
+      0,
+      new Error("Error invoking remote method 'machineSettings.write': Error: read-only"),
+    );
 
     await chosen;
     expect(effectiveSettings(store.snapshot()).updatesAutomatic).toBe(true);
     expect(store.snapshot().pendingMembers.size).toBe(0);
-    expect(store.snapshot().refusalByMember.get("updatesAutomatic")?.detail).toBe("read-only");
+    expect(store.snapshot().refusalByMember.get("updatesAutomatic")).toMatchObject({
+      code: "machine-settings-write-failed",
+      detail: NOT_ANSWERING_MESSAGE,
+    });
   });
 
   it("drops a write's answer that lands after a newer feed delivery", async () => {

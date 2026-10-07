@@ -1,10 +1,10 @@
-// The run graph's mount point: fetches the canvas chunk and stands a loading or refused state
+// The run graph's mount point: fetches the canvas chunk and stands a loading or failed state
 // in the box until it lands. The drawing is `RunGraphCanvas.tsx`'s, behind an `import()`, so the
 // graph and layout libraries stay out of the page's own bundle.
 
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
-import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -41,9 +41,10 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 
 /**
  * What stands in the canvas box while the canvas code is not there: `Loading the run graph…`
- * after the session's short delay while the chunk is in flight, a refusal with a retry when it
- * was refused. Both use only styles that load with the page, since one from the graph chunk would
- * be missing exactly when the chunk failed.
+ * after the session's short delay while the chunk is in flight, and `Could not load the run graph`
+ * with `Retry` when it failed, never the failure's own text. Both use only styles
+ * that load with the page, since one from the graph chunk would be missing exactly when the
+ * chunk failed.
  */
 function renderUnloadedCanvas(
   graphModule: Exclude<ChunkLoadState<RunGraphModule>, { status: "loaded" }>,
@@ -53,6 +54,11 @@ function renderUnloadedCanvas(
   return graphModule.status === "loading" ? (
     <LoadingNotice clock={clock} placement="block" title="Loading the run graph…" />
   ) : (
-    <RefusalBanner {...graphModule.refusal} action={<TryAgainButton onPress={retryChunk} />} />
+    <Nothing
+      kind="error"
+      placement="block"
+      title="Could not load the run graph"
+      action={<TryAgainButton word="Retry" onPress={retryChunk} />}
+    />
   );
 }

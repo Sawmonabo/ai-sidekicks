@@ -6,7 +6,7 @@
 // `store/reads/triggers.ts` which moments): it holds no bridge, opens no stream and publishes
 // nothing.
 
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 /** How a wire read has gone; none of the three is an empty list. */
 export type WireReadPhase = "reading" | "read" | "refused";
@@ -21,7 +21,7 @@ export interface WireReadState {
    * Why the newest read could not be taken. Carried rather than swallowed: a chip's absence is not
    * a health reading, so a failed read and a genuinely empty answer would otherwise look alike.
    */
-  readonly readRefusal: Refusal | undefined;
+  readonly readRefusal: ExtendedRefusal | undefined;
 }
 
 /**
@@ -29,6 +29,6 @@ export interface WireReadState {
  * goes through it so the phase-and-refusal coupling is stated once, and a reading whose newest
  * read served answers `undefined` even if a later arm forgets the clear.
  */
-export function findReadRefusal(state: WireReadState): Refusal | undefined {
+export function findReadRefusal(state: WireReadState): ExtendedRefusal | undefined {
   return state.phase === "refused" ? state.readRefusal : undefined;
 }

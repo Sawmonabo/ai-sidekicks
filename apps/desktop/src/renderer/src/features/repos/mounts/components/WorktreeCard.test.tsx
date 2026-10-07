@@ -18,7 +18,8 @@ describe("WorktreeCard — the face", () => {
     );
     const card = within(container);
     expect(card.getByRole("heading", { level: 4 }).textContent).toBe(record.branchName);
-    expect(container.textContent).toContain(record.state);
+    // The fixture record is `ready`, which the chip reads as a word.
+    expect(container.textContent).toContain("Ready");
     expect(container.textContent).toContain(record.fsRoot);
     expect(container.textContent).toContain(formatRelativeTime(record.createdAt, NOW_MILLISECONDS));
   });

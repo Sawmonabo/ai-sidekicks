@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
@@ -48,7 +49,7 @@ export function QueueRow(props: {
   return (
     <li className="meridian-queue__row">
       <div className="meridian-queue__identity">
-        <Chip tone={QUEUE_STATE_TONES[item.state]} label={item.state} mono />
+        <Chip tone={QUEUE_STATE_TONES[item.state]} label={codeWords(item.state)} />
         <WireFigure value={item.id} />
       </div>
       <dl className="meridian-queue__figures">

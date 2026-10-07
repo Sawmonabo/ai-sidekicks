@@ -163,12 +163,13 @@ describe("the daemon's wire through main", () => {
   it("sends nothing for a call off its contract, or to a method the app does not call", async () => {
     const { DaemonForwarding } = await import("./daemon.js");
     const connection = scriptedConnection(() => ({ result: NO_DEVICES }));
+    const log = { write: vi.fn() };
     const forwarding = new DaemonForwarding({
       link: await linkOver(connection),
       filePathRefs: new FilePathRefs(),
       pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },
-      log: { write: vi.fn() },
+      log,
     });
 
     await expect(
@@ -176,10 +177,11 @@ describe("the daemon's wire through main", () => {
     ).resolves.toMatchObject({ outcome: "failed" });
     await expect(
       forwarding.call(PAGE, { method: "session.attachmentRemove", params: {} }),
-    ).resolves.toEqual({
-      outcome: "failed",
-      message: "The app does not call session.attachmentRemove.",
-    });
+    ).resolves.toEqual({ outcome: "unsendable" });
+    // The page never reads the method's name; the log does.
+    expect(log.write).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "The app does not call session.attachmentRemove." }),
+    );
     expect(connection.requests).toEqual([]);
 
     // Negative control: the same method on its contract goes.
@@ -234,8 +236,7 @@ describe("the daemon's wire through main", () => {
     const attachRef = filePathRefs.mint(PAGE, "attach", folder);
     for (const unminted of [folder, attachRef]) {
       await expect(forwarding.call(PAGE, submitWith(unminted))).resolves.toEqual({
-        outcome: "failed",
-        message: "That file reference is not one this window was given for this.",
+        outcome: "unsendable",
       });
     }
     expect(connection.requests).toHaveLength(1);
@@ -277,7 +278,7 @@ describe("the daemon's wire through main", () => {
     }
   });
 
-  it("says a link the operating system broke by its code, naming no path", async () => {
+  it("says a link the operating system broke in the plain sentence, naming no path or code", async () => {
     const connection = scriptedConnection(() => ({ result: NO_DEVICES }));
     const bridge = await bridgeOver(connection);
     const socketPath = "/Users/someone/Library/Application Support/sidekicks/daemon.sock";
@@ -291,7 +292,7 @@ describe("the daemon's wire through main", () => {
     const failed = await rejectionOf(bridge.daemon.call("presence.read", {}));
 
     expect(normalizeWireRejection("daemon-call", failed).detail).toBe(
-      "presence.read failed (ECONNRESET).",
+      "The background service is not answering.",
     );
     expect(inspect(failed, { depth: null, showHidden: true })).not.toContain(socketPath);
   });
@@ -606,7 +607,7 @@ describe("the calls that end work", () => {
           refusal: {
             code: JsonRpcErrorCode.InternalError,
             message: "The background service is not connected.",
-            data: { type: TRANSPORT_UNAVAILABLE_CODE, fields: { reason: state.kind } },
+            data: { type: TRANSPORT_UNAVAILABLE_CODE },
           },
         });
       }
@@ -663,10 +664,7 @@ describe("the calls that end work", () => {
     });
     await expect(
       forwarding.call(PAGE, { method: "daemon.stop", params: { force: true } }),
-    ).resolves.toEqual({
-      outcome: "failed",
-      message: "The daemon.stop request does not match its contract.",
-    });
+    ).resolves.toEqual({ outcome: "unsendable" });
     expect(supervisor.endService.mock.calls).toStrictEqual([["daemon.restart"], ["daemon.stop"]]);
     // The supervisor sends the flush and the request itself; nothing goes around it.
     expect(connection.requests).toStrictEqual([]);

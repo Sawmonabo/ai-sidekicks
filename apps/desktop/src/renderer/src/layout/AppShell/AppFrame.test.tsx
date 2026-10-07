@@ -1,7 +1,8 @@
 // Layout claims only the frame can make: a modal overlay inerts the background but neither the
 // overlays nor the announcer's regions (a region under `inert` leaves the accessibility tree, so a
 // refusal raised in a dialog would reach nobody), keying the error boundary by route makes
-// navigating away from a crash the retry, and a raised banner is announced.
+// navigating away from a crash the retry, and a raised banner is drawn and announced with its
+// code and reason as words.
 
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -10,7 +11,8 @@ import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
-import type { WindowBanner } from "#renderer/store/window/store.js";
+import { WindowStore, type WindowBanner } from "#renderer/store/window/store.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
 import { liveRegionOf, liveRegionText } from "#test/helpers/live-region.js";
 import { AppFrame } from "./AppFrame.js";
 import {
@@ -25,13 +27,21 @@ const RENDER_FAILURE_MESSAGE = "the sessions list could not render this row";
 
 const SETTINGS_ROUTE: AppRoute = { kind: "settings", page: undefined };
 
-/** A refusal wide enough for a banner: what the whole room can do has changed. */
-const REFUSAL_BANNER: WindowBanner = {
-  id: "banner-session-not-found",
-  code: "session.not_found",
-  detail: "That session could not be found, so no run can start here.",
-  dismissible: false,
-};
+/** The words the banner and its announcement read for `REFUSAL_BANNER`'s code and reason. */
+const REFUSAL_BANNER_WORDS = "Sidekick resolution refused · Account unavailable";
+
+/**
+ * A refusal wide enough for a banner, raised the way a producer raises one, so the listed reason
+ * travels from the refusal through the store to the frame.
+ */
+const REFUSAL_BANNER: WindowBanner = bannerRaisedFrom({
+  ...refuse(
+    "sessions",
+    "agent.resolution_refused",
+    "The account this sidekick runs on is not on this machine, so no run can start here.",
+  ),
+  reason: "account_unavailable",
+});
 
 function ExplodingScreen(): React.JSX.Element {
   throw new Error(RENDER_FAILURE_MESSAGE);
@@ -160,12 +170,27 @@ describe("AppFrame — the banner reaches the window's one live announcer", () =
       </AppFrame>,
     );
 
-    expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
-    // The banner still renders; the announcer sits beside it.
-    expect(container.querySelector(".meridian-refusal--banner")?.textContent).toContain(
-      REFUSAL_BANNER.detail,
+    expect(liveRegionText(container, "assertive")).toBe(
+      `${REFUSAL_BANNER_WORDS}. ${REFUSAL_BANNER.detail}`,
     );
+    // The banner still renders, its words over the daemon's message and no wire spelling of the
+    // code or reason; the announcer sits beside it.
+    const bannerText = container.querySelector(".meridian-refusal--banner")?.textContent;
+    expect(bannerText).toContain(REFUSAL_BANNER_WORDS);
+    expect(bannerText).toContain(REFUSAL_BANNER.detail);
+    expect(bannerText).not.toContain("agent.resolution_refused");
+    expect(bannerText).not.toContain("account_unavailable");
     // Polite stays silent: the assertive lane is reserved for refusals.
     expect(liveRegionText(container, "polite")).toBe("");
   });
 });
+
+function bannerRaisedFrom(refusal: Parameters<WindowStore["raiseRefusalBanner"]>[0]): WindowBanner {
+  const store = new WindowStore();
+  store.raiseRefusalBanner(refusal);
+  const [banner] = store.getState().banners;
+  if (banner === undefined) {
+    throw new Error("raiseRefusalBanner raised no banner");
+  }
+  return banner;
+}

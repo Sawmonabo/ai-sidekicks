@@ -7,6 +7,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatByteQuantity, formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../model.js";
 import { ARTIFACT_STATE_TONES } from "../copy.js";
@@ -31,11 +32,10 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
     <article className="meridian-artifact-row" aria-label={`Artifact ${row.id}`}>
       <div className="meridian-artifact-row__face">
         <Chip
-          label={row.artifactType}
-          mono
+          label={codeWords(row.artifactType)}
           glyph={row.artifactType === "diff" ? "diff" : "artifact"}
         />
-        <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={row.state} mono />
+        <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={codeWords(row.state)} />
         <span>
           {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />

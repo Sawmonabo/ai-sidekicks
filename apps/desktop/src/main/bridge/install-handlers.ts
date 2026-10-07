@@ -22,12 +22,13 @@ import {
   type UpdaterBridgeChannel,
 } from "#shared/bridge-channels.js";
 import type { DaemonSubscriptionOpening } from "#shared/daemon/forwarding.js";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { describeFailure } from "#shared/failure-message.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
 import type { DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { describeFailure } from "#shared/failure-message.js";
 import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
@@ -42,6 +43,9 @@ import { readNotificationPermission } from "./native/notification-permission.js"
 import { showOpenDialog } from "./native/open-dialog.js";
 import { pageSafeFailure, pageSafeMessage } from "./page-safe-message.js";
 import { type ChannelAnswer, windowAnswers, type WindowHandlerContext } from "./window.js";
+
+/** The channels main answers: every channel the preload invokes but the updater's. */
+type AnsweredChannel = Exclude<InvokedBridgeChannel, UpdaterBridgeChannel>;
 
 /** What main's bridge answers are built over. */
 export interface BridgeHandlerServices {
@@ -94,17 +98,14 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
         recordFailure(log, OPEN_DAEMON_SUBSCRIPTION_CHANNEL, failure);
         opening = {
           outcome: "failed",
-          message: pageSafeMessage(OPEN_DAEMON_SUBSCRIPTION_CHANNEL, failure),
+          message: pageSafeMessage(failure, NOT_ANSWERING_MESSAGE),
         };
       }
     }
     event.returnValue = opening;
   });
-  // Keyed by every channel the preload invokes but the updater's, so any other channel with no
-  // answer fails the build.
-  const answers: Readonly<
-    Record<Exclude<InvokedBridgeChannel, UpdaterBridgeChannel>, ChannelAnswer>
-  > = {
+  // Keyed by every answered channel, so one with no answer fails the build.
+  const answers: Readonly<Record<AnsweredChannel, ChannelAnswer>> = {
     [BRIDGE_CHANNELS.daemonCall]: (event, request) => daemonForwarding.call(event.sender, request),
     [BRIDGE_CHANNELS.closeDaemonSubscription]: (event, subscriptionId) => {
       daemonForwarding.close(event.sender, subscriptionId);
@@ -176,8 +177,8 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     ...machineSettingsAnswers(daemonForwarding),
     ...windowAnswers(windowContext),
   };
-  for (const [channel, answer] of Object.entries(answers)) {
-    handleFromAppRenderer(channel, answer, log);
+  for (const channel of Object.keys(answers) as AnsweredChannel[]) {
+    handleFromAppRenderer(channel, answers[channel], log);
   }
 }
 
@@ -192,9 +193,9 @@ function isAppRendererFrame(event: Pick<IpcMainInvokeEvent, "senderFrame">): boo
   );
 }
 
-// A failure is logged whole and crosses with no path or program in its message.
+// A failure is logged whole and crosses with no path, program or code in its message.
 function handleFromAppRenderer(
-  channel: string,
+  channel: AnsweredChannel,
   answer: ChannelAnswer,
   log: BridgeHandlerServices["log"],
 ): void {
@@ -206,7 +207,7 @@ function handleFromAppRenderer(
       return await answer(event, request);
     } catch (failure) {
       recordFailure(log, channel, failure);
-      throw pageSafeFailure(channel, failure);
+      throw pageSafeFailure(failure);
     }
   });
 }

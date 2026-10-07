@@ -43,14 +43,15 @@ import {
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
 } from "#shared/bridge-channels.js";
-import type {
-  DaemonCallOutcome,
-  DaemonCallRequest,
-  DaemonSubscriptionEnd,
-  DaemonSubscriptionOpening,
-  DaemonSubscriptionRequest,
+import {
+  type DaemonCallOutcome,
+  type DaemonRequestUnsendable,
+  type DaemonCallRequest,
+  type DaemonSubscriptionEnd,
+  type DaemonSubscriptionOpening,
+  type DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
-import { DAEMON_STATUS_TOPIC } from "#shared/daemon/status-topic.js";
+import { DAEMON_STATUS_TOPIC, NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { NOT_CONNECTED_MESSAGE, type DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor, ServiceEndingMethod } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
@@ -169,7 +170,7 @@ export class DaemonForwarding {
         !DAEMON_LIFECYCLE_METHOD_DESCRIPTORS[workEndingMethod].requestSchema.safeParse(params)
           .success
       ) {
-        return { outcome: "failed", message: `The ${method} request does not match its contract.` };
+        return this.#unsendable(`The ${method} request does not match its contract.`);
       }
       const refusal = workEndingRefusal(this.#link);
       return refusal === undefined
@@ -178,7 +179,7 @@ export class DaemonForwarding {
     }
     const binding = daemonMethodBindingFor(method);
     if (binding === undefined) {
-      return { outcome: "failed", message: `The app does not call ${method}.` };
+      return this.#unsendable(`The app does not call ${method}.`);
     }
     const versionRefusal = mutationRefusal(this.#link, binding);
     if (versionRefusal !== undefined) {
@@ -188,7 +189,7 @@ export class DaemonForwarding {
     try {
       sendable = swapTokensForPaths(this.#filePathRefs, page, method, params);
     } catch (failure) {
-      return { outcome: "failed", message: describeFailure(failure) };
+      return this.#unsendable(describeFailure(failure));
     }
     const client = this.#link.client;
     if (client === undefined) {
@@ -260,15 +261,14 @@ export class DaemonForwarding {
   public open(page: DaemonSubscriber, request: unknown): DaemonSubscriptionOpening {
     const parsed = daemonSubscriptionRequestSchema.safeParse(request);
     if (!parsed.success) {
-      return {
-        outcome: "failed",
-        message: "A daemon subscription is opened with a new id, an event name and its request.",
-      };
+      return this.#unsendable(
+        "A daemon subscription is opened with a new id, an event name and its request.",
+      );
     }
     const { subscriptionId, event, params } = parsed.data;
     if (event === DAEMON_STATUS_TOPIC) {
       if (!statusRequestSchema.safeParse(params).success) {
-        return { outcome: "failed", message: "The daemon.status topic is opened with nothing." };
+        return this.#unsendable("The daemon.status topic is opened with nothing.");
       }
       return this.#adopt(page, subscriptionId, () =>
         this.#link.subscribe((state) => {
@@ -277,11 +277,11 @@ export class DaemonForwarding {
       );
     }
     if (!isDaemonStream(event)) {
-      return { outcome: "failed", message: `The app does not subscribe to ${event}.` };
+      return this.#unsendable(`The app does not subscribe to ${event}.`);
     }
     const described = describedSubscriptionOf(event);
     if (described !== undefined && !described.requestSchema.safeParse(params).success) {
-      return { outcome: "failed", message: `The ${event} request does not match its contract.` };
+      return this.#unsendable(`The ${event} request does not match its contract.`);
     }
     const client = this.#link.client;
     if (client === undefined) {
@@ -330,12 +330,19 @@ export class DaemonForwarding {
   ): DaemonSubscriptionOpening {
     const subscriptions = this.#subscriptionsOf(page);
     if (subscriptions.has(subscriptionId)) {
-      return { outcome: "failed", message: "That daemon subscription is already open." };
+      return this.#unsendable("That daemon subscription is already open.");
     }
     const entry: OpenSubscription = { close: () => undefined };
     subscriptions.set(subscriptionId, entry);
     entry.close = start(entry);
     return { outcome: "opened" };
+  }
+
+  // A request the app built off its contract: the log names what was asked, and the page is told
+  // only that it could not be sent.
+  #unsendable(detail: string): DaemonRequestUnsendable {
+    this.#log.write({ level: "warning", source: "main/bridge/daemon", message: detail });
+    return { outcome: "unsendable" };
   }
 
   /** A page's subscriptions, ending them all when it is destroyed or loads a new document. */
@@ -395,7 +402,7 @@ export class DaemonForwarding {
       end =
         failure instanceof JsonRpcRemoteError
           ? { reason: "refused", refusal: wireErrorOf(failure) }
-          : { reason: "failed", message: pageSafeMessage(event, failure) };
+          : { reason: "failed", message: pageSafeMessage(failure, NOT_ANSWERING_MESSAGE) };
     }
     if (isHeld()) {
       this.#subscriptionsByPage.get(page.id)?.delete(subscriptionId);
@@ -425,12 +432,13 @@ function mutationRefusal(
 
 /**
  * Why a call that ends work may not go now, in the error contract's registered codes: no link that
- * reads connected is `transport.unavailable` naming the link's state, and a refused handshake is
- * the daemon's own `protocol.version_mismatch`. `undefined` when it may go.
+ * reads connected is `transport.unavailable`, and a refused handshake is the daemon's own
+ * `protocol.version_mismatch`. `undefined` when it may go.
  */
 function workEndingRefusal(link: DaemonLink): JsonRpcError | undefined {
   const connection = link.state.connection;
-  if (connection.kind === "connected" && link.client !== undefined) {
+  // A link reads connected only while it holds its client.
+  if (connection.kind === "connected") {
     return undefined;
   }
   if (connection.kind === "version_incompatible") {
@@ -444,7 +452,7 @@ function workEndingRefusal(link: DaemonLink): JsonRpcError | undefined {
   return {
     code: JsonRpcErrorCode.InternalError,
     message: NOT_CONNECTED_MESSAGE,
-    data: { type: TRANSPORT_UNAVAILABLE_CODE, fields: { reason: connection.kind } },
+    data: { type: TRANSPORT_UNAVAILABLE_CODE },
   };
 }
 
@@ -458,7 +466,7 @@ function unservedOutcomeOf(
 ): Exclude<DaemonCallOutcome, { readonly outcome: "served" }> {
   return failure instanceof JsonRpcRemoteError
     ? { outcome: "refused", refusal: wireErrorOf(failure) }
-    : { outcome: "failed", message: pageSafeMessage(method, failure) };
+    : { outcome: "failed", message: pageSafeMessage(failure, NOT_ANSWERING_MESSAGE) };
 }
 
 /** The refusal as the wire sent it: its code, message and data, and nothing else. */

@@ -1,16 +1,18 @@
 // The two axes a mount card reads on: lifecycle and health, one table each and total over its
 // wire union, never collapsed into one chip (a `detached` row is finished, an `unreachable` one
-// cannot be asked). Health is the daemon's status string: the console never probes a path or
-// ranks failing verdicts. `identity_mismatch` means the root answers but holds another repository.
+// cannot be asked). Health is the daemon's status, read as words: the console never probes a path
+// or ranks failing verdicts. `identity_mismatch` means the root answers but holds another
+// repository.
 
 import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/mount";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountState } from "@ai-sidekicks/contracts/repo/mount";
 import type { ChipTone } from "#renderer/components/Chip/Chip.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 
 /**
- * One axis reading as a card renders it. `label` is the wire word, rendered verbatim so it can
- * be searched in the daemon's vocabulary; `sentence` is the console's prose for the next move.
+ * One axis reading as a card renders it. `label` is the wire word read as words; `sentence` is
+ * the console's prose for the next move.
  */
 export interface MountAxisReading {
   readonly tone: ChipTone;
@@ -78,12 +80,12 @@ export type BindControlAvailability =
 
 /** How this mount's health reads. */
 export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
-  return { ...HEALTH_READINGS[health.status], label: health.status };
+  return { ...HEALTH_READINGS[health.status], label: codeWords(health.status) };
 }
 
 /** How this mount's lifecycle position reads. */
 export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
-  return { ...LIFECYCLE_READINGS[state], label: state };
+  return { ...LIFECYCLE_READINGS[state], label: codeWords(state) };
 }
 
 const BIND_CONTROLS_AVAILABLE: BindControlAvailability = { available: true };

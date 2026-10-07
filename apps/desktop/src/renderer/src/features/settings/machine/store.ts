@@ -6,11 +6,12 @@ import type {
   MachineSettingsChange,
   MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
 import type { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
@@ -32,8 +33,14 @@ const ANSWER_KEY = "answer";
 /** The subsystem a refused settings write names as its author. */
 const MACHINE_SETTINGS_WRITE_ORIGIN = "machine-settings-write";
 
-/** The code a rejected write that carried none of its own is reported under. */
-const MACHINE_SETTINGS_WRITE_FAILED = "machine-settings-write-failed";
+/**
+ * What a rejected write that carried no code of its own reads as. Never the rejection's own
+ * message, which crosses IPC with the channel's name in it.
+ */
+const MACHINE_SETTINGS_WRITE_FAILED: RejectionFallback = {
+  code: "machine-settings-write-failed",
+  detail: NOT_ANSWERING_MESSAGE,
+};
 
 /** What the store asks of the bridge's `machineSettings`: the write and the feed. */
 export type MachineSettingsService = Pick<PlatformBridge["machineSettings"], "write" | "subscribe">;
@@ -126,9 +133,9 @@ export class MachineSettingsStore {
     try {
       written = await this.#machineSettings.write(change);
     } catch (error) {
-      refusal = coerceToRefusal(
-        error,
+      refusal = normalizeWireRejection(
         MACHINE_SETTINGS_WRITE_ORIGIN,
+        error,
         MACHINE_SETTINGS_WRITE_FAILED,
       );
     }

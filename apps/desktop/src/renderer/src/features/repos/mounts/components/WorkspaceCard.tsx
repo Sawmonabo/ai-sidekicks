@@ -12,6 +12,7 @@ import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { type BindControlAvailability } from "../health.js";
 import { PrepareExecutionRoot } from "../execution-roots/prepare/PrepareExecutionRoot.js";
 import type { PrepareOperations } from "../execution-roots/prepare/controller.js";
@@ -54,8 +55,8 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
       <header className="meridian-workspace-card__head">
         <Glyph name="workspace" size={GLYPH_SIZE_ROW} />
         <WireFigure value={workspace.id} title={workspace.id} />
-        <Chip label={workspace.executionMode} mono tone="neutral" />
-        <Chip label={workspace.state} mono tone={STATE_TONES[workspace.state]} />
+        <Chip label={codeWords(workspace.executionMode)} tone="neutral" />
+        <Chip label={codeWords(workspace.state)} tone={STATE_TONES[workspace.state]} />
       </header>
 
       <p className="meridian-workspace-card__root">
