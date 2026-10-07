@@ -502,9 +502,10 @@ type ForkConversationResult =
 // Goal delivery. A goal is a command sent to one agent, never what the session is: `goalText` is the
 // condition the person typed after `/goal` (not blank, no NUL, no length cap of the app's own), sent to the
 // agent the command targets. Codex leg: `thread/goal/set` / `thread/goal/clear` (the `objective`
-// field), live. Claude Code leg: its own `/goal <condition>` and `/goal clear`, sent as user
-// messages. Neither leg writes goal text into a system prompt. The provider checks the goal each
-// time the agent would stop, and the daemon folds what each provider reports into
+// field), live, each with `origin: "user"`, the person's own act. Claude Code leg: its own
+// `/goal <condition>` and `/goal clear`, sent as user messages. Neither leg writes goal text into
+// a system prompt. The provider checks the goal each time the agent would stop, and the daemon
+// folds what each provider reports into
 // `session.goal_updated`, whose status is one of `active`, `paused`, `blocked`, `usage-limited`,
 // `budget-limited`, `complete` or `impossible` (`complete` and `impossible` are final; only Claude
 // Code sends `impossible`, with its reason); clearing is `session.goal_cleared`, never a status
