@@ -43,9 +43,12 @@ const SELECT_TERMINAL_RECORD_SQL = `SELECT 1 FROM session_events
     AND json_extract(payload, '$.runVersion') = @run_version
   LIMIT 1`;
 
-// A terminal write's statements, in order: the guard, the swap, then the caller's own guards.
+// How many times a change is read and written before a run that keeps moving under it is refused.
+const MAX_WRITE_ATTEMPTS = 3;
+
+// A terminal write's statements, in order: the guard, the swap, then the caller's own guards; any
+// other change's start at the swap.
 const TERMINAL_GUARD_INDEX = 0;
-const TERMINAL_SWAP_INDEX = 1;
 
 /** Writes run state changes; the run's row and its event move in the same write. */
 export class RunStateChangeWriter {
@@ -58,15 +61,34 @@ export class RunStateChangeWriter {
   }
 
   /**
-   * Writes `change` from the run's current row and resolves with the run as it left it; any of
-   * `extraGuards` refusing refuses the whole write. Throws {@link RunNotFoundError} for an unknown
-   * run, {@link RunAlreadyEndedError} for a terminal the run version already holds, and
-   * {@link RunInvalidTransitionError} for a move the table does not allow, writing nothing.
+   * Writes `change` from the run's current row and resolves with the run as it left it. A run that
+   * moved after it was read is read again and the change retried while the table still allows it,
+   * up to a few times. Throws {@link RunNotFoundError} for an unknown run,
+   * {@link RunAlreadyEndedError} for a terminal of a run that has ended or whose run version already
+   * holds one, and {@link RunInvalidTransitionError} for a move the table does not allow from the
+   * state the run is in; any of `extraGuards` refusing throws its `WriteRefusedError`. Each refusal
+   * writes nothing.
    */
   async write(
     change: RunStateChange,
     extraGuards: readonly WriteStatement[] = [],
   ): Promise<RunRead> {
+    for (let attempt = 1; ; attempt += 1) {
+      const outcome = await this.#attempt(change, extraGuards);
+      if (outcome.written !== undefined) {
+        return outcome.written;
+      }
+      if (attempt === MAX_WRITE_ATTEMPTS) {
+        throw outcome.swapRefusal;
+      }
+    }
+  }
+
+  // One read and one write; a swap the run moved under comes back to be retried from a fresh read.
+  async #attempt(
+    change: RunStateChange,
+    extraGuards: readonly WriteStatement[],
+  ): Promise<{ written: RunRead; swapRefusal?: never } | { written?: never; swapRefusal: Error }> {
     const { runId, newState, expectedState, ...members } = change;
     const run = this.#runs.getRun(runId);
     if (run === undefined) {
@@ -93,6 +115,7 @@ export class RunStateChangeWriter {
     const transactionalPrelude = isTerminal
       ? [noTerminalRecordStatement(runId, runVersion), swap, ...extraGuards]
       : [swap, ...extraGuards];
+    const swapIndex = transactionalPrelude.indexOf(swap);
     const type: SessionEventType = `run.${newState}`;
     const payload = {
       ...members,
@@ -105,32 +128,34 @@ export class RunStateChangeWriter {
     try {
       await this.#appender.append(type, payload, { transactionalPrelude });
     } catch (error) {
-      if (isTerminal && error instanceof WriteRefusedError) {
-        throw this.#endedRunRefusal(error, runId, run.state, newState) ?? error;
+      if (!(error instanceof WriteRefusedError)) {
+        throw error;
+      }
+      if (isTerminal && error.statementIndex === TERMINAL_GUARD_INDEX) {
+        throw new RunAlreadyEndedError(runId, run.state, newState, { cause: error });
+      }
+      if (error.statementIndex === swapIndex) {
+        return { swapRefusal: this.#movedRunRefusal(error, runId, newState) };
       }
       throw error;
     }
-    return { version: runVersion, sessionId: run.sessionId, state: newState };
+    return { written: { version: runVersion, sessionId: run.sessionId, state: newState } };
   }
 
-  // A terminal refused by its guard met a terminal record; one refused by its swap met a run that
-  // moved, which is an ended run only when the run now reads ended.
-  #endedRunRefusal(
+  // A swap refused because the run moved after it was read: a terminal meeting an ended run is
+  // refused as already ended, and any other change from the state the run moved to.
+  #movedRunRefusal(
     refusal: WriteRefusedError,
     runId: RunId,
-    readState: RunState,
     newState: RunStateChangeState,
-  ): RunAlreadyEndedError | undefined {
-    if (refusal.statementIndex === TERMINAL_GUARD_INDEX) {
-      return new RunAlreadyEndedError(runId, readState, newState, { cause: refusal });
+  ): RunInvalidTransitionError | RunNotFoundError {
+    const now = this.#runs.getRun(runId);
+    if (now === undefined) {
+      return new RunNotFoundError(runId);
     }
-    if (refusal.statementIndex === TERMINAL_SWAP_INDEX) {
-      const now = this.#runs.getRun(runId);
-      if (now !== undefined && isTerminalState(now.state)) {
-        return new RunAlreadyEndedError(runId, now.state, newState, { cause: refusal });
-      }
-    }
-    return undefined;
+    return isTerminalState(newState) && isTerminalState(now.state)
+      ? new RunAlreadyEndedError(runId, now.state, newState, { cause: refusal })
+      : new RunInvalidTransitionError(runId, now.state, newState, { cause: refusal });
   }
 }
 

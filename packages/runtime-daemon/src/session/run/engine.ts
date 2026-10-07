@@ -20,7 +20,6 @@ import type { SessionNoticePayload } from "@ai-sidekicks/contracts/session/contr
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../../database/statement.js";
-import { WriteRefusedError } from "../../database/writer.js";
 import {
   SessionEventAppender,
   type SessionEventAppenderDeps,
@@ -155,19 +154,7 @@ export class RunEngine {
     if (run !== undefined && isTerminalState(run.state)) {
       throw endedRunRefusal(change, run.state);
     }
-    try {
-      return await this.#change(change);
-    } catch (error) {
-      // The swap refused: the run moved after it was read, and only an end makes that a refusal.
-      if (!(error instanceof WriteRefusedError)) {
-        throw error;
-      }
-      const now = this.#runs.getRun(change.runId);
-      if (now === undefined || !isTerminalState(now.state)) {
-        throw error;
-      }
-      throw endedRunRefusal(change, now.state, error);
-    }
+    return this.#change(change);
   }
 
   /**
@@ -198,26 +185,36 @@ export class RunEngine {
 
   /**
    * Carries a recorded intervention outcome into the run's state: an interrupt, applied or
-   * degraded, ends the run `interrupted`; a steer or a faster-model retry changes no state.
+   * degraded, ends the run `interrupted`, or leaves it as it is when it has already ended; a steer
+   * or a faster-model retry changes no state.
    */
   async settleInterventionOutcome(outcome: {
     runId: RunId;
     interventionType: InterventionType;
     state: "applied" | "degraded";
   }): Promise<void> {
-    if (outcome.interventionType === "interrupt") {
+    if (outcome.interventionType !== "interrupt") {
+      return;
+    }
+    try {
       await this.#change({ runId: outcome.runId, newState: "interrupted" });
+    } catch (error) {
+      // The run ended before the settle, which is what the interrupt asked for.
+      if (error instanceof RunAlreadyEndedError) {
+        return;
+      }
+      throw error;
     }
   }
 
   /**
    * Ends the turn a provider process left when it ended on its own: the run, and each live run
    * the provider dispatched beneath it as its own subagent, ends `failed` with `processExit`.
-   * Waiting messages stay waiting. Every run is ended before any failure is thrown, together.
+   * Every run is ended before any failure is thrown, together.
    */
   async endTurnOnProcessExit(runId: RunId, processExit: ProcessExit): Promise<void> {
     const failures: unknown[] = [];
-    for (const endedRunId of [runId, ...this.#listLiveProviderSubagents(runId)]) {
+    for (const endedRunId of [runId, ...this.#runs.listLiveProviderSubagents(runId)]) {
       try {
         await this.#change({
           runId: endedRunId,
@@ -244,12 +241,12 @@ export class RunEngine {
    * queued run is left as it is.
    */
   async settleRunAfterRestart(run: LiveRun, failureDetail: string): Promise<RunRead> {
-    const hasPendingInterrupt = this.#pendingInterrupts.hasPendingInterrupt(run.runId);
+    const hasPendingInterrupt = this.#pendingInterrupts.hasPendingInterrupt(run);
     const settlement = decideRestartSettlement(run, hasPendingInterrupt);
     if (settlement === undefined) {
       return run;
     }
-    const guard = [pendingInterruptStatement(run.runId, hasPendingInterrupt)];
+    const guard = [pendingInterruptStatement(run, hasPendingInterrupt)];
     if (settlement === "interrupted") {
       return this.#change({ runId: run.runId, newState: "interrupted" }, guard);
     }
@@ -297,38 +294,14 @@ export class RunEngine {
       );
     }
   }
-
-  // The live runs reached from `runId` through provider subagents at any depth, which share its
-  // process; a child reached any other way runs in a process of its own.
-  #listLiveProviderSubagents(runId: RunId): RunId[] {
-    const childrenByParent = new Map<RunId, RunId[]>();
-    for (const live of this.#runs.listLiveRuns()) {
-      if (live.reachedBy === "provider_subagent" && live.parentRunId !== undefined) {
-        childrenByParent.set(live.parentRunId, [
-          ...(childrenByParent.get(live.parentRunId) ?? []),
-          live.runId,
-        ]);
-      }
-    }
-    const reached: RunId[] = [];
-    const pending = [runId];
-    for (let parent = pending.pop(); parent !== undefined; parent = pending.pop()) {
-      const children = childrenByParent.get(parent) ?? [];
-      reached.push(...children);
-      pending.push(...children);
-    }
-    return reached;
-  }
 }
 
 // The refusal of a provider's change to a run that has ended in `endedState`.
 function endedRunRefusal(
   change: RunTransitionRequest,
   endedState: RunState,
-  cause?: unknown,
 ): RunInvalidTransitionError {
-  const options = cause === undefined ? undefined : { cause };
   return isTerminalState(change.newState)
-    ? new RunAlreadyEndedError(change.runId, endedState, change.newState, options)
-    : new RunInvalidTransitionError(change.runId, endedState, change.newState, options);
+    ? new RunAlreadyEndedError(change.runId, endedState, change.newState)
+    : new RunInvalidTransitionError(change.runId, endedState, change.newState);
 }

@@ -1,5 +1,6 @@
 // A run state change over a real database: one terminal per run version however two terminals
-// race, and a move the table does not allow refused with nothing written.
+// race, a move that loses its race retried from the state the winner left or refused when the table
+// forbids it there, and a move the table does not allow refused with nothing written.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -67,6 +68,60 @@ describe("run state change", () => {
       sessionId: fixture.sessionId,
       state: "completed",
     });
+  });
+
+  it("retries the loser of two moves decided from one read while the table still allows it", async () => {
+    const runId = await fixture.runThrough(["starting", "running"]);
+
+    // Both read the run running at version 2; the second's swap meets the first's row, and the
+    // move is still allowed from the state the first left, so it is written after it.
+    await Promise.all([
+      fixture.engine.transition({ runId, newState: "waiting_for_approval" }),
+      fixture.engine.transition({ runId, newState: "waiting_for_input" }),
+    ]);
+
+    expect(
+      fixture.readRunEvents(runId).map((row) => [row.type, row.payload["runVersion"]]),
+    ).toEqual([
+      ["run.queued", 0],
+      ["run.starting", 1],
+      ["run.running", 2],
+      ["run.waiting_for_approval", 3],
+      ["run.waiting_for_input", 4],
+    ]);
+    expect(fixture.runs.getRun(runId)).toMatchObject({ state: "waiting_for_input", version: 4 });
+  });
+
+  it("refuses the loser of two moves from the state the winner left when the table forbids it", async () => {
+    const runId = await fixture.runThrough(["starting", "running"]);
+
+    const outcomes = await Promise.allSettled([
+      fixture.engine.transition({ runId, newState: "pausing" }),
+      fixture.engine.transition({ runId, newState: "waiting_for_approval" }),
+    ]);
+
+    expect(outcomes[0]?.status).toBe("fulfilled");
+    const refusal = (outcomes[1] as PromiseRejectedResult).reason as unknown;
+    expect(refusal).toBeInstanceOf(RunInvalidTransitionError);
+    expect(refusal).not.toBeInstanceOf(RunAlreadyEndedError);
+    expect(refusal).toMatchObject({ fromState: "pausing", toState: "waiting_for_approval" });
+    expect(fixture.runs.getRun(runId)).toMatchObject({ state: "pausing", version: 3 });
+
+    // A terminal that loses its swap to a live move is refused the same way, past its own guard.
+    const otherRunId = await fixture.runThrough(["starting", "running"]);
+    const [, terminalOutcome] = await Promise.allSettled([
+      fixture.engine.transition({ runId: otherRunId, newState: "pausing" }),
+      fixture.engine.transition({
+        runId: otherRunId,
+        newState: "completed",
+        completionKind: "turn",
+      }),
+    ]);
+    const terminalRefusal = (terminalOutcome as PromiseRejectedResult).reason as unknown;
+    expect(terminalRefusal).toBeInstanceOf(RunInvalidTransitionError);
+    expect(terminalRefusal).not.toBeInstanceOf(RunAlreadyEndedError);
+    expect(terminalRefusal).toMatchObject({ fromState: "pausing", toState: "completed" });
+    expect(fixture.runs.getRun(otherRunId)).toMatchObject({ state: "pausing", version: 3 });
   });
 
   it("refuses a terminal its run version already holds even while the row still reads live", async () => {

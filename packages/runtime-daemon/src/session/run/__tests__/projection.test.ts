@@ -1,5 +1,6 @@
-// The run row's guards over a real database: a state swap or a version advance decided from a stale
-// read is refused whole and leaves the row as the write that won it left it.
+// The run row's guards over a real database, each clause on its own: a swap from a version or a
+// state the row no longer holds, and a swap or advance naming the run under another session, is
+// refused whole and leaves the row as it was.
 
 import { randomUUID } from "node:crypto";
 
@@ -47,36 +48,7 @@ describe("run state projection", () => {
     expect(refusal).toMatchObject({ statementIndex: 0, rowCount: 0 });
   }
 
-  it("reads the queued row, and nothing for a run it has no row for", () => {
-    expect(runs.getRun(runId)).toEqual({ version: 0, sessionId, state: "queued" });
-    expect(runs.getRun(RunIdSchema.parse(randomUUID()))).toBeUndefined();
-  });
-
-  it("commits the first of two swaps decided from one read and refuses the second", async () => {
-    await database.writer.write([
-      swapRunStateStatement({
-        sessionId,
-        runId,
-        previousState: "queued",
-        newState: "starting",
-        runVersion: 1,
-      }),
-    ]);
-    expect(runs.getRun(runId)).toEqual({ version: 1, sessionId, state: "starting" });
-
-    await expectRefusedAtFirstStatement(
-      swapRunStateStatement({
-        sessionId,
-        runId,
-        previousState: "queued",
-        newState: "failed",
-        runVersion: 1,
-      }),
-    );
-    expect(runs.getRun(runId)).toEqual({ version: 1, sessionId, state: "starting" });
-  });
-
-  it("refuses a swap from the right state at a version an intervention has since advanced", async () => {
+  it("refuses a swap by its version alone, by its state alone, and a swap or advance under another session", async () => {
     await database.writer.write([
       swapRunStateStatement({
         sessionId,
@@ -89,9 +61,8 @@ describe("run state projection", () => {
     await database.writer.write([
       advanceRunVersionStatement({ sessionId, runId, expectedRunVersion: 1 }),
     ]);
-    expect(runs.getRun(runId)).toEqual({ version: 2, sessionId, state: "running" });
 
-    // Decided from the read at version 1, so it claims version 2 the advance already took.
+    // From the right state, decided from the read at version 1 the advance has since moved past.
     await expectRefusedAtFirstStatement(
       swapRunStateStatement({
         sessionId,
@@ -101,48 +72,29 @@ describe("run state projection", () => {
         runVersion: 2,
       }),
     );
-    expect(runs.getRun(runId)).toEqual({ version: 2, sessionId, state: "running" });
-  });
-
-  it("refuses a swap at the right version from a state the run is not in", async () => {
+    // At the right version, from a state the run is not in.
     await expectRefusedAtFirstStatement(
       swapRunStateStatement({
         sessionId,
         runId,
-        previousState: "running",
-        newState: "completed",
-        runVersion: 1,
+        previousState: "paused",
+        newState: "running",
+        runVersion: 3,
       }),
     );
-    expect(runs.getRun(runId)).toEqual({ version: 0, sessionId, state: "queued" });
-  });
-
-  it("refuses a swap or an advance that names the run under another session", async () => {
     const otherSessionId = SessionIdSchema.parse(randomUUID());
     await expectRefusedAtFirstStatement(
       swapRunStateStatement({
         sessionId: otherSessionId,
         runId,
-        previousState: "queued",
-        newState: "starting",
-        runVersion: 1,
+        previousState: "running",
+        newState: "completed",
+        runVersion: 3,
       }),
     );
     await expectRefusedAtFirstStatement(
-      advanceRunVersionStatement({ sessionId: otherSessionId, runId, expectedRunVersion: 0 }),
+      advanceRunVersionStatement({ sessionId: otherSessionId, runId, expectedRunVersion: 2 }),
     );
-    expect(runs.getRun(runId)).toEqual({ version: 0, sessionId, state: "queued" });
-  });
-
-  it("refuses an advance from a version the run has moved past", async () => {
-    await database.writer.write([
-      advanceRunVersionStatement({ sessionId, runId, expectedRunVersion: 0 }),
-    ]);
-    expect(runs.getRun(runId)).toEqual({ version: 1, sessionId, state: "queued" });
-
-    await expectRefusedAtFirstStatement(
-      advanceRunVersionStatement({ sessionId, runId, expectedRunVersion: 0 }),
-    );
-    expect(runs.getRun(runId)).toEqual({ version: 1, sessionId, state: "queued" });
+    expect(runs.getRun(runId)).toEqual({ version: 2, sessionId, state: "running" });
   });
 });

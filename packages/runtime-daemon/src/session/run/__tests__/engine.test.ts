@@ -2,15 +2,13 @@
 // a provider process that ends on its own, a run that waits and comes back on its own id, and the
 // notice a run gets when its provider does not run it at the fast output level it carried.
 
-import { randomUUID } from "node:crypto";
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
-import { RunAlreadyEndedError } from "../refusals.js";
+import { RunAlreadyEndedError, RunInvalidTransitionError } from "../refusals.js";
 import {
   RunParkedInSetupError,
   type RunSetupGate,
@@ -204,13 +202,9 @@ describe("run engine", () => {
         interventionType: "interrupt",
         state: "degraded",
       });
-      // A second interrupt of the same run version is refused and releases nothing again.
+      // A second terminal of the same run version is refused and releases nothing again.
       await expect(
-        fixture.engine.settleInterventionOutcome({
-          runId,
-          interventionType: "interrupt",
-          state: "applied",
-        }),
+        fixture.engine.transition({ runId, newState: "interrupted" }),
       ).rejects.toBeInstanceOf(RunAlreadyEndedError);
       await fixture.engine.transition({ runId, newState: "running" });
       await fixture.engine.transition({ runId, newState: "completed", completionKind: "turn" });
@@ -229,6 +223,44 @@ describe("run engine", () => {
         { terminalState: "completed", runVersion: 5 },
         { terminalState: "completed", runVersion: 5 },
       ]);
+    });
+
+    it("leaves a run the provider ended first as it is when the interrupt's settle arrives, and surfaces any other refusal", async () => {
+      const log: string[] = [];
+      fixture.engine.registerSetupGate(recordingGate("gate", log));
+      const runId = await fixture.queueRun();
+      await startRun(runId);
+      await fixture.engine.applyProviderStateChange({
+        runId,
+        newState: "completed",
+        completionKind: "turn",
+      });
+
+      await expect(
+        fixture.engine.settleInterventionOutcome({
+          runId,
+          interventionType: "interrupt",
+          state: "applied",
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(fixture.runs.getRun(runId)).toMatchObject({ state: "completed", version: 3 });
+      expect(fixture.readRunEvents(runId).some((row) => row.type === "run.interrupted")).toBe(
+        false,
+      );
+      expect(log).toEqual(["gate ready", "gate terminal"]);
+
+      // A run that has not ended and cannot end interrupted is still refused.
+      const queued = await fixture.queueRun();
+      const refusal: unknown = await fixture.engine
+        .settleInterventionOutcome({
+          runId: queued,
+          interventionType: "interrupt",
+          state: "applied",
+        })
+        .catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(RunInvalidTransitionError);
+      expect(refusal).not.toBeInstanceOf(RunAlreadyEndedError);
     });
 
     it("runs every terminal hook when one throws, then throws its error with the run ended", async () => {
@@ -252,7 +284,7 @@ describe("run engine", () => {
     });
   });
 
-  it("ends a run and its provider's subagents on its process's exit, cancels its approval and keeps waiting messages", async () => {
+  it("ends a run and its provider's subagents on its process's exit, running each one's terminal hook, where a held approval is canceled", async () => {
     const canceledApprovals: RunTerminalContext[] = [];
     fixture.engine.registerSetupGate({
       assertRunReady: () => Promise.resolve(),
@@ -270,19 +302,15 @@ describe("run engine", () => {
       parentRunId: subagent,
       reachedBy: "provider_subagent",
     });
+    // Bridged children run in processes of their own, beneath the lead and beneath a subagent.
     const bridged = await fixture.runThrough(["starting", "running"], {
       parentRunId: lead,
       reachedBy: "bridge_run",
     });
-    const waitingMessageId = randomUUID();
-    const now = new Date().toISOString();
-    await fixture.database.writer.write([
-      {
-        sql: `INSERT INTO queue_items (id, session_id, state, created_at, updated_at)
-              VALUES (?, ?, 'queued', ?, ?)`,
-        bindings: [waitingMessageId, fixture.sessionId, now, now],
-      },
-    ]);
+    const bridgedUnderSubagent = await fixture.runThrough(["starting", "running"], {
+      parentRunId: subagent,
+      reachedBy: "bridge_run",
+    });
     const processExit: ProcessExit = {
       signal: "SIGKILL",
       outputTail: "Error: connection reset\n    at Socket.read",
@@ -299,17 +327,13 @@ describe("run engine", () => {
       });
     }
     expect(fixture.runs.getRun(bridged)?.state).toBe("running");
+    expect(fixture.runs.getRun(bridgedUnderSubagent)?.state).toBe("running");
     expect(canceledApprovals.map((context) => context.runId)).toEqual([
       lead,
       subagent,
       nestedSubagent,
     ]);
     expect(canceledApprovals[0]).toMatchObject({ terminalState: "failed", runVersion: 4 });
-    expect(
-      fixture.database.reader
-        .prepare<[string], { state: string }>("SELECT state FROM queue_items WHERE id = ?")
-        .get(waitingMessageId),
-    ).toEqual({ state: "queued" });
   });
 
   it("keeps a run's id through a wait and back, and an interrupt while it waits ends that run", async () => {

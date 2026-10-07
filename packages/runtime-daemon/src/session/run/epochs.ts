@@ -27,10 +27,14 @@ export interface DeliveryOperation {
   readonly isOpening: boolean;
 }
 
-/** Which execution a delivery belongs to: the current one, or the one before an undo's cut. */
+/**
+ * Which execution a delivery belongs to: the current one, the one before an undo's cut, or unknown
+ * for an operation whose opening was evicted, which may be from before the cut at `source`.
+ */
 export type DeliveryAttribution =
   | { readonly execution: "current" }
-  | { readonly execution: "before_cut"; readonly source: EpochPosition };
+  | { readonly execution: "before_cut"; readonly source: EpochPosition }
+  | { readonly execution: "unknown"; readonly source: EpochPosition };
 
 /**
  * An undo's cut, confirmed by the provider. In place, the binding stays and its deliveries after
@@ -46,8 +50,9 @@ export type ConfirmedCut =
       readonly newBinding: EpochBinding;
     };
 
-// Operations remembered per binding when the caller sets no cap: about 56 bytes each with a
-// provider's item id as the key, so a binding at the cap holds about 230 KB.
+// Operations remembered per binding when the caller sets no cap. Measured on Node 24, each costs
+// about 60 bytes before its key when several open in one turn and 96 when each opens its own, plus
+// the key (48 bytes for a 31-character item id), so a binding at the cap holds 420 KB to 580 KB.
 const DEFAULT_MAX_ASSOCIATIONS_PER_BINDING = 4096;
 
 interface BindingCursor {
@@ -125,8 +130,9 @@ export class ExecutionEpochs {
 
   /**
    * Attributes one delivery. With an operation, the pair it opened at decides, and an opening is
-   * recorded at the current pair; without one, a frozen binding's delivery takes its retained pair
-   * and an in-place binding's is current, by the fence's order.
+   * recorded at the current pair, afresh when its key last opened before a cut; without one, a
+   * frozen binding's delivery takes its retained pair and an in-place binding's is current, by the
+   * fence's order.
    */
   attribute(bindingId: string, operation?: DeliveryOperation): DeliveryAttribution {
     const cursor = this.#cursorFor(bindingId);
@@ -135,19 +141,19 @@ export class ExecutionEpochs {
     if (cursor.frozenAt !== undefined) {
       return { execution: "before_cut", source: opened ?? cursor.frozenAt };
     }
-    if (opened !== undefined) {
-      return opened.epoch < cursor.current.epoch
-        ? { execution: "before_cut", source: opened }
-        : CURRENT;
-    }
-    if (operation === undefined) {
+    if (operation === undefined || opened?.epoch === cursor.current.epoch) {
       return CURRENT;
     }
     if (operation.isOpening) {
+      // A provider may reuse an operation's key after an in-place cut; the reuse is a new
+      // operation, moved to the newest slot so eviction drops it last.
+      cursor.associations.delete(operation.correlationKey);
       this.#recordOpening(cursor, operation.correlationKey);
       return CURRENT;
     }
-    return attributeEvictedOperation(cursor);
+    return opened === undefined
+      ? attributeEvictedOperation(cursor)
+      : { execution: "before_cut", source: opened };
   }
 
   /** Sets the fence of a confirmed cut. Throws for a binding with no open cursor or one frozen. */
@@ -195,8 +201,9 @@ export class ExecutionEpochs {
       kind: "epoch_association_evicted",
       rawWireType: null,
       dispositionReason:
-        "the binding's operation associations reached their cap, so the oldest was dropped; a " +
-        "late delivery of that operation is attributed to the execution before the last cut",
+        "the binding's operation associations reached their cap, so the oldest was dropped; once " +
+        "a cut has closed a generation, a late row of that operation is stamped as from before " +
+        "the cut, and its lifecycle event or permission ask is read as current",
       details: {
         bindingId: cursor.binding.id,
         evictedEpoch: evicted.epoch,
@@ -209,8 +216,8 @@ export class ExecutionEpochs {
 
 // A continuation of an operation the binding does not hold. With nothing evicted it never opened
 // here and is current, by the fence's order. Otherwise it opened no later than the newest evicted
-// operation, so once a generation has closed it may be from one and is never read as current, even
-// at the cost of superseding a current operation's late row.
+// operation, so once a generation has closed it may be from one: its execution is unknown, with the
+// pair of the generation it may be from.
 function attributeEvictedOperation(cursor: BindingCursor): DeliveryAttribution {
   const latestClosed = cursor.closedGenerations.at(-1);
   if (cursor.newestEvictedEpoch === undefined || latestClosed === undefined) {
@@ -219,5 +226,5 @@ function attributeEvictedOperation(cursor: BindingCursor): DeliveryAttribution {
   const evictedGeneration = cursor.closedGenerations.find(
     (generation) => generation.epoch === cursor.newestEvictedEpoch,
   );
-  return { execution: "before_cut", source: evictedGeneration ?? latestClosed };
+  return { execution: "unknown", source: evictedGeneration ?? latestClosed };
 }

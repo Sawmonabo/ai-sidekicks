@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
+import { advanceRunVersionStatement } from "../projection.js";
 import {
   TEST_EXECUTION_POSTURE,
   makeQueueItem,
@@ -51,6 +52,40 @@ describe("run settle after a restart", () => {
       },
     ]);
   }
+
+  // The interrupt's outcome as the intervention service writes it: the row applied, and the run
+  // advanced past the version the person saw, with the run's end still to be written.
+  async function writeAppliedInterrupt(runId: RunId, expectedRunVersion: number): Promise<void> {
+    await fixture.database.writer.write([
+      {
+        sql: `INSERT INTO interventions
+                (id, target_run_id, type, state, expected_run_version, client_idempotency_key,
+                 created_at)
+              VALUES (?, ?, 'interrupt', 'applied', ?, ?, ?)`,
+        bindings: [randomUUID(), runId, expectedRunVersion, randomUUID(), new Date().toISOString()],
+      },
+      advanceRunVersionStatement({ sessionId: fixture.sessionId, runId, expectedRunVersion }),
+    ]);
+  }
+
+  it("settles interrupted a run whose interrupt was applied but whose end never landed, and failed once it moved on", async () => {
+    const unsettled = await fixture.queueRun();
+    await startRun(unsettled);
+    await writeAppliedInterrupt(unsettled, 2);
+    const movedOn = await fixture.queueRun();
+    await startRun(movedOn);
+    await writeAppliedInterrupt(movedOn, 2);
+    await fixture.engine.transition({ runId: movedOn, newState: "waiting_for_approval" });
+
+    const restarted = fixture.restartEngine();
+    for (const live of fixture.runs.listLiveRuns()) {
+      await restarted.settleRunAfterRestart(live, "The conversation file was not found");
+    }
+
+    expect(fixture.runs.getRun(unsettled)).toMatchObject({ state: "interrupted", version: 4 });
+    expect(fixture.readRunEvents(unsettled).some((row) => row.type === "run.failed")).toBe(false);
+    expect(fixture.runs.getRun(movedOn)).toMatchObject({ state: "failed", version: 5 });
+  });
 
   it("settles a crashed run failed, a stopped one interrupted and a held child interrupted, starting none again", async () => {
     const crashed = await fixture.queueRun();

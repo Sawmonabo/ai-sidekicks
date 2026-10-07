@@ -8,11 +8,13 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { WriteStatement } from "../../database/statement.js";
 import type { LiveRun } from "./read.js";
 
-// An interrupt the person asked for that no outcome has settled yet.
+// An interrupt the person asked for that has not ended the run: one with no outcome yet, or one
+// whose outcome advanced the run to `@run_version`, the version read, and whose end never landed.
 const SELECT_PENDING_INTERRUPT_SQL = `SELECT 1 FROM interventions
   WHERE target_run_id = @run_id
     AND type = 'interrupt'
-    AND state IN ('requested', 'accepted')
+    AND (state IN ('requested', 'accepted')
+      OR (state IN ('applied', 'degraded') AND expected_run_version + 1 = @run_version))
   LIMIT 1`;
 
 /** The state a run a restart left live settles in, or `undefined` for a run left as it is. */
@@ -39,30 +41,40 @@ export function decideRestartSettlement(
   return "failed";
 }
 
-/** Reads whether the person's interrupt of a run is still waiting for its outcome. */
+// A live run as the pending-interrupt read takes it: its id and the version it was read at.
+type RunAtVersion = Pick<LiveRun, "runId" | "version">;
+
+/**
+ * Reads whether the person's interrupt of a live run is still to end it: waiting for its outcome,
+ * or applied with the run's end not yet written.
+ */
 export class PendingInterruptReader {
-  readonly #selectPendingInterrupt: Statement<[{ run_id: RunId }], unknown>;
+  readonly #selectPendingInterrupt: Statement<[{ run_id: RunId; run_version: number }], unknown>;
 
   constructor(reader: Database) {
     this.#selectPendingInterrupt = reader.prepare(SELECT_PENDING_INTERRUPT_SQL);
   }
 
-  hasPendingInterrupt(runId: RunId): boolean {
-    return this.#selectPendingInterrupt.get({ run_id: runId }) !== undefined;
+  hasPendingInterrupt(run: RunAtVersion): boolean {
+    return (
+      this.#selectPendingInterrupt.get({ run_id: run.runId, run_version: run.version }) !==
+      undefined
+    );
   }
 }
 
 /**
  * The statement that refuses the settle's write when the pending interrupt it was decided from
- * has since appeared or gone, so the settle never contradicts the person's last word.
+ * has since appeared or gone, so the settle never contradicts the person's last word. It reads
+ * against the version `run` was read at, which the settle's own swap holds the row to.
  */
 export function pendingInterruptStatement(
-  runId: RunId,
+  run: RunAtVersion,
   hasPendingInterrupt: boolean,
 ): WriteStatement {
   return {
     sql: SELECT_PENDING_INTERRUPT_SQL,
-    bindings: { run_id: runId },
+    bindings: { run_id: run.runId, run_version: run.version },
     expectedRowCount: hasPendingInterrupt ? 1 : 0,
   };
 }

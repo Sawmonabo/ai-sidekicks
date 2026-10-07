@@ -424,7 +424,7 @@ describe("run inbound dispatch", () => {
     expect(fixture.runs.getRun(runId)?.state).toBe("running");
   });
 
-  it("gives a straggler whose association was evicted the closed generation's retained pair, never the current one", async () => {
+  it("reads a straggler whose association was evicted by kind: its row stamped with the closed generation's pair, its lifecycle event and ask current", async () => {
     const runId = await fixture.runThrough(["starting", "running"]);
     const { dispatch, epochs } = openDispatch(1);
     const binding = makeBinding(runId);
@@ -468,5 +468,75 @@ describe("run inbound dispatch", () => {
     });
     expect(afterFence).toEqual({ disposition: "appended" });
     expect(diagnostics.recentRecordsOfKind("epoch_association_evicted")).toHaveLength(1);
+
+    // A live terminal or ask absorbed here would leave the provider waiting, so both are current.
+    const lifecycle = await dispatch({
+      kind: "run_lifecycle",
+      bindingId: binding.id,
+      operation: continuing("evicted-operation"),
+      change: { runId, newState: "waiting_for_approval" },
+    });
+    const ask = await dispatch({
+      kind: "permission_ask",
+      bindingId: binding.id,
+      operation: continuing("evicted-operation"),
+    });
+    expect(lifecycle).toMatchObject({ disposition: "transitioned" });
+    expect(ask).toEqual({ disposition: "ask_admitted" });
+    expect(fixture.runs.getRun(runId)?.state).toBe("waiting_for_approval");
+    expect(absorbedRecords()).toEqual([]);
+  });
+
+  it("records an opening whose key a closed generation holds afresh, so the reused operation is current", async () => {
+    const runId = await fixture.runThrough(["starting", "running"]);
+    const { dispatch, epochs } = openDispatch(2);
+    const binding = makeBinding(runId);
+    epochs.openBinding(binding, { epoch: 0, position: 0 });
+    await openTurns(dispatch, binding.id, 2);
+    for (const key of ["tool-call-1", "old-operation"]) {
+      await dispatch({
+        kind: "session_row",
+        bindingId: binding.id,
+        operation: opening(key),
+        row: usageRow(runId, `${key}-opened`),
+      });
+    }
+    epochs.fenceCut({ mode: "in_place", bindingId: binding.id, point: 1 });
+    await openTurns(dispatch, binding.id, 1);
+
+    // The provider reuses the operation id in the new execution.
+    const reusedAsk = await dispatch({
+      kind: "permission_ask",
+      bindingId: binding.id,
+      operation: opening("tool-call-1"),
+    });
+    // At the cap, the oldest association goes: the old operation, not the reused one.
+    await dispatch({
+      kind: "session_row",
+      bindingId: binding.id,
+      operation: opening("new-operation"),
+      row: usageRow(runId, "new-operation-opened"),
+    });
+    const lifecycle = await dispatch({
+      kind: "run_lifecycle",
+      bindingId: binding.id,
+      operation: continuing("tool-call-1"),
+      change: { runId, newState: "waiting_for_approval" },
+    });
+    const row = await dispatch({
+      kind: "session_row",
+      bindingId: binding.id,
+      operation: continuing("tool-call-1"),
+      row: usageRow(runId, "reused-late"),
+    });
+
+    expect(reusedAsk).toEqual({ disposition: "ask_admitted" });
+    expect(lifecycle).toMatchObject({ disposition: "transitioned" });
+    expect(row).toEqual({ disposition: "appended" });
+    expect(readUsageRows().get("reused-late")).not.toHaveProperty("sourceEpoch");
+    expect(absorbedRecords()).toEqual([]);
+    expect(
+      diagnostics.recentRecordsOfKind("epoch_association_evicted").map((record) => record.details),
+    ).toEqual([expect.objectContaining({ evictedEpoch: 0 })]);
   });
 });

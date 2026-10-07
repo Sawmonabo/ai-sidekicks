@@ -147,6 +147,8 @@ export class RunInboundDispatch {
     if (delivery.kind === "session_row") {
       return this.#appendRow(delivery.row, attribution, { content: delivery.content });
     }
+    // An unknown execution reads as current here: absorbing a live terminal or ask would leave the
+    // provider waiting on it for good.
     if (attribution.execution === "before_cut") {
       return this.#absorb(delivery, "before_cut", attribution);
     }
@@ -173,6 +175,7 @@ export class RunInboundDispatch {
       await this.#appender.append(row.type, row.payload, linkage);
       return { disposition: "appended" };
     }
+    // A row that may be from before the cut is stamped too, since a stamp only supersedes it.
     const { source } = attribution;
     const stamped = {
       ...row.payload,
