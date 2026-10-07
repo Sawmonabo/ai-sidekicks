@@ -18,13 +18,9 @@
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-artifact-row__producer,
-.meridian-artifact-row__age {
-  color: var(--meridian-text-muted);
-}
-
 .meridian-artifact-row__age {
   margin-inline-start: auto;
+  color: var(--meridian-text-muted);
 }
 
 .meridian-artifact-row__acts {

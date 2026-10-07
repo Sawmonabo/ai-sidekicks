@@ -9,7 +9,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity, formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../model.js";
-import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../copy.js";
+import { ARTIFACT_STATE_TONES } from "../copy.js";
 
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
@@ -39,9 +39,6 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         <span>
           {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
-        </span>
-        <span className="meridian-artifact-row__producer">
-          by <DerivedFigure text={artifactProducerLabel(row)} />
         </span>
         <span className="meridian-artifact-row__age" title={row.createdAt}>
           <DerivedFigure text={formatRelativeTime(row.createdAt, props.nowMilliseconds)} />

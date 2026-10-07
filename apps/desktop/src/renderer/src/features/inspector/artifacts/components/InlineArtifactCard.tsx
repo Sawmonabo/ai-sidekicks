@@ -9,12 +9,11 @@ import "./InlineArtifactCard.css";
 import { useId } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../model.js";
-import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../copy.js";
+import { ARTIFACT_STATE_TONES } from "../copy.js";
 import type { ArtifactInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 
@@ -51,7 +50,6 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
               value={formatByteQuantity(manifest.size).text}
               title={String(manifest.size)}
             />
-            <DerivedFigure text={`by ${artifactProducerLabel(manifest)}`} />
           </div>
         </div>
       )}
