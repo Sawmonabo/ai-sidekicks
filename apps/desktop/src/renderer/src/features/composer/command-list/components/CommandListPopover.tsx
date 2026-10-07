@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
 import { createConsoleCommandExecutor } from "../console/executor.js";
@@ -66,7 +66,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const listId = useId();
   const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
-  const scrollerScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
   // Set by a press that could not be honored; cleared by the next move or act.

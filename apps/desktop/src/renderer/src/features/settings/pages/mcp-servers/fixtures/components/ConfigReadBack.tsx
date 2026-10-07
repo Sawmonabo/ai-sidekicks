@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/server";
 import { SERVER_TRANSPORT_WORDS } from "../../transport-words.js";
 
@@ -95,7 +95,7 @@ function WireStringGroup(props: {
   readonly positional: boolean;
 }): ReactNode {
   const { caption, entries, positional } = props;
-  const scrollerRef = useOverlayScrollbar<HTMLDivElement>();
+  const scrollerRef = useDrawOverlayScrollbar<HTMLDivElement>();
   if (entries === undefined || entries.length === 0) {
     return null;
   }

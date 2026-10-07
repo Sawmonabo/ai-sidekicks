@@ -23,6 +23,7 @@ import { FIRST_RUN_SCENARIO_ID } from "#fixtures/scenarios/first-run.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
 import { FrameWindows } from "../helpers/frame-windows.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
+import { untilInsideAct } from "../helpers/settle.js";
 
 const SAFE_START_LINE = "The app restarted after repeated problems and did not reopen its windows.";
 
@@ -76,16 +77,6 @@ function standInForMain(scenarioId: string): MainStandIn {
       }
     },
   };
-}
-
-/**
- * Wait inside `act` until `assertion` holds, so the state the app's own reads settle while it
- * waits is flushed by React, not reported as an update outside `act`.
- */
-async function untilInsideAct(assertion: () => PromiseLike<void>): Promise<void> {
-  await act(async () => {
-    await assertion();
-  });
 }
 
 async function deleteUiStateDatabase(): Promise<void> {

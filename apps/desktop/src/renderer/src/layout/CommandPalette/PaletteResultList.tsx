@@ -7,7 +7,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRef, type ReactNode } from "react";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
 import { type ChordPlatform } from "#renderer/lib/chord-format.js";
@@ -53,7 +53,7 @@ export interface PaletteResultListProps {
 export function PaletteResultList(props: PaletteResultListProps): React.JSX.Element {
   const { rows, context, platform, bindings, onRunResult } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef);
+  const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef);
   const clock = useBridgeClock();
   const ownerWindow = useOwnerWindow();
   // Rows are measured once drawn, so the estimate is only a first guess and the sheet stays the
@@ -74,13 +74,11 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
   });
 
   return (
-    <Combobox.List
-      ref={scrollerScrollbarRef}
-      className="command-palette__list meridian-focus-inset"
-    >
+    // The bar is drawn inside the scroller, so the scroller is not the listbox: a listbox holds
+    // only its groups and options.
+    <div ref={scrollerScrollbarRef} className="command-palette__list meridian-focus-inset">
       {/* Holds the whole height so the scrollbar spans every match; rows sit at their offsets. */}
-      <div
-        role="presentation"
+      <Combobox.List
         className="command-palette__rows"
         style={{ blockSize: virtualizer.getTotalSize() }}
       >
@@ -153,8 +151,8 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
             })}
           </Combobox.Group>
         ))}
-      </div>
-    </Combobox.List>
+      </Combobox.List>
+    </div>
   );
 }
 

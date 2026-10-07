@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import {
   listClippedHeadRowIds,
   resolveRunGroupBodyHeight,
@@ -38,7 +38,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
   );
   // Held, not derived; written only when the offset crosses the top, not per wheel notch.
   const [isClippedAbove, setIsClippedAbove] = useState(false);
-  const scrollerScrollbarRef = useOverlayScrollbar<HTMLDivElement>(undefined, {
+  const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>(undefined, {
     start: "on-first-interaction",
   });
   if (contents.rows.length === 0 && contents.unheldRowCount === 0) {

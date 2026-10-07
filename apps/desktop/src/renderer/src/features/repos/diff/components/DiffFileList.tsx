@@ -5,7 +5,7 @@ import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubject
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { useWindowedRovingIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -40,7 +40,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const isScrolling = props.diff.files.length > DIFF_FILE_LIST_SCROLL_THRESHOLD;
   // A list under the threshold never scrolls, so it attaches no bar.
-  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef, { isEnabled: isScrolling });
+  const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef, { isEnabled: isScrolling });
   const clock = useBridgeClock();
 
   const { entries, matchCount } = useMemo(

@@ -6,7 +6,7 @@
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { workflowDefinitionCandidates } from "../definition/match.js";
 import "./WorkflowStartCandidates.css";
 
@@ -25,7 +25,7 @@ export interface WorkflowStartCandidatesProps {
 /** The candidate list, for the caller to mount while a `/workflow run` argument is open. */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
-  const listScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const listScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   return (
     <div className="meridian-workflow-start__candidates">
       {renderReading(definitions, complete, typedPrefix, onComplete, listScrollbarRef)}

@@ -1,7 +1,9 @@
 // The accessibility tier over scrollers with their overlay bars started and showing: the library
-// appends its bars inside the scroller, so a bar inside a list would be a child the list may not
-// hold. A pointer move over each scroller starts a bar that waits for one and shows it before axe
-// runs. The negative control is a list that is itself the scroller, which axe must report.
+// appends its bars inside the scroller, so a bar inside a list or a table would be a child it may
+// not hold. A pointer move over each scroller starts a bar that waits for one and shows it before
+// axe runs: Review's file list and a payload, then Review's diff and the command palette's list,
+// each a table or a listbox inside its scroller. The negative control is a list that is itself
+// the scroller, which axe must report.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,6 +22,10 @@ import {
 } from "#renderer/lib/overlay-scrollbar-library.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { scenarioBridgeAndStore } from "./feature-mounts/repos/fixtures.js";
+import { mountDiffPane } from "./feature-mounts/repos/views.js";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { CommandPalette } from "#renderer/layout/CommandPalette/CommandPalette.js";
+import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 /** How long a bar may take to start and show: the library's load plus its window's idle time. */
@@ -28,6 +34,9 @@ const BAR_SHOWN_TIMEOUT_MS = 5000;
 /** A vertical bar the library is showing, not one faded out or with nothing to scroll. */
 const SHOWN_VERTICAL_BAR =
   ".os-scrollbar-vertical:not(.os-scrollbar-auto-hide-hidden):not(.os-scrollbar-unusable)";
+
+/** More commands than the palette's list shows, so it scrolls. */
+const PALETTE_COMMAND_COUNT = 120;
 
 afterEach(() => {
   cleanup();
@@ -113,5 +122,55 @@ describe("accessibility — the overlay scrollbar", () => {
       "list (serious): .list-scroller",
     ]);
     forced.destroy();
+  });
+
+  it("has no axe violation with the bars of Review's diff and the command palette's list showing", async () => {
+    installMeridianTokens(document);
+    installOverlayScrollbarLibrary(document);
+    const diffPane = await mountDiffPane();
+    const registry = new CommandRegistry();
+    registry.registerAll(
+      Array.from({ length: PALETTE_COMMAND_COUNT }, (_unused, ordinal) => ({
+        id: `test.command.${String(ordinal)}`,
+        title: `A command ${String(ordinal).padStart(3, "0")}`,
+        group: "Commands",
+        run: () => undefined,
+      })),
+    );
+    const BridgeHost = liveBridgeWrapper();
+    await renderSettled(
+      <BridgeHost>
+        <CommandPalette
+          registry={registry}
+          context={{
+            sessionActive: false,
+            onSessions: true,
+            onSession: false,
+            onWorkflows: false,
+            onSettings: false,
+          }}
+          open
+          onOpenChange={() => undefined}
+          platform="darwin"
+        />
+      </BridgeHost>,
+    );
+    const diff = diffPane.element.querySelector<HTMLElement>(".meridian-diff");
+    const paletteList = document.querySelector<HTMLElement>(".command-palette__list");
+    const palettePopup = paletteList?.closest<HTMLElement>(".command-palette__popup");
+    if (
+      diff === null ||
+      paletteList === null ||
+      palettePopup === null ||
+      palettePopup === undefined
+    ) {
+      throw new Error("the diff or the palette drew no scroller");
+    }
+    // The pane holds the diff to a height, so its rows overflow it.
+    diff.style.maxBlockSize = "8rem";
+    await showEveryBar([diff, paletteList]);
+
+    expect(describeViolations(await runTierAxe(diffPane.element))).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(palettePopup))).toStrictEqual([]);
   });
 });

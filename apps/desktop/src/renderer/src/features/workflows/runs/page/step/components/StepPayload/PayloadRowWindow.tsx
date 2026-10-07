@@ -9,7 +9,7 @@ import "./PayloadRowWindow.css";
 import { useRef } from "react";
 
 import { CornerCaps, type CornerCapCorner } from "#renderer/components/CornerCaps/CornerCaps.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -31,7 +31,9 @@ export interface PayloadRowWindowProps {
 /** A payload's rows in one scroll box, drawn only where the reader is. */
 export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef, { start: "on-first-interaction" });
+  const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef, {
+    start: "on-first-interaction",
+  });
   const clock = useBridgeClock();
   const { virtualizer } = useRowWindow({
     rowCount: props.rowCount,

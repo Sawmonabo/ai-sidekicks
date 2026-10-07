@@ -37,7 +37,8 @@ export interface OverlayScrollbarSettings {
   readonly start?: OverlayScrollbarStart;
   /**
    * `false` attaches nothing and leaves the platform's bar, for a scroller that only scrolls
-   * past a size; flipping it attaches or detaches the bar. Defaults to `true`.
+   * past a size or a box whose content scrolls inside it; flipping it attaches or detaches the
+   * bar. Defaults to `true`.
    */
   readonly isEnabled?: boolean;
 }
@@ -47,7 +48,7 @@ export interface OverlayScrollbarSettings {
  * `elementRef` when the caller needs the scroller itself, such as a virtualizer's scroll element.
  * A window whose library copy failed to load keeps the platform's bar.
  */
-export function useOverlayScrollbar<TElement extends HTMLElement>(
+export function useDrawOverlayScrollbar<TElement extends HTMLElement>(
   elementRef?: React.RefObject<TElement | null>,
   settings?: OverlayScrollbarSettings,
 ): React.RefCallback<TElement> {

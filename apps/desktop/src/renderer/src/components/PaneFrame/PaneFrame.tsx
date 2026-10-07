@@ -12,7 +12,7 @@ import { useId } from "react";
 
 import { CornerCaps, type CornerCapCorner } from "../CornerCaps/CornerCaps.js";
 import { Glyph } from "../Glyph/Glyph.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
@@ -90,8 +90,11 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
-  const bodyScrollbarRef = useOverlayScrollbar<HTMLDivElement>(undefined, {
+  // The conversation draws no bar, its right edge being the ask rail's, so the transcript's body
+  // attaches none either.
+  const bodyScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>(undefined, {
     start: "on-first-interaction",
+    isEnabled: props.kind !== "transcript",
   });
 
   return (

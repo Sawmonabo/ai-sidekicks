@@ -14,7 +14,7 @@ import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -48,7 +48,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
   const pageIds = useMemo(() => pages.map((page) => page.pageId), [pages]);
   const clock = useClock();
   const announce = useAnnounce();
-  const stripScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const stripScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   const [menuTarget, setMenuTarget] = useState<PageTabMenuTarget | undefined>(undefined);
   // The one commit a drop and a menu row make: the live region names where the tab landed, or
   // reads the refusal's own sentence. A canceled drag commits nothing, so it says nothing.

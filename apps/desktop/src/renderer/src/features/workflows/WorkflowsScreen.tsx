@@ -7,7 +7,7 @@
 import "./WorkflowsScreen.css";
 
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RunsStrip } from "./components/RunsStrip.js";
 import { WorkflowCommandTargetsContext, type WorkflowCommandTargets } from "./command-target.js";
@@ -24,7 +24,7 @@ export function WorkflowsScreen(props: {
   const { listState, runCountState, openRunId } = screen;
   const { route } = props.context;
   const isOnRunsTab = route.kind === "workflows" && route.tab === "runs";
-  const destinationScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const destinationScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   return (
     <WorkflowCommandTargetsContext.Provider value={props.commandTargets}>
       <div className="meridian-workflows-destination" ref={destinationScrollbarRef}>

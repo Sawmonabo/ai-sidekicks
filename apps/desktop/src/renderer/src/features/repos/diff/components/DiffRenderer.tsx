@@ -8,7 +8,7 @@ import "./DiffRenderer.css";
 import { useMemo, useRef } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
@@ -42,7 +42,7 @@ export interface DiffRendererProps {
 /** The diff as one virtualized scroller of file headers and rows. */
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef);
+  const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef);
   const clock = useBridgeClock();
 
   // Re-flattened only when the diff, expansion, shown file or view mode changes, not per scroll.
@@ -103,11 +103,11 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     <div
       className={className}
       ref={scrollerScrollbarRef}
-      // Focusable so the diff can be read with a keyboard.
+      // Focusable so the diff can be read with a keyboard. A region, not the table: the bar is
+      // drawn inside the scroller, and a table holds only its rows.
       tabIndex={0}
-      role="table"
+      role="region"
       aria-label={props.label}
-      aria-rowcount={index.rowCount}
       // The row height has one home, `measures.ts`; the sheet reads it from here so the
       // window arithmetic and the painted rows cannot disagree.
       style={
@@ -120,7 +120,13 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       {/* The content box holds the full height so the scrollbar spans the whole diff, and the
           leading spacer puts the window at its offset. Rows stay in flow rather than absolutely
           positioned, so a screen reader can walk them. */}
-      <div className="meridian-diff__content" style={{ blockSize: virtualizer.getTotalSize() }}>
+      <div
+        className="meridian-diff__content"
+        role="table"
+        aria-label={props.label}
+        aria-rowcount={index.rowCount}
+        style={{ blockSize: virtualizer.getTotalSize() }}
+      >
         <div
           className="meridian-diff__window"
           style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}

@@ -1,13 +1,24 @@
-// Every scroller on screen but the conversation draws its bar over its content, through its own
-// window's copy of the overlay scrollbar library, and the conversation draws none: no scroller
-// shows the platform's bar. Measured in Chromium on the real app in a short window, where the
-// screens overflow, after a pointer move over each scroller, which starts a bar that waits for
-// one; a plain scroller planted beside them, and an overlay forced onto the conversation, are the
-// negative controls the sweep must report. A payload whose text changes keeps its bar, which
-// React's `textContent` write would delete from a box holding bare text. A window whose library
-// copy fails to load gives its scrollers the platform's bar back and records the failure once.
+// The overlay scrollbar in Chromium, through each window's own copy of the library.
+//
+// Each rail destination and settings page, opened in a short window, draws the bar of every
+// scroller it overflows over its content, and the conversation draws none: no scroller shows the
+// platform's bar. The window is shorter than a desktop window's floor so every screen overflows;
+// Remote Control's surfaces run these screens with no window floor at all. The sweep covers what
+// each screen draws on opening, and the scrollers that need a state of their own are covered
+// elsewhere: the draft box's bar in the text-box tier, Review's diff and the command palette's list
+// with their bars showing in the accessibility tier, and all three scrolled in the endurance tier.
+// A plain scroller planted beside them, and an overlay forced onto the conversation, are the
+// negative controls the sweep must report.
+//
+// A row's scroller, a payload and a pane's body wait for a first pointer move, wheel, scroll or
+// focus past the deadline an idle start keeps, and the transcript's pane body attaches no bar at
+// all; a bar that starts when its window is idle starts by its deadline in a window that never
+// idles, which an idle callback with no deadline, never run, shows. A payload whose text changes
+// keeps its bar, which React's `textContent` write would delete from a box holding bare text. A
+// window whose library copy fails to load gives its scrollers the platform's bar back and records
+// the failure once.
 
-import { act, cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
@@ -17,9 +28,18 @@ import {
   TRANSCRIPT_STATES_SCENARIO_ID,
 } from "#fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { MathBlock } from "#renderer/components/Markdown/MathBlock.js";
 import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
+import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
+import { RunGroupBody } from "#renderer/features/transcript/runs/components/RunGroupBody.js";
+import { groupRowsByRun } from "#renderer/features/transcript/runs/groups.js";
+import { findRunGroup } from "#renderer/features/transcript/runs/groups.test-support.js";
+import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/components/StepPayload/PayloadRowWindow.js";
+import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 import { routeForDestination } from "#renderer/layout/NavigationRail/destinations.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import {
   installOverlayScrollbarLibrary,
@@ -28,9 +48,14 @@ import {
 import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";
 import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import { formatRoute } from "#renderer/routing/routes.js";
+import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
+import { untilInsideAct } from "../helpers/settle.js";
 
-/** A window short enough that every screen holds more than it shows. */
+/**
+ * A window short enough that every screen holds more than it shows: shorter than a desktop
+ * window's floor, as a Remote Control surface may be.
+ */
 const SHORT_WINDOW = { width: 1024, height: 360 };
 
 /** The conversation's scroller, the one that draws no bar at all. */
@@ -53,6 +78,33 @@ const DRAWN_BAR = ".os-scrollbar-visible";
 
 /** The library's marker for an element whose bar has not started. */
 const AWAITING_OVERLAY_ATTRIBUTE = "data-overlayscrollbars-initialize";
+
+/**
+ * The scrollers whose bar waits for a first interaction: a run group's earlier entries, a display
+ * formula, an artifact's payload, a step's payload rows and a pane's body.
+ */
+const WAITING_SCROLLERS = [
+  ".meridian-run-group-body__scroller",
+  ".meridian-math--display",
+  ".meridian-artifact-payload__preview",
+  ".meridian-workflow-payload__window",
+  ".meridian-pane--inspector > .meridian-pane__body",
+] as const;
+
+/** A display formula wider than a narrow column, which no line break narrows. */
+const WIDE_FORMULA = Array.from(
+  { length: 30 },
+  (_unused, index) => String.raw`\frac{a_{${String(index)}}}{b_{${String(index)}}}`,
+).join(" + ");
+
+/** How long the formula may take to typeset: the math library loads on first use. */
+const MATH_TYPESET_TIMEOUT_MS = 5000;
+
+/** How long each task holds a busy window's main thread, in milliseconds. */
+const BUSY_TASK_MS = 20;
+
+/** Past the idle start's deadline, with room for a busy window's task in front of it. */
+const BUSY_WINDOW_START_TIMEOUT_MS = 3000;
 
 /** How long a bar may take to start: the library's load plus its window's idle time. */
 const OVERLAY_START_TIMEOUT_MS = 5000;
@@ -136,13 +188,6 @@ function plantPlainScroller(root: Document): void {
   root.body.append(plainScroller);
 }
 
-/** Wait inside `act` until `assertion` holds, so what the app settles meanwhile is flushed. */
-async function untilInsideAct(assertion: () => PromiseLike<void>): Promise<void> {
-  await act(async () => {
-    await assertion();
-  });
-}
-
 beforeEach(async () => {
   document.location.hash = "";
   await page.viewport(SHORT_WINDOW.width, SHORT_WINDOW.height);
@@ -154,7 +199,8 @@ afterEach(async () => {
 });
 
 describe("the overlay scrollbar", () => {
-  // Every rail destination and every settings page, so a new one is swept the day it is declared.
+  // Every rail destination and every settings page as each opens, so a new one is swept the day
+  // it is declared.
   const routes = [
     ...RAIL_DESTINATIONS.map((destination) =>
       formatRoute(routeForDestination(destination, undefined)),
@@ -162,7 +208,7 @@ describe("the overlay scrollbar", () => {
     ...SETTINGS_PAGE_IDS.map((page) => formatRoute({ kind: "settings", page })),
   ];
   for (const route of routes) {
-    it(`draws every scroller's bar over its content at ${route}`, async () => {
+    it(`draws the bar of every scroller ${route} overflows on opening over its content`, async () => {
       document.location.hash = route;
       const appWindow = await renderAppSettled(TRANSCRIPT_STATES_SCENARIO_ID);
       expect(appWindow.innerHeight).toBe(SHORT_WINDOW.height);
@@ -242,36 +288,110 @@ describe("the overlay scrollbar", () => {
     forced.destroy();
   });
 
+  it("starts no row's, payload's or pane body's bar until a person reaches for it", async () => {
+    installMeridianTokens(document);
+    installOverlayScrollbarLibrary(document);
+    const BridgeHost = liveBridgeWrapper();
+    const runRows = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP * 2 }, (_unused, index) =>
+      runRow({
+        id: `r${String(index + 1)}`,
+        sequence: index + 1,
+        type: "run.running",
+        summary: `entry ${String(index + 1)}`,
+        runId: "run-a",
+        position: index + 1,
+      }),
+    );
+    const { container } = render(
+      <BridgeHost>
+        <div style={{ inlineSize: "30rem" }}>
+          <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
+          <MathBlock source={WIDE_FORMULA} isDisplayMode />
+          <ArtifactPayloadSection payload={textPayload("a payload line\n".repeat(200))} />
+          <PayloadRowWindow
+            rowCount={200}
+            label="Output of a step"
+            className=""
+            renderRow={(rowIndex) => <span>row {rowIndex}</span>}
+          />
+          <div style={{ display: "flex", blockSize: "12rem" }}>
+            <PaneFrame kind="inspector" sessionId="session-overlay-scrollbar">
+              <div style={{ blockSize: "40rem" }}>an inspector body taller than its pane</div>
+            </PaneFrame>
+            <PaneFrame kind="transcript" sessionId="session-overlay-scrollbar">
+              <div style={{ blockSize: "40rem" }}>a conversation taller than its pane</div>
+            </PaneFrame>
+          </div>
+        </div>
+      </BridgeHost>,
+    );
+    await waitFor(
+      () => {
+        expect(container.querySelector(".meridian-math--display math")).not.toBeNull();
+      },
+      { timeout: MATH_TYPESET_TIMEOUT_MS },
+    );
+    const waiting = WAITING_SCROLLERS.map((selector) => requireElement(container, selector));
+    const transcriptBody = requireElement(
+      container,
+      ".meridian-pane--transcript > .meridian-pane__body",
+    );
+
+    // Past the deadline an idle start keeps, each still waits, with the platform's bar hidden.
+    await waitForOverlayScrollbarLibrary(document);
+    await new Promise((resolve) => setTimeout(resolve, IDLE_START_DEADLINE_PASSED_MS));
+    expect(waiting.map(describeStart)).toStrictEqual(WAITING_SCROLLERS.map(() => "waiting"));
+    // The conversation draws no bar, so the transcript's pane body attaches none at all.
+    expect(describeStart(transcriptBody)).toBe("none");
+
+    // A pointer move over each starts its bar inside that event.
+    for (const scroller of [...waiting, transcriptBody]) {
+      scroller.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+    }
+    expect(waiting.map(describeStart)).toStrictEqual(WAITING_SCROLLERS.map(() => "started"));
+    expect(describeStart(transcriptBody)).toBe("none");
+  });
+
+  it("starts a bar by its deadline in a window that never idles", async () => {
+    installMeridianTokens(document);
+    installOverlayScrollbarLibrary(document);
+    await waitForOverlayScrollbarLibrary(document);
+    const busyWindow = keepTheWindowBusy();
+    try {
+      // Negative control: an idle callback with no deadline, asked for beside the bar's start.
+      let idleCallbackRan = false;
+      const idleCallback = requestIdleCallback(() => {
+        idleCallbackRan = true;
+      });
+      const { container } = render(<ScrollerUnderTest />);
+      const scroller = requireElement(container, ".scroller-under-test");
+      await untilInsideAct(() =>
+        expect
+          .poll(() => describeStart(scroller), { timeout: BUSY_WINDOW_START_TIMEOUT_MS })
+          .toBe("started"),
+      );
+      // The window never idled, so the bar started on its deadline and not on an idle period.
+      expect(idleCallbackRan).toBe(false);
+      cancelIdleCallback(idleCallback);
+    } finally {
+      busyWindow.stop();
+    }
+  });
+
   it("keeps a payload's bar when its text changes", async () => {
     installMeridianTokens(document);
     installOverlayScrollbarLibrary(document);
-    const payload = (text: string): React.JSX.Element => (
-      <ArtifactPayloadSection
-        payload={{
-          status: "text",
-          artifactId: "artifact-overlay-scrollbar" as ArtifactId,
-          encoding: "utf8",
-          text,
-        }}
-      />
+    const { container, rerender } = render(
+      <ArtifactPayloadSection payload={textPayload("first line\n".repeat(200))} />,
     );
-    const { container, rerender } = render(payload("first line\n".repeat(200)));
-    const preview = container.querySelector<HTMLElement>(".meridian-artifact-payload__preview");
-    if (preview === null) {
-      throw new Error("the payload section drew no preview");
-    }
-    // A payload row's bar waits for a person to reach for it, past the deadline an idle start
-    // keeps, with the platform's bar hidden meanwhile.
+    const preview = requireElement(container, ".meridian-artifact-payload__preview");
     await waitForOverlayScrollbarLibrary(document);
-    await new Promise((resolve) => setTimeout(resolve, IDLE_START_DEADLINE_PASSED_MS));
-    expect(preview.hasAttribute(OVERLAY_VIEWPORT_ATTRIBUTE)).toBe(false);
-    expect(preview.hasAttribute(AWAITING_OVERLAY_ATTRIBUTE)).toBe(true);
     preview.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
     expect(preview.hasAttribute(OVERLAY_VIEWPORT_ATTRIBUTE)).toBe(true);
     const barCount = preview.querySelectorAll(".os-scrollbar").length;
     expect(barCount).toBeGreaterThan(0);
 
-    rerender(payload("second line\n".repeat(200)));
+    rerender(<ArtifactPayloadSection payload={textPayload("second line\n".repeat(200))} />);
 
     expect(preview.textContent).toContain("second line");
     expect(preview.querySelectorAll(".os-scrollbar").length).toBe(barCount);
@@ -335,9 +455,60 @@ describe("the overlay scrollbar", () => {
   });
 });
 
+/** Whether `scroller`'s bar has started, waits to start, or was never attached. */
+function describeStart(scroller: Element): "started" | "waiting" | "none" {
+  if (scroller.hasAttribute(OVERLAY_VIEWPORT_ATTRIBUTE)) {
+    return "started";
+  }
+  return scroller.hasAttribute(AWAITING_OVERLAY_ATTRIBUTE) ? "waiting" : "none";
+}
+
+function requireElement(root: ParentNode, selector: string): HTMLElement {
+  const element = root.querySelector<HTMLElement>(selector);
+  if (element === null) {
+    throw new Error(`nothing drew ${selector}`);
+  }
+  return element;
+}
+
+/** A payload of text, as an artifact's payload section reads it. */
+function textPayload(text: string): ArtifactPayloadReading {
+  return {
+    status: "text",
+    artifactId: "artifact-overlay-scrollbar" as ArtifactId,
+    encoding: "utf8",
+    text,
+  };
+}
+
+/**
+ * Keeps a task queued on the window at every moment, each holding the main thread for a while, so
+ * no idle period ever comes, until `stop` is called.
+ */
+function keepTheWindowBusy(): { readonly stop: () => void } {
+  const channel = new MessageChannel();
+  let isBusy = true;
+  channel.port1.onmessage = () => {
+    const holdUntil = performance.now() + BUSY_TASK_MS;
+    while (performance.now() < holdUntil) {
+      /* hold the main thread, as a window streaming without a pause does */
+    }
+    if (isBusy) {
+      channel.port2.postMessage(undefined);
+    }
+  };
+  channel.port2.postMessage(undefined);
+  return {
+    stop: () => {
+      isBusy = false;
+      channel.port1.close();
+    },
+  };
+}
+
 /** A plain scroller drawing its bar through the hook, for a window the library cannot reach. */
 function ScrollerUnderTest(): React.JSX.Element {
-  const scrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const scrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   return (
     <div
       className="scroller-under-test"

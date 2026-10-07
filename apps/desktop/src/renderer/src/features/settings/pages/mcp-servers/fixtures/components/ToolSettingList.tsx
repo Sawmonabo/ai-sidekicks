@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
   MCP_APPROVAL_MODES,
@@ -44,7 +44,7 @@ export function ToolSettingList(props: {
   readonly clock: Clock;
 }): ReactNode {
   const { tools, outcomeFor, onChangeTool, sessionDirectory, clock } = props;
-  const scrollerRef = useOverlayScrollbar<HTMLDivElement>();
+  const scrollerRef = useDrawOverlayScrollbar<HTMLDivElement>();
   if (tools.length === 0) {
     return <Nothing kind="empty" placement="inline" title="No tools listed for this server." />;
   }

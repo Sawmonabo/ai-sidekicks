@@ -8,7 +8,7 @@ import "./MathBlock.css";
 import { useEffect, useState } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 
 /** What one formula is drawn from. */
 export interface MathBlockProps {
@@ -21,7 +21,7 @@ export interface MathBlockProps {
 /** A formula typeset by KaTeX, or its source beside an error state when it cannot be. */
 export function MathBlock(props: MathBlockProps): React.JSX.Element {
   const state = useKatexMarkup(props.source, props.isDisplayMode);
-  const displayScrollbarRef = useOverlayScrollbar<HTMLSpanElement>(undefined, {
+  const displayScrollbarRef = useDrawOverlayScrollbar<HTMLSpanElement>(undefined, {
     start: "on-first-interaction",
   });
 

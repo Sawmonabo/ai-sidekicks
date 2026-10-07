@@ -4,7 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
 import {
@@ -33,7 +33,7 @@ export function ServerLegs(props: {
   readonly nowMilliseconds: number;
 }): ReactNode {
   const { legs, sessionDirectory, nowMilliseconds } = props;
-  const scrollerRef = useOverlayScrollbar<HTMLDivElement>();
+  const scrollerRef = useDrawOverlayScrollbar<HTMLDivElement>();
   if (legs === undefined || legs.length === 0) {
     return <Nothing kind="empty" placement="inline" title="No running session uses this server." />;
   }

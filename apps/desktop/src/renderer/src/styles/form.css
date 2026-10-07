@@ -34,12 +34,12 @@
 }
 
 /*
- * A text box, text area or select, or the frame of the box a text area scrolls in. Its edge is the
- * strong one, since a control's boundary holds the 3:1 non-text floor that the quiet edge does
- * not.
+ * A one-line input or a select, or the frame of a text box, the box a text area scrolls in. Its
+ * edge is the strong one, since a control's boundary holds the 3:1 non-text floor that the quiet
+ * edge does not.
  */
 :where(.meridian-form__input) {
-  /* Named as a text box reads it, since a text box wears it on the scroller inside its edge. */
+  /* Named as a text box reads it, since a text box wears it on the scroller inside its frame. */
   --meridian-text-box-padding: var(--meridian-space-1) var(--meridian-space-2);
   font: inherit;
   font-size: var(--meridian-text-sm);

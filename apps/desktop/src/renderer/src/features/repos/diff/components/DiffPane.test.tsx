@@ -41,9 +41,11 @@ describe("diff pane — the file list and the rows", () => {
       />,
       { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
-    const before = container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount");
+    const before = container
+      .querySelector(".meridian-diff__content")
+      ?.getAttribute("aria-rowcount");
     fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
-    const after = container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount");
+    const after = container.querySelector(".meridian-diff__content")?.getAttribute("aria-rowcount");
     expect(Number(after)).toBeLessThan(Number(before));
     expect(container.querySelector(".meridian-diff__row--file")?.textContent).toContain(
       "module-01.ts",
