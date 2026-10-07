@@ -21,8 +21,12 @@
   border-radius: var(--meridian-radius-md);
 }
 
-/* Grows to the row cap in `bounds.ts`, then scrolls inside its own box. */
+/*
+ * Grows to the row cap in `bounds.ts` or a third of the session screen's height, whichever is
+ * smaller, then scrolls inside its own box: a short window keeps the conversation its room.
+ */
 .meridian-composer__line {
+  --meridian-text-box-height-cap: calc(100cqh / 3);
   padding: var(--meridian-space-2);
   color: var(--meridian-text);
   font: inherit;

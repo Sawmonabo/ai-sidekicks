@@ -149,9 +149,8 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
 export const WINDOW_HEIGHT_FLOOR_REM = 40;
 
 /**
- * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the most whole
- * rows whose height stays within a third of the window's height floor, since an enumeration taking
- * more leaves nothing else on screen.
+ * The most whole rows a bounded enumeration shows whose height fits within a third of the
+ * window's height floor.
  */
 export const BOUNDED_ENUMERATION_MAX_ROWS: number = Math.floor(
   WINDOW_HEIGHT_FLOOR_REM / 3 / ENUMERATION_ROW_HEIGHT_REM,

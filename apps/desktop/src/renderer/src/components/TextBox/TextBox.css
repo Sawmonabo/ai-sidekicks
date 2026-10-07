@@ -14,10 +14,17 @@
   cursor: default;
 }
 
+/*
+ * A caller may cap a growing box lower than its row count through
+ * `--meridian-text-box-height-cap`, such as a share of its container's height.
+ */
 .meridian-text-box--grows {
   block-size: auto;
   min-block-size: calc(var(--meridian-text-box-rows) * 1lh);
-  max-block-size: calc(var(--meridian-text-box-max-rows) * 1lh);
+  max-block-size: min(
+    calc(var(--meridian-text-box-max-rows) * 1lh),
+    var(--meridian-text-box-height-cap, calc(infinity * 1px))
+  );
 }
 
 /*

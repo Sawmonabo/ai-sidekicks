@@ -2,9 +2,11 @@
 
 /*
  * Head, pane layout, composer. `minmax(0, 1fr)` lets the panes scroll instead of pushing
- * the composer off the bottom.
+ * the composer off the bottom. A size container, so the composer's draft can cap itself at a
+ * share of the screen's height; the grid around it sets that height, never its content.
  */
 .meridian-session-screen {
+  container-type: size;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
