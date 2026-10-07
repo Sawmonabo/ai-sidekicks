@@ -13,6 +13,7 @@ import { ProviderCommandEnumeration } from "./command-list/provider/enumeration.
 import { WorkflowStartPrefillQuestion } from "./command-list/workflow/components/WorkflowStartPrefillQuestion.js";
 import { useWorkflowStartPrefill } from "./command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import { composerDraftKey } from "./draft-line/draft-key.js";
+import { useCarryComposerChromeHeight } from "./hooks/useCarryComposerChromeHeight.js";
 import { useComposerAddress } from "./hooks/useComposerAddress.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
 import "./Composer.css";
@@ -36,6 +37,8 @@ const enumerationDisposal: SubjectScopedDisposal<ProviderCommandEnumeration> = {
 /** The composer for one session. */
 export function MessageComposer(props: ComposerProps): React.JSX.Element {
   const regionRef = useRef<HTMLElement | null>(null);
+  const draftScrollerRef = useRef<HTMLDivElement | null>(null);
+  useCarryComposerChromeHeight(regionRef, draftScrollerRef);
   // One holder per addressed composer, never shared across sessions (the enumeration is not
   // cached). It survives a bridge swap under the same session: the holder's key compares the
   // bridge by identity, so a replaced bridge re-reads instead of serving the old catalog. Held as
@@ -54,7 +57,7 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
   return (
     <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>
       <WorkflowStartPrefillQuestion prompt={prefillPrompt} />
-      <DraftLine {...props} />
+      <DraftLine {...props} scrollerRef={draftScrollerRef} />
       <CommandList {...props} region={regionRef} commandEnumeration={commandEnumeration} />
       <ComposerToolbar {...props} />
     </section>

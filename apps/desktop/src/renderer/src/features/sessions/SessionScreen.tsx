@@ -10,9 +10,10 @@
 // remounted between two open sessions, so banners are scoped to (bridge, session): the
 // arriving session reads an empty column, and a bridge replacement clears it too.
 //
-// The screen carries its own height as a custom property, so the composer's draft can cap itself
-// at a share of it. It is measured on resize only: a size container would make every layout pass
-// under the screen dearer, and the streaming transcript lays out on most frames.
+// The screen carries the height its pane layout and composer share as a custom property, so the
+// composer's draft can cap itself at a share of the conversation's. It is measured on resize only:
+// a size container would make every layout pass under the screen dearer, and the streaming
+// transcript lays out on most frames.
 
 import "./SessionScreen.css";
 
@@ -177,7 +178,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
-    <div className="meridian-session-screen" ref={carryScreenHeight}>
+    <div className="meridian-session-screen" ref={carryFlowHeight}>
       <div className="meridian-session-screen__head">
         <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
         {banners.map((banner) => (
@@ -204,17 +205,33 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   );
 }
 
-/** Write the screen's height onto it as `--meridian-session-screen-height` on every resize. */
-function carryScreenHeight(screen: HTMLElement | null): (() => void) | undefined {
+/**
+ * Write the height the pane layout and the composer share onto the screen as
+ * `--meridian-session-flow-height`. The pane layout's row takes up whatever the head and the
+ * composer leave, so it resizes whenever any of them does, and is the one box observed; the sum
+ * holds still while the draft grows, since the draft's growth comes out of that row.
+ */
+function carryFlowHeight(screen: HTMLElement | null): (() => void) | undefined {
   if (screen === null) {
     // A ref callback that returned a cleanup is never called with null.
     return undefined;
   }
-  return observeElementResize(screen, () => {
-    screen.style.setProperty(
-      "--meridian-session-screen-height",
-      `${String(screen.getBoundingClientRect().height)}px`,
+  const paneLayout = screen.querySelector(":scope > .meridian-pane-layout");
+  if (paneLayout === null) {
+    throw new Error("The session screen drew no pane layout to measure.");
+  }
+  return observeElementResize(paneLayout, () => {
+    const composer = screen.querySelector<HTMLElement>(
+      ":scope > .meridian-session-screen__composer",
     );
+    // The composer's box inside its top edge, fractional: a rounded height would move the sum as
+    // the draft grows.
+    const composerHeight =
+      composer === null
+        ? 0
+        : composer.getBoundingClientRect().height - (composer.offsetHeight - composer.clientHeight);
+    const flowHeight = paneLayout.getBoundingClientRect().height + composerHeight;
+    screen.style.setProperty("--meridian-session-flow-height", `${String(flowHeight)}px`);
   });
 }
 

@@ -2,8 +2,9 @@
 
 /*
  * Head, pane layout, composer. `minmax(0, 1fr)` lets the panes scroll instead of pushing
- * the composer off the bottom. `SessionScreen.tsx` writes the screen's height onto it as
- * `--meridian-session-screen-height`, so the composer's draft can cap itself at a share of it.
+ * the composer off the bottom. `SessionScreen.tsx` writes the height the pane layout and the
+ * composer share onto it as `--meridian-session-flow-height`, so the composer's draft can cap
+ * itself at a share of the conversation's.
  */
 .meridian-session-screen {
   display: grid;

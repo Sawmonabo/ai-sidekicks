@@ -16,7 +16,7 @@ export const COMPOSER_RETAINED_ADDRESS_CAP = 12;
 
 /**
  * The most lines the draft line grows to before it scrolls; `Composer.css` caps it lower when a
- * third of the session screen's height is shorter.
+ * third of the conversation's visible height is shorter.
  */
 export const COMPOSER_DRAFT_MAX_ROWS = 8;
 

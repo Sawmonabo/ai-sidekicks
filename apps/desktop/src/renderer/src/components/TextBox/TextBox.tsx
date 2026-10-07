@@ -12,7 +12,7 @@ import "./TextBox.css";
 
 import { useRef } from "react";
 
-import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 
 /** Props for `TextBox`: the box's classes and height, and everything a text area takes. */
 export interface TextBoxProps extends Omit<
@@ -36,15 +36,18 @@ export interface TextBoxProps extends Omit<
   readonly maxRows?: number;
   /** The text area itself, for a caller that puts the caret in it. */
   readonly fieldRef?: React.RefObject<HTMLTextAreaElement | null>;
+  /** The box that scrolls, for a caller that measures how much of the text it shows. */
+  readonly scrollerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 /** A multi-line text box that scrolls in its own box, measured in lines of its own text. */
 export function TextBox(props: TextBoxProps): React.JSX.Element {
-  const { className, fieldClassName, rows, maxRows, fieldRef, ...fieldProps } = props;
+  const { className, fieldClassName, rows, maxRows, fieldRef, scrollerRef, ...fieldProps } = props;
   const ownFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const textAreaRef = fieldRef ?? ownFieldRef;
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const scrollbarRef = useOverlayScrollbar(scrollerRef);
+  const ownScrollerRef = useRef<HTMLDivElement | null>(null);
+  const boxScrollerRef = scrollerRef ?? ownScrollerRef;
+  const scrollbarRef = useDrawOverlayScrollbar(boxScrollerRef);
   const sizeClassName = maxRows === undefined ? "" : " meridian-text-box--grows";
   const lines: TextBoxLines = {
     "--meridian-text-box-rows": String(rows),
@@ -59,7 +62,7 @@ export function TextBox(props: TextBoxProps): React.JSX.Element {
         // The frame's edge and the scroller's padding lie outside the text area; a click there
         // still puts the caret in it. A click, not a press, so a press on the resize grip still
         // drags it.
-        if (event.target === event.currentTarget || event.target === scrollerRef.current) {
+        if (event.target === event.currentTarget || event.target === boxScrollerRef.current) {
           textAreaRef.current?.focus();
         }
       }}

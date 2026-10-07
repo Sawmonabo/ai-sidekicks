@@ -22,14 +22,17 @@
 }
 
 /*
- * Grows to the row cap in `bounds.ts` or a third of the session screen's height, whichever is
- * smaller, then scrolls inside its own box: a short window keeps the conversation its room. The
- * third includes the screen's head, which sizes from its header, banners and catching-up line
- * and has no height of its own to subtract. Before the screen has measured itself, the row cap
- * holds alone.
+ * Grows to the row cap in `bounds.ts` or a third of the conversation's visible height, whichever
+ * is smaller, then scrolls inside its own box: a short window keeps the conversation its room. The
+ * conversation's pane row and the composer share the session screen's flow height, so the row is
+ * that height less the composer's chrome and the draft; a draft a third of what remains is a
+ * quarter of the flow less the chrome. Until the screen and the composer have measured themselves,
+ * the row cap holds alone.
  */
 .meridian-composer__line {
-  --meridian-text-box-height-cap: calc(var(--meridian-session-screen-height) / 3);
+  --meridian-text-box-height-cap: calc(
+    (var(--meridian-session-flow-height) - var(--meridian-composer-chrome-height)) / 4
+  );
   --meridian-text-box-padding: var(--meridian-space-2);
   color: var(--meridian-text);
   font: inherit;
