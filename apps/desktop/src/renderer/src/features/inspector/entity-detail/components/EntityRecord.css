@@ -7,7 +7,8 @@
   min-width: 0;
 }
 
-/* One line at rest, wrapping rather than truncating: a clipped identifier is the wrong one. */
+/* One line at rest; an identifier longer than the record truncates and carries itself as its
+   hover title. */
 .meridian-entity-record__head {
   display: flex;
   flex-wrap: wrap;
@@ -52,10 +53,13 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* One line: a value longer than its column truncates and carries its whole text as its title. */
 .meridian-entity-record__value {
   min-width: 0;
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A note is the record speaking about itself; quiet, never mistakable for a value. */

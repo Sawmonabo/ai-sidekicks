@@ -1,10 +1,13 @@
 // The window's floor and the frame's three tracks, measured in Chromium, since happy-dom has no
-// layout. The floor the frame reports is recomputed from its parts when the text size changes, and
-// a window held at that floor still fits the rail, the open sessions track and one session view
-// side by side with nothing scrolling sideways; one rem narrower, the session view no longer fits.
-// At the floor the agent library keeps its two columns and an entity record keeps each label
-// beside its value, with nothing overflowing or overlapping; a box planted too wide, one planted
-// over a row, and a record narrower than its label column are the negative controls.
+// layout. The floor the frame reports is recomputed from its parts when the text size changes, its
+// root-relative parts growing and the pane term holding in px, and a window held at that floor
+// gives the rail, the open sessions track and a column as wide as the conversation's floor and one
+// pane, measured as laid out, with nothing scrolling sideways; one rem narrower, the column no
+// longer holds them. A closed track takes no width, where an open one does. At the floor the agent
+// library keeps its two columns and an entity record keeps each label beside its value on one
+// line, a long value truncated with its whole text as its title, with nothing overflowing or
+// overlapping; a box planted too wide, one planted over a row, a short value that is not cut, and
+// a record narrower than its label column are the negative controls.
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +21,7 @@ import {
 } from "#renderer/features/agents/library/AgentLibrary.test-support.js";
 import { EntityRecord } from "#renderer/features/inspector/entity-detail/components/EntityRecord.js";
 import { wireFacet } from "#renderer/features/inspector/entity-detail/facets.js";
+import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/pane-layout/measures.js";
 import { AppFrame } from "#renderer/layout/AppShell/AppFrame.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
 import type { WindowSize } from "#shared/window/size.js";
@@ -30,16 +34,13 @@ const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ?
 /** The tier's own window, restored after each case so the next file starts at it. */
 const tierViewport = { width: window.innerWidth, height: window.innerHeight };
 
-/** A wire value with no break opportunity in it, which only a wrapping value column holds. */
+/** A wire value with no break opportunity in it, longer than any record is wide. */
 const UNBREAKABLE_WIRE_VALUE = "f".repeat(96);
 
-/**
- * Mounts the frame with tokens installed, recording every floor it reports. The screen region
- * holds `screen`, or by default a box as wide as one session view at its floor.
- */
+/** Mounts the frame with tokens installed and `screen` in it, recording every floor it reports. */
 async function renderFrame(
   sessionsTrack?: React.ReactNode,
-  screen: React.ReactNode = <SessionViewAtItsFloor />,
+  screen: React.ReactNode = <p>the screen</p>,
 ): Promise<readonly WindowSize[]> {
   installMeridianTokens(document);
   const floors: WindowSize[] = [];
@@ -59,19 +60,6 @@ async function renderFrame(
   );
   await expect.poll(() => floors.length).toBe(1);
   return floors;
-}
-
-/** Sized by the tokens one session view is built from: the conversation at its floor beside
- * the agents pane, the widest pane. */
-function SessionViewAtItsFloor(): React.JSX.Element {
-  return (
-    <div
-      style={{
-        inlineSize: "calc(var(--meridian-conversation-floor) + var(--meridian-agents-pane-width))",
-        blockSize: "1rem",
-      }}
-    />
-  );
 }
 
 /** Mounts the frame with its sessions track open and `screen` in it, held at the window's floor. */
@@ -135,6 +123,16 @@ function elementOf<TElement extends Element>(root: ParentNode, selector: string)
   return element;
 }
 
+/** How wide `inlineSize` lays out inside `parent`, in CSS px, read off a box sized by it. */
+function laidOutWidth(parent: Element, inlineSize: string): number {
+  const box = document.createElement("div");
+  box.style.inlineSize = inlineSize;
+  parent.append(box);
+  const width = box.getBoundingClientRect().width;
+  box.remove();
+  return width;
+}
+
 function boxOf(selector: string): DOMRect {
   const element = document.querySelector(selector);
   if (element === null) {
@@ -162,19 +160,23 @@ afterEach(async () => {
 });
 
 describe("the window floor", () => {
-  it("is reported again, in proportion, when the text size changes", async () => {
+  it("is reported again when the text size changes, its pane term holding in px", async () => {
     const floors = await renderFrame();
     applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, textSize: LARGEST_TEXT_SIZE });
 
     await expect.poll(() => floors.length).toBe(2);
     const [atDefault, atLargest] = floors;
     const growth = LARGEST_TEXT_SIZE / DEFAULT_APPEARANCE_RECORD.textSize;
-    // Headless Chromium has no title-bar inset, so every part of the floor is root-relative.
-    expect(atLargest?.width).toBeCloseTo((atDefault?.width ?? 0) * growth, 3);
+    // Headless Chromium has no title-bar inset, so every part but the pane term is root-relative.
+    const paneTerm = PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX;
+    expect((atLargest?.width ?? 0) - paneTerm).toBeCloseTo(
+      ((atDefault?.width ?? 0) - paneTerm) * growth,
+      3,
+    );
     expect(atLargest?.height).toBeCloseTo((atDefault?.height ?? 0) * growth, 3);
   });
 
-  it("holds the rail, the open sessions track and one session view side by side", async () => {
+  it("holds the rail, the open sessions track, the conversation and one pane side by side", async () => {
     const [floor] = await renderFrame(<p>sessions</p>);
     if (floor === undefined) {
       throw new Error("the frame reported no floor");
@@ -187,16 +189,25 @@ describe("the window floor", () => {
     expect(rail.right).toBeLessThanOrEqual(sessionsTrack.left);
     expect(sessionsTrack.right).toBeLessThanOrEqual(column.left);
     expect(column.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(rail.width + sessionsTrack.width + column.width).toBeCloseTo(window.innerWidth, 0);
     expect(document.documentElement.scrollWidth).toBe(document.documentElement.clientWidth);
-    const region = screenRegion();
-    expect(region.scrollWidth).toBe(region.clientWidth);
+    // The pane term is read where the frame set it, on the floor box.
+    const sessionView =
+      laidOutWidth(screenRegion(), "var(--meridian-conversation-floor)") +
+      laidOutWidth(
+        elementOf(document, ".meridian-frame__window-floor"),
+        "var(--meridian-frame-minimum-pane-width)",
+      );
+    expect(column.width).toBeGreaterThanOrEqual(sessionView);
+    // Main rounds the floor up to whole pixels, so the column holds them with under one to spare.
+    expect(column.width - sessionView).toBeLessThan(1);
 
-    // Negative control: one rem narrower, the session view no longer fits the screen column.
+    // Negative control: one rem narrower, the column no longer holds the conversation and a pane.
     await resizeViewport(
       Math.ceil(floor.width) - DEFAULT_APPEARANCE_RECORD.textSize,
       Math.ceil(floor.height),
     );
-    expect(region.scrollWidth).toBeGreaterThan(region.clientWidth);
+    expect(boxOf(".meridian-frame__column").width).toBeLessThan(sessionView);
   });
 
   it("gives the sessions track no width while it is closed", async () => {
@@ -206,6 +217,11 @@ describe("the window floor", () => {
     const column = boxOf(".meridian-frame__column");
     expect(column.left).toBe(boxOf(".meridian-rail").right);
     expect(column.right).toBe(window.innerWidth);
+
+    // Negative control: with the track open, the column starts past the rail.
+    cleanup();
+    await renderFrame(<p>sessions</p>);
+    expect(boxOf(".meridian-frame__column").left).toBeGreaterThan(boxOf(".meridian-rail").right);
   });
 });
 
@@ -253,13 +269,13 @@ describe("at the window floor", () => {
     );
   });
 
-  it("sets each entity record label beside its value at the inspector's width", async () => {
+  it("sets each entity record label beside its value on one line at the inspector's width", async () => {
     const record = (width: string): React.JSX.Element => (
       <div className="record-box" style={{ inlineSize: width }}>
         <EntityRecord
           glyph="workspace"
           heading="Workspace"
-          entityId="workspace-at-the-floor"
+          entityId={UNBREAKABLE_WIRE_VALUE}
           state="ready"
           isInitialized
           hasRecord
@@ -280,12 +296,31 @@ describe("at the window floor", () => {
     const box = elementOf<HTMLElement>(document, ".record-box");
     const facets = Array.from(box.querySelectorAll(".meridian-entity-record__facet"));
     expect(facets).toHaveLength(2);
-    for (const facet of facets) {
+    const values = facets.map((facet) => {
       const label = elementOf(facet, ".meridian-entity-record__label").getBoundingClientRect();
-      const value = elementOf(facet, ".meridian-entity-record__value").getBoundingClientRect();
-      expect(label.right).toBeLessThanOrEqual(value.left);
-      expect(value.top).toBeLessThan(label.bottom);
-    }
+      const value = elementOf<HTMLElement>(facet, ".meridian-entity-record__value");
+      const valueBox = value.getBoundingClientRect();
+      expect(label.right).toBeLessThanOrEqual(valueBox.left);
+      expect(valueBox.top).toBeLessThan(label.bottom);
+      return value;
+    });
+    // The long value is cut to one line as tall as the short one's, and titled with all of it;
+    // the short one is the negative control, laid out whole.
+    const [shortValue, longValue] = values;
+    expect(longValue?.scrollWidth).toBeGreaterThan(longValue?.clientWidth ?? 0);
+    expect(longValue?.getBoundingClientRect().height).toBe(
+      shortValue?.getBoundingClientRect().height,
+    );
+    expect(longValue?.title).toBe(UNBREAKABLE_WIRE_VALUE);
+    expect(shortValue?.scrollWidth).toBe(shortValue?.clientWidth);
+    expect(shortValue?.title).toBe("repo-mount-1");
+    // The head's identifier is cut the same way and titled with itself.
+    const identifier = elementOf<HTMLElement>(
+      box,
+      ".meridian-entity-record__head .meridian-figure--wire",
+    );
+    expect(identifier.scrollWidth).toBeGreaterThan(identifier.clientWidth);
+    expect(identifier.title).toBe(UNBREAKABLE_WIRE_VALUE);
     expect(describeHorizontalOverflow(box)).toStrictEqual([]);
     expect(describeOverlappingSiblings(box)).toStrictEqual([]);
 

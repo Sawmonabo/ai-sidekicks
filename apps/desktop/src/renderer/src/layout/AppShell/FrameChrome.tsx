@@ -19,6 +19,7 @@ import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
 import { type RailDestination } from "#renderer/routing/readers.js";
 import type { WindowSize } from "#shared/window/size.js";
 import { WindowFloorProbe } from "./WindowFloorProbe.js";
+import { useAnimateSessionsTrack } from "./hooks/useAnimateSessionsTrack.js";
 import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 
 /** What a caller hands the frame chrome. */
@@ -39,6 +40,8 @@ export interface FrameChromeProps {
   readonly notice?: React.ReactNode;
   /** What the sessions track holds; with nothing, the track is closed and zero wide. */
   readonly sessionsTrack?: React.ReactNode;
+  /** The narrowest one pane may be, in CSS px, the pane term of the window's floor. */
+  readonly minimumPaneWidthPx: number;
   /** The window's smallest size, in CSS px, reported on first layout and on every change. */
   readonly onWindowFloorChange: (floor: WindowSize) => void;
 }
@@ -46,17 +49,28 @@ export interface FrameChromeProps {
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
 export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
   useRefusalBannerAnnouncements(props.banners);
-  const screenScrollbarRef = useOverlayScrollbar<HTMLElement>();
+  const screenScrollbarRef = useOverlayScrollbar<HTMLElement>(undefined, {
+    start: "on-first-interaction",
+  });
+  const sessionsTrack = useAnimateSessionsTrack(props.sessionsTrack);
   return (
-    <div className="meridian-frame">
+    <div
+      ref={sessionsTrack.frameRef}
+      className="meridian-frame"
+      data-sessions-track={sessionsTrack.state}
+      onTransitionEnd={sessionsTrack.onTransitionEnd}
+    >
       <div className="meridian-frame__background" inert={props.modalOverlayOpen === true}>
         <NavigationRail
           entries={props.railEntries}
           current={props.railDestination}
           onSelect={props.onSelectDestination}
         />
-        {props.sessionsTrack === undefined ? null : (
-          <div className="meridian-frame__sessions-track">{props.sessionsTrack}</div>
+        {sessionsTrack.content === undefined ? null : (
+          // Inert while closing: content on its way out takes no focus and no press.
+          <div className="meridian-frame__sessions-track" inert={sessionsTrack.state === "closing"}>
+            {sessionsTrack.content}
+          </div>
         )}
         <div className="meridian-frame__column">
           {props.notice}
@@ -92,7 +106,10 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           </main>
         </div>
       </div>
-      <WindowFloorProbe onWindowFloorChange={props.onWindowFloorChange} />
+      <WindowFloorProbe
+        minimumPaneWidthPx={props.minimumPaneWidthPx}
+        onWindowFloorChange={props.onWindowFloorChange}
+      />
       {props.overlays}
     </div>
   );

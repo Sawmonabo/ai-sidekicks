@@ -76,13 +76,6 @@ export function windowAnswers(
       throw new Error("Only the console document asks about a window.");
     }
   };
-  const namedWindow = (windowId: string) => {
-    const baseWindow = context.openWindows.windowWithId(windowId);
-    if (baseWindow === undefined) {
-      throw new Error("No open window has that id.");
-    }
-    return baseWindow;
-  };
   return {
     [BRIDGE_CHANNELS.setAppearance]: (event, request) => {
       requireConsoleDocument(event);
@@ -100,7 +93,11 @@ export function windowAnswers(
     [BRIDGE_CHANNELS.setMinimumSize]: (event, request) => {
       requireConsoleDocument(event);
       const { windowId, size } = minimumSizeRequestSchema.parse(request);
-      const baseWindow = namedWindow(windowId);
+      const baseWindow = context.openWindows.windowWithId(windowId);
+      // A window that closed while the ask crossed has no floor to hold.
+      if (baseWindow === undefined) {
+        return;
+      }
       // A floor past the display's work area would leave the window larger than its display.
       const { workArea } = screen.getDisplayMatching(baseWindow.getBounds());
       // The platform takes whole pixels; rounding up keeps the floor from cutting a part off.

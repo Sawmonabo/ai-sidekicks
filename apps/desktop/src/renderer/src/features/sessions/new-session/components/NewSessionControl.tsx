@@ -39,6 +39,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         <span className="meridian-form__label">Its first message</span>
         <TextBox
           className="meridian-new-session__first-turn-input meridian-form__input"
+          fieldClassName="meridian-form__text-area"
           value={composition.draftState.firstTurn}
           rows={3}
           readOnly={composition.isSending}

@@ -162,16 +162,14 @@ describe("the window members", () => {
     await expect(readFile(appearanceFilePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("set a named window's minimum size in whole pixels within its display, and no other's", async () => {
+  it("set a named window's minimum size in whole pixels within its display, and nothing for a closed one", async () => {
     const windowBridge = await connectWindowBridge();
 
     await windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 640.2, height: 480 });
     // Past the display's work area on either side: held to it, so the window still fits.
     await windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 3000, height: 2000 });
-    // A window no open frame name carries.
-    await expect(
-      windowBridge.setMinimumSize("window/w-9", { width: 640, height: 480 }),
-    ).rejects.toThrow("No open window has that id");
+    // A window no open frame name carries: one that closed while the ask crossed.
+    await windowBridge.setMinimumSize("window/w-9", { width: 640, height: 480 });
 
     expect(minimumSizes).toStrictEqual([
       [641, 480],

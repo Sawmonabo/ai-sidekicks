@@ -16,6 +16,7 @@ import {
 } from "#renderer/services/platform/bridge.fixture.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
 import type { WindowBanner } from "#renderer/store/window/store.js";
+import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/pane-layout/measures.js";
 import {
   RAIL_ENTRY_TEMPLATES,
   type RailEntry,
@@ -44,6 +45,7 @@ export function frameProps(
   onSelectDestination: () => void;
   banners: readonly WindowBanner[];
   onDismissBanner: () => void;
+  minimumPaneWidthPx: number;
   onWindowFloorChange: () => void;
 } {
   return {
@@ -53,6 +55,8 @@ export function frameProps(
     onSelectDestination: () => undefined,
     banners,
     onDismissBanner: () => undefined,
+    // The pane floor a window passes the frame.
+    minimumPaneWidthPx: PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX,
     onWindowFloorChange: () => undefined,
   };
 }

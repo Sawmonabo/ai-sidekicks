@@ -171,6 +171,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     <form ref={formRef} className="meridian-run-composer" onSubmit={onSubmit}>
       <TextBox
         className="meridian-run-composer__body meridian-form__input"
+        fieldClassName="meridian-form__text-area"
         aria-label={`Steer ${agentName}`}
         placeholder={`Steer ${agentName}…`}
         value={body}

@@ -15,14 +15,20 @@
   min-height: 0;
   background: var(--meridian-ground);
   color: var(--meridian-text);
-  /* The grid itself moves, so the screen column slides over as the sessions track opens. */
-  transition: grid-template-columns var(--meridian-motion-settle) var(--meridian-ease-settle);
 }
 
-.meridian-frame:has(> .meridian-frame__background > .meridian-frame__sessions-track) {
+/* Opening or open, the middle track takes its width; closing, it gives it back while the track
+   still holds its content. */
+.meridian-frame:is([data-sessions-track="opening"], [data-sessions-track="open"]) {
   grid-template-columns:
     var(--meridian-frame-rail-track) var(--meridian-sessions-track-width)
     minmax(0, 1fr);
+}
+
+/* The grid itself moves, so the screen column slides over as the sessions track opens or closes.
+   Only then: a text-size or full-screen change resizes the tracks at once. */
+.meridian-frame:is([data-sessions-track="opening"], [data-sessions-track="closing"]) {
+  transition: grid-template-columns var(--meridian-motion-settle) var(--meridian-ease-settle);
 }
 
 /* A frame with no rail holds no control, so the whole window is its drag region: with no title
@@ -38,9 +44,9 @@
   display: contents;
 }
 
-/* Present only while the track holds something; closed, the track is zero wide with no element.
-   Its child keeps the open width, so the track clips it while the grid moves and nothing in it
-   reflows mid-motion. */
+/* Present while the track holds something or is closing; closed, the track is zero wide with no
+   element. Its child keeps the open width, so the track clips it while the grid moves and nothing
+   in it reflows mid-motion. */
 .meridian-frame__sessions-track {
   grid-column: 2;
   min-inline-size: 0;
@@ -64,16 +70,15 @@
 
 /* The window's floor, laid out where the text size and the macOS title-bar inset resolve and
    measured as one box: the rail, the sessions track and one session view's floor across, the
-   height floor down. The pane term is the widest pane the tokens hold, so any one open pane fits
-   beside the conversation at its floor. */
+   height floor down. The pane term is the narrowest a pane may be, in px as the pane layout holds
+   it, set on the box by the frame, so one open pane fits beside the conversation at its floor. */
 .meridian-frame__window-floor {
   position: fixed;
   inset-block-start: 0;
   inset-inline-start: 0;
   inline-size: calc(
     var(--meridian-frame-rail-track) + var(--meridian-sessions-track-width) +
-      var(--meridian-conversation-floor) +
-      max(var(--meridian-inspector-width), var(--meridian-agents-pane-width))
+      var(--meridian-conversation-floor) + var(--meridian-frame-minimum-pane-width)
   );
   block-size: var(--meridian-window-height-floor);
   visibility: hidden;

@@ -13,7 +13,7 @@ import type { WindowSize } from "#shared/window/size.js";
  * Hand `onWindowFloorChange` the attached box's size, in CSS px, when it is first laid out and
  * whenever it changes. The ref's identity is stable, so a re-render keeps one observer.
  */
-export function useWindowFloorReport(
+export function useReportWindowFloor(
   onWindowFloorChange: (floor: WindowSize) => void,
 ): React.RefCallback<Element> {
   const onWindowFloorChangeRef = useLatestRef(onWindowFloorChange);

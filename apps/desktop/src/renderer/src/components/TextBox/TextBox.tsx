@@ -15,6 +15,8 @@ export interface TextBoxProps extends Omit<
 > {
   /** The box's own classes: its edge, ground, padding and type, drawn on the box that scrolls. */
   readonly className: string;
+  /** Classes for the text area itself, such as one that colors its placeholder. */
+  readonly fieldClassName?: string;
   /** The lines the box shows when it opens. */
   readonly rows: number;
   /**
@@ -28,7 +30,7 @@ export interface TextBoxProps extends Omit<
 
 /** A multi-line text box that scrolls in its own box, measured in lines of its own text. */
 export function TextBox(props: TextBoxProps): React.JSX.Element {
-  const { className, rows, maxRows, fieldRef, ...fieldProps } = props;
+  const { className, fieldClassName, rows, maxRows, fieldRef, ...fieldProps } = props;
   const ownFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const textAreaRef = fieldRef ?? ownFieldRef;
   const boxRef = useOverlayScrollbar<HTMLDivElement>();
@@ -51,7 +53,15 @@ export function TextBox(props: TextBoxProps): React.JSX.Element {
         }
       }}
     >
-      <textarea ref={textAreaRef} className="meridian-text-box__field" {...fieldProps} />
+      <textarea
+        ref={textAreaRef}
+        className={
+          fieldClassName === undefined
+            ? "meridian-text-box__field"
+            : `meridian-text-box__field ${fieldClassName}`
+        }
+        {...fieldProps}
+      />
     </div>
   );
 }

@@ -148,11 +148,9 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
  */
 export const WINDOW_HEIGHT_FLOOR_REM = 40;
 
-/**
- * The most whole rows a bounded enumeration shows whose height fits within a third of the
- * window's height floor.
- */
-export const BOUNDED_ENUMERATION_MAX_ROWS: number = Math.floor(
+// The most whole rows a bounded enumeration shows within a third of the window's height floor; a
+// list any taller would leave the surface holding it with nothing else on screen.
+const BOUNDED_ENUMERATION_MAX_ROWS: number = Math.floor(
   WINDOW_HEIGHT_FLOOR_REM / 3 / ENUMERATION_ROW_HEIGHT_REM,
 );
 
@@ -191,9 +189,10 @@ export const INSPECTOR_WIDTH_REM = 20.25;
 export const AGENTS_PANE_WIDTH_REM = 27.5;
 
 /**
- * The narrowest the conversation column is squeezed to, in rem: the width its header must hold
- * (the title, the pull-request word, the Review chip with its counts, Preview, Terminal and More),
- * 420 px at the default text size. Root-relative, so the header holds at every text size.
+ * The conversation's term in the window's floor, in rem: the width the conversation's header must
+ * hold (the title, the pull-request word, the Review chip with its counts, Preview, Terminal and
+ * More), summed into the floor, 420 px at the default text size. Root-relative, so the floor holds
+ * the header at every text size.
  */
 export const CONVERSATION_FLOOR_REM = 26.25;
 

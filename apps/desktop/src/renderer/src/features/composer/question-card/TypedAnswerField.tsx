@@ -32,6 +32,7 @@ export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Elemen
       <TextBox
         id={fieldId}
         className="meridian-input-ask__field meridian-form__input"
+        fieldClassName="meridian-form__text-area"
         placeholder="Something else…"
         value={props.draft}
         rows={2}

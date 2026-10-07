@@ -9,6 +9,7 @@ import { useState } from "react";
 import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contracts/workflow/kind";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { PickedFolder } from "#shared/preload-api.js";
@@ -140,9 +141,13 @@ function FieldControl(
 ): React.JSX.Element {
   const { field, controlId, describedBy } = props;
   const isInvalid = props.issue === undefined ? undefined : true;
-  const className = MONO_TYPES.includes(field.type)
-    ? "meridian-workflow-param-form__control meridian-form__input meridian-form__input--wire"
-    : "meridian-workflow-param-form__control meridian-form__input";
+  const className = [
+    "meridian-workflow-param-form__control",
+    "meridian-form__input",
+    ...(MONO_TYPES.includes(field.type) ? ["meridian-form__input--wire"] : []),
+    // On the control's box, which for a text box is not the element `aria-invalid` marks.
+    ...(isInvalid === true ? ["meridian-workflow-param-form__control--refused"] : []),
+  ].join(" ");
 
   if (field.type === "select") {
     const options = field.options ?? [];
@@ -178,9 +183,10 @@ function FieldControl(
   const text = readText(props.answer);
   if (TEXTAREA_TYPES.includes(field.type)) {
     return (
-      <textarea
+      <TextBox
         id={controlId}
-        className={className}
+        className={`${className} meridian-workflow-param-form__control--long-form`}
+        fieldClassName="meridian-form__text-area"
         value={text}
         rows={field.type === "text" ? 3 : 5}
         spellCheck={field.type === "text"}

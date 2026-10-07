@@ -47,13 +47,22 @@
   color: var(--meridian-text);
 }
 
-/* What a field asks for, when the field draws no label of its own. */
-:where(.meridian-form__input, .meridian-form__input > *)::placeholder {
+/*
+ * What a field asks for, when the field draws no label of its own: on the input, or on the text
+ * area a scrolling box holds, which carries `meridian-form__text-area` beside its own class.
+ */
+:where(.meridian-form__input, .meridian-form__text-area)::placeholder {
   color: var(--meridian-text-faint);
 }
 
-/* Closed, it sinks with its text faded, as the raised action button does. */
-:where(.meridian-form__input:disabled, .meridian-form__input:has(> :disabled)) {
+/*
+ * Closed, it sinks with its text faded, as the raised action button does; a box sinks with the
+ * text area it holds.
+ */
+:where(
+  .meridian-form__input:disabled,
+  .meridian-form__input:has(.meridian-form__text-area:disabled)
+) {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;
