@@ -58,8 +58,9 @@ interface AttentionItem {
     | "provider_build";
   stepId?: string; // present exactly on a `workflow_notify` entry, which is informational and carries its run: the step that posted it
   // Present exactly on a `provider_build` entry: the line reads `Claude Code updated · 2.1.293 → 2.1.294`
-  // with `What's new`, which opens the provider's own release notes, or, with no `fromVersion`, a build
-  // only available to a provider the person keeps from updating itself, `Claude Code 2.1.294 available`.
+  // with `What's new`, which opens the provider's official release notes for the new version, or, with
+  // no `fromVersion`, a build only available to a provider the person keeps from updating itself,
+  // `Claude Code 2.1.294 available`.
   providerBuild?: { provider: ProviderName; fromVersion?: string; toVersion: string };
   severity: "actionable" | "informational";
   summary: string; // one line a surface renders: prose, not an identifier
