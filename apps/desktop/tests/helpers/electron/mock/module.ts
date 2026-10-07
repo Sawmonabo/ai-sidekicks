@@ -399,9 +399,13 @@ class ElectronMockImpl implements ElectronMock {
           this.record(`app.exit:${String(code)}`);
         }),
       },
-      // No 24-Hour Time switch set either way, as on a Mac left at its region's clock.
+      // A US region with no 24-Hour Time switch set either way, as on a Mac left at its region's
+      // clock, whose locale settings never change.
       systemPreferences: {
-        getUserDefault: vi.fn(() => false),
+        getUserDefault: vi.fn((key: string, type: "string" | "boolean") =>
+          type === "string" ? (key === "AppleLocale" ? "en_US" : "") : false,
+        ),
+        subscribeLocalNotification: vi.fn(() => 0),
       },
       crashReporter: {
         start: vi.fn(() => {

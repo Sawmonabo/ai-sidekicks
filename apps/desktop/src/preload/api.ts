@@ -1,9 +1,8 @@
 // The object the preload exposes: every member carried over IPC, beside the build facts main
-// passed at start.
+// passed at start and the machine clock it pushes after.
 
 import { ipcRenderer, webUtils } from "electron";
 
-import { readAppFactsSwitches } from "#shared/app-facts.js";
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { readLastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import {
@@ -17,6 +16,7 @@ import {
   type OpenDialogResults,
   type PreloadApi,
 } from "#shared/preload-api.js";
+import { createAppBridge } from "./app.js";
 import { createDaemonWire, DaemonSubscriptions } from "./daemon.js";
 import { createMachineSettingsBridge } from "./machine-settings.js";
 import { createUpdateBridge } from "./update.js";
@@ -71,6 +71,6 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.writeKeyboardMap, map)) as KeyboardMap,
     },
     window: createWindowBridge(ipcRenderer, readLastUsedWindowIdSwitch(argv)),
-    app: readAppFactsSwitches(argv),
+    app: createAppBridge(ipcRenderer, argv),
   };
 }

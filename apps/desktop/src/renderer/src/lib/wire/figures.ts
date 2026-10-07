@@ -18,7 +18,7 @@
 // in the host's zone. An unreadable stamp renders the em dash used for any figure this module
 // cannot stand behind.
 
-import type { AppFacts } from "#shared/app-facts.js";
+import type { MachineClock } from "#shared/app-facts.js";
 import { MILLISECONDS_PER_DAY, parseInstant } from "../instant.js";
 import {
   dateTimeFormatFor,
@@ -59,8 +59,8 @@ export interface WireDescriptorEntry {
  * The locale every clock figure and date is written in: the machine's region with its 12- or
  * 24-hour clock folded in as one BCP 47 tag, `en-US-u-hc-h23` for a US Mac set to 24-hour time.
  */
-export function clockLocaleFor(facts: Pick<AppFacts, "regionLocale" | "hourCycle">): string {
-  return new Intl.Locale(facts.regionLocale, { hourCycle: facts.hourCycle }).toString();
+export function clockLocaleFor(clock: MachineClock): string {
+  return new Intl.Locale(clock.regionLocale, { hourCycle: clock.hourCycle }).toString();
 }
 
 /**

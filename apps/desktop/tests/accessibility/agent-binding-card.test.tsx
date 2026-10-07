@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app/harness.js";
+import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import "#renderer/features/agents/index.js";
@@ -38,7 +39,12 @@ function openEveryDisclosure(container: HTMLElement): void {
 describe("accessibility — the agent card", () => {
   it("has no axe violation with a resolved configuration on screen", async () => {
     installMeridianTokens(document);
-    const { container } = await renderSettled(<AgentBindingCard agent={AGENT_WITH_FULL_ECHO} />);
+    const BridgeHost = liveBridgeWrapper();
+    const { container } = await renderSettled(
+      <BridgeHost>
+        <AgentBindingCard agent={AGENT_WITH_FULL_ECHO} />
+      </BridgeHost>,
+    );
     openEveryDisclosure(container);
 
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);

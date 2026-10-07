@@ -1,11 +1,12 @@
 // The row's load-bearing decisions: attribution fails closed for a hue step off the wheel (a
 // wrap would attribute the row to the wrong user), a superseded row says so, and its time is
-// written on the clock the machine is set to, read through the bridge, never the UI language's.
+// written on the clock the machine is set to, read through the bridge, never the UI language's,
+// and redrawn when the machine's clock changes.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { appFactsSwitches, readAppFactsSwitches, type HourCycle } from "#shared/app-facts.js";
+import { appFactsSwitches, readAppFactsSwitches, type MachineClock } from "#shared/app-facts.js";
 import { createStubBridge } from "#shared/preload-api.js";
 import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "#renderer/services/platform/bridge.fixture.js";
@@ -82,25 +83,45 @@ describe("TranscriptRowLayout — superseded rows and the revealed footer", () =
 });
 
 describe("TranscriptRowLayout — the time on the machine's own clock", () => {
-  /** The row's time on a US machine set to `hourCycle`, under a US English UI language. */
-  function timeOnMachineClock(hourCycle: HourCycle): string | null {
-    // The facts go through main's switches and the preload's read of them, as a window's do.
+  it("reads 2:20 PM on a 12-hour clock, then 14:20 once the machine turns 24-hour time on", () => {
+    // The facts go through main's switches and the preload's read of them, as a window's do: a US
+    // machine at its 12-hour clock under a US English UI language.
     const app = readAppFactsSwitches(
-      appFactsSwitches({ ...FIXTURE_APP_META, locale: "en-US", regionLocale: "en-US", hourCycle }),
+      appFactsSwitches({
+        ...FIXTURE_APP_META,
+        locale: "en-US",
+        regionLocale: "en-US",
+        hourCycle: "h12",
+      }),
     );
+    const handlers: ((clock: MachineClock) => void)[] = [];
+    const stub = createStubBridge(app, FIXTURE_WINDOW_ID);
+    const bridge = createLiveBridge({
+      ...stub,
+      app: {
+        ...stub.app,
+        subscribeMachineClock: (handler) => {
+          handlers.push(handler);
+          return () => undefined;
+        },
+      },
+    });
     // A local wall-clock instant, so the figure is the same in every time zone.
     const occurredAtIso = new Date(2026, 9, 6, 14, 20, 5).toISOString();
     const { container } = render(
       <TranscriptRowLayout agentHueStep={0} occurredAtIso={occurredAtIso} authorLabel="Ada" />,
-      {
-        wrapper: bridgeWrapper(createLiveBridge(createStubBridge(app, FIXTURE_WINDOW_ID))),
-      },
+      { wrapper: bridgeWrapper(bridge) },
     );
-    return container.querySelector(`[title="${occurredAtIso}"]`)?.textContent ?? null;
-  }
+    const time = (): string | null =>
+      container.querySelector(`[title="${occurredAtIso}"]`)?.textContent ?? null;
+    expect(time()).toBe("2:20:05 PM");
 
-  it("reads 14:20 on a 24-hour clock and 2:20 PM on a 12-hour one", () => {
-    expect(timeOnMachineClock("h23")).toBe("14:20:05");
-    expect(timeOnMachineClock("h12")).toBe("2:20:05 PM");
+    act(() => {
+      for (const handler of handlers) {
+        handler({ regionLocale: "en-US", hourCycle: "h23" });
+      }
+    });
+
+    expect(time()).toBe("14:20:05");
   });
 });

@@ -8,6 +8,7 @@
 // appearance at first, and a chosen one reaches every subscriber, as main carries it to every
 // window.
 
+import type { AppFacts } from "#shared/app-facts.js";
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
 import type {
@@ -17,6 +18,7 @@ import type {
   UpdateState,
 } from "#shared/preload-api.js";
 import type { PlatformBridge } from "./bridge.js";
+import { ClockLocale } from "./clock-locale.js";
 import {
   FixtureBridgeError,
   refuseAbsentCapability,
@@ -27,7 +29,7 @@ import { createFixtureDaemon } from "#renderer/services/daemon/scenario/wire.fix
 import type { Scenario } from "#fixtures/scenario.js";
 
 /** Fixed `app` meta, so a rendered view does not move with the machine. */
-export const FIXTURE_APP_META: PlatformBridge["app"] = {
+export const FIXTURE_APP_META: AppFacts = {
   version: "0.0.0-fixture",
   platform: "darwin",
   arch: "arm64",
@@ -64,6 +66,11 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   let keyboardMap: KeyboardMap = {};
   let appearanceRecord: AppearanceRecord = DEFAULT_APPEARANCE_RECORD;
   const appearanceHandlers = new Set<(record: AppearanceRecord) => void>();
+  // A fixture runs no main, so the machine's region and clock never change under it.
+  const app: PlatformBridge["app"] = {
+    ...FIXTURE_APP_META,
+    subscribeMachineClock: (): Unsubscribe => () => undefined,
+  };
   const bridge: PlatformBridge = {
     daemon: createFixtureDaemon(scenarioEngine),
     native: {
@@ -146,8 +153,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       // A fixture launch is given no link and runs no main to hand one over.
       subscribeToNavigationRequest: (): Unsubscribe => () => undefined,
     },
-    app: FIXTURE_APP_META,
+    app,
     transportReconnect: new TransportReconnectSignal(),
+    clockLocale: new ClockLocale(app),
     source: "fixture",
   };
   return { bridge, scenarioEngine };

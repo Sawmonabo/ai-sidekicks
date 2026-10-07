@@ -1,13 +1,16 @@
-import { useMemo } from "react";
+import { useSyncExternalStore } from "react";
 
-import { clockLocaleFor } from "#renderer/lib/wire/figures.js";
 import { usePlatformBridge } from "./usePlatformBridge.js";
 
 /**
  * The locale every clock figure and date on screen is written in, from the region and the 12- or
- * 24-hour clock main read off the machine; the tag to pass as a clock or date formatter's locale.
+ * 24-hour clock of the machine as they stand now; the tag to pass as a clock or date formatter's
+ * locale. A change of either setting re-renders every caller.
  */
 export function useClockLocale(): string {
-  const { app } = usePlatformBridge();
-  return useMemo(() => clockLocaleFor(app), [app]);
+  const { clockLocale } = usePlatformBridge();
+  return useSyncExternalStore(
+    (onStoreChange) => clockLocale.subscribe(onStoreChange),
+    () => clockLocale.current,
+  );
 }

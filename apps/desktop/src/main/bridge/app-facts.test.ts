@@ -9,7 +9,7 @@ import { readAppFacts } from "./app-facts.js";
 const machine = vi.hoisted(() => ({
   systemLocale: "en-US",
   countryCode: "US",
-  userDefaults: new Map<string, boolean>(),
+  userDefaults: new Map<string, string | boolean>(),
 }));
 
 vi.mock("electron", () => ({
@@ -20,7 +20,9 @@ vi.mock("electron", () => ({
     getLocaleCountryCode: () => machine.countryCode,
   },
   systemPreferences: {
-    getUserDefault: (key: string) => machine.userDefaults.get(key) ?? false,
+    // An unset default reads as Electron hands it back: empty, or false.
+    getUserDefault: (key: string, type: "string" | "boolean") =>
+      machine.userDefaults.get(key) ?? (type === "string" ? "" : false),
   },
 }));
 
@@ -32,7 +34,7 @@ function standOn(
   reported: {
     readonly systemLocale: string;
     readonly countryCode: string;
-    readonly userDefaults?: Readonly<Record<string, boolean>>;
+    readonly userDefaults?: Readonly<Record<string, string | boolean>>;
   },
 ): void {
   Object.defineProperty(process, "platform", { value: platform });
@@ -50,7 +52,11 @@ describe("the machine's clock and region main reads", () => {
     {
       machineSays: "a US Mac with 24-Hour Time on, in the locale's keyword",
       platform: "darwin",
-      reported: { systemLocale: "en-US@hours=h23", countryCode: "US" },
+      reported: {
+        systemLocale: "en-US@hours=h23",
+        countryCode: "US",
+        userDefaults: { AppleLocale: "en_US@hours=h23" },
+      },
       expected: { regionLocale: "en-US", hourCycle: "h23" },
     },
     {
@@ -76,7 +82,11 @@ describe("the machine's clock and region main reads", () => {
     {
       machineSays: "a Mac in English with the United Kingdom as its region",
       platform: "darwin",
-      reported: { systemLocale: "en-US@rg=gbzzzz", countryCode: "GB" },
+      reported: {
+        systemLocale: "en-US@rg=gbzzzz",
+        countryCode: "GB",
+        userDefaults: { AppleLocale: "en_US@rg=gbzzzz" },
+      },
       expected: { regionLocale: "en-GB", hourCycle: "h23" },
     },
     {
@@ -103,7 +113,11 @@ describe("the machine's clock and region main reads", () => {
   });
 
   it("refuses a clock keyword that names no hour cycle", () => {
-    standOn("darwin", { systemLocale: "en-US@hours=h25", countryCode: "US" });
+    standOn("darwin", {
+      systemLocale: "en-US@hours=h25",
+      countryCode: "US",
+      userDefaults: { AppleLocale: "en_US@hours=h25" },
+    });
 
     expect(() => readAppFacts()).toThrow(RangeError);
   });

@@ -1,4 +1,5 @@
-// The facts about this build and this machine that main hands every window once, at start.
+// The facts about this build and this machine that main hands every window at start. The
+// machine's region and clock can change while the app runs; main pushes each change after.
 //
 // Main passes them as renderer switches through `webPreferences.additionalArguments`. The
 // sandboxed preload cannot import Electron's `app`, so it reads the switches off its own
@@ -25,7 +26,7 @@ const HOUR_CYCLES = ["h12", "h23"] as const;
 /** A machine's 12- or 24-hour clock, in `Intl`'s spelling. */
 export type HourCycle = (typeof HOUR_CYCLES)[number];
 
-/** What the bridge's `app` namespace carries. Values only, no calls. */
+/** The facts the bridge's `app` namespace carries, as they stood when the window started. */
 export interface AppFacts {
   readonly version: string;
   readonly platform: SupportedPlatform;
@@ -39,6 +40,9 @@ export interface AppFacts {
   /** The machine's 12- or 24-hour clock, which every clock figure is written in. */
   readonly hourCycle: HourCycle;
 }
+
+/** The machine's region and 12- or 24-hour clock, the two facts that change while the app runs. */
+export type MachineClock = Pick<AppFacts, "regionLocale" | "hourCycle">;
 
 const VERSION_SWITCH = "--sidekicks-app-version=";
 const PLATFORM_SWITCH = "--sidekicks-app-platform=";
