@@ -108,7 +108,7 @@ describe("ShellControlLease", () => {
     expect(changes).toHaveLength(1);
   });
 
-  it("never lets a device take a run's hold, which follows its command and ends with it", async () => {
+  it("never lets a device take a run's hold, which follows its command and ends with it or the run", async () => {
     const { lease, changes } = openLease();
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
     const heldByRunA = {
@@ -160,6 +160,17 @@ describe("ShellControlLease", () => {
       heldByDevice(LAPTOP),
     );
 
+    // A run's hold ends when its command ends; an ended command the run has moved past, or the
+    // run's later idle transition, releases nothing more.
+    await lease.releaseConnection(1);
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
+    await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
+    expect(lease.holder()).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_C });
+    await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_C });
+    expect(lease.holder()).toBeNull();
+    await lease.releaseRun(RUN_A);
+
     const runHold = { sessionId: SESSION_ID, terminalId: TERMINAL_ID };
     expect(changes).toEqual([
       {
@@ -193,6 +204,34 @@ describe("ShellControlLease", () => {
         reason: "auto_released_run_idle",
       },
       { ...runHold, holderDeviceId: LAPTOP, previousHolderDeviceId: null, reason: "taken" },
+      {
+        ...runHold,
+        holderDeviceId: null,
+        previousHolderDeviceId: LAPTOP,
+        reason: "auto_released_disconnect",
+      },
+      {
+        ...runHold,
+        holderDeviceId: MACHINE,
+        holderRunId: RUN_A,
+        holderCommandId: COMMAND_A,
+        previousHolderDeviceId: null,
+        reason: "taken",
+      },
+      {
+        ...runHold,
+        holderDeviceId: MACHINE,
+        holderRunId: RUN_A,
+        holderCommandId: COMMAND_C,
+        previousHolderDeviceId: MACHINE,
+        reason: "taken",
+      },
+      {
+        ...runHold,
+        holderDeviceId: null,
+        previousHolderDeviceId: MACHINE,
+        reason: "auto_released_command_ended",
+      },
     ]);
   });
 

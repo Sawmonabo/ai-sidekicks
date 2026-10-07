@@ -357,18 +357,20 @@ export const PTY_CONTROL_CHANGED_EVENT = "pty.control_changed" as const;
 
 /**
  * Why a shell's holder changed: it was taken, taken by force off another device, the holding
- * connection ended, or the holding run left its running state.
+ * connection ended, the holding run's command ended, or the holding run left its running state.
  */
 export type PtyControlChangedReason =
   | "taken"
   | "taken_by_force"
   | "auto_released_disconnect"
+  | "auto_released_command_ended"
   | "auto_released_run_idle";
 /** Every {@link PtyControlChangedReason}. */
 export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = Object.freeze([
   "taken",
   "taken_by_force",
   "auto_released_disconnect",
+  "auto_released_command_ended",
   "auto_released_run_idle",
 ]);
 

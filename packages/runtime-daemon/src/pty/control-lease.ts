@@ -4,7 +4,8 @@
 // only in this daemon's memory. Beside that holder it keeps bindings: the connections a device took
 // it from, and the command a run last took it for. Nothing gives a shell back: a device's hold ends
 // when another device takes it or every connection that took it has ended, a run's hold when the
-// run leaves its running state. A run's hold is never taken by a device, forced or not.
+// command it holds the shell for ends or the run leaves its running state, whichever comes first.
+// A run's hold is never taken by a device, forced or not.
 //
 // Every decision reads and replaces the holder with no `await` in between, so two takes in one
 // tick cannot both win. Changes of holder run one at a time: while one is being broadcast, the
@@ -215,6 +216,20 @@ export class ShellControlLease {
       return;
     }
     await this.#changeHolder(null, "auto_released_disconnect");
+  }
+
+  /** Gives the shell back when the command a run holds it for ends; a run past it keeps it. */
+  async releaseCommand(run: ShellLeaseRun): Promise<void> {
+    await this.#settled();
+    const current = this.#holder;
+    if (
+      current?.kind !== "run" ||
+      current.runId !== run.runId ||
+      current.commandId !== run.commandId
+    ) {
+      return;
+    }
+    await this.#changeHolder(null, "auto_released_command_ended");
   }
 
   /** Gives the shell back when the run holding it leaves its running state. */
