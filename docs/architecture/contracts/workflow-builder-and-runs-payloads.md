@@ -415,8 +415,9 @@ interface WorkflowLayoutSetRequest {
 }
 // WorkflowTagsSet — workflow.tagsSet. Saves the workflow's tags from the builder header's chips and
 // its `Add tag` field, at once and without minting a version: tags sit outside the hashed body. The
-// whole set each time, so a remove and an add are one write. A tag that holds a space or is empty is
-// refused `workflow.tag_refused` with nothing written. It answers `WorkflowDefinitionSettingResponse`.
+// whole set each time, so a remove and an add are one write. A tag that breaks the tag rule, or repeats
+// another ignoring case, fails the request's parse with nothing written. It answers
+// `WorkflowDefinitionSettingResponse`.
 interface WorkflowTagsSetRequest {
   definitionId: WorkflowDefinitionId;
   tags: string[];

@@ -29,12 +29,15 @@ interface WorkflowDocument {
   // be enabled, which `workflow.enabledSet` in workflow-builder-and-runs-payloads.md refuses rather than accepting silently.
   trigger: WorkflowTriggerNode;
   // Every node except the trigger. A node id names one node: no two nodes, the trigger included,
-  // share one, and a parse refuses a repeat, naming it.
+  // share one, and a parse refuses each repeat with an issue at that id whose `params` is the finding
+  // `{ rule: "node_id_duplicate", nodeIds: [id] }`.
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   layout?: WorkflowLayout;
   pinData?: Record<string, WorkflowPinnedItem[]>; // by node id
-  // Matched ignoring case, nested with `/`, no spaces, as session tags are. Set beside the
+  // `TagListSchema` (packages/contracts/src/tag.ts): each tag nested with `/`, never empty, with no
+  // whitespace, no empty level around a `/` and no longer than a session name, and each held once
+  // ignoring case. Set beside the
   // workflow's name in the builder header (`workflow.tagsSet`) or by an agent through the workflow
   // authoring call.
   tags?: string[];
