@@ -75,8 +75,13 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
 
   return (
     // The bar is drawn inside the scroller, so the scroller is not the listbox: a listbox holds
-    // only its groups and options.
-    <div ref={scrollerScrollbarRef} className="command-palette__list meridian-focus-inset">
+    // only its groups and options. A tab stop, so the matches can be scrolled from the keyboard
+    // as well as walked from the input.
+    <div
+      ref={scrollerScrollbarRef}
+      className="command-palette__list meridian-focus-inset"
+      tabIndex={0}
+    >
       {/* Holds the whole height so the scrollbar spans every match; rows sit at their offsets. */}
       <Combobox.List
         className="command-palette__rows"
