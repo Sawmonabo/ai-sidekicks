@@ -46,8 +46,7 @@ import {
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { refuseSelfParentingRun } from "./transcript/child-run-summary.js";
 
-/** Every reason the daemon itself interrupts a run for, in no meaningful order. */
-export const INTERRUPT_REASONS = [
+const INTERRUPT_REASONS = [
   "step_limit",
   "spend_limit",
   "token_limit",

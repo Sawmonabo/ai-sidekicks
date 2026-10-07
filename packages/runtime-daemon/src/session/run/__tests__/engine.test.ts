@@ -140,6 +140,49 @@ describe("run engine", () => {
       expect(log).toEqual(["after terminal"]);
     });
 
+    it("never hands the driver a run an interrupt claimed in its gates, nor fails it for the gate", async () => {
+      const gates = new Map<RunId, PromiseWithResolvers<void>>();
+      fixture.engine.registerSetupGate({
+        assertRunReady: (context) => {
+          const gate = Promise.withResolvers<void>();
+          gates.set(context.runId, gate);
+          return gate.promise;
+        },
+      });
+      const driver = makeRecordingDriver();
+      const start = (runId: RunId) =>
+        fixture.engine
+          .startRun({
+            runId,
+            queueItem: makeQueueItem(),
+            provider: "claude",
+            driver,
+            driverParams: { agentConfig: {} },
+            executionPosture: TEST_EXECUTION_POSTURE,
+          })
+          .catch((error: unknown) => error);
+      const passing = await fixture.queueRun();
+      const throwing = await fixture.queueRun();
+      const passingStart = start(passing);
+      const throwingStart = start(throwing);
+      while (gates.size < 2) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+
+      expect(fixture.engine.claimSetupInterrupt(passing)).toBe(true);
+      expect(fixture.engine.claimSetupInterrupt(throwing)).toBe(true);
+      gates.get(passing)?.resolve();
+      const gateError = new Error("git worktree add failed");
+      gates.get(throwing)?.reject(gateError);
+
+      expect(await passingStart).toMatchObject({ code: "run.invalid_transition" });
+      expect(await throwingStart).toBe(gateError);
+      expect(driver.startedRuns).toEqual([]);
+      // The interrupt that claimed each run ends it; the gate's throw does not.
+      expect(fixture.runs.getRun(throwing)?.state).toBe("starting");
+      expect(fixture.engine.claimSetupInterrupt(passing)).toBe(false);
+    });
+
     it("keeps the interrupt's end when a gate throws after an interrupt landed", async () => {
       const runId = await fixture.queueRun();
       const gateError = new Error("git worktree add failed");

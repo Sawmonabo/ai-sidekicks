@@ -275,7 +275,7 @@ CREATE TABLE interventions (
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
   failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
-  outcome_run_version    INTEGER,                    -- the run version an applied or degraded outcome advanced the run to; a restart reads an interrupt as pending while no run event lands above it; NULL in every other state
+  outcome_run_version    INTEGER,                    -- the run's version once an applied or degraded outcome landed: what it advanced a live run to, or an ended run's own; a restart reads an interrupt as pending while no run event lands above it; NULL in every other state
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)

@@ -5,6 +5,8 @@
 // its own rather than dropped, and a state this build cannot name is not an attention state.
 // Clearing a block that was never seen resolved is the defect the register exists to prevent.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/control";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { structuralKey } from "#renderer/lib/structural-key.js";
@@ -51,6 +53,16 @@ export function runIdOf(event: ProjectedSessionEvent): string | undefined {
   return correlationIdOf(event, RUN_CORRELATION_MEMBER);
 }
 
+const INTERVENTION_OPENED_BY: SessionEventType = "intervention.requested";
+
+/**
+ * Every intervention state's event but the opening one, read from the contract's closed state
+ * set, so a new state closes the ask without a change here.
+ */
+const INTERVENTION_CLOSED_BY: readonly SessionEventType[] = INTERVENTION_STATES.filter(
+  (state) => state !== "requested",
+).map((state) => `intervention.${state}` as const);
+
 /**
  * The approval and intervention lifecycles. A provider's permission ask opens an approval, so it
  * has none of its own.
@@ -62,15 +74,8 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
     correlationMember: "approvalRequestId",
   },
   {
-    openedBy: "intervention.requested",
-    closedBy: [
-      "intervention.accepted",
-      "intervention.applied",
-      "intervention.rejected",
-      "intervention.degraded",
-      "intervention.expired",
-      "intervention.failed",
-    ],
+    openedBy: INTERVENTION_OPENED_BY,
+    closedBy: INTERVENTION_CLOSED_BY,
     correlationMember: "interventionId",
   },
 ];

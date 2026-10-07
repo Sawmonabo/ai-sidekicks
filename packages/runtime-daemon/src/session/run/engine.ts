@@ -1,6 +1,7 @@
 // The run engine: every run state change goes through it, each checked against the table and
 // written with the run's row, and each terminal followed by the terminal hooks of the setup gates.
-// It also tells a session when a run's provider does not run it at the fast output level it carried.
+// It also tells a session when a run's provider does not run it at the fast output level it
+// carried.
 
 import type { Database } from "better-sqlite3";
 
@@ -63,7 +64,7 @@ export type RunTransitionRequest =
 export interface RunStartRequest {
   readonly runId: RunId;
   readonly queueItem: QueueItemSummary;
-  /** The provider the run runs on, whose standard output speed its settled state is read against. */
+  /** The provider the run runs on; its settled output speed is read against this one's standard. */
   readonly provider: ProviderName;
   readonly driver: Pick<ProviderDriver, "startRun">;
   readonly driverParams: Omit<StartRunParams, "runId" | "executionPosture">;
@@ -84,6 +85,9 @@ export class RunEngine {
   readonly #changes: RunStateChangeWriter;
   readonly #appender: SessionEventAppender;
   readonly #gates = new RunSetupGates();
+  // The runs in their setup gates, each marked once an interrupt claims it; an entry lives only
+  // while its gates run.
+  readonly #runsInSetup = new Map<RunId, { isInterrupted: boolean }>();
   // The fast output level each started run carried, until its settled state is reported or it
   // ends, so the map holds at most the runs started and not yet settled or ended.
   readonly #carriedOutputSpeedByRun = new Map<RunId, string>();
@@ -93,6 +97,20 @@ export class RunEngine {
     this.#pendingInterrupts = new PendingInterruptReader(deps.reader);
     this.#appender = new SessionEventAppender(deps, RUN_ENGINE_EVENT_VERSION);
     this.#changes = new RunStateChangeWriter(this.#runs, this.#appender);
+  }
+
+  /**
+   * Claims the interrupt of a run still in its setup gates, so no driver is handed the run and
+   * the interrupt needs none to apply. False once the gates are done, when the driver has the run
+   * and is the one to stop it.
+   */
+  claimSetupInterrupt(runId: RunId): boolean {
+    const setup = this.#runsInSetup.get(runId);
+    if (setup === undefined) {
+      return false;
+    }
+    setup.isInterrupted = true;
+    return true;
   }
 
   /** Adds a setup gate after those already registered; its terminal hook runs before theirs. */
@@ -112,22 +130,29 @@ export class RunEngine {
   /**
    * Starts a queued run: `starting`, every setup gate in order, the driver's start, then `running`
    * stamped with the posture the driver was handed. A gate's throw ends the run `failed` with the
-   * gate's error as its cause, unless an interrupt ended it first, and is rethrown; a driver's
-   * throw ends the run `failed` and is rethrown.
+   * gate's error as its cause, unless an interrupt claimed or ended it first, and is rethrown; a
+   * run interrupted in its gates is never handed to the driver; a driver's throw ends the run
+   * `failed` and is rethrown.
    */
   async startRun(request: RunStartRequest): Promise<RunRead> {
     const { runId, queueItem, provider, driver, driverParams, executionPosture } = request;
     const starting = await this.#change({ runId, expectedState: "queued", newState: "starting" });
+    const setup = { isInterrupted: false };
+    this.#runsInSetup.set(runId, setup);
     try {
       await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
     } catch (gateError) {
-      await this.#failSetup(runId, gateError);
+      if (!setup.isInterrupted) {
+        await this.#failSetup(runId, gateError);
+      }
       throw gateError;
+    } finally {
+      this.#runsInSetup.delete(runId);
     }
 
     // An interrupt may have landed while a gate ran; a run no longer starting is not started.
     const afterGates = this.#runs.getRun(runId);
-    if (afterGates !== undefined && afterGates.state !== "starting") {
+    if (afterGates !== undefined && (setup.isInterrupted || afterGates.state !== "starting")) {
       throw new RunInvalidTransitionError(runId, afterGates.state, "running");
     }
 
@@ -312,7 +337,7 @@ export class RunEngine {
       }
       throw new AggregateError(
         [gateError, failError],
-        `A setup gate refused run ${runId}, and ending the run failed too`,
+        `A setup gate refused run ${runId}, and ending the run or a terminal hook after it failed`,
         { cause: failError },
       );
     }
@@ -331,7 +356,7 @@ export class RunEngine {
     } catch (failError) {
       throw new AggregateError(
         [driverError, failError],
-        `The driver could not start run ${runId}, and ending the run failed too`,
+        `The driver could not start run ${runId}, and ending the run or a terminal hook failed`,
         { cause: failError },
       );
     }

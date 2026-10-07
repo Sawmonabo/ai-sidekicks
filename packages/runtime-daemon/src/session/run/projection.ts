@@ -7,6 +7,7 @@ import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { RUN_TERMINAL_STATES } from "./transitions.js";
 
 /**
  * One run state change as its stored event carries it: the state it leaves, the state it enters,
@@ -36,8 +37,11 @@ const SWAP_RUN_STATE_SQL = `UPDATE runs
     AND state = @previous_state
     AND run_version = @run_version - 1`;
 
+// An ended run keeps its version: nothing moves a run past its end event.
 const ADVANCE_RUN_VERSION_SQL = `UPDATE runs
-    SET run_version = run_version + 1
+    SET run_version = run_version
+      + CASE WHEN state IN (${RUN_TERMINAL_STATES.map((state) => `'${state}'`).join(", ")})
+          THEN 0 ELSE 1 END
   WHERE run_id = @run_id
     AND session_id = @session_id`;
 
@@ -76,9 +80,10 @@ export function swapRunStateStatement(swap: RunStateSwap): WriteStatement {
 }
 
 /**
- * The statement that advances a run's version by one from its current value with no state
- * change, as a dispatched intervention's verdict does. It holds no stale comparand, because no
- * earlier read decides it; it refuses the write only when the run is not under `sessionId`.
+ * The statement that advances a live run's version by one from its current value with no state
+ * change, as a dispatched intervention's verdict does, and leaves an ended run's as it is. It
+ * holds no stale comparand, because no earlier read decides it; it refuses the write only when
+ * the run is not under `sessionId`.
  */
 export function advanceRunVersionStatement(advance: RunVersionAdvance): WriteStatement {
   return {

@@ -5,9 +5,10 @@
 // form reads only the settlement recorded under its own dispatch token, and closes only on one
 // that landed: the dispatch record keeps a refusal, but nothing else keeps the text.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
@@ -83,6 +84,8 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     () => EMPTY_FORM,
   );
   const { body, localRefusal, pendingDispatch } = form;
+  // `Try again` submits the form, so a retry takes the same path, latch and checks as Send.
+  const formRef = useRef<HTMLFormElement>(null);
 
   const publishBody = useCallback(
     (next: string) => {
@@ -164,7 +167,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   );
 
   return (
-    <form className="meridian-run-composer" onSubmit={onSubmit}>
+    <form ref={formRef} className="meridian-run-composer" onSubmit={onSubmit}>
       <textarea
         className="meridian-run-composer__body meridian-form__input"
         aria-label={`Steer ${agentName}`}
@@ -183,7 +186,19 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         />
       )}
       {settlement === undefined || settlement.kind === "landed" ? null : (
-        <InlineRefusal code={settlement.notice.code} detail={settlement.notice.detail} />
+        <InlineRefusal
+          code={settlement.notice.code}
+          detail={settlement.notice.detail}
+          action={
+            settlement.kind === "undelivered" ? (
+              <TryAgainButton
+                onPress={() => {
+                  formRef.current?.requestSubmit();
+                }}
+              />
+            ) : undefined
+          }
+        />
       )}
       <div className="meridian-run-composer__actions">
         <button

@@ -100,6 +100,7 @@ describe("InterventionService", () => {
         settleInterventionOutcome: async (outcome) => {
           settleCalls.push(outcome);
         },
+        claimSetupInterrupt: () => false,
       },
     });
 
@@ -309,22 +310,23 @@ describe("InterventionService", () => {
     },
     { thrown: new Error("  socket hang up\0  "), failureReason: "socket hang up" },
   ])(
-    "ends a request failed with $failureReason when its dispatch throws, and answers a retry with it",
+    "ends a request failed with $failureReason when its dispatch throws, and answers it and a retry with it",
     async ({ thrown, failureReason }) => {
       await moveRun("queued", "running");
       duringDispatch = () => Promise.reject(thrown);
       const request = steer(1);
 
-      await expect(service.applyIntervention(request, DAEMON_ORIGIN)).rejects.toBe(thrown);
+      const failed = await service.applyIntervention(request, DAEMON_ORIGIN);
       const retried = await service.applyIntervention(request, DAEMON_ORIGIN);
 
-      expect(retried).toEqual({
-        interventionId: retried.interventionId,
+      expect(failed).toEqual({
+        interventionId: failed.interventionId,
         interventionType: "steer",
         state: "failed",
         failureReason,
         runVersion: 1,
       });
+      expect(retried).toEqual(failed);
       expect(readRow(retried.interventionId)).toMatchObject({
         state: "failed",
         failure_reason: failureReason,

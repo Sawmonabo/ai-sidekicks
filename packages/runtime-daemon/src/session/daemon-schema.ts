@@ -372,8 +372,9 @@ CREATE TABLE interventions (
   fallback_action         TEXT,
   -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
   failure_reason          TEXT,
-  -- The run version an applied or degraded outcome advanced the run to; NULL in every other
-  -- state. A restart matches a stop whose run end never landed by it.
+  -- The run's version once an applied or degraded outcome landed: what it advanced a live run
+  -- to, or an ended run's own; NULL in every other state. A restart reads an interrupt as still
+  -- to end the run while no run event has a higher version.
   outcome_run_version     INTEGER,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,

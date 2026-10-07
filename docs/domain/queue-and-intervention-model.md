@@ -72,6 +72,7 @@ Intervention states:
 | `requested` | `expired` | Version guard mismatch | `expectedRunVersion` does not match current run version |
 | `accepted` | `applied` | Driver successfully executed | Provider confirmed the intervention took effect |
 | `accepted` | `degraded` | Driver fallback used | Driver can deliver this type neither natively nor through the orchestration leg above it, and the orchestration layer fell back — a path neither V1 provider reaches |
+| `accepted` | `rejected` | The daemon's own leg refused | The faster-model retry the daemon carries out itself refused after acceptance |
 | `accepted` | `failed` | Dispatch threw | The driver or the leg above it threw instead of returning a verdict |
 
 ## Intervention Entity Relationship
@@ -129,20 +130,20 @@ Note: The `ApplyInterventionParams` interface in Spec-004 splits the payload int
 
 ## Driver Result To Lifecycle Mapping
 
-The driver-result and intervention-lifecycle vocabularies are distinct and map normatively ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). The driver-level result vocabulary is exactly `applied | degraded`; a driver never produces `rejected` or `expired`, and the daemon never reclassifies a driver verdict. The line falls at dispatch: a run whose version moved before dispatch expires the request undispatched, and once dispatched the driver's verdict is recorded whatever the run did meanwhile, advancing the run's version from wherever it stands.
-
-An interrupt never waits behind a pending steer. A run's steers and faster-model retries dispatch one at a time in arrival order, and its interrupts likewise among themselves, but an interrupt dispatches at once even while a steer is in flight; a steer still queued on that run when the interrupt applies meets the advanced version at its acceptance and expires.
+The driver-result and intervention-lifecycle vocabularies are distinct and map normatively ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). The driver-level result vocabulary is exactly `applied | degraded`; a driver never produces `rejected` or `expired`, and the daemon never reclassifies a driver verdict. The line falls at dispatch: a run whose version moved before dispatch expires the request undispatched, and once dispatched the driver's verdict is recorded whatever the run did meanwhile, advancing a live run's version from wherever it stands. A verdict that lands after the run's end is recorded on its intervention row and leaves the run's version as it is: nothing moves a run past its end event.
 
 | Lifecycle state | Producer | Trigger |
 | --- | --- | --- |
 | `requested` / `accepted` | daemon (pre-dispatch) | Recording and validation states before any driver involvement |
-| `rejected` | daemon (pre-dispatch) | Authorization failure or invalid target — the driver is never invoked |
+| `rejected` | daemon | Authorization failure or invalid target before dispatch — the driver is never invoked — or a refusal from the faster-model retry the daemon carries out itself |
 | `expired` | daemon (pre-dispatch) | `expectedRunVersion` guard mismatch at acceptance — the driver is never invoked |
 | `failed` | daemon (dispatch) | The dispatch threw instead of returning a verdict; the row records the error's code, or its message when it has none |
-| `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it |
+| `applied` | driver → daemon; or daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it — or the daemon applied an interrupt of a run still in its setup gates, which no driver has been handed |
 | `degraded` | driver → daemon; or daemon (post-driver) | Driver returned `status: 'degraded'` — the type could be delivered neither by a provider verb of the driver's own nor by the orchestration leg above it, so the orchestration layer fell back (`fallbackAction`), which neither V1 provider reaches |
 
 Static capability refusal is a separate, earlier path with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — one a driver can neither perform natively nor have performed for it above the driver ([Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior-1)) — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); **neither V1 provider reaches that path**. Static refusal never substitutes for a documented degraded path ([Plan-003](../plans/003-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
+
+An interrupt never waits behind a pending steer. A run's steers and faster-model retries dispatch one at a time in arrival order, and its interrupts likewise among themselves, but an interrupt dispatches at once even while a steer is in flight; a steer still queued on that run when the interrupt applies meets the advanced version at its acceptance and expires. An interrupt of a run still in its setup gates calls no driver, since none has been handed the run: it applies at once, the run is never started, and it ends `interrupted`.
 
 ## Boundary: Interventions vs Interactive Requests
 

@@ -9,13 +9,15 @@ import type { RunControlAdmissionRefusal } from "../run/controls/hooks/useRunCon
 export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
 
 /**
- * What one settled dispatch means to the form. A refusal is retried by confirming again; an
- * intervention recorded and not yet applied would be doubled by a second confirm, so that arm
- * latches the confirm and leaves cancel as the way out.
+ * What one settled dispatch means to the form. A refusal is retried by confirming again, and an
+ * undelivered steer also by its `Try again`; an intervention recorded and not yet applied would
+ * be doubled by a second confirm, so that arm latches the confirm and leaves cancel as the way
+ * out.
  */
 export type InterventionFormSettlement =
   | { readonly kind: "landed" }
   | { readonly kind: "refused"; readonly notice: Refusal }
+  | { readonly kind: "undelivered"; readonly notice: Refusal }
   | { readonly kind: "recorded"; readonly notice: Refusal };
 
 /**
@@ -47,12 +49,11 @@ export function readInterventionFormSettlement(
       };
     case "failed":
       return {
-        kind: "refused",
+        kind: "undelivered",
         notice: refuse(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
-          response.failureReason ?? settledState,
-          "The background service could not deliver this. What you typed is " +
-            "still here — confirm again to try once more, or cancel to close.",
+          response.failureReason,
+          "This steer was not delivered.",
         ),
       };
     case "expired":

@@ -87,6 +87,8 @@ export interface SettledInterventionOutcome {
 interface InterventionRunEngine {
   /** Ends the run `interrupted` for an applied or degraded interrupt; changes nothing otherwise. */
   settleInterventionOutcome(outcome: SettledInterventionOutcome): Promise<void>;
+  /** Claims the interrupt of a run no driver has been handed yet; false once a driver has it. */
+  claimSetupInterrupt(runId: RunId): boolean;
 }
 
 /** What the intervention service needs from the rest of the daemon. */
@@ -164,9 +166,9 @@ export class InterventionService {
    * type acts on, dispatches it once and answers with the state it reached. Steers and retries on
    * one run apply one at a time in arrival order, and so do interrupts, which never wait behind a
    * steer. A reused idempotency key answers with the saved result and dispatches nothing. Throws
-   * `run.not_found` for a run the daemon has no row for, `intervention.idempotency_conflict` for
-   * a reused key whose request differs, and whatever the dispatch throws, once the row is
-   * `failed`.
+   * `run.not_found` for a run the daemon has no row for, and `intervention.idempotency_conflict`
+   * for a reused key whose request differs; a dispatch that throws answers `failed` with what it
+   * threw as the `failureReason`.
    */
   async applyIntervention(
     request: InterventionRequestPayload,
@@ -263,6 +265,13 @@ export class InterventionService {
         ? { from: "accepted", to: "applied" }
         : { from: "accepted", to: "rejected", reason: retried.rejectionReason };
     }
+    // A run still in its setup gates has no provider turn to stop; the engine never starts it.
+    if (
+      request.type === "interrupt" &&
+      this.#deps.runEngine.claimSetupInterrupt(request.targetRunId)
+    ) {
+      return { from: "accepted", to: "applied" };
+    }
     const result = await this.#deps
       .resolveDriver(request.targetRunId)
       .applyIntervention(driverParamsOf(request));
@@ -286,8 +295,11 @@ export class InterventionService {
     );
   }
 
-  // Ends the intervention `failed` with what its dispatch threw, then throws it on.
-  async #fail(target: InterventionTarget, dispatchError: unknown): Promise<never> {
+  // Ends the intervention `failed` with what its dispatch threw, and answers with that reason.
+  async #fail(
+    target: InterventionTarget,
+    dispatchError: unknown,
+  ): Promise<InterventionRequestResponse> {
     const reason = boundFailureDetail(failureTextOf(dispatchError), UNDESCRIBED_DISPATCH_FAILURE);
     try {
       await this.#appendIntervention(target, "failed", [
@@ -304,7 +316,7 @@ export class InterventionService {
         { cause: recordError },
       );
     }
-    throw dispatchError;
+    return this.#answer(target, "failed", reason);
   }
 
   // A reused key returns what the first request saved when the two ask for the same thing.

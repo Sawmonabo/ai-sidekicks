@@ -2,7 +2,6 @@
 // the wire, before the daemon acts on it.
 import { describe, expect, it } from "vitest";
 
-import { INTERRUPT_REASONS } from "../../orchestration.js";
 import type { InterventionType } from "../../provider/driver/intervention.js";
 import { RECOVERY_CONDITIONS } from "../../provider/driver/recovery.js";
 import {
@@ -181,7 +180,13 @@ const minimalRunStateChange = {
 describe("RunStateChangeEvent", () => {
   it("names why the daemon itself interrupted a run, from the closed set only", () => {
     const interrupted = { ...minimalRunStateChange, newState: "interrupted" } as const;
-    for (const trigger of INTERRUPT_REASONS) {
+    for (const trigger of [
+      "step_limit",
+      "spend_limit",
+      "token_limit",
+      "workflow_phase_canceled",
+      "daemon_restart",
+    ]) {
       expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger }).success).toBe(true);
     }
     expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger: "person" }).success).toBe(
@@ -224,7 +229,12 @@ describe("RunStateChangeEvent", () => {
     };
 
     it("rides only the transition into failed, and only with the refusing model", () => {
-      const failed = { ...minimalRunStateChange, newState: "failed", failureCause: refusal };
+      const failed = {
+        ...minimalRunStateChange,
+        newState: "failed",
+        failureCategory: "refused",
+        failureCause: refusal,
+      };
       expect(RunStateChangeEventSchema.parse(failed)).toEqual(failed);
       expect(
         RunStateChangeEventSchema.safeParse({ ...minimalRunStateChange, failureCause: refusal })

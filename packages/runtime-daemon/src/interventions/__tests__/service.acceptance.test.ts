@@ -294,6 +294,51 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(fixture.readRunEvents(runId).at(-1)?.type).toBe("run.running");
   });
 
+  it("ends a run interrupted while its setup gate is still pending, and the gate's release lets the start end", async () => {
+    // A gate that waits until the run ends, as one waiting on a setup step's retry would.
+    const gateCalled = Promise.withResolvers<void>();
+    const gateReady = Promise.withResolvers<void>();
+    fixture.engine.registerSetupGate({
+      assertRunReady: () => {
+        gateCalled.resolve();
+        return gateReady.promise;
+      },
+      onRunTerminal: () => {
+        gateReady.resolve();
+        return Promise.resolve();
+      },
+    });
+    const runId = await fixture.queueRun();
+    const providerDriver = makeRecordingDriver();
+    const started = fixture.engine
+      .startRun({
+        runId,
+        queueItem: makeQueueItem(),
+        provider: "claude",
+        driver: providerDriver,
+        driverParams: { agentConfig: {} },
+        executionPosture: TEST_EXECUTION_POSTURE,
+      })
+      .catch((error: unknown) => error);
+    await gateCalled.promise;
+    // As a real driver answers a stop for a run it was never handed.
+    answerDriver = () => Promise.reject(new Error("No live run to interrupt"));
+
+    const stop = await service.applyIntervention(interrupt(runId, readVersion(runId)), {
+      actor: DeviceIdSchema.parse(randomUUID()),
+    });
+
+    expect(stop).toMatchObject({ interventionType: "interrupt", state: "applied" });
+    expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
+    expect(await started).toMatchObject({
+      code: "run.invalid_transition",
+      fromState: "interrupted",
+    });
+    expect(driverCalls).toEqual([]);
+    expect(providerDriver.startedRuns).toEqual([]);
+    expect(countTerminals(runId)).toBe(1);
+  });
+
   it("dispatches a stop past a stuck steer, keeps the steer's verdict, and expires the steer behind it", async () => {
     const runId = await fixture.runThrough(["starting", "running"]);
     const runningVersion = readVersion(runId);
@@ -316,6 +361,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(stop).toMatchObject({ interventionType: "interrupt", state: "applied" });
     expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
     expect(countTerminals(runId)).toBe(1);
+    const interruptedVersion = readVersion(runId);
 
     stuckSteerVerdict.resolve({ status: "degraded", fallbackAction: STEER_FALLBACK_ACTION });
     const [stuck, queued] = await Promise.all([stuckSteer, queuedSteer]);
@@ -325,9 +371,18 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       state: "degraded",
       fallback_action: STEER_FALLBACK_ACTION,
     });
-    expect(queued).toMatchObject({ state: "expired", runVersion: stuck.runVersion });
+    // The verdict that landed after the run's end moved nothing past it.
+    expect(stuck.runVersion).toBe(interruptedVersion);
+    expect(queued).toMatchObject({ state: "expired", runVersion: interruptedVersion });
     expect(readIntervention(queued.interventionId)).toMatchObject({ state: "expired" });
     expect(driverCalls).toHaveLength(2);
-    expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
+    expect(fixture.runs.getRun(runId)).toMatchObject({
+      state: "interrupted",
+      version: interruptedVersion,
+    });
+    expect(fixture.readRunEvents(runId).at(-1)).toMatchObject({
+      type: "run.interrupted",
+      payload: { runVersion: interruptedVersion },
+    });
   });
 });

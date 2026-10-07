@@ -10,6 +10,7 @@ import {
   interventionResponse,
   routerWith,
 } from "./router.test-support.js";
+import { isUndeliveredMessage } from "./refusals.js";
 
 describe("ComposerSendRouter — a fulfilled intervention is not a successful send", () => {
   it("names the lifecycle state where the response carried no cause", async () => {
@@ -30,6 +31,7 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
     const outcome = await routerWith(call).send("steer me", RUN_TARGET);
 
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("driver.transport_closed");
+    expect(outcome.status === "refused" && isUndeliveredMessage(outcome.refusal)).toBe(true);
   });
 
   it("treats the two fallback states as sends, because the message traveled", async () => {

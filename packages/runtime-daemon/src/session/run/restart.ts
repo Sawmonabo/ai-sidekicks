@@ -3,6 +3,7 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
+import { RUN_LIFECYCLE_EVENT_TYPES } from "@ai-sidekicks/contracts/event/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -11,7 +12,8 @@ import type { LiveRun } from "./read.js";
 
 // An interrupt the person asked for that has not ended the run: one with no outcome yet, or one
 // whose outcome landed with no run event after it. A later verdict advances the version without
-// a run event, so only a run event above the outcome's version means the run moved on.
+// a run event, so only a run event above the outcome's version means the run moved on. Listing
+// the run event types lets the read seek the session's type index rather than scan its log.
 const SELECT_PENDING_INTERRUPT_SQL = `SELECT 1 FROM interventions
   WHERE target_run_id = @run_id
     AND type = 'interrupt'
@@ -19,7 +21,7 @@ const SELECT_PENDING_INTERRUPT_SQL = `SELECT 1 FROM interventions
       OR (state IN ('applied', 'degraded') AND NOT EXISTS (
         SELECT 1 FROM session_events
           WHERE session_id = @session_id
-            AND category = 'run_lifecycle'
+            AND type IN (${RUN_LIFECYCLE_EVENT_TYPES.map((type) => `'${type}'`).join(", ")})
             AND json_extract(payload, '$.runId') = @run_id
             AND json_extract(payload, '$.runVersion') > interventions.outcome_run_version)))
   LIMIT 1`;

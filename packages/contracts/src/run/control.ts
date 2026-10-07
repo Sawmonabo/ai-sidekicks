@@ -97,7 +97,8 @@ export type InterventionId = string & { readonly __brand: "InterventionId" };
 export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
-const INTERVENTION_STATES = [
+/** Every state an intervention passes through, `requested` first; each has its own event. */
+export const INTERVENTION_STATES = [
   "requested",
   "accepted",
   "applied",
@@ -112,19 +113,22 @@ const INTERVENTION_STATES = [
  */
 export type InterventionState = (typeof INTERVENTION_STATES)[number];
 
-/** Why a run failed. The values carry spaces because they are wire literals, not identifiers. */
-export type RunFailureCategory =
-  | "provider failure"
-  | "transport failure"
-  | "local persistence failure"
-  | "projection failure";
-/** Parses a {@link RunFailureCategory}. */
-export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureCategory> = z.enum([
+const RUN_FAILURE_CATEGORIES = [
   "provider failure",
   "transport failure",
   "local persistence failure",
   "projection failure",
-]);
+  "refused",
+] as const;
+
+/**
+ * Why a run failed: `refused` is a turn the provider's safety check refused with no other model
+ * to take it. The values carry spaces because they are wire literals, not identifiers.
+ */
+export type RunFailureCategory = (typeof RUN_FAILURE_CATEGORIES)[number];
+/** Parses a {@link RunFailureCategory}. */
+export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureCategory> =
+  z.enum(RUN_FAILURE_CATEGORIES);
 
 // A `writableRoots` entry. Not `wireFreeFormString`: a directory named with a single space is
 // legal, while NUL is in no filesystem's paths.
@@ -246,8 +250,8 @@ export interface InterventionResponseBase {
 /**
  * The daemon's answer to an intervention request. A refused intervention is a normal answer in
  * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; one whose
- * dispatch threw answers `failed` with its `failureReason`, the error's code or message, to the
- * caller retrying under the same key. No other state carries a reason.
+ * dispatch threw answers `failed` with its `failureReason`, the error's code or message, and a
+ * retry under the same key answers the same. No other state carries a reason.
  */
 export type InterventionRequestResponse = InterventionResponseBase &
   (
