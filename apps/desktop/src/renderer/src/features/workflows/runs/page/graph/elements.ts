@@ -10,6 +10,7 @@ import type {
   WorkflowDocument,
   WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { CanvasPoint } from "./layout.js";
@@ -196,9 +197,18 @@ export function toRunGraphFlowEdges(
   });
 }
 
-/** Handle ids in index order, so `outputs/main/2` stands above `outputs/main/10`. */
+/**
+ * Handle ids by type, `main` above `tool`, then in index order, so `outputs/main/2` stands above
+ * `outputs/main/10`; ids the parse reads alike keep the order of their spelling.
+ */
 function byHandleIndex(left: string, right: string): number {
-  return left.localeCompare(right, undefined, { numeric: true });
+  const leftHandle = parseWorkflowHandle(left);
+  const rightHandle = parseWorkflowHandle(right);
+  return (
+    leftHandle.type.localeCompare(rightHandle.type) ||
+    leftHandle.index - rightHandle.index ||
+    left.localeCompare(right)
+  );
 }
 
 /** The sheet's class for an edge's run state; an edge with neither state takes the default. */

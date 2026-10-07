@@ -9,8 +9,19 @@
 // the kind's code composes the summary.
 import { z } from "zod";
 
-import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+  type MethodDescriptor,
+} from "../method-descriptor.js";
 import { WorkflowNodeKindIdSchema, type WorkflowNodeKindId } from "./definition/document.js";
+import {
+  parseWorkflowHandle,
+  type WorkflowHandleId,
+  type WorkflowHandleMode,
+  type WorkflowHandleType,
+} from "./definition/handle.js";
 
 const WORKFLOW_NODE_KIND_CATEGORIES = [
   "trigger",
@@ -26,31 +37,59 @@ const WORKFLOW_NODE_KIND_CATEGORIES = [
 /** The categories the palette groups kinds under. */
 export type WorkflowNodeKindCategory = (typeof WORKFLOW_NODE_KIND_CATEGORIES)[number];
 
-const WORKFLOW_HANDLE_TYPES = ["main", "tool"] as const;
-
-/** What a handle carries: items on `main`, a capability an agent can call on `tool`. */
-export type WorkflowHandleType = (typeof WORKFLOW_HANDLE_TYPES)[number];
-
 /**
- * One handle a kind declares. Its id reads `<mode>/<type>/<index>`, so a handle is
- * addressable from a stored edge alone.
+ * One handle a kind declares on one side. Its id reads `<mode>/<type>/<index>` and says the
+ * side and type the spec declares, so a handle is addressable from a stored edge alone.
+ * `maxConnections` absent means the handle takes any number of edges.
  */
-export interface WorkflowHandleSpec {
-  id: string;
-  label: string;
-  type: WorkflowHandleType;
-  maxConnections?: number | undefined;
-  required?: boolean | undefined;
+export type WorkflowHandleSpec<Mode extends WorkflowHandleMode = WorkflowHandleMode> = {
+  [Type in WorkflowHandleType]: {
+    id: WorkflowHandleId<Mode, Type>;
+    label: string;
+    type: Type;
+    maxConnections?: number | undefined;
+    required?: boolean | undefined;
+  };
+}[WorkflowHandleType];
+
+function handleSpecArm<Id extends string, Type extends WorkflowHandleType>(
+  id: z.ZodType<Id, Id>,
+  type: Type,
+) {
+  return z
+    .object({
+      id,
+      label: z.string().min(1),
+      type: z.literal(type),
+      maxConnections: z.number().int().positive().optional(),
+      required: z.boolean().optional(),
+    })
+    .strict();
 }
-const WorkflowHandleSpecSchema: z.ZodType<WorkflowHandleSpec> = z
-  .object({
-    id: z.string().min(1),
-    label: z.string().min(1),
-    type: z.enum(WORKFLOW_HANDLE_TYPES),
-    maxConnections: z.number().int().positive().optional(),
-    required: z.boolean().optional(),
-  })
-  .strict();
+
+// The template literal lets a negative index or one with leading zeros through; the parse
+// does not.
+function hasCanonicalIndex(spec: { id: string }): boolean {
+  return parseWorkflowHandle(spec.id).isTypeKnown;
+}
+const CANONICAL_INDEX_ISSUE = {
+  path: ["id"],
+  message: "A handle's index is a whole number from 0, written with no leading zeros.",
+};
+
+const InputHandleSpecSchema: z.ZodType<WorkflowHandleSpec<"inputs">> = z
+  .discriminatedUnion("type", [
+    handleSpecArm(z.templateLiteral(["inputs/main/", z.int()]), "main"),
+    handleSpecArm(z.templateLiteral(["inputs/tool/", z.int()]), "tool"),
+  ])
+  .refine(hasCanonicalIndex, CANONICAL_INDEX_ISSUE);
+
+const OutputHandleSpecSchema: z.ZodType<WorkflowHandleSpec<"outputs">> = z
+  .discriminatedUnion("type", [
+    handleSpecArm(z.templateLiteral(["outputs/main/", z.int()]), "main"),
+    handleSpecArm(z.templateLiteral(["outputs/tool/", z.int()]), "tool"),
+  ])
+  .refine(hasCanonicalIndex, CANONICAL_INDEX_ISSUE);
 
 const WORKFLOW_PARAM_TYPES = [
   "string",
@@ -130,6 +169,11 @@ export const WorkflowParamSpecSchema: z.ZodType<WorkflowParamSpec> = z.lazy(() =
   ]),
 );
 
+const WORKFLOW_NODE_SIDE_EFFECTS = ["none", "local", "external"] as const;
+
+/** What running a kind can change: nothing, this machine, or something beyond it. */
+export type WorkflowNodeSideEffects = (typeof WORKFLOW_NODE_SIDE_EFFECTS)[number];
+
 /**
  * One kind as the catalog serializes it. `version` is the implementation a newly placed
  * node records; a placed node keeps the version it recorded.
@@ -142,13 +186,13 @@ export interface WorkflowNodeKindSpec {
   description: string;
   icon: string;
   aliases?: string[] | undefined;
-  inputs: WorkflowHandleSpec[];
-  outputs: WorkflowHandleSpec[];
+  inputs: WorkflowHandleSpec<"inputs">[];
+  outputs: WorkflowHandleSpec<"outputs">[];
   outputsDeriveFromParams: boolean;
   params: WorkflowParamSpec[];
   perItem?: boolean | undefined;
   capabilities?:
-    | { cancelable: boolean; resumable: boolean; sideEffects: "none" | "local" | "external" }
+    | { cancelable: boolean; resumable: boolean; sideEffects: WorkflowNodeSideEffects }
     | undefined;
 }
 const WorkflowNodeKindSpecSchema: z.ZodType<WorkflowNodeKindSpec> = z
@@ -161,8 +205,8 @@ const WorkflowNodeKindSpecSchema: z.ZodType<WorkflowNodeKindSpec> = z
     icon: z.string().min(1),
     // Palette search only.
     aliases: z.array(z.string().min(1)).optional(),
-    inputs: z.array(WorkflowHandleSpecSchema),
-    outputs: z.array(WorkflowHandleSpecSchema),
+    inputs: z.array(InputHandleSpecSchema),
+    outputs: z.array(OutputHandleSpecSchema),
     outputsDeriveFromParams: z.boolean(),
     params: z.array(WorkflowParamSpecSchema),
     // True where the kind runs once per item rather than once over all of them.
@@ -171,20 +215,12 @@ const WorkflowNodeKindSpecSchema: z.ZodType<WorkflowNodeKindSpec> = z
       .object({
         cancelable: z.boolean(),
         resumable: z.boolean(),
-        sideEffects: z.enum(["none", "local", "external"]),
+        sideEffects: z.enum(WORKFLOW_NODE_SIDE_EFFECTS),
       })
       .strict()
       .optional(),
   })
   .strict();
-
-/** `workflow.kindList` takes no members. */
-export type WorkflowKindListRequest = Record<string, never>;
-/** Wire schema for {@link WorkflowKindListRequest}. */
-export const WorkflowKindListRequestSchema: z.ZodType<
-  WorkflowKindListRequest,
-  WorkflowKindListRequest
-> = z.object({}).strict();
 
 /** The `workflow.kindList` result: every kind the daemon runs. */
 export interface WorkflowKindListResponse {
@@ -199,7 +235,7 @@ export const WorkflowKindListResponseSchema: z.ZodType<WorkflowKindListResponse>
 export interface WorkflowKindMethodDescriptors {
   readonly "workflow.kindList": MethodDescriptor<
     "workflow.kindList",
-    WorkflowKindListRequest,
+    EmptyPayload,
     WorkflowKindListResponse
   >;
 }
@@ -215,7 +251,7 @@ export const WORKFLOW_KIND_METHOD_DESCRIPTORS: WorkflowKindMethodDescriptors =
       method: "workflow.kindList",
       procedureType: "query",
       mutating: false,
-      requestSchema: WorkflowKindListRequestSchema,
+      requestSchema: EmptyPayloadSchema,
       responseSchema: WorkflowKindListResponseSchema,
     },
   });
