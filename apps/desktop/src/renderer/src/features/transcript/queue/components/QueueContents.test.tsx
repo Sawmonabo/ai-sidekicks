@@ -35,7 +35,7 @@ describe("the queue renders the rows it is given", () => {
       (chip) => chip.textContent,
     );
     // The feed's canonical FIFO order, unreordered: the admitted head first.
-    expect(states).toStrictEqual(["admitted", "queued", "queued"]);
+    expect(states).toStrictEqual(["Admitted", "Queued", "Queued"]);
   });
 });
 

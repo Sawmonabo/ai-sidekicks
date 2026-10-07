@@ -1,7 +1,7 @@
-// One worktree row of `repo.worktreeStatusRead`. Every column is the wire's own string; only
-// the age is derived, and its exact stamp rides the element's `title`. Secondary facts sit in a
-// native `<details>`, which keeps no per-row state. There is no retire control: its confirm
-// needs an inspection preview this card is not given and must not fabricate.
+// One worktree row of `repo.worktreeStatusRead`. Every column is the wire's own string but the
+// state, which reads as words, and the age, which is derived, its exact stamp on the `title`.
+// Secondary facts sit in a native `<details>`, which keeps no per-row state. There is no retire
+// control: its confirm needs an inspection preview this card is not given and must not fabricate.
 
 import "./WorktreeCard.css";
 
@@ -14,6 +14,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import { WORKTREE_STATE_TONES } from "../execution-roots/state-tones.js";
 import {
@@ -48,8 +49,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         </h4>
         <Chip
           tone={WORKTREE_STATE_TONES[record.state]}
-          label={record.state}
-          mono
+          label={codeWords(record.state)}
           glyph={record.state === "failed" ? "alert" : "dot"}
         />
       </header>

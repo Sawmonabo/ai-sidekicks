@@ -11,6 +11,7 @@ import { useId } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../model.js";
 import { ARTIFACT_STATE_TONES } from "../copy.js";
@@ -44,8 +45,8 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
       {manifest === undefined ? null : (
         <div className="meridian-artifact-card__body">
           <div className="meridian-artifact-card__face">
-            <Chip label={manifest.artifactType} mono />
-            <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={manifest.state} mono />
+            <Chip label={codeWords(manifest.artifactType)} />
+            <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={codeWords(manifest.state)} />
             <WireFigure
               value={formatByteQuantity(manifest.size).text}
               title={String(manifest.size)}

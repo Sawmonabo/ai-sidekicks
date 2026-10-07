@@ -1,7 +1,6 @@
 import { useState } from "react";
 
-import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 
 /**
@@ -16,12 +15,17 @@ export function useOpenSignInPage(): {
   const [refusal, setRefusal] = useState<Refusal | undefined>(undefined);
   const openSignInPage = (verificationUri: string): void => {
     setRefusal(undefined);
-    bridge.native.openExternal(verificationUri).catch((error: unknown) => {
-      setRefusal(coerceToRefusal(error, SIGN_IN_PAGE_ORIGIN, "open-sign-in-page-failed"));
+    // The rejection's own message crosses IPC with the channel's name in it, so it is not shown.
+    bridge.native.openExternal(verificationUri).catch(() => {
+      setRefusal(SIGN_IN_PAGE_UNOPENED);
     });
   };
   return { refusal, openSignInPage };
 }
 
-/** The subsystem name a refused open carries when the bridge raised no refusal of its own. */
-const SIGN_IN_PAGE_ORIGIN = "provider-sign-in-page";
+/** What a refused open says. */
+const SIGN_IN_PAGE_UNOPENED = refuse(
+  "provider-sign-in-page",
+  "open-sign-in-page-failed",
+  "Could not open the sign-in page.",
+);

@@ -6,14 +6,14 @@
 // no next move.
 
 import { refusalRemedyFor } from "#renderer/lib/refusal/remedies.js";
-import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
 import { RefusalRemedyContent } from "#renderer/components/Refusal/RefusalRemedyContent.js";
 
 /** Props for `RefusalWithRemedy`. */
 export interface RefusalWithRemedyProps {
-  readonly refusal: Refusal;
+  readonly refusal: ExtendedRefusal;
   /**
    * Rendered inside the remedy region after the console's own next move, for a caller that can say
    * something the remedy table cannot, such as the position a rewind landed at.
@@ -30,7 +30,21 @@ export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Elem
       <RefusalRemedyContent remedy={remedy}>{detailAction}</RefusalRemedyContent>
     );
   if (remedy?.rendering === "card" || remedy?.rendering === "banner") {
-    return <RefusalCard code={refusal.code} detail={refusal.detail} action={action} />;
+    return (
+      <RefusalCard
+        code={refusal.code}
+        reason={refusal.reason}
+        detail={refusal.detail}
+        action={action}
+      />
+    );
   }
-  return <InlineRefusal code={refusal.code} detail={refusal.detail} action={action} />;
+  return (
+    <InlineRefusal
+      code={refusal.code}
+      reason={refusal.reason}
+      detail={refusal.detail}
+      action={action}
+    />
+  );
 }

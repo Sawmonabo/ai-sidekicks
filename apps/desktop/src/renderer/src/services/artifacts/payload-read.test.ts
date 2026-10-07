@@ -43,9 +43,7 @@ describe("reading an artifact's payload window by window", () => {
     const bytes = new TextEncoder().encode(SPLIT_TEXT);
     const read = await readArtifactPayload(windowedRead(bytes, [], 1), ARTIFACT_ID);
 
-    expect(read.status === "refused" ? read.refusal.code : read).toBe(
-      "artifacts.payload_unreadable",
-    );
+    expect(read.status === "refused" ? read.refusal.code : read).toBe("payload-unreadable");
   });
 });
 

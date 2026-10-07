@@ -54,13 +54,18 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
                   {banner.dismissible ? (
                     <RefusalBanner
                       code={banner.code}
+                      reason={banner.reason}
                       detail={banner.detail}
                       onDismiss={() => {
                         props.onDismissBanner(banner.id);
                       }}
                     />
                   ) : (
-                    <RefusalBanner code={banner.code} detail={banner.detail} />
+                    <RefusalBanner
+                      code={banner.code}
+                      reason={banner.reason}
+                      detail={banner.detail}
+                    />
                   )}
                 </div>
               ))}

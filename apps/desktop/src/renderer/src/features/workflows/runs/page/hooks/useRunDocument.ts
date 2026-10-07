@@ -78,7 +78,7 @@ async function readPinnedVersion(
       kind: "failed",
       refusal: refuse(
         "workflows",
-        "workflows.version_not_in_chain",
+        "version-not-in-chain",
         "The version this run pinned is not in its workflow's version history.",
       ),
     };

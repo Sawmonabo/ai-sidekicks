@@ -7,18 +7,22 @@
 //   - card: the session's history now contains it, so it belongs in the transcript.
 //   - banner: what the whole room can do has changed, so it spans the frame.
 //
-// Every shape shows the daemon's message verbatim, never paraphrased or shortened. The code stays
-// off the screen and rides on the root as `data-refusal-code` for diagnostics. The next move is
-// the caller's `action`; the renderer computes no eligibility and so no remedy.
+// Every shape shows the daemon's message verbatim, never paraphrased or shortened. The code and
+// its reason reach the screen only as words (`RefusalWords`), never as their wire spelling; the
+// code also rides on the root as `data-refusal-code` for diagnostics. The next move is the
+// caller's `action`; the renderer computes no eligibility and so no remedy.
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { RefusalExtensions } from "#renderer/lib/refusal/extensions.js";
 
 /**
  * What every refusal shape renders, picked from `Refusal` so the shapes move with it and a
  * producer can spread one (`<RefusalCard {...refusal} />`). `origin` is left out: it is for
- * diagnostics, and only the daemon's message goes on screen.
+ * diagnostics, and only the code's words and the daemon's message go on screen.
  */
 export interface RefusalProps extends Pick<Refusal, "code" | "detail"> {
+  /** Which of the code's listed reasons applies, read as words after the code's. */
+  readonly reason?: RefusalExtensions["reason"];
   /** The person's next move, when one exists. */
   readonly action?: React.ReactNode;
 }

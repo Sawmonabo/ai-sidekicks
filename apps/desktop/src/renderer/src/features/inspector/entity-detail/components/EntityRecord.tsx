@@ -10,6 +10,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 // The kind glyph is drawn at the pane header's scale, taken from its one home.
 import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
@@ -24,7 +25,7 @@ export interface EntityRecordProps {
   readonly heading: string;
   /** The identifier the pane layout addressed, wire-verbatim. */
   readonly entityId: string;
-  /** The record's headline state, wire-verbatim, where the projection carries one. */
+  /** The record's headline state as the wire spells it, where the projection carries one. */
   readonly state: string | undefined;
   readonly isInitialized: boolean;
   /** Whether the store holds a record for this identifier. */
@@ -61,10 +62,10 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         kind="error"
         placement="block"
         title={`The ${subject} record is incomplete.`}
-        // The cause is the store's own word, unparaphrased. No Retry: nothing reachable from an
-        // inspector re-pulls a session.
+        // No Retry: nothing reachable from an inspector re-pulls a session.
         detail={
-          `The projection is incomplete (${props.degradedCause}), ` +
+          // Lower case, as the cause's words stand mid-sentence.
+          `The projection is incomplete (${codeWords(props.degradedCause).toLowerCase()}), ` +
           `so ${props.degradedConsequence}`
         }
       />
@@ -88,7 +89,7 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         </span>
         <h2 className="meridian-entity-record__heading">{props.heading}</h2>
         <WireFigure value={props.entityId} />
-        {props.state === undefined ? null : <Chip tone="neutral" mono label={props.state} />}
+        {props.state === undefined ? null : <Chip tone="neutral" label={codeWords(props.state)} />}
       </header>
       <dl className="meridian-entity-record__facets">
         {props.facets.map((facet) => (

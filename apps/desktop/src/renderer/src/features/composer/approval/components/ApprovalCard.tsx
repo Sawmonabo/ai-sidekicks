@@ -154,7 +154,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         <h3 className="meridian-approval-card__title" id={titleId}>
           {APPROVAL_CATEGORY_LABELS[record.category]}
         </h3>
-        <Chip mono label={record.category} tone="neutral" />
         <Chip
           label={APPROVAL_STATE_LABELS[record.state]}
           tone={APPROVAL_STATE_TONES[record.state]}

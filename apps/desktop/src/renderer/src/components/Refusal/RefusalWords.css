@@ -1,0 +1,8 @@
+/* A refusal's code and reason as words, on their own line above the daemon's message: the full
+   inline size breaks the banner's wrapping row so the message starts on the next line. */
+
+.meridian-refusal-words {
+  inline-size: 100%;
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-sm);
+}

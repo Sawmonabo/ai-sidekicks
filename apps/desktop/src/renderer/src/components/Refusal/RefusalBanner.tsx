@@ -7,6 +7,7 @@ import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
 import { type RefusalProps } from "./props.js";
+import { RefusalWords } from "./RefusalWords.js";
 
 /** Props for `RefusalBanner`. */
 export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {
@@ -20,7 +21,10 @@ export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {
   readonly onDismiss?: () => void;
 }
 
-/** A refusal spanning the frame; dismissible only when `onDismiss` is given. */
+/**
+ * A refusal spanning the frame, the code's words over the daemon's message; dismissible only
+ * when `onDismiss` is given.
+ */
 export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
   return (
     <div
@@ -34,6 +38,7 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
     >
       <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
       <div className="meridian-refusal__body">
+        <RefusalWords code={props.code} reason={props.reason} />
         <span className="meridian-refusal__message">
           {typeof props.detail === "string" ? formatWireString(props.detail) : props.detail}
         </span>

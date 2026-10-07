@@ -10,7 +10,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayAlertDialogPopup } from "#renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { useConfirmationLifecycle } from "../../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./controller.js";
@@ -93,7 +93,7 @@ function renderSettlement(reading: RootRemovalReading): React.JSX.Element | null
     case "settled":
       return (
         <p className="meridian-form__settlement meridian-form__settlement--inline" role="status">
-          <WireFigure value={reading.state} />
+          {codeWords(reading.state)}
         </p>
       );
   }

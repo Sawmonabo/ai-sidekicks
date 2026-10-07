@@ -120,4 +120,26 @@ describe("the Preview pane's act sequence", () => {
     expect(result.current.refusal?.code).toBe("permission_denied");
     expect(result.current.refusal?.detail).toBe("You may not navigate this pane.");
   });
+
+  it("reads a rejected bridge call as its own sentence, never main's channel name", async () => {
+    // Electron wraps every rejected invoke this way, so the message names the channel.
+    const handOff = deferredAct();
+    const { result } = renderHook(() =>
+      usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
+    );
+
+    act(() => {
+      result.current.run(handOff.run, FALLBACK);
+    });
+    handOff.reject(
+      new Error(
+        "Error invoking remote method 'native.openExternal': Error: The operating system " +
+          "refused this request; main's log has why.",
+      ),
+    );
+    await settleReactWork();
+
+    expect(result.current.refusal?.detail).toBe(FALLBACK.detail);
+    expect(JSON.stringify(result.current.refusal)).not.toContain("native.openExternal");
+  });
 });

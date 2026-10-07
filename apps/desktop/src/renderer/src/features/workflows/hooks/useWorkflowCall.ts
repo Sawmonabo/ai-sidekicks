@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 
 /** Where one call stands: not sent, in flight, refused in the daemon's words, or done. */
 export type WorkflowCallState<TResult> =
   | { readonly kind: "idle" }
   | { readonly kind: "sending" }
-  | { readonly kind: "refused"; readonly refusal: Refusal }
+  | { readonly kind: "refused"; readonly refusal: ExtendedRefusal }
   | { readonly kind: "done"; readonly result: TResult };
 
 /** One call's state and the press that sends it. */

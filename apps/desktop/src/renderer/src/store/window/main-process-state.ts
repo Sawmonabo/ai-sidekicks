@@ -7,11 +7,12 @@
 // `unreported` is the state before main's first delivery: not `connected` and not `degraded`,
 // since either would be a guess.
 
-import type {
-  DaemonConnection,
-  MainProcessNegotiation,
-  MainProcessState,
-  ServiceCannotStart,
+import {
+  NOT_ANSWERING_MESSAGE,
+  type DaemonConnection,
+  type MainProcessNegotiation,
+  type MainProcessState,
+  type ServiceCannotStart,
 } from "#shared/daemon/status-topic.js";
 
 /** What a window holds before anything has reported. The store is born on it. */
@@ -67,7 +68,7 @@ export function describeDaemonConnection(connection: DaemonConnection): string {
     // A loss main does not recognize reads exactly as one it gave up on, never as running.
     case "unknown":
     case "degraded":
-      return "The background service is not answering.";
+      return NOT_ANSWERING_MESSAGE;
     case "stopped":
       return "Stopped";
   }

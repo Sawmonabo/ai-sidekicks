@@ -11,12 +11,14 @@ import {
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
 } from "#shared/bridge-channels.js";
-import type {
-  DaemonCallOutcome,
-  DaemonCallRequest,
-  DaemonSubscriptionEnd,
-  DaemonSubscriptionOpening,
-  DaemonSubscriptionRequest,
+import {
+  REQUEST_UNSENDABLE_CODE,
+  REQUEST_UNSENDABLE_MESSAGE,
+  type DaemonCallOutcome,
+  type DaemonCallRequest,
+  type DaemonSubscriptionEnd,
+  type DaemonSubscriptionOpening,
+  type DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
 import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
 import type { PreloadIpc } from "./ipc.js";
@@ -47,7 +49,8 @@ export function createDaemonWire(ipc: PreloadIpc, subscriptions: DaemonSubscript
 
 /**
  * What a call main forwarded was served with: the value, and the file tokens main minted beside
- * it. Throws the daemon's refusal itself, and an `Error` carrying the message of any other failure.
+ * it. Throws the daemon's refusal itself, the app's `request-unsendable` refusal for a request
+ * main did not send, and an `Error` carrying the message of any other failure.
  */
 export function settleDaemonCall(answer: unknown): ServedDaemonCall<unknown> {
   const ended = answer as DaemonCallOutcome;
@@ -58,6 +61,9 @@ export function settleDaemonCall(answer: unknown): ServedDaemonCall<unknown> {
   }
   if (ended.outcome === "refused") {
     throw ended.refusal;
+  }
+  if (ended.outcome === "unsendable") {
+    throw requestUnsendable();
   }
   throw new Error(ended.message);
 }
@@ -101,6 +107,10 @@ export class DaemonSubscriptions {
       event,
       params,
     } satisfies DaemonSubscriptionRequest) as DaemonSubscriptionOpening;
+    if (opening.outcome === "unsendable") {
+      this.#byId.delete(subscriptionId);
+      throw requestUnsendable();
+    }
     if (opening.outcome === "failed") {
       this.#byId.delete(subscriptionId);
       throw new Error(opening.message);
@@ -123,4 +133,10 @@ export class DaemonSubscriptions {
 interface SubscriptionHandlers {
   readonly deliver: (value: unknown) => void;
   readonly onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined;
+}
+
+// The app's own refusal for a request main did not send: an `Error` keeps its message across to
+// the page, and the code beside it is what the page reads it by.
+function requestUnsendable(): Error {
+  return Object.assign(new Error(REQUEST_UNSENDABLE_MESSAGE), { code: REQUEST_UNSENDABLE_CODE });
 }

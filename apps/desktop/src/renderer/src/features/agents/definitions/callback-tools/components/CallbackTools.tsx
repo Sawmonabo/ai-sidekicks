@@ -9,7 +9,6 @@ import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driv
 
 import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readings.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../registry.js";
 
@@ -68,11 +67,8 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
     return (
       <div className="meridian-callback-tools">
         <p className="meridian-callback-tools__note">
-          The registry is withheld. Spawn does not expose these tools while the background service
-          has no registered approval-create seam, so a sidekick cannot reach them, and a stray
-          invocation is answered <WireFigure value="denied" /> by the host&apos;s runtime backstop
-          with a driver diagnostic beside it — never completed without a policy decision, and never
-          left unanswered.
+          These tools stay off until the background service can ask for approval. A sidekick cannot
+          use them, and a call to one is denied.
         </p>
         <CallbackToolRows tools={props.registry.tools} deniedTone />
       </div>

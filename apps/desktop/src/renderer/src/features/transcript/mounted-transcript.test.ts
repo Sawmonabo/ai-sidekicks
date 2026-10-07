@@ -65,7 +65,7 @@ describe("mounted transcript — which feed an act reaches", () => {
       status: "refused",
       refusal: TRANSCRIPT_NOT_MOUNTED_REFUSAL,
     });
-    expect(TRANSCRIPT_NOT_MOUNTED_REFUSAL.code).toBe("transcript.no_mounted_transcript");
+    expect(TRANSCRIPT_NOT_MOUNTED_REFUSAL.code).toBe("no-mounted-transcript");
   });
 });
 

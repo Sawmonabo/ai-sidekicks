@@ -7,7 +7,7 @@ import type { PaneLayoutActName, PaneLayoutActs } from "./acts.js";
 /** What an act says when no pane layout is mounted in this window; one refusal for all acts. */
 export const PANE_LAYOUT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "pane-layout",
-  "pane-layout.not_mounted",
+  "pane-layout-not-mounted",
   "No panes are open in this window. Open a session and try again.",
 );
 

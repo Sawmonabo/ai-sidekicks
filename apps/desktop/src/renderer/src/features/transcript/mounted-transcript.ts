@@ -57,7 +57,7 @@ export function forwardActs(perform: (act: TranscriptActName) => void): Transcri
  */
 export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "transcript",
-  "transcript.no_mounted_transcript",
+  "no-mounted-transcript",
   "No transcript is open in this window. Open a session and try again.",
 );
 

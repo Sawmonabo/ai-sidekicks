@@ -1,17 +1,23 @@
 // Where a lazily loaded chunk got to, as a reading a mount point renders: still coming, here, or
-// refused with a way to ask again. The loader is a parameter, so a refusing fetch can be driven
-// in a test; the loader drops a failed fetch's memo, so a retry is a real request.
+// failed with a way to ask again. The loader is a parameter, so a refusing fetch can be driven
+// in a test; the loader drops a failed fetch's memo, so a retry is a real request. A failure's
+// own text, a browser's or a library's, goes to the diagnostic capture and never to the screen.
 
 import { useCallback, useEffect, useState } from "react";
 
+import { RealClock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import type { MemoizedLoad } from "#renderer/lib/memoized-load.js";
-import { normalizeWireRejection, type WireRefusal } from "#renderer/lib/wire/rejection.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 
-/** Where a chunk is: still coming, here, or refused. */
+/** Where a chunk is: still coming, here, or failed. */
 export type ChunkLoadState<TModule> =
   | { readonly status: "loading" }
   | { readonly status: "loaded"; readonly module: TModule }
-  | { readonly status: "failed"; readonly refusal: WireRefusal };
+  | { readonly status: "failed" };
 
 /** Where the chunk got to, and how a person asks for it again. */
 export interface ChunkLoad<TModule> {
@@ -21,11 +27,15 @@ export interface ChunkLoad<TModule> {
 }
 
 const LOADING_CHUNK = { status: "loading" } as const;
+const FAILED_CHUNK = { status: "failed" } as const;
+
+/** The subsystem every chunk failure's diagnostic record names. */
+const CHUNK_LOAD_SOURCE = "hooks/useChunkLoad";
 
 /**
  * Fetch a chunk through `loader` and say where it got to. A hook because `import()` is a side
  * effect a discarded render pass must not start; each run's own flag drops a settlement that
- * lands after unmount or a retry. `origin` names the chunk in a refusal.
+ * lands after unmount or a retry. `origin` names the chunk in the failure's diagnostic record.
  */
 export function useChunkLoad<TModule>(
   loader: MemoizedLoad<TModule>,
@@ -47,7 +57,15 @@ export function useChunkLoad<TModule>(
         if (isCurrent) {
           // The app's one reader of a caught value: `instanceof` or `String()` here throw on a
           // revoked Proxy or a null-prototype object, leaving the box stuck at `loading`.
-          setState({ status: "failed", refusal: normalizeWireRejection(origin, loadError) });
+          const failure = normalizeWireRejection(origin, loadError);
+          windowDiagnosticCapture.record({
+            at: diagnosticStampAt(new RealClock()),
+            severity: "error",
+            source: CHUNK_LOAD_SOURCE,
+            kind: failure.code,
+            detail: failure.detail,
+          });
+          setState(FAILED_CHUNK);
         }
       },
     );

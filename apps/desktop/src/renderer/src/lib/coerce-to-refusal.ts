@@ -1,7 +1,8 @@
 // A thrown or rejected value, coerced into the one refusal shape. A mutation, which has no read
 // to route through, needs the same translation as `store/reads/push-driven.ts`.
 
-import { RefusalError, isRefusal, type Refusal } from "./refusal/contract.js";
+import { RefusalError, isRefusal } from "./refusal/contract.js";
+import type { ExtendedRefusal } from "./refusal/extensions.js";
 import { normalizeWireRejection } from "./wire/rejection.js";
 import { wireRejectionToError } from "./wire/errors.js";
 import { READ_FAILED } from "./reads/failure-codes.js";
@@ -19,7 +20,7 @@ export function coerceToRefusal(
   error: unknown,
   origin: string,
   fallbackCode: string = READ_FAILED,
-): Refusal {
+): ExtendedRefusal {
   if (error instanceof RefusalError) {
     return error.refusal;
   }

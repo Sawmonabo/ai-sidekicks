@@ -5,6 +5,16 @@
 
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 
+/**
+ * The app's own code for a call or subscription main did not send, because the app built it off
+ * its contract; the method's name goes to main's log, never to the page.
+ */
+export const REQUEST_UNSENDABLE_CODE = "request-unsendable";
+
+/** What the page reads for a {@link REQUEST_UNSENDABLE_CODE} refusal. */
+export const REQUEST_UNSENDABLE_MESSAGE =
+  "This request could not be sent to the background service.";
+
 /** A daemon call the renderer asks main to forward. */
 export interface DaemonCallRequest {
   readonly method: string;
@@ -35,12 +45,19 @@ export type DaemonCallOutcome =
       readonly fileRefs?: Readonly<Record<string, string>>;
     }
   | { readonly outcome: "refused"; readonly refusal: JsonRpcError }
+  | DaemonRequestUnsendable
   | { readonly outcome: "failed"; readonly message: string };
 
 /** Whether main opened a subscription, or why it could not. */
 export type DaemonSubscriptionOpening =
   | { readonly outcome: "opened" }
+  | DaemonRequestUnsendable
   | { readonly outcome: "failed"; readonly message: string };
+
+/** A call or subscription main did not send, because the app built it off its contract. */
+export interface DaemonRequestUnsendable {
+  readonly outcome: "unsendable";
+}
 
 /**
  * How a subscription that opened ended without the page closing it: the daemon completed it, the

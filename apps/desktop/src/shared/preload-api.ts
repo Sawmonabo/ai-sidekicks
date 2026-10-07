@@ -374,7 +374,8 @@ export interface DaemonWire {
 /**
  * The one object the preload exposes on `window.desktopBridge`: the daemon's wire, the OS calls
  * main makes for the renderer, the updater, the machine settings, the keyboard map, and build
- * facts.
+ * facts. A member's rejection carries a message for the log, never words for a screen: the
+ * renderer says what failed in its own words.
  */
 export interface PreloadApi {
   readonly daemon: DaemonWire;

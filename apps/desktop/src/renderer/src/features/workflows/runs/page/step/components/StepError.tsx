@@ -2,7 +2,6 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { WORKFLOW_CODE_LABELS } from "#renderer/features/workflows/words.js";
 
 /**
  * The Error tab's table view: the failure's code in words with its reason, the item it failed on,
@@ -46,9 +45,8 @@ function failureLabel(
   code: string,
   details: Readonly<Record<string, unknown>> | undefined,
 ): string {
-  const label = codeWords(code, WORKFLOW_CODE_LABELS);
   const why = details?.["reason"] ?? details?.["cause"];
-  return typeof why === "string" ? `${label} · ${codeWords(why, {})}` : label;
+  return codeWords(code, typeof why === "string" ? why : undefined);
 }
 
 // The wire carries exactly one of the exit code and the signal. An exit code is a code, read as

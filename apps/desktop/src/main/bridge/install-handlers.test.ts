@@ -1,5 +1,6 @@
 // Every bridge member's channels are answered, and refuse a frame that is not one of the app's own
-// documents. A failure reaches the page with no path in it, and main's log keeps it whole.
+// documents. A system failure reaches the page as the channel's own sentence, with no path, channel
+// or code in it, and main's log keeps it whole; a failure main wrote crosses as it is.
 
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -131,7 +132,7 @@ describe("the bridge's channels", () => {
     });
   });
 
-  it("answers a system failure by its code, with no path in it, and logs it whole", async () => {
+  it("answers a system failure by one fixed message naming nothing, and logs it whole", async () => {
     // The `PastedImages` constructor makes its folder under the profile; once it is made, nothing
     // makes the profile folder again behind the file that replaces it.
     await vi.waitFor(() => stat(pastedImagesFolder));
@@ -141,13 +142,18 @@ describe("the bridge's channels", () => {
 
     const writing = invokeFrom(INDEX_URL, BRIDGE_CHANNELS.writeKeyboardMap, {}) as Promise<unknown>;
 
+    // The whole message is the fixed one, so no path, channel or code rides in it.
     await expect(writing).rejects.toThrow(
-      new RegExp(`^${BRIDGE_CHANNELS.writeKeyboardMap} failed \\(E[A-Z]+\\)\\.$`),
+      /^The operating system refused this request; main's log has why\.$/,
     );
-    await writing.catch((failure: unknown) => {
-      expect(String(failure)).not.toContain(userData);
-    });
     expect(JSON.stringify(log.write.mock.calls)).toContain(userData);
+  });
+
+  it("negative control: answers a failure main wrote with that failure itself", async () => {
+    const opening = invokeFrom(INDEX_URL, BRIDGE_CHANNELS.openExternal, 7) as Promise<unknown>;
+
+    await expect(opening).rejects.toBeInstanceOf(TypeError);
+    await expect(opening).rejects.toThrow(/^An outside address is a string\.$/);
   });
 
   it("answers a failed opening on the synchronous channel rather than leaving the page waiting", () => {

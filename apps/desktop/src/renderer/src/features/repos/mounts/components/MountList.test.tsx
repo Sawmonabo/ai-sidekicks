@@ -59,9 +59,9 @@ describe("MountList — the mounts the read found", () => {
     // One card of each verdict, the whole of `RepoMountHealth.status`.
     const [healthy, unreachable, drifted] = [...container.querySelectorAll(MOUNT_CARD_SELECTOR)];
     expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(3);
-    expect(within(healthy as HTMLElement).getByText("healthy")).toBeDefined();
-    expect(within(unreachable as HTMLElement).getByText("unreachable")).toBeDefined();
-    expect(within(drifted as HTMLElement).getByText("identity_mismatch")).toBeDefined();
+    expect(within(healthy as HTMLElement).getByText("Healthy")).toBeDefined();
+    expect(within(unreachable as HTMLElement).getByText("Unreachable")).toBeDefined();
+    expect(within(drifted as HTMLElement).getByText("Identity mismatch")).toBeDefined();
     // Each card names its root, so the three are three mounts rather than one drawn thrice.
     const labels = [healthy, unreachable, drifted].map((card) => card?.getAttribute("aria-label"));
     expect(new Set(labels).size).toBe(3);

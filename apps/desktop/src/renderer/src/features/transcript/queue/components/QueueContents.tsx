@@ -7,6 +7,7 @@
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import { refusalWords } from "#renderer/lib/code-words.js";
 import { findReadRefusal } from "#renderer/lib/reads/wire-state.js";
 import type { QueueFeed } from "../reading.js";
 import { QueueRow } from "./QueueRow.js";
@@ -35,13 +36,12 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   }
   const readRefusal = findReadRefusal(feed);
   if (readRefusal !== undefined) {
-    return (
-      <Nothing
-        kind="error"
-        placement="block"
-        title={readRefusal.code}
-        detail={readRefusal.detail}
-      />
+    // A refusal the app wrote has no words of its own, so its sentence is the whole line.
+    const words = refusalWords(readRefusal.code, readRefusal.reason);
+    return words === undefined ? (
+      <Nothing kind="error" placement="block" title={readRefusal.detail} />
+    ) : (
+      <Nothing kind="error" placement="block" title={words} detail={readRefusal.detail} />
     );
   }
 

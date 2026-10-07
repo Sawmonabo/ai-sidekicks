@@ -127,7 +127,7 @@ describe("connectToDaemon", () => {
     expect(failure).toBeInstanceOf(JsonRpcTransportUnavailableError);
     expect(failure).toMatchObject({
       code: JsonRpcErrorCode.InternalError,
-      data: { type: "transport.unavailable", fields: { reason: "ENOENT" } },
+      data: { type: "transport.unavailable", fields: { reason: "not_listening" } },
     });
   });
 

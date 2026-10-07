@@ -22,7 +22,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type Clock } from "#renderer/lib/clock.js";
-import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { type ReadRound } from "#renderer/lib/reads/scope.js";
 import { SUBSCRIBE_FAILED } from "#renderer/lib/reads/failure-codes.js";
@@ -32,7 +32,7 @@ import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 export type PushDrivenReadState<TValue> =
   | { readonly kind: "not-loaded" }
   | { readonly kind: "loaded"; readonly value: TValue }
-  | { readonly kind: "failed"; readonly refusal: Refusal };
+  | { readonly kind: "failed"; readonly refusal: ExtendedRefusal };
 
 /** Options for a `PushDrivenRead`. */
 export interface PushDrivenReadOptions<TValue> {
@@ -223,7 +223,7 @@ export class PushDrivenRead<TValue> {
     this.#changes.emit();
   }
 
-  #refusalFor(error: unknown): Refusal {
+  #refusalFor(error: unknown): ExtendedRefusal {
     return coerceToRefusal(error, this.#options.origin);
   }
 }

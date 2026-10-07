@@ -26,8 +26,8 @@ describe("isRefusal — recognition across a layer boundary", () => {
   });
 
   it("rejects a refusal whose fields are the right names and the wrong types", () => {
-    // Renderers put `code` in mono verbatim; a number would render and an object would show as
-    // "[object Object]".
+    // Renderers read `code` as words and draw `detail` as text: a number has no words and an
+    // object would show as "[object Object]".
     expect(isRefusal({ code: 7, detail: "d", origin: "o" })).toBe(false);
     expect(isRefusal({ code: "c", detail: { text: "d" }, origin: "o" })).toBe(false);
     expect(isRefusal({ code: "c", detail: "d", origin: null })).toBe(false);

@@ -12,7 +12,7 @@ import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { ArtifactRow } from "./ArtifactRow.js";
 import {
@@ -89,9 +89,7 @@ export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Elemen
         </div>
       )}
 
-      <div className="meridian-artifacts__body">
-        {renderPanelBody(props, visibleRows, typeFilter)}
-      </div>
+      <div className="meridian-artifacts__body">{renderPanelBody(props, visibleRows)}</div>
     </section>
   );
 }
@@ -105,7 +103,6 @@ export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Elemen
 function renderPanelBody(
   props: ArtifactsSectionProps,
   visibleRows: readonly ArtifactManifestRow[],
-  typeFilter: ArtifactTypeFilter,
 ): React.JSX.Element {
   if (props.state.kind === "loading") {
     return <Nothing kind="not-loaded" placement="block" title="Reading this session's artifacts" />;
@@ -124,8 +121,6 @@ function renderPanelBody(
           "other types. Every type is on the filter above with its own " +
           "count."
         }
-        // The type is a wire word, so it renders through `WireFigure`, not prose.
-        action={<WireFigure value={typeFilter} />}
       />
     );
   }
@@ -172,7 +167,7 @@ function renderFilterButtons(props: FilterButtonsProps): React.JSX.Element {
           aria-pressed={props.selected === artifactType}
           onClick={() => props.onSelect(artifactType)}
         >
-          <WireFigure value={artifactType} />
+          {codeWords(artifactType)}{" "}
           <DerivedFigure text={formatCount(props.countsByType[artifactType])} />
         </button>
       ))}

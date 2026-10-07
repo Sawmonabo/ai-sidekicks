@@ -10,6 +10,7 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ExtendedRefusal, RefusalExtensions } from "#renderer/lib/refusal/extensions.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { PaneOpenRequests } from "./pane-open-requests.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
@@ -20,12 +21,13 @@ import { routeSessionId, routesAreEqual } from "#renderer/routing/readers.js";
 
 /**
  * One frame-level banner: the banner rendering of a refusal that changes what the whole room can
- * do. It takes `code` and `detail` from `Refusal` so a producer can spread a refusal into it;
- * `origin` is not shown.
+ * do. It takes `code` and `detail` from `Refusal` so a producer can spread a refusal into it, and
+ * the listed `reason` where the refusal carried one; `origin` is not shown.
  */
 export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly id: string;
   readonly dismissible: boolean;
+  readonly reason?: RefusalExtensions["reason"];
 }
 
 /** The window store's state: route, modal-dialog flag, banners, focus, report. */
@@ -180,12 +182,13 @@ export class WindowStore {
    * card of its own. Keyed on origin and code together, so a repeat failure replaces its banner
    * and two subsystems sharing a code do not overwrite each other.
    */
-  public raiseRefusalBanner(refusal: Refusal): void {
+  public raiseRefusalBanner(refusal: ExtendedRefusal): void {
     this.raiseBanner({
       id: `${refusal.origin}:${refusal.code}`,
       dismissible: true,
       code: refusal.code,
       detail: refusal.detail,
+      ...(refusal.reason === undefined ? {} : { reason: refusal.reason }),
     });
   }
 

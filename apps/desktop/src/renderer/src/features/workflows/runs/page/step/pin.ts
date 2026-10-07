@@ -16,7 +16,7 @@ import type { RunControlAvailability } from "../../controls.js";
 /** What a pin refuses with when the output it read carries a file. */
 export const PIN_CARRIES_FILE_REFUSAL: Refusal = refuse(
   "workflows",
-  "workflows.pin_carries_file",
+  "pin-carries-file",
   "Output that carries a file cannot be pinned as test data.",
 );
 

@@ -14,8 +14,7 @@ export const COMPOSER_REFUSAL_ORIGIN = "composer";
 export const DAEMON_REFUSAL_ORIGIN = "daemon";
 
 /**
- * Why the composer refused before reaching the wire. Closed: each code carries its own copy,
- * and it is shown in mono beside the sentence, so people paste it into a search.
+ * Why the composer refused before reaching the wire. Closed: each code carries its own sentence.
  */
 export const COMPOSER_REFUSAL_CODES = [
   "empty-message",

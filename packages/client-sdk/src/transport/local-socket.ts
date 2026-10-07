@@ -14,6 +14,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcServerMessage,
+  type TransportUnavailableReason,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import { JsonRpcTransportClosedError, type ClientTransport } from "./json-rpc.js";
@@ -21,7 +22,8 @@ import { JsonRpcTransportClosedError, type ClientTransport } from "./json-rpc.js
 /**
  * Thrown when the daemon's socket cannot be reached: no daemon is listening, or the socket file is
  * missing. It carries the canonical envelope: `code` is `-32603` and `data` is
- * `{ type: "transport.unavailable", fields: { reason } }`, `reason` being the system's error code.
+ * `{ type: "transport.unavailable", fields: { reason } }`, `reason` being the listed reason the
+ * system's error code stands for, never the code itself.
  */
 export class JsonRpcTransportUnavailableError extends Error {
   /** The JSON-RPC numeric error code, always `InternalError`. */
@@ -32,8 +34,24 @@ export class JsonRpcTransportUnavailableError extends Error {
   public constructor(socketPath: string, cause: Error) {
     super(`The background service is not answering at ${socketPath}: ${cause.message}`, { cause });
     this.name = "JsonRpcTransportUnavailableError";
-    const reason = "code" in cause && typeof cause.code === "string" ? cause.code : cause.message;
+    const systemCode = "code" in cause && typeof cause.code === "string" ? cause.code : undefined;
+    const reason = socketFailureReason(systemCode);
     this.data = { type: TRANSPORT_UNAVAILABLE_CODE, fields: { reason } };
+  }
+}
+
+// A socket file that is missing or that nothing listens on means no service is running; one the
+// client may not open is a permission; anything else the system reports is a socket it cannot reach.
+function socketFailureReason(systemCode: string | undefined): TransportUnavailableReason {
+  switch (systemCode) {
+    case "ENOENT":
+    case "ECONNREFUSED":
+      return "not_listening";
+    case "EACCES":
+    case "EPERM":
+      return "access_denied";
+    default:
+      return "unreachable";
   }
 }
 
