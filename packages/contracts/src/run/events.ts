@@ -56,8 +56,8 @@ interface RunStateChangeMembersByState {
 }
 
 /**
- * The stored payload of `run.<state>`: the transition with its new run version, and only the
- * members its own state may carry. `recoveryCondition` also rides a halt into `waiting_for_input`.
+ * The stored payload of `run.<state>`: the transition with its new run version, the members its own
+ * state carries, and `failureCategory` and `recoveryCondition`, which any change may carry.
  */
 export type RunStateChangePayload<TState extends RunStateChangeState> = {
   sessionId: SessionId;
@@ -89,7 +89,7 @@ const buildRunStateChangePayloadSchema = <
 
 /**
  * Parses each stored run state change, keyed by its state. Each refuses another state's
- * `newState` and every member another state carries.
+ * `newState` and every member only another state carries.
  */
 export const RUN_STATE_CHANGE_PAYLOAD_SCHEMAS: {
   readonly [TState in RunStateChangeState]: z.ZodType<RunStateChangePayload<TState>>;

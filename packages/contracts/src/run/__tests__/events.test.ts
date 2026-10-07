@@ -1,5 +1,5 @@
 // A stored run state change or intervention event is the record a rebuild reads the run from, so
-// each type must carry its own state and only the members that state may carry.
+// each type must carry its own state and no member only another state carries.
 import { describe, expect, it } from "vitest";
 
 import { SessionEventSchema } from "../../event/session.js";

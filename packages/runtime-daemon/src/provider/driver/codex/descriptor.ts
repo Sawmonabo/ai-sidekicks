@@ -253,13 +253,13 @@ function readCodexReportedVersion(payload: unknown, clientName: string): Reporte
     : { unreadableReply: userAgent };
 }
 
-/** Codex's static facts. */
 /**
  * The provider's own word for standard speed: listed first on every model that publishes a tier,
  * and requested by clearing the thread's tier.
  */
 export const CODEX_STANDARD_OUTPUT_SPEED = "default";
 
+/** Codex's static facts. */
 export const CODEX_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
   capabilityDetectionTable: CODEX_CAPABILITY_DETECTION_TABLE,
   capabilityProbeChannel: "client_request",
