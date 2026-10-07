@@ -208,7 +208,7 @@ This code is registry-only (code + message; no structured `details`): no accepta
 
 ### PTY
 
-Terminal refusals: the write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) and the PTY backend ([ADR-018](../../decisions/018-windows-v1-tier-and-pty-sidecar.md)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and no holder means writes to that shell are refused (fail-closed). Every lease refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another.
+Terminal refusals: the write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) and the PTY backend ([ADR-018](../../decisions/018-windows-v1-tier-and-pty-sidecar.md)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and a device's first write to a shell nobody holds takes it; every other write from a writer that does not hold the shell is refused. Every lease refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |

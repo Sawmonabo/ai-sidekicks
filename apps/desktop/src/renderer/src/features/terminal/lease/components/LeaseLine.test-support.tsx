@@ -1,5 +1,5 @@
 // What the lease suites need before they assert anything: the line rendered over a lease state
-// built directly (`model.test.ts` holds the fold to the wire) under a read identity, and
+// built directly (`state.test.ts` holds the fold to the wire) under a read identity, and
 // take calls held until a case settles them.
 
 import { render, type RenderResult } from "@testing-library/react";

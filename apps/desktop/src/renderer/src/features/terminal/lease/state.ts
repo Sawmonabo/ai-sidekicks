@@ -25,9 +25,10 @@ import {
  * Who holds the shell, from this device's point of view.
  *
  * `not-checked` means no transition has been read, which is not the free lease (`unheld`): a free
- * shell is live here, since the first device to write takes it. `held-by-run` means an agent's run holds the shell and only the run writes, even when the
- * run's machine is this device. `unrecognized-transition` means the log carried a transition
- * this build cannot read, so the holder is unknown.
+ * shell is live here, since the first device to write takes it. `held-by-run` means an agent's run
+ * holds the shell and only the run writes, even when the run's machine is this device.
+ * `unrecognized-transition` means the log carried a transition this build cannot read, so the
+ * holder is unknown and the shell is read-only.
  */
 export const TERMINAL_LEASE_HOLDERS = [
   "not-checked",
@@ -41,14 +42,12 @@ export const TERMINAL_LEASE_HOLDERS = [
 /** One of the holders above. */
 export type TerminalLeaseHolder = (typeof TERMINAL_LEASE_HOLDERS)[number];
 
-/**
- * The holders the lease line is drawn for: every holder but a lease not yet read, a free shell and
- * this device's own hold, where the line draws nothing.
- */
-export type DrawnLeaseHolder = Exclude<
-  TerminalLeaseHolder,
-  "not-checked" | "unheld" | "held-by-this-device"
->;
+// The holders the lease line draws nothing for: a lease not yet read, a free shell and this
+// device's own hold.
+const UNDRAWN_LEASE_HOLDERS = ["not-checked", "unheld", "held-by-this-device"] as const;
+
+/** The holders the lease line is drawn for. */
+export type DrawnLeaseHolder = Exclude<TerminalLeaseHolder, (typeof UNDRAWN_LEASE_HOLDERS)[number]>;
 
 /** What a log of lease transitions folds to, from this device's point of view. */
 export interface TerminalLeaseState {
@@ -67,6 +66,14 @@ export interface TerminalLeaseProjectionInput {
   readonly terminalId: TerminalId;
   /** This device's identity, to tell `held-by-this-device` from `held-by-another-device`. */
   readonly thisDeviceId: string | undefined;
+}
+
+/**
+ * Whether the lease line is drawn: not before the holder is read, for a free shell, or for this
+ * device's own hold.
+ */
+export function isLeaseLineDrawn(holder: TerminalLeaseHolder): holder is DrawnLeaseHolder {
+  return !(UNDRAWN_LEASE_HOLDERS as readonly TerminalLeaseHolder[]).includes(holder);
 }
 
 /**
@@ -124,8 +131,9 @@ export function projectTerminalLease(
     newest = transition;
   }
 
-  // Fail-closed: an unread transition collapses to the free lease before the device
-  // comparison, so "you hold it" is never shown on the strength of a transition it could not read.
+  // Fail-closed: an unread transition names no holder, and `readHolder` reads it as
+  // `unrecognized-transition` before anything else, so neither "you hold it" nor the writable free
+  // shell is ever shown on the strength of a transition it could not read.
   const readable = isNewestUnread ? undefined : newest;
   const holderDeviceId = readable?.holderDeviceId ?? null;
   const holderRunId = readable?.holderRunId;

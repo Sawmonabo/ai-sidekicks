@@ -1,5 +1,5 @@
-// The holder line in the one state that offers no way to take the shell — a running command
-// holds it, and no device can take it from the command — and the free shell, which draws none.
+// The holder line where no take is offered: a running command holds the shell, which no device
+// can take from it, and the free shell, which draws no line because the first keystroke takes it.
 
 import { describe, expect, it } from "vitest";
 

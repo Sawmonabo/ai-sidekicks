@@ -8,7 +8,7 @@
 // holder cannot be read, and the next device to take it displaces the holder. A free shell needs
 // none, since the first write takes it, and the daemon refuses a take against a run's hold.
 
-import type { TerminalLeaseHolder } from "./state.js";
+import { isLeaseLineDrawn, type TerminalLeaseHolder } from "./state.js";
 import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.js";
 
 /** Which control the lease line offers. */
@@ -24,8 +24,7 @@ export function resolveTakeShellAvailability(input: {
   readonly deviceIdentity: TerminalDeviceIdentity;
 }): TakeShellAvailability {
   if (
-    input.holder === "held-by-this-device" ||
-    input.holder === "unheld" ||
+    !isLeaseLineDrawn(input.holder) ||
     input.holder === "held-by-run" ||
     input.deviceIdentity.status !== "read"
   ) {

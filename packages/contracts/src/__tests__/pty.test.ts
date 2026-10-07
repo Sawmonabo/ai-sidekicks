@@ -120,7 +120,7 @@ describe("the per-shell lease", () => {
     ).toBe(false);
   });
 
-  it("refuses a take that names nobody, a disconnect that names a holder, and a release naming a run", () => {
+  it("holds each take and release to the holders its reason names, a hand-back among them", () => {
     const payload = {
       ...SHELL,
       holderDeviceId: null,
@@ -138,6 +138,10 @@ describe("the per-shell lease", () => {
     expect(PtyControlChangedPayloadSchema.safeParse(release).success).toBe(true);
     expect(
       PtyControlChangedPayloadSchema.safeParse({ ...release, holderDeviceId: "laptop" }).success,
+    ).toBe(false);
+    expect(
+      PtyControlChangedPayloadSchema.safeParse({ ...release, previousHolderDeviceId: null })
+        .success,
     ).toBe(false);
     for (const reason of ["auto_released_command_ended", "auto_released_run_idle"]) {
       const runRelease = { ...release, previousHolderDeviceId: "desktop", reason };

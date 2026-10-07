@@ -392,8 +392,9 @@ export interface PtyControlChangedPayload {
   reason: PtyControlChangedReason;
 }
 /**
- * Parses a {@link PtyControlChangedPayload}. A take that names no holder, a disconnect that names
- * one, or a release that names a run contradicts itself and is refused. A forced take is a
+ * Parses a {@link PtyControlChangedPayload}. A take that names no holder, a release that names no
+ * holder it ended, a disconnect that names a holder after it, or a release that names a run
+ * contradicts itself and is refused. A forced take is a
  * device's, never a run's, and always moves the shell off another device. A run's take names its
  * holding command.
  */
@@ -414,6 +415,9 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
       if (payload.reason === "taken" || payload.reason === "taken_by_force") {
         return payload.holderDeviceId !== null;
       }
+      if (payload.previousHolderDeviceId === null) {
+        return false;
+      }
       if (payload.reason === "auto_released_disconnect") {
         return payload.holderDeviceId === null && payload.holderRunId === undefined;
       }
@@ -421,8 +425,8 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
     },
     {
       message:
-        "a take names the holder after it, a disconnect names nobody, and a run's release " +
-        "names the device it hands the shell back to or nobody",
+        "a take names the holder after it; a release names the holder it ended, and after it " +
+        "nobody for a disconnect, or the device a run's release hands the shell back to, or nobody",
       path: ["holderDeviceId"],
     },
   )

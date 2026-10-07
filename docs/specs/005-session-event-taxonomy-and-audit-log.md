@@ -403,7 +403,7 @@ Payload shape: `{nodeId, operationId, occurredAt}` (base). Per-event payload ext
 
 ### PTY Control (`session_lifecycle`)
 
-Shared-terminal write-lease transitions ([Spec-002 §Required Behavior](./002-machine-registration.md#required-behavior)). Authored by the terminal-owning daemon on every lease transition — a take, a forced take, and the auto-releases (the holder's connection ending and the acquiring agent run leaving `running` — [Spec-002 §Required Behavior](./002-machine-registration.md#required-behavior)). There is no release verb: a device gives the lease up only to another take or an auto-release. Category `session_lifecycle`: a change to the session's control state, the same category as the session's pin and mute rows.
+Shared-terminal write-lease transitions ([Spec-002 §Required Behavior](./002-machine-registration.md#required-behavior)). Authored by the terminal-owning daemon on every lease transition — a take (a device's first write to a free shell among them), a forced take, and the auto-releases (the holder's connection ending, and the end of the command an agent run took the shell for or that run leaving `running`, which hand the shell back to the device the run's take moved it off — [Spec-002 §Required Behavior](./002-machine-registration.md#required-behavior)). There is no release verb: a device gives the lease up only to another take, a run's take that keeps its hold aside, or an auto-release. Category `session_lifecycle`: a change to the session's control state, the same category as the session's pin and mute rows.
 
 | Type | Description | Payload |
 | --- | --- | --- |

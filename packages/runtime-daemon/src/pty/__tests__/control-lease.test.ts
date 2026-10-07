@@ -62,6 +62,12 @@ function refusalOf(act: () => unknown): unknown {
   throw new Error("expected the act to be refused");
 }
 
+// The shell table's idle check, for every take that is not about it: nothing typed at the prompt.
+const IDLE = (): boolean => true;
+
+// The frame's hand-off, for every write that is not about it.
+const WRITE = (): void => undefined;
+
 const NOT_HELD = { code: PTY_CONTROL_NOT_HELD_CODE, detail: { terminalId: TERMINAL_ID } };
 
 function heldByDevice(deviceId: string, terminalId: TerminalId = TERMINAL_ID): object {
@@ -98,9 +104,9 @@ describe("ShellControlLease", () => {
       },
     ]);
     await expect(
-      lease.admitWrite({ kind: "device", deviceId: loser, transportId: 9 }),
+      lease.admitWrite({ kind: "device", deviceId: loser, transportId: 9 }, WRITE),
     ).rejects.toMatchObject(NOT_HELD);
-    await lease.admitWrite({ kind: "device", deviceId: winner, transportId: 9 });
+    await lease.admitWrite({ kind: "device", deviceId: winner, transportId: 9 }, WRITE);
 
     // A call with no connection to end the lease with never takes the shell.
     await expect(registry.dispatch("session.takeControl", request, {})).rejects.toThrow(
@@ -111,7 +117,7 @@ describe("ShellControlLease", () => {
 
   it("never lets a device take a run's hold, which follows its command and ends with it or the run", async () => {
     const { lease, changes } = openLease();
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     const heldByRunA = {
       code: PTY_CONTROL_HELD_BY_OTHER_CODE,
       detail: {
@@ -133,23 +139,25 @@ describe("ShellControlLease", () => {
     expect(refusalOf(() => lease.admitResize(MACHINE))).toMatchObject(heldByRunA);
     expect(refusalOf(() => lease.admitClose(MACHINE, true))).toMatchObject(heldByRunA);
     await expect(
-      lease.admitWrite({ kind: "device", deviceId: MACHINE, transportId: 9 }),
+      lease.admitWrite({ kind: "device", deviceId: MACHINE, transportId: 9 }, WRITE),
     ).rejects.toMatchObject(NOT_HELD);
 
     // The same run's retake keeps the run; from another of its commands it names that command,
     // so stopping the run reaches the live one, and from the same command it changes nothing.
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     expect(lease.holder()).toEqual({
       holderDeviceId: MACHINE,
       holderRunId: RUN_A,
       holderCommandId: COMMAND_C,
     });
-    await lease.admitWrite({ kind: "run", runId: RUN_A });
+    await lease.admitWrite({ kind: "run", runId: RUN_A }, WRITE);
 
-    await lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B });
-    await expect(lease.admitWrite({ kind: "run", runId: RUN_A })).rejects.toMatchObject(NOT_HELD);
-    await lease.admitWrite({ kind: "run", runId: RUN_B });
+    await lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B }, IDLE);
+    await expect(lease.admitWrite({ kind: "run", runId: RUN_A }, WRITE)).rejects.toMatchObject(
+      NOT_HELD,
+    );
+    await lease.admitWrite({ kind: "run", runId: RUN_B }, WRITE);
 
     // The run that lost the hold leaving its running state releases nothing.
     await lease.releaseRun(RUN_A);
@@ -157,8 +165,8 @@ describe("ShellControlLease", () => {
 
     // A run's hold ends when its command ends; an ended command the run has moved past, or the
     // run's later idle transition, releases nothing more.
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
     await lease.releaseCommand({ runId: RUN_B, commandId: COMMAND_C });
     expect(lease.holder()).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_C });
@@ -227,37 +235,53 @@ describe("ShellControlLease", () => {
     const { lease, changes } = openLease();
     await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
     await lease.take({ deviceId: LAPTOP, transportId: 3 }, false);
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await expect(lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE)).resolves.toBe(
+      true,
+    );
     await expect(
-      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }),
+      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 3 }, WRITE),
     ).rejects.toMatchObject(NOT_HELD);
-    await expect(lease.take({ deviceId: LAPTOP, transportId: 1 }, true)).rejects.toMatchObject({
+    await expect(lease.take({ deviceId: LAPTOP, transportId: 3 }, true)).rejects.toMatchObject({
       code: PTY_CONTROL_HELD_BY_OTHER_CODE,
     });
 
-    // The command's end hands the shell back to the device, still bound to both its connections.
+    // One of the device's connections ends under the run; the command's end hands the shell back
+    // to the device on the one still open.
+    await lease.releaseConnection(1);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
     expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
-    await lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 });
-    await lease.releaseConnection(1);
-    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
+    await lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 3 }, WRITE);
 
     // A hold kept aside follows the hold through another run's take, back to the device.
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
-    await lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
+    await lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B }, IDLE);
     await lease.releaseRun(RUN_A);
     await lease.releaseRun(RUN_B);
     expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
 
-    // Once the last of the device's connections ends under the run, the hand-back reaches nobody.
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    // A hold handed back is no longer kept aside: once its connection ends, a later run's take
+    // from nobody hands the shell back to nobody.
     await lease.releaseConnection(3);
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
+    await lease.releaseRun(RUN_A);
+    expect(lease.holder()).toBeNull();
+
+    // Once the last of the device's connections ends under the run, the hand-back reaches nobody.
+    await lease.take({ deviceId: LAPTOP, transportId: 5 }, false);
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
+    await lease.releaseConnection(5);
     expect(lease.holder()).toMatchObject({ holderRunId: RUN_A });
-    await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_C });
     expect(lease.holder()).toBeNull();
 
     const shell = { sessionId: SESSION_ID, terminalId: TERMINAL_ID };
-    const runTake = (runId: RunId, commandId: CommandId, previous: string) => ({
+    const laptopTake = {
+      ...shell,
+      holderDeviceId: LAPTOP,
+      previousHolderDeviceId: null,
+      reason: "taken",
+    };
+    const runTake = (runId: RunId, commandId: CommandId, previous: string | null) => ({
       ...shell,
       holderDeviceId: MACHINE,
       holderRunId: runId,
@@ -265,31 +289,70 @@ describe("ShellControlLease", () => {
       previousHolderDeviceId: previous,
       reason: "taken",
     });
+    const runRelease = (holderDeviceId: string | null, reason: string) => ({
+      ...shell,
+      holderDeviceId,
+      previousHolderDeviceId: MACHINE,
+      reason,
+    });
     expect(changes).toEqual([
-      { ...shell, holderDeviceId: LAPTOP, previousHolderDeviceId: null, reason: "taken" },
+      laptopTake,
       runTake(RUN_A, COMMAND_A, LAPTOP),
-      {
-        ...shell,
-        holderDeviceId: LAPTOP,
-        previousHolderDeviceId: MACHINE,
-        reason: "auto_released_command_ended",
-      },
+      runRelease(LAPTOP, "auto_released_command_ended"),
       runTake(RUN_A, COMMAND_C, LAPTOP),
       runTake(RUN_B, COMMAND_B, MACHINE),
-      {
-        ...shell,
-        holderDeviceId: LAPTOP,
-        previousHolderDeviceId: MACHINE,
-        reason: "auto_released_run_idle",
-      },
-      runTake(RUN_A, COMMAND_A, LAPTOP),
+      runRelease(LAPTOP, "auto_released_run_idle"),
       {
         ...shell,
         holderDeviceId: null,
-        previousHolderDeviceId: MACHINE,
-        reason: "auto_released_command_ended",
+        previousHolderDeviceId: LAPTOP,
+        reason: "auto_released_disconnect",
       },
+      runTake(RUN_A, COMMAND_A, null),
+      runRelease(null, "auto_released_run_idle"),
+      laptopTake,
+      runTake(RUN_A, COMMAND_C, LAPTOP),
+      runRelease(null, "auto_released_command_ended"),
     ]);
+  });
+
+  it("takes a shell for a run only while nothing is typed at its prompt, checked as it takes", async () => {
+    let pendingBroadcast: Promise<void> | undefined;
+    const changes: PtyControlChangedPayload[] = [];
+    const lease = new ShellControlLease({
+      sessionId: SESSION_ID,
+      terminalId: TERMINAL_ID,
+      machineDeviceId: MACHINE,
+      broadcast: async (change) => {
+        changes.push(PtyControlChangedPayloadSchema.parse(change));
+        await pendingBroadcast;
+      },
+    });
+    await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
+    await expect(
+      lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, () => false),
+    ).resolves.toBe(false);
+    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
+    expect(changes).toHaveLength(1);
+
+    // A run's take waiting on a change in flight checks the prompt once that change has settled,
+    // so a keystroke handed on meanwhile, which the shell table records as it goes, refuses it.
+    let isTyped = false;
+    let landBroadcast = (): void => undefined;
+    pendingBroadcast = new Promise((resolve) => {
+      landBroadcast = resolve;
+    });
+    const phoneTake = lease.take({ deviceId: PHONE, transportId: 2 }, true);
+    pendingBroadcast = undefined;
+    const keystroke = lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 }, () => {
+      isTyped = true;
+    });
+    const runTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, () => !isTyped);
+    landBroadcast();
+    await phoneTake;
+    await keystroke;
+    await expect(runTake).resolves.toBe(false);
+    expect(lease.holder()).toEqual({ holderDeviceId: PHONE });
   });
 
   it("moves a shell off another device only by force, refusing the displaced writes", async () => {
@@ -305,9 +368,9 @@ describe("ShellControlLease", () => {
     });
 
     await expect(
-      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }),
+      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }, WRITE),
     ).rejects.toMatchObject(NOT_HELD);
-    await lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 });
+    await lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 }, WRITE);
     // The displaced connection ending no longer touches a hold it lost.
     await lease.releaseConnection(1);
     expect(lease.holder()).toEqual({ holderDeviceId: PHONE });
@@ -338,7 +401,7 @@ describe("ShellControlLease", () => {
       await lease.releaseConnection(1);
     }
     expect(first.lease.holder()).toEqual({ holderDeviceId: LAPTOP });
-    await first.lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 });
+    await first.lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }, WRITE);
 
     for (const { lease } of [first, second]) {
       await lease.releaseConnection(3);
@@ -371,9 +434,12 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      // The next broadcast waits on a pending one when a case sets it, and only that broadcast.
       broadcast: async () => {
-        if (pendingBroadcast !== undefined) {
-          return pendingBroadcast;
+        const pending = pendingBroadcast;
+        pendingBroadcast = undefined;
+        if (pending !== undefined) {
+          return pending;
         }
         if (isBroadcastFailing) {
           throw new Error("the event log is unavailable");
@@ -387,7 +453,7 @@ describe("ShellControlLease", () => {
     expect(lease.holder()).toBeNull();
     // A first write's take is undone the same way, and the write never lands.
     await expect(
-      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }),
+      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }, WRITE),
     ).rejects.toThrow("the event log is unavailable");
     expect(lease.holder()).toBeNull();
 
@@ -398,7 +464,7 @@ describe("ShellControlLease", () => {
       "the event log is unavailable",
     );
     expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
-    await lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 });
+    await lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }, WRITE);
 
     // A connection joining a hold whose broadcast is still pending fails with it, and the undo
     // drops the joined connection along with the hold.
@@ -410,7 +476,6 @@ describe("ShellControlLease", () => {
     });
     const forcedTake = lease.take({ deviceId: PHONE, transportId: 2 }, true);
     const joiningTake = lease.take({ deviceId: PHONE, transportId: 5 }, false);
-    pendingBroadcast = undefined;
     failPendingBroadcast();
     await expect(forcedTake).rejects.toThrow("the event log is unavailable");
     await expect(joiningTake).rejects.toThrow("the event log is unavailable");
@@ -423,9 +488,9 @@ describe("ShellControlLease", () => {
 
     // A run's move to its new command is undone the same way.
     await lease.releaseConnection(2);
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     isBroadcastFailing = true;
-    await expect(lease.takeForRun({ runId: RUN_A, commandId: COMMAND_B })).rejects.toThrow(
+    await expect(lease.takeForRun({ runId: RUN_A, commandId: COMMAND_B }, IDLE)).rejects.toThrow(
       "the event log is unavailable",
     );
     expect(lease.holder()).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_A });
@@ -435,28 +500,41 @@ describe("ShellControlLease", () => {
     expect(lease.holder()).toBeNull();
 
     // A run's failed take off a device leaves the device holding and nothing kept aside; a
-    // hand-back whose broadcast fails stands like any release.
+    // hand-back whose broadcast fails leaves nobody holding, never an unannounced device, and a
+    // write or take the device joined to it fails with it.
     isBroadcastFailing = false;
     await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
     isBroadcastFailing = true;
-    await expect(lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A })).rejects.toThrow(
+    await expect(lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE)).rejects.toThrow(
       "the event log is unavailable",
     );
     expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
     isBroadcastFailing = false;
     await lease.releaseConnection(1);
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
     expect(lease.holder()).toBeNull();
     await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
-    isBroadcastFailing = true;
-    await expect(lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A })).rejects.toThrow(
-      "the event log is unavailable",
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const handBack = lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
+    // The release settles before it acts, so the joins wait until it has handed the shell back.
+    while (lease.holder()?.holderRunId !== undefined) {
+      await Promise.resolve();
+    }
+    const takeJoiningHandBack = lease.take({ deviceId: LAPTOP, transportId: 4 }, false);
+    const writeJoiningHandBack = lease.admitWrite(
+      { kind: "device", deviceId: LAPTOP, transportId: 1 },
+      WRITE,
     );
-    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
-    isBroadcastFailing = false;
-    await lease.releaseConnection(1);
+    failPendingBroadcast();
+    await expect(handBack).rejects.toThrow("the event log is unavailable");
+    await expect(takeJoiningHandBack).rejects.toThrow("the event log is unavailable");
+    await expect(writeJoiningHandBack).rejects.toThrow("the event log is unavailable");
     expect(lease.holder()).toBeNull();
     isBroadcastFailing = true;
 
@@ -466,9 +544,8 @@ describe("ShellControlLease", () => {
         reject(new Error("the event log is unavailable"));
       };
     });
-    const runTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
-    const joiningRunTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
-    pendingBroadcast = undefined;
+    const runTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
+    const joiningRunTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     failPendingBroadcast();
     await expect(runTake).rejects.toThrow("the event log is unavailable");
     await expect(joiningRunTake).rejects.toThrow("the event log is unavailable");
@@ -477,28 +554,26 @@ describe("ShellControlLease", () => {
     // A release that arrives while a take is in flight applies to the holder that take leaves, so a
     // failed take never brings back a run that has gone idle or a connection that has ended.
     isBroadcastFailing = false;
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     pendingBroadcast = new Promise((_resolve, reject) => {
       failPendingBroadcast = () => {
         reject(new Error("the event log is unavailable"));
       };
     });
-    const otherRunTake = lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B });
+    const otherRunTake = lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B }, IDLE);
     const idleRelease = lease.releaseRun(RUN_A);
-    pendingBroadcast = undefined;
     failPendingBroadcast();
     await expect(otherRunTake).rejects.toThrow("the event log is unavailable");
     await idleRelease;
     expect(lease.holder()).toBeNull();
-    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     pendingBroadcast = new Promise((_resolve, reject) => {
       failPendingBroadcast = () => {
         reject(new Error("the event log is unavailable"));
       };
     });
-    const nextCommandTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
+    const nextCommandTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     const commandEnd = lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
-    pendingBroadcast = undefined;
     failPendingBroadcast();
     await expect(nextCommandTake).rejects.toThrow("the event log is unavailable");
     await commandEnd;
@@ -512,7 +587,6 @@ describe("ShellControlLease", () => {
     });
     const forcedPhoneTake = lease.take({ deviceId: PHONE, transportId: 2 }, true);
     const laptopGone = lease.releaseConnection(1);
-    pendingBroadcast = undefined;
     failPendingBroadcast();
     await expect(forcedPhoneTake).rejects.toThrow("the event log is unavailable");
     await laptopGone;
@@ -525,10 +599,18 @@ describe("ShellControlLease", () => {
         reject(new Error("the event log is unavailable"));
       };
     });
-    const firstWrite = lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 });
-    pendingBroadcast = undefined;
-    const joiningWrite = lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 });
-    const otherDeviceWrite = lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 });
+    const firstWrite = lease.admitWrite(
+      { kind: "device", deviceId: LAPTOP, transportId: 1 },
+      WRITE,
+    );
+    const joiningWrite = lease.admitWrite(
+      { kind: "device", deviceId: LAPTOP, transportId: 1 },
+      WRITE,
+    );
+    const otherDeviceWrite = lease.admitWrite(
+      { kind: "device", deviceId: PHONE, transportId: 2 },
+      WRITE,
+    );
     failPendingBroadcast();
     await expect(firstWrite).rejects.toThrow("the event log is unavailable");
     await expect(joiningWrite).rejects.toThrow("the event log is unavailable");
@@ -544,7 +626,6 @@ describe("ShellControlLease", () => {
       };
     });
     const laptopTake = lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
-    pendingBroadcast = undefined;
     const phoneTake = lease.take({ deviceId: PHONE, transportId: 2 }, true);
     failPendingBroadcast();
     await expect(laptopTake).rejects.toThrow("the event log is unavailable");
@@ -557,9 +638,8 @@ describe("ShellControlLease", () => {
         reject(new Error("the event log is unavailable"));
       };
     });
-    const firstRunTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
-    pendingBroadcast = undefined;
-    const secondRunTake = lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B });
+    const firstRunTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
+    const secondRunTake = lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B }, IDLE);
     failPendingBroadcast();
     await expect(firstRunTake).rejects.toThrow("the event log is unavailable");
     await secondRunTake;
@@ -568,22 +648,28 @@ describe("ShellControlLease", () => {
 
   it("gives a shell nobody holds to the first device that writes to it, exactly one of two", async () => {
     const { lease, changes } = openLease();
-    await expect(lease.admitWrite({ kind: "run", runId: RUN_A })).rejects.toMatchObject(NOT_HELD);
+    await expect(lease.admitWrite({ kind: "run", runId: RUN_A }, WRITE)).rejects.toMatchObject(
+      NOT_HELD,
+    );
     expect(refusalOf(() => lease.admitResize(LAPTOP))).toMatchObject(NOT_HELD);
     lease.admitClose(LAPTOP, false);
 
-    // Two devices' first keystrokes in one tick: one takes the shell and its write lands, the
-    // other's is refused, and a second write from the winner joins its take.
+    // Two devices' first keystrokes in one tick: one takes the shell and its write goes through,
+    // the other's is refused and never handed on, and the winner's next write goes through.
+    const handedOn: string[] = [];
     const outcomes = await Promise.allSettled([
-      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }),
-      lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 }),
-      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }),
+      lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }, () => {
+        handedOn.push("laptop's first");
+      }),
+      lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 }, () => {
+        handedOn.push("phone's first");
+      }),
     ]);
-    expect(outcomes.map((outcome) => outcome.status)).toEqual([
-      "fulfilled",
-      "rejected",
-      "fulfilled",
-    ]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["fulfilled", "rejected"]);
+    await lease.admitWrite({ kind: "device", deviceId: LAPTOP, transportId: 1 }, () => {
+      handedOn.push("laptop's second");
+    });
+    expect(handedOn).toEqual(["laptop's first", "laptop's second"]);
     expect(outcomes[1]?.status === "rejected" ? outcomes[1].reason : undefined).toMatchObject(
       NOT_HELD,
     );
@@ -600,7 +686,7 @@ describe("ShellControlLease", () => {
     // The take belongs to the writing connection, so that connection's end gives the shell back.
     await lease.releaseConnection(1);
     expect(lease.holder()).toBeNull();
-    await lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 });
+    await lease.admitWrite({ kind: "device", deviceId: PHONE, transportId: 2 }, WRITE);
     expect(lease.holder()).toEqual({ holderDeviceId: PHONE });
     await lease.releaseConnection(2);
 

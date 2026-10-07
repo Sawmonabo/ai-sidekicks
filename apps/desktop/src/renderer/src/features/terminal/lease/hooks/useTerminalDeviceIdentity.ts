@@ -1,4 +1,4 @@
-// Which device this is, for the one terminal decision that needs it: `model.ts` tells
+// Which device this is, for the one terminal decision that needs it: `state.ts` tells
 // `held-by-this-device` from `held-by-another-device` by comparing the holder's device id with
 // this device's, so the take control waits for the identity. Held per `(bridge, sessionId)` by
 // the subject-scoped holder.

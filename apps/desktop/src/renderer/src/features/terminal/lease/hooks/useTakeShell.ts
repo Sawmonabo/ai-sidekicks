@@ -1,5 +1,5 @@
 // Take the shell, and report whether that call is still out. The hook never derives the
-// holder; the fold in `model.ts` owns it. The in-flight fact is scoped to the
+// holder; the fold in `state.ts` owns it. The in-flight fact is scoped to the
 // `(bridge, sessionId)` subject, so a rebound pane never inherits a disabled control, and the
 // single-flight latch is keyed on the visit, so a session visited twice starts free.
 

@@ -1,6 +1,6 @@
 // The lease fold, which the pane's write gate opens on: the holder is the newest readable
-// transition's, and every arm it cannot read leaves nobody holding the shell rather than the
-// holder before it, so stdin is never left open on a guess.
+// transition's, and every arm it cannot read reads `unrecognized-transition` rather than the
+// holder before it or a free shell, so stdin is never left open on a guess.
 
 import { describe, expect, it } from "vitest";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
@@ -135,7 +135,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
       thisDeviceId: THIS_DEVICE_ID,
     });
     // The one reading that would keep stdin open for somebody who no longer holds the shell;
-    // `SessionTerminalPane` opens the write gate on exactly this value.
+    // `SessionTerminalPane` opens the write gate on this value and on the free shell.
     expect(state.holder).not.toBe("held-by-this-device");
     expect(state.holder).toBe("unrecognized-transition");
     expect(state.holderDeviceId).toBeNull();
