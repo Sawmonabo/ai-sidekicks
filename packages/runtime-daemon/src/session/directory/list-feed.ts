@@ -38,6 +38,7 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 
 import type { EventLogService } from "../../events/log-service.js";
 import type { LiveRunActivity, SessionRunOutcome } from "../records.js";
+import { sessionProjectSql } from "./lookups.js";
 import { sessionActivityOf } from "./run-activity.js";
 
 /** What the feed reads and follows. */
@@ -48,13 +49,16 @@ export interface SessionListFeedDeps {
   readonly eventLog: Pick<EventLogService, "followAll">;
 }
 
+/** A change to one entry of the list: what the feed publishes once a listener has the list. */
+export type SessionListEntryChange = Exclude<SessionListChange, { kind: "page" }>;
+
 /**
  * One open subscription's side of the feed. Neither callback may throw: they run on the feed's
  * own turns, where no caller would receive the failure.
  */
 export interface SessionListListener {
   /** One change to the list, in the order the feed made them. */
-  onChange(change: SessionListChange): void;
+  onChange(change: SessionListEntryChange): void;
   /** The feed could not read a change; the listener is detached and hears nothing more. */
   onFailure(error: unknown): void;
 }
@@ -76,22 +80,18 @@ const UNCOUNTED_CHAT_STATES: ReadonlySet<SessionState> = new Set([
   "purge_requested",
 ]);
 
-// One session's list facts as one query returns them. A project's key is its attached mount,
-// read through the session's workspace; a chat's managed mount is never a project.
+// One session's list facts as one query returns them, its group's name among them.
 const SESSION_LIST_ROW_SQL = `SELECT s.id, s.shape, s.state, s.name, s.first_message_preview,
-       s.branch, s.pinned_at, s.muted_at, s.last_run_outcome, s.last_activity_at, s.group_id,
-       s.document_count,
-       (SELECT w.repo_mount_id
-          FROM workspaces w JOIN repo_mounts m ON m.id = w.repo_mount_id
-         WHERE w.session_id = s.id AND m.origin = 'attached'
-         ORDER BY w.created_at DESC, w.id DESC
-         LIMIT 1) AS repo_mount_id,
+       s.branch, s.pinned_at, s.muted_at, s.last_run_outcome, s.last_activity_at,
+       s.document_count, g.id AS group_id, g.name AS group_name,
+       ${sessionProjectSql("s.id")} AS repo_mount_id,
        (SELECT json_group_object(r.run_id, r.activity)
           FROM session_run_activity r
          WHERE r.session_id = s.id) AS live_runs
-  FROM sessions s`;
+  FROM sessions s LEFT JOIN session_groups g ON g.id = s.group_id`;
 
-interface SessionListRow {
+// A session's group comes from the join, so its id and name are present or absent together.
+type SessionListRow = {
   readonly id: string;
   readonly shape: SessionShape;
   readonly state: SessionState;
@@ -102,12 +102,14 @@ interface SessionListRow {
   readonly muted_at: string | null;
   readonly last_run_outcome: SessionRunOutcome;
   readonly last_activity_at: string;
-  readonly group_id: string | null;
   readonly document_count: number;
   readonly repo_mount_id: string | null;
   /** A JSON object of the session's live runs, run id to activity. */
   readonly live_runs: string;
-}
+} & (
+  | { readonly group_id: null; readonly group_name: null }
+  | { readonly group_id: string; readonly group_name: string }
+);
 
 /**
  * The daemon's one live sessions list. Built from the `sessions` rows when the first listener
@@ -295,7 +297,7 @@ export class SessionListFeed {
     this.#publish({ kind: "remove", sessionId: held.sessionId, chatCount: this.#chatCount });
   }
 
-  #publish(change: SessionListChange): void {
+  #publish(change: SessionListEntryChange): void {
     for (const listener of this.#listeners) {
       listener.onChange(change);
     }
@@ -367,7 +369,9 @@ function entryOf(row: SessionListRow, renewedAt: string): SessionListEntry | und
     shape: "project",
     repoMountId: row.repo_mount_id as RepoMountId,
     ...(row.branch === null ? {} : { branch: row.branch }),
-    ...(row.group_id === null ? {} : { groupId: row.group_id as SessionGroupId }),
+    ...(row.group_id === null
+      ? {}
+      : { group: { groupId: row.group_id as SessionGroupId, name: row.group_name } }),
   };
 }
 

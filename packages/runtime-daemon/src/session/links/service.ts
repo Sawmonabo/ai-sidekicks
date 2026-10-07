@@ -3,7 +3,6 @@
 
 import type { Statement } from "better-sqlite3";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   SESSION_LINK_NOT_REMOVABLE_CODE,
@@ -14,7 +13,7 @@ import type { DatabaseConnections } from "../../database/connections.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
-import { sessionExistsStatement } from "../groups/store.js";
+import { sessionExistsStatement } from "../directory/lookups.js";
 import type { SessionRelatedRanking } from "../related/ranking.js";
 
 const ADD_RELATED_LINK_SQL = `INSERT INTO session_links
@@ -65,17 +64,9 @@ export class SessionLinkService {
 
   /**
    * Links the two sessions as related; a pair already related stays as it is. Rejects with
-   * {@link SessionNotFoundError} when either session is unknown, and with `invalid_params` for a
-   * session linked to itself.
+   * {@link SessionNotFoundError} when either session is unknown.
    */
   async add(request: SessionLinkRequest): Promise<void> {
-    if (request.sessionId === request.targetSessionId) {
-      throw new DaemonDomainError("A session cannot be linked to itself.", {
-        code: "invalid_params",
-        jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-        detail: { sessionId: request.sessionId },
-      });
-    }
     const now = this.#now().toISOString();
     const results = await this.#writeForPair(request, {
       sql: ADD_RELATED_LINK_SQL,

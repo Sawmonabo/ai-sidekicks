@@ -8,7 +8,7 @@ import {
   type EventCategory,
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_NAME_MAX_LEN, type SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import {
   openScratchDatabase,
@@ -34,8 +34,16 @@ export interface SessionLog {
   ): Promise<void>;
   /** Creates a session of `shape` and activates it. */
   createSession(sessionId: SessionId, shape: SessionShape): Promise<void>;
-  /** Attaches a project folder and binds `sessionId` to it; returns the mount's id. */
-  bindToProject(sessionId: SessionId): Promise<string>;
+  /**
+   * Binds `sessionId` to the project `repoMountId` names, attaching a new project folder when it
+   * names none; returns the mount's id.
+   */
+  bindToProject(sessionId: SessionId, repoMountId?: string): Promise<string>;
+  /**
+   * Writes `count` chats' rows straight to the table, each named and previewed at the wire's
+   * bound in three-byte characters, so a few thousand outgrow one message; returns their ids.
+   */
+  seedWideChats(count: number): Promise<SessionId[]>;
   /** Deletes the session's row, then appends the purge receipt naming it. */
   purge(sessionId: SessionId): Promise<void>;
 }
@@ -93,23 +101,27 @@ export async function openSessionLog(): Promise<SessionLog> {
         newState: "active",
       });
     },
-    bindToProject: async (sessionId) => {
-      const repoMountId = mintUuidV7();
+    bindToProject: async (sessionId, knownRepoMountId) => {
+      const repoMountId = knownRepoMountId ?? mintUuidV7();
       const now = "2026-10-06T12:00:00.000Z";
       await scratch.writer.write([
-        {
-          sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, attached_at,
-                                         updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)`,
-          bindings: [
-            repoMountId,
-            mintUuidV7(),
-            `/work/${repoMountId}`,
-            `/work/${repoMountId}`,
-            now,
-            now,
-          ],
-        },
+        ...(knownRepoMountId === undefined
+          ? [
+              {
+                sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root,
+                                               attached_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?)`,
+                bindings: [
+                  repoMountId,
+                  mintUuidV7(),
+                  `/work/${repoMountId}`,
+                  `/work/${repoMountId}`,
+                  now,
+                  now,
+                ],
+              },
+            ]
+          : []),
         {
           sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at,
                                         updated_at)
@@ -118,6 +130,20 @@ export async function openSessionLog(): Promise<SessionLog> {
         },
       ]);
       return repoMountId;
+    },
+    seedWideChats: async (count) => {
+      const sessionIds = Array.from({ length: count }, () => mintUuidV7() as SessionId);
+      const wideText = "語".repeat(SESSION_NAME_MAX_LEN);
+      const now = "2026-10-06T12:00:00.000Z";
+      await scratch.writer.write(
+        sessionIds.map((sessionId) => ({
+          sql: `INSERT INTO sessions (id, shape, state, name, first_message_preview, created_at,
+                                      updated_at, last_activity_at)
+                VALUES (?, 'chat', 'active', ?, ?, ?, ?, ?)`,
+          bindings: [sessionId, wideText, wideText, now, now, now],
+        })),
+      );
+      return sessionIds;
     },
     purge: async (sessionId) => {
       await scratch.writer.write([

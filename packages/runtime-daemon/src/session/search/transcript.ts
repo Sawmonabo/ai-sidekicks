@@ -5,10 +5,8 @@
 import type { Database, Statement } from "better-sqlite3";
 
 import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
-import {
-  TRANSCRIPT_READ_LIMIT_MAX,
-  countEntriesFittingOneFrame,
-} from "@ai-sidekicks/contracts/transcript/operations";
+import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
 import {
   TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
   type TranscriptSearchHit,

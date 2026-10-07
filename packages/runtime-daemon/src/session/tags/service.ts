@@ -13,7 +13,7 @@ import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
-import { sessionExistsStatement } from "../groups/store.js";
+import { sessionExistsStatement } from "../directory/lookups.js";
 import { validateSessionTag } from "./rule.js";
 
 // A tag the session already holds under another casing keeps the casing it was first written in.

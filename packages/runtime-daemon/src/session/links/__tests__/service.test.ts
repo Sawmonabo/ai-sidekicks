@@ -27,6 +27,7 @@ beforeEach(async () => {
   ranking = new SessionRelatedRanking({
     reader: scratch.reader,
     writer: scratch.writer,
+    events: { followAll: () => () => undefined },
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);
     },

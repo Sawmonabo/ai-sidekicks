@@ -17,6 +17,7 @@ import {
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   runGitWithExecFile,
 } from "../git/process.js";
+import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
 import { registerSessionCreate } from "../ipc/handlers/session/create.js";
 import { registerSessionDraftUpdate } from "../ipc/handlers/session/draft-update.js";
 import { registerSessionGroupMethods } from "../ipc/handlers/session/groups.js";
@@ -38,6 +39,7 @@ import type { ProviderRegistry } from "../provider/driver/registry.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import { SessionAutoTitle } from "../session/auto-title.js";
 import { SessionChanges } from "../session/changes.js";
+import { SessionConversion } from "../session/convert.js";
 import { SessionCreation } from "../session/create.js";
 import { directoryStatementsFor } from "../session/directory/row.js";
 import { SessionListFeed } from "../session/directory/list-feed.js";
@@ -81,7 +83,8 @@ export interface SessionMethodsDeps {
 
 /**
  * Builds the session services and registers their verbs on `registry`. Returns the stop that ends
- * the background work they started: the sessions list, the self-naming and the index merge.
+ * the background work they started: the sessions list, the self-naming, the related lists' rename
+ * follow and the index merge.
  */
 export function registerSessionMethods(
   registry: MethodRegistry,
@@ -133,6 +136,7 @@ export function registerSessionMethods(
   const relatedRanking = new SessionRelatedRanking({
     reader: database.reader,
     writer: database.writer,
+    events: eventLog,
     writeServiceLog: deps.writeServiceLog,
   });
 
@@ -142,7 +146,20 @@ export function registerSessionMethods(
     draftStore,
   });
   registerSessionDraftUpdate(registry, draftStore);
-  registerSessionList(registry, { streamingPrimitive: deps.streamingPrimitive, listFeed });
+  registerSessionConvert(registry, {
+    conversion: new SessionConversion({
+      reader: database.reader,
+      events: eventLog,
+      lock: changes.lock,
+      repoMounts,
+      workspaces,
+    }),
+  });
+  registerSessionList(registry, {
+    streamingPrimitive: deps.streamingPrimitive,
+    outboundQueue: deps.outboundQueue,
+    listFeed,
+  });
   registerSessionSubscribe(registry, {
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
@@ -185,7 +202,9 @@ export function registerSessionMethods(
     writeServiceLog: deps.writeServiceLog,
   });
   indexMerge.start();
+  const stopRelatedRanking = relatedRanking.start();
   return () => {
+    stopRelatedRanking();
     indexMerge.stop();
     stopAutoTitle();
     listFeed.close();

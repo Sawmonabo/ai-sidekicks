@@ -1,19 +1,14 @@
-// The statements the group verbs write. A session's project is the attached mount its latest
-// workspace binds; a chat's managed mount is no project, so a chat matches none of these guards.
+// The statements the group verbs write. A chat has no project, so it matches none of these guards.
 // Every check that decides a group write is one of these statements, inside that write.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionGroupId } from "@ai-sidekicks/contracts/session/groups";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { sessionProjectSql } from "../directory/lookups.js";
 
-// The project of the session bound as `@sessionId`, or NULL for a chat or a session not yet bound.
-const SESSION_PROJECT_SQL = `(SELECT workspace.repo_mount_id
-     FROM workspaces AS workspace
-     JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
-    WHERE workspace.session_id = @sessionId AND mount.origin = 'attached'
-    ORDER BY workspace.created_at DESC, workspace.id DESC
-    LIMIT 1)`;
+// The project of the session bound as `@sessionId`.
+const SESSION_PROJECT_SQL = sessionProjectSql("@sessionId");
 
 const PLACE_SESSION_SQL = `UPDATE sessions SET group_id = @groupId
   WHERE id = @sessionId
@@ -33,15 +28,6 @@ export function sessionGroupPlacementStatement(placement: {
   return {
     sql: PLACE_SESSION_SQL,
     bindings: { sessionId: placement.sessionId, groupId: placement.groupId },
-    expectedRowCount: 1,
-  };
-}
-
-/** Holds only while the session has a directory row. */
-export function sessionExistsStatement(sessionId: SessionId): WriteStatement {
-  return {
-    sql: "SELECT 1 FROM sessions WHERE id = @sessionId",
-    bindings: { sessionId },
     expectedRowCount: 1,
   };
 }
@@ -131,6 +117,11 @@ export function groupNameFreeForRenameStatement(
     bindings: { groupId, nameFolded },
     expectedRowCount: 0,
   };
+}
+
+/** Answers the ids of the sessions sitting in the group. */
+export function groupMembersStatement(groupId: SessionGroupId): WriteStatement {
+  return { sql: "SELECT id FROM sessions WHERE group_id = @groupId", bindings: { groupId } };
 }
 
 /** Renames the group, writing the fold beside the name. */

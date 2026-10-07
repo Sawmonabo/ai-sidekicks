@@ -64,10 +64,11 @@ describe("session.search", () => {
           ],
         },
       ],
+      hasMore: false,
     });
 
     database.prepare("DELETE FROM session_events WHERE session_id = ?").run(settled);
-    expect(sessionSearch.search({ query: "deploy" })).toEqual({ groups: [] });
+    expect(sessionSearch.search({ query: "deploy" })).toEqual({ groups: [], hasMore: false });
   });
 
   it("finds an assistant's message and a tool call by its name and arguments", () => {
@@ -107,7 +108,7 @@ describe("session.search", () => {
     insertSession(database, sessionId, { name: "scratch notes" });
     database.prepare("UPDATE sessions SET name = 'billing migration' WHERE id = ?").run(sessionId);
 
-    expect(sessionSearch.search({ query: "scratch" })).toEqual({ groups: [] });
+    expect(sessionSearch.search({ query: "scratch" })).toEqual({ groups: [], hasMore: false });
     expect(sessionSearch.search({ query: "migration" })).toEqual({
       groups: [
         {
@@ -122,19 +123,29 @@ describe("session.search", () => {
           ],
         },
       ],
+      hasMore: false,
     });
   });
 
-  it("finds every session in a group by the group's name", () => {
+  it("finds every session in a group by the group's name, and a session by its tag's words", () => {
     const groupId = insertGroup(database, "group-1", "auth work");
     insertSession(database, sessionIdOf(1), { groupId });
     insertSession(database, sessionIdOf(2), { groupId });
     insertSession(database, sessionIdOf(3));
+    insertSession(database, sessionIdOf(4));
+    insertTag(database, sessionIdOf(4), "auth");
 
     const groups = sessionSearch.search({ query: "auth" }).groups;
-    expect(groups.map((group) => group.sessionId)).toEqual([sessionIdOf(1), sessionIdOf(2)]);
-    expect(groups[0]?.hits).toEqual([
-      { cursor: SESSION_START, line: "auth work", matchRanges: [{ start: 0, end: 4 }] },
+    // The one-word tag ranks above the two-word group name.
+    expect(groups.map((group) => group.sessionId)).toEqual([
+      sessionIdOf(4),
+      sessionIdOf(1),
+      sessionIdOf(2),
+    ]);
+    expect(groups.map((group) => group.hits)).toEqual([
+      [{ cursor: SESSION_START, line: "auth", matchRanges: [{ start: 0, end: 4 }] }],
+      [{ cursor: SESSION_START, line: "auth work", matchRanges: [{ start: 0, end: 4 }] }],
+      [{ cursor: SESSION_START, line: "auth work", matchRanges: [{ start: 0, end: 4 }] }],
     ]);
   });
 
@@ -162,20 +173,39 @@ describe("session.search", () => {
           hits: [{ cursor: SESSION_START, line: "billing", matchRanges: [{ start: 0, end: 7 }] }],
         },
       ],
+      hasMore: false,
     });
   });
 
-  it("narrows the words to the sessions that carry the tag", () => {
-    const tagged = sessionIdOf(1);
-    const untagged = sessionIdOf(2);
-    for (const sessionId of [tagged, untagged]) {
-      insertSession(database, sessionId);
-      insertEvent(database, { sessionId, sequence: 1, type: "user.message", message: "refund" });
+  it("keeps the tagged sessions the words find, ordered by their text and tag ranks fused", () => {
+    // Shorter text ranks better; the tag ranks the most recently active first. Each order differs.
+    const sessions = [
+      { index: 1, message: "auth", lastActivityAt: "2026-10-02T00:00:00.000Z" },
+      { index: 2, message: "auth x y", lastActivityAt: "2026-10-01T00:00:00.000Z" },
+      { index: 3, message: "auth x y z w v", lastActivityAt: "2026-10-03T00:00:00.000Z" },
+      { index: 4, message: "auth", lastActivityAt: "2026-10-04T00:00:00.000Z" },
+    ];
+    for (const { index, message, lastActivityAt } of sessions) {
+      insertSession(database, sessionIdOf(index), { lastActivityAt });
+      insertEvent(database, {
+        sessionId: sessionIdOf(index),
+        sequence: 1,
+        type: "user.message",
+        message,
+      });
     }
-    insertTag(database, tagged, "billing/stripe");
+    for (const index of [1, 2, 3]) {
+      insertTag(database, sessionIdOf(index), "billing/stripe");
+    }
 
-    const groups = sessionSearch.search({ query: "tag:billing refund" }).groups;
-    expect(groups.map((group) => group.sessionId)).toEqual([tagged]);
+    // Text rank 1, 3, 4 (the untagged session holds 2) and tag rank 2, 3, 1 fuse to 1, 3, 2.
+    const groups = sessionSearch.search({ query: "tag:billing auth" }).groups;
+    expect(groups.map((group) => group.sessionId)).toEqual([
+      sessionIdOf(1),
+      sessionIdOf(3),
+      sessionIdOf(2),
+    ]);
+    expect(groups[1]?.hits.map((hit) => hit.line)).toEqual(["auth x y z w v"]);
   });
 
   it("keeps typed operators as text, so a query never breaks the index's syntax", () => {
@@ -184,6 +214,6 @@ describe("session.search", () => {
     insertEvent(database, { sessionId, sequence: 1, type: "user.message", message: "NOT done" });
 
     expect(sessionSearch.search({ query: 'NOT "done' }).groups).toHaveLength(1);
-    expect(sessionSearch.search({ query: "-- * :" })).toEqual({ groups: [] });
+    expect(sessionSearch.search({ query: "-- * :" })).toEqual({ groups: [], hasMore: false });
   });
 });

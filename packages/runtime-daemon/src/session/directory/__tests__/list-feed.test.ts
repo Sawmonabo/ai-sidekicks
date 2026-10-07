@@ -1,6 +1,7 @@
 // The live sessions list, fed by the real event log over a real database: a quiet running
 // session is renewed on a fake clock, the chats count follows a chat's create and its convert,
-// archived and closed sessions stay entries, and a purge removes one.
+// archived and closed sessions stay entries, a purge removes one, and a group's rename reaches
+// every session in it.
 
 import { randomUUID } from "node:crypto";
 
@@ -19,6 +20,7 @@ import {
   openSessionLog,
   type SessionLog,
 } from "../__fixtures__/session-log.js";
+import { SessionGroupService } from "../../groups/service.js";
 import { SessionListFeed, type SessionListListener } from "../list-feed.js";
 
 const CHAT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10" as SessionId;
@@ -203,5 +205,39 @@ describe("the sessions list counts the chats and keeps every session the log hol
 
     expect(listener.changes).toStrictEqual([{ kind: "remove", sessionId: CHAT, chatCount: 0 }]);
     expect(feed.open(recordingListener()).sessions).toStrictEqual([]);
+  });
+});
+
+describe("the sessions list names each session's group", () => {
+  it("publishes every session of a renamed group again under the new name", async () => {
+    const groups = new SessionGroupService({ writer: log.scratch.writer, listFeed: feed });
+    const second = randomUUID() as SessionId;
+    await log.createSession(PROJECT, "project");
+    await log.createSession(second, "project");
+    const repoMountId = await log.bindToProject(PROJECT);
+    await log.bindToProject(second, repoMountId);
+    const { groupId } = await groups.create({ sessionId: PROJECT, name: "auth work" });
+    await groups.move({ sessionId: second, groupId });
+    const listener = recordingListener();
+    expect(
+      feed.open(listener).sessions.map((entry) => entry.shape === "project" && entry.group),
+    ).toStrictEqual([
+      { groupId, name: "auth work" },
+      { groupId, name: "auth work" },
+    ]);
+
+    await groups.rename({ groupId, name: "billing" });
+    await crossEventLoopTurn();
+
+    expect(
+      listener.changes.map((change) =>
+        change.kind === "upsert" && change.entry.shape === "project"
+          ? [change.entry.sessionId, change.entry.group]
+          : change.kind,
+      ),
+    ).toStrictEqual([
+      [PROJECT, { groupId, name: "billing" }],
+      [second, { groupId, name: "billing" }],
+    ]);
   });
 });
