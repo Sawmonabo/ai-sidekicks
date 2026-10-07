@@ -7,6 +7,6 @@ export interface SessionSummary {
    * The session's name as the daemon's read carries it; absent until the session names itself
    * after its first completed exchange.
    */
-  readonly title?: string;
+  readonly name?: string;
   readonly state: string;
 }

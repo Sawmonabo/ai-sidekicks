@@ -54,6 +54,8 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
       rowsBySessionId.set(summary.sessionId, {
         sessionId: summary.sessionId,
         name: summary.name,
+        firstMessagePreview: summary.firstMessagePreview,
+        shape: summary.shape,
         state: summary.state,
         touchedAtIso: undefined,
         userIds: [],
@@ -65,6 +67,8 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
       rowsBySessionId.set(sessionId, {
         sessionId,
         name: undefined,
+        firstMessagePreview: undefined,
+        shape: undefined,
         state: undefined,
         touchedAtIso: undefined,
         userIds: [],
@@ -75,9 +79,11 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
     const directoryRow = rowsBySessionId.get(projected.sessionId);
     rowsBySessionId.set(projected.sessionId, {
       ...projected,
-      // The store holds no name, and one that has seen no session event has no state; the
-      // daemon's answer stands in for both.
+      // The store projects no name, preview or shape, and one that has seen no session event has
+      // no state; the daemon's answer stands in for all of them.
       name: directoryRow?.name,
+      firstMessagePreview: directoryRow?.firstMessagePreview,
+      shape: directoryRow?.shape,
       state: projected.state ?? directoryRow?.state,
     });
   }

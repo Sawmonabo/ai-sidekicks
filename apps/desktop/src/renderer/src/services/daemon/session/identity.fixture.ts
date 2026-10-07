@@ -1,8 +1,8 @@
 // One session's identity as the fixture derives it from one scenario. It is not part of the
 // directory derivation because that answers "which sessions does the service have" under a
 // visibility rule, while this names a session the caller already holds, including one still
-// provisioning. Its title is the name the scripted session read carries, absent while the
-// session is untitled.
+// provisioning. Its name is the one the scripted session read carries, absent while the session
+// is untitled.
 
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import type { SessionSummary } from "./summary.js";
@@ -27,6 +27,6 @@ export function scenarioSessionIdentity(
   }
   const name = session["name"];
   return typeof name === "string"
-    ? { sessionId, title: name, state: session["state"] }
+    ? { sessionId, name, state: session["state"] }
     : { sessionId, state: session["state"] };
 }

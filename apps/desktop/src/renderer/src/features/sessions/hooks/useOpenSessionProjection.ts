@@ -223,8 +223,10 @@ function projectOneStore(store: SessionStore): readonly SessionListRow[] {
   const userIds = Object.keys(partitions.user);
   return Object.values(partitions.session).map((entity) => ({
     sessionId: entity.id,
-    // The event log carries no session name; the daemon's list does.
+    // The store's session partition projects no name, preview or shape; the daemon's list does.
     name: undefined,
+    firstMessagePreview: undefined,
+    shape: undefined,
     state: entity.state,
     touchedAtIso: entity.touchedAt,
     userIds: entity.id === store.sessionId ? userIds : [],
