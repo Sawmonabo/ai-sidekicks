@@ -18,7 +18,7 @@
 // window whose library copy fails to load gives its scrollers the platform's bar back and records
 // the failure once.
 
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
@@ -29,7 +29,6 @@ import {
 } from "#fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
-import { MathBlock } from "#renderer/components/Markdown/MathBlock.js";
 import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
 import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
@@ -80,25 +79,15 @@ const DRAWN_BAR = ".os-scrollbar-visible";
 const AWAITING_OVERLAY_ATTRIBUTE = "data-overlayscrollbars-initialize";
 
 /**
- * The scrollers whose bar waits for a first interaction: a run group's earlier entries, a display
- * formula, an artifact's payload, a step's payload rows and a pane's body.
+ * The scrollers whose bar waits for a first interaction: a run group's earlier entries, an
+ * artifact's payload, a step's payload rows and a pane's body.
  */
 const WAITING_SCROLLERS = [
   ".meridian-run-group-body__scroller",
-  ".meridian-math--display",
   ".meridian-artifact-payload__preview",
   ".meridian-workflow-payload__window",
   ".meridian-pane--inspector > .meridian-pane__body",
 ] as const;
-
-/** A display formula wider than a narrow column, which no line break narrows. */
-const WIDE_FORMULA = Array.from(
-  { length: 30 },
-  (_unused, index) => String.raw`\frac{a_{${String(index)}}}{b_{${String(index)}}}`,
-).join(" + ");
-
-/** How long the formula may take to typeset: the math library loads on first use. */
-const MATH_TYPESET_TIMEOUT_MS = 5000;
 
 /** How long each task holds a busy window's main thread, in milliseconds. */
 const BUSY_TASK_MS = 20;
@@ -306,7 +295,6 @@ describe("the overlay scrollbar", () => {
       <BridgeHost>
         <div style={{ inlineSize: "30rem" }}>
           <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
-          <MathBlock source={WIDE_FORMULA} isDisplayMode />
           <ArtifactPayloadSection payload={textPayload("a payload line\n".repeat(200))} />
           <PayloadRowWindow
             rowCount={200}
@@ -324,12 +312,6 @@ describe("the overlay scrollbar", () => {
           </div>
         </div>
       </BridgeHost>,
-    );
-    await waitFor(
-      () => {
-        expect(container.querySelector(".meridian-math--display math")).not.toBeNull();
-      },
-      { timeout: MATH_TYPESET_TIMEOUT_MS },
     );
     const waiting = WAITING_SCROLLERS.map((selector) => requireElement(container, selector));
     const transcriptBody = requireElement(

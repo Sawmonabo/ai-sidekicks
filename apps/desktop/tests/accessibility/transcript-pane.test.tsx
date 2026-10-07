@@ -17,10 +17,11 @@
 // for the frame case's contrast reason.
 //
 // The regions inside a row are mounted directly too, each holding more than a narrow column
-// shows: a table wraps its cells to the column rather than scrolling, and the two regions that
-// do scroll inside a row are tab stops a real Tab press reaches and the arrows scroll.
+// shows: a table wraps its cells to the column rather than scrolling, and a run group's earlier
+// entries, which scroll inside the row, are a tab stop a real Tab press reaches and the arrows
+// scroll.
 
-import { act, waitFor } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -45,7 +46,6 @@ import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 import { SessionScreenContainer } from "#renderer/features/transcript/SessionScreenContainer.js";
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { MathBlock } from "#renderer/components/Markdown/MathBlock.js";
 import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
 import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
@@ -61,7 +61,7 @@ import { installOverlayScrollbarLibrary } from "#renderer/lib/overlay-scrollbar-
  */
 const SCENARIO_BASE_CURSOR = 0;
 
-/** A column narrower than the table and the formula below, as a narrow conversation is. */
+/** A column narrower than the table below, as a narrow conversation is. */
 const ROW_COLUMN_WIDTH = "30rem";
 
 /** A table whose cells, laid out unwrapped, run several times the column's width. */
@@ -71,12 +71,6 @@ const WIDE_TABLE = [
   `| ${Array.from({ length: 8 }, () => "an_unbroken_cell_value_with_no_spaces").join(" | ")} |`,
   "",
 ].join("\n");
-
-/** A display formula no line break can narrow: MathML is not broken across lines. */
-const WIDE_FORMULA = Array.from(
-  { length: 30 },
-  (_unused, index) => String.raw`\frac{a_{${String(index)}}}{b_{${String(index)}}}`,
-).join(" + ");
 
 /** The run's head lands in its body: more rows than the outer list mounts. */
 const CLIPPED_RUN_ROW_COUNT = RUN_GROUP_VISIBLE_ROW_CAP * 2;
@@ -171,7 +165,7 @@ describe("accessibility — the transcript", () => {
 });
 
 describe("accessibility — the regions inside a transcript row", () => {
-  it("reaches each region that scrolls by Tab, scrolls it by the arrows, and fits a table to the column", async () => {
+  it("reaches the run group's earlier entries by Tab, scrolls them by the arrows, and fits a table to the column", async () => {
     installOverlayScrollbarLibrary(document);
     const runRows = Array.from({ length: CLIPPED_RUN_ROW_COUNT }, (_unused, index) =>
       runRow({
@@ -197,45 +191,34 @@ describe("accessibility — the regions inside a transcript row", () => {
               renderCodeCopy: undefined,
             }}
           />
-          <MathBlock source={WIDE_FORMULA} isDisplayMode />
           <button type="button">After the rows</button>
         </div>
       </LiveAnnouncerProvider>,
     );
-    await waitFor(() => {
-      expect(container.querySelector(".meridian-math--display math")).not.toBeNull();
-    });
     const column = requireElement(container, ".row-column");
     const runBody = requireElement(container, ".meridian-run-group-body__scroller");
-    const formula = requireElement(container, ".meridian-math--display");
     const table = requireElement(container, ".meridian-markdown__table");
 
-    // Both overflow, so each is a region a keyboard must be able to scroll.
+    // It overflows, so a keyboard must be able to scroll it.
     expect(runBody.scrollHeight).toBeGreaterThan(runBody.clientHeight);
-    expect(formula.scrollWidth).toBeGreaterThan(formula.clientWidth);
     // The table wraps its cells instead, so it is no region to reach and stays in the column.
     expect(table.getBoundingClientRect().width).toBeLessThanOrEqual(column.clientWidth);
 
     requireElement(container, "button").focus();
     const reached: string[] = [];
     await act(async () => {
-      for (const expected of [runBody, formula]) {
-        await userEvent.tab();
-        reached.push(document.activeElement?.className ?? "nothing");
-        if (document.activeElement !== expected) {
-          return;
-        }
-        await userEvent.keyboard(expected === runBody ? "{ArrowDown}" : "{ArrowRight}");
-        await expect
-          .poll(() => (expected === runBody ? runBody.scrollTop : formula.scrollLeft))
-          .toBeGreaterThan(0);
+      await userEvent.tab();
+      reached.push(document.activeElement?.className ?? "nothing");
+      if (document.activeElement !== runBody) {
+        return;
       }
+      await userEvent.keyboard("{ArrowDown}");
+      await expect.poll(() => runBody.scrollTop).toBeGreaterThan(0);
       await userEvent.tab();
       reached.push(document.activeElement?.textContent ?? "nothing");
     });
     expect(reached).toStrictEqual([
       "meridian-run-group-body__scroller meridian-focus-inset",
-      "meridian-math--display meridian-focus-inset",
       "After the rows",
     ]);
 
