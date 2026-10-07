@@ -5,13 +5,18 @@
 // `KeybindingTable.conflictsIn` (a pre-flight check that avoids a half-replaced table), and
 // dropped rows from offering each binding to a throwaway table. A second overlap rule or chord
 // parser here would drift from the table. The reserved-chord table below lists chords the
-// operating system consumes, so a binding on one installs but never fires.
+// operating system consumes, so a binding on one installs but never fires; on Windows every chord
+// holding the Windows key is reserved as a class, since Windows keeps that key for itself.
 
 import { CommandRegistry } from "../commands/registry.js";
 import { type Keybinding } from "../commands/keybinding.js";
 import { type KeybindingConflict } from "./conflicts.js";
 import { KeybindingTable } from "./table.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "#renderer/lib/chord-format.js";
+import {
+  HOST_CHORD_PLATFORM,
+  splitChordTokens,
+  type ChordPlatform,
+} from "#renderer/lib/chord-format.js";
 
 /** One chord the host consumes before this application can see it. */
 interface ReservedChord {
@@ -35,6 +40,18 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
     {
       chord: "Alt+Tab",
       reason: "Windows switches windows on this chord before any application sees it.",
+    },
+    {
+      chord: "Alt+Escape",
+      reason: "Windows switches windows on this chord before any application sees it.",
+    },
+    {
+      chord: "$mod+Escape",
+      reason: "Windows opens the Start menu on this chord before any application sees it.",
+    },
+    {
+      chord: "$mod+Shift+Escape",
+      reason: "Windows opens Task Manager on this chord before any application sees it.",
     },
   ],
   linux: [
@@ -68,6 +85,9 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
   ],
 };
 
+/** Why a chord holding the Windows key is refused on Windows. */
+const WINDOWS_KEY_REASON = "Windows keeps every chord with the Windows key for its own shortcuts.";
+
 /** A binding the keybinding table refused to install, with its own reason. */
 export interface DroppedBinding {
   readonly commandId: string;
@@ -81,11 +101,20 @@ export interface KeybindingAudit {
   readonly dropped: readonly DroppedBinding[];
 }
 
-/** The reason the host takes this chord, or `undefined` when it does not. */
+/**
+ * The reason the host takes this chord, or `undefined` when it does not. On Windows any chord
+ * holding the Windows key is reserved, whether or not Windows uses that chord today.
+ */
 export function reservedChordReason(
   chord: string,
   platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): string | undefined {
+  if (
+    platform === "win32" &&
+    splitChordTokens(chord).modifiers.some((modifier) => modifier.toLowerCase() === "meta")
+  ) {
+    return WINDOWS_KEY_REASON;
+  }
   return RESERVED_CHORDS_BY_PLATFORM[platform].find(
     (reserved) => reserved.chord.toLowerCase() === chord.toLowerCase(),
   )?.reason;

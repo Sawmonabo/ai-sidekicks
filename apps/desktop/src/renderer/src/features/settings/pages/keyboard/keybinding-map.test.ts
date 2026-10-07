@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { type ChordPlatform } from "#renderer/lib/chord-format.js";
 import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
@@ -35,6 +36,20 @@ function press(
     shiftKey: false,
     ...fields,
   };
+}
+
+/**
+ * Why the host takes the chord the recorder reads from this press, or `undefined`. The reserved
+ * table matches the recorded spelling exactly, so this goes through the recorder.
+ */
+function hostReasonFor(
+  platform: ChordPlatform,
+  fields: Parameters<typeof press>[0],
+): string | undefined {
+  const recording = readChordFromEvent(press(fields), platform);
+  return recording.outcome === "captured"
+    ? reservedChordReason(recording.chord, platform)
+    : undefined;
 }
 
 describe("composing rows", () => {
@@ -167,16 +182,7 @@ describe("reading a keystroke as a chord", () => {
   });
 
   it("on Linux, reads each of GNOME's Escape chords as a chord the host takes", () => {
-    // The reserved table matches the recorded spelling exactly, so modifier order matters.
-    const reasonFor = (fields: Parameters<typeof press>[0]): string | undefined => {
-      const recording = readChordFromEvent(
-        press({ key: "Escape", code: "Escape", ...fields }),
-        "linux",
-      );
-      return recording.outcome === "captured"
-        ? reservedChordReason(recording.chord, "linux")
-        : undefined;
-    };
+    const escape = { key: "Escape", code: "Escape" };
     for (const fields of [
       { altKey: true },
       { altKey: true, shiftKey: true },
@@ -184,10 +190,30 @@ describe("reading a keystroke as a chord", () => {
       { ctrlKey: true, altKey: true, shiftKey: true },
       { metaKey: true },
     ]) {
-      expect(reasonFor(fields)).toMatch(/^GNOME /u);
+      expect(hostReasonFor("linux", { ...escape, ...fields })).toMatch(/^GNOME /u);
     }
     // Negative control: Super+Shift+Esc is held by GNOME only during an input capture session.
-    expect(reasonFor({ metaKey: true, shiftKey: true })).toBeUndefined();
+    expect(hostReasonFor("linux", { ...escape, metaKey: true, shiftKey: true })).toBeUndefined();
+  });
+
+  it("on Windows, reads its Escape chords and every Windows-key chord as chords the host takes", () => {
+    const escape = { key: "Escape", code: "Escape" };
+    expect(hostReasonFor("win32", { ...escape, altKey: true })).toMatch(/switches windows/u);
+    expect(hostReasonFor("win32", { ...escape, ctrlKey: true })).toMatch(/Start menu/u);
+    expect(hostReasonFor("win32", { ...escape, ctrlKey: true, shiftKey: true })).toMatch(
+      /Task Manager/u,
+    );
+    for (const fields of [
+      { key: "e", code: "KeyE", metaKey: true },
+      { key: "d", code: "KeyD", metaKey: true, ctrlKey: true },
+      { key: "S", code: "KeyS", metaKey: true, shiftKey: true },
+      { ...escape, metaKey: true },
+    ]) {
+      expect(hostReasonFor("win32", fields)).toMatch(/Windows key/u);
+    }
+    // Negative controls: Microsoft lists no Ctrl+Alt+Esc, and the Windows key is no class elsewhere.
+    expect(hostReasonFor("win32", { ...escape, ctrlKey: true, altKey: true })).toBeUndefined();
+    expect(hostReasonFor("linux", { key: "e", code: "KeyE", metaKey: true })).toBeUndefined();
   });
 
   it("falls back to the key when the host supplies no physical code", () => {
