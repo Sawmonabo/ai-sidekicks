@@ -6,6 +6,12 @@ import type { TestUserConfig } from "vitest/config";
 
 type CoverageOptions = NonNullable<TestUserConfig["coverage"]>;
 
+/**
+ * Export conditions that resolve workspace imports to TypeScript source rather than a stale
+ * `dist/`. A Vite condition list replaces the defaults, so `import` and `default` are repeated.
+ */
+export const WORKSPACE_SOURCE_CONDITIONS: string[] = ["@ai-sidekicks/source", "import", "default"];
+
 /** A package's changes to the shared coverage options. */
 export interface SharedCoverageOverrides {
   /**

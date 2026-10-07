@@ -1,16 +1,15 @@
-// Runs the tests under `src/**/__tests__/`, which drive the clients over a scripted daemon
-// transport.
-import { defineConfig } from "vitest/config";
+// Runs the tests beside their subjects under `src/`.
+import { defineConfig, type ViteUserConfig } from "vitest/config";
 
 import {
   sharedCoverageOptions,
   sharedTestTimeouts,
   WORKSPACE_SOURCE_CONDITIONS,
-} from "../../vitest.shared";
+} from "../../vitest.shared.js";
 
-export default defineConfig({
+const config: ViteUserConfig = defineConfig({
   test: {
-    include: ["src/**/__tests__/**/*.test.ts"],
+    include: ["src/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
@@ -25,3 +24,5 @@ export default defineConfig({
     },
   },
 });
+
+export default config;

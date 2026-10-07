@@ -38,7 +38,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/control-plane/src/users/account-name-update-service.ts` (CREATE — T3.2)
 - `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE — Plan-015-owned relay connection-token custody, T4.3)
 - `packages/client-sdk/src/account.ts` (CREATE — T4.1)
-- `apps/cli/src/users/` (CREATE — T4.2)
+- `apps/cli/src/commands/users/` (CREATE — T4.2) + `apps/cli/src/program.ts` (EXTEND — `createProgram` calls each command's registration function, which adds the command with `.command()` per Plan-005 CP-005-7)
 - `packages/control-plane/src/account/` (CREATE — T5.4 hosted-account sign-in and token family, T5.5 `account.delete` and `account.export`)
 - `packages/contracts/src/error.ts` (EXTEND — T5.4 and T5.5: the hosted-account routes' refusal codes)
 - `packages/runtime-daemon/src/identity/paseto-daemon-credential-provider.ts` (CREATE — T5.1/T5.2 real credential provider; new Plan-015-owned `identity/` daemon subdirectory)
@@ -191,7 +191,7 @@ Typed SDK (daemon-as-gateway), CLI commands, and the service-layer authz binding
   - Consumes: the T1.1 and T1.2 contracts; `JsonRpcClient` (shipped Plan-005 substrate); `account.*` method strings (CP-015-3)
   - Note: the transport is daemon-as-gateway (ADR-008 transport boundary; the control plane holds the user record, and clients reach it through the daemon).
 - **T4.2 — `users/` CLI commands.**
-  - Files: `apps/cli/src/users/` (CREATE)
+  - Files: `apps/cli/src/commands/users/` (CREATE) + `apps/cli/src/program.ts` (EXTEND — `createProgram` calls each command's registration function, which adds the command with `.command()` per Plan-005 CP-005-7)
   - **Spec coverage:** Spec-016 §Required Behavior (partial), Spec-016 §Default Behavior
   - **Verifies invariant:** I-015-3
   - Consumes: T4.1's `client-sdk/src/account.ts`; the `apps/cli` scaffold (Plan-005 Phase R3, T-005r-3-1)

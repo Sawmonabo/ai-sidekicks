@@ -233,6 +233,9 @@
       // module's exported shapes reference is still part of the contract those shapes describe.
       "ignoreExportsUsedInFile": true
     },
+    // The command line declares no `entry`: knip's rolldown plugin reads `src/main.ts` from
+    // `rolldown.config.ts`, and its Vitest plugin reads the tests beside their subjects.
+    "apps/cli": {},
     "packages/crypto-paseto": {},
     "packages/search-ranking": {},
     "packages/client-sdk": {},

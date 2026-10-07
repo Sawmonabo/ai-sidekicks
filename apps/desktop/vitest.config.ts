@@ -11,7 +11,7 @@
 
 import { configDefaults, defineConfig, type ViteUserConfig } from "vitest/config";
 
-import { sharedCoverageOptions } from "../../vitest.shared.js";
+import { sharedCoverageOptions, WORKSPACE_SOURCE_CONDITIONS } from "../../vitest.shared.js";
 import { RENDERER_TESTS_OUTSIDE_SOURCE, TIER_PROJECTS } from "./vitest/tier-projects.js";
 
 const config: ViteUserConfig = defineConfig({
@@ -63,14 +63,13 @@ const config: ViteUserConfig = defineConfig({
         // `src/main/**` imports contracts values, so this project must resolve the provider to TS
         // source rather than a possibly stale `dist/`. In a node environment the SSR resolver
         // decides, but both are set because Vite 6 can apply node conditions in either resolution
-        // pass (vitest-dev/vitest#8431). Conditions replace vitest's defaults, so `import` and
-        // `default` are re-listed.
+        // pass (vitest-dev/vitest#8431).
         resolve: {
-          conditions: ["@ai-sidekicks/source", "import", "default"],
+          conditions: WORKSPACE_SOURCE_CONDITIONS,
         },
         ssr: {
           resolve: {
-            conditions: ["@ai-sidekicks/source", "import", "default"],
+            conditions: WORKSPACE_SOURCE_CONDITIONS,
           },
         },
         test: {

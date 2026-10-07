@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-checks only: rolldown writes the bundle, so `tsc` emits nothing and never writes
+  // `dist/main.js`. `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config
+  // out of the project-references graph.
+  "extends": "../../tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*", "rolldown.config.ts", "vitest.config.ts"],
+  "exclude": ["dist", "node_modules"]
+}

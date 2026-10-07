@@ -4,12 +4,6 @@
 import { playwright } from "@vitest/browser-playwright";
 
 /**
- * Conditions that resolve workspace value imports to TS source rather than a stale `dist/`. Every
- * DOM-environment project uses them, because each imports `@ai-sidekicks/contracts` for value.
- */
-export const WORKSPACE_SOURCE_CONDITIONS: string[] = ["@ai-sidekicks/source", "import", "default"];
-
-/**
  * The module that loads the renderer's global sheets. A browser-mode tier mounts
  * components without the renderer entry that imports it, so each tier loads it first.
  */

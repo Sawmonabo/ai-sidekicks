@@ -135,7 +135,9 @@ export class JsonRpcSchemaError extends Error {
 export class JsonRpcTransportClosedError extends Error {
   public constructor(reason: Error | undefined) {
     super(
-      reason !== undefined ? `Transport closed: ${reason.message}` : "Transport closed",
+      reason !== undefined
+        ? `The connection to the background service closed: ${reason.message}`
+        : "The connection to the background service closed",
       reason !== undefined ? { cause: reason } : undefined,
     );
     this.name = "JsonRpcTransportClosedError";

@@ -264,13 +264,13 @@ describe("the daemon's wire through main", () => {
 
     // The connection drops with its handshake, token and all, in the reason's cause.
     connection.closeWith(
-      new Error("The daemon closed the connection.", {
+      new Error("the service ended it", {
         cause: new Error(`daemon.hello presented ${SESSION_TOKEN}`),
       }),
     );
     const failed = await rejectionOf(bridge.daemon.call("session.read", { sessionId: SESSION_ID }));
     expect(normalizeWireRejection("daemon-call", failed).detail).toBe(
-      "Transport closed: The daemon closed the connection.",
+      "The connection to the background service closed: the service ended it",
     );
     for (const crossed of [refused, failed]) {
       expect(inspect(crossed, { depth: null, showHidden: true })).not.toContain(SESSION_TOKEN);
@@ -511,11 +511,14 @@ describe("how a subscription ends, and the status topic", () => {
     closedByThePage();
     subscribe({ sessionId: SESSION_ID });
     await setImmediate();
-    connection.closeWith(new Error("The daemon closed the connection."));
+    connection.closeWith(new Error("the service ended it"));
     await setImmediate();
     expect(ends).toEqual([
       { reason: "refused", refusal },
-      { reason: "failed", message: "Transport closed: The daemon closed the connection." },
+      {
+        reason: "failed",
+        message: "The connection to the background service closed: the service ended it",
+      },
     ]);
   });
 

@@ -13,12 +13,13 @@ import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "v
 
 import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "#test/helpers/launch/budgets.ts";
 import { tierTimeoutFor } from "#test/helpers/launch/deadline.ts";
+
+import { WORKSPACE_SOURCE_CONDITIONS } from "../../../vitest.shared.js";
 import {
   browserModeOptions,
   BROWSER_MODE_DEDUPE,
   BROWSER_MODE_OPTIMIZE_DEPS,
   BROWSER_MODE_SETUP_FILES,
-  WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
 
