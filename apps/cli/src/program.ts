@@ -19,12 +19,10 @@ class PrintedCommanderExit extends Error {
 }
 
 /**
- * Builds the `sidekicks` program, whose output and parse refusals go to the context's streams.
- * A command is added with `.command()` on the program or on a group, never with `new Command()`
- * and `.addCommand()`, which drops these output and exit settings. An argument parser refuses a
- * value by throwing commander's `InvalidArgumentError` (a plain `Error` there is a software
- * failure). A command fails by throwing, and writes its result through `context.stdout` only once
- * it can no longer fail.
+ * Builds the `sidekicks` program, whose output and refusals go to the context's streams. A command
+ * joins it with `.command()` (never `new Command()` and `.addCommand()`, which drop those
+ * settings), refuses a bad argument with `InvalidArgumentError`, fails by throwing, and writes its
+ * result to `context.stdout` only once it can no longer fail.
  */
 export function createProgram(context: CommandContext): Command {
   return (

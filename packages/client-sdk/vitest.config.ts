@@ -2,7 +2,11 @@
 // transport.
 import { defineConfig } from "vitest/config";
 
-import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared";
+import {
+  sharedCoverageOptions,
+  sharedTestTimeouts,
+  WORKSPACE_SOURCE_CONDITIONS,
+} from "../../vitest.shared";
 
 export default defineConfig({
   test: {
@@ -14,11 +18,10 @@ export default defineConfig({
     ...sharedTestTimeouts(),
   },
   // Resolve workspace dependencies to TypeScript source, not a stale `dist/`, through the
-  // `@ai-sidekicks/source` export condition. The list replaces Vitest's defaults, so `import` and
-  // `default` are repeated.
+  // `@ai-sidekicks/source` export condition.
   ssr: {
     resolve: {
-      conditions: ["@ai-sidekicks/source", "import", "default"],
+      conditions: WORKSPACE_SOURCE_CONDITIONS,
     },
   },
 });

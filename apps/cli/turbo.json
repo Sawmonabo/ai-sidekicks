@@ -18,6 +18,13 @@
       ],
       // It emits nothing; the root's `dist/**` output would otherwise snapshot the bundle.
       "outputs": []
+    },
+    // The executable's own test runs the built bundle.
+    "test": {
+      "dependsOn": ["^build", "build"]
+    },
+    "test:coverage": {
+      "dependsOn": ["^build", "build"]
     }
   }
 }

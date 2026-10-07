@@ -9,7 +9,10 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CommanderError } from "commander";
 
-/** The process exit codes the command line returns, from BSD `sysexits.h`. */
+/**
+ * The process exit codes the command line returns: BSD `sysexits.h` codes, plus the status a shell
+ * reports for a program a closed pipe ended.
+ */
 export const ExitCode = {
   Success: 0,
   /** EX_USAGE: the command was invoked or called incorrectly. */
@@ -20,6 +23,8 @@ export const ExitCode = {
   Unavailable: 69,
   /** EX_SOFTWARE: an internal failure. */
   Software: 70,
+  /** 128 + SIGPIPE: the reader of the output went away, as git and coreutils exit. */
+  BrokenPipe: 141,
 } as const;
 
 /** One of the values in {@link ExitCode}. */
@@ -38,17 +43,18 @@ const DAEMON_ERROR_EXIT_CODES: Readonly<Record<JsonRpcErrorCodeValue, ExitCode>>
 };
 
 /** A failure the command line raises itself rather than receives from the daemon. */
-type LocalFailureKind = "usage" | "unavailable" | "software";
+type LocalFailureKind = "usage" | "unavailable" | "brokenPipe" | "software";
 
 /** The exit code for each failure the command line raises itself. */
 export const LOCAL_FAILURE_EXIT_CODES: Readonly<Record<LocalFailureKind, ExitCode>> = {
   usage: ExitCode.Usage,
   unavailable: ExitCode.Unavailable,
+  brokenPipe: ExitCode.BrokenPipe,
   software: ExitCode.Software,
 };
 
 /** Thrown when the daemon returns a numeric error code that has no exit code assigned. */
-export class UnmappedExitCodeError extends Error {
+class UnmappedExitCodeError extends Error {
   public constructor(daemonCode: number) {
     super(`The background service returned error code ${daemonCode}, which has no exit code`);
     this.name = "UnmappedExitCodeError";
@@ -59,11 +65,14 @@ function isAssignedDaemonCode(code: number): code is JsonRpcErrorCodeValue {
   return Object.hasOwn(DAEMON_ERROR_EXIT_CODES, code);
 }
 
+function isBrokenPipe(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EPIPE";
+}
+
 /**
- * The exit code for a failed run. A commander refusal is a usage error, a daemon that cannot be
- * reached or whose connection closed is unavailable, a daemon error takes its code's exit code, and
- * anything else is a software error. Throws {@link UnmappedExitCodeError} for a daemon code with
- * no exit code.
+ * The exit code for a failed run, from its error's class: a refusal, an unreachable service, a
+ * closed output pipe, a daemon error code, or else a software error. Throws
+ * {@link UnmappedExitCodeError} for a daemon code with no exit code.
  */
 export function exitCodeForFailure(error: unknown): ExitCode {
   if (error instanceof CommanderError) {
@@ -74,6 +83,9 @@ export function exitCodeForFailure(error: unknown): ExitCode {
     error instanceof JsonRpcTransportClosedError
   ) {
     return LOCAL_FAILURE_EXIT_CODES.unavailable;
+  }
+  if (isBrokenPipe(error)) {
+    return LOCAL_FAILURE_EXIT_CODES.brokenPipe;
   }
   if (error instanceof JsonRpcRemoteError) {
     if (!isAssignedDaemonCode(error.code)) {

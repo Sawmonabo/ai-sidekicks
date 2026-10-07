@@ -1,7 +1,11 @@
 // Tests run under Node because `better-sqlite3` is a native binding.
 import { defineConfig } from "vitest/config";
 
-import { sharedCoverageOptions, sharedTestTimeouts } from "../../vitest.shared";
+import {
+  sharedCoverageOptions,
+  sharedTestTimeouts,
+  WORKSPACE_SOURCE_CONDITIONS,
+} from "../../vitest.shared";
 
 // The database writer's worker thread runs this package's TypeScript under plain Node, outside the
 // test runner's own loading, so each test process registers the source loader its workers inherit.
@@ -21,10 +25,10 @@ export default defineConfig({
     ...sharedTestTimeouts(),
   },
   // Resolve workspace deps to TS source, not a stale dist/, through the `@ai-sidekicks/source`
-  // export condition. Conditions replace vitest's defaults, so `import`/`default` are re-listed.
+  // export condition.
   ssr: {
     resolve: {
-      conditions: ["@ai-sidekicks/source", "import", "default"],
+      conditions: WORKSPACE_SOURCE_CONDITIONS,
     },
   },
 });

@@ -127,7 +127,7 @@ const HALFWAY_MS =
 
 const LINK_FAILED: DaemonSubscriptionEnd = {
   reason: "failed",
-  message: "Transport closed: The daemon closed the connection.",
+  message: "The connection to the background service closed: the background service ended it",
 };
 
 // Tripwires throw in development; under test they are recorded.

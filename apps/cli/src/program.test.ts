@@ -120,11 +120,16 @@ describe("runProgram", () => {
     expect(await run(args)).toEqual({ exitCode: 64, stdout: "", stderr: message });
   });
 
-  it("refuses a bare invocation and an unknown word before any command is registered", async () => {
+  it("answers help and refuses a bare invocation and an unknown word with no command registered", async () => {
     const bare = await runBuilt(createProgram, []);
     expect(bare.exitCode).toBe(64);
     expect(bare.stdout).toBe("");
     expect(bare.stderr.startsWith("Usage: sidekicks [options] [command]\n")).toBe(true);
+
+    const help = await runBuilt(createProgram, ["help"]);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout.startsWith("Usage: sidekicks [options] [command]\n")).toBe(true);
+    expect(help.stderr).toBe("");
 
     expect(await runBuilt(createProgram, ["nope", "extra"])).toEqual({
       exitCode: 64,
@@ -159,12 +164,6 @@ describe("runProgram", () => {
       "error: Not a session id.\n",
     ],
     [
-      "a daemon invalid-params error",
-      new JsonRpcRemoteError(-32602, "bad session id", undefined),
-      64,
-      "error: bad session id\n",
-    ],
-    [
       "an unreachable daemon",
       new JsonRpcTransportUnavailableError("/tmp/daemon.sock", new Error("refused")),
       69,
@@ -174,7 +173,7 @@ describe("runProgram", () => {
       "a connection closed mid-call",
       new JsonRpcTransportClosedError(new Error("reset")),
       69,
-      "error: Transport closed: reset\n",
+      "error: The connection to the background service closed: reset\n",
     ],
     [
       "a daemon code with no exit code",

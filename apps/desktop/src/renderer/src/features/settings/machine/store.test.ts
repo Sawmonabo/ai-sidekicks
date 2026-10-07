@@ -73,7 +73,7 @@ class HandDrivenMachineSettings implements MachineSettingsService {
     this.#deliver = undefined;
     this.#onEnded = undefined;
     this.#subscriptions -= 1;
-    onEnded?.({ reason: "failed", message: "Transport closed" });
+    onEnded?.({ reason: "failed", message: "The connection to the background service closed" });
   }
 
   /** Answer the write made `index`-th with `settings`. */
