@@ -1,13 +1,12 @@
-// Workflow definitions: the node-graph document an author writes, the ids that address a
-// definition and its versions, and the refusal a save answers with when the document
-// breaks a rule. The methods are in `workflow/definition/methods.ts`; the state kept beside
-// a version (the enabled switch, layout, pinned data, the builder's draft, the expression
-// preview and the webhook address) is in `workflow/definition/builder.ts`.
+// Workflow definitions: the node-graph document an author writes and the ids that address a
+// definition and its versions. The methods are in `workflow/definition/methods.ts`; the state
+// kept beside a version (the enabled switch, layout, pinned data, the builder's draft, the
+// expression preview and the webhook address) is in `workflow/definition/builder.ts`.
 //
 // A definition has one form, the document below, on the wire and in the store. Its
 // content hash covers only the hashed members (`WORKFLOW_DOCUMENT_HASHED_MEMBERS`);
-// canvas layout and pinned sample data sit outside them, so dragging a node or
-// pinning data never mints a version.
+// canvas layout, pinned sample data and tags sit outside them, so dragging a node,
+// pinning data or tagging a workflow never mints a version.
 //
 // The `workflow_create` and `workflow_update` agent tools derive their input schemas
 // from this document with `z.toJSONSchema`, and a model reading one sees each
@@ -21,7 +20,11 @@ import { z } from "zod";
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/server.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../artifacts/id.js";
 import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
+import { findRepeats } from "../../internal/repeats.js";
 import { countSchema } from "../../internal/wire-scalars.js";
+import { TagListSchema } from "../../tag.js";
+import type { WorkflowParamType } from "../kind.js";
+import type { WorkflowDefinitionFinding } from "./refusals.js";
 
 /** A workflow definition's id. The daemon mints it; a client passes it through unparsed. */
 export type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -76,20 +79,6 @@ export const WorkflowNodeKindIdSchema: z.ZodType<WorkflowNodeKindId, WorkflowNod
 /** The document schema version this contract reads and writes. */
 export const WORKFLOW_DOCUMENT_SCHEMA_VERSION = "2" as const;
 
-/**
- * The document members the content hash covers, in the order the hash preimage lists
- * them. Everything else, `layout` and `pinData`, is outside the hash.
- *
- * @consumedBy the daemon's workflow content hash, which covers these members and not the layout
- */
-export const WORKFLOW_DOCUMENT_HASHED_MEMBERS = [
-  "name",
-  "description",
-  "trigger",
-  "nodes",
-  "edges",
-] as const;
-
 const WORKFLOW_NODE_ON_ERROR = ["stop", "continue", "continue-error-output"] as const;
 
 /**
@@ -97,6 +86,24 @@ const WORKFLOW_NODE_ON_ERROR = ["stop", "continue", "continue-error-output"] as 
  * items down a real `error` output handle.
  */
 export type WorkflowNodeOnError = (typeof WORKFLOW_NODE_ON_ERROR)[number];
+
+/**
+ * How a `flow.merge` node joins its inputs into its one output. `first-to-arrive` passes on
+ * the first input to succeed and cancels the branches still running.
+ */
+export const WORKFLOW_MERGE_MODES = [
+  "append",
+  "combine-by-field",
+  "combine-by-position",
+  "choose-branch",
+  "first-to-arrive",
+] as const;
+/**
+ * One of {@link WORKFLOW_MERGE_MODES}.
+ *
+ * @consumedBy the merge node's kind
+ */
+export type WorkflowMergeMode = (typeof WORKFLOW_MERGE_MODES)[number];
 
 /**
  * One node. `kindVersion` is written when the node is placed and never migrated: the
@@ -118,41 +125,127 @@ export interface WorkflowNode {
   executeOnce?: boolean | undefined;
   alwaysOutputData?: boolean | undefined;
 }
+const workflowNodeShape = {
+  id: WorkflowNodeIdSchema,
+  kind: WorkflowNodeKindIdSchema,
+  kindVersion: z
+    .number()
+    .int()
+    .positive()
+    .describe("The kind's version when the node was placed; a whole number from 1."),
+  name: z.string().min(1).describe("The label a person reads; never used to address the node."),
+  order: z
+    .number()
+    .int()
+    .describe("Which sibling branch runs first, lowest first; never the canvas position."),
+  params: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "The node's parameters by the ids its kind lists. A value is a literal, or an " +
+        "expression written ={{ … }}. An agent, project or session parameter holds that " +
+        "record's id and an MCP tool parameter its server binding and tool name, never a " +
+        "nested node. A secret is written secret://shared/<name> or " +
+        "secret://project/<name>, never as an expression, and only in a parameter the " +
+        "kind marks sensitive.",
+    ),
+  disabled: z.boolean().optional(),
+  notes: z.string().optional(),
+  onError: z.enum(WORKFLOW_NODE_ON_ERROR).optional(),
+  retry: z
+    .object({
+      maxTries: z.number().int().positive(),
+      waitMs: countSchema,
+    })
+    .strict()
+    .optional()
+    .describe("Retries on failure: maxTries from 1, waitMs from 0; the engine clamps both."),
+  executeOnce: z.boolean().optional(),
+  alwaysOutputData: z.boolean().optional(),
+};
 /** Wire schema for {@link WorkflowNode}. */
 export const WorkflowNodeSchema: z.ZodType<WorkflowNode, WorkflowNode> = z
-  .object({
-    id: WorkflowNodeIdSchema,
-    kind: WorkflowNodeKindIdSchema,
-    kindVersion: z
-      .number()
-      .int()
-      .positive()
-      .describe("The kind's version when the node was placed; a whole number from 1."),
-    name: z.string().min(1).describe("The label a person reads; never used to address the node."),
-    order: z
-      .number()
-      .int()
-      .describe("Which sibling branch runs first, lowest first; never the canvas position."),
-    params: z
-      .record(z.string(), z.unknown())
-      .describe(
-        "The node's parameters by the ids its kind lists. A value is a literal, or an " +
-          "expression written ={{ … }}. A secret is written secret://<scope>/<name> and " +
-          "only in a parameter the kind marks sensitive.",
-      ),
-    disabled: z.boolean().optional(),
-    notes: z.string().optional(),
-    onError: z.enum(WORKFLOW_NODE_ON_ERROR).optional(),
-    retry: z
+  .object(workflowNodeShape)
+  .strict();
+
+// What every declared input carries, whatever its type.
+interface WorkflowTriggerInputArm<Type extends WorkflowParamType, Value> {
+  name: string;
+  type: Type;
+  required?: boolean | undefined;
+  default: Value;
+}
+
+/**
+ * One input a workflow declares on its trigger, which a run start fills by `name`, unique among
+ * the trigger's inputs. Its type picks the field Run now draws: a checkbox for `boolean`, a list
+ * of `options` for `select`, a folder picker for `path`, a box for `string`. `default` is the
+ * value the field starts on, and a `select` input's is one of its `options`; a start that leaves
+ * an optional input out runs on it.
+ */
+export type WorkflowTriggerInput =
+  | WorkflowTriggerInputArm<"boolean", boolean>
+  | WorkflowTriggerInputArm<"string", string>
+  | WorkflowTriggerInputArm<"path", string>
+  | (WorkflowTriggerInputArm<"select", string> & { options: [string, ...string[]] });
+
+const triggerInputShape = {
+  name: z.string().min(1).describe("The input's name; a run start fills the input by it."),
+  required: z
+    .boolean()
+    .optional()
+    .describe("True where a start must fill the input; omitted, it may be left out."),
+};
+const WorkflowTriggerInputSchema: z.ZodType<WorkflowTriggerInput, WorkflowTriggerInput> =
+  z.discriminatedUnion("type", [
+    z.object({ ...triggerInputShape, type: z.literal("boolean"), default: z.boolean() }).strict(),
+    z.object({ ...triggerInputShape, type: z.literal("string"), default: z.string() }).strict(),
+    z
       .object({
-        maxTries: z.number().int().positive(),
-        waitMs: countSchema,
+        ...triggerInputShape,
+        type: z.literal("path"),
+        default: z.string().max(FILE_PATH_MAX_LEN),
+      })
+      .strict(),
+    z
+      .object({
+        ...triggerInputShape,
+        type: z.literal("select"),
+        options: z
+          .tuple([z.string().min(1)], z.string().min(1))
+          .describe("The choices, at least one; default is one of them."),
+        default: z.string(),
       })
       .strict()
+      .refine((input) => input.options.includes(input.default), {
+        path: ["default"],
+        message: "A choice input starts on one of its options.",
+      }),
+  ]);
+
+/** The trigger node: a node that may also declare the inputs a run of the workflow starts with. */
+export interface WorkflowTriggerNode extends WorkflowNode {
+  inputs?: WorkflowTriggerInput[] | undefined;
+}
+const WorkflowTriggerNodeSchema: z.ZodType<WorkflowTriggerNode, WorkflowTriggerNode> = z
+  .object({
+    ...workflowNodeShape,
+    inputs: z
+      .array(WorkflowTriggerInputSchema)
+      .superRefine((inputs, context) => {
+        for (const { index, value } of findRepeats(inputs.map((input) => input.name))) {
+          context.addIssue({
+            code: "custom",
+            path: [index, "name"],
+            message: `Input name ${value} is used more than once.`,
+          });
+        }
+      })
       .optional()
-      .describe("Retries on failure: maxTries from 1, waitMs from 0; the engine clamps both."),
-    executeOnce: z.boolean().optional(),
-    alwaysOutputData: z.boolean().optional(),
+      .describe(
+        "The inputs a run starts with, each with a name no other input uses and a type " +
+          "(boolean, string, path, or select with its options) with the value it starts on " +
+          "as default; required marks one a start must fill.",
+      ),
   })
   .strict();
 
@@ -264,37 +357,46 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
   .strict();
 
 /**
- * A failure carried on one item, so one item can fail while the rest of a batch
- * succeeds, and on the step it failed in. `code` is the step failure's own code where
- * one names it (a timed-out step, a sandbox that did not start, a Code step over its
- * budget …) with that code's `details`; a failure with no code of its own carries the
- * message alone. `itemIndex` names the input item the step failed on: the same zero-based
- * index an expression reads as `$itemIndex`, drawn as it stands (`Item 1` for 1).
+ * A failure carried on one item, so one item can fail while the rest of a batch succeeds, on the
+ * step it failed in, and on a run as why it failed or was canceled. A coded failure carries the
+ * step failure's own `workflow.<condition>` code (a timed-out step, a sandbox that did not start, a
+ * Code step over its budget …) and may carry that code's `details`; a failure with no code of its
+ * own carries the message alone, never `details`. `itemIndex` names the input item the step failed
+ * on: the same zero-based index an expression reads as `$itemIndex`, drawn as it stands (`Item 1`
+ * for 1).
  */
-export interface WorkflowStepError {
-  message: string;
-  nodeId?: WorkflowNodeId | undefined;
-  itemIndex?: number | undefined;
-  code?: string | undefined;
-  details?: Record<string, unknown> | undefined;
-}
-/** Wire schema for {@link WorkflowStepError}; `details` never appears without `code`. */
-export const WorkflowStepErrorSchema: z.ZodType<WorkflowStepError, WorkflowStepError> = z
-  .object({
-    message: z.string().min(1),
-    nodeId: WorkflowNodeIdSchema.optional(),
-    itemIndex: countSchema.optional(),
-    code: z
-      .string()
-      .regex(/^workflow\.[a-z][a-z_]*$/u)
-      .optional(),
-    details: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict()
-  .refine((error) => error.details === undefined || error.code !== undefined, {
-    path: ["details"],
-    message: "details belong to a coded failure.",
-  });
+export type WorkflowStepError =
+  | {
+      message: string;
+      nodeId?: WorkflowNodeId | undefined;
+      itemIndex?: number | undefined;
+      code?: undefined;
+      details?: undefined;
+    }
+  | {
+      message: string;
+      nodeId?: WorkflowNodeId | undefined;
+      itemIndex?: number | undefined;
+      code: `workflow.${string}`;
+      details?: Record<string, unknown> | undefined;
+    };
+
+const stepErrorShape = {
+  message: z.string().min(1),
+  nodeId: WorkflowNodeIdSchema.optional(),
+  itemIndex: countSchema.optional(),
+};
+/** Wire schema for {@link WorkflowStepError}. */
+export const WorkflowStepErrorSchema: z.ZodType<WorkflowStepError, WorkflowStepError> = z.union([
+  z.object(stepErrorShape).strict(),
+  z
+    .object({
+      ...stepErrorShape,
+      code: z.templateLiteral(["workflow.", z.string().regex(/^[a-z][a-z_]*$/u)]),
+      details: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
+]);
 
 /**
  * One item: data between nodes is always an array of these. `pairedItem` is the item's
@@ -306,8 +408,7 @@ export interface WorkflowItem {
   pairedItem?: WorkflowPairedItem | WorkflowPairedItem[] | undefined;
   error?: WorkflowStepError | undefined;
 }
-/** Wire schema for {@link WorkflowItem}. */
-export const WorkflowItemSchema: z.ZodType<WorkflowItem, WorkflowItem> = z
+const workflowItemObject = z
   .object({
     json: z.unknown(),
     binary: z.record(z.string(), WorkflowBinaryRefSchema).optional(),
@@ -315,6 +416,8 @@ export const WorkflowItemSchema: z.ZodType<WorkflowItem, WorkflowItem> = z
     error: WorkflowStepErrorSchema.optional(),
   })
   .strict();
+/** Wire schema for {@link WorkflowItem}. */
+export const WorkflowItemSchema: z.ZodType<WorkflowItem, WorkflowItem> = workflowItemObject;
 
 /**
  * An item pinned onto a node as test data. It carries no binary value, because a node
@@ -322,13 +425,8 @@ export const WorkflowItemSchema: z.ZodType<WorkflowItem, WorkflowItem> = z
  */
 export type WorkflowPinnedItem = Omit<WorkflowItem, "binary">;
 /** Wire schema for {@link WorkflowPinnedItem}. */
-export const WorkflowPinnedItemSchema: z.ZodType<WorkflowPinnedItem, WorkflowPinnedItem> = z
-  .object({
-    json: z.unknown(),
-    pairedItem: z.union([WorkflowPairedItemSchema, z.array(WorkflowPairedItemSchema)]).optional(),
-    error: WorkflowStepErrorSchema.optional(),
-  })
-  .strict();
+export const WorkflowPinnedItemSchema: z.ZodType<WorkflowPinnedItem, WorkflowPinnedItem> =
+  workflowItemObject.omit({ binary: true });
 
 const documentBodyShape = {
   schemaVersion: z
@@ -338,7 +436,10 @@ const documentBodyShape = {
   description: z.string().optional(),
   nodes: z
     .array(WorkflowNodeSchema)
-    .describe("Every node except the trigger. Node ids are unique across the document."),
+    .describe(
+      "Every node except the trigger. Node ids are unique across the document, the " +
+        "trigger's included.",
+    ),
   edges: z
     .array(WorkflowEdgeSchema)
     .describe(
@@ -352,46 +453,122 @@ const documentBodyShape = {
     .record(z.string(), z.array(WorkflowPinnedItemSchema))
     .optional()
     .describe("Test data pinned onto nodes by node id; outside the content hash."),
+  tags: TagListSchema.optional().describe(
+    "The workflow's tags, nested with / and held once ignoring case, each never empty, with no " +
+      "whitespace and no empty level around a /; outside the content hash.",
+  ),
 };
 
 const triggerDescription =
-  "The one trigger node; its kind is in the trigger category, such as trigger.manual.";
+  "The one trigger node; its kind is in the trigger category, such as trigger.manual. " +
+  "Only the trigger declares inputs.";
 
 /**
  * A workflow document: exactly one trigger node, the other nodes, and the edges between
- * them, plus the layout and pinned data outside the hash. A document holds no settings
- * block: what a failure does is set on the node that failed.
+ * them, plus the layout, pinned data and tags outside the hash. A document holds no
+ * settings block: what a failure does is set on the node that failed.
  */
 export interface WorkflowDocument {
   schemaVersion: typeof WORKFLOW_DOCUMENT_SCHEMA_VERSION;
   name: string;
   description?: string | undefined;
-  trigger: WorkflowNode;
+  trigger: WorkflowTriggerNode;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   layout?: WorkflowLayout | undefined;
   pinData?: Record<string, WorkflowPinnedItem[]> | undefined;
+  tags?: string[] | undefined;
 }
-/** Wire schema for {@link WorkflowDocument}. */
+// A node id names one node, so the trigger's id and every other node's are all distinct. Each
+// repeat's issue carries a `node_id_duplicate` finding as its `params`, which a refused call's
+// error carries to the reader, so the refusal is named like every other finding.
+function refuseRepeatedNodeIds(
+  document: {
+    trigger?: { id: WorkflowNodeId } | undefined;
+    nodes: readonly { id: WorkflowNodeId }[];
+  },
+  context: z.RefinementCtx,
+): void {
+  const ids = document.nodes.map((node) => node.id);
+  const allIds = document.trigger === undefined ? ids : [document.trigger.id, ...ids];
+  const triggerOffset = allIds.length - ids.length;
+  for (const { index, value: id } of findRepeats(allIds)) {
+    const finding: WorkflowDefinitionFinding = { rule: "node_id_duplicate", nodeIds: [id] };
+    context.addIssue({
+      code: "custom",
+      path: ["nodes", index - triggerOffset, "id"],
+      message: `Node id ${id} is used more than once.`,
+      params: finding,
+    });
+  }
+}
+
+/**
+ * Wire schema for {@link WorkflowDocument}. It refuses a node id used twice with a custom issue
+ * whose `params` is that id's `node_id_duplicate` finding.
+ */
 export const WorkflowDocumentSchema: z.ZodType<WorkflowDocument, WorkflowDocument> = z
-  .object({ ...documentBodyShape, trigger: WorkflowNodeSchema.describe(triggerDescription) })
-  .strict();
+  .object({ ...documentBodyShape, trigger: WorkflowTriggerNodeSchema.describe(triggerDescription) })
+  .strict()
+  .superRefine(refuseRepeatedNodeIds);
+
+/**
+ * The document members the content hash covers: its content, never its schema version. The
+ * rest, `layout`, `pinData` and `tags`, sit outside it, so no member the engine reads may move
+ * there.
+ */
+export const WORKFLOW_DOCUMENT_HASHED_MEMBERS = [
+  "name",
+  "description",
+  "trigger",
+  "nodes",
+  "edges",
+] as const;
+
+/**
+ * The part of a document its content hash covers: no geometry, pinned data or tags. The
+ * `Pick` refuses to compile if the list above names anything but a document member.
+ */
+export type WorkflowDocumentHashedBody = Pick<
+  WorkflowDocument,
+  (typeof WORKFLOW_DOCUMENT_HASHED_MEMBERS)[number]
+>;
+
+/**
+ * Returns the hashed body of a document, the only part the content hash reads; a member
+ * the document leaves out stays out rather than appearing as `undefined`.
+ */
+export function pickWorkflowDocumentHashedBody(
+  document: WorkflowDocument,
+): WorkflowDocumentHashedBody {
+  const body: Partial<Record<keyof WorkflowDocumentHashedBody, unknown>> = {};
+  for (const member of WORKFLOW_DOCUMENT_HASHED_MEMBERS) {
+    if (document[member] !== undefined) {
+      body[member] = document[member];
+    }
+  }
+  return body as WorkflowDocumentHashedBody;
+}
 
 /**
  * The builder's unsaved document. It may not have its trigger yet: the builder opens on
  * the trigger picker, and a draft saved before one is placed still survives a reload.
  */
 export type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & {
-  trigger?: WorkflowNode | undefined;
+  trigger?: WorkflowTriggerNode | undefined;
 };
-/** Wire schema for {@link WorkflowDraftDocument}. */
+/**
+ * Wire schema for {@link WorkflowDraftDocument}. It refuses a node id used twice the way
+ * {@link WorkflowDocumentSchema} does.
+ */
 export const WorkflowDraftDocumentSchema: z.ZodType<WorkflowDraftDocument, WorkflowDraftDocument> =
   z
     .object({
       ...documentBodyShape,
-      trigger: WorkflowNodeSchema.optional().describe(triggerDescription),
+      trigger: WorkflowTriggerNodeSchema.optional().describe(triggerDescription),
     })
-    .strict();
+    .strict()
+    .superRefine(refuseRepeatedNodeIds);
 
 /**
  * A node's tool parameter: which server's tool, and nothing about its policy. A tool's
@@ -406,81 +583,4 @@ export interface WorkflowToolBinding {
 /** Wire schema for {@link WorkflowToolBinding}. */
 export const WorkflowToolBindingSchema: z.ZodType<WorkflowToolBinding, WorkflowToolBinding> = z
   .object({ binding: McpServerBindingRefSchema, toolName: z.string().min(1) })
-  .strict();
-
-// The document's refusal
-
-/**
- * A document the daemon's check at save refused; it carries every finding at once.
- *
- * @consumedBy the handler that returns the `workflow.definition_refused` error
- */
-export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
-
-/**
- * The rules a refused document can break. Each finding names one, with the nodes it
- * marks; the validation strip lists every finding and the canvas marks each node.
- */
-export const WORKFLOW_DEFINITION_FINDING_RULES = [
-  "cycle",
-  "orphan",
-  "empty_document",
-  "trigger_missing",
-  "trigger_duplicate",
-  "edge_into_trigger",
-  "edge_out_of_terminal",
-  "param_missing",
-  "expression_unparsable",
-  "expression_unknown_node",
-  "expression_regex_unsupported",
-  "tool_edge_without_tool_input",
-  "handle_type_unknown",
-  "name_taken",
-  "repository_required",
-  "unknown_key",
-  "secret_outside_sensitive_field",
-  "code_packages_unresolved",
-] as const;
-/** One of {@link WORKFLOW_DEFINITION_FINDING_RULES}. */
-export type WorkflowDefinitionFindingRule = (typeof WORKFLOW_DEFINITION_FINDING_RULES)[number];
-
-/**
- * One finding. Only `code_packages_unresolved` carries `detail`, and always does: the package a
- * full-tier Code step names at two versions in two imports. A package that merely cannot be
- * locked is no finding; the save is kept.
- */
-export type WorkflowDefinitionFinding =
-  | {
-      rule: Exclude<WorkflowDefinitionFindingRule, "code_packages_unresolved">;
-      nodeIds: WorkflowNodeId[];
-    }
-  | { rule: "code_packages_unresolved"; nodeIds: WorkflowNodeId[]; detail: string };
-/** Wire schema for {@link WorkflowDefinitionFinding}. */
-export const WorkflowDefinitionFindingSchema: z.ZodType<WorkflowDefinitionFinding> = z.union([
-  z
-    .object({
-      rule: z.enum(WORKFLOW_DEFINITION_FINDING_RULES).exclude(["code_packages_unresolved"]),
-      nodeIds: z.array(WorkflowNodeIdSchema),
-    })
-    .strict(),
-  z
-    .object({
-      rule: z.literal("code_packages_unresolved"),
-      nodeIds: z.array(WorkflowNodeIdSchema).min(1),
-      detail: z.string().min(1),
-    })
-    .strict(),
-]);
-
-/** The details of {@link WORKFLOW_DEFINITION_REFUSED_CODE}: the whole list of findings. */
-export interface WorkflowDefinitionRefusedDetails {
-  findings: WorkflowDefinitionFinding[];
-}
-/**
- * Wire schema for {@link WorkflowDefinitionRefusedDetails}.
- *
- * @consumedBy the handler that returns the `workflow.definition_refused` error
- */
-export const WorkflowDefinitionRefusedDetailsSchema: z.ZodType<WorkflowDefinitionRefusedDetails> = z
-  .object({ findings: z.array(WorkflowDefinitionFindingSchema).min(1) })
   .strict();

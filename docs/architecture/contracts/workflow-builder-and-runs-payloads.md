@@ -96,23 +96,25 @@ interface WorkflowRunListRequest {
   // The version scope Show runs hands in: only runs pinned to this version. Sent only with
   // `definitionId`, which Show runs sets to the same workflow.
   workflowVersionId?: string;
-  status?: WorkflowRunStatus[]; // non-empty where present
-  triggerKind?: WorkflowTriggerKind[]; // non-empty where present; the trigger filter
+  status?: [WorkflowRunStatus, ...WorkflowRunStatus[]];
+  triggerKind?: [WorkflowTriggerKind, ...WorkflowTriggerKind[]]; // the trigger filter
   startedAfter?: string;
   startedBefore?: string;
   limit?: number;
   cursor?: string;
 }
 // One row of the runs table, in the order the row reads it. A row carries no version: the pinned version
-// is read in the header of the run's own page.
-interface WorkflowRunSummary {
+// is read in the header of the run's own page. Only a waiting run names the kind of wait, so a wait on a
+// person and a wait on a spent provider account read apart. Only an account wait carries `resumeAt`,
+// and only where the wait armed one: the instant it will resume itself. Where none is armed, no instant
+// is invented.
+type WorkflowRunSummary = {
   workflowRunId: WorkflowRunId;
   // The session the run lives in: the chat that started it, or the one session the workflow owns for a
   // run nobody started from a chat. The row opens it.
   sessionId: SessionId;
   definitionId: WorkflowDefinitionId;
   definitionName: string;
-  status: WorkflowRunStatus;
   mode: WorkflowRunMode;
   triggerKind: WorkflowTriggerKind; // the trigger column reads it
   startedBy: WorkflowStartedBy;
@@ -126,16 +128,14 @@ interface WorkflowRunSummary {
   // Present only where a provider was billed, carrying the account that paid. A row that was never billed
   // carries none, and reads `$0.00` with no account.
   cost?: WorkflowCost;
-  // Present exactly while the run is `waiting`: the kind of wait, so a wait on a person and a wait on a
-  // spent provider account read apart.
-  waitCause?: WorkflowWaitCause;
-  // Only on a `waiting` run, and only where the wait armed one: the instant it will resume itself. Where
-  // none is armed, no instant is invented.
-  resumeAt?: string;
   // Whether the person marked the run Keep, which the row shows as a mark and `Delete runs older than…`
   // leaves.
   keep: boolean;
-}
+} & (
+  | { status: "waiting"; waitCause: "account"; resumeAt?: string }
+  | { status: "waiting"; waitCause: Exclude<WorkflowWaitCause, "account"> }
+  | { status: Exclude<WorkflowRunStatus, "waiting"> }
+);
 interface WorkflowRunListResponse {
   runs: WorkflowRunSummary[]; // one page; each run is listed once across pages
   // How many runs the request's filters match, so the tab's count reads right on first paint; never
@@ -211,7 +211,7 @@ interface WorkflowRunRetryRequest {
 interface WorkflowRunRetryResponse {
   workflowRunId: WorkflowRunId; // the new run, never the source
   sourceWorkflowRunId: WorkflowRunId;
-  state: "new" | "running";
+  status: "new" | "running";
 }
 
 // WorkflowRunRerun — workflow.runRerun. Re-run on a run's page: a NEW run of the named run's own pinned
@@ -286,7 +286,7 @@ interface WorkflowSubscribeRequest {
 }
 type WorkflowSubscribeNotification =
   | { kind: "run"; run: WorkflowRunSummary }
-  | { kind: "runsRemoved"; workflowRunIds: WorkflowRunId[] } // non-empty
+  | { kind: "runsRemoved"; workflowRunIds: [WorkflowRunId, ...WorkflowRunId[]] }
   | { kind: "definition"; definition: WorkflowDefinitionSummary }
   | { kind: "definitionRemoved"; definitionId: WorkflowDefinitionId }
   | { kind: "step"; workflowRunId: WorkflowRunId; step: WorkflowStep }
@@ -306,9 +306,12 @@ type WorkflowSubscribeNotification =
 // inspector and an agent all read ONE list. One declarative description drives the parameter form, the
 // canvas ports, the palette entry and the validation; everything that renders a node is a generic renderer
 // over it.
-interface WorkflowKindListRequest {}
-interface WorkflowHandleSpec {
-  id: string; // encodes the direction, the type and the index, so a handle is addressable without a lookup
+// The request is `EmptyPayload`: it takes no members.
+interface WorkflowHandleSpec<Mode extends "inputs" | "outputs"> {
+  // `<mode>/<type>/<index>`, such as `outputs/main/1`: the mode is the side the spec stands on, and the
+  // type is the spec's own `type`, so a handle is addressable from a stored edge without a lookup. The
+  // index is a whole number from 0, with no leading zeros.
+  id: `${Mode}/${"main" | "tool"}/${number}`;
   label: string;
   // `main` carries items; `tool` carries a capability.
   type: "main" | "tool";
@@ -372,8 +375,8 @@ interface WorkflowNodeKindSpec {
   description: string;
   icon: string;
   aliases?: string[]; // palette search only
-  inputs: WorkflowHandleSpec[];
-  outputs: WorkflowHandleSpec[];
+  inputs: WorkflowHandleSpec<"inputs">[];
+  outputs: WorkflowHandleSpec<"outputs">[];
   outputsDeriveFromParams: boolean;
   params: WorkflowParamSpec[];
   // True where the kind runs once per item rather than once over all of them.
@@ -412,8 +415,9 @@ interface WorkflowLayoutSetRequest {
 }
 // WorkflowTagsSet — workflow.tagsSet. Saves the workflow's tags from the builder header's chips and
 // its `Add tag` field, at once and without minting a version: tags sit outside the hashed body. The
-// whole set each time, so a remove and an add are one write. A tag holding a space is refused
-// `workflow.tag_refused` with nothing written. It answers `WorkflowDefinitionSettingResponse`.
+// whole set each time, so a remove and an add are one write. A tag that breaks the tag rule, or repeats
+// another ignoring case, fails the request's parse with nothing written. It answers
+// `WorkflowDefinitionSettingResponse`.
 interface WorkflowTagsSetRequest {
   definitionId: WorkflowDefinitionId;
   tags: string[];
@@ -460,11 +464,14 @@ interface WorkflowPinDataSetResponse {
 // or `#/workflows/builder` reads its own draft back. A draft of a saved workflow names the version it was
 // opened from, and `basedOnVersionNumber` never appears without `definitionId`. The whole document
 // replaces the one held, and it may not have its trigger yet; saving the version clears the draft.
-interface WorkflowDraftUpdateRequest {
-  definitionId?: WorkflowDefinitionId; // omit for the new workflow's draft
-  basedOnVersionNumber?: number;
-  document: WorkflowDraftDocument;
-}
+type WorkflowDraftUpdateRequest =
+  | {
+      definitionId: WorkflowDefinitionId;
+      basedOnVersionNumber?: number;
+      document: WorkflowDraftDocument;
+    }
+  // The new workflow's draft names no definition, and so no version.
+  | { document: WorkflowDraftDocument };
 interface WorkflowDraftUpdateResponse {
   updatedAt: string;
 }
@@ -475,12 +482,8 @@ interface WorkflowDraftReadRequest {
   definitionId?: WorkflowDefinitionId; // omit for the new workflow's draft
 }
 interface WorkflowDraftReadResponse {
-  draft: {
-    definitionId?: WorkflowDefinitionId;
-    basedOnVersionNumber?: number;
-    document: WorkflowDraftDocument;
-    updatedAt: string;
-  } | null;
+  // What the last update sent, and when it was stored.
+  draft: (WorkflowDraftUpdateRequest & { updatedAt: string }) | null;
 }
 
 // WorkflowExpressionPreview — workflow.expressionPreview. An expression's value against the current item of
@@ -588,7 +591,7 @@ interface WorkflowHumanFormReadResponse {
 // parked on a spent provider account, folded into one entry per account with the count of runs it
 // holds, because the entry is keyed by the account and never the run; nobody can answer those, so Next waiting never
 // opens one. What it lists moves with workflow.subscribe's run notifications.
-interface WorkflowRunAttentionListRequest {}
+// The request is `EmptyPayload`: it takes no members.
 interface WorkflowRunAttentionListResponse {
   // Every account line first, then the run lines; no account line follows a run line.
   entries: WorkflowRunAttentionEntry[];
@@ -630,7 +633,7 @@ interface WorkflowWebhookTokenRotateResponse {
 // one port every workflow's address uses, set in Settings, and whether it listens. It does not listen when
 // the port was already held at daemon start (`port_taken`); nothing moves to another port, and every
 // webhook trigger shows that reason in place of its address.
-interface WorkflowWebhookListenerReadRequest {}
+// The request is `EmptyPayload`: it takes no members.
 interface WorkflowWebhookListenerReadResponse {
   port: number; // 1 to 65535
   state: "listening" | "port_taken";

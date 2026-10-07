@@ -1,10 +1,10 @@
-// The run page, the runs table, the runs-needing-you section and the live stream read run
-// records. These tests hold the rules those readers depend on: the run read's chain and capture
-// facts, Review only on a finished run, a live step only on a going one, a waiting run carrying
-// the step that waits, the chain's question only on its first run, the runs table's filters, a
-// row whose duration, live step and wait cause agree with its status, a page that never
-// outnumbers its total, account lines standing above the runs that need a person, counted apart
-// from them, and a removal that names its runs.
+// The run page, the runs table and the runs-needing-you section read run records. These tests hold
+// the rules those readers depend on: the run read's chain and capture facts, Review only on a
+// finished run, a live step only on a going one, a waiting run carrying the step that waits, the
+// chain's question only on its first run, the runs table's filters and a version scope that names
+// its workflow, a row whose duration, live step and wait agree with its status, a page that never
+// outnumbers its total, and account lines standing above the runs that need a person, counted
+// apart from them.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,7 +13,6 @@ import {
   WorkflowRunListResponseSchema,
   WorkflowRunReadResponseSchema,
   WorkflowRunSummarySchema,
-  WorkflowSubscribeNotificationSchema,
 } from "../records.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -43,7 +42,7 @@ describe("workflow.runRead", () => {
     sessionId: SESSION_ID,
     definitionId: "wfd-1",
     workflowVersionId: "wfv-5",
-    state: "succeeded",
+    status: "succeeded",
     mode: "sub-workflow",
     triggerKind: "trigger.sub-workflow",
     startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
@@ -58,7 +57,7 @@ describe("workflow.runRead", () => {
     keep: false,
     steps: [],
     startedAt: "2026-09-29T06:00:01Z",
-    endedAt: "2026-09-29T06:04:00Z",
+    finishedAt: "2026-09-29T06:04:00Z",
     edgeItemCounts: [{ edgeId: "e-read-summarize", itemCount: 3 }],
     review: { state: "pinned", epoch: 1 },
   };
@@ -73,12 +72,12 @@ describe("workflow.runRead", () => {
   });
 
   it("keeps Review, the live step and the chain's question to the runs they belong on", () => {
-    const { endedAt: _ended, ...going } = run;
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "running" }).success).toBe(
+    const { finishedAt: _finished, ...going } = run;
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, status: "running" }).success).toBe(
       false,
     );
     // A failed run parked on its step has not ended, so it is not reviewed yet.
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "failed" }).success).toBe(
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, status: "failed" }).success).toBe(
       false,
     );
     const liveStep = { index: 2, total: 3, nodeName: "Summarize" };
@@ -90,18 +89,20 @@ describe("workflow.runRead", () => {
   });
 
   it("carries an end exactly once the run has ended, which a failed run parked on its step has not", () => {
-    const { endedAt: _ended, review: _review, ...unended } = run;
+    const { finishedAt: _finished, review: _review, ...unended } = run;
     expect(WorkflowRunReadResponseSchema.safeParse(unended).success).toBe(false);
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...unended, state: "failed" }).success).toBe(
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...unended, status: "failed" }).success).toBe(
       true,
     );
-    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, state: "failed" }).success).toBe(true);
-    const goingWithEnd = { ...run, state: "waiting", review: undefined };
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, status: "failed" }).success).toBe(
+      true,
+    );
+    const goingWithEnd = { ...run, status: "waiting", review: undefined };
     expect(WorkflowRunReadResponseSchema.safeParse(goingWithEnd).success).toBe(false);
   });
 
   it("refuses a waiting run that carries no step that waits", () => {
-    const { endedAt: _ended, review: _review, ...unended } = run;
+    const { finishedAt: _finished, review: _review, ...unended } = run;
     const waitingStep = {
       workflowRunId: RUN_ID,
       nodeId: "approve",
@@ -115,7 +116,7 @@ describe("workflow.runRead", () => {
       outputRef: { kind: "inline", items: [] },
       logRef: { kind: "inline", items: [] },
     };
-    const waiting = { ...unended, state: "waiting", steps: [waitingStep] };
+    const waiting = { ...unended, status: "waiting", steps: [waitingStep] };
     expect(WorkflowRunReadResponseSchema.safeParse(waiting).success).toBe(true);
     const noStepWaits = {
       ...waiting,
@@ -137,8 +138,11 @@ describe("workflow.runList", () => {
     expect(WorkflowRunListRequestSchema.safeParse(request).success).toBe(true);
   });
 
-  it("refuses a filter the runs table does not have", () => {
+  it("refuses a filter the runs table does not have, and a version scope with no workflow", () => {
     expect(WorkflowRunListRequestSchema.safeParse({ tag: "nightly" }).success).toBe(false);
+    expect(WorkflowRunListRequestSchema.safeParse({ workflowVersionId: "wfv-5" }).success).toBe(
+      false,
+    );
   });
 
   it("accepts a going row with its live step and a finished row with its duration", () => {
@@ -162,11 +166,17 @@ describe("workflow.runList", () => {
     );
   });
 
-  it("refuses a row whose duration, live step or wait cause disagrees with its status", () => {
+  it("refuses a row whose duration, live step or wait disagrees with its status", () => {
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, durationMs: 1_000 }).success).toBe(false);
     const finished = { ...ROW, status: "failed", durationMs: 1_000 };
     expect(WorkflowRunSummarySchema.safeParse(finished).success).toBe(false);
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, status: "waiting" }).success).toBe(false);
+    // Only an account wait resumes itself, so only it carries the instant it resumes.
+    const resumeAt = "2026-09-29T10:00:00Z";
+    const parked = { ...ROW, status: "waiting", waitCause: "account", resumeAt };
+    expect(WorkflowRunSummarySchema.safeParse(parked).success).toBe(true);
+    const approving = { ...parked, waitCause: "approval" };
+    expect(WorkflowRunSummarySchema.safeParse(approving).success).toBe(false);
   });
 
   it("refuses a page holding more runs than its total", () => {
@@ -210,22 +220,5 @@ describe("workflow.runAttentionList", () => {
   it("refuses a person's line waiting on an account", () => {
     const reply = { entries: [{ ...approval, waitCause: "account" }], waitingOnPersonCount: 1 };
     expect(WorkflowRunAttentionListResponseSchema.safeParse(reply).success).toBe(false);
-  });
-});
-
-describe("workflow.subscribe", () => {
-  it("accepts the hold, a removal and a definition's removal", () => {
-    for (const notification of [
-      { kind: "runsPause", paused: true, waitingStartCount: 3 },
-      { kind: "runsRemoved", workflowRunIds: [PARENT_RUN_ID, RUN_ID] },
-      { kind: "definitionRemoved", definitionId: "wfd-1" },
-    ]) {
-      expect(WorkflowSubscribeNotificationSchema.safeParse(notification).success).toBe(true);
-    }
-  });
-
-  it("refuses a removal that names no run", () => {
-    const empty = { kind: "runsRemoved", workflowRunIds: [] };
-    expect(WorkflowSubscribeNotificationSchema.safeParse(empty).success).toBe(false);
   });
 });

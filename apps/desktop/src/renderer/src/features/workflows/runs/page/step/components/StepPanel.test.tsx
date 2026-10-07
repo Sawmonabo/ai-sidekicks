@@ -8,6 +8,7 @@
 // each refusing in its own words; a refused Keep says so in the daemon's words; and
 // `Fix in a fresh session` opens the run's fix session again once there is one.
 
+import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -33,6 +34,7 @@ import {
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
+import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { StepPanel } from "./StepPanel.js";
 
 const OUTPUT_ARTIFACT = "019b7a20-0280-75e5-8510-ada11a5a5999" as ArtifactId;
@@ -52,15 +54,21 @@ function fixtureRun(workflowRunId: string): WorkflowRunReadResponse {
   return record.read;
 }
 
-/** The failed run's summary step, as one record of `node` with the given members. */
-function summaryRecord(run: WorkflowRunReadResponse, members: Partial<WorkflowStep>): WorkflowStep {
+/** The failed run's summary step, as one record of `node` at `status` with the given members. */
+function summaryRecord(
+  run: WorkflowRunReadResponse,
+  members: Partial<Pick<WorkflowStep, SummaryMember>> &
+    ({ status: "failed"; processExit?: ProcessExit } | { status: "succeeded" }),
+): WorkflowStep {
   const summary = run.steps.find((step) => step.nodeId === "summary");
   if (summary === undefined) {
     throw new Error("the fixture's failed run has no summary step");
   }
-  const { error: _error, ...withoutError } = summary;
-  return { ...withoutError, ...members };
+  const { error: _error, processExit: _exit, ...bare } = withoutWait(summary, members.status);
+  return { ...bare, ...members };
 }
+
+type SummaryMember = "executionIndex" | "attempt" | "error" | "cost" | "advisories" | "outputRef";
 
 /** The panel over `nodeId`; every payload read answers empty, every other call as the fixture. */
 function renderPanel(

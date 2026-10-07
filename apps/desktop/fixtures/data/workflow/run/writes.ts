@@ -7,6 +7,7 @@ import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { RequestStampReader } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
+import type { WorkflowStepStatus } from "@ai-sidekicks/contracts/workflow/run/status";
 import type {
   WorkflowStep,
   WorkflowStepResolutionKind,
@@ -111,7 +112,7 @@ function applyWrites(run: WorkflowRunRecord, answered: AnsweredRequests): Workfl
   if (forRun("workflow.runResume").length > 0 && !isEnded(applied)) {
     applied = resumed(applied);
   }
-  if (forRun("workflow.runCancel").length > 0 && applied.read.state !== "succeeded") {
+  if (forRun("workflow.runCancel").length > 0 && applied.read.status !== "succeeded") {
     applied = canceled(applied);
   }
   const keep = forRun("workflow.runKeepSet").at(-1);
@@ -136,13 +137,13 @@ function settleWait(
       return step;
     }
     return {
-      ...withoutWait(step),
-      status: "succeeded",
+      ...withoutWait(step, "succeeded"),
       finishedAt: NOW,
       resolution: { kind: resolution, at: NOW },
     };
   });
-  return { ...run, read: { ...run.read, state: "running", steps } };
+  const { finishedAt: _finished, error: _error, ...read } = run.read;
+  return { ...run, read: { ...read, status: "running", steps } };
 }
 
 /**
@@ -167,10 +168,10 @@ function decideChain(run: WorkflowRunRecord, decision: ApprovalDecision): Workfl
     return canceled(decided);
   }
   const steps = decided.read.steps.map(
-    (step): WorkflowStep =>
-      step.waitCause === "chain" ? { ...withoutWait(step), status: "running" } : step,
+    (step): WorkflowStep => (step.waitCause === "chain" ? withoutWait(step, "running") : step),
   );
-  return { ...decided, read: { ...decided.read, state: "running", steps } };
+  const { finishedAt: _finished, error: _error, ...read } = decided.read;
+  return { ...decided, read: { ...read, status: "running", steps } };
 }
 
 /** One `question.resolve` applied to a run: the reply wait holding that question is answered. */
@@ -182,17 +183,25 @@ function answerQuestion(run: WorkflowRunRecord, answer: unknown): WorkflowRunRec
   return replyStep === undefined ? run : settleWait(run, replyStep.nodeId, "answered");
 }
 
-/** A step with its wait taken off: no cause, spent account, instants or question. */
-function withoutWait(step: WorkflowStep): WorkflowStep {
+/**
+ * A step with its wait taken off, moved to a status that does not wait: no cause, spent account,
+ * instants, question or process exit.
+ */
+export function withoutWait(
+  step: WorkflowStep,
+  status: Exclude<WorkflowStepStatus, "waiting">,
+): Exclude<WorkflowStep, { status: "waiting" }> {
   const {
+    status: _status,
     waitCause: _cause,
     waitAccount: _account,
     resumeAt: _resume,
     waitDeadlineAt: _deadline,
     question: _question,
+    processExit: _exit,
     ...rest
   } = step;
-  return rest;
+  return { ...rest, status };
 }
 
 function resumed(run: WorkflowRunRecord): WorkflowRunRecord {
@@ -200,37 +209,36 @@ function resumed(run: WorkflowRunRecord): WorkflowRunRecord {
     if (step.status !== "waiting") {
       return step;
     }
-    return { ...withoutWait(step), status: "running" };
+    return withoutWait(step, "running");
   });
   const failed = steps.findLast((step) => step.status === "failed");
   const rerun: WorkflowStep[] =
-    run.read.state === "failed" && failed !== undefined
+    run.read.status === "failed" && failed !== undefined
       ? [
           {
-            ...failed,
+            ...withoutWait(failed, "running"),
             attempt: failed.attempt + 1,
             executionIndex: steps.length,
-            status: "running",
             startedAt: NOW,
             finishedAt: undefined,
             error: undefined,
           },
         ]
       : [];
-  const { endedAt: _ended, ...read } = run.read;
+  const { finishedAt: _finished, error: _error, ...read } = run.read;
   const { durationMs: _duration, ...rest } = run;
-  return { ...rest, read: { ...read, state: "running", steps: [...steps, ...rerun] } };
+  return { ...rest, read: { ...read, status: "running", steps: [...steps, ...rerun] } };
 }
 
 function canceled(run: WorkflowRunRecord): WorkflowRunRecord {
-  if (run.read.state === "canceled") {
+  if (run.read.status === "canceled") {
     return run;
   }
   const steps = run.read.steps.map((step): WorkflowStep => {
     if (step.status !== "running" && step.status !== "waiting") {
       return step;
     }
-    return { ...withoutWait(step), status: "canceled", finishedAt: NOW };
+    return { ...withoutWait(step, "canceled"), finishedAt: NOW };
   });
   const { liveStep: _live, ...read } = run.read;
   return {
@@ -238,9 +246,9 @@ function canceled(run: WorkflowRunRecord): WorkflowRunRecord {
     durationMs: run.startedMinutesAgo * 60_000,
     read: {
       ...read,
-      state: "canceled",
+      status: "canceled",
       steps,
-      endedAt: NOW,
+      finishedAt: NOW,
       ...(read.executionContextCaptured ? { review: { state: "pinned", epoch: 1 } as const } : {}),
     },
   };
@@ -282,7 +290,7 @@ function mintedRun(
       sessionId: started.sessionId ?? WORKFLOW_OWN_SESSION,
       definitionId,
       workflowVersionId,
-      state: "new",
+      status: "new",
       mode: started.mode,
       triggerKind: started.triggerKind,
       startedBy: WORKFLOW_STARTED_BY_PERSON,
@@ -309,7 +317,9 @@ export function startedAtMs(run: WorkflowRunRecord): number {
 /** Whether the run has ended for good: succeeded, crashed or canceled. */
 export function isEnded(run: WorkflowRunRecord): boolean {
   return (
-    run.read.state === "succeeded" || run.read.state === "crashed" || run.read.state === "canceled"
+    run.read.status === "succeeded" ||
+    run.read.status === "crashed" ||
+    run.read.status === "canceled"
   );
 }
 

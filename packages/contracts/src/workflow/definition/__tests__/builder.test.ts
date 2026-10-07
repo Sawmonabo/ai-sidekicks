@@ -1,5 +1,5 @@
-// The builder keeps its unsaved draft in the daemon. This case holds the cross-member rule the
-// daemon relies on: a draft is based on a version only of a named workflow.
+// The builder keeps its unsaved draft in the daemon. The daemon relies on a draft being based on a
+// version only of a named workflow.
 import { describe, expect, it } from "vitest";
 
 import { WorkflowDraftUpdateRequestSchema } from "../builder.js";

@@ -521,7 +521,10 @@ export type WorkflowStepFailedEvent = SessionEventVariant<
   "workflow_phase_lifecycle",
   WorkflowStepFailedPayload
 >;
-/** Emitted when a running or waiting step ends because its run did. */
+/**
+ * Emitted when a running or waiting step ends because its run ended failed or canceled, or when a
+ * first-to-arrive merge cancels a branch once another branch arrived.
+ */
 export type WorkflowStepCanceledEvent = SessionEventVariant<
   "workflow.step_canceled",
   "workflow_phase_lifecycle",

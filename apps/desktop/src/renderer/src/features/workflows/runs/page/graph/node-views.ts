@@ -8,6 +8,7 @@ import type {
   WorkflowDocument,
   WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle";
 import type {
   WorkflowStepStatus,
   WorkflowWaitCause,
@@ -81,9 +82,6 @@ const HAS_OWN_OUTPUT: Readonly<Record<WorkflowStepStatus, boolean>> = {
   skipped: true,
   canceled: false,
 };
-
-/** A node's first output handle, in the document's `<mode>/<type>/<index>` handle grammar. */
-const FIRST_OUTPUT_HANDLE = "outputs/main/0";
 
 /**
  * Every node of the document, the trigger first, each carrying the state of its latest step.
@@ -163,11 +161,19 @@ function firstOutputItemCounts(
   const countByEdge = new Map(edgeItemCounts.map((entry) => [entry.edgeId, entry.itemCount]));
   const counts = new Map<string, number>();
   for (const edge of document.edges) {
-    if (edge.sourceHandle === FIRST_OUTPUT_HANDLE) {
+    if (isFirstOutputHandle(edge.sourceHandle)) {
       counts.set(edge.source, countByEdge.get(edge.id) ?? 0);
     }
   }
   return counts;
+}
+
+// A handle id that reads as written, not by the parse's fallback, naming the first main output.
+function isFirstOutputHandle(handleId: string): boolean {
+  const handle = parseWorkflowHandle(handleId);
+  return (
+    handle.isTypeKnown && handle.mode === "outputs" && handle.type === "main" && handle.index === 0
+  );
 }
 
 function nodeView(

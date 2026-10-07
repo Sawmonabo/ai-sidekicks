@@ -4,6 +4,7 @@
 // descriptor registers nothing.
 import { z } from "zod";
 
+import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../../project.js";
@@ -16,9 +17,11 @@ import {
   type WorkflowDefinitionId,
   type WorkflowItem,
   type WorkflowNodeId,
+  type WorkflowTriggerInput,
 } from "../definition/document.js";
-import { WORKFLOW_RUN_STATUSES, type WorkflowRunStatus } from "./status.js";
+import { WorkflowRunStatusSchema, type WorkflowRunStatus } from "./status.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
+import { workflowStepKeyShape, type WorkflowStepKey } from "./step/record.js";
 import {
   WORKFLOW_RUN_MODES,
   WorkflowRunModeSchema,
@@ -46,9 +49,17 @@ export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
     message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes as JSON.`,
   });
 
-// Several replies answer with only some statuses. Each subset is taken from the one
-// status list rather than spelled again, so a renamed status cannot leave a subset behind.
-const workflowRunStatusEnum = z.enum(WORKFLOW_RUN_STATUSES);
+/**
+ * A re-pin as a resume's reply and its `workflow.resumed` event record it: on an accepted re-pin
+ * both the version the run left and the one it joined, and otherwise neither.
+ */
+export type WorkflowVersionRepin =
+  | { repinnedFromWorkflowVersionId?: undefined; repinnedToWorkflowVersionId?: undefined }
+  | { repinnedFromWorkflowVersionId: string; repinnedToWorkflowVersionId: string };
+const workflowVersionRepinFields = {
+  repinnedFromWorkflowVersionId: WorkflowVersionIdSchema,
+  repinnedToWorkflowVersionId: WorkflowVersionIdSchema,
+};
 
 // workflow.runStart
 
@@ -73,7 +84,11 @@ export interface WorkflowRunStartRequest {
    * Git, Read a repo diff or Run tests step is refused.
    */
   projectId?: ProjectId | undefined;
-  /** The items the run starts on, where the workflow declares inputs. */
+  /**
+   * The items the run starts on, where the workflow declares inputs: the one item's `json` object
+   * holds the filled values by input name, and a start leaving a required one unfilled is refused
+   * with {@link WORKFLOW_INPUT_REQUIRED_CODE}.
+   */
   input?: WorkflowItem[] | undefined;
   mode?: RequestableRunMode | undefined;
 }
@@ -93,22 +108,84 @@ export const WorkflowRunStartRequestSchema: z.ZodType<
 
 /**
  * The `workflow.runStart` result. A start can only leave the run admitted but not yet
- * dispatched (`new`) or already `running`, so `state` allows only those two. `sessionId`
+ * dispatched (`new`) or already `running`, so `status` allows only those two. `sessionId`
  * is the session the run lives in.
  */
 export interface WorkflowRunStartResponse {
   workflowRunId: WorkflowRunId;
   sessionId: SessionId;
-  state: Extract<WorkflowRunStatus, "new" | "running">;
+  status: Extract<WorkflowRunStatus, "new" | "running">;
 }
 /** Wire schema for {@link WorkflowRunStartResponse}. */
 export const WorkflowRunStartResponseSchema: z.ZodType<WorkflowRunStartResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
     sessionId: SessionIdSchema,
-    state: workflowRunStatusEnum.extract(["new", "running"]),
+    status: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict();
+
+/** A value a start fills a declared input with: a `boolean` input's flag, any other's text. */
+export type WorkflowTriggerInputValue = WorkflowTriggerInput["default"];
+
+/**
+ * A start's declared inputs as filled: every input's value by name, or the required inputs the
+ * start left unfilled, which are the details of its {@link WORKFLOW_INPUT_REQUIRED_CODE} refusal.
+ */
+export type WorkflowTriggerInputFill =
+  | { kind: "filled"; values: Record<string, WorkflowTriggerInputValue> }
+  | { kind: "missing"; details: WorkflowInputRequiredDetails };
+
+/**
+ * Fills a workflow's declared inputs from a start's `input`, whose one item's `json` object holds
+ * the values by input name. A value counts as filled only where it fits its input: a flag for
+ * `boolean`, non-empty text for `string` and `path`, one of the options for `select`. An optional
+ * input left out or left as empty text takes its `default`; a required input left unfilled, and any
+ * input given a value that does not fit it, is named in the refusal.
+ */
+export function fillWorkflowTriggerInputs(
+  declared: readonly WorkflowTriggerInput[] | undefined,
+  input: readonly WorkflowItem[] | undefined,
+): WorkflowTriggerInputFill {
+  const given = input?.[0]?.json;
+  const named =
+    typeof given === "object" && given !== null && !Array.isArray(given)
+      ? (given as Record<string, unknown>)
+      : {};
+  const values: [string, WorkflowTriggerInputValue][] = [];
+  const missing: string[] = [];
+  for (const declaredInput of declared ?? []) {
+    // An own member only, so a name such as `constructor` never reads the prototype.
+    const value = Object.hasOwn(named, declaredInput.name) ? named[declaredInput.name] : undefined;
+    if (fitsTriggerInput(declaredInput, value)) {
+      values.push([declaredInput.name, value]);
+    } else if (declaredInput.required !== true && (value === undefined || value === "")) {
+      values.push([declaredInput.name, declaredInput.default]);
+    } else {
+      missing.push(declaredInput.name);
+    }
+  }
+  const [firstMissing, ...restMissing] = missing;
+  return firstMissing === undefined
+    ? { kind: "filled", values: Object.fromEntries(values) }
+    : { kind: "missing", details: { inputNames: [firstMissing, ...restMissing] } };
+}
+
+function fitsTriggerInput(
+  input: WorkflowTriggerInput,
+  value: unknown,
+): value is WorkflowTriggerInputValue {
+  switch (input.type) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "string":
+      return typeof value === "string" && value !== "";
+    case "path":
+      return typeof value === "string" && value !== "" && value.length <= FILE_PATH_MAX_LEN;
+    case "select":
+      return typeof value === "string" && input.options.includes(value);
+  }
+}
 
 // workflow.runCancel
 
@@ -133,15 +210,14 @@ export const WorkflowRunCancelRequestSchema: z.ZodType<
 
 /**
  * The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
- * failed run parked on its failed step waiting to be resumed; every branch still going is
- * canceled with it. `state` has one value because a successful cancel has
- * one outcome. `alreadyCanceled` is true when the run was already canceled and this call returned
- * the first cancel's saved result: no second event is written, and `canceledEventId` names the
- * original.
+ * failed run parked on its failed step waiting to be resumed; every branch still going is canceled
+ * with it. `status` has one value because a successful cancel has one outcome. `alreadyCanceled` is
+ * true when the run was already canceled and this call returned the first cancel's saved result: no
+ * second event is written, and `canceledEventId` names the original.
  */
 export interface WorkflowRunCancelResponse {
   workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "canceled">;
+  status: Extract<WorkflowRunStatus, "canceled">;
   canceledEventId: string;
   alreadyCanceled: boolean;
 }
@@ -149,7 +225,7 @@ export interface WorkflowRunCancelResponse {
 export const WorkflowRunCancelResponseSchema: z.ZodType<WorkflowRunCancelResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["canceled"]),
+    status: WorkflowRunStatusSchema.extract(["canceled"]),
     canceledEventId: z.string().min(1),
     alreadyCanceled: z.boolean(),
   })
@@ -186,27 +262,19 @@ export const WorkflowRunResumeRequestSchema: z.ZodType<
  * that reaches a provider account still out of quota waits again, and that new wait is
  * what the person sees. The two repinned ids are present only on an accepted re-pin.
  */
-export interface WorkflowRunResumeResponse {
+export type WorkflowRunResumeResponse = {
   workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "running" | "waiting">;
-  repinnedFromWorkflowVersionId?: string | undefined;
-  repinnedToWorkflowVersionId?: string | undefined;
-}
-/** Wire schema for {@link WorkflowRunResumeResponse}. */
-export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["running", "waiting"]),
-    repinnedFromWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-    repinnedToWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (reply) =>
-      (reply.repinnedFromWorkflowVersionId === undefined) ===
-      (reply.repinnedToWorkflowVersionId === undefined),
-    { path: ["repinnedToWorkflowVersionId"], message: "A re-pin names both versions." },
-  );
+  status: Extract<WorkflowRunStatus, "running" | "waiting">;
+} & WorkflowVersionRepin;
+const workflowRunResumeResponseFields = {
+  workflowRunId: WorkflowRunIdSchema,
+  status: WorkflowRunStatusSchema.extract(["running", "waiting"]),
+};
+/** Wire schema for {@link WorkflowRunResumeResponse}; a re-pin names both versions or neither. */
+export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z.union([
+  z.object(workflowRunResumeResponseFields).strict(),
+  z.object({ ...workflowRunResumeResponseFields, ...workflowVersionRepinFields }).strict(),
+]);
 
 // workflow.runRetry
 
@@ -228,14 +296,14 @@ export const WorkflowRunRetryRequestSchema: z.ZodType<
 export interface WorkflowRunRetryResponse {
   workflowRunId: WorkflowRunId;
   sourceWorkflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "new" | "running">;
+  status: Extract<WorkflowRunStatus, "new" | "running">;
 }
 /** Wire schema for {@link WorkflowRunRetryResponse}; the new run is never its own source. */
 export const WorkflowRunRetryResponseSchema: z.ZodType<WorkflowRunRetryResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
     sourceWorkflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["new", "running"]),
+    status: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict()
   .refine((reply) => reply.workflowRunId !== reply.sourceWorkflowRunId, {
@@ -262,6 +330,14 @@ export const WorkflowRunRerunRequestSchema: z.ZodType<
 // workflow.nodeExecute
 
 /**
+ * What a node run covers: the node alone (`Run this node`), or the node and its ancestors
+ * (`Run from here`).
+ */
+export const WORKFLOW_NODE_EXECUTE_SCOPES = ["node", "fromHere"] as const;
+/** One of {@link WORKFLOW_NODE_EXECUTE_SCOPES}. */
+export type WorkflowNodeExecuteScope = (typeof WORKFLOW_NODE_EXECUTE_SCOPES)[number];
+
+/**
  * The `workflow.nodeExecute` input: `Run this node` (`node`) or `Run from here`
  * (`fromHere`, the node and its ancestors) on a saved version, never unsaved bytes.
  * `projectId` is the project the builder's `Repository` panel names for a node run on a `chat` or
@@ -274,7 +350,7 @@ export interface WorkflowNodeExecuteRequest {
   sessionId?: SessionId | undefined;
   projectId?: ProjectId | undefined;
   nodeId: WorkflowNodeId;
-  scope: "node" | "fromHere";
+  scope: WorkflowNodeExecuteScope;
   dirtyNodeIds?: WorkflowNodeId[] | undefined;
 }
 /** Wire schema for {@link WorkflowNodeExecuteRequest}. */
@@ -287,7 +363,7 @@ export const WorkflowNodeExecuteRequestSchema: z.ZodType<
     sessionId: SessionIdSchema.optional(),
     projectId: ProjectIdSchema.optional(),
     nodeId: WorkflowNodeIdSchema,
-    scope: z.enum(["node", "fromHere"]),
+    scope: z.enum(WORKFLOW_NODE_EXECUTE_SCOPES),
     dirtyNodeIds: z.array(WorkflowNodeIdSchema).optional(),
   })
   .strict();
@@ -336,6 +412,9 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 
 // Refusals
 
+// A refusal that names the nodes it is about names at least one.
+const refusedNodeIdsSchema = z.tuple([WorkflowNodeIdSchema], WorkflowNodeIdSchema);
+
 /**
  * A start the policy check denied, or whose principal could not be resolved.
  *
@@ -361,15 +440,46 @@ export const WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE =
 export const WORKFLOW_REPOSITORY_REQUIRED_CODE = "workflow.repository_required" as const;
 /** The repository refusal's details: the nodes that need a repository. */
 export interface WorkflowRepositoryRequiredDetails {
-  nodeIds: WorkflowNodeId[];
+  nodeIds: [WorkflowNodeId, ...WorkflowNodeId[]];
+}
+/** Wire schema for {@link WorkflowRepositoryRequiredDetails}. */
+export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowRepositoryRequiredDetails> =
+  z.object({ nodeIds: refusedNodeIdsSchema }).strict();
+
+/**
+ * A start that leaves a required input of the workflow unfilled. Nothing runs.
+ *
+ * @consumedBy the start handler that refuses a start missing a required input
+ */
+export const WORKFLOW_INPUT_REQUIRED_CODE = "workflow.input_required" as const;
+/** The missing-input refusal's details: the required inputs the start left unfilled, by name. */
+export interface WorkflowInputRequiredDetails {
+  inputNames: [string, ...string[]];
+}
+/** Wire schema for {@link WorkflowInputRequiredDetails}. */
+export const WorkflowInputRequiredDetailsSchema: z.ZodType<
+  WorkflowInputRequiredDetails,
+  WorkflowInputRequiredDetails
+> = z.object({ inputNames: z.tuple([z.string().min(1)], z.string().min(1)) }).strict();
+
+/**
+ * A start of a version whose Code steps' packages are not locked; a later save that locks them
+ * makes the version runnable. Nothing runs.
+ *
+ * @consumedBy the start handler that refuses a version whose Code packages are not locked
+ */
+export const WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = "workflow.code_packages_not_locked" as const;
+/** The unlocked-packages refusal's details: the Code nodes whose packages are not locked. */
+export interface WorkflowCodePackagesNotLockedDetails {
+  nodeIds: [WorkflowNodeId, ...WorkflowNodeId[]];
 }
 /**
- * Wire schema for {@link WorkflowRepositoryRequiredDetails}.
+ * Wire schema for {@link WorkflowCodePackagesNotLockedDetails}.
  *
- * @consumedBy the start and node-run handlers that refuse a run needing a repository
+ * @consumedBy the start handler that refuses a version whose Code packages are not locked
  */
-export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowRepositoryRequiredDetails> =
-  z.object({ nodeIds: z.array(WorkflowNodeIdSchema).min(1) }).strict();
+export const WorkflowCodePackagesNotLockedDetailsSchema: z.ZodType<WorkflowCodePackagesNotLockedDetails> =
+  z.object({ nodeIds: refusedNodeIdsSchema }).strict();
 
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume
@@ -405,7 +515,7 @@ export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
   "workflow.repair_version_unaccountable" as const;
 
 /**
- * A run or step move its state does not allow: retrying from a step that did not fail,
+ * A run or step move its status does not allow: retrying from a step that did not fail,
  * posting the results of an unfinished run, or opening a fix session on a step that did
  * not fail.
  */
@@ -439,7 +549,13 @@ export interface WorkflowRunEventPayload {
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
 }
-const workflowRunEventFields = {
+/** The members of {@link WorkflowRunEventPayload}, spread into each run event's schema. */
+export const workflowRunEventFields: {
+  sessionId: z.ZodType<SessionId, SessionId>;
+  workflowRunId: z.ZodType<WorkflowRunId, WorkflowRunId>;
+  definitionId: z.ZodType<WorkflowDefinitionId, WorkflowDefinitionId>;
+  workflowVersionId: z.ZodType<string, string>;
+} = {
   sessionId: SessionIdSchema,
   workflowRunId: WorkflowRunIdSchema,
   definitionId: WorkflowDefinitionIdSchema,
@@ -476,25 +592,47 @@ export const WorkflowCanceledPayloadSchema: z.ZodType<WorkflowCanceledPayload> =
   })
   .strict();
 
-/** `workflow.resumed`, with the version pair only on an accepted re-pin. */
-export interface WorkflowResumedPayload extends WorkflowRunEventPayload {
-  repinnedFromWorkflowVersionId?: string | undefined;
-  repinnedToWorkflowVersionId?: string | undefined;
+/** One step a resumed run picks up, by its node, its attempt and which execution of the node. */
+export type WorkflowResumedStep = Omit<WorkflowStepKey, "workflowRunId">;
+
+/**
+ * Where a resumed run picks up, so a reader rebuilds it without replaying the run's whole history:
+ * the steps going on and the approval steps still waiting for an answer.
+ */
+export interface WorkflowResumptionPoint {
+  activeSteps: WorkflowResumedStep[];
+  pendingGates: WorkflowNodeId[];
 }
-/** Wire schema for {@link WorkflowResumedPayload}; a re-pin names both versions. */
-export const WorkflowResumedPayloadSchema: z.ZodType<WorkflowResumedPayload> = z
-  .object({
-    ...workflowRunEventFields,
-    repinnedFromWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-    repinnedToWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (payload) =>
-      (payload.repinnedFromWorkflowVersionId === undefined) ===
-      (payload.repinnedToWorkflowVersionId === undefined),
-    { path: ["repinnedToWorkflowVersionId"], message: "A re-pin names both versions." },
-  );
+
+/**
+ * `workflow.resumed`: a person or an armed schedule resumed a waiting or failed run, with where it
+ * picks up and, only on an accepted re-pin, the version it left and the one it joined.
+ */
+export type WorkflowResumedPayload = WorkflowRunEventPayload & {
+  resumptionPoint: WorkflowResumptionPoint;
+} & WorkflowVersionRepin;
+const workflowResumedFields = {
+  ...workflowRunEventFields,
+  resumptionPoint: z
+    .object({
+      activeSteps: z.array(
+        z
+          .object({
+            nodeId: workflowStepKeyShape.nodeId,
+            attempt: workflowStepKeyShape.attempt,
+            executionIndex: workflowStepKeyShape.executionIndex,
+          })
+          .strict(),
+      ),
+      pendingGates: z.array(WorkflowNodeIdSchema),
+    })
+    .strict(),
+};
+/** Wire schema for {@link WorkflowResumedPayload}; a re-pin names both versions or neither. */
+export const WorkflowResumedPayloadSchema: z.ZodType<WorkflowResumedPayload> = z.union([
+  z.object(workflowResumedFields).strict(),
+  z.object({ ...workflowResumedFields, ...workflowVersionRepinFields }).strict(),
+]);
 
 /**
  * `workflow.results_posted`: a finished run's results landed as the results row in

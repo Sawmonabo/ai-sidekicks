@@ -1,9 +1,11 @@
 // The words the workflows screens put on wire values: a run's status, a step's state, what a
-// wait is on, and how a run was started and who started it. No wire spelling reaches the screen;
-// each closed set is keyed by its contract's own union, so a value the contract adds fails to
-// compile here until it has words.
+// wait is on, how a run was started and who started it, and a node's kind. No wire spelling
+// reaches the screen. Each closed set is keyed by its contract's own union, so a value the
+// contract adds fails to compile here until it has words; a node's kind is an open set and reads
+// as its key's words.
 
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
+import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type {
   WorkflowRunStatus,
   WorkflowStepStatus,
@@ -15,6 +17,8 @@ import type {
   WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 
+import { codeWords } from "#renderer/lib/code-words.js";
+import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 
 /** A run's status as its chip reads it. */
@@ -81,6 +85,14 @@ const STARTED_BY_WORDS: Readonly<Record<WorkflowStartedBy["kind"], string>> = {
  */
 export function spentAccountWords(account: WorkflowSpentAccount): string {
   return `${PROVIDER_LABELS[account.provider]} account ${account.label}`;
+}
+
+/**
+ * A node's kind as its box reads it: a trigger by the word the runs table gives it, any other kind
+ * as its key's words, `files.read` reading `Files read`.
+ */
+export function nodeKindWords(kind: WorkflowNodeKindId): string {
+  return readFrozenRecord(TRIGGER_KIND_WORDS, kind) ?? codeWords(kind);
 }
 
 /** Who or what started a run, in the words its row and its header read. */

@@ -10,6 +10,10 @@ import type {
   WorkflowDocument,
   WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
+import {
+  parseWorkflowHandle,
+  type WorkflowHandleType,
+} from "@ai-sidekicks/contracts/workflow/definition/handle";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { CanvasPoint } from "./layout.js";
@@ -18,7 +22,7 @@ import {
   type NodeBoxSize,
 } from "#renderer/features/workflows/canvas/node-box.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
-import { itemCountWords } from "#renderer/features/workflows/words.js";
+import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
 import type { RunGraphNodeView } from "./node-views.js";
 
@@ -120,15 +124,15 @@ export function nodeHandleIds(document: WorkflowDocument): ReadonlyMap<string, N
   const byNode = new Map<string, NodeHandleIds>();
   for (const node of [document.trigger, ...document.nodes]) {
     byNode.set(node.id, {
-      inputs: [...(inputs.get(node.id) ?? [])].sort(byHandleIndex),
-      outputs: [...(outputs.get(node.id) ?? [])].sort(byHandleIndex),
+      inputs: [...(inputs.get(node.id) ?? [])].sort(byHandle),
+      outputs: [...(outputs.get(node.id) ?? [])].sort(byHandle),
     });
   }
   return byNode;
 }
 
 /**
- * The box one node takes on this run's canvas: its kind's label and the run's widest count
+ * The box one node takes on this run's canvas: its kind's words and the run's widest count
  * across, its busier side's handles down, and one line more for a failure or a resume instant.
  * Every node of one kind comes out the same width.
  */
@@ -139,7 +143,7 @@ export function runGraphNodeBox(
   hasExtraLine: boolean,
 ): NodeBoxSize {
   return deriveNodeBoxSize({
-    kindLabel: node.kind,
+    kindWords: nodeKindWords(node.kind),
     countFigure,
     handleCount: Math.max(handles.inputs.length, handles.outputs.length),
     hasExtraLine,
@@ -196,9 +200,21 @@ export function toRunGraphFlowEdges(
   });
 }
 
-/** Handle ids in index order, so `outputs/main/2` stands above `outputs/main/10`. */
-function byHandleIndex(left: string, right: string): number {
-  return left.localeCompare(right, undefined, { numeric: true });
+// Where each handle type stands down a side: the item ports above the port an agent calls tools on.
+const HANDLE_TYPE_RANK: Readonly<Record<WorkflowHandleType, number>> = { main: 0, tool: 1 };
+
+/**
+ * Handle ids by type, `main` above `tool`, then in index order, so `outputs/main/2` stands above
+ * `outputs/main/10`; ids the parse reads alike keep the order of their spelling.
+ */
+function byHandle(left: string, right: string): number {
+  const leftHandle = parseWorkflowHandle(left);
+  const rightHandle = parseWorkflowHandle(right);
+  return (
+    HANDLE_TYPE_RANK[leftHandle.type] - HANDLE_TYPE_RANK[rightHandle.type] ||
+    leftHandle.index - rightHandle.index ||
+    left.localeCompare(right)
+  );
 }
 
 /** The sheet's class for an edge's run state; an edge with neither state takes the default. */

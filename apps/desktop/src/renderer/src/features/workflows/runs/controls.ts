@@ -45,7 +45,7 @@ export function retryAvailability(
   run: WorkflowRunReadResponse,
   step: WorkflowStep,
 ): RunControlAvailability {
-  if (isGoing(run.state)) {
+  if (isGoing(run.status)) {
     return { kind: "refused", reason: "Retry · this run is still going" };
   }
   if (step.status !== "failed") {
@@ -57,9 +57,9 @@ export function retryAvailability(
   return isSuperseded ? { kind: "refused", reason: "Retry · this step has a later run" } : ALLOWED;
 }
 
-/** Whether a run in this state is still going: new, running or waiting. */
-export function isGoing(state: WorkflowRunStatus): boolean {
-  return GOING_RUN_STATUSES.includes(state);
+/** Whether a run with this status is still going: new, running or waiting. */
+export function isGoing(status: WorkflowRunStatus): boolean {
+  return GOING_RUN_STATUSES.includes(status);
 }
 
 /**
@@ -67,11 +67,11 @@ export function isGoing(state: WorkflowRunStatus): boolean {
  * ended because it waits on its failed step.
  */
 function isParked(run: WorkflowRunReadResponse): boolean {
-  return run.state === "waiting" || (run.state === "failed" && run.endedAt === undefined);
+  return run.status === "waiting" || (run.status === "failed" && run.finishedAt === undefined);
 }
 
 function cancelAvailability(run: WorkflowRunReadResponse): RunControlAvailability {
-  return isGoing(run.state) || isParked(run) ? ALLOWED : CANCEL_REFUSED;
+  return isGoing(run.status) || isParked(run) ? ALLOWED : CANCEL_REFUSED;
 }
 
 function resumeAvailability(run: WorkflowRunReadResponse): RunControlAvailability {

@@ -28,6 +28,7 @@ function waitingFormStep(): WorkflowStepKey {
   return {
     workflowRunId: run.read.workflowRunId,
     nodeId: step.nodeId,
+    attempt: step.attempt,
     executionIndex: step.executionIndex,
   };
 }

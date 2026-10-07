@@ -18,6 +18,7 @@ import type {
   WorkflowDocument,
   WorkflowItem,
   WorkflowNodeId,
+  WorkflowStepError,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import {
   GOING_RUN_STATUSES,
@@ -122,7 +123,7 @@ interface StepSeed {
 }
 
 function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[] {
-  return seeds.map((seed, index) => {
+  return seeds.map((seed, index): WorkflowStep => {
     const previous = seeds[index - 1];
     const finished = seed.finishedMinutesAgo !== undefined;
     return {
@@ -140,11 +141,7 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
                 executionIndex: index - 1,
               },
             ],
-      status: seed.status,
-      ...(seed.waitCause === undefined ? {} : { waitCause: seed.waitCause }),
-      ...(seed.waitCause === "account" ? { waitAccount: WORKFLOW_SPENT_ACCOUNT } : {}),
-      ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
-      ...(seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt }),
+      ...statusOfStep(seed),
       startedAt: minutesAgo(seed.startedMinutesAgo),
       ...(finished ? { finishedAt: minutesAgo(seed.finishedMinutesAgo ?? 0) } : {}),
       inputRef: inline({ from: previous?.nodeId ?? "trigger" }),
@@ -152,15 +149,50 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
       logRef: inline(`started ${seed.nodeId}`, ...(finished ? [`finished ${seed.nodeId}`] : [])),
       ...(seed.usdMicros === undefined ? {} : { cost: cost(seed.usdMicros) }),
       ...(seed.error === undefined ? {} : { error: seed.error }),
-      ...(seed.processExit === undefined ? {} : { processExit: seed.processExit }),
-      ...(seed.question === undefined ? {} : { question: seed.question }),
-      ...(seed.resolution === undefined ? {} : { resolution: seed.resolution }),
       ...(seed.reviewPause === undefined ? {} : { reviewPause: seed.reviewPause }),
       ...(seed.childWorkflowRunId === undefined
         ? {}
         : { childWorkflowRunId: seed.childWorkflowRunId as WorkflowRunId }),
     };
   });
+}
+
+// A seeded step's status with what it waits on, or, once it waits no more, how a person answered it.
+function statusOfStep(seed: StepSeed) {
+  const deadline = seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt };
+  const answered = seed.resolution === undefined ? {} : { resolution: seed.resolution };
+  // Two returns, so each matches one arm of the step: failed, or another status that does not wait.
+  if (seed.status === "failed") {
+    const exited = seed.processExit === undefined ? {} : { processExit: seed.processExit };
+    return { status: seed.status, ...answered, ...exited };
+  }
+  if (seed.status !== "waiting") return { status: seed.status, ...answered };
+  switch (seed.waitCause) {
+    case "account":
+      return {
+        status: seed.status,
+        waitCause: seed.waitCause,
+        waitAccount: WORKFLOW_SPENT_ACCOUNT,
+        ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
+      };
+    case "reply":
+      if (seed.question === undefined) {
+        throw new RangeError(`step ${seed.nodeId} waits for a reply, so it holds its question`);
+      }
+      return {
+        status: seed.status,
+        waitCause: seed.waitCause,
+        question: seed.question,
+        ...deadline,
+      };
+    case "approval":
+    case "form":
+      return { status: seed.status, waitCause: seed.waitCause, ...deadline };
+    case "chain":
+      return { status: seed.status, waitCause: seed.waitCause };
+    default:
+      throw new RangeError(`step ${seed.nodeId} waits, so it names what it waits on`);
+  }
 }
 
 /**
@@ -188,18 +220,18 @@ interface RunSeed {
   readonly id: string;
   readonly definitionId: WorkflowDefinitionId;
   readonly versionNumber: number;
-  readonly state: WorkflowRunStatus;
+  readonly status: WorkflowRunStatus;
   readonly mode: WorkflowRunMode;
   readonly startedBy: WorkflowStartedBy;
   readonly startedMinutesAgo: number;
-  readonly endedMinutesAgo?: number;
+  readonly finishedMinutesAgo?: number;
   /** A failed run parked on its failed step, which has not ended: it carries no end. */
   readonly isParked?: boolean;
   readonly steps: readonly StepSeed[];
   readonly liveStep?: WorkflowLiveStep;
   readonly chainRoot?: WorkflowChainRoot;
   readonly chainQuestion?: WorkflowChainQuestion;
-  readonly failureReason?: string;
+  readonly error?: WorkflowStepError;
   readonly keep?: boolean;
   readonly sessionId?: SessionId;
   /** False for a run in a chat session, which records no checkout and so offers no Review. */
@@ -237,20 +269,20 @@ function record(seed: RunSeed): WorkflowRunRecord {
   }
   const runSteps = steps(workflowRunId, seed.steps);
   const spent = runSteps.reduce((total, step) => total + (step.cost?.usdMicros ?? 0), 0);
-  const isFinished = seed.endedMinutesAgo !== undefined && seed.isParked !== true;
+  const isFinished = seed.finishedMinutesAgo !== undefined && seed.isParked !== true;
   const isCaptured = seed.executionContextCaptured ?? true;
   return {
     definitionName,
     startedMinutesAgo: seed.startedMinutesAgo,
-    ...(seed.endedMinutesAgo === undefined
+    ...(seed.finishedMinutesAgo === undefined
       ? {}
-      : { durationMs: (seed.startedMinutesAgo - seed.endedMinutesAgo) * 60_000 }),
+      : { durationMs: (seed.startedMinutesAgo - seed.finishedMinutesAgo) * 60_000 }),
     read: {
       workflowRunId,
       sessionId: seed.sessionId ?? WORKFLOW_OWN_SESSION,
       definitionId: seed.definitionId,
       workflowVersionId,
-      state: seed.state,
+      ...endOfRun(seed, isFinished),
       mode: seed.mode,
       triggerKind: TRIGGER_KIND_BY_STARTER[seed.startedBy.kind],
       startedBy: seed.startedBy,
@@ -264,11 +296,7 @@ function record(seed: RunSeed): WorkflowRunRecord {
       executionContextCaptured: isCaptured,
       keep: seed.keep ?? false,
       steps: runSteps,
-      ...(seed.failureReason === undefined ? {} : { failureReason: seed.failureReason }),
       startedAt: minutesAgo(seed.startedMinutesAgo),
-      ...(seed.endedMinutesAgo === undefined || !isFinished
-        ? {}
-        : { endedAt: minutesAgo(seed.endedMinutesAgo) }),
       ...(spent === 0 ? {} : { cost: cost(spent) }),
       ...(seed.liveStep === undefined || isFinished ? {} : { liveStep: seed.liveStep }),
       edgeItemCounts: edgeItemCounts(document, runSteps),
@@ -276,6 +304,43 @@ function record(seed: RunSeed): WorkflowRunRecord {
       ...(seed.chainQuestion === undefined ? {} : { chainQuestion: seed.chainQuestion }),
     },
   };
+}
+
+// A run's status with its end and its error: an ended run carries its end, while a going run and a
+// failed run parked on its failed step carry none, and only a failed, canceled or crashed run says
+// why.
+function endOfRun(seed: RunSeed, isFinished: boolean) {
+  const finishedAt =
+    seed.finishedMinutesAgo === undefined || !isFinished
+      ? undefined
+      : minutesAgo(seed.finishedMinutesAgo);
+  const error = seed.error === undefined ? {} : { error: seed.error };
+  switch (seed.status) {
+    case "new":
+    case "running":
+    case "waiting":
+    case "succeeded":
+      if (seed.error !== undefined) {
+        throw new RangeError(`run ${seed.id} did not fail, so it carries no error`);
+      }
+      if (seed.status === "succeeded") {
+        if (finishedAt === undefined) {
+          throw new RangeError(`run ${seed.id} has ended, so it names when`);
+        }
+        return { status: seed.status, finishedAt };
+      }
+      return { status: seed.status };
+    case "failed":
+      return finishedAt === undefined
+        ? { status: seed.status, ...error }
+        : { status: seed.status, finishedAt, ...error };
+    case "canceled":
+    case "crashed":
+      if (finishedAt === undefined) {
+        throw new RangeError(`run ${seed.id} has ended, so it names when`);
+      }
+      return { status: seed.status, finishedAt, ...error };
+  }
 }
 
 /** The run ids, by the status each run starts the playback in. */
@@ -395,11 +460,11 @@ const DIGEST_HISTORY: readonly WorkflowRunRecord[] = Array.from(
       id: `019b7a10-0280-75e5-8510-ada11a5a6${String(index + 1).padStart(3, "0")}`,
       definitionId: DIGEST,
       versionNumber: 2,
-      state: "succeeded",
+      status: "succeeded",
       mode: "trigger",
       startedBy: SCHEDULE,
       startedMinutesAgo,
-      endedMinutesAgo: startedMinutesAgo - 4,
+      finishedMinutesAgo: startedMinutesAgo - 4,
       keep: index + 1 === KEPT_DIGEST_DAYS_AGO,
       steps: [
         {
@@ -437,7 +502,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.running,
     definitionId: DIGEST,
     versionNumber: 3,
-    state: "running",
+    status: "running",
     mode: "trigger",
     startedBy: SCHEDULE,
     startedMinutesAgo: 5,
@@ -452,7 +517,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.waitingApproval,
     definitionId: RELEASE,
     versionNumber: 2,
-    state: "waiting",
+    status: "waiting",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 30,
@@ -481,7 +546,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.waitingForm,
     definitionId: RELEASE,
     versionNumber: 1,
-    state: "waiting",
+    status: "waiting",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 130,
@@ -496,7 +561,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.waitingAccount,
     definitionId: DIGEST,
     versionNumber: 2,
-    state: "waiting",
+    status: "waiting",
     mode: "trigger",
     startedBy: SCHEDULE,
     startedMinutesAgo: 140,
@@ -518,11 +583,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.failed,
     definitionId: SUMMARIZE,
     versionNumber: 1,
-    state: "failed",
+    status: "failed",
     mode: "trigger",
     startedBy: FILE_EVENT,
     startedMinutesAgo: 200,
-    endedMinutesAgo: 190,
+    finishedMinutesAgo: 190,
     isParked: true,
     steps: [
       { nodeId: "watch", status: "succeeded", startedMinutesAgo: 200, finishedMinutesAgo: 200 },
@@ -542,11 +607,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.processExited,
     definitionId: RELEASE,
     versionNumber: 2,
-    state: "failed",
+    status: "failed",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 320,
-    endedMinutesAgo: 318,
+    finishedMinutesAgo: 318,
     steps: [
       { nodeId: "manual", status: "succeeded", startedMinutesAgo: 320, finishedMinutesAgo: 320 },
       {
@@ -563,11 +628,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.succeeded,
     definitionId: DIGEST,
     versionNumber: 2,
-    state: "succeeded",
+    status: "succeeded",
     mode: "trigger",
     startedBy: SCHEDULE,
     startedMinutesAgo: 380,
-    endedMinutesAgo: 374,
+    finishedMinutesAgo: 374,
     steps: [
       { nodeId: "schedule", status: "succeeded", startedMinutesAgo: 380, finishedMinutesAgo: 380 },
       { nodeId: "fetch", status: "succeeded", startedMinutesAgo: 380, finishedMinutesAgo: 379 },
@@ -596,12 +661,12 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.canceled,
     definitionId: RELEASE,
     versionNumber: 1,
-    state: "canceled",
+    status: "canceled",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 600,
-    endedMinutesAgo: 590,
-    failureReason: "Built from the wrong branch.",
+    finishedMinutesAgo: 590,
+    error: { message: "Built from the wrong branch." },
     steps: [
       { nodeId: "manual", status: "succeeded", startedMinutesAgo: 600, finishedMinutesAgo: 600 },
       { nodeId: "build", status: "canceled", startedMinutesAgo: 600, finishedMinutesAgo: 590 },
@@ -611,11 +676,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.crashed,
     definitionId: SUMMARIZE,
     versionNumber: 1,
-    state: "crashed",
+    status: "crashed",
     mode: "trigger",
     startedBy: FILE_EVENT,
     startedMinutesAgo: 740,
-    endedMinutesAgo: 735,
+    finishedMinutesAgo: 735,
     steps: [
       { nodeId: "watch", status: "succeeded", startedMinutesAgo: 740, finishedMinutesAgo: 740 },
       { nodeId: "read", status: "canceled", startedMinutesAgo: 740, finishedMinutesAgo: 735 },
@@ -625,11 +690,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.chained,
     definitionId: SUMMARIZE,
     versionNumber: 1,
-    state: "succeeded",
+    status: "succeeded",
     mode: "trigger",
     startedBy: FILE_EVENT,
     startedMinutesAgo: 720,
-    endedMinutesAgo: 719,
+    finishedMinutesAgo: 719,
     chainRoot: CHAIN_ROOT,
     steps: [
       { nodeId: "watch", status: "succeeded", startedMinutesAgo: 720, finishedMinutesAgo: 720 },
@@ -641,7 +706,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.waitingReply,
     definitionId: TRIAGE,
     versionNumber: 1,
-    state: "waiting",
+    status: "waiting",
     mode: "chat",
     startedBy: CHAT,
     startedMinutesAgo: 45,
@@ -663,7 +728,7 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.chainHeld,
     definitionId: SWEEP,
     versionNumber: 1,
-    state: "waiting",
+    status: "waiting",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: CHAIN_STARTED_MINUTES_AGO,
@@ -689,14 +754,14 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.sweptChild,
     definitionId: SWEEP_CHILD,
     versionNumber: 1,
-    state: "succeeded",
+    status: "succeeded",
     mode: "sub-workflow",
     startedBy: {
       kind: "parentWorkflow",
       parentWorkflowRunId: WORKFLOW_RUN_IDS.sweptParent as WorkflowRunId,
     },
     startedMinutesAgo: SWEPT_MINUTES_AGO - 1,
-    endedMinutesAgo: SWEPT_MINUTES_AGO - 3,
+    finishedMinutesAgo: SWEPT_MINUTES_AGO - 3,
     chainRoot: SWEPT_CHAIN_ROOT,
     steps: [
       {
@@ -718,11 +783,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.sweptParent,
     definitionId: SWEEP,
     versionNumber: 1,
-    state: "succeeded",
+    status: "succeeded",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: SWEPT_MINUTES_AGO,
-    endedMinutesAgo: SWEPT_MINUTES_AGO - 4,
+    finishedMinutesAgo: SWEPT_MINUTES_AGO - 4,
     steps: [
       {
         nodeId: "manual",
@@ -756,7 +821,7 @@ export const WORKFLOW_DEFINITION_RECORDS: readonly WorkflowDefinitionRecord[] = 
 
 /** Whether the run is still going, by the contract's set of going statuses. */
 export function isGoing(run: WorkflowRunRecord): boolean {
-  return GOING_RUN_STATUSES.includes(run.read.state);
+  return GOING_RUN_STATUSES.includes(run.read.status);
 }
 
 /** A run's row in the runs table, derived from its read the way the daemon's projection is. */
@@ -769,7 +834,7 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     sessionId: read.sessionId,
     definitionId: read.definitionId,
     definitionName: run.definitionName,
-    status: read.state,
+    ...statusOfRun(read.status, waitingStep),
     mode: read.mode,
     triggerKind: read.triggerKind,
     startedBy: read.startedBy,
@@ -778,14 +843,20 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     stepCount: read.steps.filter((step) => step.finishedAt !== undefined).length,
     ...(isRunGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
     ...(read.cost === undefined ? {} : { cost: read.cost }),
-    ...(read.state === "waiting" && waitingStep?.waitCause !== undefined
-      ? { waitCause: waitingStep.waitCause }
-      : {}),
-    ...(read.state === "waiting" && waitingStep?.resumeAt !== undefined
-      ? { resumeAt: waitingStep.resumeAt }
-      : {}),
     keep: read.keep,
   };
+}
+
+// A waiting row names its step's cause, and only an account wait carries a resume instant onto it.
+function statusOfRun(status: WorkflowRunStatus, waitingStep: WorkflowStep | undefined) {
+  if (status !== "waiting") return { status };
+  if (waitingStep?.waitCause === undefined) {
+    throw new RangeError("a waiting run carries the step that waits");
+  }
+  if (waitingStep.waitCause !== "account") return { status, waitCause: waitingStep.waitCause };
+  return waitingStep.resumeAt === undefined
+    ? { status, waitCause: waitingStep.waitCause }
+    : { status, waitCause: waitingStep.waitCause, resumeAt: waitingStep.resumeAt };
 }
 
 // The fixture's paying account carries its provider-reported identity, so it always has a label.

@@ -18,16 +18,13 @@ import {
 import { SessionIdSchema, type SessionId } from "../../../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../../../trust-statement.js";
 import {
-  WorkflowDefinitionIdSchema,
   WorkflowNodeIdSchema,
   WorkflowStepErrorSchema,
-  WorkflowVersionIdSchema,
-  type WorkflowDefinitionId,
   type WorkflowNodeId,
   type WorkflowStepError,
 } from "../../definition/document.js";
+import { workflowRunEventFields, type WorkflowRunEventPayload } from "../control.js";
 import { WorkflowWaitCauseSchema, type WorkflowWaitCause } from "../status.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 /**
@@ -36,15 +33,16 @@ import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.j
  */
 export interface WorkflowStepEventPayload extends WorkflowStepKey {
   sessionId: SessionId;
-  attempt: number;
 }
 const workflowStepEventFields = {
   sessionId: SessionIdSchema,
   ...workflowStepKeyShape,
-  attempt: z.number().int().positive(),
 };
 
-/** `workflow.step_canceled`: a step running or waiting when its run ended failed or canceled. */
+/**
+ * `workflow.step_canceled`: a step that was running or waiting when its run ended failed or
+ * canceled, or a branch a first-to-arrive merge canceled once another branch arrived.
+ */
 export const WorkflowStepCanceledPayloadSchema: z.ZodType<WorkflowStepEventPayload> = z
   .object(workflowStepEventFields)
   .strict();
@@ -89,46 +87,55 @@ export const WorkflowStepFailedPayloadSchema: z.ZodType<WorkflowStepFailedPayloa
   .strict();
 
 /**
- * `workflow.phase_suspended`: a step started waiting: its `waitCause`, the durable resume
- * instant where the wait armed one, and, for an `account` wait, the spent account the
- * attention read groups it under. The deadline a `Timeout` arms is written on the step's row
- * as truth and rides no event.
+ * `workflow.phase_suspended`: a step started waiting: its `waitCause` and, for an `account` wait,
+ * the spent account the attention read groups it under and the durable resume instant where the
+ * wait armed one; absent, only the person resumes it. A wait on anything else names neither. The
+ * deadline a `Timeout` arms is written on the step's row as truth and rides no event.
  */
-export interface WorkflowPhaseSuspendedPayload extends WorkflowStepEventPayload {
-  waitCause: WorkflowWaitCause;
-  /** Only on an account wait; absent, only the person resumes it. */
-  resumeAt?: string | undefined;
-  /** Present exactly on an `account` wait. */
-  providerAccountId?: ProviderAccountId | undefined;
-}
+export type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
+  (
+    | {
+        waitCause: "account";
+        providerAccountId: ProviderAccountId;
+        resumeAt?: string | undefined;
+      }
+    | {
+        waitCause: Exclude<WorkflowWaitCause, "account">;
+        providerAccountId?: undefined;
+        resumeAt?: undefined;
+      }
+  );
 /** Wire schema for {@link WorkflowPhaseSuspendedPayload}. */
-export const WorkflowPhaseSuspendedPayloadSchema: z.ZodType<WorkflowPhaseSuspendedPayload> = z
-  .object({
-    ...workflowStepEventFields,
-    waitCause: WorkflowWaitCauseSchema,
-    resumeAt: isoDateTimeSchema.optional(),
-    providerAccountId: ProviderAccountIdSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (payload) => (payload.waitCause === "account") === (payload.providerAccountId !== undefined),
-    {
-      path: ["providerAccountId"],
-      message: "An account wait names its spent account, and no other wait carries one.",
-    },
-  )
-  .refine((payload) => payload.waitCause === "account" || payload.resumeAt === undefined, {
-    path: ["resumeAt"],
-    message: "Only an account wait resumes itself.",
-  });
+export const WorkflowPhaseSuspendedPayloadSchema: z.ZodType<WorkflowPhaseSuspendedPayload> =
+  z.discriminatedUnion("waitCause", [
+    z
+      .object({
+        ...workflowStepEventFields,
+        waitCause: z.literal("account"),
+        providerAccountId: ProviderAccountIdSchema,
+        resumeAt: isoDateTimeSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...workflowStepEventFields,
+        waitCause: WorkflowWaitCauseSchema.exclude(["account"]),
+      })
+      .strict(),
+  ]);
 
-/** `workflow.step_skipped`: the step's input carried no items, or its node is disabled. */
+/** Why a step was skipped: its input carried no items, or its node is disabled. */
+export const WORKFLOW_STEP_SKIP_REASONS = ["no-items", "disabled"] as const;
+/** One of {@link WORKFLOW_STEP_SKIP_REASONS}. */
+export type WorkflowStepSkipReason = (typeof WORKFLOW_STEP_SKIP_REASONS)[number];
+
+/** `workflow.step_skipped`: why the step was skipped. */
 export interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
-  reason: "no-items" | "disabled";
+  reason: WorkflowStepSkipReason;
 }
 /** Wire schema for {@link WorkflowStepSkippedPayload}. */
 export const WorkflowStepSkippedPayloadSchema: z.ZodType<WorkflowStepSkippedPayload> = z
-  .object({ ...workflowStepEventFields, reason: z.enum(["no-items", "disabled"]) })
+  .object({ ...workflowStepEventFields, reason: z.enum(WORKFLOW_STEP_SKIP_REASONS) })
   .strict();
 
 /**
@@ -137,11 +144,7 @@ export const WorkflowStepSkippedPayloadSchema: z.ZodType<WorkflowStepSkippedPayl
  * `nodeId` names the approval step; a chain's question names none. `deviceId` is the
  * device that answered.
  */
-export interface WorkflowGateResolvedPayload {
-  sessionId: SessionId;
-  workflowRunId: WorkflowRunId;
-  definitionId: WorkflowDefinitionId;
-  workflowVersionId: string;
+export interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
   nodeId?: WorkflowNodeId | undefined;
   outcome: ApprovalDecision;
   gateResolutionId: string;
@@ -150,10 +153,7 @@ export interface WorkflowGateResolvedPayload {
 /** Wire schema for {@link WorkflowGateResolvedPayload}. */
 export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPayload> = z
   .object({
-    sessionId: SessionIdSchema,
-    workflowRunId: WorkflowRunIdSchema,
-    definitionId: WorkflowDefinitionIdSchema,
-    workflowVersionId: WorkflowVersionIdSchema,
+    ...workflowRunEventFields,
     nodeId: WorkflowNodeIdSchema.optional(),
     outcome: ApprovalDecisionSchema,
     gateResolutionId: z.string().min(1),

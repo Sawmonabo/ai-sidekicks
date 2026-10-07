@@ -1,12 +1,12 @@
 // The size of a node's box on a workflow canvas, derived from what the box holds, in canvas units
 // at the default text size, so a layout pass can place every node before anything is drawn.
 //
-// Across, a box holds its kind's row: the kind's label and the item count, each a wire figure in
-// the mono face, whose width is its length times the face's one advance. A node's own name
-// shares that room and gives way where it is longer. Down, it holds its name row, its kind row
-// and its state row, or its handles where they need more, and one line more for a failure or
-// the instant a wait resumes. A handle's slot is one line of the small text a handle's label is
-// set in.
+// Across, a box holds its kind's row: the kind's words and the item count, each measured as its
+// length times the mono face's one advance. The count is set in that face; the words, set in the
+// sans face, take less. A node's own name shares that room and gives way where it is longer.
+// Down, it holds its name row, its kind row and its state row, or its handles where they need
+// more, and one line more for a failure or the instant a wait resumes. A handle's slot is one line
+// of the small text a handle's label is set in.
 
 import { SPACE_SCALE_REM } from "#renderer/styles/palette.js";
 import { NODE_RING_WIDTH, readCanvasLineHeight, readCanvasUnits } from "./measures.js";
@@ -14,8 +14,8 @@ import { measureWireFigureWidth } from "./wire-figure-width.js";
 
 /** What one node's box must hold. */
 export interface NodeBoxContent {
-  /** The kind's label as the box draws it, a wire figure on its kind row. */
-  readonly kindLabel: string;
+  /** The kind's words as the box draws them on its kind row. */
+  readonly kindWords: string;
   /** The widest item count figure the box keeps room for beside its name. */
   readonly countFigure: string;
   /** How many handles stand down the node's busier side. */
@@ -41,7 +41,7 @@ export const NODE_EXTRA_LINE_HEIGHT: number =
 export function deriveNodeBoxSize(content: NodeBoxContent): NodeBoxSize {
   const ring = 2 * NODE_RING_WIDTH;
   const kindRow =
-    measureWireFigureWidth(content.kindLabel) +
+    measureWireFigureWidth(content.kindWords) +
     readCanvasUnits(SPACE_SCALE_REM, "space-2") +
     measureWireFigureWidth(content.countFigure);
   const width = ring + 2 * readCanvasUnits(SPACE_SCALE_REM, "space-3") + kindRow;

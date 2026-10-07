@@ -61,7 +61,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   const cancel = useWorkflowCall(() => callDaemon(bridge, "workflow.runCancel", { workflowRunId }));
   const resume = useWorkflowCall(() => callDaemon(bridge, "workflow.runResume", { workflowRunId }));
   const isChained = run.chainRoot.runId !== workflowRunId;
-  const isTicking = isGoing(run.state);
+  const isTicking = isGoing(run.status);
   // The day words move at midnight and a going run's time so far every second.
   const nowMs = useRunTimesNow({
     drawn: [run],
@@ -89,7 +89,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
       </div>
       <dl className="meridian-workflow-run__facts">
         <Fact term="Status">
-          <RunStatusChip status={run.state} waitCause={waiting?.waitCause} />
+          <RunStatusChip status={run.status} waitCause={waiting?.waitCause} />
         </Fact>
         <Fact term="Workflow">
           {props.workflowName}
@@ -251,8 +251,8 @@ function runDurationUntil(
   if (isTicking) {
     return runDurationWords(run.startedAt, nowMs);
   }
-  const ended = run.endedAt === undefined ? undefined : parseInstant(run.endedAt);
-  return ended?.kind === "instant"
-    ? runDurationWords(run.startedAt, ended.epochMilliseconds)
+  const finished = run.finishedAt === undefined ? undefined : parseInstant(run.finishedAt);
+  return finished?.kind === "instant"
+    ? runDurationWords(run.startedAt, finished.epochMilliseconds)
     : undefined;
 }

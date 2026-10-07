@@ -1,31 +1,25 @@
-// Workflow run records: reading one run, the runs table and its count, deleting runs
-// and keeping their step data, the runs-needing-you section, the hold on starting new
-// runs, clearing the values runs keep for later ones, and the one live stream the runs
-// list reads, with their method table.
+// Workflow run records: the run's own record, reading one run, the runs table and its count,
+// deleting runs and keeping their step data, the runs-needing-you section, the hold on starting new
+// runs and clearing the values runs keep for later ones, with their method table.
 import { z } from "zod";
 
 import { ApprovalDecisionSchema, type ApprovalDecision } from "../../approval.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
+  EmptyPayloadSchema,
+  type EmptyPayload,
   type MethodDescriptor,
-  type SubscriptionMethodDescriptor,
 } from "../../method-descriptor.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import {
   WorkflowDefinitionIdSchema,
-  WorkflowNodeIdSchema,
+  WorkflowStepErrorSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
-  type WorkflowNodeId,
+  type WorkflowStepError,
 } from "../definition/document.js";
 import {
-  WorkflowDefinitionSummarySchema,
-  type WorkflowDefinitionSummary,
-} from "../definition/methods.js";
-import {
   GOING_RUN_STATUSES,
-  WORKFLOW_WAIT_CAUSES,
   WorkflowRunStatusSchema,
   WorkflowWaitCauseSchema,
   type WorkflowRunStatus,
@@ -49,6 +43,92 @@ import {
   type WorkflowTriggerKind,
 } from "./trigger.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
+
+// The run record
+
+/** The members a run's record carries whatever its status. */
+interface WorkflowRunFields {
+  workflowRunId: WorkflowRunId;
+  sessionId: SessionId;
+  definitionId: WorkflowDefinitionId;
+  workflowVersionId: string;
+  mode: WorkflowRunMode;
+  triggerKind: WorkflowTriggerKind;
+  startedBy: WorkflowStartedBy;
+  /** The Keep mark, which `Delete runs older than…` leaves. */
+  keep: boolean;
+  startedAt: string;
+}
+
+/**
+ * One workflow run as its row records it: the session it lives in, the version it pins, its
+ * status, how and by whom it was started, its Keep mark, when it started and ended, and, on a run
+ * that failed, was canceled or crashed, its `error`: why. It carries its end exactly once it has
+ * ended; a `failed` run may carry none, because one parked on its failed step has not ended and
+ * `Cancel` and `Resume` still act on it.
+ */
+export type WorkflowRun = WorkflowRunFields &
+  (
+    | {
+        status: Extract<WorkflowRunStatus, "new" | "running" | "waiting">;
+        finishedAt?: undefined;
+        error?: undefined;
+      }
+    | { status: "failed"; finishedAt?: string | undefined; error?: WorkflowStepError | undefined }
+    | { status: "succeeded"; finishedAt: string; error?: undefined }
+    | {
+        status: Extract<WorkflowRunStatus, "canceled" | "crashed">;
+        finishedAt: string;
+        error?: WorkflowStepError | undefined;
+      }
+  );
+const workflowRunFields = {
+  workflowRunId: WorkflowRunIdSchema,
+  sessionId: SessionIdSchema,
+  definitionId: WorkflowDefinitionIdSchema,
+  workflowVersionId: WorkflowVersionIdSchema,
+  mode: WorkflowRunModeSchema,
+  triggerKind: WorkflowTriggerKindSchema,
+  startedBy: WorkflowStartedBySchema,
+  keep: z.boolean(),
+  startedAt: isoDateTimeSchema,
+};
+
+// The run's status, its end and its error, one arm per kind of status: a going run has not ended,
+// an ended one carries its end, a failed one may be parked on its failed step without one, and
+// only a run that failed, was canceled or crashed says why.
+const goingRunEndFields = {
+  status: WorkflowRunStatusSchema.extract(["new", "running", "waiting"]),
+  finishedAt: z.undefined().optional(),
+  error: z.undefined().optional(),
+};
+const failedRunEndFields = {
+  status: WorkflowRunStatusSchema.extract(["failed"]),
+  finishedAt: isoDateTimeSchema.optional(),
+  error: WorkflowStepErrorSchema.optional(),
+};
+const succeededRunEndFields = {
+  status: WorkflowRunStatusSchema.extract(["succeeded"]),
+  finishedAt: isoDateTimeSchema,
+  error: z.undefined().optional(),
+};
+const stoppedRunEndFields = {
+  status: WorkflowRunStatusSchema.extract(["canceled", "crashed"]),
+  finishedAt: isoDateTimeSchema,
+  error: WorkflowStepErrorSchema.optional(),
+};
+
+/**
+ * Wire schema for {@link WorkflowRun}.
+ *
+ * @consumedBy the daemon's run service, which reads and writes the run row
+ */
+export const WorkflowRunSchema: z.ZodType<WorkflowRun> = z.discriminatedUnion("status", [
+  z.object({ ...workflowRunFields, ...goingRunEndFields }).strict(),
+  z.object({ ...workflowRunFields, ...failedRunEndFields }).strict(),
+  z.object({ ...workflowRunFields, ...succeededRunEndFields }).strict(),
+  z.object({ ...workflowRunFields, ...stoppedRunEndFields }).strict(),
+]);
 
 // workflow.runRead
 
@@ -152,37 +232,20 @@ const WorkflowRunReviewSchema: z.ZodType<WorkflowRunReview> = z.discriminatedUni
 ]);
 
 /**
- * The `workflow.runRead` result: the run's header facts and every step, from which the page draws
- * its graph and its step panel. A `waiting` run always carries the step that waits.
+ * The `workflow.runRead` result: the run's record with its header facts and every step, from
+ * which the page draws its graph and its step panel. A `waiting` run always carries the step that
+ * waits.
  */
-export interface WorkflowRunReadResponse {
-  workflowRunId: WorkflowRunId;
-  sessionId: SessionId;
-  definitionId: WorkflowDefinitionId;
-  workflowVersionId: string;
-  state: WorkflowRunStatus;
-  mode: WorkflowRunMode;
-  triggerKind: WorkflowTriggerKind;
-  startedBy: WorkflowStartedBy;
+export type WorkflowRunReadResponse = WorkflowRun & {
   chainRoot: WorkflowChainRoot;
   /**
    * True for a run in a project's repository, which records its checkout and snapshot points so
    * `Open in Review` opens its changes; false for a chat's run and a `None` run, which record none.
    */
   executionContextCaptured: boolean;
-  /** The Keep mark, which `Delete runs older than…` leaves. */
-  keep: boolean;
   /** The session a failed step was opened in to be fixed, linked for the life of the run. */
   fixSessionId?: SessionId | undefined;
   steps: WorkflowStep[];
-  /** Why the run failed, or why it was canceled. */
-  failureReason?: string | undefined;
-  startedAt: string;
-  /**
-   * Present exactly once the run has ended: a `failed` run parked on its failed step has not
-   * ended, so `Cancel` and `Resume` still act on it.
-   */
-  endedAt?: string | undefined;
   /** Summed from the steps' stored amounts. */
   cost?: WorkflowCost | undefined;
   /** The step a going run is on. */
@@ -193,50 +256,41 @@ export interface WorkflowRunReadResponse {
   review?: WorkflowRunReview | undefined;
   /** On the chain's first run, the chain's question once one has been asked. */
   chainQuestion?: WorkflowChainQuestion | undefined;
-}
+};
+const workflowRunReadFields = {
+  ...workflowRunFields,
+  chainRoot: WorkflowChainRootSchema,
+  executionContextCaptured: z.boolean(),
+  fixSessionId: SessionIdSchema.optional(),
+  steps: z.array(WorkflowStepSchema),
+  cost: WorkflowCostSchema.optional(),
+  liveStep: WorkflowLiveStepSchema.optional(),
+  edgeItemCounts: z.array(WorkflowEdgeItemCountSchema),
+  review: WorkflowRunReviewSchema.optional(),
+  chainQuestion: WorkflowChainQuestionSchema.optional(),
+};
 /** Wire schema for {@link WorkflowRunReadResponse}. */
 export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    sessionId: SessionIdSchema,
-    definitionId: WorkflowDefinitionIdSchema,
-    workflowVersionId: WorkflowVersionIdSchema,
-    state: WorkflowRunStatusSchema,
-    mode: WorkflowRunModeSchema,
-    triggerKind: WorkflowTriggerKindSchema,
-    startedBy: WorkflowStartedBySchema,
-    chainRoot: WorkflowChainRootSchema,
-    executionContextCaptured: z.boolean(),
-    keep: z.boolean(),
-    fixSessionId: SessionIdSchema.optional(),
-    steps: z.array(WorkflowStepSchema),
-    failureReason: z.string().min(1).optional(),
-    startedAt: isoDateTimeSchema,
-    endedAt: isoDateTimeSchema.optional(),
-    cost: WorkflowCostSchema.optional(),
-    liveStep: WorkflowLiveStepSchema.optional(),
-    edgeItemCounts: z.array(WorkflowEdgeItemCountSchema),
-    review: WorkflowRunReviewSchema.optional(),
-    chainQuestion: WorkflowChainQuestionSchema.optional(),
-  })
-  .strict()
-  .refine((run) => GOING_RUN_STATUSES.includes(run.state) || run.liveStep === undefined, {
+  .discriminatedUnion("status", [
+    z.object({ ...workflowRunReadFields, ...goingRunEndFields }).strict(),
+    z.object({ ...workflowRunReadFields, ...failedRunEndFields }).strict(),
+    z.object({ ...workflowRunReadFields, ...succeededRunEndFields }).strict(),
+    z.object({ ...workflowRunReadFields, ...stoppedRunEndFields }).strict(),
+  ])
+  .refine((run) => GOING_RUN_STATUSES.includes(run.status) || run.liveStep === undefined, {
     path: ["liveStep"],
     message: "Only a going run has a live step.",
   })
-  .refine((run) => run.state !== "waiting" || run.steps.some((step) => step.status === "waiting"), {
-    path: ["steps"],
-    message: "A waiting run carries the step that waits.",
-  })
   .refine(
-    (run) =>
-      run.state === "failed" ||
-      GOING_RUN_STATUSES.includes(run.state) === (run.endedAt === undefined),
-    { path: ["endedAt"], message: "A run carries its end exactly once it has ended." },
+    (run) => run.status !== "waiting" || run.steps.some((step) => step.status === "waiting"),
+    {
+      path: ["steps"],
+      message: "A waiting run carries the step that waits.",
+    },
   )
   .refine(
     (run) =>
-      run.review === undefined || (run.executionContextCaptured && run.endedAt !== undefined),
+      run.review === undefined || (run.executionContextCaptured && run.finishedAt !== undefined),
     { path: ["review"], message: "Only a finished run with a captured checkout is reviewed." },
   )
   .refine((run) => run.chainQuestion === undefined || run.chainRoot.runId === run.workflowRunId, {
@@ -248,84 +302,120 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
 
 /**
  * The `workflow.runList` input: the runs table's filters (workflow, status, trigger kind
- * and date range) and the version scope `Show runs` hands in. Without
- * `sessionId` it lists every run this daemon ran.
+ * and date range) and the version scope `Show runs` hands in, which comes only with the workflow
+ * it belongs to. Without `sessionId` it lists every run this daemon ran.
  */
-export interface WorkflowRunListRequest {
+export type WorkflowRunListRequest = {
   sessionId?: SessionId | undefined;
-  definitionId?: WorkflowDefinitionId | undefined;
-  workflowVersionId?: string | undefined;
-  status?: WorkflowRunStatus[] | undefined;
-  triggerKind?: WorkflowTriggerKind[] | undefined;
+  status?: [WorkflowRunStatus, ...WorkflowRunStatus[]] | undefined;
+  triggerKind?: [WorkflowTriggerKind, ...WorkflowTriggerKind[]] | undefined;
   startedAfter?: string | undefined;
   startedBefore?: string | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
-}
-/** Wire schema for {@link WorkflowRunListRequest}. */
+} & (
+  | { definitionId?: WorkflowDefinitionId | undefined; workflowVersionId?: undefined }
+  | { definitionId: WorkflowDefinitionId; workflowVersionId: string }
+);
+const workflowRunListFilterFields = {
+  sessionId: SessionIdSchema.optional(),
+  status: z.tuple([WorkflowRunStatusSchema], WorkflowRunStatusSchema).optional(),
+  triggerKind: z.tuple([WorkflowTriggerKindSchema], WorkflowTriggerKindSchema).optional(),
+  startedAfter: isoDateTimeSchema.optional(),
+  startedBefore: isoDateTimeSchema.optional(),
+  limit: z.number().int().positive().optional(),
+  cursor: z.string().min(1).optional(),
+};
+/** Wire schema for {@link WorkflowRunListRequest}; a version scope names its workflow. */
 export const WorkflowRunListRequestSchema: z.ZodType<
   WorkflowRunListRequest,
   WorkflowRunListRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema.optional(),
-    definitionId: WorkflowDefinitionIdSchema.optional(),
-    workflowVersionId: WorkflowVersionIdSchema.optional(),
-    status: z.array(WorkflowRunStatusSchema).min(1).optional(),
-    triggerKind: z.array(WorkflowTriggerKindSchema).min(1).optional(),
-    startedAfter: isoDateTimeSchema.optional(),
-    startedBefore: isoDateTimeSchema.optional(),
-    limit: z.number().int().positive().optional(),
-    cursor: z.string().min(1).optional(),
-  })
-  .strict();
+> = z.union([
+  z
+    .object({ ...workflowRunListFilterFields, definitionId: WorkflowDefinitionIdSchema.optional() })
+    .strict(),
+  z
+    .object({
+      ...workflowRunListFilterFields,
+      definitionId: WorkflowDefinitionIdSchema,
+      workflowVersionId: WorkflowVersionIdSchema,
+    })
+    .strict(),
+]);
 
 /**
- * One row of the runs table, in the order the row reads it. It names the definition
- * the run came from, because a list answers with runs nobody named, and the run's
+ * One row of the runs table, in the order the row reads it, built from the run's record. It names
+ * the definition the run came from, because a list answers with runs nobody named, and the run's
  * session, which the row opens. While the run is going it carries its live step and no
  * duration; a `failed` run parked on its failed step has not ended and carries none either. A
- * waiting run names its cause. `keep` is the Keep mark the row shows.
+ * waiting run names its cause, and an account wait the instant it resumes itself where one is
+ * armed. `keep` is the Keep mark the row shows.
  */
-export interface WorkflowRunSummary {
-  workflowRunId: WorkflowRunId;
-  sessionId: SessionId;
-  definitionId: WorkflowDefinitionId;
+export type WorkflowRunSummary = Pick<
+  WorkflowRun,
+  | "workflowRunId"
+  | "sessionId"
+  | "definitionId"
+  | "mode"
+  | "triggerKind"
+  | "startedBy"
+  | "startedAt"
+  | "keep"
+> & {
   definitionName: string;
-  status: WorkflowRunStatus;
-  mode: WorkflowRunMode;
-  triggerKind: WorkflowTriggerKind;
-  startedBy: WorkflowStartedBy;
-  startedAt: string;
   durationMs?: number | undefined;
   stepCount: number;
   liveStep?: WorkflowLiveStep | undefined;
   cost?: WorkflowCost | undefined;
-  waitCause?: WorkflowWaitCause | undefined;
-  resumeAt?: string | undefined;
-  keep: boolean;
-}
-/** Wire schema for {@link WorkflowRunSummary}. */
+} & (
+    | { status: "waiting"; waitCause: "account"; resumeAt?: string | undefined }
+    | {
+        status: "waiting";
+        waitCause: Exclude<WorkflowWaitCause, "account">;
+        resumeAt?: undefined;
+      }
+    | { status: Exclude<WorkflowRunStatus, "waiting">; waitCause?: undefined; resumeAt?: undefined }
+  );
+const workflowRunSummaryFields = {
+  workflowRunId: workflowRunFields.workflowRunId,
+  sessionId: workflowRunFields.sessionId,
+  definitionId: workflowRunFields.definitionId,
+  definitionName: z.string().min(1),
+  mode: workflowRunFields.mode,
+  triggerKind: workflowRunFields.triggerKind,
+  startedBy: workflowRunFields.startedBy,
+  startedAt: workflowRunFields.startedAt,
+  durationMs: countSchema.optional(),
+  stepCount: countSchema,
+  liveStep: WorkflowLiveStepSchema.optional(),
+  cost: WorkflowCostSchema.optional(),
+  keep: workflowRunFields.keep,
+};
+/**
+ * Wire schema for {@link WorkflowRunSummary}: only a waiting run names its cause, and only an
+ * account wait carries a resume instant.
+ */
 export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    sessionId: SessionIdSchema,
-    definitionId: WorkflowDefinitionIdSchema,
-    definitionName: z.string().min(1),
-    status: WorkflowRunStatusSchema,
-    mode: WorkflowRunModeSchema,
-    triggerKind: WorkflowTriggerKindSchema,
-    startedBy: WorkflowStartedBySchema,
-    startedAt: isoDateTimeSchema,
-    durationMs: countSchema.optional(),
-    stepCount: countSchema,
-    liveStep: WorkflowLiveStepSchema.optional(),
-    cost: WorkflowCostSchema.optional(),
-    waitCause: WorkflowWaitCauseSchema.optional(),
-    resumeAt: isoDateTimeSchema.optional(),
-    keep: z.boolean(),
-  })
-  .strict()
+  .union([
+    z
+      .object({
+        ...workflowRunSummaryFields,
+        status: WorkflowRunStatusSchema.extract(["waiting"]),
+        waitCause: z.literal("account"),
+        resumeAt: isoDateTimeSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...workflowRunSummaryFields,
+        status: WorkflowRunStatusSchema.extract(["waiting"]),
+        waitCause: WorkflowWaitCauseSchema.exclude(["account"]),
+      })
+      .strict(),
+    z
+      .object({ ...workflowRunSummaryFields, status: WorkflowRunStatusSchema.exclude(["waiting"]) })
+      .strict(),
+  ])
   .refine(
     (row) =>
       row.status === "failed" ||
@@ -338,14 +428,6 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
   .refine((row) => GOING_RUN_STATUSES.includes(row.status) || row.liveStep === undefined, {
     path: ["liveStep"],
     message: "Only a going run has a live step.",
-  })
-  .refine((row) => (row.status === "waiting") === (row.waitCause !== undefined), {
-    path: ["waitCause"],
-    message: "A waiting run names its cause, and no other run carries one.",
-  })
-  .refine((row) => row.status === "waiting" || row.resumeAt === undefined, {
-    path: ["resumeAt"],
-    message: "Only a waiting run carries a resume instant.",
   });
 
 /**
@@ -452,14 +534,6 @@ export const WorkflowRunKeepSetSchema: z.ZodType<WorkflowRunKeepSet, WorkflowRun
 
 // workflow.runAttentionList
 
-/** `workflow.runAttentionList` takes no members: the runs table's filters never narrow it. */
-export type WorkflowRunAttentionListRequest = Record<string, never>;
-/** Wire schema for {@link WorkflowRunAttentionListRequest}: an empty object. */
-export const WorkflowRunAttentionListRequestSchema: z.ZodType<
-  WorkflowRunAttentionListRequest,
-  WorkflowRunAttentionListRequest
-> = z.object({}).strict();
-
 /**
  * One line of the runs-needing-you section. A run waiting on a person is its own line: the
  * workflow's name, what it waits on, the name of the step that waits, and since when. Runs held
@@ -491,7 +565,7 @@ export const WorkflowRunAttentionEntrySchema: z.ZodType<WorkflowRunAttentionEntr
         kind: z.literal("run"),
         workflowRunId: WorkflowRunIdSchema,
         workflowName: z.string().min(1),
-        waitCause: z.enum(WORKFLOW_WAIT_CAUSES).exclude(["account"]),
+        waitCause: WorkflowWaitCauseSchema.exclude(["account"]),
         waitingStepName: z.string().min(1),
         waitingSince: isoDateTimeSchema,
       })
@@ -593,91 +667,6 @@ export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClea
   })
   .strict();
 
-// workflow.subscribe
-
-/**
- * The `workflow.subscribe` input: one subscription for the whole runs list and the
- * canvas overlay, never one per row. Without `sessionId` it covers every run this
- * daemon ran.
- */
-export interface WorkflowSubscribeRequest {
-  sessionId?: SessionId | undefined;
-  definitionId?: WorkflowDefinitionId | undefined;
-}
-/** Wire schema for {@link WorkflowSubscribeRequest}. */
-export const WorkflowSubscribeRequestSchema: z.ZodType<
-  WorkflowSubscribeRequest,
-  WorkflowSubscribeRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema.optional(),
-    definitionId: WorkflowDefinitionIdSchema.optional(),
-  })
-  .strict();
-
-/**
- * One emission of `workflow.subscribe`. The current hold comes first, then run, step
- * and schedule changes as they happen. A definition's change and a removed definition
- * or run ride it too, so no view keeps a row that is gone. A skipped schedule fire is
- * reported here and never becomes a run.
- */
-export type WorkflowSubscribeNotification =
-  | ({ kind: "runsPause" } & WorkflowRunsPauseState)
-  | { kind: "run"; run: WorkflowRunSummary }
-  | { kind: "runsRemoved"; workflowRunIds: WorkflowRunId[] }
-  | { kind: "step"; workflowRunId: WorkflowRunId; step: WorkflowStep }
-  | {
-      kind: "schedule";
-      definitionId: WorkflowDefinitionId;
-      nodeId: WorkflowNodeId;
-      event: "armed" | "disarmed" | "fired" | "skipped";
-      scheduledAt: string;
-      nextFireAt?: string | undefined;
-    }
-  | { kind: "definition"; definition: WorkflowDefinitionSummary }
-  | { kind: "definitionRemoved"; definitionId: WorkflowDefinitionId };
-/** Wire schema for {@link WorkflowSubscribeNotification}. */
-export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNotification> =
-  z.discriminatedUnion("kind", [
-    z
-      .object({
-        kind: z.literal("runsPause"),
-        paused: z.boolean(),
-        waitingStartCount: countSchema,
-      })
-      .strict(),
-    z.object({ kind: z.literal("run"), run: WorkflowRunSummarySchema }).strict(),
-    z
-      .object({
-        kind: z.literal("runsRemoved"),
-        workflowRunIds: z.array(WorkflowRunIdSchema).min(1),
-      })
-      .strict(),
-    z
-      .object({
-        kind: z.literal("step"),
-        workflowRunId: WorkflowRunIdSchema,
-        step: WorkflowStepSchema,
-      })
-      .strict(),
-    z
-      .object({
-        kind: z.literal("schedule"),
-        definitionId: WorkflowDefinitionIdSchema,
-        nodeId: WorkflowNodeIdSchema,
-        event: z.enum(["armed", "disarmed", "fired", "skipped"]),
-        scheduledAt: isoDateTimeSchema,
-        nextFireAt: isoDateTimeSchema.optional(),
-      })
-      .strict(),
-    z
-      .object({ kind: z.literal("definition"), definition: WorkflowDefinitionSummarySchema })
-      .strict(),
-    z
-      .object({ kind: z.literal("definitionRemoved"), definitionId: WorkflowDefinitionIdSchema })
-      .strict(),
-  ]);
-
 // Refusals
 
 /** `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`). */
@@ -685,7 +674,10 @@ export const WORKFLOW_RUN_NOT_DELETABLE_CODE = "workflow.run_not_deletable" as c
 
 // The workflow run records method table
 
-/** The `workflow.*` methods that read, list and keep run records, keyed by name. */
+/**
+ * The `workflow.*` methods that read, list and keep run records, keyed by name.
+ * `workflow.runAttentionList` takes no members: the runs table's filters never narrow it.
+ */
 export interface WorkflowRunRecordMethodDescriptors {
   readonly "workflow.runRead": MethodDescriptor<
     "workflow.runRead",
@@ -719,7 +711,7 @@ export interface WorkflowRunRecordMethodDescriptors {
   >;
   readonly "workflow.runAttentionList": MethodDescriptor<
     "workflow.runAttentionList",
-    WorkflowRunAttentionListRequest,
+    EmptyPayload,
     WorkflowRunAttentionListResponse
   >;
   readonly "workflow.runsPauseSet": MethodDescriptor<
@@ -731,12 +723,6 @@ export interface WorkflowRunRecordMethodDescriptors {
     "workflow.keptVarsClear",
     WorkflowKeptVarsClearRequest,
     WorkflowKeptVarsClearResponse
-  >;
-  readonly "workflow.subscribe": SubscriptionMethodDescriptor<
-    "workflow.subscribe",
-    WorkflowSubscribeRequest,
-    SubscribeAckResponse,
-    WorkflowSubscribeNotification
   >;
 }
 
@@ -791,7 +777,7 @@ export const WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS: WorkflowRunRecordMethodDesc
       method: "workflow.runAttentionList",
       procedureType: "query",
       mutating: false,
-      requestSchema: WorkflowRunAttentionListRequestSchema,
+      requestSchema: EmptyPayloadSchema,
       responseSchema: WorkflowRunAttentionListResponseSchema,
     },
     "workflow.runsPauseSet": {
@@ -807,13 +793,5 @@ export const WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS: WorkflowRunRecordMethodDesc
       mutating: true,
       requestSchema: WorkflowKeptVarsClearRequestSchema,
       responseSchema: WorkflowKeptVarsClearResponseSchema,
-    },
-    "workflow.subscribe": {
-      method: "workflow.subscribe",
-      procedureType: "subscription",
-      mutating: false,
-      requestSchema: WorkflowSubscribeRequestSchema,
-      responseSchema: SubscribeAckResponseSchema,
-      emissionSchema: WorkflowSubscribeNotificationSchema,
     },
   });

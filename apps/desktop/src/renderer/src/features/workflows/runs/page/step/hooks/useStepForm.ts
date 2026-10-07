@@ -68,7 +68,9 @@ export function useStepForm(
   onAnswered: (receipt: string) => void,
 ): StepFormHold {
   const clock = useClock();
-  const subject = `${stepKey.workflowRunId}/${stepKey.nodeId}/${String(stepKey.executionIndex)}`;
+  const subject =
+    `${stepKey.workflowRunId}/${stepKey.nodeId}/` +
+    `${String(stepKey.attempt)}/${String(stepKey.executionIndex)}`;
   const [readRevision, setReadRevision] = useState(0);
   const { value: read } = useSubjectRead<StepFormRead, StepFormRead>(
     bridge,

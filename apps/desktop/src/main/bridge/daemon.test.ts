@@ -211,6 +211,7 @@ describe("the daemon's wire through main", () => {
       params: {
         workflowRunId: "00000000-0000-4000-8000-000000000002",
         nodeId: "review",
+        attempt: 1,
         executionIndex: 1,
         // A token in `fields` is an answer's text, not a path, and crosses as sent.
         fields: { note: folderRef },
