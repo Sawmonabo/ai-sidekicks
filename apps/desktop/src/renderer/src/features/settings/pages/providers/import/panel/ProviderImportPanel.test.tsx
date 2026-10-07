@@ -22,8 +22,11 @@ import { settle } from "#test/helpers/settle.js";
 import { spiedAnnouncer, type SpiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
-/** The id the stubbed start answers with. */
+/** The id the stubbed start answers the first press with. */
 const IMPORT_ID = "provider-import-3" as ProviderImportId;
+
+/** The id the stubbed start answers every later press with: the daemon starts a new import. */
+const RETRIED_IMPORT_ID = "provider-import-4" as ProviderImportId;
 
 /** An import from before the panel opened, whose outcome the stream replays first. */
 const EARLIER_IMPORT_ID = "provider-import-2" as ProviderImportId;
@@ -46,7 +49,9 @@ function recordingCalls(stream: DrivenProgressStream): {
     calls: {
       begin: async (request) => {
         sent.begin.push(request);
-        return await Promise.resolve({ importId: IMPORT_ID });
+        return await Promise.resolve({
+          importId: sent.begin.length === 1 ? IMPORT_ID : RETRIED_IMPORT_ID,
+        });
       },
       subscribe: async (request) => {
         sent.subscribe.push(request);
@@ -243,5 +248,30 @@ describe("one provider's import", () => {
     expect(said.spokenOn("assertive")).toStrictEqual([]);
     await emit(stream, settledMessage("codex", refusal));
     expect(said.spokenOn("assertive")).toStrictEqual(["The Codex folder is missing."]);
+  });
+
+  it("says the import again when Try again retries one a press started, in the same words", async () => {
+    const { stream, sent, said } = await renderPanel("codex");
+    act(() => {
+      importAction("Import sessions from Codex").click();
+    });
+    await settle();
+    await emit(
+      stream,
+      settledMessage("codex", { outcome: "refused", reason: "The Codex folder is missing." }),
+    );
+    expect(said.spokenOn("polite")).toStrictEqual(["Importing from Codex…"]);
+
+    act(() => {
+      screen.getByRole("button", { name: "Try again" }).click();
+    });
+    await settle();
+    expect(sent.begin).toStrictEqual([{ provider: "codex" }, { provider: "codex" }]);
+    expect(rowText()).toContain("Importing from Codex…");
+    // The retry is the person's own new press: said once, though its words match the first's.
+    expect(said.spokenOn("polite")).toStrictEqual([
+      "Importing from Codex…",
+      "Importing from Codex…",
+    ]);
   });
 });

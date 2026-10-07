@@ -13,12 +13,15 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 
-/** Where one import call has got to. */
+/**
+ * Where one import call has got to. `pressOrdinal` is the press it answers, counted from one: a
+ * new press is a new attempt, even where it ends in the words the last one did.
+ */
 export type ProviderImportCallSettlement<TAnswer> =
   | { readonly status: "unattempted" }
-  | { readonly status: "running" }
-  | { readonly status: "settled"; readonly answer: TAnswer }
-  | { readonly status: "refused"; readonly refusal: Refusal };
+  | { readonly status: "running"; readonly pressOrdinal: number }
+  | { readonly status: "settled"; readonly answer: TAnswer; readonly pressOrdinal: number }
+  | { readonly status: "refused"; readonly refusal: Refusal; readonly pressOrdinal: number };
 
 /** The subsystem every refusal this module raises carries. */
 const PROVIDER_IMPORT_ORIGIN = "provider-import";
@@ -44,6 +47,7 @@ export class ProviderImportCall<TRequest, TAnswer> {
   readonly #failedCode: string;
   readonly #changes = new Emitter<ProviderImportCallSettlement<TAnswer>>("provider import call");
   #settlement: ProviderImportCallSettlement<TAnswer> = { status: "unattempted" };
+  #pressCount = 0;
 
   /** `failedCode` reports a rejection that carried no code of its own. */
   public constructor(attempt: (request: TRequest) => Promise<TAnswer>, failedCode: string) {
@@ -79,13 +83,16 @@ export class ProviderImportCall<TRequest, TAnswer> {
         "Nothing was sent: the last press is still waiting for its answer.",
       );
     }
-    this.#publish({ status: "running" });
+    this.#pressCount += 1;
+    const pressOrdinal = this.#pressCount;
+    this.#publish({ status: "running", pressOrdinal });
     try {
-      this.#publish({ status: "settled", answer: await this.#attempt(request) });
+      this.#publish({ status: "settled", answer: await this.#attempt(request), pressOrdinal });
     } catch (error) {
       this.#publish({
         status: "refused",
         refusal: coerceToRefusal(error, PROVIDER_IMPORT_ORIGIN, this.#failedCode),
+        pressOrdinal,
       });
     }
     return undefined;

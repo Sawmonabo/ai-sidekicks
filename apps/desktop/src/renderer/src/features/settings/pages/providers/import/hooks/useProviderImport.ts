@@ -63,6 +63,11 @@ export interface ProviderImportModel {
   /** A stop is out. */
   readonly isStopping: boolean;
   /**
+   * The start press the row reports, counted from one, or `0` before any: a new press is a new
+   * attempt for the row's words, even where they read as the last press's did.
+   */
+  readonly startPressOrdinal: number;
+  /**
    * The row shows what the stream replayed as it opened and nothing this screen did since: what
    * was already true when the person arrived.
    */
@@ -119,6 +124,7 @@ export function useProviderImport(
     isReading: runningImportId !== undefined,
     isUnderway: started.status === "running" || runningImportId !== undefined,
     isStopping: stopped.status === "running",
+    startPressOrdinal: started.status === "unattempted" ? 0 : started.pressOrdinal,
     isShowingReplay:
       progress.status !== "failed" &&
       progress.newest !== undefined &&

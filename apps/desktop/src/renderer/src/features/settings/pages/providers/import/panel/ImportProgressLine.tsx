@@ -34,12 +34,13 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   const providerLabel = PROVIDER_LABELS[model.provider];
   // The row speaks through the app's announcer; a refused row's refusal speaks for itself. A
   // running import is said once, without the count it redraws on every frame, which would
-  // otherwise be read out frame by frame. What the stream replayed as it opened is not news.
+  // otherwise be read out frame by frame. What the stream replayed as it opened is not news; a
+  // new press is, even where its words match the last press's.
   const sentence = rowSentence(model, providerLabel);
   useAnnounceWhenShown(
     model.isUnderway && progress.status !== "failed" ? importingWords(providerLabel) : sentence,
     "polite",
-    { isStanding: model.isShowingReplay },
+    { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },
   );
   if (progress.status === "failed") {
     return (
