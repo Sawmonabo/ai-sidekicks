@@ -81,7 +81,10 @@ const APPLE_LOCALE_DEFAULT = "AppleLocale";
 /** The ICU keyword in a macOS locale identifier that names the person's 12- or 24-hour choice. */
 const HOURS_KEYWORD = "hours";
 
-/** The global defaults Foundation reads as the 12- or 24-hour override after the keyword. */
+/**
+ * The global defaults System Settings' 24-Hour Time switch writes, which Foundation reads as the
+ * 12- or 24-hour override after the keyword.
+ */
 const FORCE_24_HOUR_DEFAULT = "AppleICUForce24HourTime";
 const FORCE_12_HOUR_DEFAULT = "AppleICUForce12HourTime";
 

@@ -1,6 +1,7 @@
 // The machine's region and its 12- or 24-hour clock reach the console document's bridge as main
-// read them off macOS: a Mac set to the United States with 24-Hour Time on reports `h23` under a
-// US English UI language, whose own clock is 12-hour. The setting is the launch's own, through
+// read them off macOS: a Mac set to the United States with 24-Hour Time on, which System Settings
+// keeps in `AppleICUForce24HourTime`, reports `h23` under a US English UI language, whose own
+// clock is 12-hour like the region's. The setting is the launch's own, through
 // Cocoa's argument domain, so the machine's settings never change. When macOS posts that the
 // locale settings changed, main reads them again and the page hears the clock it read.
 
@@ -19,7 +20,13 @@ describe.skipIf(!bundleIsBuilt || process.platform !== "darwin")(
   () => {
     it("carries the 24-hour switch a US English Mac is set to, apart from its UI language, and again on each change notice", async () => {
       await withLaunchedApp(
-        { macUserDefaults: { AppleLocale: "en_US@hours=h23", AppleLanguages: "(en-US)" } },
+        {
+          macUserDefaults: {
+            AppleLocale: "en_US",
+            AppleLanguages: "(en-US)",
+            AppleICUForce24HourTime: "YES",
+          },
+        },
         async (appUnderTest) => {
           const facts = await appUnderTest.consolePage.evaluate(
             (): AppFacts => (window as unknown as { desktopBridge: PreloadApi }).desktopBridge.app,
