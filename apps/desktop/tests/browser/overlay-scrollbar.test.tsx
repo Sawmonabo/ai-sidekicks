@@ -26,6 +26,7 @@ import {
   waitForOverlayScrollbarLibrary,
 } from "#renderer/lib/overlay-scrollbar-library.js";
 import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";
+import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
 
@@ -146,10 +147,11 @@ afterEach(async () => {
 });
 
 describe("the overlay scrollbar", () => {
-  // Every rail destination, so a new destination is swept the day it is declared.
-  const routes = RAIL_DESTINATIONS.map((destination) =>
-    formatRoute(routeForDestination(destination)),
-  );
+  // Every rail destination and every settings page, so a new one is swept the day it is declared.
+  const routes = [
+    ...RAIL_DESTINATIONS.map((destination) => formatRoute(routeForDestination(destination))),
+    ...SETTINGS_PAGE_IDS.map((page) => formatRoute({ kind: "settings", page })),
+  ];
   for (const route of routes) {
     it(`draws every scroller's bar over its content at ${route}`, async () => {
       document.location.hash = route;

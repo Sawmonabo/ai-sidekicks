@@ -98,7 +98,13 @@
 }
 
 /* Every enumeration on this pane is bounded and scrolls inside its own box, so many legs,
-   tools, names or arguments do not push the controls off the page. */
+   tools, names or arguments do not push the controls off the page. The box is a wrapper, not the
+   list, because the bar is drawn inside it and a list holds only its items. */
+.meridian-mcp__scroller {
+  max-height: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+}
+
 .meridian-mcp__legs,
 .meridian-mcp__tools,
 .meridian-mcp__name-list,
@@ -106,8 +112,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
-  max-height: var(--meridian-enumeration-max-height);
-  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
   MCP_APPROVAL_MODES,
@@ -43,112 +44,115 @@ export function ToolSettingList(props: {
   readonly clock: Clock;
 }): ReactNode {
   const { tools, outcomeFor, onChangeTool, sessionDirectory, clock } = props;
+  const scrollerRef = useOverlayScrollbar<HTMLDivElement>();
   if (tools.length === 0) {
     return <Nothing kind="empty" placement="inline" title="No tools listed for this server." />;
   }
   return (
-    <ul className="meridian-mcp__tools">
-      {tools.map((tool) => {
-        const outcomeLine = (facet: McpToolOverrideFacet): ReactNode => (
-          <MutationOutcomeLine
-            outcome={outcomeFor(tool.toolName, facet)}
-            sessionDirectory={sessionDirectory}
-            clock={clock}
-          />
-        );
-        const isSending = (facet: McpToolOverrideFacet): boolean =>
-          outcomeFor(tool.toolName, facet).kind === "sending";
-        return (
-          <li key={tool.toolName} className="meridian-mcp__tool">
-            <WireFigure value={tool.toolName} />
-            <div className="meridian-mcp__tool-setting">
-              <Switch
-                label="On"
-                checked={tool.enabled.value}
-                disabled={isSending("enabled")}
-                onCheckedChange={(enabled) => {
-                  onChangeTool(
-                    tool.toolName,
-                    "enabled",
-                    enabled === serverValueOf(tool.enabled)
-                      ? { kind: "clear" }
-                      : { kind: "set", override: { enabled } },
-                  );
-                }}
-              />
-              {renderSource(tool.enabled)}
-            </div>
-            {outcomeLine("enabled")}
-            <div className="meridian-mcp__tool-setting">
-              <label className="meridian-mcp__tool-choice">
-                <span className="meridian-settings-page__aside">Ask before running</span>
-                <select
-                  className="meridian-form__input"
-                  value={tool.approvalMode.value}
-                  disabled={isSending("approvalMode")}
-                  onChange={(event) => {
-                    const approvalMode = MCP_APPROVAL_MODES.find(
-                      (mode) => mode === event.currentTarget.value,
-                    );
-                    if (approvalMode === undefined) {
-                      return;
-                    }
+    <div className="meridian-mcp__scroller" ref={scrollerRef}>
+      <ul className="meridian-mcp__tools">
+        {tools.map((tool) => {
+          const outcomeLine = (facet: McpToolOverrideFacet): ReactNode => (
+            <MutationOutcomeLine
+              outcome={outcomeFor(tool.toolName, facet)}
+              sessionDirectory={sessionDirectory}
+              clock={clock}
+            />
+          );
+          const isSending = (facet: McpToolOverrideFacet): boolean =>
+            outcomeFor(tool.toolName, facet).kind === "sending";
+          return (
+            <li key={tool.toolName} className="meridian-mcp__tool">
+              <WireFigure value={tool.toolName} />
+              <div className="meridian-mcp__tool-setting">
+                <Switch
+                  label="On"
+                  checked={tool.enabled.value}
+                  disabled={isSending("enabled")}
+                  onCheckedChange={(enabled) => {
                     onChangeTool(
                       tool.toolName,
-                      "approvalMode",
-                      approvalMode === serverValueOf(tool.approvalMode)
+                      "enabled",
+                      enabled === serverValueOf(tool.enabled)
                         ? { kind: "clear" }
-                        : { kind: "set", override: { approvalMode } },
+                        : { kind: "set", override: { enabled } },
                     );
                   }}
-                >
-                  {MCP_APPROVAL_MODES.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {APPROVAL_MODE_WORDS[mode]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {renderSource(tool.approvalMode)}
-            </div>
-            {outcomeLine("approvalMode")}
-            <div className="meridian-mcp__tool-setting">
-              <label className="meridian-mcp__tool-choice">
-                <span className="meridian-settings-page__aside">If a call is interrupted</span>
-                <select
-                  className="meridian-form__input"
-                  value={tool.idempotencyClass.value}
-                  disabled={isSending("idempotencyClass")}
-                  onChange={(event) => {
-                    const idempotencyClass = IDEMPOTENCY_CLASSES.find(
-                      (candidate) => candidate === event.currentTarget.value,
-                    );
-                    if (idempotencyClass === undefined) {
-                      return;
-                    }
-                    onChangeTool(
-                      tool.toolName,
-                      "idempotencyClass",
-                      idempotencyClass === serverValueOf(tool.idempotencyClass)
-                        ? { kind: "clear" }
-                        : { kind: "set", override: { idempotencyClass } },
-                    );
-                  }}
-                >
-                  {IDEMPOTENCY_CLASSES.map((candidate) => (
-                    <option key={candidate} value={candidate}>
-                      {IDEMPOTENCY_CLASS_WORDS[candidate]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {renderSource(tool.idempotencyClass)}
-            </div>
-            {outcomeLine("idempotencyClass")}
-          </li>
-        );
-      })}
-    </ul>
+                />
+                {renderSource(tool.enabled)}
+              </div>
+              {outcomeLine("enabled")}
+              <div className="meridian-mcp__tool-setting">
+                <label className="meridian-mcp__tool-choice">
+                  <span className="meridian-settings-page__aside">Ask before running</span>
+                  <select
+                    className="meridian-form__input"
+                    value={tool.approvalMode.value}
+                    disabled={isSending("approvalMode")}
+                    onChange={(event) => {
+                      const approvalMode = MCP_APPROVAL_MODES.find(
+                        (mode) => mode === event.currentTarget.value,
+                      );
+                      if (approvalMode === undefined) {
+                        return;
+                      }
+                      onChangeTool(
+                        tool.toolName,
+                        "approvalMode",
+                        approvalMode === serverValueOf(tool.approvalMode)
+                          ? { kind: "clear" }
+                          : { kind: "set", override: { approvalMode } },
+                      );
+                    }}
+                  >
+                    {MCP_APPROVAL_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {APPROVAL_MODE_WORDS[mode]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {renderSource(tool.approvalMode)}
+              </div>
+              {outcomeLine("approvalMode")}
+              <div className="meridian-mcp__tool-setting">
+                <label className="meridian-mcp__tool-choice">
+                  <span className="meridian-settings-page__aside">If a call is interrupted</span>
+                  <select
+                    className="meridian-form__input"
+                    value={tool.idempotencyClass.value}
+                    disabled={isSending("idempotencyClass")}
+                    onChange={(event) => {
+                      const idempotencyClass = IDEMPOTENCY_CLASSES.find(
+                        (candidate) => candidate === event.currentTarget.value,
+                      );
+                      if (idempotencyClass === undefined) {
+                        return;
+                      }
+                      onChangeTool(
+                        tool.toolName,
+                        "idempotencyClass",
+                        idempotencyClass === serverValueOf(tool.idempotencyClass)
+                          ? { kind: "clear" }
+                          : { kind: "set", override: { idempotencyClass } },
+                      );
+                    }}
+                  >
+                    {IDEMPOTENCY_CLASSES.map((candidate) => (
+                      <option key={candidate} value={candidate}>
+                        {IDEMPOTENCY_CLASS_WORDS[candidate]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {renderSource(tool.idempotencyClass)}
+              </div>
+              {outcomeLine("idempotencyClass")}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
