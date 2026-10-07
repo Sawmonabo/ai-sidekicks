@@ -54,6 +54,16 @@ describe("workflow.definitionList", () => {
       expect(WorkflowDefinitionListRequestSchema.safeParse(extra).success).toBe(false);
     }
   });
+
+  it("carries a page's limit and cursor through, and refuses a cursor that is no cursor", () => {
+    const page = { limit: 50, cursor: "after:def-50" };
+    expect(WorkflowDefinitionListRequestSchema.parse(page)).toEqual(page);
+    for (const cursor of ["", 50, null]) {
+      expect(WorkflowDefinitionListRequestSchema.safeParse({ ...page, cursor }).success).toBe(
+        false,
+      );
+    }
+  });
 });
 
 describe("workflow.definitionRead", () => {

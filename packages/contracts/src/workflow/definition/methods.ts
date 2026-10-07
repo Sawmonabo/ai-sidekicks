@@ -7,7 +7,12 @@ import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "../../agent/definition.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+  type MethodDescriptor,
+} from "../../method-descriptor.js";
 import { PermissionLevelSchema, type PermissionLevel } from "../../session/controls/methods.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import { WorkflowRunStatusSchema, type WorkflowRunStatus } from "../run/status.js";
@@ -19,6 +24,7 @@ import {
   WorkflowEdgeSchema,
   WorkflowNodeKindIdSchema,
   WorkflowNodeSchema,
+  WorkflowTagSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
   type WorkflowDocument,
@@ -41,7 +47,7 @@ import {
   WorkflowPermissionLevelUpdateResponseSchema,
   WorkflowPinDataSetRequestSchema,
   WorkflowPinDataSetResponseSchema,
-  WorkflowWebhookListenerReadRequestSchema,
+  WorkflowTagsSetRequestSchema,
   WorkflowWebhookListenerReadResponseSchema,
   WorkflowWebhookTokenRotateRequestSchema,
   WorkflowWebhookTokenRotateResponseSchema,
@@ -59,7 +65,7 @@ import {
   type WorkflowPermissionLevelUpdateResponse,
   type WorkflowPinDataSetRequest,
   type WorkflowPinDataSetResponse,
-  type WorkflowWebhookListenerReadRequest,
+  type WorkflowTagsSetRequest,
   type WorkflowWebhookListenerReadResponse,
   type WorkflowWebhookTokenRotateRequest,
   type WorkflowWebhookTokenRotateResponse,
@@ -86,8 +92,9 @@ export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unkno
 /**
  * The `workflow.definitionCreate` input. Saving a new workflow, duplicating one and
  * importing a file all send this one shape. The name is the document's own and is used
- * once across the library: a name another workflow holds is refused with
- * `workflow.definition_refused`, finding `name_taken`.
+ * once across the one library, compared ignoring case by the shared name fold (`foldName`):
+ * a name another workflow holds is refused with `workflow.definition_refused`, finding
+ * `name_taken`.
  */
 export interface WorkflowDefinitionCreateRequest {
   document: WorkflowDocument;
@@ -150,11 +157,8 @@ const WORKFLOW_WEBHOOK_FIRE_OUTCOMES = ["started", "skipped", "waiting", "token_
  */
 export type WorkflowWebhookFireOutcome = (typeof WORKFLOW_WEBHOOK_FIRE_OUTCOMES)[number];
 
-/**
- * The `workflow.definitionRead` result. The webhook token is never read back, only its hash is
- * kept, so the reply carries the token's dates and the last fire's outcome instead.
- */
-export interface WorkflowDefinitionReadResponse {
+/** What a definition read carries beside the webhook token's dates. */
+interface WorkflowDefinitionReadRecord {
   id: WorkflowDefinitionId;
   name: string;
   versionNumber: number;
@@ -164,10 +168,6 @@ export interface WorkflowDefinitionReadResponse {
   /** The workflow's own level, which every run of it uses and the builder's level pill reads. */
   permissionLevel: PermissionLevel;
   createdAt: string;
-  /** When the webhook token was made, absent while the workflow has no token. */
-  webhookTokenCreatedAt?: string | undefined;
-  /** When a call last presented the token, absent until one has. */
-  webhookTokenLastUsedAt?: string | undefined;
   webhookLastFire?: { at: string; outcome: WorkflowWebhookFireOutcome } | undefined;
   /**
    * When the workflow was deleted, absent while it is not. A deleted workflow still reads, so a
@@ -175,31 +175,56 @@ export interface WorkflowDefinitionReadResponse {
    */
   deletedAt?: string | undefined;
 }
+
+/**
+ * The webhook token's dates: when it was made and when a call last presented it, both absent
+ * while the workflow has no token, and a last use only beside the token's creation.
+ */
+type WorkflowWebhookTokenDates =
+  | { webhookTokenCreatedAt: string; webhookTokenLastUsedAt?: string | undefined }
+  | { webhookTokenCreatedAt?: undefined; webhookTokenLastUsedAt?: undefined };
+
+/**
+ * The `workflow.definitionRead` result. The webhook token is never read back, only its hash is
+ * kept, so the reply carries the token's dates and the last fire's outcome instead. The tags ride
+ * the document.
+ */
+export type WorkflowDefinitionReadResponse = WorkflowDefinitionReadRecord &
+  WorkflowWebhookTokenDates;
+
+const workflowDefinitionReadRecordShape = {
+  id: WorkflowDefinitionIdSchema,
+  name: z.string().min(1),
+  versionNumber: z.number().int().positive(),
+  workflowVersionId: WorkflowVersionIdSchema,
+  contentHash: WorkflowContentHashSchema,
+  document: WorkflowDocumentSchema,
+  permissionLevel: PermissionLevelSchema,
+  createdAt: isoDateTimeSchema,
+  webhookLastFire: z
+    .object({ at: isoDateTimeSchema, outcome: z.enum(WORKFLOW_WEBHOOK_FIRE_OUTCOMES) })
+    .strict()
+    .optional(),
+  deletedAt: isoDateTimeSchema.optional(),
+};
 /** Wire schema for {@link WorkflowDefinitionReadResponse}. */
-export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionReadResponse> = z
-  .object({
-    id: WorkflowDefinitionIdSchema,
-    name: z.string().min(1),
-    versionNumber: z.number().int().positive(),
-    workflowVersionId: WorkflowVersionIdSchema,
-    contentHash: WorkflowContentHashSchema,
-    document: WorkflowDocumentSchema,
-    permissionLevel: PermissionLevelSchema,
-    createdAt: isoDateTimeSchema,
-    webhookTokenCreatedAt: isoDateTimeSchema.optional(),
-    webhookTokenLastUsedAt: isoDateTimeSchema.optional(),
-    webhookLastFire: z
-      .object({ at: isoDateTimeSchema, outcome: z.enum(WORKFLOW_WEBHOOK_FIRE_OUTCOMES) })
-      .strict()
-      .optional(),
-    deletedAt: isoDateTimeSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (reply) =>
-      reply.webhookTokenLastUsedAt === undefined || reply.webhookTokenCreatedAt !== undefined,
-    { message: "A token's last use is reported only beside the token's creation date." },
-  );
+export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionReadResponse> =
+  z.union([
+    z
+      .object({
+        ...workflowDefinitionReadRecordShape,
+        webhookTokenCreatedAt: isoDateTimeSchema,
+        webhookTokenLastUsedAt: isoDateTimeSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...workflowDefinitionReadRecordShape,
+        webhookTokenCreatedAt: z.undefined().optional(),
+        webhookTokenLastUsedAt: z.undefined().optional(),
+      })
+      .strict(),
+  ]);
 
 // workflow.definitionList
 
@@ -293,7 +318,7 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
     // Whether the workflow's triggers are armed: the toggle's own truth, so the row
     // reverts visibly when the daemon refuses rather than holding an optimistic value.
     enabled: z.boolean(),
-    tags: z.array(z.string().min(1)),
+    tags: z.array(WorkflowTagSchema),
     runCount: countSchema,
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
@@ -445,8 +470,10 @@ export const WorkflowVersionChainReadResponseSchema: z.ZodType<WorkflowVersionCh
 
 /**
  * The `workflow.definitionUpdate` input: Save, Restore, and a schedule change. It writes
- * a new version and never changes one, and only when `expectedVersionNumber` is still
- * the latest; otherwise it is refused with {@link WORKFLOW_VERSION_STALE_CODE}.
+ * a new version and never changes one, and only when `expectedVersionNumber` is still the latest;
+ * otherwise it is refused with {@link WORKFLOW_VERSION_STALE_CODE}. A name another workflow in
+ * the one library holds, compared ignoring case by the shared name fold (`foldName`), is refused
+ * with `workflow.definition_refused`, finding `name_taken`.
  */
 export interface WorkflowDefinitionUpdateRequest {
   definitionId: WorkflowDefinitionId;
@@ -558,9 +585,10 @@ export const WorkflowDefinitionExportResponseSchema: z.ZodType<WorkflowDefinitio
 
 /**
  * The `workflow.definitionImport` input. The daemon reads the file the person picked and
- * creates the definition through the create path with its whole check, all or nothing.
- * `filePath` is the path main forwards in place of the token the platform's open chooser
- * returned.
+ * creates the definition through the create path with its whole check, all or nothing, so a
+ * name another workflow in the one library holds, compared ignoring case by the shared name fold
+ * (`foldName`), is refused with `workflow.definition_refused`, finding `name_taken`. `filePath`
+ * is the path main forwards in place of the token the platform's open chooser returned.
  */
 export interface WorkflowDefinitionImportRequest {
   filePath: string;
@@ -673,6 +701,11 @@ export interface WorkflowDefinitionMethodDescriptors {
     WorkflowLayoutSetRequest,
     WorkflowDefinitionSettingResponse
   >;
+  readonly "workflow.tagsSet": MethodDescriptor<
+    "workflow.tagsSet",
+    WorkflowTagsSetRequest,
+    WorkflowDefinitionSettingResponse
+  >;
   readonly "workflow.permissionLevelUpdate": MethodDescriptor<
     "workflow.permissionLevelUpdate",
     WorkflowPermissionLevelUpdateRequest,
@@ -710,7 +743,7 @@ export interface WorkflowDefinitionMethodDescriptors {
   >;
   readonly "workflow.webhookListenerRead": MethodDescriptor<
     "workflow.webhookListenerRead",
-    WorkflowWebhookListenerReadRequest,
+    EmptyPayload,
     WorkflowWebhookListenerReadResponse
   >;
 }
@@ -797,6 +830,13 @@ export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDes
       requestSchema: WorkflowLayoutSetRequestSchema,
       responseSchema: WorkflowDefinitionSettingResponseSchema,
     },
+    "workflow.tagsSet": {
+      method: "workflow.tagsSet",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: WorkflowTagsSetRequestSchema,
+      responseSchema: WorkflowDefinitionSettingResponseSchema,
+    },
     "workflow.permissionLevelUpdate": {
       method: "workflow.permissionLevelUpdate",
       procedureType: "mutation",
@@ -850,7 +890,7 @@ export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDes
       method: "workflow.webhookListenerRead",
       procedureType: "query",
       mutating: false,
-      requestSchema: WorkflowWebhookListenerReadRequestSchema,
+      requestSchema: EmptyPayloadSchema,
       responseSchema: WorkflowWebhookListenerReadResponseSchema,
     },
   });

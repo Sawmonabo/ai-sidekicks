@@ -1,7 +1,8 @@
-// The workflow.* methods on one step: reading its input, output or log, the agent and human steps'
-// saved outputs, answering an approval step or a chain's question, loading, saving and submitting a
-// waiting form, and opening a fix session on a failed step, with their refusals and the method
-// table. A descriptor registers nothing.
+// The workflow.* methods on one step: reading its input, output or log, storing what one of its
+// panel's tabs holds as an artifact, the agent and human steps' saved outputs, answering an approval
+// step or a chain's question, loading, saving and submitting a waiting form, and opening a fix
+// session on a failed step, with their refusals and the method table. A descriptor registers
+// nothing.
 import { z } from "zod";
 import {
   WorkflowPayloadRefSchema,
@@ -19,13 +20,21 @@ import { SessionIdSchema, type SessionId } from "../../../session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../../definition/document.js";
 import { WorkflowParamSpecSchema, type WorkflowParamSpec } from "../../kind.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
+import { WORKFLOW_STEP_STATUSES, type WorkflowStepStatus } from "../status.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 // workflow.stepRead
 
+// A step panel's tabs: its three payloads, then its cost and its error.
+const WORKFLOW_STEP_TABS = ["input", "output", "log", "cost", "error"] as const;
+const workflowStepTabEnum = z.enum(WORKFLOW_STEP_TABS);
+
 /** Which of a step's three payloads a read returns. */
-export type WorkflowStepPayloadKind = "input" | "output" | "log";
-const WorkflowStepPayloadKindSchema = z.enum(["input", "output", "log"]);
+export type WorkflowStepPayloadKind = Extract<
+  (typeof WORKFLOW_STEP_TABS)[number],
+  "input" | "output" | "log"
+>;
+const WorkflowStepPayloadKindSchema = workflowStepTabEnum.extract(["input", "output", "log"]);
 
 /**
  * The `workflow.stepRead` input: one step's input, output or log, paged. Every secret
@@ -70,6 +79,30 @@ export const WorkflowStepReadResponseSchema: z.ZodType<WorkflowStepReadResponse>
     nextCursor: z.string().min(1).optional(),
   })
   .strict();
+
+// workflow.stepTabArtifactCreate
+
+/**
+ * The `workflow.stepTabArtifactCreate` input: the step-panel tab whose content is stored as an
+ * artifact of the run's session, for the tab's `Open as artifact`: an inline input, output or log,
+ * the step's cost or its error.
+ */
+export interface WorkflowStepTabArtifactCreateRequest extends WorkflowStepKey {
+  which: (typeof WORKFLOW_STEP_TABS)[number];
+}
+/** Wire schema for {@link WorkflowStepTabArtifactCreateRequest}. */
+export const WorkflowStepTabArtifactCreateRequestSchema: z.ZodType<
+  WorkflowStepTabArtifactCreateRequest,
+  WorkflowStepTabArtifactCreateRequest
+> = z.object({ ...workflowStepKeyShape, which: workflowStepTabEnum }).strict();
+
+/** The `workflow.stepTabArtifactCreate` result: the stored artifact's id. */
+export interface WorkflowStepTabArtifactCreateResponse {
+  artifactId: ArtifactId;
+}
+/** Wire schema for {@link WorkflowStepTabArtifactCreateResponse}. */
+export const WorkflowStepTabArtifactCreateResponseSchema: z.ZodType<WorkflowStepTabArtifactCreateResponse> =
+  z.object({ artifactId: ArtifactIdSchema }).strict();
 
 // workflow.stepOutputList
 
@@ -120,7 +153,7 @@ export const WorkflowStepOutputSchema: z.ZodType<WorkflowStepOutput> = z.discrim
 export interface WorkflowStepOutputs {
   nodeId: WorkflowNodeId;
   executionIndex: number;
-  status: "succeeded" | "failed";
+  status: Extract<WorkflowStepStatus, "succeeded" | "failed">;
   outputs: WorkflowStepOutput[];
 }
 
@@ -139,7 +172,7 @@ export const WorkflowStepOutputListResponseSchema: z.ZodType<WorkflowStepOutputL
         .object({
           nodeId: WorkflowNodeIdSchema,
           executionIndex: workflowStepKeyShape.executionIndex,
-          status: z.enum(["succeeded", "failed"]),
+          status: z.enum(WORKFLOW_STEP_STATUSES).extract(["succeeded", "failed"]),
           outputs: z.array(WorkflowStepOutputSchema),
         })
         .strict(),
@@ -353,6 +386,11 @@ export interface WorkflowStepMethodDescriptors {
     WorkflowStepReadRequest,
     WorkflowStepReadResponse
   >;
+  readonly "workflow.stepTabArtifactCreate": MethodDescriptor<
+    "workflow.stepTabArtifactCreate",
+    WorkflowStepTabArtifactCreateRequest,
+    WorkflowStepTabArtifactCreateResponse
+  >;
   readonly "workflow.stepOutputList": MethodDescriptor<
     "workflow.stepOutputList",
     WorkflowStepOutputListRequest,
@@ -396,6 +434,13 @@ export const WORKFLOW_STEP_METHOD_DESCRIPTORS: WorkflowStepMethodDescriptors =
       mutating: false,
       requestSchema: WorkflowStepReadRequestSchema,
       responseSchema: WorkflowStepReadResponseSchema,
+    },
+    "workflow.stepTabArtifactCreate": {
+      method: "workflow.stepTabArtifactCreate",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: WorkflowStepTabArtifactCreateRequestSchema,
+      responseSchema: WorkflowStepTabArtifactCreateResponseSchema,
     },
     "workflow.stepOutputList": {
       method: "workflow.stepOutputList",

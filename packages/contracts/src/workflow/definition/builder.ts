@@ -1,7 +1,8 @@
 // The state kept beside a workflow's versions, which saves no new version: the enabled
-// switch, the canvas layout, the permission level, pinned test data, the builder's unsaved
-// draft, the expression preview, and the webhook token and listener, with the refusals they
-// answer with. The method table that lists these methods is in `workflow/definition/methods.ts`.
+// switch, the canvas layout, the tags, the permission level, pinned test data, the builder's
+// unsaved draft, the expression preview, and the webhook token and listener, with the refusals
+// they answer with. The method table that lists these methods is in
+// `workflow/definition/methods.ts`.
 import { z } from "zod";
 
 import { countSchema, isoDateTimeSchema, portSchema } from "../../internal/wire-scalars.js";
@@ -12,6 +13,7 @@ import {
   WorkflowLayoutSchema,
   WorkflowNodeIdSchema,
   WorkflowPinnedItemSchema,
+  WorkflowTagSchema,
   type WorkflowDefinitionId,
   type WorkflowDraftDocument,
   type WorkflowLayout,
@@ -36,7 +38,14 @@ export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as c
  */
 export const WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE = "workflow.webhook_token_mismatch" as const;
 
-// Settings kept beside a version: enabled, layout, pinned data
+/**
+ * A tags write naming a tag that holds a space or is empty; nothing is written.
+ *
+ * @consumedBy the handler that returns the `workflow.tag_refused` error
+ */
+export const WORKFLOW_TAG_REFUSED_CODE = "workflow.tag_refused" as const;
+
+// Settings kept beside a version: enabled, layout, tags, permission level, pinned data
 
 /**
  * The `workflow.enabledSet` input: arm or disarm every trigger of one workflow. A
@@ -90,6 +99,24 @@ export interface WorkflowDefinitionSettingResponse {
 /** Wire schema for {@link WorkflowDefinitionSettingResponse}. */
 export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefinitionSettingResponse> =
   z.object({ definitionId: WorkflowDefinitionIdSchema, updatedAt: isoDateTimeSchema }).strict();
+
+/**
+ * The `workflow.tagsSet` input: the workflow's whole tag set, which replaces the one held, so a
+ * remove and an add are one write. Tags sit outside the hashed body, so a change mints no
+ * version. The daemon refuses a tag that holds a space or is empty with
+ * {@link WORKFLOW_TAG_REFUSED_CODE}.
+ */
+export interface WorkflowTagsSetRequest {
+  definitionId: WorkflowDefinitionId;
+  tags: string[];
+}
+/** Wire schema for {@link WorkflowTagsSetRequest}. */
+export const WorkflowTagsSetRequestSchema: z.ZodType<
+  WorkflowTagsSetRequest,
+  WorkflowTagsSetRequest
+> = z
+  .object({ definitionId: WorkflowDefinitionIdSchema, tags: z.array(WorkflowTagSchema) })
+  .strict();
 
 /**
  * The `workflow.permissionLevelUpdate` input: the level every run of the workflow uses, a live
@@ -153,34 +180,40 @@ export const WorkflowPinDataSetResponseSchema: z.ZodType<WorkflowPinDataSetRespo
 
 // The builder's draft
 
+// A saved workflow's draft names it and the version it was opened from; a new workflow's names
+// neither, so a version number never appears without the definition.
+const savedWorkflowDraftShape = {
+  definitionId: WorkflowDefinitionIdSchema,
+  basedOnVersionNumber: z.number().int().positive().optional(),
+  document: WorkflowDraftDocumentSchema,
+};
+const newWorkflowDraftShape = {
+  definitionId: z.undefined().optional(),
+  basedOnVersionNumber: z.undefined().optional(),
+  document: WorkflowDraftDocumentSchema,
+};
+
 /**
  * The `workflow.draftUpdate` input: the builder's whole unsaved document, which replaces
  * the one held. The daemon holds one draft per saved workflow, named by `definitionId`
  * with the version it was opened from, and one for a new workflow, which omits both.
  */
-export interface WorkflowDraftUpdateRequest {
-  definitionId?: WorkflowDefinitionId | undefined;
-  basedOnVersionNumber?: number | undefined;
-  document: WorkflowDraftDocument;
-}
+export type WorkflowDraftUpdateRequest =
+  | {
+      definitionId: WorkflowDefinitionId;
+      basedOnVersionNumber?: number | undefined;
+      document: WorkflowDraftDocument;
+    }
+  | {
+      definitionId?: undefined;
+      basedOnVersionNumber?: undefined;
+      document: WorkflowDraftDocument;
+    };
 /** Wire schema for {@link WorkflowDraftUpdateRequest}. */
 export const WorkflowDraftUpdateRequestSchema: z.ZodType<
   WorkflowDraftUpdateRequest,
   WorkflowDraftUpdateRequest
-> = z
-  .object({
-    definitionId: WorkflowDefinitionIdSchema.optional(),
-    basedOnVersionNumber: z.number().int().positive().optional(),
-    document: WorkflowDraftDocumentSchema,
-  })
-  .strict()
-  .refine(
-    (request) => request.basedOnVersionNumber === undefined || request.definitionId !== undefined,
-    {
-      message:
-        "A draft is based on a version only of a saved workflow, so it names the definition.",
-    },
-  );
+> = z.union([z.object(savedWorkflowDraftShape).strict(), z.object(newWorkflowDraftShape).strict()]);
 
 /** When the daemon stored the draft. */
 export interface WorkflowDraftUpdateResponse {
@@ -204,13 +237,8 @@ export const WorkflowDraftReadRequestSchema: z.ZodType<
   WorkflowDraftReadRequest
 > = z.object({ definitionId: WorkflowDefinitionIdSchema.optional() }).strict();
 
-/** One held draft. */
-export interface WorkflowDraft {
-  definitionId?: WorkflowDefinitionId | undefined;
-  basedOnVersionNumber?: number | undefined;
-  document: WorkflowDraftDocument;
-  updatedAt: string;
-}
+/** One held draft: what the last update sent, and when it was stored. */
+export type WorkflowDraft = WorkflowDraftUpdateRequest & { updatedAt: string };
 
 /** The `workflow.draftRead` result. A draft that is no longer held is an answer, not an error. */
 export interface WorkflowDraftReadResponse {
@@ -220,13 +248,10 @@ export interface WorkflowDraftReadResponse {
 export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadResponse> = z
   .object({
     draft: z
-      .object({
-        definitionId: WorkflowDefinitionIdSchema.optional(),
-        basedOnVersionNumber: z.number().int().positive().optional(),
-        document: WorkflowDraftDocumentSchema,
-        updatedAt: isoDateTimeSchema,
-      })
-      .strict()
+      .union([
+        z.object({ ...savedWorkflowDraftShape, updatedAt: isoDateTimeSchema }).strict(),
+        z.object({ ...newWorkflowDraftShape, updatedAt: isoDateTimeSchema }).strict(),
+      ])
       .nullable(),
   })
   .strict();
@@ -305,14 +330,6 @@ export const WorkflowWebhookTokenRotateResponseSchema: z.ZodType<WorkflowWebhook
       createdAt: isoDateTimeSchema,
     })
     .strict();
-
-/** `workflow.webhookListenerRead` takes no members. */
-export type WorkflowWebhookListenerReadRequest = Record<string, never>;
-/** Wire schema for {@link WorkflowWebhookListenerReadRequest}. */
-export const WorkflowWebhookListenerReadRequestSchema: z.ZodType<
-  WorkflowWebhookListenerReadRequest,
-  WorkflowWebhookListenerReadRequest
-> = z.object({}).strict();
 
 const WORKFLOW_WEBHOOK_LISTENER_STATES = ["listening", "port_taken"] as const;
 

@@ -1,8 +1,9 @@
-// The builder keeps its unsaved draft in the daemon. This case holds the cross-member rule the
-// daemon relies on: a draft is based on a version only of a named workflow.
+// The builder keeps its unsaved draft in the daemon and saves its tags beside the definition.
+// These cases hold what the daemon relies on: a draft is based on a version only of a named
+// workflow, and a tag reaches the daemon's own space check rather than being refused at parse.
 import { describe, expect, it } from "vitest";
 
-import { WorkflowDraftUpdateRequestSchema } from "../builder.js";
+import { WorkflowDraftUpdateRequestSchema, WorkflowTagsSetRequestSchema } from "../builder.js";
 
 const DRAFT_DOCUMENT = { schemaVersion: "2", name: "Test workflow", nodes: [], edges: [] };
 
@@ -13,5 +14,13 @@ describe("workflow.draftUpdate", () => {
     expect(
       WorkflowDraftUpdateRequestSchema.safeParse({ ...draft, definitionId: "def-1" }).success,
     ).toBe(true);
+  });
+});
+
+describe("workflow.tagsSet", () => {
+  it("refuses a tag holding a NUL byte and passes one holding a space to the daemon", () => {
+    const write = (tag: string) => ({ definitionId: "def-1", tags: ["team/infra", tag] });
+    expect(WorkflowTagsSetRequestSchema.safeParse(write("night\u0000ly")).success).toBe(false);
+    expect(WorkflowTagsSetRequestSchema.safeParse(write("night ly")).success).toBe(true);
   });
 });

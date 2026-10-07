@@ -1,6 +1,7 @@
 // One step is answered and read from the run's step panel. These tests hold what that
 // panel depends on: an approval answered in the approvals' own words, for a step or a
-// chain's question, and a form addressed by the step it waits on.
+// chain's question, and a form addressed by the step it waits on; and what the CLI's output
+// list depends on: summaries and references, never a step's whole payload.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,11 +9,13 @@ import {
   WorkflowGateResolveResponseSchema,
   WorkflowHumanFormReadResponseSchema,
   WorkflowHumanFormSubmitRequestSchema,
+  WorkflowStepOutputListResponseSchema,
   WorkflowStepReadRequestSchema,
 } from "../methods.js";
 
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
 const STEP = { workflowRunId: RUN_ID, nodeId: "review-form", executionIndex: 4 };
+const NOW = "2026-09-29T20:00:00.000Z";
 
 describe("workflow.gateResolve", () => {
   it("accepts an approval step's answer and a chain question's answer, which names no node", () => {
@@ -91,5 +94,22 @@ describe("workflow.stepRead", () => {
     expect(WorkflowStepReadRequestSchema.safeParse({ ...STEP, which: "error" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("workflow.stepOutputList", () => {
+  it("lists summaries and artifact references, never a step's full payload", () => {
+    const output = { valueKind: "inline", summary: "3 files changed", producedAt: NOW };
+    const step = { nodeId: "agent", executionIndex: 2, status: "succeeded", outputs: [output] };
+    expect(WorkflowStepOutputListResponseSchema.safeParse({ steps: [step] }).success).toBe(true);
+    const payload = { kind: "inline", items: [{ json: { diff: "+ a line" } }] };
+    for (const withPayload of [
+      { ...step, outputs: [{ ...output, payload }] },
+      { ...step, output: payload },
+    ]) {
+      expect(WorkflowStepOutputListResponseSchema.safeParse({ steps: [withPayload] }).success).toBe(
+        false,
+      );
+    }
   });
 });
