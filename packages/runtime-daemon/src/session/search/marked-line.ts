@@ -1,15 +1,14 @@
-// Reads the full-text index's highlighted text: the line the first match sits in, cut to a bound
-// around it, and the matched stretches inside that line in UTF-16 code units.
+// Reads the full-text index's highlighted text: the matched stretches in UTF-16 code units, and
+// the line the first match sits in, cut to a bound around it. The marks `highlight()` puts around
+// a match are two noncharacters, and the index's own text never carries either, since every
+// trigger writes it through `markFreeTextSql`; so each mark in a highlight is one the index put.
 
 import type { SearchMatchRange } from "@ai-sidekicks/contracts/session/methods";
 
-/**
- * The marks `highlight()` puts around each match: noncharacter pairs, which Unicode reserves for
- * a program's own use, so text people or tools write does not carry them.
- */
-export const MATCH_OPEN_MARK = "﷐﷑";
+/** The mark `highlight()` puts before a match: a noncharacter, which Unicode leaves to programs. */
+export const MATCH_OPEN_MARK = "﷐";
 /** The mark `highlight()` puts after each match; see {@link MATCH_OPEN_MARK}. */
-export const MATCH_CLOSE_MARK = "﷑﷐";
+export const MATCH_CLOSE_MARK = "﷑";
 
 // How much of the line before the first match a cut line keeps, so the match reads in context.
 const LEADING_CONTEXT_LENGTH = 40;
@@ -20,20 +19,61 @@ export interface MarkedLine {
   readonly matchRanges: SearchMatchRange[];
 }
 
-interface UnmarkedText {
+/** A highlight read back: the text without its marks, and every matched stretch in it. */
+export interface MarkedText {
   readonly text: string;
   readonly ranges: readonly SearchMatchRange[];
 }
 
 /**
- * The line holding the first match of `markedText`, at most `maxLength` code units long, with the
- * matches inside it; `undefined` when the text carries no match.
+ * The SQL for `textSql` as the index keeps it: each mark character becomes a space, which the
+ * tokenizer already reads as a separator, so the words indexed are the same.
  */
-export function readMarkedLine(markedText: string, maxLength: number): MarkedLine | undefined {
-  const { text, ranges } = removeMarks(markedText);
+export function markFreeTextSql(textSql: string): string {
+  let sql = textSql;
+  for (const mark of [MATCH_OPEN_MARK, MATCH_CLOSE_MARK]) {
+    sql = `replace(${sql}, char(${String(mark.codePointAt(0))}), ' ')`;
+  }
+  return sql;
+}
+
+/** Reads a highlight back in one pass over it; an open mark left unclosed runs to the end. */
+export function readMarks(markedText: string): MarkedText {
+  const ranges: SearchMatchRange[] = [];
+  let text = "";
+  let rangeStart: number | undefined;
+  let segmentStart = 0;
+  for (let index = 0; index < markedText.length; index += 1) {
+    const character = markedText[index];
+    if (character !== MATCH_OPEN_MARK && character !== MATCH_CLOSE_MARK) {
+      continue;
+    }
+    text += markedText.slice(segmentStart, index);
+    segmentStart = index + 1;
+    if (character === MATCH_OPEN_MARK) {
+      rangeStart ??= text.length;
+    } else if (rangeStart !== undefined) {
+      pushRange(ranges, rangeStart, text.length);
+      rangeStart = undefined;
+    }
+  }
+  text += markedText.slice(segmentStart);
+  if (rangeStart !== undefined) {
+    pushRange(ranges, rangeStart, text.length);
+  }
+  return { text, ranges };
+}
+
+/**
+ * The line holding the first match, at most `maxLength` code units long, with the matches inside
+ * it. Throws when the text carries no match: a row the index matched always carries one, so none
+ * means the index is broken.
+ */
+export function cutMarkedLine(marked: MarkedText, maxLength: number): MarkedLine {
+  const { text, ranges } = marked;
   const firstRange = ranges[0];
   if (firstRange === undefined) {
-    return undefined;
+    throw new Error("A row the full-text index matched carries no match to mark.");
   }
   const lineStart = text.lastIndexOf("\n", firstRange.start - 1) + 1;
   const newlineIndex = text.indexOf("\n", firstRange.start);
@@ -62,28 +102,9 @@ export function readMarkedLine(markedText: string, maxLength: number): MarkedLin
   return { line: text.slice(cutStart, cutEnd), matchRanges };
 }
 
-/** How many matches `markedText` carries, across all its lines. */
-export function countMarkedMatches(markedText: string): number {
-  return markedText.split(MATCH_OPEN_MARK).length - 1;
-}
-
-function removeMarks(markedText: string): UnmarkedText {
-  const ranges: SearchMatchRange[] = [];
-  let text = "";
-  let cursor = 0;
-  for (;;) {
-    const openIndex = markedText.indexOf(MATCH_OPEN_MARK, cursor);
-    if (openIndex === -1) {
-      return { text: text + markedText.slice(cursor), ranges };
-    }
-    const closeIndex = markedText.indexOf(MATCH_CLOSE_MARK, openIndex);
-    text += markedText.slice(cursor, openIndex);
-    const start = text.length;
-    text += markedText.slice(openIndex + MATCH_OPEN_MARK.length, closeIndex);
-    if (text.length > start) {
-      ranges.push({ start, end: text.length });
-    }
-    cursor = closeIndex + MATCH_CLOSE_MARK.length;
+function pushRange(ranges: SearchMatchRange[], start: number, end: number): void {
+  if (end > start) {
+    ranges.push({ start, end });
   }
 }
 

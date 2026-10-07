@@ -15,13 +15,8 @@ import {
 } from "@ai-sidekicks/contracts/transcript/search";
 
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
-import {
-  MATCH_CLOSE_MARK,
-  MATCH_OPEN_MARK,
-  countMarkedMatches,
-  readMarkedLine,
-} from "./marked-line.js";
-import { sessionKeySql } from "./index-columns.js";
+import { sessionKeySql, sourceRowidSql } from "./index-columns.js";
+import { MATCH_CLOSE_MARK, MATCH_OPEN_MARK, cutMarkedLine, readMarks } from "./marked-line.js";
 import { matchExpressionOf } from "./query.js";
 
 // The session's matching log rows, newest first; a title, group or tag is no row of the log. The
@@ -30,7 +25,7 @@ const SESSION_ROW_HITS_SQL = `
   SELECT event.id AS row_id, index_row.sequence,
          highlight(session_search_index, 0, @open, @close) AS marked
     FROM session_search_index AS index_row
-    JOIN session_events AS event ON event.rowid = index_row.rowid / 4
+    JOIN session_events AS event ON event.rowid = ${sourceRowidSql("index_row.rowid", "event")}
    WHERE session_search_index MATCH
            @expression || ' AND session_key : "' || ${sessionKeySql("@sessionId")} || '"'
    ORDER BY index_row.sequence DESC`;
@@ -84,22 +79,21 @@ export class TranscriptSearchService {
       close: MATCH_CLOSE_MARK,
     });
     for (const row of rows) {
-      matchCount += countMarkedMatches(row.marked);
+      const marked = readMarks(row.marked);
+      matchCount += marked.ranges.length;
       if (
         candidates.length > limit ||
         (beforePosition !== undefined && row.sequence >= beforePosition)
       ) {
         continue;
       }
-      const markedLine = readMarkedLine(row.marked, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
-      if (markedLine !== undefined) {
-        candidates.push({
-          rowId: row.row_id,
-          cursor: encodeEventCursor(row.sequence),
-          snippet: markedLine.line,
-          matchRanges: markedLine.matchRanges,
-        });
-      }
+      const markedLine = cutMarkedLine(marked, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
+      candidates.push({
+        rowId: row.row_id,
+        cursor: encodeEventCursor(row.sequence),
+        snippet: markedLine.line,
+        matchRanges: markedLine.matchRanges,
+      });
     }
     const pageSize = countEntriesFittingOneFrame(candidates, limit);
     const hits = candidates.slice(0, pageSize);

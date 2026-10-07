@@ -11,7 +11,9 @@
 
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
 
-import { sessionKeySql } from "./search/index-columns.js";
+import { indexRowidSql, sessionKeySql } from "./search/index-columns.js";
+import { markFreeTextSql } from "./search/marked-line.js";
+import { rowidFloorTriggerSql } from "./search/rowid-floors.js";
 
 /**
  * The whole daemon schema. `applyMigrations` executes it once, in one
@@ -137,8 +139,8 @@ CREATE TABLE session_groups (
 CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
 
 -- The event-derived columns are written in each event's own write, before its
--- row, and equal a rebuild from the log. group_id, document_count and the
--- pending working-folder move are written by services and never rebuilt.
+-- row, and equal a rebuild from the log. group_id and the pending working-folder
+-- move are written by services and never rebuilt.
 CREATE TABLE sessions (
   id                         TEXT NOT NULL PRIMARY KEY,
   shape                      TEXT NOT NULL CHECK(shape IN ('chat', 'project')),
@@ -160,7 +162,6 @@ CREATE TABLE sessions (
   last_activity_at           TEXT NOT NULL,
   -- The one group of its project the session sits in; NULL for none and for every chat.
   group_id                   TEXT REFERENCES session_groups(id),
-  document_count             INTEGER NOT NULL DEFAULT 0 CHECK(document_count >= 0),
   -- A requested working-folder move, applied at the active run's next boundary.
   -- A pending move with no worktree id targets the project's own checkout.
   pending_move               INTEGER NOT NULL DEFAULT 0 CHECK(pending_move IN (0, 1)),
@@ -180,6 +181,33 @@ CREATE TABLE session_run_activity (
   activity    TEXT NOT NULL CHECK(activity IN ('running', 'waiting')),
   PRIMARY KEY (session_id, run_id)
 ) STRICT;
+
+-- The idempotency key each session.create carried and the session it made, so a create retried
+-- after a lost reply answers the session it already made instead of making a second. Written in the
+-- session.created write, before the sessions row.
+CREATE TABLE session_create_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE
+) STRICT;
+
+-- The idempotency key the session.convert that converted a chat carried, so a convert retried after
+-- a lost reply answers the conversion already made instead of a refusal. Written in the
+-- session.converted write.
+CREATE TABLE session_convert_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE
+) STRICT;
+
+-- Every file a conversion did not copy, with its reason, so the conversion's row lists each one
+-- however many there are. A session converts once; written in the session.converted write.
+CREATE TABLE session_convert_skipped_files (
+  session_id  TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  reason      TEXT NOT NULL
+    CHECK(reason IN ('repository_has_file', 'repository_path_not_a_folder', 'link',
+      'special_file')),
+  PRIMARY KEY (session_id, path)
+) STRICT, WITHOUT ROWID;
 
 -- What a session holds outside its event log that the spawn path reads:
 -- configuration the person set, never rebuilt from events.
@@ -239,8 +267,10 @@ CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC
 -- Words are matched in text alone. session_key holds an event row's session id as one token, so
 -- a search inside one session reads that session's entries rather than every match. A group row
 -- has no session_id: its sessions are read through sessions.group_id. sequence is the event's
--- position, NULL on every other kind. The prefix indexes serve search as the person types;
--- FTS5's automerge keeps writes bounded, and the daemon merges the rest when idle.
+-- position, NULL on every other kind. Text is indexed with the two characters a search's
+-- highlight marks a match with turned to spaces, so every mark read back is one the index put.
+-- The prefix indexes serve search as the person types; FTS5's automerge keeps writes bounded,
+-- and the daemon merges the rest when idle.
 CREATE VIRTUAL TABLE session_search_index USING fts5(
   text,
   session_key,
@@ -248,7 +278,7 @@ CREATE VIRTUAL TABLE session_search_index USING fts5(
   kind UNINDEXED,
   sequence UNINDEXED,
   tokenize = 'unicode61 remove_diacritics 2',
-  prefix = '2 3'
+  prefix = '2 3 4'
 );
 
 -- Settled rows only: a person's message, an assistant's message and a tool call. A thinking
@@ -257,75 +287,93 @@ CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
 WHEN NEW.type IN ('user.message', 'assistant.message', 'tool.invoked')
 BEGIN
   INSERT INTO session_search_index (rowid, text, session_key, session_id, kind, sequence)
-  SELECT NEW.rowid * 4, indexed.text, ${sessionKeySql("NEW.session_id")}, NEW.session_id,
-         'event', NEW.sequence
-    FROM (SELECT CASE
+  SELECT ${indexRowidSql("NEW.rowid", "event")}, indexed.text, ${sessionKeySql("NEW.session_id")},
+         NEW.session_id, 'event', NEW.sequence
+    FROM (SELECT ${markFreeTextSql(`CASE
                    WHEN NEW.type = 'user.message' THEN json_extract(NEW.payload, '$.message')
                    WHEN NEW.type = 'assistant.message' THEN NEW.content_payload
                    WHEN NEW.type = 'tool.invoked' THEN json_extract(NEW.payload, '$.toolName')
                      || coalesce(' ' || NEW.content_payload, '')
-                 END AS text) AS indexed
+                 END`)} AS text) AS indexed
    WHERE indexed.text IS NOT NULL;
 END;
 
 CREATE TRIGGER trg_session_search_event_delete AFTER DELETE ON session_events
 WHEN OLD.type IN ('user.message', 'assistant.message', 'tool.invoked')
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4;
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "event")};
 END;
 
 CREATE TRIGGER trg_session_search_title_insert AFTER INSERT ON sessions
 WHEN NEW.name IS NOT NULL
 BEGIN
   INSERT INTO session_search_index (rowid, text, session_id, kind)
-  VALUES (NEW.rowid * 4 + 1, NEW.name, NEW.id, 'title');
+  VALUES (${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")}, NEW.id, 'title');
 END;
 
 CREATE TRIGGER trg_session_search_title_update AFTER UPDATE OF name ON sessions
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4 + 1;
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
   INSERT INTO session_search_index (rowid, text, session_id, kind)
-  SELECT NEW.rowid * 4 + 1, NEW.name, NEW.id, 'title' WHERE NEW.name IS NOT NULL;
+  SELECT ${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")}, NEW.id, 'title'
+   WHERE NEW.name IS NOT NULL;
 END;
 
 CREATE TRIGGER trg_session_search_title_delete AFTER DELETE ON sessions
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4 + 1;
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
 END;
 
 CREATE TRIGGER trg_session_search_group_insert AFTER INSERT ON session_groups
 BEGIN
-  INSERT INTO session_search_index (rowid, text, kind) VALUES (NEW.rowid * 4 + 2, NEW.name, 'group');
+  INSERT INTO session_search_index (rowid, text, kind)
+  VALUES (${indexRowidSql("NEW.rowid", "group")}, ${markFreeTextSql("NEW.name")}, 'group');
 END;
 
 CREATE TRIGGER trg_session_search_group_update AFTER UPDATE OF name ON session_groups
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4 + 2;
-  INSERT INTO session_search_index (rowid, text, kind) VALUES (NEW.rowid * 4 + 2, NEW.name, 'group');
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "group")};
+  INSERT INTO session_search_index (rowid, text, kind)
+  VALUES (${indexRowidSql("NEW.rowid", "group")}, ${markFreeTextSql("NEW.name")}, 'group');
 END;
 
 CREATE TRIGGER trg_session_search_group_delete AFTER DELETE ON session_groups
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4 + 2;
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "group")};
 END;
 
 CREATE TRIGGER trg_session_search_tag_insert AFTER INSERT ON session_tags
 BEGIN
   INSERT INTO session_search_index (rowid, text, session_id, kind)
-  VALUES (NEW.rowid * 4 + 3, NEW.tag, NEW.session_id, 'tag');
+  VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")}, NEW.session_id,
+          'tag');
 END;
 
 CREATE TRIGGER trg_session_search_tag_update AFTER UPDATE OF tag ON session_tags
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4 + 3;
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
   INSERT INTO session_search_index (rowid, text, session_id, kind)
-  VALUES (NEW.rowid * 4 + 3, NEW.tag, NEW.session_id, 'tag');
+  VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")}, NEW.session_id,
+          'tag');
 END;
 
 CREATE TRIGGER trg_session_search_tag_delete AFTER DELETE ON session_tags
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = OLD.rowid * 4 + 3;
+  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
 END;
+
+-- Each delete that lowers an indexed source table's highest rowid, with the new highest (0 for an
+-- empty table), so a search held across pages can tell the rowids a later row may have taken.
+-- kind names the index rows the table's rows source. Only the newest entries are kept.
+CREATE TABLE session_search_rowid_floors (
+  id             INTEGER PRIMARY KEY,
+  kind           TEXT NOT NULL,
+  highest_rowid  INTEGER NOT NULL
+) STRICT;
+${rowidFloorTriggerSql("session_events", "event")}
+${rowidFloorTriggerSql("sessions", "title")}
+${rowidFloorTriggerSql("session_groups", "group")}
+${rowidFloorTriggerSql("session_tags", "tag")}
 
 -- ---------------------------------------------------------------------------
 -- This machine: its id, minted at the daemon's first start, and the friendly

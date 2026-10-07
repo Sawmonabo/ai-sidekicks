@@ -80,6 +80,31 @@ describe("transcript.search", () => {
     });
   });
 
+  it("counts and marks a row carrying the characters a match is marked with as plain text", () => {
+    insertEvent(database, {
+      sessionId,
+      sequence: 1,
+      type: "assistant.message",
+      content: "\uFDD1retry \uFDD0then retry\uFDD0",
+    });
+
+    expect(transcriptSearch.search({ sessionId, query: "retry" })).toEqual({
+      matchCount: 2,
+      hits: [
+        {
+          rowId: expect.any(String),
+          cursor: encodeEventCursor(1),
+          snippet: " retry  then retry ",
+          matchRanges: [
+            { start: 1, end: 6 },
+            { start: 13, end: 18 },
+          ],
+        },
+      ],
+      hasMore: false,
+    });
+  });
+
   it("refuses a session the daemon does not hold with session.not_found", () => {
     expect(() => transcriptSearch.search({ sessionId: sessionIdOf(9), query: "retry" })).toThrow(
       SessionNotFoundError,

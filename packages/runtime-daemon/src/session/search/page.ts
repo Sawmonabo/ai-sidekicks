@@ -19,11 +19,13 @@ export interface PageCandidate<Hit> {
   readonly positionAt: (shownHitCount: number) => SearchPagePosition;
 }
 
-/** One page's groups, and where the next page starts while hits remain. */
-export interface SearchPage {
-  readonly groups: SessionSearchGroup[];
-  readonly next: SearchPagePosition | undefined;
-}
+/** One page's groups, and where the next page starts while hits remain; then at least one group. */
+export type SearchPage =
+  | {
+      readonly groups: [SessionSearchGroup, ...SessionSearchGroup[]];
+      readonly next: SearchPagePosition;
+    }
+  | { readonly groups: SessionSearchGroup[]; readonly next: undefined };
 
 interface Selection<Hit> {
   readonly candidate: PageCandidate<Hit>;
@@ -79,14 +81,14 @@ function fitOneMessage<Hit>(
   groups: SessionSearchGroup[],
   next: SearchPagePosition | undefined,
 ): SearchPage {
-  const [firstGroup] = groups;
+  const [firstGroup, ...otherGroups] = groups;
   const [firstSelection] = selections;
   if (firstGroup === undefined || firstSelection === undefined) {
-    return { groups, next };
+    return { groups: [], next: undefined };
   }
+  const { candidate } = firstSelection;
   if (jsonUtf8ByteLength([firstGroup]) > PAGE_MAX_BYTES) {
     const hitCount = countHitsFittingOneGroup(firstGroup);
-    const { candidate } = firstSelection;
     return {
       groups: [{ ...firstGroup, hits: firstGroup.hits.slice(0, hitCount) }],
       next: candidate.positionAt(candidate.shownHitCount + hitCount),
@@ -94,13 +96,17 @@ function fitOneMessage<Hit>(
   }
   const groupCount = countEntriesFittingOneFrame(groups, groups.length);
   const firstLeftOut = selections[groupCount];
-  if (firstLeftOut === undefined) {
-    return { groups, next };
+  const keptGroups: [SessionSearchGroup, ...SessionSearchGroup[]] = [
+    firstGroup,
+    ...otherGroups.slice(0, groupCount - 1),
+  ];
+  if (firstLeftOut !== undefined) {
+    return {
+      groups: keptGroups,
+      next: firstLeftOut.candidate.positionAt(firstLeftOut.candidate.shownHitCount),
+    };
   }
-  return {
-    groups: groups.slice(0, groupCount),
-    next: firstLeftOut.candidate.positionAt(firstLeftOut.candidate.shownHitCount),
-  };
+  return { groups: keptGroups, next };
 }
 
 // How many of a group's leading hits fit one message together with the group's own members. The

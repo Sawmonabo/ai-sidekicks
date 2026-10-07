@@ -2,7 +2,8 @@
 // marked line of the hits a page shows. A log row carries its session's key in the index, so the
 // sessions' log rows are read, marked, by adding their keys to the match; the index answers that
 // from the keys' own entries. A title, group or tag row carries no key, so it is found by its
-// rowid, which its source row gives, and the ranking already holds its mark.
+// rowid, which its source row gives, and the ranking already holds its mark. A row is a hit only
+// while it still indexes the source row the ranking read at its rowid.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -15,8 +16,9 @@ import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 import { TRANSCRIPT_SEARCH_TEXT_MAX_LEN } from "@ai-sidekicks/contracts/transcript/search";
 
 import { indexRowidSql, sessionKeyOf, sourceRowidSql } from "./index-columns.js";
-import { MATCH_CLOSE_MARK, MATCH_OPEN_MARK, readMarkedLine } from "./marked-line.js";
+import { MATCH_CLOSE_MARK, MATCH_OPEN_MARK, cutMarkedLine, readMarks } from "./marked-line.js";
 import { compareRankedRows, type RankedRowKey, type TextRanking } from "./ranking.js";
+import type { HeldRowCheck } from "./rowid-floors.js";
 
 const NARROWED_EVENT_ROWS_SQL = `
   SELECT rowid AS index_rowid, session_id, sequence,
@@ -76,7 +78,10 @@ interface SessionTextHits {
 
 /** One search's hits, read session by session and marked page by page. */
 export interface SearchHits {
-  /** Every hit each of these sessions has, best first; a session the directory lacks is left out. */
+  /**
+   * Each of these sessions' hits, best first; a session the directory lacks is left out. A
+   * session this search already read, by either read, is answered from that read.
+   */
   readHits(sessionIds: readonly SessionId[]): Map<SessionId, SessionTextHits>;
   /** Every hit each of these sessions has, read from every matching log row's own row. */
   readEveryHit(sessionIds: readonly SessionId[]): Map<SessionId, SessionTextHits>;
@@ -103,9 +108,15 @@ export class SessionHitReader {
     this.#otherRowids = reader.prepare(OTHER_ROWIDS_SQL);
   }
 
-  /** Opens one search's hits over its ranking, which every rank and title, group or tag mark comes from. */
-  openSearch(matchExpression: string, ranking: TextRanking): SearchHits {
+  /**
+   * Opens one search's hits over its ranking, which gives every rank and each non-log mark, for
+   * one page's read; `isHeldRow` tells the rows that still index what the ranking read.
+   */
+  openSearch(matchExpression: string, ranking: TextRanking, isHeldRow: HeldRowCheck): SearchHits {
+    const heldRankOf = (indexRowid: number): number | undefined =>
+      isHeldRow(indexRowid) ? ranking.rankOf(indexRowid) : undefined;
     const markedEvents = new Map<number, string>();
+    const readSessions = new Map<SessionId, SessionTextHits>();
     const readNarrowedEvents = (sessionIds: readonly SessionId[]): EventRow[] =>
       sessionIds.length === 0
         ? []
@@ -128,17 +139,18 @@ export class SessionHitReader {
         ];
         const hits: RankedHit[] = [];
         for (const indexRowid of otherRowids) {
-          const rank = indexRowid === null ? undefined : ranking.rankOf(indexRowid);
+          const rank = indexRowid === null ? undefined : heldRankOf(indexRowid);
           if (indexRowid !== null && rank !== undefined) {
             hits.push({ rank, indexRowid, sessionId: session.session_id, sequence: undefined });
           }
         }
         hitsBySession.set(session.session_id, hits);
       }
-      // A row of a session not asked about finds no list and is passed over.
+      // A row of a session not asked about finds no list; one written after the ranking was read,
+      // or at the rowid of a row deleted since, has no held rank; both are passed over.
       for (const row of eventRows) {
         const hits = hitsBySession.get(row.session_id);
-        const rank = ranking.rankOf(row.index_rowid);
+        const rank = heldRankOf(row.index_rowid);
         if (hits === undefined || rank === undefined) {
           continue;
         }
@@ -152,15 +164,30 @@ export class SessionHitReader {
           markedEvents.set(row.index_rowid, row.marked);
         }
       }
-      return new Map(
-        sessions.map((session) => {
-          const hits = (hitsBySession.get(session.session_id) ?? []).sort(compareRankedRows);
-          return [session.session_id, { sessionId: session.session_id, name: session.name, hits }];
-        }),
-      );
+      const collected = new Map<SessionId, SessionTextHits>();
+      for (const session of sessions) {
+        const hits = (hitsBySession.get(session.session_id) ?? []).sort(compareRankedRows);
+        const sessionHits = { sessionId: session.session_id, name: session.name, hits };
+        collected.set(session.session_id, sessionHits);
+        readSessions.set(session.session_id, sessionHits);
+      }
+      return collected;
     };
     return {
-      readHits: (sessionIds) => collect(sessionIds, readNarrowedEvents(sessionIds)),
+      readHits: (sessionIds) => {
+        const unreadSessionIds = sessionIds.filter((sessionId) => !readSessions.has(sessionId));
+        if (unreadSessionIds.length > 0) {
+          collect(unreadSessionIds, readNarrowedEvents(unreadSessionIds));
+        }
+        const sessions = new Map<SessionId, SessionTextHits>();
+        for (const sessionId of sessionIds) {
+          const session = readSessions.get(sessionId);
+          if (session !== undefined) {
+            sessions.set(sessionId, session);
+          }
+        }
+        return sessions;
+      },
       readEveryHit: (sessionIds) =>
         collect(sessionIds, this.#eventRows.iterate(JSON.stringify(ranking.eventRowids()))),
       markHits: (hits) => {
@@ -194,13 +221,10 @@ function narrowToSessions(matchExpression: string, sessionIds: readonly SessionI
   return `(${matchExpression}) AND session_key : (${keys})`;
 }
 
-// The hits and their marks come from one read transaction, so each row still matches; one that
-// carries no match is a broken index and throws.
+// A page's hits and their marks come from one read transaction, so each row still matches; one
+// with no mark is a broken index, which `cutMarkedLine` throws for.
 function markHit(hit: RankedHit, markedText: string | undefined): SessionSearchHit {
-  const markedLine = readMarkedLine(markedText ?? "", TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
-  if (markedLine === undefined) {
-    throw new Error(`The index row ${String(hit.indexRowid)} carries no match to mark.`);
-  }
+  const markedLine = cutMarkedLine(readMarks(markedText ?? ""), TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
   const cursor =
     hit.sequence === undefined ? SESSION_START_CURSOR : encodeEventCursor(hit.sequence);
   return { cursor, ...markedLine };

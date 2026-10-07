@@ -208,6 +208,31 @@ describe("session.search", () => {
     expect(groups[1]?.hits.map((hit) => hit.line)).toEqual(["auth x y z w v"]);
   });
 
+  it("reads a row holding the characters matches are marked with as text, never as marks", () => {
+    const sessionId = sessionIdOf(1);
+    insertSession(database, sessionId);
+    // A lone opening mark, then a closing one before an opening one, as pasted text may carry.
+    insertEvent(database, {
+      sessionId,
+      sequence: 1,
+      type: "user.message",
+      message: "say \uFDD0 deploy\uFDD1\uFDD0 now",
+    });
+
+    expect(sessionSearch.search({ query: "deploy" }).groups).toEqual([
+      {
+        sessionId,
+        hits: [
+          {
+            cursor: encodeEventCursor(1),
+            line: "say   deploy   now",
+            matchRanges: [{ start: 6, end: 12 }],
+          },
+        ],
+      },
+    ]);
+  });
+
   it("keeps typed operators as text, so a query never breaks the index's syntax", () => {
     const sessionId = sessionIdOf(1);
     insertSession(database, sessionId);

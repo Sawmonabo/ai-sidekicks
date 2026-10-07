@@ -8,6 +8,8 @@ import { join } from "node:path";
 import type { Database } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
+
 import { runGitWithExecFile, type GitCommand } from "../../../../git/process.js";
 import { SessionNotFoundError } from "../../../../ipc/session-errors.js";
 import { openDatabase } from "../../../migration-runner.js";
@@ -95,11 +97,65 @@ describe("session.fileSearch", () => {
       SessionNotFoundError,
     );
     database.prepare("UPDATE workspaces SET state = 'preparing', fs_root = NULL").run();
-    await expect(fileSearch.search({ sessionId, query: "" })).rejects.toThrow(/not in place/);
+    await expect(fileSearch.search({ sessionId, query: "" })).rejects.toMatchObject({
+      code: SESSION_WORKING_FOLDER_UNAVAILABLE_CODE,
+      detail: { sessionId },
+    });
   });
 });
 
 describe("listWorkingFolder", () => {
+  // The person's own excludes file is no rule of the folder's.
+  const repositoryGit: GitCommand = (argv) =>
+    runGitWithExecFile(argv, {
+      timeoutMs: 10_000,
+      environmentOverrides: { GIT_CONFIG_GLOBAL: "/dev/null" },
+    });
+
+  it("lists a folder outside git as git lists it, every .gitignore honored and .git skipped", async () => {
+    const folder = await realpath(await mkdtemp(join(tmpdir(), "file-listing-")));
+    const files: Record<string, string> = {
+      ".gitignore": "*.log\nbuild/\n",
+      "keep.ts": "",
+      "a.log": "",
+      "build/out.js": "",
+      // A nested file's rules reach only below it, may re-include, and anchor to its folder.
+      "pkg/.gitignore": "secret.txt\n!important.log\n/local.ts\n",
+      "pkg/secret.txt": "",
+      "pkg/important.log": "",
+      "pkg/local.ts": "",
+      "pkg/sub/local.ts": "",
+      "pkg/sub/deeper.log": "",
+      "other/secret.txt": "",
+    };
+    try {
+      for (const [path, content] of Object.entries(files)) {
+        await mkdir(join(folder, path, ".."), { recursive: true });
+        await writeFile(join(folder, path), content);
+      }
+      // A folder named .git that is no repository leaves the folder outside git.
+      await mkdir(join(folder, ".git"));
+      await writeFile(join(folder, ".git", "stray.ts"), "");
+
+      const walked = (await listWorkingFolder(folder, repositoryGit)).sort();
+      await rm(join(folder, ".git"), { recursive: true });
+      await repositoryGit(["-C", folder, "init", "--quiet"]);
+      const listedByGit = (await listWorkingFolder(folder, repositoryGit)).sort();
+
+      expect(walked).toEqual([
+        ".gitignore",
+        "keep.ts",
+        "other/secret.txt",
+        "pkg/.gitignore",
+        "pkg/important.log",
+        "pkg/sub/local.ts",
+      ]);
+      expect(walked).toEqual(listedByGit);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
   const busy = Object.assign(new Error("resource temporarily unavailable"), { code: "EAGAIN" });
 
   it("tries a retryable read once more and answers its listing", async () => {

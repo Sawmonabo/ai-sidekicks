@@ -10,12 +10,14 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
-import type {
-  SessionFileSearchRequest,
-  SessionFileSearchResponse,
+import {
+  SESSION_WORKING_FOLDER_UNAVAILABLE_CODE,
+  type SessionFileSearchRequest,
+  type SessionFileSearchResponse,
 } from "@ai-sidekicks/contracts/session/methods";
 
 import type { GitCommand } from "../../../git/process.js";
+import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
 import { listWorkingFolder } from "./listing.js";
 
@@ -63,8 +65,9 @@ export class FileSearchService {
 
   /**
    * The best matching paths, relative to the working folder. Throws `SessionNotFoundError` for a
-   * session the daemon does not hold, and the read's own error, with its reason, for a working
-   * folder that is not in place or could not be listed.
+   * session the daemon does not hold, `session.working_folder_unavailable` for a working folder
+   * that is not in place, and the listing's own error, with its reason, for one that could not be
+   * listed.
    */
   async search(request: SessionFileSearchRequest): Promise<SessionFileSearchResponse> {
     const workingFolder = this.#workingFolder.get(request.sessionId)?.fs_root;
@@ -74,7 +77,10 @@ export class FileSearchService {
           sessionId: request.sessionId,
         });
       }
-      throw new Error("The session's working folder is not in place, so it cannot be searched.");
+      throw new DaemonDomainError(
+        "The session's working folder is not in place, so it cannot be searched.",
+        { code: SESSION_WORKING_FOLDER_UNAVAILABLE_CODE, detail: { sessionId: request.sessionId } },
+      );
     }
     const listedPaths = await listWorkingFolder(workingFolder, this.#git);
     const rankedPaths = rankPaths(listedPaths, request.query);
