@@ -77,11 +77,8 @@ const FIRST_ATTEMPT_FAILED = step("summary", 1, {
 /** The instant the graph counts days from. */
 const GRAPH_NOW_MS = Date.UTC(2026, 0, 1, 14, 20);
 
-/** The clock locale the graph writes its instants in. */
-const CLOCK_LOCALE = "en-US";
-
 function summaryView(steps: readonly WorkflowStep[]) {
-  const view = runGraphNodeViews(DOCUMENT, steps, [], GRAPH_NOW_MS, CLOCK_LOCALE).find(
+  const view = runGraphNodeViews(DOCUMENT, steps, [], GRAPH_NOW_MS).find(
     (candidate) => candidate.node.id === "summary",
   );
   if (view === undefined) {
@@ -149,7 +146,7 @@ describe("the run graph names when a parked node resumes", () => {
     });
 
     expect(summaryView([TRIGGERED, parked]).resumeLine).toBe(
-      `Resumes at ${formatDayClock(resumeAt, GRAPH_NOW_MS, CLOCK_LOCALE)}`,
+      `Resumes at ${formatDayClock(resumeAt, GRAPH_NOW_MS)}`,
     );
   });
 });

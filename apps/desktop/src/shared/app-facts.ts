@@ -75,14 +75,11 @@ function supportedHourCycle(hourCycle: string): HourCycle {
   return supported;
 }
 
-/**
- * `locale` as the one canonical BCP 47 tag `Intl` spells it. Throws a `RangeError` for a string
- * that is not a single well-formed tag.
- */
+/** `locale` as the canonical BCP 47 tag `Intl` spells it. Throws a `RangeError` for no tag. */
 export function canonicalLocale(locale: string): string {
-  const [canonical, ...others] = Intl.getCanonicalLocales(locale);
-  if (canonical === undefined || others.length > 0) {
-    throw new RangeError(`${locale} is not one locale.`);
+  const [canonical] = Intl.getCanonicalLocales(locale);
+  if (canonical === undefined) {
+    throw new RangeError(`${locale} is not a locale.`);
   }
   return canonical;
 }
