@@ -3,7 +3,20 @@
 .meridian-math--display {
   display: block;
   margin: var(--meridian-space-2) 0;
-  overflow-x: auto;
+  container-type: inline-size;
+}
+
+.meridian-math--display .katex-display {
+  margin: 0;
+  /* The widest unbreakable piece, measured once in em, fits the column at this size: the formula
+     shrinks as far as the column does, with no floor, so it never scrolls sideways. */
+  font-size: min(1em, 100cqi / var(--math-natural-width, 1));
+}
+
+/* KaTeX ends a piece after each top-level relation and binary operator; letting the line wrap
+   between pieces breaks where TeX allows, each line centered by KaTeX's own alignment. */
+.meridian-math--display .katex-display > .katex {
+  white-space: normal;
 }
 
 .meridian-math--source code {

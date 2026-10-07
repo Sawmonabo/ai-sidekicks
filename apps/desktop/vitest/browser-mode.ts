@@ -50,6 +50,8 @@ export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
     // The run graph's lazy chunk: found late, it would start the second pass described above.
     "@xyflow/react",
     "@dagrejs/dagre",
+    // The math chunk: found late, it would start the second pass described above.
+    "katex",
     "@testing-library/react",
     "axe-core",
   ],

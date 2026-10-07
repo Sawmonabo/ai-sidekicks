@@ -91,6 +91,9 @@ const FIXTURE_ONLY_PATHS: readonly string[] = [
   "/src/renderer/src/app/pane-harness/",
 ];
 
+/** A font file the renderer's sheets reference. */
+const FONT_FILE = /\.(?:woff2?|ttf|otf)$/u;
+
 /** A test suite or its scaffolding, which no build of any flavor ships. */
 const TEST_MODULE_PATTERN = /\.test(?:-support)?\.[cm]?tsx?$/u;
 
@@ -212,6 +215,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
+        // A font is always its own file: the policy's `font-src 'self'` blocks a `data:` face, and
+        // Vite inlines any asset under 4 KiB (one of KaTeX's faces is).
+        assetsInlineLimit: (filePath) => (FONT_FILE.test(filePath) ? false : undefined),
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
         // "esbuild"`; electron-vite overrides it to `false` for every target on the reasoning that
         // a desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
