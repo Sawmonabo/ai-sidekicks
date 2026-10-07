@@ -6,9 +6,10 @@ import type { z } from "zod";
 import { jsonUtf8ByteLength } from "./message.js";
 
 /**
- * The byte ceiling on one paged member (`entries` or `reasoningEntries`), measured as
- * {@link jsonUtf8ByteLength} of the array itself. It is a 1,000,000-byte reply less 8,192 bytes
- * for the envelope, the echoed id and a continuation cursor, sized apart from the message limit.
+ * The byte ceiling on a reply's one large member, measured as {@link jsonUtf8ByteLength} of that
+ * member: a page's `entries`, `reasoningEntries`, `hits`, `sessions` or `groups`, or a read's
+ * stored `body` or `files`. It is a 1,000,000-byte reply less 8,192 bytes for the envelope, the
+ * echoed id and a continuation cursor, sized apart from the message limit.
  */
 export const PAGE_MAX_BYTES = 991_808;
 
@@ -44,23 +45,23 @@ export function countEntriesFittingOneFrame(
 }
 
 /**
- * Refuse a paged member over the page budget. The issue path names the member, so a client
- * learns which array overflowed.
+ * Refuse a reply member over the page budget, so an oversized reply is a failed read. The issue
+ * path names the member, so a client learns which one overflowed; a paged member's producer
+ * stops at whichever of its row limit and this budget trips first.
  */
 export function requirePageToRideOneFrame(
-  pagedMember: readonly unknown[],
+  member: unknown,
   memberName: string,
   issueContext: z.RefinementCtx,
 ): void {
-  const measuredBytes = jsonUtf8ByteLength(pagedMember);
+  const measuredBytes = jsonUtf8ByteLength(member);
   if (measuredBytes > PAGE_MAX_BYTES) {
     issueContext.addIssue({
       code: "custom",
       path: [memberName],
       message:
         `${memberName} measures ${String(measuredBytes)} JSON bytes, over the ` +
-        `${String(PAGE_MAX_BYTES)}-byte page budget: the producer must page instead, ` +
-        "stopping at whichever of the row limit and the byte budget trips first",
+        `${String(PAGE_MAX_BYTES)}-byte page budget`,
     });
   }
 }

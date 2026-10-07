@@ -11,7 +11,6 @@ import {
   AgentDefinitionIdSchema,
   AgentProviderBindingSchema,
   AgentResolvedConfigurationSchema,
-  providerTokenSchema,
   type AgentDefinitionId,
   type AgentProviderBinding,
   type AgentResolvedConfiguration,
@@ -132,7 +131,7 @@ const SessionListGroupSchema: z.ZodType<SessionListGroup> = z
 
 /**
  * What a list entry carries for its shape: a project's key, branch and group, or a chat's
- * documents. A chat sits in no group.
+ * document count, absent until the chat's artifact store counts them. A chat sits in no group.
  */
 export type SessionListEntryPlace =
   | {
@@ -141,7 +140,7 @@ export type SessionListEntryPlace =
       branch?: string | undefined;
       group?: SessionListGroup | undefined;
     }
-  | { shape: "chat"; documentCount: number };
+  | { shape: "chat"; documentCount?: number | undefined };
 
 /**
  * One row of the sessions list, everything the row draws from one feed so the list opens no
@@ -201,7 +200,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
     .object({
       ...sessionListEntryCommonFields,
       shape: z.literal("chat"),
-      documentCount: countSchema,
+      documentCount: countSchema.optional(),
     })
     .strict(),
 ]);
@@ -244,7 +243,12 @@ export const SessionListAckSchema: z.ZodType<SessionListAck> = z
  * `chatCount` as it stands after the change.
  */
 export type SessionListChange =
-  | { kind: "page"; sessions: SessionListEntry[]; chatCount: number; isComplete: boolean }
+  | {
+      kind: "page";
+      sessions: [SessionListEntry, ...SessionListEntry[]];
+      chatCount: number;
+      isComplete: boolean;
+    }
   | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
   | { kind: "remove"; sessionId: SessionId; chatCount: number };
 /** Parses a {@link SessionListChange}. */
@@ -252,7 +256,7 @@ export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discrimin
   z
     .object({
       kind: z.literal("page"),
-      sessions: z.array(SessionListEntrySchema).min(1),
+      sessions: z.tuple([SessionListEntrySchema], SessionListEntrySchema),
       chatCount: countSchema,
       isComplete: z.boolean(),
     })
@@ -296,14 +300,9 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
  * was picked. It names no account: the daemon resolves that.
  */
 export type SessionLead = Omit<AgentProviderBinding, "providerAccountId">;
-const SessionLeadSchema: z.ZodType<SessionLead, SessionLead> = z
-  .object({
-    driverName: ProviderNameSchema,
-    modelId: providerTokenSchema("SessionLead.modelId"),
-    effort: providerTokenSchema("SessionLead.effort").nullable(),
-    outputSpeed: providerTokenSchema("SessionLead.outputSpeed").optional(),
-  })
-  .strict();
+const SessionLeadSchema: z.ZodType<SessionLead, SessionLead> = AgentProviderBindingSchema.omit({
+  providerAccountId: true,
+});
 
 /**
  * What `session.create` takes: where the session works and who leads it.

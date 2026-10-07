@@ -203,6 +203,18 @@ export const ProviderAccountRemoveResponseSchema: z.ZodType<ProviderAccountRemov
   .object({ accountId: ProviderAccountIdSchema, removed: z.literal(true) })
   .strict();
 
+/**
+ * No account is registered for the provider a run needs, so the run is not admitted; the remedy
+ * is registering one. `data.fields`: `provider`.
+ */
+export const PROVIDER_ACCOUNT_NOT_REGISTERED_CODE = "provideraccount.not_registered" as const;
+
+/**
+ * The provider has accounts but none is current, so a run's account is ambiguous and it is not
+ * admitted; the remedy is choosing the current one. `data.fields`: `provider`.
+ */
+export const PROVIDER_ACCOUNT_NO_DEFAULT_CODE = "provideraccount.no_default" as const;
+
 /** A run bound to the account is live, so it is not removed; the refusal names those sessions. */
 export const PROVIDER_ACCOUNT_IN_USE_CODE = "provideraccount.account_in_use" as const;
 /**

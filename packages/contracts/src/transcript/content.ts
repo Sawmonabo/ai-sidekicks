@@ -11,30 +11,11 @@ import {
   type HydratedContentUnavailableReason,
   type HydratedSessionEventContent,
 } from "../event/envelope.js";
-import { jsonUtf8ByteLength } from "../jsonrpc/message.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 
-import { PAGE_MAX_BYTES } from "../jsonrpc/page.js";
+import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
 import { countSchema } from "../internal/wire-scalars.js";
-
-/** Refuse stored text over the page budget, so an oversized reply is a failed read. */
-const requireMemberToRideOneFrame = (
-  member: unknown,
-  memberName: string,
-  issueContext: z.RefinementCtx,
-): void => {
-  const measuredBytes = jsonUtf8ByteLength(member);
-  if (measuredBytes > PAGE_MAX_BYTES) {
-    issueContext.addIssue({
-      code: "custom",
-      path: [memberName],
-      message:
-        `${memberName} measures ${String(measuredBytes)} JSON bytes, over the ` +
-        `${String(PAGE_MAX_BYTES)}-byte page budget`,
-    });
-  }
-};
 
 // transcript.bodyRead
 
@@ -77,7 +58,7 @@ export const TranscriptBodyReadResponseSchema: z.ZodType<TranscriptBodyReadRespo
       })
       .strict()
       .superRefine((available, issueContext) => {
-        requireMemberToRideOneFrame(available.body, "body", issueContext);
+        requirePageToRideOneFrame(available.body, "body", issueContext);
       }),
     z
       .object({
@@ -137,5 +118,5 @@ export const TranscriptPatchReadResponseSchema: z.ZodType<TranscriptPatchReadRes
   })
   .strict()
   .superRefine((response, issueContext) => {
-    requireMemberToRideOneFrame(response.files, "files", issueContext);
+    requirePageToRideOneFrame(response.files, "files", issueContext);
   });
