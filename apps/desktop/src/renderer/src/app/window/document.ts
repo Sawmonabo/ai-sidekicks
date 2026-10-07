@@ -4,7 +4,7 @@
 // base sheet sizes it as it sizes that one.
 
 import { installOverlayScrollbarLibrary } from "#renderer/lib/overlay-scrollbar-library.js";
-import { installMeridianTokens } from "./token-installation.js";
+import { installMeridianTokens } from "../token-installation.js";
 
 /** The id of the element a window's tree is drawn into. */
 const WINDOW_ROOT_ELEMENT_ID = "root";

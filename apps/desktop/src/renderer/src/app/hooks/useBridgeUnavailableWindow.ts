@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { OpenWindow, OpenWindows } from "#renderer/services/window/open-windows.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
-import { prepareWindowDocument } from "../window-document.js";
+import { prepareWindowDocument } from "../window/document.js";
 import { useOpenWindowList } from "./useOpenWindowList.js";
 
 /**

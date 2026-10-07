@@ -10,13 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { RealClock } from "#renderer/lib/clock.js";
-import {
-  diagnosticStampAt,
-  windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/capture.js";
-import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
-
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { DEFAULT_ROUTE, formatRoute, parseRoute, type AppRoute } from "#renderer/routing/routes.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWindowRestore } from "#renderer/services/window/hooks/useWindowRestore.js";
@@ -28,8 +22,8 @@ import {
   type KeptWindow,
 } from "#renderer/store/window/layout/kept.js";
 import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
-import { prepareWindowDocument } from "../window-document.js";
-import type { WindowStores } from "../window-stores.js";
+import { prepareWindowDocument } from "../window/document.js";
+import type { WindowStores } from "../window/stores.js";
 
 /** What the windows' opening offers the person: the safe start's way back to the kept windows. */
 export interface KeptWindowLayout {
@@ -139,13 +133,7 @@ export function useKeptWindowLayout(options: KeptWindowLayoutOptions): KeptWindo
       // A read that failed leaves `Restore windows` offered, so it can be pressed again; either
       // failure goes to the diagnostic capture.
       .catch((failure: unknown) => {
-        windowDiagnosticCapture.record({
-          at: diagnosticStampAt(new RealClock()),
-          severity: "error",
-          source: KEPT_WINDOW_LAYOUT_SOURCE,
-          kind: "restore-windows-failed",
-          detail: normalizeWireRejection(KEPT_WINDOW_LAYOUT_SOURCE, failure).detail,
-        });
+        recordRejectedRequest(KEPT_WINDOW_LAYOUT_SOURCE, "restore-windows-failed", failure);
       });
   }, [openWindows, uiStateStore, endSafeStart]);
 

@@ -7,6 +7,7 @@ import { useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { WindowClockProvider } from "#renderer/services/platform/WindowClockProvider.js";
@@ -31,8 +32,7 @@ import { useWindowCommands } from "./hooks/useWindowCommands.js";
 import { useWindowTitle } from "./hooks/useWindowTitle.js";
 import { AppRouter } from "./AppRouter.js";
 import { discloseUnkeptScheme } from "./unkept-scheme.js";
-import { windowMountPoint } from "./window-document.js";
-import { recordWindowRequestFailure } from "./window-request-failure.js";
+import { windowMountPoint } from "./window/document.js";
 
 /** The stores every window shares, which the app keeps for as long as it runs. */
 export interface AppStores {
@@ -136,7 +136,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       minimumPaneWidthPx={PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX}
       onWindowFloorChange={(floor) => {
         bridge.window.setMinimumSize(props.openWindow.windowId, floor).catch((failure: unknown) => {
-          recordWindowRequestFailure("app/AppWindow", "minimum-size-not-set", failure);
+          recordRejectedRequest("app/AppWindow", "minimum-size-not-set", failure);
         });
       }}
     >

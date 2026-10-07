@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -22,7 +23,6 @@ import { useAppCommands } from "./hooks/useAppCommands.js";
 import { useAppearance } from "./hooks/useAppearance.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
-import { recordWindowRequestFailure } from "./window-request-failure.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useLastSettingsPage } from "./hooks/useLastSettingsPage.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
@@ -75,7 +75,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
     () =>
       openWindows.bringForwardThrough((windowId) => {
         bridge.window.bringForward(windowId).catch((failure: unknown) => {
-          recordWindowRequestFailure("app/AppWindows", "bring-forward-failed", failure);
+          recordRejectedRequest("app/AppWindows", "bring-forward-failed", failure);
         });
       }),
     [openWindows, bridge],
