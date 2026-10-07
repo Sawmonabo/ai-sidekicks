@@ -118,6 +118,7 @@ export class SearchSnapshots {
       }
       total -= byteLengthOf(held.snapshot);
       this.#held.delete(snapshotId);
+      releaseSearch(held.snapshot);
     }
   }
 
@@ -128,6 +129,7 @@ export class SearchSnapshots {
         return;
       }
       this.#held.delete(snapshotId);
+      releaseSearch(held.snapshot);
     }
   }
 
@@ -145,6 +147,16 @@ export class SearchSnapshots {
       this.#armExpiry();
     }, delay);
     this.#expiryTimer.unref();
+  }
+}
+
+/**
+ * Frees a search's ranking at once, once nothing holds the search; a search by tag alone has
+ * none.
+ */
+export function releaseSearch(snapshot: SearchSnapshot): void {
+  if (snapshot.order === "ranked") {
+    snapshot.ranking.release();
   }
 }
 

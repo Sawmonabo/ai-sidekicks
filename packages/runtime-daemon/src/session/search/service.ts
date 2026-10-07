@@ -55,6 +55,7 @@ import {
   DEFAULT_SEARCH_SNAPSHOT_LIMITS,
   SearchSnapshots,
   listedByteLength,
+  releaseSearch,
   type ListedSession,
   type SearchSnapshot,
   type SearchSnapshotLimits,
@@ -291,10 +292,12 @@ export class SessionSearchService {
       return { groups: [], hasMore: false };
     }
     const { snapshot, searchHits } = opened;
+    const page = this.#readHeldPage(snapshot, limit, undefined, searchHits);
     // A search answered whole on its first page has no later page to hold it for.
-    return toResponse(this.#readHeldPage(snapshot, limit, undefined, searchHits), () =>
-      this.#snapshots.hold(snapshot),
-    );
+    if (page.next === undefined) {
+      releaseSearch(snapshot);
+    }
+    return toResponse(page, () => this.#snapshots.hold(snapshot));
   }
 
   // The search a first page reads: its ranking or its whole answer, held for its later pages, and

@@ -93,6 +93,11 @@ export interface TextRanking {
   takeBestRow(): RankedRowKey | undefined;
   /** Roughly how many bytes the ranking holds. */
   readonly byteLength: number;
+  /**
+   * Lets go of the ranking's rows at once, rather than at a collection a thread gone idle may not
+   * run for minutes; the ranking holds no row after.
+   */
+  release(): void;
 }
 
 /** A matching index row a ranking within sessions read, with its session and position. */
@@ -235,7 +240,10 @@ export class SessionTextRanking {
   }
 }
 
-/** The ranking over these ranges' rows; the ranges come in rowid order and do not overlap. */
+/**
+ * The ranking over these ranges' rows; the ranges come in rowid order and do not overlap. Several
+ * ranges are copied into one and emptied, so their memory goes at once.
+ */
 export function rankingOfRanges(ranges: readonly RankedRange[]): TextRanking {
   const [onlyRange] = ranges;
   if (ranges.length === 1 && onlyRange !== undefined) {
@@ -249,6 +257,7 @@ export function rankingOfRanges(ranges: readonly RankedRange[]): TextRanking {
     rowids.set(range.rowids, offset);
     ranks.set(range.ranks, offset);
     offset += range.rowids.length;
+    freeArrays(range.rowids, range.ranks);
   }
   return rankingOf(rowids, ranks);
 }
@@ -256,7 +265,8 @@ export function rankingOfRanges(ranges: readonly RankedRange[]): TextRanking {
 /**
  * The ranking within some sessions over these ranges, each read with its sessions by
  * {@link SessionTextRanking.rankRangeWithSessions}, and the rows those sessions and their groups
- * own among them; the ranges come in rowid order.
+ * own among them; the ranges come in rowid order, and are emptied of what the ranking does not
+ * keep.
  */
 export function sessionsRankingOfRanges(
   ranges: readonly RankedRange[],
@@ -288,12 +298,16 @@ export function sessionsRankingOfRanges(
         });
       }
     }
+    freeArrays(sessionRowids, sequences);
   }
   return { ranking: rankingOfRanges(ranges), rows };
 }
 
 // The ranking over rows already in rowid order.
-function rankingOf(rowids: Float64Array, ranks: Float64Array): TextRanking {
+function rankingOf(
+  rowids: Float64Array<ArrayBuffer>,
+  ranks: Float64Array<ArrayBuffer>,
+): TextRanking {
   // Built at the first take, since a search by tag and words orders its sessions without it.
   let heap: RankHeap | undefined;
   return {
@@ -309,7 +323,21 @@ function rankingOf(rowids: Float64Array, ranks: Float64Array): TextRanking {
         : { rank: ranks[position] ?? 0, indexRowid: rowids[position] ?? 0 };
     },
     byteLength: rowids.length * BYTES_PER_ROW,
+    release: () => {
+      freeArrays(rowids, ranks);
+      heap?.release();
+      heap = undefined;
+    },
   };
+}
+
+// Frees these arrays' memory now: a detached buffer's memory goes with it, with no collection.
+function freeArrays(
+  ...arrays: (Float64Array<ArrayBuffer> | Uint32Array<ArrayBuffer> | undefined)[]
+): void {
+  for (const values of arrays) {
+    values?.buffer.transfer(0);
+  }
 }
 
 // A ranking's rows as one read gives them, in arrays kept from read to read that double when full,
@@ -373,7 +401,7 @@ function grown(values: Float64Array): Float64Array<ArrayBuffer> {
 class RankHeap {
   readonly #rowids: Float64Array;
   readonly #ranks: Float64Array;
-  readonly #positions: Uint32Array;
+  readonly #positions: Uint32Array<ArrayBuffer>;
   #size: number;
 
   constructor(rowids: Float64Array, ranks: Float64Array) {
@@ -387,6 +415,10 @@ class RankHeap {
     for (let slot = (this.#size >> 1) - 1; slot >= 0; slot -= 1) {
       this.#siftDown(slot);
     }
+  }
+
+  release(): void {
+    freeArrays(this.#positions);
   }
 
   take(): number | undefined {
