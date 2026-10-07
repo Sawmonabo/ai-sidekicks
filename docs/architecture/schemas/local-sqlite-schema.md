@@ -179,9 +179,36 @@ CREATE TABLE session_related (
 );
 
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
+
+-- The idempotency key each session.create carried and the session it made, so a create retried after a
+-- lost reply answers the session it already made instead of making a second. Written in the
+-- session.created write.
+CREATE TABLE session_create_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE
+) STRICT;
+
+-- The idempotency key the session.convert that converted a chat carried, so a convert retried after a
+-- lost reply answers the conversion already made instead of a refusal. Written in the
+-- session.converted write.
+CREATE TABLE session_convert_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE
+) STRICT;
+
+-- Every file a conversion did not copy, with its reason, so the conversion's row lists each one however
+-- many there are; read a page at a time by session.convertSkippedFileList. A session converts once;
+-- written in the session.converted write.
+CREATE TABLE session_convert_skipped_files (
+  session_id  TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  reason      TEXT NOT NULL
+    CHECK (reason IN ('repository_has_file', 'repository_path_not_a_folder', 'link', 'special_file')),
+  PRIMARY KEY (session_id, path)
+) STRICT, WITHOUT ROWID;
 ```
 
-Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link 55 ms at p95, off the verb's path.
+Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link runs in the background in slices that yield to the event loop every 2 ms, so one turn of the daemon's main thread holds at most 12 ms of it (6 to 10 ms at p95).
 
 ---
 
@@ -853,4 +880,4 @@ CREATE TABLE shared_ports (
 
 ## Session Search Index
 
-The search across every session and a session's own find are answered from the daemon's own full-text index on Tantivy over session titles, message text, tool calls, group names and tags. The index lives outside this database and is built from it: every write that changes searchable text adds a row to an outbox table here in the same transaction, the daemon applies the outbox to the index in batches and deletes the rows each durable index commit holds, and a crash replays what the index has not committed ([ADR-041](../../decisions/041-session-search-on-tantivy.md)). It reaches every session the list holds, archived ones included, with no cap. Only settled messages are indexed, never streamed chunks; prefix fields of one to four characters serve search as the person types; and the index merges its segments when the daemon is idle. A `tag:<tag>` term matches the tag and every tag nested under it through `session_tags`. A search with words alone answers in BM25 order (k1 1.2, b 0.75, a word in half or more of the rows weighted 1e-6); where it also names a relation or a tag, the BM25 rank and the relation rank from `session_related` are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank), and the person's `Search all sessions` box gets its hits grouped by session, while the agents' `session_search` gets them grouped by project, then group, then session, each branch ordered by its best score. The outbox table's name and columns are set by [Plan-001](../../plans/001-session-core.md) T6.9, and its DDL lands with the index and the search reads, `session.search` across sessions and `transcript.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).
+The search across every session and a session's own find are answered from the daemon's own full-text index on Tantivy over session titles, message text, tool calls, group names and tags. The index lives outside this database and is built from it: every write that changes searchable text adds a row to an outbox table here in the same transaction, the daemon applies the outbox to the index in batches and deletes the rows each durable index commit holds, and a crash replays what the index has not committed ([ADR-041](../../decisions/041-session-search-on-tantivy.md)). It reaches every session the list holds, archived ones included, with no cap. Only settled messages are indexed, never streamed chunks; prefix fields of one to four characters serve search as the person types; and the index merges its segments when the daemon is idle. A `tag:<tag>` term matches the tag and every tag nested under it through `session_tags`. A search with words alone answers in BM25 order (k1 1.2, b 0.75, a word in half or more of the rows weighted 1e-6); where it also names a tag, the BM25 rank and the tag rank (the tagged sessions, most recently active first) are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank); the person's box names no session, so `session_related` takes no part, and the person's `Search all sessions` box gets its hits grouped by session, while the agents' `session_search` gets them grouped by project, then group, then session, each branch ordered by its best score. The outbox table's name and columns are set by [Plan-001](../../plans/001-session-core.md) T6.9, and its DDL lands with the index and the search reads, `session.search` across sessions and `transcript.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).

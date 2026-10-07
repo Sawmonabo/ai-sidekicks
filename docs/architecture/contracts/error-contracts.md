@@ -124,9 +124,12 @@ Every namespace below follows the same rules:
 | `session.group_name_taken` | `session.groupCreate` or `session.groupRename` named a group another group of the session's project already holds, ignoring case; nothing is written | 409 |
 | `session.group_refused` | `session.groupCreate`, `session.groupMove` or `session.create`'s `groupId` asked to put a chat in a group, or a session in a group of another project; nothing is written | 422 |
 | `session.link_not_removable` | `session.linkRemove` named a link the daemon wrote from an event (`started`, `copied_from`, `messaged`, `asked`, `mentioned`), which records what happened; only a `related` link is removed | 409 |
-| `session.convert_refused` | `session.convert` named a session that is not a chat; nothing is attached or copied | 409 |
-| `session.search_cursor_unresolvable` | A `session.search` `afterCursor` the daemon did not write, or one written for another query; nothing is answered | 400 |
-| `session.tag_refused` | `session.tagAdd` named a tag that holds a space or is empty; nothing is written | 422 |
+| `session.convert_refused` | `session.convert` named a session that is not a chat, a chat with no managed workspace to convert (`data.fields.reason: no_managed_workspace`), or carried a `clientIdempotencyKey` that already converted another session (`data.fields.reason: idempotency_key_reused`); nothing is attached or copied | 409 |
+| `session.convert_incomplete` | A conversion stopped after the repository was attached; the session still reads as a chat, and `data.fields` names what was done: `sessionId`, `repoMountId`, `copiedCount`, `skippedCount`, `isBound` | 500 |
+| `session.change_refused` | A change the session's state does not take: a `provisioning` session is neither archived nor closed, and a `purge_requested` one, being deleted, takes no change; nothing is written (`data.fields`: `sessionId`, `state`) | 409 |
+| `session.search_cursor_unresolvable` | A `session.search` `afterCursor` the daemon did not write, one written for another query, one whose search the daemon no longer holds, or one written before more than 4,096 deletes that each lowered a searched table's highest rowid; nothing is answered | 400 |
+| `session.working_folder_unavailable` | A `session.fileSearch` whose session has no working folder in place, yet or any more; nothing is listed (`data.fields`: `sessionId`) | 409 |
+| `session.tag_refused` | `session.tagAdd` named a tag that is empty, holds a space or has an empty level around a `/`; nothing is written | 422 |
 
 ### Auth
 
@@ -247,6 +250,7 @@ Repo-mount attach/detach/resolution errors (Plan-006 D-006-3). The `repo` namesp
 | `repo.reattach_conflict` | `repo.mountReattach` refused, writing nothing, while an agent runs anywhere in the project. `data.fields.runningSessionId` and `data.fields.runningAgentId` name the run's session and agent, drawn `Could not re-attach while <agent> is running. Stop the run first.` ([Spec-007 §Repo Mount Health (V1 Definition)](../../specs/007-repo-attachment-and-workspace-binding.md#repo-mount-health-v1-definition)) | 409 |
 | `repo.detach_conflict` | Detach refused while an agent runs anywhere in the project, naming the running session (drawn `Busy: <session> is running in it.`); active work must finish or be canceled first, and there is no force-detach ([Spec-007 §Detach Semantics (V1 Definition)](../../specs/007-repo-attachment-and-workspace-binding.md#detach-semantics-v1-definition)) | 409 |
 | `repo.clone_refused` | `repo.clone` refused before anything is fetched. `data.fields.reason: destination_not_empty` when the destination exists and is not empty, drawn `<folder> is already there and is not empty.` ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)) | 422 |
+| `repo.mount_managed` | The mount is a chat's managed workspace, which only that chat binds and only its purge removes: another session's bind and any detach are refused, writing nothing (`data.fields`: `repoMountId`) | 409 |
 | `repo.folder_unreachable` | `repo.attach` refused because the background service cannot reach the folder — on Windows, a folder inside another WSL 2 distribution than the one the service runs in — drawn `The background service cannot reach this folder. Pick one under the home folder or on a drive.` | 422 |
 
 A clone that fails once git has started is a failure of the clone, not a refusal of a call, and carries no code: the clone card shows git's own last error line, which `repo.cloneSubscribe` carries as the clone's failure line ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)).

@@ -126,7 +126,7 @@ Plan-010 is built in phases, each one slice of the plan's vertical with a `**Pre
 
 ### Phase 2 — Projection And Catch-Up-Aware Subscription
 
-**Precondition:** Phase 1 merged; **Plan-002 Phase 3B merged** — T3.15 provides the `supersededTurns(runId)` read seam CP-002-13 obliges this phase to consume; **Plan-005 Phase 2D merged** — the batched subscription frame this phase's catch-up-aware subscription rides; it lands in the `session-directory` unit, which this phase's unit, `transcript-projector`, waits on ([cross-plan-dependencies §Desktop and daemon](../architecture/cross-plan-dependencies.md#desktop-and-daemon)). Implementation Step 2.
+**Precondition:** Phase 1 merged; **Plan-002 Phase 3B merged** — T3.15 provides the `supersededTurns(runId)` read seam CP-002-13 obliges this phase to consume; **Plan-005 Phase 2D merged** — the batched subscription frame this phase's catch-up-aware subscription rides. Implementation Step 2.
 
 #### Tasks
 
