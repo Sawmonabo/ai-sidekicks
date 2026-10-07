@@ -1,6 +1,6 @@
-// One settled markdown block, memoized and parsed when drawn. Its text, preamble and context are
-// referentially stable across frames, so the comparison skips the whole subtree, a code block's
-// span-cache lookups included; an unmounted block holds no tree.
+// One settled markdown block, memoized and parsed when drawn. Its record, text reader, preamble and
+// context are referentially stable across frames, so the comparison skips the whole subtree, a code
+// block's span-cache lookups included; an unmounted block holds no tree.
 
 import { memo } from "react";
 
@@ -8,11 +8,14 @@ import {
   MarkdownNodes,
   type MarkdownRenderContext,
 } from "#renderer/components/Markdown/MarkdownNodes.js";
+import { type SettledMarkdownBlock } from "../markdown/body-blocks.js";
 import { useSettledBlockNodes } from "./hooks/useSettledBlockNodes.js";
 
 /** What one settled block is drawn from. */
 export interface SettledBlockProps {
-  readonly source: string;
+  readonly block: SettledMarkdownBlock;
+  /** Cuts the block's text from its body's, for the parse alone. */
+  readonly readBlockSource: (block: SettledMarkdownBlock) => string;
   /** The definitions the whole body declares, which the block is parsed after. */
   readonly definitionPreamble: string;
   readonly context: MarkdownRenderContext;
@@ -22,7 +25,7 @@ export interface SettledBlockProps {
 export const SettledBlock: React.MemoExoticComponent<
   (props: SettledBlockProps) => React.JSX.Element
 > = memo((props: SettledBlockProps): React.JSX.Element => {
-  const nodes = useSettledBlockNodes(props.source, props.definitionPreamble);
+  const nodes = useSettledBlockNodes(props.block, props.readBlockSource, props.definitionPreamble);
   return <MarkdownNodes nodes={nodes} context={props.context} />;
 });
 SettledBlock.displayName = "SettledBlock";

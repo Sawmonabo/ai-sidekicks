@@ -37,6 +37,8 @@ export type BlockVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 export interface WindowedBlocks {
   readonly settledBlocks: readonly SettledMarkdownBlock[];
   readonly volatileTail: string;
+  /** Cuts a settled block's text from its body's, for an estimate that lets it go. */
+  readonly readBlockSource: (block: SettledMarkdownBlock) => string;
 }
 
 /** What one body's window is laid out against. */
@@ -116,7 +118,7 @@ export class BlockWindowLayout {
     const recalled = this.#recall(index);
     const estimate =
       recalled === undefined
-        ? estimateBlockHeightPx(block.source, this.#typography)
+        ? estimateBlockHeightPx(this.#blocks.readBlockSource(block), this.#typography)
         : this.#sizeOf(index, recalled);
     this.#estimates.set(key, estimate);
     return estimate;

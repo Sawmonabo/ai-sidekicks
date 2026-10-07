@@ -1,13 +1,15 @@
 // One markdown body's blocks, as its renderer keys, windows and resolves them. Each settled block
 // is read once, when it settles: a key from its place and a fingerprint of its text, and the
-// footnote identifiers it defines, kept as strings. No block's tree is held here: a block is
-// parsed when it is drawn. The volatile tail is parsed here only while it could define a footnote.
+// footnote identifiers it defines, kept as strings. A block keeps where its text sits in the body's
+// text, never a copy of it, so a long reply is held once; its text is cut again when it is drawn
+// or parsed. No block's tree is held here. The volatile tail is parsed here only while it could
+// define a footnote.
 
 import type { FootnoteDefinition } from "mdast";
 
 import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
 import { footnoteDefinitionPreamble, parseMarkdown } from "#renderer/components/Markdown/parse.js";
-import { type MarkdownSegmentation } from "./parse/block-segmenter.js";
+import { type MarkdownBlockRange, type MarkdownSegmentation } from "./parse/block-segmenter.js";
 import { VolatileTailParser } from "./parse/volatile-tail.js";
 
 /** One settled block, as its body keys, windows and resolves it. */
@@ -19,7 +21,10 @@ export interface SettledMarkdownBlock {
   readonly key: string;
   /** Its text's length and hash: the same for the same text in any body or place. */
   readonly fingerprint: string;
-  readonly source: string;
+  /** Where its text starts in the body's text, in UTF-16 code units. */
+  readonly start: number;
+  /** Where its text ends in the body's text, exclusive. */
+  readonly end: number;
   /** The footnote identifiers it defines, read once when it settled. */
   readonly definedFootnoteIdentifiers: ReadonlySet<string>;
 }
@@ -39,6 +44,12 @@ export interface MarkdownBodyBlocksSnapshot {
   readonly definedFootnoteIdentifiers: ReadonlySet<string>;
   /** Those identifiers as the preamble every block is parsed after. */
   readonly definitionPreamble: string;
+  /**
+   * A settled block's text, cut from the body's latest text. The same function until the
+   * generation changes, so a drawn block does not read its text again on a frame that only grew
+   * the body; the cut is for a reader that lets it go, never one to keep.
+   */
+  readonly readBlockSource: (block: SettledMarkdownBlock) => string;
 }
 
 /**
@@ -51,6 +62,8 @@ export class MarkdownBodyBlocks {
   #lastSegmentation: MarkdownSegmentation | undefined;
   #lastSnapshot: MarkdownBodyBlocksSnapshot | undefined;
   #generation = -1;
+  /** The current generation's text, which its blocks are cut from. */
+  #generationText: GenerationText;
   #settledBlocks: readonly SettledMarkdownBlock[] = NO_BLOCKS;
   #definingBlocks: readonly SettledMarkdownBlock[] = NO_BLOCKS;
   #settledIdentifiers: ReadonlySet<string> = NO_IDENTIFIERS;
@@ -59,12 +72,17 @@ export class MarkdownBodyBlocks {
   #definitionPreamble = "";
   #preambleIdentifiers: ReadonlySet<string> = NO_IDENTIFIERS;
 
+  public constructor() {
+    this.#generationText = new GenerationText();
+  }
+
   /** The body's blocks for one segmentation; the last snapshot again for the same one. */
   public read(segmentation: MarkdownSegmentation): MarkdownBodyBlocksSnapshot {
     if (segmentation === this.#lastSegmentation && this.#lastSnapshot !== undefined) {
       return this.#lastSnapshot;
     }
     this.#settle(segmentation);
+    this.#generationText.update(segmentation.source);
     const volatileTailDefinitions = segmentation.volatileTail.includes(FOOTNOTE_OPENER)
       ? collectFootnoteDefinitions(this.#tailParser.parse(segmentation.volatileTail, "").children)
           .definitions
@@ -82,6 +100,7 @@ export class MarkdownBodyBlocks {
       volatileTailDefinitions,
       definedFootnoteIdentifiers,
       definitionPreamble: this.#definitionPreamble,
+      readBlockSource: this.#generationText.readBlockSource,
     };
     this.#lastSegmentation = segmentation;
     this.#lastSnapshot = snapshot;
@@ -90,20 +109,22 @@ export class MarkdownBodyBlocks {
 
   /** Brings the settled blocks up to the segmentation, reading only the ones not read before. */
   #settle(segmentation: MarkdownSegmentation): void {
-    const sources = segmentation.settledBlocks;
+    const ranges = segmentation.settledBlocks;
     if (segmentation.generation !== this.#generation) {
       this.#generation = segmentation.generation;
+      // A new reader, so no block of the last generation is cut from this one's text.
+      this.#generationText = new GenerationText();
       this.#settledBlocks = NO_BLOCKS;
       this.#definingBlocks = NO_BLOCKS;
       this.#settledIdentifiers = NO_IDENTIFIERS;
     }
     const heldCount = this.#settledBlocks.length;
-    if (sources.length === heldCount) {
+    if (ranges.length === heldCount) {
       return;
     }
-    if (sources.length < heldCount) {
+    if (ranges.length < heldCount) {
       // A body marked finished and then streaming again holds its last blocks back once more.
-      this.#settledBlocks = this.#settledBlocks.slice(0, sources.length);
+      this.#settledBlocks = this.#settledBlocks.slice(0, ranges.length);
       this.#definingBlocks = this.#settledBlocks.filter(
         (block) => block.definedFootnoteIdentifiers.size > 0,
       );
@@ -112,8 +133,8 @@ export class MarkdownBodyBlocks {
     }
     const settledBlocks = [...this.#settledBlocks];
     const definingBlocks = [...this.#definingBlocks];
-    for (let index = heldCount; index < sources.length; index += 1) {
-      const block = readSettledBlock(sources[index] ?? "", index);
+    for (const [offset, range] of ranges.slice(heldCount).entries()) {
+      const block = readSettledBlock(segmentation.source, range, heldCount + offset);
       settledBlocks.push(block);
       if (block.definedFootnoteIdentifiers.size > 0) {
         definingBlocks.push(block);
@@ -150,6 +171,19 @@ export class MarkdownBodyBlocks {
   }
 }
 
+/** One generation's text, as the latest snapshot of it: every block of it is cut from this. */
+class GenerationText {
+  #text = "";
+
+  /** A block's text, cut from the generation's latest text, which only ever grew. */
+  public readonly readBlockSource = (block: SettledMarkdownBlock): string =>
+    this.#text.slice(block.start, block.end);
+
+  public update(text: string): void {
+    this.#text = text;
+  }
+}
+
 /** The tail's identifiers the settled blocks do not define, with the union they made. */
 interface TailIdentifierUnion {
   readonly settled: ReadonlySet<string>;
@@ -176,15 +210,22 @@ const NO_DEFINITIONS: readonly FootnoteDefinition[] = Object.freeze([]);
 const NO_IDENTIFIERS: ReadonlySet<string> = new Set<string>();
 
 /** One block read as it settles: its key and fingerprint, and the identifiers it defines. */
-function readSettledBlock(source: string, index: number): SettledMarkdownBlock {
-  const fingerprint = fingerprintOf(source);
+function readSettledBlock(
+  bodyText: string,
+  range: MarkdownBlockRange,
+  index: number,
+): SettledMarkdownBlock {
+  // Read here and let go: the record keeps only the range.
+  const text = bodyText.slice(range.start, range.end);
+  const fingerprint = fingerprintOf(text);
   return {
     key: `${String(index)}:${fingerprint}`,
     fingerprint,
-    source,
+    start: range.start,
+    end: range.end,
     // Parsed alone and let go: only a block that could define a footnote is parsed at all.
-    definedFootnoteIdentifiers: source.includes(FOOTNOTE_OPENER)
-      ? collectFootnoteDefinitions(parseMarkdown(source).children).definedIdentifiers
+    definedFootnoteIdentifiers: text.includes(FOOTNOTE_OPENER)
+      ? collectFootnoteDefinitions(parseMarkdown(text).children).definedIdentifiers
       : NO_IDENTIFIERS,
   };
 }

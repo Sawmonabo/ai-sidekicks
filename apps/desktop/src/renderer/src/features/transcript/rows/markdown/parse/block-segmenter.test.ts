@@ -5,25 +5,30 @@
 import { describe, expect, it } from "vitest";
 
 import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-measures.js";
-import { MarkdownBlockSegmenter } from "./block-segmenter.js";
+import { MarkdownBlockSegmenter, type MarkdownSegmentation } from "./block-segmenter.js";
 
 /** Five paragraphs, the last of them still arriving. */
 const FIVE_PARAGRAPHS = "one\n\ntwo\n\nthree\n\nfour\n\nfive";
+
+/** The settled blocks' text, cut from the snapshot their ranges index. */
+function settledTextsOf(segmentation: MarkdownSegmentation): string[] {
+  return segmentation.settledBlocks.map(({ start, end }) => segmentation.source.slice(start, end));
+}
 
 describe("splitting a stream into settled blocks and a volatile tail", () => {
   it("settles a block once the lag has moved past it", () => {
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment(FIVE_PARAGRAPHS);
     expect(segmentation.settledBlocks).toHaveLength(3 - MARKDOWN_SETTLE_LAG_BLOCKS);
-    expect(segmentation.settledBlocks[0]).toContain("one");
+    expect(settledTextsOf(segmentation)[0]).toContain("one");
     expect(segmentation.volatileTail).toContain("five");
   });
 
   it("is incremental: a settled block's text does not change as the stream grows", () => {
     const segmenter = new MarkdownBlockSegmenter();
     segmenter.segment(FIVE_PARAGRAPHS);
-    const before = segmenter.segment(FIVE_PARAGRAPHS).settledBlocks;
-    const after = segmenter.segment(`${FIVE_PARAGRAPHS} and more`).settledBlocks;
+    const before = settledTextsOf(segmenter.segment(FIVE_PARAGRAPHS));
+    const after = settledTextsOf(segmenter.segment(`${FIVE_PARAGRAPHS} and more`));
     expect(after).toStrictEqual(before);
   });
 
@@ -31,9 +36,9 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     // A blank line inside a code fence is content, not a block boundary.
     const segmenter = new MarkdownBlockSegmenter();
     const fenced = "```ts\nconst a = 1;\n\nconst b = 2;\n```\n\nafter\n\ntail\n\nlast\n\nend";
-    const segmentation = segmenter.segment(fenced);
-    expect(segmentation.settledBlocks[0]).toContain("```ts");
-    expect(segmentation.settledBlocks[0]).toContain("const b = 2;");
+    const firstBlock = settledTextsOf(segmenter.segment(fenced))[0];
+    expect(firstBlock).toContain("```ts");
+    expect(firstBlock).toContain("const b = 2;");
   });
 
   it("resets rather than gluing a new history onto an old tail", () => {
@@ -50,7 +55,7 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment(FIVE_PARAGRAPHS, { isFinal: true });
     expect(segmentation.volatileTail).toBe("");
-    expect(segmentation.settledBlocks.join("")).toBe(FIVE_PARAGRAPHS);
+    expect(settledTextsOf(segmentation).join("")).toBe(FIVE_PARAGRAPHS);
     expect(segmentation.settledBlocks).toHaveLength(5);
   });
 
@@ -58,7 +63,7 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     const segmentation = new MarkdownBlockSegmenter().segment("only a paragraph", {
       isFinal: true,
     });
-    expect(segmentation.settledBlocks).toStrictEqual(["only a paragraph"]);
+    expect(settledTextsOf(segmentation)).toStrictEqual(["only a paragraph"]);
     expect(segmentation.volatileTail).toBe("");
   });
 
@@ -71,15 +76,15 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
         isFinal: true,
       },
     );
-    expect(segmentation.settledBlocks).toHaveLength(1);
-    expect(segmentation.settledBlocks[0]).toContain("const b = 2;");
+    expect(settledTextsOf(segmentation)).toHaveLength(1);
+    expect(settledTextsOf(segmentation)[0]).toContain("const b = 2;");
   });
 
   it("a blank run at the end of the snapshot commits nothing", () => {
     // The last line is whole in both, so only the blank run after it differs.
     const withoutBlankRun = new MarkdownBlockSegmenter().segment(`${FIVE_PARAGRAPHS}\n`);
     const withBlankRun = new MarkdownBlockSegmenter().segment(`${FIVE_PARAGRAPHS}\n\n\n`);
-    expect(withBlankRun.settledBlocks).toStrictEqual(withoutBlankRun.settledBlocks);
+    expect(settledTextsOf(withBlankRun)).toStrictEqual(settledTextsOf(withoutBlankRun));
     expect(withBlankRun.volatileTail).toContain("five");
   });
 });
@@ -117,7 +122,9 @@ const CONTAINER_CASES: readonly {
 
 describe("a blank line inside a container", () => {
   it.each(CONTAINER_CASES)("keeps $what in one block", ({ source, expectedFirstBlock }) => {
-    expect(new MarkdownBlockSegmenter().segment(source).settledBlocks[0]).toBe(expectedFirstBlock);
+    expect(settledTextsOf(new MarkdownBlockSegmenter().segment(source))[0]).toBe(
+      expectedFirstBlock,
+    );
   });
 });
 

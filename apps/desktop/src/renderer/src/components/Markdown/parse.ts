@@ -95,16 +95,19 @@ export function footnoteDefinitionPreamble(definedIdentifiers: ReadonlySet<strin
  * Parse one settled block against the definitions the whole body declared.
  *
  * Memoized on the text and the preamble together, since the same text parses to a different
- * tree under a different definition set.
+ * tree under a different definition set. The cache keeps a copy of the text, never the caller's
+ * string, which may be a cut of a much longer one.
  */
 export function parseSettledBlock(blockSource: string, definitionPreamble = ""): MarkdownRoot {
-  const cacheKey = settledBlockCacheKey(blockSource, definitionPreamble);
-  const cached = settledBlockCache.get(cacheKey);
+  const cached = settledBlockCache.get(settledBlockCacheKey(blockSource, definitionPreamble));
   if (cached !== undefined) {
     return cached;
   }
-  const parsed = parseAgainstDefinitions(blockSource, definitionPreamble);
-  settledBlockCache.set(cacheKey, parsed);
+  // The tree's text values are cuts of what it was parsed from, and the key outlives the call:
+  // both would keep a cut's whole parent string alive, so both read the cache's own copy.
+  const ownSource = structuredClone(blockSource);
+  const parsed = parseAgainstDefinitions(ownSource, definitionPreamble);
+  settledBlockCache.set(settledBlockCacheKey(ownSource, definitionPreamble), parsed);
   return parsed;
 }
 

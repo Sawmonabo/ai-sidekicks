@@ -1,15 +1,30 @@
 // Splits the reveal engine's cumulative text into settled blocks and a volatile tail. Own-built
 // because re-parsing the whole message per token is quadratic: measured, a whole-message re-parse
 // costs 94.3 ms at 64 KB and grows linearly, while a 256 B-2 KB tail slice costs 0.30-1.31 ms.
-// The segmenter takes a snapshot, not a delta, so a card can re-render from a store read.
+// The segmenter takes a snapshot, not a delta, so a card can re-render from a store read. A
+// settled block is a range of the snapshot, never a copy of its text, so a long reply is held once.
 
 import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-measures.js";
 
+/** Where one block sits in the snapshot it was cut from, in UTF-16 code units, end exclusive. */
+export interface MarkdownBlockRange {
+  readonly start: number;
+  readonly end: number;
+}
+
 /** The split, as a card renders it. */
 export interface MarkdownSegmentation {
-  /** Complete blocks far enough behind the tail to be final; each is read once, as it settles. */
-  readonly settledBlocks: readonly string[];
-  /** Everything after them, as one string: read every frame, the only part `remend` sees. */
+  /** The snapshot the ranges index. */
+  readonly source: string;
+  /**
+   * Complete blocks far enough behind the tail to be final, as ranges of `source`; each is read
+   * once, as it settles.
+   */
+  readonly settledBlocks: readonly MarkdownBlockRange[];
+  /**
+   * Everything after them, as one string of its own: read every frame, the only part `remend`
+   * sees.
+   */
   readonly volatileTail: string;
   /**
    * Counts the scans restarted from nothing. Within one generation a block never changes at its
@@ -75,8 +90,8 @@ const LIST_MARKER = /^( {0,3})(?:([-+*])|(\d{1,9})([.)]))([ \t]+|$)/u;
  * scan resumes from the last committed offset, so a growing message costs its growth.
  */
 export class MarkdownBlockSegmenter {
-  /** Complete blocks, oldest first. Grows only at the end. */
-  readonly #completeBlocks: string[] = [];
+  /** Complete blocks, oldest first, as ranges of the snapshot. Grows only at the end. */
+  readonly #completeBlocks: MarkdownBlockRange[] = [];
 
   /** The snapshot this segmentation was computed from, so growth can be detected. */
   #scannedSource = "";
@@ -102,6 +117,7 @@ export class MarkdownBlockSegmenter {
     if (options.isFinal) {
       // The lag is lifted: the scan already committed the remainder, so every block is final.
       return {
+        source: cumulativeSource,
         settledBlocks: [...this.#completeBlocks],
         volatileTail: "",
         generation: this.#generation,
@@ -109,12 +125,17 @@ export class MarkdownBlockSegmenter {
     }
 
     const settledCount = Math.max(0, this.#completeBlocks.length - MARKDOWN_SETTLE_LAG_BLOCKS);
-    const settledBlocks = this.#completeBlocks.slice(0, settledCount);
-    const laggedBlocks = this.#completeBlocks.slice(settledCount);
+    const laggedBlockTexts = this.#completeBlocks
+      .slice(settledCount)
+      .map((block) => cumulativeSource.slice(block.start, block.end));
     const remainder = cumulativeSource.slice(this.#remainderOffset);
+    const volatileTail = withoutLeadingBlankLines([...laggedBlockTexts, remainder].join(""));
     return {
-      settledBlocks,
-      volatileTail: withoutLeadingBlankLines([...laggedBlocks, remainder].join("")),
+      source: cumulativeSource,
+      settledBlocks: this.#completeBlocks.slice(0, settledCount),
+      // A copy, not a cut of the snapshot: a tail parser keeps what it read across frames, and a
+      // cut would keep that frame's whole snapshot alive with it.
+      volatileTail: structuredClone(volatileTail),
       generation: this.#generation,
     };
   }
@@ -171,8 +192,7 @@ export class MarkdownBlockSegmenter {
         if (blankRunStart !== undefined && !continuesContainer(openContainer, line)) {
           // The blank run closed the block before it; the block keeps its trailing blank line
           // so a re-join reproduces the source.
-          this.#commitBlock(cumulativeSource.slice(this.#remainderOffset, blankRunStart + 1));
-          this.#remainderOffset = blankRunStart + 1;
+          this.#commitBlock(cumulativeSource, blankRunStart + 1);
           blockHasContent = false;
         }
         blankRunStart = undefined;
@@ -196,20 +216,22 @@ export class MarkdownBlockSegmenter {
     if (blankRunStart !== undefined) {
       // A trailing blank run is pending only because a lazy continuation could still follow;
       // on the last snapshot none can. It cannot be set inside a fence: opening one clears it.
-      this.#commitBlock(cumulativeSource.slice(this.#remainderOffset, blankRunStart + 1));
-      this.#remainderOffset = blankRunStart + 1;
+      this.#commitBlock(cumulativeSource, blankRunStart + 1);
     }
-    this.#commitBlock(cumulativeSource.slice(this.#remainderOffset));
-    this.#remainderOffset = cumulativeSource.length;
+    this.#commitBlock(cumulativeSource, cumulativeSource.length);
   }
 
-  #commitBlock(block: string): void {
-    if (block.trim() === "") {
+  /**
+   * Closes the block from the remainder's start to `end` and moves the remainder past it. A block
+   * of blank lines alone draws nothing and is not kept.
+   */
+  #commitBlock(cumulativeSource: string, end: number): void {
+    const start = this.#remainderOffset;
+    this.#remainderOffset = end;
+    if (cumulativeSource.slice(start, end).trim() === "") {
       return;
     }
-    // A copy, not the slice: the engine keeps a slice's whole source string alive, and each frame's
-    // snapshot is a new string, so kept slices would hold every snapshot of a long reply.
-    this.#completeBlocks.push(structuredClone(block));
+    this.#completeBlocks.push({ start, end });
   }
 }
 

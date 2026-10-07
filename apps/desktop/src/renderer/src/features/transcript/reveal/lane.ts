@@ -76,6 +76,7 @@ export class RevealLane {
    */
   public commitAuthoritative(delta: RevealDelta, report: RevealDiagnosticSink): void {
     if (this.#rope.isPrefixOf(delta.text)) {
+      // The rope copies the extension, so the commit's whole text is not kept past this call.
       this.#rope.append(delta.text.slice(this.#rope.sourceLength));
       this.#isQuarantined = false;
       return;

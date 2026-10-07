@@ -104,9 +104,9 @@ function drawnIndexes(body: HTMLElement): number[] {
 describe("a long body drawn as a window over its blocks", () => {
   it("parses only the blocks it draws, and none as they settle", () => {
     const text = longReplyMarkdown(40_000);
-    const blockSources = new MarkdownBlockSegmenter().segment(text, {
-      isFinal: true,
-    }).settledBlocks;
+    const blockSources = new MarkdownBlockSegmenter()
+      .segment(text, { isFinal: true })
+      .settledBlocks.map(({ start, end }) => text.slice(start, end));
     settledBlockParses.mockClear();
     wholeParses.mockClear();
 

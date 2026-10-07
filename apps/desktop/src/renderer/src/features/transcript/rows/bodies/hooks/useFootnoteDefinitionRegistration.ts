@@ -16,7 +16,7 @@ export function useFootnoteDefinitionRegistration(
   footnotes: FootnoteRegistry,
   sourceId: string,
 ): void {
-  const { definingBlocks, definitionPreamble, volatileTailDefinitions } = blocks;
+  const { definingBlocks, definitionPreamble, volatileTailDefinitions, readBlockSource } = blocks;
   const registered = useRef<RegisteredBlocks | undefined>(undefined);
   useEffect(() => {
     let held = registered.current;
@@ -33,11 +33,18 @@ export function useFootnoteDefinitionRegistration(
         continue;
       }
       held.blockKeys.add(block.key);
-      const nodes = parseSettledBlock(block.source, definitionPreamble).children;
+      const nodes = parseSettledBlock(readBlockSource(block), definitionPreamble).children;
       register(collectFootnoteDefinitions(nodes).definitions, footnotes, sourceId);
     }
     register(volatileTailDefinitions, footnotes, sourceId);
-  }, [definingBlocks, definitionPreamble, volatileTailDefinitions, footnotes, sourceId]);
+  }, [
+    definingBlocks,
+    definitionPreamble,
+    volatileTailDefinitions,
+    readBlockSource,
+    footnotes,
+    sourceId,
+  ]);
 }
 
 /** The blocks registered into one registry for one source under one preamble. */

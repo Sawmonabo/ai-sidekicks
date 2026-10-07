@@ -21,6 +21,21 @@ describe("the reveal text rope", () => {
     expect(rope.advance(100)).toBe(5);
     expect(rope.revealedText()).toBe("abcdefghi");
     expect(rope.isSettled).toBe(true);
+
+    // One append long enough that the rope keeps it as several parts of its own: every
+    // character still arrives once and in order, at every stop.
+    const numbered = Array.from(
+      { length: 1_000 },
+      (_, index) => `${String(index).padStart(4, "0")} `,
+    );
+    const longSource = numbered.join("");
+    const longRope = fedWith([longSource]);
+    while (!longRope.isSettled) {
+      longRope.advance(777);
+      expect(longSource.startsWith(longRope.revealedText())).toBe(true);
+      expect(longRope.isPrefixOf(longSource)).toBe(true);
+    }
+    expect(longRope.revealedText()).toBe(longSource);
   });
 
   it("never moves the cursor backwards, and never reveals on a negative budget", () => {
@@ -48,6 +63,17 @@ describe("the reveal text rope", () => {
     // history must not read as an append.
     expect(rope.isPrefixOf("The run failed")).toBe(false);
     expect(rope.isPrefixOf("The run")).toBe(false);
+  });
+
+  it("still recognizes its source once the cursor has passed parts and stands inside one", () => {
+    // Passed parts are dropped, so the revealed prefix, the part under the cursor and the part
+    // after it carry the comparison; each refused candidate differs in one of the three.
+    const rope = fedWith(["The run ", "started ", "at noon"]);
+    rope.advance(11);
+    expect(rope.isPrefixOf("The run started at noon, and ended")).toBe(true);
+    expect(rope.isPrefixOf("The ran started at noon, and ended")).toBe(false);
+    expect(rope.isPrefixOf("The run starved at noon, and ended")).toBe(false);
+    expect(rope.isPrefixOf("The run started at dusk, and ended")).toBe(false);
   });
 });
 

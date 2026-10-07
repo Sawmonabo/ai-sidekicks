@@ -1,31 +1,38 @@
-// One lane's text as immutable parts plus a reveal cursor. A single growing string is never
-// indexed or re-sliced (quadratic per append and per frame): a slice touches only the part under
-// the cursor, and the settled prefix is accumulated once. `append` is the single text writer.
+// One lane's text: the revealed prefix as one string, and the text past the cursor as immutable
+// parts. A single growing string is never indexed or re-sliced (quadratic per append and per
+// frame): a slice touches only the part under the cursor, and the revealed prefix is accumulated
+// once. A part the cursor has passed is dropped, so the rope holds each character once.
+// `append` is the single text writer.
 
-/** One lane's text as immutable parts and a cursor that never moves backwards. */
+/** One lane's text as a revealed prefix, unrevealed parts and a cursor that never moves back. */
 export class RevealTextRope {
   readonly #laneId: string;
-  /** Immutable once pushed. Nothing mutates a part, which is what makes slicing safe. */
-  readonly #parts: string[] = [];
+  /**
+   * The parts the cursor has not passed, oldest first; the cursor sits inside the first. Each is
+   * the rope's own copy and immutable once pushed, which is what makes slicing safe.
+   */
+  readonly #pendingParts: string[] = [];
 
   #sourceLength = 0;
-  #revealedLength = 0;
-  /** Which part the cursor is inside, and how far into it. */
-  #cursorPartIndex = 0;
+  /** How far into the first pending part the cursor is. */
   #cursorOffsetInPart = 0;
-  /** Every part the cursor has passed, concatenated exactly once as it passed. */
-  #settledText = "";
+  /** Every character the cursor has passed, concatenated exactly once as it passed. */
+  #revealedText = "";
 
   public constructor(laneId: string) {
     this.#laneId = laneId;
   }
 
-  /** The single text writer. An empty append pushes no part: nothing grew. */
+  /**
+   * The single text writer. The text is copied in parts of at most `PART_CHARACTER_CAP`
+   * characters, so no part holds alive a larger string it was cut from (an authoritative commit's
+   * whole source) and a part the cursor is inside holds at most that much revealed text twice. An
+   * empty append pushes no part: nothing grew.
+   */
   public append(text: string): void {
-    if (text.length === 0) {
-      return;
+    for (let start = 0; start < text.length; start += PART_CHARACTER_CAP) {
+      this.#pendingParts.push(structuredClone(text.slice(start, start + PART_CHARACTER_CAP)));
     }
-    this.#parts.push(text);
     this.#sourceLength += text.length;
   }
 
@@ -38,35 +45,36 @@ export class RevealTextRope {
       Math.max(0, Math.min(characterBudget, this.pendingCharacterCount)),
     );
     let remaining = budget;
+    let passedPartCount = 0;
     while (remaining > 0) {
-      const part = this.#parts[this.#cursorPartIndex];
+      const part = this.#pendingParts[passedPartCount];
       if (part === undefined) {
         break;
       }
       const availableInPart = part.length - this.#cursorOffsetInPart;
       if (availableInPart <= remaining) {
-        this.#settledText +=
+        this.#revealedText +=
           this.#cursorOffsetInPart === 0 ? part : part.slice(this.#cursorOffsetInPart);
         remaining -= availableInPart;
-        this.#cursorPartIndex += 1;
+        passedPartCount += 1;
         this.#cursorOffsetInPart = 0;
         continue;
       }
-      this.#settledText += part.slice(
+      this.#revealedText += part.slice(
         this.#cursorOffsetInPart,
         this.#cursorOffsetInPart + remaining,
       );
       this.#cursorOffsetInPart += remaining;
       remaining = 0;
     }
-    const advanced = budget - remaining;
-    this.#revealedLength += advanced;
-    return advanced;
+    // A passed part's text now lives in the revealed prefix alone.
+    this.#pendingParts.splice(0, passedPartCount);
+    return budget - remaining;
   }
 
   /** The revealed prefix. Free: it is the accumulator `advance` already built. */
   public revealedText(): string {
-    return this.#settledText;
+    return this.#revealedText;
   }
 
   /**
@@ -74,9 +82,9 @@ export class RevealTextRope {
    * the cursor without concatenating the whole growing prefix each frame.
    */
   public revealedTail(characterCount: number): string {
-    return characterCount >= this.#settledText.length
-      ? this.#settledText
-      : this.#settledText.slice(this.#settledText.length - characterCount);
+    return characterCount >= this.#revealedText.length
+      ? this.#revealedText
+      : this.#revealedText.slice(this.#revealedText.length - characterCount);
   }
 
   /**
@@ -85,30 +93,28 @@ export class RevealTextRope {
    */
   public lookahead(characterCount: number): string {
     let collected = "";
-    let partIndex = this.#cursorPartIndex;
     let offset = this.#cursorOffsetInPart;
-    while (collected.length < characterCount) {
-      const part = this.#parts[partIndex];
-      if (part === undefined) {
+    for (const part of this.#pendingParts) {
+      if (collected.length >= characterCount) {
         break;
       }
       collected += part.slice(offset, offset + (characterCount - collected.length));
-      partIndex += 1;
       offset = 0;
     }
     return collected;
   }
 
   /**
-   * Whether this rope's source is a prefix of `candidate`. Walks the fixed parts rather
-   * than materializing the source.
+   * Whether this rope's source is a prefix of `candidate`. Compares the revealed prefix, then
+   * walks the pending parts rather than materializing the source.
    */
   public isPrefixOf(candidate: string): boolean {
-    if (candidate.length < this.#sourceLength) {
+    if (candidate.length < this.#sourceLength || !candidate.startsWith(this.#revealedText)) {
       return false;
     }
-    let offset = 0;
-    for (const part of this.#parts) {
+    // The first pending part starts behind the cursor, inside the revealed prefix.
+    let offset = this.#revealedText.length - this.#cursorOffsetInPart;
+    for (const part of this.#pendingParts) {
       if (!candidate.startsWith(part, offset)) {
         return false;
       }
@@ -126,11 +132,11 @@ export class RevealTextRope {
   }
 
   public get revealedLength(): number {
-    return this.#revealedLength;
+    return this.#revealedText.length;
   }
 
   public get pendingCharacterCount(): number {
-    return this.#sourceLength - this.#revealedLength;
+    return this.#sourceLength - this.#revealedText.length;
   }
 
   public get isSettled(): boolean {
@@ -165,22 +171,23 @@ export class RevealTextRope {
    * a string: it runs for every lane on every frame.
    */
   #codeUnitAtCursorOffset(offsetFromCursor: number): string | undefined {
-    let partIndex = this.#cursorPartIndex;
     let offsetInPart = this.#cursorOffsetInPart + offsetFromCursor;
-    while (partIndex < this.#parts.length) {
-      const part = this.#parts[partIndex];
-      if (part === undefined) {
-        return undefined;
-      }
+    for (const part of this.#pendingParts) {
       if (offsetInPart < part.length) {
         return part[offsetInPart];
       }
       offsetInPart -= part.length;
-      partIndex += 1;
     }
     return undefined;
   }
 }
+
+/**
+ * The most characters one part holds. Above a frame's whole budget, so a long append is crossed
+ * one part or two a frame; small next to a reply, so the part the cursor is inside holds little
+ * revealed text a second time.
+ */
+const PART_CHARACTER_CAP = 1_024;
 
 /**
  * The first half of a UTF-16 surrogate pair, on its own. Under the `u` flag a well-formed pair

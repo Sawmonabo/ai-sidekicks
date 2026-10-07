@@ -50,7 +50,8 @@ export function WindowedMarkdown(props: WindowedMarkdownProps): React.JSX.Elemen
               />
             ) : (
               <SettledBlock
-                source={block.source}
+                block={block}
+                readBlockSource={blocks.readBlockSource}
                 definitionPreamble={blocks.definitionPreamble}
                 context={contexts.settled}
               />

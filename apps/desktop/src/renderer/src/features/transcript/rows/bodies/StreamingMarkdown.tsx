@@ -75,7 +75,8 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
       {blocks.settledBlocks.map((block) => (
         <SettledBlock
           key={block.key}
-          source={block.source}
+          block={block}
+          readBlockSource={blocks.readBlockSource}
           definitionPreamble={blocks.definitionPreamble}
           context={contexts.settled}
         />
