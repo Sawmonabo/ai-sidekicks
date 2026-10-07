@@ -2,10 +2,13 @@
 // hold the rules those acts rely on: the cancel reason's cap counts bytes, not characters, a re-pin
 // names both versions or neither, a resumed run says where it picks up, a start's session and
 // project are the daemon's to refuse together, a retry is a new run, and a refusal about nodes
-// names at least one.
+// names at least one, and a start fills the workflow's declared inputs or names those it lacks.
 import { describe, expect, it } from "vitest";
 
+import type { WorkflowTriggerInput } from "../../definition/document.js";
 import {
+  fillWorkflowTriggerInputs,
+  WorkflowInputRequiredDetailsSchema,
   WorkflowRepositoryRequiredDetailsSchema,
   WorkflowResumedPayloadSchema,
   WorkflowRunCancelRequestSchema,
@@ -90,5 +93,45 @@ describe("workflow.repository_required", () => {
       true,
     );
     expect(WorkflowRepositoryRequiredDetailsSchema.safeParse({ nodeIds: [] }).success).toBe(false);
+  });
+});
+
+describe("workflow.runStart inputs", () => {
+  const DECLARED: WorkflowTriggerInput[] = [
+    { name: "branch", type: "string", required: true, default: "" },
+    { name: "dryRun", type: "boolean", default: true },
+  ];
+  const startOn = (json: unknown) => [{ json }];
+
+  it("names a required input the start left out, and any input given the wrong type", () => {
+    expect(fillWorkflowTriggerInputs(DECLARED, startOn({ dryRun: false }))).toEqual({
+      kind: "missing",
+      details: { inputNames: ["branch"] },
+    });
+    expect(fillWorkflowTriggerInputs(DECLARED, startOn({ branch: 7 }))).toEqual({
+      kind: "missing",
+      details: { inputNames: ["branch"] },
+    });
+    expect(fillWorkflowTriggerInputs(DECLARED, startOn({ branch: "main", dryRun: "yes" }))).toEqual(
+      { kind: "missing", details: { inputNames: ["dryRun"] } },
+    );
+    expect(WorkflowInputRequiredDetailsSchema.safeParse({ inputNames: [] }).success).toBe(false);
+  });
+
+  it("gives an optional input left out its default", () => {
+    expect(fillWorkflowTriggerInputs(DECLARED, startOn({ branch: "main" }))).toEqual({
+      kind: "filled",
+      values: { branch: "main", dryRun: true },
+    });
+  });
+
+  it("takes every input the start filled", () => {
+    expect(fillWorkflowTriggerInputs(DECLARED, startOn({ branch: "main", dryRun: false }))).toEqual(
+      { kind: "filled", values: { branch: "main", dryRun: false } },
+    );
+  });
+
+  it("starts a workflow that declares no inputs on an empty start", () => {
+    expect(fillWorkflowTriggerInputs(undefined, undefined)).toEqual({ kind: "filled", values: {} });
   });
 });

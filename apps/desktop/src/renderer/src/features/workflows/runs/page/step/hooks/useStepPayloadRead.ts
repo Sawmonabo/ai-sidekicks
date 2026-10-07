@@ -44,9 +44,9 @@ export function useStepPayloadRead(
   which: WorkflowStepPayloadKind,
 ): StepPayloadReadHold {
   const [readRevision, setReadRevision] = useState(0);
-  const { workflowRunId, nodeId, executionIndex } = step;
+  const { workflowRunId, nodeId, attempt, executionIndex } = step;
   const subject =
-    `${workflowRunId}/${nodeId}/${String(executionIndex)}/${which}/` +
+    `${workflowRunId}/${nodeId}/${String(attempt)}/${String(executionIndex)}/${which}/` +
     `${step.status}/${step.finishedAt ?? ""}`;
   const { value: read } = useSubjectRead<StepPayloadRead, StepPayloadRead>(
     bridge,
@@ -61,6 +61,7 @@ export function useStepPayloadRead(
           {
             workflowRunId,
             nodeId,
+            attempt,
             executionIndex,
             which,
             ...(cursor === undefined ? {} : { cursor }),

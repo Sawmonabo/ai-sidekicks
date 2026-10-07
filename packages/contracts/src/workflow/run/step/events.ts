@@ -4,7 +4,6 @@ import { z } from "zod";
 import {
   WorkflowPayloadRefSchema,
   WorkflowCostSchema,
-  WorkflowStepAttemptSchema,
   workflowStepKeyShape,
   type WorkflowPayloadRef,
   type WorkflowCost,
@@ -34,12 +33,10 @@ import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.j
  */
 export interface WorkflowStepEventPayload extends WorkflowStepKey {
   sessionId: SessionId;
-  attempt: number;
 }
 const workflowStepEventFields = {
   sessionId: SessionIdSchema,
   ...workflowStepKeyShape,
-  attempt: WorkflowStepAttemptSchema,
 };
 
 /**

@@ -597,6 +597,7 @@ function requireStep(request: unknown, playback: WorkflowPlayback): WorkflowStep
   const step = requireRun(request, playback).read.steps.find(
     (candidate) =>
       candidate.nodeId === readMember(request, "nodeId") &&
+      candidate.attempt === readMember(request, "attempt") &&
       candidate.executionIndex === readMember(request, "executionIndex"),
   );
   if (step === undefined) {

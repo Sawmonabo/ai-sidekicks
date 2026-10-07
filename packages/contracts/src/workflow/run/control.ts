@@ -4,6 +4,7 @@
 // descriptor registers nothing.
 import { z } from "zod";
 
+import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../../project.js";
@@ -16,14 +17,11 @@ import {
   type WorkflowDefinitionId,
   type WorkflowItem,
   type WorkflowNodeId,
+  type WorkflowTriggerInput,
 } from "../definition/document.js";
 import { WorkflowRunStatusSchema, type WorkflowRunStatus } from "./status.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
-import {
-  WorkflowStepAttemptSchema,
-  workflowStepKeyShape,
-  type WorkflowStepKey,
-} from "./step/record.js";
+import { workflowStepKeyShape, type WorkflowStepKey } from "./step/record.js";
 import {
   WORKFLOW_RUN_MODES,
   WorkflowRunModeSchema,
@@ -86,7 +84,11 @@ export interface WorkflowRunStartRequest {
    * Git, Read a repo diff or Run tests step is refused.
    */
   projectId?: ProjectId | undefined;
-  /** The items the run starts on, where the workflow declares inputs. */
+  /**
+   * The items the run starts on, where the workflow declares inputs: the one item's `json` object
+   * holds the filled values by input name, and a start leaving a required one unfilled is refused
+   * with {@link WORKFLOW_INPUT_REQUIRED_CODE}.
+   */
   input?: WorkflowItem[] | undefined;
   mode?: RequestableRunMode | undefined;
 }
@@ -122,6 +124,68 @@ export const WorkflowRunStartResponseSchema: z.ZodType<WorkflowRunStartResponse>
     state: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict();
+
+/** A value a start fills a declared input with: a `boolean` input's flag, any other's text. */
+export type WorkflowTriggerInputValue = WorkflowTriggerInput["default"];
+
+/**
+ * A start's declared inputs as filled: every input's value by name, or the required inputs the
+ * start left unfilled, which are the details of its {@link WORKFLOW_INPUT_REQUIRED_CODE} refusal.
+ */
+export type WorkflowTriggerInputFill =
+  | { kind: "filled"; values: Record<string, WorkflowTriggerInputValue> }
+  | { kind: "missing"; details: WorkflowInputRequiredDetails };
+
+/**
+ * Fills a workflow's declared inputs from a start's `input`, whose one item's `json` object holds
+ * the values by input name. A value counts as filled only where it fits its input: a flag for
+ * `boolean`, non-empty text for `string` and `path`, one of the options for `select`. An optional
+ * input left out or left as empty text takes its `default`; a required input left unfilled, and any
+ * input given a value that does not fit it, is named in the refusal.
+ */
+export function fillWorkflowTriggerInputs(
+  declared: readonly WorkflowTriggerInput[] | undefined,
+  input: readonly WorkflowItem[] | undefined,
+): WorkflowTriggerInputFill {
+  const given = input?.[0]?.json;
+  const named =
+    typeof given === "object" && given !== null && !Array.isArray(given)
+      ? (given as Record<string, unknown>)
+      : {};
+  const values: [string, WorkflowTriggerInputValue][] = [];
+  const missing: string[] = [];
+  for (const declaredInput of declared ?? []) {
+    // An own member only, so a name such as `constructor` never reads the prototype.
+    const value = Object.hasOwn(named, declaredInput.name) ? named[declaredInput.name] : undefined;
+    if (fitsTriggerInput(declaredInput, value)) {
+      values.push([declaredInput.name, value]);
+    } else if (declaredInput.required !== true && (value === undefined || value === "")) {
+      values.push([declaredInput.name, declaredInput.default]);
+    } else {
+      missing.push(declaredInput.name);
+    }
+  }
+  const [firstMissing, ...restMissing] = missing;
+  return firstMissing === undefined
+    ? { kind: "filled", values: Object.fromEntries(values) }
+    : { kind: "missing", details: { inputNames: [firstMissing, ...restMissing] } };
+}
+
+function fitsTriggerInput(
+  input: WorkflowTriggerInput,
+  value: unknown,
+): value is WorkflowTriggerInputValue {
+  switch (input.type) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "string":
+      return typeof value === "string" && value !== "";
+    case "path":
+      return typeof value === "string" && value !== "" && value.length <= FILE_PATH_MAX_LEN;
+    case "select":
+      return typeof value === "string" && input.options.includes(value);
+  }
+}
 
 // workflow.runCancel
 
@@ -384,6 +448,22 @@ export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowReposito
   z.object({ nodeIds: refusedNodeIdsSchema }).strict();
 
 /**
+ * A start that leaves a required input of the workflow unfilled. Nothing runs.
+ *
+ * @consumedBy the start handler that refuses a start missing a required input
+ */
+export const WORKFLOW_INPUT_REQUIRED_CODE = "workflow.input_required" as const;
+/** The missing-input refusal's details: the required inputs the start left unfilled, by name. */
+export interface WorkflowInputRequiredDetails {
+  inputNames: [string, ...string[]];
+}
+/** Wire schema for {@link WorkflowInputRequiredDetails}. */
+export const WorkflowInputRequiredDetailsSchema: z.ZodType<
+  WorkflowInputRequiredDetails,
+  WorkflowInputRequiredDetails
+> = z.object({ inputNames: z.tuple([z.string().min(1)], z.string().min(1)) }).strict();
+
+/**
  * A start of a version whose Code steps' packages are not locked; a later save that locks them
  * makes the version runnable. Nothing runs.
  *
@@ -514,9 +594,7 @@ export const WorkflowCanceledPayloadSchema: z.ZodType<WorkflowCanceledPayload> =
   .strict();
 
 /** One step a resumed run picks up, by its node, its attempt and which execution of the node. */
-export type WorkflowResumedStep = Pick<WorkflowStepKey, "nodeId" | "executionIndex"> & {
-  attempt: number;
-};
+export type WorkflowResumedStep = Omit<WorkflowStepKey, "workflowRunId">;
 
 /**
  * Where a resumed run picks up, so a reader rebuilds it without replaying the run's whole history:
@@ -542,7 +620,7 @@ const workflowResumedFields = {
         z
           .object({
             nodeId: workflowStepKeyShape.nodeId,
-            attempt: WorkflowStepAttemptSchema,
+            attempt: workflowStepKeyShape.attempt,
             executionIndex: workflowStepKeyShape.executionIndex,
           })
           .strict(),

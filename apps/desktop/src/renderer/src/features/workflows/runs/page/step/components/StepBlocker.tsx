@@ -71,6 +71,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
           stepKey={{
             workflowRunId: step.workflowRunId,
             nodeId: step.nodeId,
+            attempt: step.attempt,
             executionIndex: step.executionIndex,
           }}
           onAnswered={props.onAnswered}

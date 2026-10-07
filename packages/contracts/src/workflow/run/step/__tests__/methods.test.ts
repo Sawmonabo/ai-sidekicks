@@ -14,7 +14,7 @@ import {
 } from "../methods.js";
 
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
-const STEP = { workflowRunId: RUN_ID, nodeId: "review-form", executionIndex: 4 };
+const STEP = { workflowRunId: RUN_ID, nodeId: "review-form", attempt: 1, executionIndex: 4 };
 const NOW = "2026-09-29T20:00:00.000Z";
 
 describe("workflow.gateResolve", () => {
@@ -82,10 +82,13 @@ describe("workflow.humanFormSubmit", () => {
     ).toBe(false);
   });
 
-  it("refuses a submit that does not say which execution of the node it answers", () => {
-    const { executionIndex: _dropped, ...withoutExecution } = STEP;
-    const submit = { ...withoutExecution, fields: {}, expectedRevision: 0 };
-    expect(WorkflowHumanFormSubmitRequestSchema.safeParse(submit).success).toBe(false);
+  it("refuses a submit that does not say which attempt and execution of the node it answers", () => {
+    const { attempt: _attempt, ...withoutAttempt } = STEP;
+    const { executionIndex: _execution, ...withoutExecution } = STEP;
+    for (const key of [withoutAttempt, withoutExecution]) {
+      const submit = { ...key, fields: {}, expectedRevision: 0 };
+      expect(WorkflowHumanFormSubmitRequestSchema.safeParse(submit).success).toBe(false);
+    }
   });
 });
 

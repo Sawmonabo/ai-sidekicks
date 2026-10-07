@@ -1,7 +1,7 @@
 // The step record every workflow run method and event shares: one execution of one node, with its
 // payload references, cost, spent account, question, resolution and review pause, and the key that
-// addresses it. A step is addressed by its run, its node and which execution of that node, because
-// a loop runs one node many times.
+// addresses it. A step is addressed by its run, its node, its attempt and which execution of that
+// node, because a retry runs a step again and a loop runs one node many times.
 import { z } from "zod";
 
 import {
@@ -198,33 +198,35 @@ export const WorkflowStepReviewPauseSchema: z.ZodType<WorkflowStepReviewPause> =
 
 const executionIndexSchema = countSchema;
 
-/** The three members that address one step: the run, the node and which execution of it. */
+// Which attempt at a step, counted from 1: each retry is a new attempt.
+const attemptSchema = z.number().int().positive();
+
+/** The four members that address one step: the run, the node, the attempt and which execution. */
 export interface WorkflowStepKey {
   workflowRunId: WorkflowRunId;
   nodeId: WorkflowNodeId;
+  attempt: number;
   executionIndex: number;
 }
 /** The members of {@link WorkflowStepKeySchema}, spread into each request and event on a step. */
 export const workflowStepKeyShape: {
   workflowRunId: z.ZodType<WorkflowRunId, WorkflowRunId>;
   nodeId: z.ZodType<WorkflowNodeId, WorkflowNodeId>;
+  attempt: z.ZodNumber;
   executionIndex: z.ZodNumber;
 } = {
   workflowRunId: WorkflowRunIdSchema,
   nodeId: WorkflowNodeIdSchema,
+  attempt: attemptSchema,
   executionIndex: executionIndexSchema,
 };
-/** Wire schema for {@link WorkflowStepKey}, the whole input of a step read. */
+/** Wire schema for {@link WorkflowStepKey}, the whole input of a form read and a fix session. */
 export const WorkflowStepKeySchema: z.ZodType<WorkflowStepKey, WorkflowStepKey> = z
   .object(workflowStepKeyShape)
   .strict();
 
-/** Which attempt at a step, counted from 1: each retry is a new attempt. */
-export const WorkflowStepAttemptSchema: z.ZodType<number, number> = z.number().int().positive();
-
 /** The members a step carries whatever its status. */
 interface WorkflowStepFields extends WorkflowStepKey {
-  attempt: number;
   source: (WorkflowStepSource | null)[];
   startedAt: string;
   finishedAt?: string | undefined;
@@ -304,7 +306,6 @@ export type WorkflowStep = WorkflowStepFields &
   );
 const workflowStepFields = {
   ...workflowStepKeyShape,
-  attempt: WorkflowStepAttemptSchema,
   source: z.array(
     z
       .object({

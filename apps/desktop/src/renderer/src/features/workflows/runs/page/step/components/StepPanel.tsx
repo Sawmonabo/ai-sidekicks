@@ -250,6 +250,7 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
       callDaemon(bridge, "workflow.fixSessionCreate", {
         workflowRunId: failed.workflowRunId,
         nodeId: failed.nodeId,
+        attempt: failed.attempt,
         executionIndex: failed.executionIndex,
       }),
     (created) => {
