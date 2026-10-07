@@ -1,18 +1,8 @@
-// Ambient declarations for the console's build-time environment signals. The renderer's
-// `tsconfig.json` sets `types: []` (no Node types in a browser-context program), so `vite/client`
-// is not pulled in wholesale; the members the console reads are declared here instead. The fixture
-// gate every process reads is declared once, in `src/shared/fixture-build.d.ts`.
-
-interface ImportMetaEnv {
-  /** Vite's development-mode flag. */
-  readonly DEV: boolean;
-  /** Vite's production-mode flag. */
-  readonly PROD: boolean;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
+// Ambient declarations for the renderer's bundler imports. The renderer's `tsconfig.json` sets
+// `types: []` (no Node types in a browser-context program), so `vite/client` is not pulled in
+// wholesale; the module shapes the console imports are declared here instead. The build signals
+// every process reads are declared once in `src/shared/`: Vite's own in `development-build.d.ts`,
+// the fixture gate in `fixture-build.d.ts`.
 
 /**
  * A compiled icon face, `~icons/tabler/<name>` or `~icons/signature/<name>`. `unplugin-icons`
