@@ -140,6 +140,34 @@ describe("an override reaches the keyboard, not just the page", () => {
   });
 });
 
+describe("a chord is held in one spelling", () => {
+  it("fires a stored Ctrl or Option chord, and holds it as the app spells it", async () => {
+    // tinykeys asks the event for a modifier by the name written, and no event answers to `Ctrl`.
+    const keyboardMap = new MemoryKeyboardMap({
+      "frame.goToSessions": "Ctrl+KeyK",
+      "frame.goToWorkflows": "shift+Option+KeyJ",
+    });
+    const overrides = overrideStore();
+    await overrides.hydrateFrom(keyboardMap);
+    expect(overrides.snapshot.bindings.map((binding) => binding.chord)).toStrictEqual([
+      "Control+KeyK",
+      "Alt+Shift+KeyJ",
+    ]);
+
+    const ran: string[] = [];
+    const table = new KeybindingTable({
+      registry: navigationRegistry(ran),
+      readContext: () => ({}),
+    });
+    table.setBindings(overrides.snapshot.bindings);
+    const controlK = new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true });
+    const altShiftJ = { key: "J", code: "KeyJ", altKey: true, shiftKey: true };
+    expect(table.handleKeyDown(controlK)).toBe(true);
+    expect(table.handleKeyDown(new KeyboardEvent("keydown", altShiftJ))).toBe(true);
+    expect(ran).toStrictEqual(["sessions", "workflows"]);
+  });
+});
+
 describe("what the store refuses", () => {
   it("refuses a chord another act answers to, naming that act", async () => {
     const overrides = overrideStore();

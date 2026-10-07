@@ -5,9 +5,9 @@
 // `KeybindingTable.conflictsIn` (a pre-flight check that avoids a half-replaced table), and
 // dropped rows from offering each binding to a throwaway table. A second overlap rule or chord
 // parser here would drift from the table. The reserved-chord table below lists chords the
-// operating system consumes, so a binding on one installs but never fires; a chord is looked up
-// by keystroke, not spelling, so `Ctrl+Escape` meets `$mod+Escape`. On Windows every chord
-// holding the Windows key is reserved as a class, since Windows keeps that key for itself.
+// operating system consumes, so a binding on one installs but never fires; a chord is looked up in
+// its one spelling with its key decoded, so `Ctrl+Escape` meets `$mod+Escape`. On Windows every
+// chord holding the Windows key is reserved as a class, since Windows keeps that key for itself.
 
 import { CommandRegistry } from "../commands/registry.js";
 import { type Keybinding } from "../commands/keybinding.js";
@@ -15,9 +15,8 @@ import { type KeybindingConflict } from "./conflicts.js";
 import { KeybindingTable } from "./table.js";
 import {
   HOST_CHORD_PLATFORM,
-  PLATFORM_MODIFIER_CHORD_TOKEN,
-  PLATFORM_MODIFIER_TOKEN,
   decodeChordKeyToken,
+  normalizeChord,
   splitChordTokens,
   type ChordPlatform,
 } from "#renderer/lib/chord-format.js";
@@ -89,12 +88,6 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
   ],
 };
 
-/** Lower-cased modifier spellings an authored chord may use, each to the name tinykeys matches. */
-const MODIFIER_TOKEN_ALIASES: Readonly<Record<string, string>> = {
-  ctrl: "control",
-  option: "alt",
-};
-
 /** Why a chord holding the Windows key is refused on Windows. */
 const WINDOWS_KEY_REASON = "Windows keeps every chord with the Windows key for its own shortcuts.";
 
@@ -119,12 +112,12 @@ export function reservedChordReason(
   chord: string,
   platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): string | undefined {
-  const candidate = normalizeChord(chord, platform);
-  if (platform === "win32" && candidate.modifiers.includes("meta")) {
+  const candidate = keystrokeOf(chord, platform);
+  if (platform === "win32" && candidate.modifiers.includes("Meta")) {
     return WINDOWS_KEY_REASON;
   }
   return RESERVED_CHORDS_BY_PLATFORM[platform].find((reserved) => {
-    const held = normalizeChord(reserved.chord, platform);
+    const held = keystrokeOf(reserved.chord, platform);
     return held.key === candidate.key && held.modifiers.join(" ") === candidate.modifiers.join(" ");
   })?.reason;
 }
@@ -155,22 +148,11 @@ export function auditKeybindings(bindings: readonly Keybinding[]): KeybindingAud
   return { conflicts: KeybindingTable.conflictsIn(bindings), dropped };
 }
 
-/** One keystroke in a single spelling: lower-cased modifier names, sorted, and the decoded key. */
-interface NormalizedChord {
-  readonly modifiers: readonly string[];
-  readonly key: string;
-}
-
-// `$mod` resolves for the platform, `Ctrl` and `Option` fold into `Control` and `Alt`, and the key
-// decodes, so `Ctrl+Shift+Escape` and `Shift+$mod+Escape` meet. An optional modifier keeps its
-// brackets, since `[Shift]` is not a held Shift.
-function normalizeChord(chord: string, platform: ChordPlatform): NormalizedChord {
-  const { modifiers, key } = splitChordTokens(chord);
-  const named = modifiers.map((token) => {
-    const resolved = (
-      token === PLATFORM_MODIFIER_CHORD_TOKEN ? PLATFORM_MODIFIER_TOKEN[platform] : token
-    ).toLowerCase();
-    return MODIFIER_TOKEN_ALIASES[resolved] ?? resolved;
-  });
-  return { modifiers: named.sort(), key: decodeChordKeyToken(key).toLowerCase() };
+// The chord in its one spelling, its key decoded and case ignored as tinykeys matches a key.
+function keystrokeOf(
+  chord: string,
+  platform: ChordPlatform,
+): { readonly modifiers: readonly string[]; readonly key: string } {
+  const { modifiers, key } = splitChordTokens(normalizeChord(chord, platform));
+  return { modifiers, key: decodeChordKeyToken(key).toLowerCase() };
 }

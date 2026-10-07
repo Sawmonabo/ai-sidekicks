@@ -1,5 +1,5 @@
-// How a keyboard chord is printed and spoken. It lives in `lib/` because `ChordHint` is a shared
-// component below the registries; `registries/keybindings/chord.ts` imports
+// How a keyboard chord is spelled, printed and spoken. It lives in `lib/` because `ChordHint` is a
+// shared component below the registries; `registries/keybindings/chord.ts` imports
 // `decodeChordKeyToken` so its conflict comparator and the printer agree that `k`, `K` and `KeyK`
 // are one keystroke.
 //
@@ -103,6 +103,32 @@ export const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "C
 
 /** The token an authored chord uses for the platform's own application modifier. */
 export const PLATFORM_MODIFIER_CHORD_TOKEN = "$mod";
+
+/** The tokens tinykeys does not read, each with the modifier it names. */
+const MODIFIER_TOKEN_ALIASES: Readonly<Record<string, ChordModifierToken>> = {
+  Ctrl: "Control",
+  Option: "Alt",
+} satisfies Readonly<Record<"Ctrl" | "Option", ChordModifierToken>>;
+
+/** The modifier tokens a held chord is spelled with, in the order the recorder writes them. */
+const SPELLED_MODIFIER_TOKENS: readonly string[] = CHORD_MODIFIER_TOKENS.filter(
+  (token) => !(token in MODIFIER_TOKEN_ALIASES),
+);
+
+/**
+ * An authored chord in the one spelling the app holds: each modifier named as tinykeys reads it
+ * (`Ctrl` is `Control`, `Option` is `Alt`, case ignored), the platform's own modifier as `$mod`,
+ * the modifiers in the recorder's order and the key as written. tinykeys passes a modifier's name
+ * to `getModifierState` unchanged, so a chord held in any other spelling never fires.
+ */
+export function normalizeChord(chord: string, platform: ChordPlatform): string {
+  return chord
+    .trim()
+    .split(" ")
+    .filter((press) => press.length > 0)
+    .map((press) => normalizePress(press, platform))
+    .join(" ");
+}
 
 /** Every token but `$mod`, which is resolved into one of these before a lookup. */
 type ResolvedModifierToken = Exclude<ChordModifierToken, "$mod">;
@@ -261,4 +287,32 @@ function renderSinglePress(press: string, platform: ChordPlatform): ChordPressRe
     renderedModifiers.push(modifierRendering(token, platform) ?? { glyph: token, spoken: token });
   }
   return { modifiers: renderedModifiers, key: keyRendering(key, platform) };
+}
+
+function normalizePress(press: string, platform: ChordPlatform): string {
+  const { modifiers, key } = splitChordTokens(press);
+  const spelled = [...new Set(modifiers.map((token) => spellModifierToken(token, platform)))];
+  return [...spelled.sort((left, right) => modifierRank(left) - modifierRank(right)), key].join(
+    "+",
+  );
+}
+
+// An optional modifier (`[Shift]`) keeps its brackets; an unknown name is kept as written.
+function spellModifierToken(token: string, platform: ChordPlatform): string {
+  const isOptional = token.startsWith("[") && token.endsWith("]");
+  const name = isOptional ? token.slice(1, -1) : token;
+  const known = CHORD_MODIFIER_TOKENS.find(
+    (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+  );
+  const resolved = known === undefined ? name : (MODIFIER_TOKEN_ALIASES[known] ?? known);
+  const spelled =
+    resolved === PLATFORM_MODIFIER_TOKEN[platform] ? PLATFORM_MODIFIER_CHORD_TOKEN : resolved;
+  return isOptional ? `[${spelled}]` : spelled;
+}
+
+// The recorder's order, an optional modifier just after its held form, unknown names last.
+function modifierRank(token: string): number {
+  const isOptional = token.startsWith("[");
+  const index = SPELLED_MODIFIER_TOKENS.indexOf(isOptional ? token.slice(1, -1) : token);
+  return (index === -1 ? SPELLED_MODIFIER_TOKENS.length : index) * 2 + (isOptional ? 1 : 0);
 }

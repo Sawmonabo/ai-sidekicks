@@ -11,6 +11,8 @@
 //     after construction; a movable base supplies `subscribeToDefaults` and the store re-composes.
 //   - An override applies to this window before the write settles, and a refused write is
 //     disclosed ("worked for this window, will not come back").
+//   - Every chord is held in one spelling (`normalizeChord`): the shipped ones, a stored override
+//     and a fresh one, so a hand-edited `Ctrl+KeyK` fires and is written back as the app spells it.
 //   - A stored override passes the same check as a fresh one. A chord that no longer installs is
 //     declined and named, since handing it to `setBindings` would raise in the frame's effect; an
 //     override for a missing act is skipped and left out of the next write.
@@ -30,7 +32,11 @@ import {
 import { commandRegistry } from "../../commands/registry.js";
 import { type Keybinding } from "../../commands/keybinding.js";
 import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "#renderer/lib/chord-format.js";
+import {
+  HOST_CHORD_PLATFORM,
+  normalizeChord,
+  type ChordPlatform,
+} from "#renderer/lib/chord-format.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
@@ -125,9 +131,10 @@ export class KeybindingOverrideStore {
   readonly #overrideRounds = new GenerationLatch();
 
   public constructor(options: KeybindingOverrideStoreOptions) {
-    this.#readDefaults = options.defaults;
+    const platform = options.platform ?? HOST_CHORD_PLATFORM;
+    this.#readDefaults = () => spellBindings(options.defaults(), platform);
     this.#commandTitle = options.commandTitle;
-    this.#platform = options.platform ?? HOST_CHORD_PLATFORM;
+    this.#platform = platform;
     // Never released: the store and the signal are both window-scoped.
     options.subscribeToDefaults?.(() => {
       this.#publish();
@@ -226,9 +233,10 @@ export class KeybindingOverrideStore {
         admitted[commandId] = null;
         continue;
       }
-      const refusal = this.#refuse(commandId, override, admitted);
+      const chord = normalizeChord(override, this.#platform);
+      const refusal = this.#refuse(commandId, chord, admitted);
       if (refusal === undefined) {
-        admitted[commandId] = override;
+        admitted[commandId] = chord;
       } else {
         refusals.push({ commandId, chord: override, refusal });
       }
@@ -241,10 +249,12 @@ export class KeybindingOverrideStore {
   }
 
   /**
-   * Puts a chord on a command: refused before anything moves, or applied to this window and then
-   * written. The promise settles after the write, when the binding is already live.
+   * Puts a chord on a command in its one spelling: refused before anything moves, or applied to
+   * this window and then written. The promise settles after the write, when the binding is
+   * already live.
    */
-  public async bind(commandId: string, chord: string): Promise<KeybindingBindResult> {
+  public async bind(commandId: string, authoredChord: string): Promise<KeybindingBindResult> {
+    const chord = normalizeChord(authoredChord, this.#platform);
     const refusal = this.#refuse(commandId, chord, this.#overrides);
     if (refusal !== undefined) {
       return { outcome: "refused", refusal };
@@ -380,4 +390,15 @@ type KeyboardMapRefusalCode = "keyboard-map-unread" | "keyboard-map-unsaved";
 
 function refuseKeyboardMap(code: KeyboardMapRefusalCode, detail: string): Refusal {
   return refuse(KEYBINDING_OVERRIDE_REFUSAL_ORIGIN, code, detail);
+}
+
+// A binding already in its one spelling is kept as it is.
+function spellBindings(
+  bindings: readonly Keybinding[],
+  platform: ChordPlatform,
+): readonly Keybinding[] {
+  return bindings.map((binding) => {
+    const chord = normalizeChord(binding.chord, platform);
+    return chord === binding.chord ? binding : { ...binding, chord };
+  });
 }
