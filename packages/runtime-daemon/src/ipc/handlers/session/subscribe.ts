@@ -28,7 +28,7 @@ import type {
 } from "@ai-sidekicks/contracts/session/methods";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import {
   SessionStreamFrameSchema,
@@ -43,10 +43,12 @@ import type { StreamingPrimitive } from "../../streaming-primitive.js";
 /** How long the first change of a batch waits for others before its frame goes out. */
 export const SESSION_STREAM_WINDOW_MS = 16;
 
+// The stored log holds event types the wire has no payload variant for yet, so each frame is
+// parsed here, on its way out, and one that does not parse ends its subscription unsent.
 const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(SessionEventSchema);
 
-type SessionChange = SessionStreamChange<SessionEvent>;
-type SessionFrame = SessionStreamFrame<SessionEvent>;
+type SessionChange = SessionStreamChange<EventEnvelope>;
+type SessionFrame = SessionStreamFrame<EventEnvelope>;
 
 /**
  * A connection's outbound queue, as the stream needs to see it: whether a frame sent now would
@@ -66,11 +68,12 @@ export interface SessionSubscribeDeps {
   /** The outbound queues of the daemon's connections. */
   readonly outboundQueue: OutboundQueue;
   /**
-   * Follows a session's events: catches up with those after `afterCursor` (all of them when
-   * absent), then follows new ones, calling `onChange` with each event and its cursor. Returns
-   * the detach the handler runs when the subscription ends. `onChange` may run synchronously
-   * during this call, and the detach may run from inside `onChange`, so the source must tolerate
-   * being detached mid-emit. A session that does not exist, or a cursor it cannot read, throws.
+   * Follows a session's stored events (`EventLogService.follow`): catches up with those after
+   * `afterCursor` (all of them when absent), then follows new ones, calling `onChange` with each
+   * event and its cursor. Returns the detach the handler runs when the subscription ends.
+   * `onChange` may run synchronously during this call, and the detach may run from inside
+   * `onChange`, so the source must tolerate being detached mid-emit. A session that does not
+   * exist, or a cursor it cannot read, throws.
    */
   readonly subscribeToSession: (
     sessionId: SessionId,

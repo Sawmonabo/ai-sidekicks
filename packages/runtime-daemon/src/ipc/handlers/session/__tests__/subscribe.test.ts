@@ -2,7 +2,7 @@
 // frames after the ack, a slow connection drops instead of waiting, a malformed event cancels the
 // subscription, a source that fails to start sends nothing, and the upstream detaches with it.
 
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type {
@@ -25,6 +25,10 @@ import {
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
+import {
+  openSessionLog,
+  type SessionLog,
+} from "../../../../session/directory/__fixtures__/session-log.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { StreamingPrimitive } from "../../../streaming-primitive.js";
 
@@ -425,83 +429,110 @@ describe("session.subscribe never waits for a connection that falls behind", () 
   });
 });
 
-// A frame the primitive refuses throws `StreamingValidationError` from a turn no dispatch
-// wrapper covers: the barrier's flush, or the upstream's own turn. The barrier cancels the
-// subscription and logs; these tests pin that on both sides of the ack.
+// The stored log holds event types the wire has no payload variant for yet (a run's own
+// lifecycle among them). A frame carrying one fails the primitive's parse on a turn no dispatch
+// wrapper covers, in the barrier's flush or the window's timer; it ends that subscription and is
+// logged, and nothing of it reaches the wire. These run over the real log and its `follow`, on
+// real timers, since the database writer batches on a timer of its own.
 
-describe("session.subscribe survives a malformed frame", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+describe("session.subscribe ends a stream whose frame the wire refuses", () => {
+  let log: SessionLog;
+
+  beforeEach(async () => {
+    log = await openSessionLog();
   });
 
-  it(
-    "catch-up: a malformed event in a catch-up frame ends the subscription refused and sends " +
-      "nothing else",
-    async () => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const malformed = { cursor: "cursor-0" as EventCursor, event: {} as SessionEvent };
-      const catchUp = [
-        malformed,
-        ...Array.from({ length: STREAM_FRAME_MAX_CHANGES }, (_, index) => changeAt(index + 1)),
-      ];
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await log.scratch.close();
+  });
 
-      const stream = await subscribeWith(ALWAYS_ROOM, catchUp);
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+  /** Subscribes on transport 7 through the log's own `follow` and crosses the ack barrier. */
+  async function subscribeToLog(): Promise<{
+    readonly send: Mock<SendFrame>;
+    readonly primitive: StreamingPrimitive;
+    readonly subscriptionId: SubscriptionId;
+  }> {
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<SendFrame>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    registerSessionSubscribe(registry, {
+      streamingPrimitive: primitive,
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: (sessionId, afterCursor, onChange) =>
+        log.eventLog.follow(sessionId, afterCursor, onChange),
+    });
+    const { subscriptionId } = (await registry.dispatch(
+      "session.subscribe",
+      { sessionId: TEST_SESSION_ID },
+      { transportId: 7 },
+    )) as SessionSubscribeResponse;
+    await crossAckBarrier();
+    return { send, primitive, subscriptionId };
+  }
 
-      // The bad event never reaches the client; its stream ends refused instead.
-      expect(stream.send.mock.calls).toMatchObject([
-        [
-          expect.any(Number),
-          {
-            method: SUBSCRIPTION_END_METHOD,
-            params: {
-              subscriptionId: stream.subscriptionId,
-              reason: "refused",
-              // The failure's own sanitized words, not the bare "ended" line.
-              error: {
-                code: JsonRpcErrorCode.InternalError,
-                message: expect.stringContaining("value validation failed"),
-              },
-            },
-          },
-        ],
-      ]);
-      expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-      const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
-      expect(prefix).toContain("[session.subscribe] catch-up event validation/emission failed");
-      expect(prefix).toContain(stream.subscriptionId);
-      expect((err as Error).name).toBe("StreamingValidationError");
-    },
-  );
+  /** Lets the open batch window close and its frame go out. */
+  async function closeWindow(): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, 3 * SESSION_STREAM_WINDOW_MS));
+  }
 
-  it("live tail: a malformed event cancels the subscription, never throwing upstream", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const stream = await subscribeWith(ALWAYS_ROOM);
+  function startRun(): Promise<void> {
+    return log.append(TEST_SESSION_ID, "run.running", "run_lifecycle", {
+      sessionId: TEST_SESSION_ID,
+      runId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8fa1",
+      runVersion: 1,
+    });
+  }
 
-    stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
-    expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
+  it("catch-up: ends the subscription refused, sends none of the frame and logs it", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await log.createSession(TEST_SESSION_ID, "chat");
+    await startRun();
 
-    // The bad event never reaches the client; its stream ends refused instead.
+    const stream = await subscribeToLog();
+    await closeWindow();
+
     expect(stream.send.mock.calls).toMatchObject([
       [
-        expect.any(Number),
+        7,
         {
           method: SUBSCRIPTION_END_METHOD,
           params: {
             subscriptionId: stream.subscriptionId,
             reason: "refused",
-            error: { code: JsonRpcErrorCode.InternalError },
+            error: {
+              code: JsonRpcErrorCode.InternalError,
+              message: expect.stringContaining("value validation failed"),
+            },
           },
         },
       ],
     ]);
     expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-    const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
-    expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
+    expect(consoleError).toHaveBeenCalledOnce();
+    const [prefix, failure] = consoleError.mock.calls[0] ?? [];
+    expect(prefix).toContain("[session.subscribe]");
+    expect(prefix).toContain(stream.subscriptionId);
+    expect((failure as Error).name).toBe("StreamingValidationError");
+  });
+
+  it("live tail: ends the subscription from the window's timer and throws nowhere", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await log.createSession(TEST_SESSION_ID, "chat");
+    const stream = await subscribeToLog();
+    await closeWindow();
+    expect(sentFrames(stream.send).flatMap((frame) => frame.changes)).toHaveLength(2);
+    stream.send.mockClear();
+
+    await startRun();
+    // A throw on the timer's turn would fail the run as an unhandled error.
+    await closeWindow();
+
+    expect(stream.send.mock.calls).toMatchObject([
+      [7, { method: SUBSCRIPTION_END_METHOD, params: { reason: "refused" } }],
+    ]);
+    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
+    expect(consoleError).toHaveBeenCalledOnce();
   });
 });
 
