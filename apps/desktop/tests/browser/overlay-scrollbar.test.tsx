@@ -45,6 +45,12 @@ const OVERLAY_VIEWPORT_ATTRIBUTE = "data-overlayscrollbars-viewport";
 /** Longer than an idle start's deadline, so a bar started when idle has started by then. */
 const IDLE_START_DEADLINE_PASSED_MS = 1000;
 
+/**
+ * A bar the library draws: it marks a bar with something to scroll this way, and a bar without
+ * it stays transparent whatever its fade.
+ */
+const DRAWN_BAR = ".os-scrollbar-visible";
+
 /** The library's marker for an element whose bar has not started. */
 const AWAITING_OVERLAY_ATTRIBUTE = "data-overlayscrollbars-initialize";
 
@@ -73,20 +79,21 @@ function scrollingElements(root: Document): HTMLElement[] {
 
 /**
  * One line per scroller drawn wrong: one showing the platform's bar, the conversation carrying an
- * overlay, or any other scroller without one.
+ * overlay, or any other scroller without one, or with one the library will not draw.
  */
 function scrollersDrawnWrong(root: Document): string[] {
   const view = viewOf(root);
   return scrollingElements(root).flatMap((element) => {
     const showsPlatformBar = view.getComputedStyle(element).scrollbarWidth !== "none";
     const hasOverlay = element.hasAttribute(OVERLAY_VIEWPORT_ATTRIBUTE);
+    const drawsOverlay = element.querySelector(`:scope > ${DRAWN_BAR}`) !== null;
     const isConversation = element.matches(CONVERSATION_SCROLLER);
-    if (!showsPlatformBar && hasOverlay !== isConversation) {
+    if (!showsPlatformBar && hasOverlay !== isConversation && drawsOverlay !== isConversation) {
       return [];
     }
     return [
       `${describeElement(element)} (platform bar ${String(showsPlatformBar)}, ` +
-        `overlay ${String(hasOverlay)})`,
+        `overlay ${String(hasOverlay)}, drawn ${String(drawsOverlay)})`,
     ];
   });
 }
@@ -149,7 +156,9 @@ afterEach(async () => {
 describe("the overlay scrollbar", () => {
   // Every rail destination and every settings page, so a new one is swept the day it is declared.
   const routes = [
-    ...RAIL_DESTINATIONS.map((destination) => formatRoute(routeForDestination(destination))),
+    ...RAIL_DESTINATIONS.map((destination) =>
+      formatRoute(routeForDestination(destination, undefined)),
+    ),
     ...SETTINGS_PAGE_IDS.map((page) => formatRoute({ kind: "settings", page })),
   ];
   for (const route of routes) {
@@ -171,7 +180,7 @@ describe("the overlay scrollbar", () => {
       // Negative control: a plain scroller in the same window is reported.
       plantPlainScroller(appWindow.document);
       expect(scrollersDrawnWrong(appWindow.document)).toStrictEqual([
-        "div.plain-scroller (platform bar true, overlay false)",
+        "div.plain-scroller (platform bar true, overlay false, drawn false)",
       ]);
     });
   }
@@ -227,8 +236,8 @@ describe("the overlay scrollbar", () => {
     );
     expect(scrollersDrawnWrong(appWindow.document)).toStrictEqual([
       "div.meridian-transcript-viewport__scroll-container.meridian-focus-inset (platform bar false, " +
-        "overlay true)",
-      "div.plain-scroller (platform bar true, overlay false)",
+        "overlay true, drawn true)",
+      "div.plain-scroller (platform bar true, overlay false, drawn false)",
     ]);
     forced.destroy();
   });

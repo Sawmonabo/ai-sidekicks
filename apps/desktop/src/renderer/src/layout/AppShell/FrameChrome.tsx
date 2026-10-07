@@ -49,9 +49,7 @@ export interface FrameChromeProps {
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
 export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
   useRefusalBannerAnnouncements(props.banners);
-  const screenScrollbarRef = useOverlayScrollbar<HTMLElement>(undefined, {
-    start: "on-first-interaction",
-  });
+  const screenScrollbarRef = useOverlayScrollbar<HTMLElement>();
   const sessionsTrack = useAnimateSessionsTrack(props.sessionsTrack);
   return (
     <div

@@ -40,7 +40,7 @@ interface LongDraft {
   readonly line: HTMLTextAreaElement;
   readonly box: HTMLElement;
   readonly lineHeightPx: number;
-  /** The session screen, the size container the draft's cap is measured against. */
+  /** The session screen, whose height the draft's cap is measured against. */
   readonly screen: HTMLElement;
 }
 
@@ -164,10 +164,10 @@ describe("the composer's draft", () => {
     expectScrolledToTheCaret(draft);
 
     // The third is the screen's own, not the window's: held shorter than the window, as a title
-    // bar would hold it, the screen takes the box down with it.
+    // bar would hold it, the screen takes the box down with it once it has measured the change.
     draft.screen.style.minBlockSize = "0";
     draft.screen.style.maxBlockSize = `${String(SHORT_WINDOW.height / 2)}px`;
     expect(thirdOf(draft.screen)).toBeCloseTo(SHORT_WINDOW.height / 6, 0);
-    expect(contentHeightOf(draft.box)).toBeCloseTo(SHORT_WINDOW.height / 6, 0);
+    await expect.poll(() => contentHeightOf(draft.box)).toBeCloseTo(SHORT_WINDOW.height / 6, 0);
   });
 });

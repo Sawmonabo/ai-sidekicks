@@ -38,6 +38,7 @@ import {
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/services/renderer/scheme.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
+import { overlayScrollbarBundlePlugin } from "./vitest/overlay-scrollbar-bundle.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
@@ -181,9 +182,10 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
     },
     renderer: {
       // The app's icons, compiled to components at build time rather than fetched or
-      // inlined as markup. The options live in one module the Vitest tiers call too (see
-      // `vitest/icon-compilation.ts`), so the three consumers cannot drift.
-      plugins: [iconCompilationPlugin()],
+      // inlined as markup, and the overlay scrollbar library's browser bundle, which its package
+      // does not export. Both live in modules the Vitest tiers install too (see
+      // `vitest/icon-compilation.ts` and `vitest/overlay-scrollbar-bundle.ts`), so none can drift.
+      plugins: [iconCompilationPlugin(), overlayScrollbarBundlePlugin()],
       server: {
         port: RENDERER_DEV_SERVER_PORT,
         // See the header note: the policy names this port, so a silent

@@ -9,6 +9,10 @@
 // every part of a saved arrangement the restore left closed. The screen is not
 // remounted between two open sessions, so banners are scoped to (bridge, session): the
 // arriving session reads an empty column, and a bridge replacement clears it too.
+//
+// The screen carries its own height as a custom property, so the composer's draft can cap itself
+// at a share of it. It is measured on resize only: a size container would make every layout pass
+// under the screen dearer, and the streaming transcript lays out on most frames.
 
 import "./SessionScreen.css";
 
@@ -19,6 +23,7 @@ import {
   windowDiagnosticCapture,
 } from "#renderer/lib/diagnostic-capture/capture.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -172,7 +177,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
-    <div className="meridian-session-screen">
+    <div className="meridian-session-screen" ref={carryScreenHeight}>
       <div className="meridian-session-screen__head">
         <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
         {banners.map((banner) => (
@@ -197,6 +202,20 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
       )}
     </div>
   );
+}
+
+/** Write the screen's height onto it as `--meridian-session-screen-height` on every resize. */
+function carryScreenHeight(screen: HTMLElement | null): (() => void) | undefined {
+  if (screen === null) {
+    // A ref callback that returned a cleanup is never called with null.
+    return undefined;
+  }
+  return observeElementResize(screen, () => {
+    screen.style.setProperty(
+      "--meridian-session-screen-height",
+      `${String(screen.getBoundingClientRect().height)}px`,
+    );
+  });
 }
 
 /**

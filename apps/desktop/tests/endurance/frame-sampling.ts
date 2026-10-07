@@ -1,6 +1,7 @@
 // The endurance tier's frame sampler: frame durations and long tasks while the concurrent-streaming
 // script delivers into the open session, and the check that the sampled window held that workload.
-// Shared by the frame-time budget and the overlay scrollbar's cost, so both read one instrument.
+// Shared by the frame-time and scrolling budgets and the started-scrollbar count, so all three drive
+// and read one instrument.
 //
 // A frame's duration is the main-thread work it costs, not the interval between frames: a sample
 // runs from the start of a frame's animation-frame callback to the first task after that frame's
@@ -30,6 +31,14 @@ import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
  * fifteenth-slowest frame, so one hiccup moves it by a rank rather than deciding it.
  */
 export const SAMPLED_FRAME_COUNT = 300;
+
+/**
+ * How many fresh launches a hardware-dependent figure is the median of.
+ *
+ * Each is its own launch because the frozen clock does not rewind: repeat passes in one window
+ * would measure an app whose script was already delivered.
+ */
+export const MEASURED_RUN_COUNT = 3;
 
 /**
  * Frames discarded before sampling starts: the first frames after a mount carry the virtualizer's

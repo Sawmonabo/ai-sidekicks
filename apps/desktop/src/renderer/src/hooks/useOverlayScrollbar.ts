@@ -9,10 +9,12 @@
 // React writes a lone text child through `textContent`, which would delete the bars. The library
 // used is the element's own window's copy.
 //
-// A started bar makes every layout pass under its element dearer, even while it is hidden, so a
-// scroller that is not reached for can wait to start until the first pointer move, wheel, scroll
-// or focus inside it. The bar is hidden until a pointer move or a scroll either way, so the wait
-// does not show.
+// A started bar keeps its own observers and two bar elements, so a scroller that is not reached for
+// can wait to start until the first pointer move, wheel, scroll or focus inside it, and bars do not
+// grow with the rows and panes a window holds. A bar is built inside the event that starts it, so a
+// scroller every session screen shows starts once its window is idle rather than inside a person's
+// first wheel. The bar is hidden until a pointer move or a scroll either way, so the wait does not
+// show.
 
 import { useCallback } from "react";
 import type { OverlayScrollbars, PartialOptions } from "overlayscrollbars";
@@ -178,9 +180,13 @@ class OverlayScrollbarAttachment {
   }
 
   #startOn(library: OverlayScrollbarLibrary): void {
+    // The library merges only objects made by its own window's `Object`, and replaces any other
+    // whole, dropping the defaults beside it; a bar left without its visibility default is never
+    // drawn. The options are made here, in the console's realm, so they are copied into the
+    // element's.
     this.#instance = library.OverlayScrollbars(
       { target: this.#element, elements: { viewport: this.#element } },
-      OVERLAY_SCROLLBAR_OPTIONS,
+      this.#view.structuredClone(OVERLAY_SCROLLBAR_OPTIONS),
     );
   }
 }

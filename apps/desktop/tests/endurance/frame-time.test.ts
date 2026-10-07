@@ -30,6 +30,7 @@ import { percentileByNearestRank } from "../helpers/sample-statistics.js";
 import { ENDURANCE_LAUNCH_OPTIONS, openConcurrentStreamingSessionRoute } from "./workload.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
 import {
+  MEASURED_RUN_COUNT,
   expectFourLaneWorkloadInsideWindow,
   sampleFrameTimings,
   type FrameTimingRun,
@@ -44,14 +45,6 @@ const FRAME_TIME_BUDGET_ID = "frame-time-p95-four-lanes";
 
 const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(FRAME_TIME_BUDGET_ID);
-
-/**
- * How many fresh launches the reported figure is the median of.
- *
- * Each is its own launch because the frozen clock does not rewind: repeat passes in one window
- * would measure an app whose script was already delivered.
- */
-const MEASURED_RUN_COUNT = 3;
 
 /** The shortest task the browser reports as a long task, in milliseconds. */
 const LONG_TASK_THRESHOLD_MS = 50;

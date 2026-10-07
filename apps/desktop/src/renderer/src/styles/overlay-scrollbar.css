@@ -29,9 +29,3 @@
 .os-theme-meridian .os-scrollbar-handle {
   transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
-
-/* A bar with nothing to scroll draws nothing; a drawn one makes every layout under its element
-   dearer. */
-.os-scrollbar.os-theme-meridian.os-scrollbar-unusable {
-  display: none;
-}

@@ -1,8 +1,8 @@
 // How many overlay scrollbars a launched window has started, read in the window's own document,
 // where the bars draw: the library marks the element it scrolls once a bar has started, and the
-// hook marks one whose bar waits for a first interaction or for the window's idle time. A started
-// bar makes every layout pass under its element dearer even while it is hidden, which is why the
-// count is the reading.
+// hook marks one whose bar waits for a first interaction or for the window's idle time. Each started
+// bar keeps its own observers and two bar elements, and a bar per row or pane would grow with the
+// window, which is why the count is the reading.
 
 import type { AppUnderTest } from "../../helpers/electron/harness.js";
 

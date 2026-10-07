@@ -22,6 +22,7 @@ import {
   BROWSER_MODE_SETUP_FILES,
 } from "./browser-mode.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
+import { overlayScrollbarBundlePlugin } from "./overlay-scrollbar-bundle.js";
 
 /**
  * The renderer unit tests that sit outside `src/renderer/src/`: the scenario contract check in
@@ -153,11 +154,12 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
 ];
 
 /**
- * The same tiers, each resolving `~icons/*`. Declared as a map so no tier can forget the plugin,
- * which would fail at import with an unplaceable specifier only for the tiers that reach it. Each
- * tier gets a fresh plugin, since a Vite plugin instance belongs to the config that installs it.
+ * The same tiers, each resolving `~icons/*` and the overlay scrollbar library's browser bundle.
+ * Declared as a map so no tier can forget a plugin, which would fail at import with an unplaceable
+ * specifier only for the tiers that reach it. Each tier gets fresh plugins, since a Vite plugin
+ * instance belongs to the config that installs it.
  */
 export const TIER_PROJECTS: readonly TestProjectConfiguration[] = TIERS.map((tier) => ({
   ...tier,
-  plugins: [iconCompilationPlugin()],
+  plugins: [iconCompilationPlugin(), overlayScrollbarBundlePlugin()],
 }));

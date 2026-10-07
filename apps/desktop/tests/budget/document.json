@@ -37,6 +37,25 @@
       "scope": "product"
     },
     {
+      "id": "scrolling-four-lanes",
+      "label": "Scrolling, four lanes streaming",
+      "subject": "The frames the window presents and the scroll inputs it draws while a trackpad fling with its momentum and a wheel scroll move the frame's screen region, the composer draft's box and Review's diff pane, read from a DevTools trace of the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock. Each gesture starts once four lanes are mid-turn, and the harness reads the peak number of runs mid-turn during the gesture off the scenario's beats and fails when it is not one lane per attached agent.",
+      "specTarget": "a trackpad fling with its momentum and a wheel scroll, on every scroller but the conversation, at 120 Hz on the reference machine: while a fling moves the content, p95 ≤ 8.4 ms (one refresh) between presented frames; and each scroll input that moves the content is drawn in the next frame the window submits after the input reaches it",
+      "limit": {
+        "comparison": "<=",
+        "value": 8.4,
+        "unit": "ms",
+        "canonicalValue": 8.4,
+        "canonicalUnit": "ms"
+      },
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/scrolling.test.ts` measures it, through `readScrollTrace`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Hardware-dependent, and stated at 120 Hz: the harness compares it where the trace's own refresh interval is no longer than this ceiling, and elsewhere prints the figures and withholds the comparison, since on a slower display one refresh is longer than the ceiling. `measurementProtocol.referenceProfile` names one 60 Hz display and the pinned runner's display is 60 Hz, so this row cannot gate there. One refresh at 120 Hz is 8.333 ms and presentation stamps land 8.333–8.334 ms apart, so the ceiling is written to a tenth of a millisecond as the frame-time row's 16.7 ms is; a missed refresh reads 16.67 ms. The figure is the worst scroller's median of three fresh launches' p95 gap between presented frames, from the frame that drew the fling's first update that moved the content to the frame that drew its last. Each update that moved the content must be drawn by the next frame the window submitted after the input it was made from, a wheel turn or a touch move, reached the renderer's compositor; that input arrives before the update the browser makes of it and shares its time stamp, so an input a handler holds is counted from when it arrived. The drawing frame is the one the update's `display_trace_id` names, and any other submitted frame that began after the input arrived and before that one is a frame it missed. Whether an update moved the content is Chromium's `ScrollJankV4` damage type; an update that arrives once the content is at its end moves nothing, has no frame to be drawn in, and closes on whatever frame the window submits next, so it is counted apart and not as late. The fling is a synthesized quick touch drag followed by its momentum, the one fling the DevTools protocol can make, and the wheel scroll is notches turned several frames apart. The diff pane shows the digest run's review, whose added review note runs several window heights so the fling ends inside it. Chromium scrolls each of these scrollers on its compositor, so main-thread work cannot make a fling miss a frame: under a planted 30 ms scroll handler a fling still presented a frame every refresh, p95 8.33 ms, with no frame `ScrollJankV4` judged janky. The frame control instead stacks 48 blurring layers over the screen region, which the display redraws on every frame the content moves, and requires the ceiling to fail (p95 83.33 ms). The next-frame control holds every wheel turn in a 30 ms wheel handler beside an animation the compositor draws on its own, and requires a late input (9 of 9 turns late, where a reader dating each input from its update's own arrival read none late). Measured on an eight-core Apple M1 Pro at 120 Hz at a one-minute load under 8: p95 8.33 ms through every fling on all three scrollers, and no input drawn after the next frame in eighteen gestures.",
+      "scope": "product"
+    },
+    {
       "id": "renderer-heap-at-rest",
       "label": "Renderer heap, one session open at rest",
       "subject": "Retained JavaScript heap with one session open and nothing streaming — the app's stores, projections, and persistence layer settled, after a forced garbage collection.",
@@ -320,12 +339,12 @@
       "id": "overlay-scrollbars-started-streaming",
       "label": "Overlay scrollbars started while four lanes stream",
       "subject": "How many overlay scrollbars the window has started once the concurrent-streaming script has delivered into the open session with no pointer over the window, read in the window's own document by the library's marker on each element it scrolls.",
-      "specTarget": "≤ 1 started overlay scrollbar while the four lanes stream untouched",
+      "specTarget": "≤ 2 started overlay scrollbars while the four lanes stream untouched",
       "limit": {
         "comparison": "<=",
-        "value": 1,
+        "value": 2,
         "unit": "count",
-        "canonicalValue": 1,
+        "canonicalValue": 2,
         "canonicalUnit": "count"
       },
       "scope": "harness",
@@ -333,7 +352,7 @@
       "measuredBy": null,
       "subjectSymbol": null,
       "notMeasurableReason": "`tests/endurance/overlay-scrollbar/instances.test.ts` measures it, through `readOverlayScrollbars`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "A started bar makes every layout pass under its element dearer even while it is hidden, so a bar nobody has reached for is cost with nothing on screen to show for it; the frame-time row prices the whole window and `frame-time.test.ts` prints the started count beside its figure. The one bar this allows is the composer draft's box, which starts once its window is idle; every other bar on the session screen waits for a first pointer move, wheel, scroll or focus inside its scroller. Deterministic against the fixture's frozen clock, so it compares on any runner. The negative control starts bars on planted scrollers past the ceiling in the same window and requires the reading to cross it."
+      "notes": "The two this allows are the frame's screen region and the composer draft's box, which start once their window is idle: a bar started inside a person's first wheel is built inside that wheel's handler, and three of the wheel's frames reached the screen a refresh late, where a build without the library showed one late frame in one of four first wheels, while the two started at rest added 0.8 to 1.7 ms of layout over 110 streaming frames. Every other bar on the session screen waits for a first pointer move, wheel, scroll or focus inside its scroller, since a bar per row or pane would grow with the window. Deterministic against the fixture's frozen clock, so it compares on any runner. The negative control starts bars on planted scrollers past the ceiling in the same window and requires the reading to cross it."
     },
     {
       "id": "overlay-scrollbars-started-wheeling",
@@ -352,7 +371,7 @@
       "measuredBy": null,
       "subjectSymbol": null,
       "notMeasurableReason": "`tests/endurance/overlay-scrollbar/instances.test.ts` measures it, through `readOverlayScrollbars`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "Three is the frame's screen region, the transcript pane's body and the composer draft's box, each started by the pointer resting over it or by idle time; the conversation itself draws no bar. A bar started per mounted row would grow with the walk, and the walk mounts and unmounts every row of the log. The concurrent-streaming script carries no machine output, table, math or payload row, so the per-row scrollers are not mounted by this walk; the count bounds the scrollers the session screen always holds. Deterministic against the fixture's frozen clock, so it compares on any runner. The negative control starts bars on planted scrollers past the ceiling after the walk and requires the reading to cross it."
+      "notes": "Three is the frame's screen region and the composer draft's box, started once idle, and the transcript pane's body, started by the pointer resting over it; the conversation itself draws no bar. A bar started per mounted row would grow with the walk, and the walk mounts and unmounts every row of the log. The concurrent-streaming script carries no machine output, table, math or payload row, so the per-row scrollers are not mounted by this walk; the count bounds the scrollers the session screen always holds. Deterministic against the fixture's frozen clock, so it compares on any runner. The negative control starts bars on planted scrollers past the ceiling after the walk and requires the reading to cross it."
     }
   ]
 }
