@@ -8,12 +8,17 @@
 // record keeps each label beside its value on one line, a long value truncated with its whole text
 // as its title, with nothing overflowing or overlapping; a box planted too wide, one planted over
 // a row, a short value that is not cut, and a record narrower than its label column are the
-// negative controls.
+// negative controls. The whole app held at its floor keeps the conversation in view above the
+// composer with its command list open; a window shorter by the conversation's height leaves none.
 
 import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
+import {
+  SESSION_ID,
+  TRANSCRIPT_STATES_SCENARIO_ID,
+} from "#fixtures/scenarios/transcript-states.js";
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
 import {
   AgentLibraryOverStub,
@@ -34,11 +39,13 @@ import {
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { AppFrame } from "#renderer/layout/AppShell/AppFrame.js";
+import { formatRoute } from "#renderer/routing/routes.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
 import type { WindowSize } from "#shared/window/size.js";
 import { SESSIONS_ROUTE, frameProps, liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
-import { renderSettled } from "../helpers/app/harness.js";
+import { renderAppSettled, renderSettled } from "../helpers/app/harness.js";
 import { describeHorizontalOverflow } from "../helpers/horizontal-overflow.js";
+import { untilInsideAct } from "../helpers/settle.js";
 
 const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ? size : largest));
 
@@ -47,6 +54,9 @@ const tierViewport = { width: window.innerWidth, height: window.innerHeight };
 
 /** A wire value with no break opportunity in it, longer than any record is wide. */
 const UNBREAKABLE_WIRE_VALUE = "f".repeat(96);
+
+/** The conversation's scroller, the box the transcript's rows scroll in. */
+const CONVERSATION_SCROLLER = ".meridian-transcript-viewport__scroll-container";
 
 /** Mounts the frame with tokens installed and `screen` in it, recording every floor it reports. */
 async function renderFrame(
@@ -153,6 +163,14 @@ function boxOf(selector: string): DOMRect {
     throw new Error(`the frame rendered no ${selector}`);
   }
   return element.getBoundingClientRect();
+}
+
+/** Waits for the app's window to draw `selector`, inside act, and returns what it drew. */
+async function untilDrawn(appWindow: Window, selector: string): Promise<HTMLElement> {
+  await untilInsideAct(() =>
+    expect.poll(() => appWindow.document.querySelector(selector)).not.toBeNull(),
+  );
+  return elementOf<HTMLElement>(appWindow.document, selector);
 }
 
 /** A pane registry whose transcript and terminal bodies are framed panes, as the app's are. */
@@ -399,5 +417,43 @@ describe("at the window floor", () => {
     expect(describeHorizontalOverflow(box)).toContainEqual(
       expect.stringContaining("dl.meridian-entity-record__facets overflows"),
     );
+  });
+
+  it("keeps the conversation in view above the composer with its command list open", async () => {
+    document.location.hash = formatRoute({ kind: "session", sessionId: SESSION_ID });
+    const appWindow = await renderAppSettled(TRANSCRIPT_STATES_SCENARIO_ID);
+    const floor = (
+      await untilDrawn(appWindow, ".meridian-frame__window-floor")
+    ).getBoundingClientRect();
+    // Main rounds the floor up to whole pixels before it holds the window there. Inside act,
+    // since the frame and the pane layout set their state when the window resizes.
+    await act(async () => {
+      await resizeViewport(Math.ceil(floor.width), Math.ceil(floor.height));
+    });
+    (await untilDrawn(appWindow, ".meridian-composer textarea")).focus();
+    await act(async () => {
+      await userEvent.keyboard("/");
+    });
+    await untilDrawn(appWindow, ".meridian-command-discovery__scroller");
+
+    const conversation = elementOf<HTMLElement>(appWindow.document, CONVERSATION_SCROLLER);
+    const composer = elementOf<HTMLElement>(
+      appWindow.document,
+      ".meridian-session-screen__composer",
+    );
+    const conversationHeight = conversation.getBoundingClientRect().height;
+    expect(conversationHeight).toBeGreaterThan(0);
+    expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(appWindow.innerHeight);
+
+    // Negative control: a window shorter by the conversation's height leaves it none.
+    await act(async () => {
+      await resizeViewport(
+        Math.ceil(floor.width),
+        Math.ceil(floor.height) - Math.ceil(conversationHeight),
+      );
+    });
+    await waitFor(() => {
+      expect(conversation.getBoundingClientRect().height).toBe(0);
+    });
   });
 });
