@@ -1,6 +1,7 @@
 // What a selection across the conversation copies, read from the rows as they are drawn.
 
 import { render } from "@testing-library/react";
+import { renderToString } from "katex";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -12,7 +13,37 @@ import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
-import { readConversationSelection } from "./conversation-selection.js";
+import {
+  COPY_FLAVOR_ATTRIBUTE,
+  type CopyFlavor,
+  readConversationSelection,
+} from "./conversation-selection.js";
+
+/** A formula whose drawing spells none of its source: KaTeX draws `\frac` as a fraction. */
+const FORMULA_SOURCE = String.raw`\frac{a}{b} = x^2`;
+
+/**
+ * A conversation of one row whose body copies as `flavor` and holds only a display formula as
+ * KaTeX draws it, inside a span carrying `formulaAttributes`.
+ */
+function conversationWithFormula(flavor: CopyFlavor, formulaAttributes: string): HTMLElement {
+  const formulaMarkup = renderToString(FORMULA_SOURCE, {
+    displayMode: true,
+    output: "htmlAndMathml",
+  });
+  const conversation = document.createElement("div");
+  conversation.innerHTML =
+    `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="${flavor}">` +
+    `<span ${formulaAttributes}>${formulaMarkup}</span></div></div>`;
+  return conversation;
+}
+
+/** A range over everything in `conversation`. */
+function everythingIn(conversation: Element): Range {
+  const range = document.createRange();
+  range.selectNodeContents(conversation);
+  return range;
+}
 
 describe("a selection across the conversation", () => {
   it("copies each row's lines as drawn, and no control's label", () => {
@@ -100,5 +131,34 @@ describe("a selection across the conversation", () => {
     const copied = readConversationSelection(everything, container);
     expect(copied?.text).toBe("Run it:\n\n```ts\nconst a = 1;\n```");
     expect(copied?.html).not.toContain("Copy");
+  });
+});
+
+describe("a formula in a selection", () => {
+  it("copies as its TeX source once, as text and as a math block", () => {
+    const asText = conversationWithFormula("text", 'data-math=""');
+    expect(readConversationSelection(everythingIn(asText), asText)).toStrictEqual({
+      text: FORMULA_SOURCE,
+    });
+
+    // Begun on the drawn glyphs, past the hidden MathML that holds the source.
+    const asMarkdown = conversationWithFormula("markdown", 'data-math=""');
+    const fromGlyphs = everythingIn(asMarkdown);
+    const firstGlyph = asMarkdown.querySelector(".katex-html .mord");
+    if (firstGlyph === null) {
+      throw new Error("KaTeX drew no glyph");
+    }
+    fromGlyphs.setStart(firstGlyph, 0);
+    expect(readConversationSelection(fromGlyphs, asMarkdown)?.text).toBe(
+      ["```math", FORMULA_SOURCE, "```"].join("\n"),
+    );
+  });
+
+  it("negative control: an unmarked drawing copies more than its source", () => {
+    const unmarked = conversationWithFormula("text", 'class="other"');
+    const copied = readConversationSelection(everythingIn(unmarked), unmarked)?.text;
+
+    expect(copied).toContain(FORMULA_SOURCE);
+    expect(copied).not.toBe(FORMULA_SOURCE);
   });
 });

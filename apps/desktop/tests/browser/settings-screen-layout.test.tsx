@@ -13,7 +13,7 @@ import {
   windowAt,
 } from "#renderer/features/settings/SettingsScreen.test-support.js";
 import { SettingsPageRegistry } from "#renderer/features/settings/pages/registry.js";
-import { changeLayout } from "#test/helpers/layout-change.js";
+import { changeLayout } from "#test/helpers/animation-frame.js";
 // Imported for its side effect: the settings chunk root imports the sheets measured here.
 import "#renderer/features/settings/screen-body.js";
 

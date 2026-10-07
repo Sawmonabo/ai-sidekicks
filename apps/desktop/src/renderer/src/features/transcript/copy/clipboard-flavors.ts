@@ -31,10 +31,7 @@ export function rebuildMarkdown(fragment: DocumentFragment): string {
   return toMarkdown(tree, { bullet: "-", extensions: [gfmToMarkdown()] }).trimEnd();
 }
 
-/** One element as the markdown rebuild reads it, derived from the library's own handler. */
-type DrawnElement = Parameters<Handle>[1];
-
-/** What one element handler answers, derived the same way. */
+/** What one element handler answers, derived from the library's own handler. */
 type RebuiltNodes = ReturnType<Handle>;
 
 /** The screen draws a link as its text, an image as its alt text and raw HTML as literal text. */
@@ -51,8 +48,7 @@ const SCREEN_POLICY_HANDLERS: Handlers = {
 
 /**
  * How the markdown drawing's own elements read back: a heading is a `p` carrying its level, a
- * list item is tight unless marked loose, a fenced block names its language on the `pre`, and
- * drawn math keeps its source in KaTeX's annotation.
+ * list item is tight unless marked loose, and a fenced block names its language on the `pre`.
  */
 const DRAWN_MARKDOWN_HANDLERS: Record<string, Handle> = {
   p: (state, element) => {
@@ -70,47 +66,7 @@ const DRAWN_MARKDOWN_HANDLERS: Record<string, Handle> = {
     const code = defaultHandlers.pre(state, element);
     return typeof language === "string" ? { ...code, lang: language } : code;
   },
-  span: (state, element) => {
-    const mathSource = drawnMathSource(element);
-    return mathSource === undefined
-      ? defaultHandlers.span(state, element)
-      : { type: "code", lang: "math", meta: null, value: mathSource };
-  },
 };
-
-/** The TeX source of a drawn math span, or `undefined` for any other span. */
-function drawnMathSource(element: DrawnElement): string | undefined {
-  // `MathBlock` marks every formula it draws with `data-math`.
-  if (element.properties["dataMath"] === undefined) {
-    return undefined;
-  }
-  const annotation = findElement(element, "annotation") ?? findElement(element, "code");
-  return annotation === undefined ? undefined : textOf(annotation);
-}
-
-function findElement(element: DrawnElement, tagName: string): DrawnElement | undefined {
-  for (const child of element.children) {
-    if (child.type !== "element") {
-      continue;
-    }
-    if (child.tagName === tagName) {
-      return child;
-    }
-    const found = findElement(child, tagName);
-    if (found !== undefined) {
-      return found;
-    }
-  }
-  return undefined;
-}
-
-function textOf(element: DrawnElement): string {
-  return element.children
-    .map((child) =>
-      child.type === "text" ? child.value : child.type === "element" ? textOf(child) : "",
-    )
-    .join("");
-}
 
 function isHeadingDepth(level: number): level is 1 | 2 | 3 | 4 | 5 | 6 {
   return Number.isInteger(level) && level >= 1 && level <= 6;

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
 import { AppFrame } from "#renderer/layout/AppShell/AppFrame.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
+import { nextFrame } from "../helpers/animation-frame.js";
 import { SESSIONS_ROUTE, frameProps, liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { clearMediaEmulation, emulateReducedMotion } from "../helpers/media-emulation.js";
 
@@ -54,14 +55,6 @@ async function mountFrame(sessionsTrack: React.ReactNode | undefined): Promise<M
       });
     },
   };
-}
-
-async function nextFrame(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      resolve();
-    });
-  });
 }
 
 /** The transitions the frame's own grid is running. */

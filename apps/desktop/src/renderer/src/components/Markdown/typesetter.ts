@@ -4,22 +4,29 @@
 
 import "katex/dist/katex.min.css";
 
-import { renderToString } from "katex";
+import { ParseError, renderToString } from "katex";
 
 /**
  * KaTeX's markup for one formula: its HTML, with its MathML beside it for assistive technology and
- * copying. Throws KaTeX's `ParseError` when the source does not parse.
+ * copying; `undefined` when the source does not parse. Any other KaTeX failure is thrown.
  */
-export function typesetFormula(source: string, isDisplayMode: boolean): string {
-  return renderToString(source, {
-    displayMode: isDisplayMode,
-    output: "htmlAndMathml",
-    trust: false,
-    strict: false,
-    // With `throwOnError: false` KaTeX resolves with its own error rendering, which would make the
-    // caller's unrenderable arm unreachable; throwing is the only signal of a parse failure.
-    throwOnError: true,
-  });
+export function typesetFormula(source: string, isDisplayMode: boolean): string | undefined {
+  try {
+    return renderToString(source, {
+      displayMode: isDisplayMode,
+      output: "htmlAndMathml",
+      trust: false,
+      strict: false,
+      // With `throwOnError: false` KaTeX resolves with its own error rendering, which would make
+      // the caller's unrenderable arm unreachable; throwing is the only signal of a parse failure.
+      throwOnError: true,
+    });
+  } catch (error) {
+    if (error instanceof ParseError) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 // The sheet's faces load before any formula is drawn, rather than on first use by the text.

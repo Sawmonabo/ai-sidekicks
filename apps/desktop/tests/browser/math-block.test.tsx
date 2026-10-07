@@ -1,16 +1,16 @@
-// A formula as KaTeX draws it, in Chromium, since happy-dom has no layout and no font set, so
-// the typesetter's chunk would never load there. A source that does not parse takes the source
-// arm. A display formula too wide for its column breaks after its operators and shrinks until its
-// widest piece fits, at any width, and every KaTeX face is in before it is first drawn, so no
-// font arriving later moves it; taking away the measured natural width lets the same formula cross the column's edge, the
-// negative control for the fit.
+// A formula as KaTeX draws it, in Chromium. happy-dom has no layout and no font set, so the
+// typesetter's chunk would never load there. A source that does not parse takes the source arm.
+// A display formula too wide for its column breaks after its operators. It shrinks until its
+// widest piece fits, at any width. Every KaTeX face is in before it is first drawn, so no font
+// arriving later moves it. Taking away the measured natural width lets the same formula cross the
+// column's edge: the negative control for the fit.
 
 import { cleanup, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MathBlock } from "#renderer/components/Markdown/MathBlock.js";
-import { changeLayout } from "#test/helpers/layout-change.js";
+import { changeLayout } from "#test/helpers/animation-frame.js";
 import { drawnText } from "#test/helpers/live-region.js";
 
 /** How long a formula may take to appear: the typesetter's chunk and its fonts loading. */
@@ -57,6 +57,9 @@ describe("browser — a formula drawn by KaTeX", () => {
     const column = document.createElement("div");
     column.style.inlineSize = "480px";
     document.body.append(column);
+    onTestFinished(() => {
+      column.remove();
+    });
     const { container } = render(<MathBlock source={WIDE_FORMULA} isDisplayMode />, {
       container: column,
       wrapper: LiveAnnouncerProvider,
@@ -116,7 +119,11 @@ function pieceRects(block: HTMLElement): DOMRect[] {
   );
 }
 
-/** Each piece crossing the column's edge, as its horizontal extent. */
+/**
+ * Each piece crossing the column's edge, as its horizontal extent. Read from the pieces' rects
+ * rather than `describeHorizontalOverflow`, whose walk counts KaTeX's screen-reader MathML:
+ * katex.css clips it into a 1px box, and the `math` inside still reports its full width.
+ */
 function piecesOutside(block: HTMLElement): string[] {
   const column = block.getBoundingClientRect();
   return pieceRects(block)

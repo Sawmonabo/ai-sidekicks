@@ -3,9 +3,10 @@
 // or controls: a reply's part as the markdown rebuilt from what was selected, and the person's
 // own message or a reasoning aside as plain text. Any other row gives the text selected in it.
 // Plain text is read the way the screen lays it out, a block's lines on lines of their own, and
-// no control's label is ever part of it. A formatted flavor rides beside the text whenever a
-// reply is part of it.
+// no control's label is ever part of it. A formula copies as its TeX source, whole, once. A
+// formatted flavor rides beside the text whenever a reply is part of it.
 
+import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
 import { toHtml } from "hast-util-to-html";
 import { toText } from "hast-util-to-text";
@@ -63,23 +64,71 @@ interface SelectedPart {
 
 function selectedPartOf(range: Range, row: HTMLElement): SelectedPart {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
-  if (body === null) {
-    return { flavor: "text", text: toText(fromDom(selectedContentOf(clampedTo(range, row)))) };
-  }
-  // A selection holding only the row's author line or controls clamps to nothing here.
-  const part = selectedContentOf(clampedTo(range, body));
-  return body.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
-    ? { flavor: "markdown", text: rebuildMarkdown(part) }
-    : { flavor: "text", text: toText(fromDom(part)) };
+  // A selection holding only the row's author line or controls clamps to nothing in its body.
+  const part = clampedTo(range, body ?? row);
+  return body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
+    ? { flavor: "markdown", text: rebuildMarkdown(selectedContentOf(part, "markdown")) }
+    : { flavor: "text", text: toText(fromDom(selectedContentOf(part, "text"))) };
 }
 
-/** What `part` holds, without the controls drawn among it: a button's label is no one's text. */
-function selectedContentOf(part: Range): DocumentFragment {
+/**
+ * What `part` holds, without the controls drawn among it, since a button's label is no one's
+ * text, and with each formula as its TeX source: as text, or as a math block the markdown rebuild
+ * reads as one.
+ */
+function selectedContentOf(part: Range, flavor: CopyFlavor): DocumentFragment {
+  // A formula draws its hidden MathML before its glyphs, so a part of one would miss its source.
+  const startFormula = formulaHolding(part.startContainer);
+  if (startFormula !== null) {
+    part.setStartBefore(startFormula);
+  }
+  const endFormula = formulaHolding(part.endContainer);
+  if (endFormula !== null) {
+    part.setEndAfter(endFormula);
+  }
   const content = part.cloneContents();
   for (const control of content.querySelectorAll("button")) {
     control.remove();
   }
+  for (const formula of content.querySelectorAll(FORMULA_SELECTOR)) {
+    formula.replaceWith(formulaSourceNode(formula, flavor));
+  }
   return content;
+}
+
+/** `MathBlock` marks every formula it draws with `data-math`. */
+const FORMULA_SELECTOR = "[data-math]";
+
+/** The formula `node` sits in, or `null` outside any. */
+function formulaHolding(node: Node): Element | null {
+  return (isElement(node) ? node : node.parentElement)?.closest(FORMULA_SELECTOR) ?? null;
+}
+
+/** The node a copied formula becomes: its TeX source, fenced as math for the markdown flavor. */
+function formulaSourceNode(formula: Element, flavor: CopyFlavor): Node {
+  const ownerDocument = formula.ownerDocument;
+  const source = ownerDocument.createTextNode(formulaSourceOf(formula));
+  if (flavor === "text") {
+    return source;
+  }
+  const code = ownerDocument.createElement("code");
+  code.append(source);
+  const block = ownerDocument.createElement("pre");
+  block.setAttribute("data-language", "math");
+  block.append(code);
+  return block;
+}
+
+/**
+ * A drawn formula's TeX source: KaTeX's annotation once typeset, or the `code` the source arm
+ * shows before then or when it cannot be typeset. Throws for a formula holding neither.
+ */
+function formulaSourceOf(formula: Element): string {
+  const sourceHolder = formula.querySelector("annotation") ?? formula.querySelector("code");
+  if (sourceHolder === null) {
+    throw new Error("A drawn formula holds no TeX source.");
+  }
+  return sourceHolder.textContent;
 }
 
 /** The part of `range` inside `element`. */

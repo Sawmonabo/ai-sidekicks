@@ -13,6 +13,7 @@ import { cdp, userEvent } from "vitest/browser";
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { nextFrame } from "../helpers/animation-frame.js";
 import { FrameWindows } from "../helpers/frame-windows.js";
 import { renderSettled } from "../helpers/app/harness.js";
 import { clearMediaEmulation, emulateReducedMotion } from "../helpers/media-emulation.js";
@@ -123,15 +124,6 @@ async function sendMouse(
     button: type === "mouseMoved" && buttons === 0 ? "none" : "left",
     buttons,
     clickCount: type === "mouseMoved" ? 0 : 1,
-  });
-}
-
-/** Lets `ownerWindow` paint once, so what was written is laid out and drawn. */
-async function nextFrame(ownerWindow: Window): Promise<void> {
-  await new Promise<void>((resolve) => {
-    ownerWindow.requestAnimationFrame(() => {
-      resolve();
-    });
   });
 }
 
@@ -260,7 +252,7 @@ describe("browser — dragging a tab to reorder", () => {
     const carried = { x: centerOf(third).x + 4, y: press.y };
     await mouse.press(press);
     await mouse.dragTo(press, carried, 12);
-    await nextFrame(window);
+    await nextFrame();
     const travel = carried.x - press.x;
     expect(translateXOf(first)).toBeCloseTo(travel, 2);
     expect(first.getBoundingClientRect().left).toBeCloseTo((homeLefts[0] ?? 0) + travel, 1);
@@ -273,7 +265,7 @@ describe("browser — dragging a tab to reorder", () => {
 
     await act(async () => {
       await mouse.release(carried);
-      await nextFrame(window);
+      await nextFrame();
     });
     expect(onReorder).toHaveBeenCalledTimes(1);
     expect(onReorder).toHaveBeenCalledWith("a", 2);
@@ -301,7 +293,7 @@ describe("browser — dragging a tab to reorder", () => {
     await mouse.dragTo(pressAgain, away, 8);
     await userEvent.keyboard("{Escape}");
     await mouse.release(away);
-    await nextFrame(window);
+    await nextFrame();
     await glidesEnded(settledTabs);
     expect(onReorder).toHaveBeenCalledTimes(1);
     expect(settledTabs.map((tab) => tab.style.transform)).toStrictEqual(["", "", "", ""]);
@@ -326,7 +318,7 @@ describe("browser — dragging a tab to reorder", () => {
     await mouse.dragTo(out, press, 6);
     await act(async () => {
       await mouse.release(press);
-      await nextFrame(window);
+      await nextFrame();
     });
     await glidesEnded(tabs);
     expect(onReorder).not.toHaveBeenCalled();
@@ -344,7 +336,7 @@ describe("browser — dragging a tab to reorder", () => {
     await mouse.dragTo(press, out, 6);
     await act(async () => {
       document.dispatchEvent(new PointerEvent("pointercancel", { pointerId, bubbles: true }));
-      await nextFrame(window);
+      await nextFrame();
     });
     await mouse.release(out);
     await glidesEnded(tabs);
@@ -366,7 +358,7 @@ describe("browser — dragging a tab to reorder", () => {
     await mouse.dragTo(press, carried, 12);
     await act(async () => {
       await mouse.release(carried);
-      await nextFrame(window);
+      await nextFrame();
     });
     expect(onReorder).toHaveBeenCalledWith("a", 2);
     await vi.waitFor(async () => {
@@ -410,7 +402,7 @@ describe("browser — dragging a tab to reorder", () => {
 
     await act(async () => {
       await mouse.release(edge);
-      await nextFrame(window);
+      await nextFrame();
     });
     expect(onReorder).toHaveBeenCalledWith("a", EIGHT_PAGES.length - 1);
   });
@@ -442,7 +434,7 @@ describe("browser — dragging a tab to reorder", () => {
     const carried = { x: centerOf(tabAt(tabs, 2)).x + 4, y: press.y };
     await mouse.press(press);
     await mouse.dragTo(press, carried, 12);
-    await nextFrame(window);
+    await nextFrame();
     // The neighbors are in their new places at once, with nothing gliding them there.
     const step = (homeLefts[1] ?? 0) - (homeLefts[0] ?? 0);
     expect(tabAt(tabs, 1).getBoundingClientRect().left).toBeCloseTo(homeLefts[0] ?? 0, 1);
@@ -450,7 +442,7 @@ describe("browser — dragging a tab to reorder", () => {
     expect(runningScriptAnimations(tabs)).toStrictEqual([]);
     await act(async () => {
       await mouse.release(carried);
-      await nextFrame(window);
+      await nextFrame();
     });
     expect(onReorder).toHaveBeenCalledWith("a", 2);
     const settledTabs = strip.tabs();
