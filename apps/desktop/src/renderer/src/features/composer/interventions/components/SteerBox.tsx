@@ -188,7 +188,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
       {settlement === undefined || settlement.kind === "landed" ? null : settlement.kind ===
         "undelivered" ? (
         <NotDeliveredLine
-          code={settlement.code}
+          failureReason={settlement.failureReason}
           onRetry={() => {
             formRef.current?.requestSubmit();
           }}

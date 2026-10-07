@@ -405,17 +405,54 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(driverCalls.map((params) => params.targetRunId)).toEqual([held.runId]);
   });
 
-  it("expires a held stop when the driver's start fails at its request deadline", async () => {
+  it("expires a held stop when the driver's start rejects, as one does at its request deadline", async () => {
     const held = await holdStopInDriverStart();
-    const deadline = new CodexRequestTimeoutError(
-      'Codex app-server did not answer "turn/start" within 60000ms.',
-      { method: "turn/start", timeoutMs: "60000" },
-    );
+    // The error a start throws at its deadline; the hold reads any rejected start the same way.
+    const deadline = new CodexRequestTimeoutError("turn/start was not answered in time");
     held.settleStart.reject(deadline);
 
     expect(await held.stop).toMatchObject({ interventionType: "interrupt", state: "expired" });
     expect(await held.started).toBe(deadline);
     expect(fixture.runs.getRun(held.runId)?.state).toBe("failed");
+    expect(driverCalls).toEqual([]);
+  });
+
+  it("lets the engine end a run whose failed start could not write its end, for a stop that waited or came after", async () => {
+    // Every failed end is refused, so a failed start leaves its run `starting` with no driver.
+    await fixture.database.writer.write([
+      {
+        sql: `CREATE TRIGGER refuse_run_failed BEFORE INSERT ON session_events
+                WHEN NEW.type = 'run.failed'
+                BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`,
+      },
+    ]);
+    const held = await holdStopInDriverStart();
+    held.settleStart.reject(new Error("spawn codex ENOENT"));
+
+    expect(await held.stop).toMatchObject({ interventionType: "interrupt", state: "applied" });
+    expect(await held.started).toBeInstanceOf(AggregateError);
+    expect(fixture.runs.getRun(held.runId)?.state).toBe("interrupted");
+
+    const runId = await fixture.queueRun();
+    const started = await fixture.engine
+      .startRun({
+        runId,
+        queueItem: makeQueueItem(),
+        provider: "codex",
+        driver: { startRun: () => Promise.reject(new Error("spawn codex ENOENT")) },
+        driverParams: { agentConfig: {} },
+        executionPosture: TEST_EXECUTION_POSTURE,
+      })
+      .catch((error: unknown) => error);
+    expect(started).toBeInstanceOf(AggregateError);
+    expect(fixture.runs.getRun(runId)?.state).toBe("starting");
+
+    const stop = await service.applyIntervention(interrupt(runId, readVersion(runId)), {
+      actor: DeviceIdSchema.parse(randomUUID()),
+    });
+
+    expect(stop).toMatchObject({ interventionType: "interrupt", state: "applied" });
+    expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
     expect(driverCalls).toEqual([]);
   });
 

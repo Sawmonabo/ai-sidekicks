@@ -6,7 +6,7 @@
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
-import { NOT_DELIVERED_WORDS } from "../../components/NotDeliveredLine.js";
+import { NOT_DELIVERED_WORDS } from "../../not-delivered.js";
 
 /** Origin of every refusal the composer itself raises. */
 export const COMPOSER_REFUSAL_ORIGIN = "composer";

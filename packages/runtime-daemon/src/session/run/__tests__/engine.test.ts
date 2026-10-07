@@ -179,9 +179,10 @@ describe("run engine", () => {
       expect(await passingStart).toMatchObject({ code: "run.invalid_transition" });
       expect(await throwingStart).toBe(gateError);
       expect(driver.startedRuns).toEqual([]);
-      // The interrupt that claimed each run ends it; the gate's throw does not.
+      // The interrupt that claimed each run ends it; the gate's throw does not, and until that
+      // end lands a later interrupt is the engine's too, never a driver's.
       expect(fixture.runs.getRun(throwing)?.state).toBe("starting");
-      expect(await fixture.engine.routeInterrupt(passing)).toBe("driver");
+      expect(await fixture.engine.routeInterrupt(passing)).toBe("claimed");
     });
 
     it("keeps the interrupt's end when a gate throws after an interrupt landed", async () => {

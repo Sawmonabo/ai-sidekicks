@@ -1,5 +1,5 @@
 // Reads what a dispatch answer means to the steer form: the admission verdict and the daemon's
-// settled state become three form outcomes. No JSX, so each arm is testable directly.
+// settled state become four form outcomes. No JSX, so each arm is testable directly.
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RunControlOutcome } from "../run/controls/services/dispatch.js";
@@ -17,7 +17,7 @@ export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
 export type InterventionFormSettlement =
   | { readonly kind: "landed" }
   | { readonly kind: "refused"; readonly notice: Refusal }
-  | { readonly kind: "undelivered"; readonly code: string }
+  | { readonly kind: "undelivered"; readonly failureReason: string }
   | { readonly kind: "recorded"; readonly notice: Refusal };
 
 /**
@@ -48,7 +48,7 @@ export function readInterventionFormSettlement(
         ),
       };
     case "failed":
-      return { kind: "undelivered", code: response.failureReason };
+      return { kind: "undelivered", failureReason: response.failureReason };
     case "expired":
       return {
         kind: "refused",

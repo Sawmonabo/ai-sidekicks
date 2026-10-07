@@ -32,7 +32,7 @@ describe("only a settlement that landed closes the form", () => {
     const failed = readInterventionFormSettlement(
       settledAt("failed", { failureReason: "driver.transport_closed" }),
     );
-    expect(failed).toEqual({ kind: "undelivered", code: "driver.transport_closed" });
+    expect(failed).toEqual({ kind: "undelivered", failureReason: "driver.transport_closed" });
   });
 
   it("latches the confirm on an intervention recorded and not yet applied", () => {

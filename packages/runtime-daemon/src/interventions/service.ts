@@ -170,8 +170,9 @@ export class InterventionService {
    * steer. A reused idempotency key answers with the saved result and dispatches nothing. Throws
    * `run.not_found` for a run the daemon has no row for, and `intervention.idempotency_conflict`
    * for a reused key whose request differs; a dispatch that throws answers `failed` with what it
-   * threw as the `failureReason`. An interrupt of a run whose driver is still starting it answers
-   * once that start settles, and `expired` when the start failed and ended the run.
+   * threw as the `failureReason`. An interrupt of a run no driver has yet calls no driver: it
+   * answers `applied` and ends the run itself, or, when it lands while the run's start is still
+   * settling, answers once that start settles, `expired` when the run ended meanwhile.
    */
   async applyIntervention(
     request: InterventionRequestPayload,
@@ -269,10 +270,11 @@ export class InterventionService {
         : { from: "accepted", to: "rejected", reason: retried.rejectionReason };
     }
     if (request.type === "interrupt") {
-      // A stop never reaches a driver that does not have the run. One that lands while the driver
-      // starts the run waits for that start, which fails at its control-request deadline.
+      // A stop never reaches a driver that does not have the run. One that lands while the run's
+      // start is settling waits for it, bounded by the driver's start, which fails at its request
+      // deadline, and by the end a failed start writes.
       const route = await this.#deps.runEngine.routeInterrupt(request.targetRunId);
-      // A run the engine never hands to a driver is ended by the outcome's own write.
+      // A run no driver has is ended by the outcome's own write.
       if (route === "claimed") {
         return { from: "accepted", to: "applied" };
       }
