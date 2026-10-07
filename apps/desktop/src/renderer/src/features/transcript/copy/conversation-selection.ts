@@ -11,7 +11,7 @@ import { fromDom } from "hast-util-from-dom";
 import { toHtml } from "hast-util-to-html";
 import { toText } from "hast-util-to-text";
 
-import type { ClipboardContent } from "#shared/preload-api.js";
+import type { TextClipboardContent } from "#shared/preload-api.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { markdownToHtml, rebuildMarkdown } from "./clipboard-flavors.js";
 
@@ -31,7 +31,7 @@ export const PART_SEPARATOR = "\n\n";
 export function readConversationSelection(
   range: Range,
   conversation: Element,
-): ClipboardContent | undefined {
+): TextClipboardContent | undefined {
   // The window draws its rows in the order they are read, so document order is reading order.
   const rows = [
     ...conversation.querySelectorAll<HTMLElement>(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`),
