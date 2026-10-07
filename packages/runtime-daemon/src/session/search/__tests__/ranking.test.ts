@@ -19,6 +19,7 @@ import { indexRowidSql } from "../index/columns.js";
 import {
   SessionTextRanking,
   WHOLE_INDEX,
+  sessionsRankingOfRanges,
   type RankedIndexRow,
   type RankedSessionScope,
 } from "../ranking.js";
@@ -74,10 +75,13 @@ describe("the ranking within sessions", () => {
     const ranking = new SessionTextRanking(database);
     const matchExpression = 'text : ("retr"*)';
 
-    const withSessions = ranking.rankRangeWithSessions(matchExpression, scopes, WHOLE_INDEX);
+    const withSessions = sessionsRankingOfRanges(
+      [ranking.rankRangeWithSessions(matchExpression, WHOLE_INDEX)],
+      scopes,
+    );
     const narrowed = ranking.rankWithinSessions(matchExpression, scopes);
 
-    const owned = ownership(withSessions.ownedRows ?? []);
+    const owned = ownership(withSessions.rows);
     expect(owned).toEqual(ownership(narrowed.rows));
     // Three sessions' titles, tags and log rows, and their one group's row.
     expect(owned.filter((row) => row.session_id === null)).toHaveLength(1);

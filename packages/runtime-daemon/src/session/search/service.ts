@@ -296,7 +296,7 @@ export class SessionSearchService {
     const { ranking, rows } =
       readAhead === undefined
         ? this.#ranking.rankWithinSessions(matchExpression, taggedSessions)
-        : sessionsRankingOfRanges(readAhead.ranges);
+        : sessionsRankingOfRanges(readAhead.ranges, taggedSessions);
     const searchHits = this.#hitReader.openSearch(matchExpression, ranking, EVERY_ROW_HELD);
     const textHits = searchHits.collectHits(taggedSessions, rows);
     const textOrder = [...textHits.values()]

@@ -128,7 +128,7 @@ function serve(connection: DatabaseType): void {
       }
       const split = await rankWithRankers(
         plan.matchExpression,
-        plan.taggedSessions,
+        plan.taggedSessions !== undefined,
         plan.highestRowid,
       );
       return sessionSearch.searchWithReadAhead(request, { plan, ...split });

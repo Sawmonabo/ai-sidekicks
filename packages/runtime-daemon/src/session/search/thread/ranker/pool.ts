@@ -6,12 +6,7 @@
 
 import { Worker } from "node:worker_threads";
 
-import {
-  WHOLE_INDEX,
-  type RankedRange,
-  type RankedSessionScope,
-  type RowidRange,
-} from "../../ranking.js";
+import { WHOLE_INDEX, type RankedRange, type RowidRange } from "../../ranking.js";
 import { rebuildError } from "../../../../worker-thread/carried-error.js";
 import { workerModuleUrlBeside } from "../../../../worker-thread/module-url.js";
 import type { RankerReply, RankerRequest, RankerWorkerData } from "./messages.js";
@@ -58,29 +53,21 @@ export class RankerPool {
   }
 
   /**
-   * The words' ranking, each ranker reading one rowid range, with the rows these sessions and
-   * their groups own when `sessions` is given. The ranges cover every rowid; `highestRowid`, the
-   * index's highest when the search was planned, places their bounds. Rejects with what a ranker
-   * threw.
+   * The words' ranking, each ranker reading one rowid range, with each row's session and position
+   * when `readsSessions`. The ranges cover every rowid; `highestRowid`, the index's highest when the
+   * search was planned, places their bounds. Rejects with what a ranker threw.
    */
   async rank(
     matchExpression: string,
-    sessions: readonly RankedSessionScope[] | undefined,
+    readsSessions: boolean,
     highestRowid: number,
   ): Promise<SplitRanking> {
-    // Only what a ranker reads crosses to it, since every field is copied to each one.
-    const scopes = sessions?.map(({ sessionId, sessionRowid, groupId, groupIndexRowid }) => ({
-      sessionId,
-      sessionRowid,
-      groupId,
-      groupIndexRowid,
-    }));
     const replies = await Promise.all(
       this.#rankers.map((ranker, index) =>
         ranker.request({
           type: "rank",
           matchExpression,
-          sessions: scopes,
+          readsSessions,
           range: rowidRange(highestRowid, index, this.#rankers.length),
         }),
       ),
@@ -92,8 +79,10 @@ export class RankerPool {
       return reply;
     });
     return {
-      ranges: ranked.map(({ rowids, ranks, ownedRows }) =>
-        ownedRows === undefined ? { rowids, ranks } : { rowids, ranks, ownedRows },
+      ranges: ranked.map(({ rowids, ranks, sessionRowids, sequences }) =>
+        sessionRowids === undefined || sequences === undefined
+          ? { rowids, ranks }
+          : { rowids, ranks, sessionRowids, sequences },
       ),
       versions: ranked.map((reply) => reply.version),
     };

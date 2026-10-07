@@ -123,7 +123,7 @@ describe("the rankers", () => {
   });
 
   function rankWith(plan: WholeIndexRankingPlan): ReturnType<RankerPool["rank"]> {
-    return rankers.rank(plan.matchExpression, plan.taggedSessions, plan.highestRowid);
+    return rankers.rank(plan.matchExpression, plan.taggedSessions !== undefined, plan.highestRowid);
   }
 
   // A log row matching the words, which moves the index's version.

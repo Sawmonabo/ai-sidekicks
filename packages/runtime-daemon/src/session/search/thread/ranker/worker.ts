@@ -40,9 +40,9 @@ function serve(reader: DatabaseType): void {
   const rankRange = reader.transaction(
     (request: Extract<RankerRequest, { type: "rank" }>): [number, RankedRange] => [
       indexVersion.read(),
-      request.sessions === undefined
-        ? ranking.rankRange(request.matchExpression, request.range)
-        : ranking.rankRangeWithSessions(request.matchExpression, request.sessions, request.range),
+      request.readsSessions
+        ? ranking.rankRangeWithSessions(request.matchExpression, request.range)
+        : ranking.rankRange(request.matchExpression, request.range),
     ],
   );
   port.on("message", (request: RankerRequest) => {
@@ -62,9 +62,12 @@ function serve(reader: DatabaseType): void {
             version,
             rowids: range.rowids,
             ranks: range.ranks,
-            ownedRows: range.ownedRows,
+            sessionRowids: range.sessionRowids,
+            sequences: range.sequences,
           },
-          [range.rowids.buffer, range.ranks.buffer],
+          [range.rowids, range.ranks, range.sessionRowids, range.sequences].flatMap((column) =>
+            column === undefined ? [] : [column.buffer],
+          ),
         );
         return;
       }

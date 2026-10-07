@@ -129,13 +129,16 @@ export interface RowidRange {
 export const WHOLE_INDEX: RowidRange = { low: 0, high: Number.MAX_SAFE_INTEGER };
 
 /**
- * One rowid range's matching rows, ranked, in rowid order; with the rows some sessions and their
- * groups own among them, when the ranking reads every match with its session.
+ * One rowid range's matching rows, ranked, in rowid order; with each row's session and position
+ * when the ranking reads every match with its session.
  */
 export interface RankedRange {
   readonly rowids: Float64Array<ArrayBuffer>;
   readonly ranks: Float64Array<ArrayBuffer>;
-  readonly ownedRows?: readonly RankedIndexRow[];
+  /** Each row's session's rowid in the directory, `NaN` on a row with none, such as a group's. */
+  readonly sessionRowids?: Float64Array<ArrayBuffer>;
+  /** Each row's position in its session's log, `NaN` on a title, group or tag row. */
+  readonly sequences?: Float64Array<ArrayBuffer>;
 }
 
 /**
@@ -177,42 +180,20 @@ export class SessionTextRanking {
     })) {
       rows.add(indexRowid, rank);
     }
-    return { rowids: rows.rowids(), ranks: rows.ranks() };
+    return rows.range();
   }
 
-  /**
-   * As {@link rankRange}, reading each row's session, with the rows these sessions and their groups
-   * own among them.
-   */
-  rankRangeWithSessions(
-    matchExpression: string,
-    sessions: readonly RankedSessionScope[],
-    range: RowidRange,
-  ): RankedRange {
-    const sessionIdsByRowid = new Map(
-      sessions.map((session) => [session.sessionRowid, session.sessionId]),
-    );
-    const groupIndexRowids = new Set(sessions.map((session) => session.groupIndexRowid));
-    const ranked = this.#rows;
-    ranked.clear();
-    const ownedRows: RankedIndexRow[] = [];
+  /** As {@link rankRange}, reading each row's session and position too. */
+  rankRangeWithSessions(matchExpression: string, range: RowidRange): RankedRange {
+    const rows = this.#rows;
+    rows.clear();
     for (const [indexRowid, rank, sessionRowid, sequence] of this.#rankedRowsWithSessions.iterate({
       expression: matchExpression,
       ...range,
     })) {
-      ranked.add(indexRowid, rank);
-      if (indexRowKindOf(indexRowid) === "group") {
-        if (groupIndexRowids.has(indexRowid)) {
-          ownedRows.push({ index_rowid: indexRowid, rank, session_id: null, sequence: null });
-        }
-        continue;
-      }
-      const sessionId = sessionRowid === null ? undefined : sessionIdsByRowid.get(sessionRowid);
-      if (sessionId !== undefined) {
-        ownedRows.push({ index_rowid: indexRowid, rank, session_id: sessionId, sequence });
-      }
+      rows.addWithSession(indexRowid, rank, sessionRowid ?? Number.NaN, sequence ?? Number.NaN);
     }
-    return { rowids: ranked.rowids(), ranks: ranked.ranks(), ownedRows };
+    return rows.rangeWithSessions();
   }
 
   /**
@@ -224,9 +205,10 @@ export class SessionTextRanking {
     sessions: readonly RankedSessionScope[],
   ): SessionsRanking {
     if (ranksEveryMatch(sessions)) {
-      return sessionsRankingOfRanges([
-        this.rankRangeWithSessions(matchExpression, sessions, WHOLE_INDEX),
-      ]);
+      return sessionsRankingOfRanges(
+        [this.rankRangeWithSessions(matchExpression, WHOLE_INDEX)],
+        sessions,
+      );
     }
     const ownerIds = ownerIdsOf(sessions);
     const rows: RankedIndexRow[] = [];
@@ -271,13 +253,41 @@ export function rankingOfRanges(ranges: readonly RankedRange[]): TextRanking {
 
 /**
  * The ranking within some sessions over these ranges, each read with its sessions by
- * {@link SessionTextRanking.rankRangeWithSessions}; the ranges come in rowid order.
+ * {@link SessionTextRanking.rankRangeWithSessions}, and the rows those sessions and their groups
+ * own among them; the ranges come in rowid order.
  */
-export function sessionsRankingOfRanges(ranges: readonly RankedRange[]): SessionsRanking {
-  return {
-    ranking: rankingOfRanges(ranges),
-    rows: ranges.flatMap((range) => range.ownedRows ?? []),
-  };
+export function sessionsRankingOfRanges(
+  ranges: readonly RankedRange[],
+  sessions: readonly RankedSessionScope[],
+): SessionsRanking {
+  const sessionIdsByRowid = new Map(
+    sessions.map((session) => [session.sessionRowid, session.sessionId]),
+  );
+  const groupIndexRowids = new Set(sessions.map((session) => session.groupIndexRowid));
+  const rows: RankedIndexRow[] = [];
+  for (const { rowids, ranks, sessionRowids, sequences } of ranges) {
+    for (let position = 0; position < rowids.length; position += 1) {
+      const indexRowid = rowids[position] ?? 0;
+      const rank = ranks[position] ?? 0;
+      if (indexRowKindOf(indexRowid) === "group") {
+        if (groupIndexRowids.has(indexRowid)) {
+          rows.push({ index_rowid: indexRowid, rank, session_id: null, sequence: null });
+        }
+        continue;
+      }
+      const sessionId = sessionIdsByRowid.get(sessionRowids?.[position] ?? Number.NaN);
+      if (sessionId !== undefined) {
+        const sequence = sequences?.[position] ?? Number.NaN;
+        rows.push({
+          index_rowid: indexRowid,
+          rank,
+          session_id: sessionId,
+          sequence: Number.isNaN(sequence) ? null : sequence,
+        });
+      }
+    }
+  }
+  return { ranking: rankingOfRanges(ranges), rows };
 }
 
 // The ranking over rows already in rowid order.
@@ -302,9 +312,12 @@ function rankingOf(rowids: Float64Array, ranks: Float64Array): TextRanking {
 
 // A ranking's rows as one read gives them, in arrays kept from read to read that double when full,
 // so they grow to the largest read and no read leaves garbage behind but the copies it returns.
+// The session columns grow only for reads that fill them.
 class RankingRows {
   #rowids: Float64Array<ArrayBuffer> = new Float64Array(FIRST_RANKING_CAPACITY);
   #ranks: Float64Array<ArrayBuffer> = new Float64Array(FIRST_RANKING_CAPACITY);
+  #sessionRowids: Float64Array<ArrayBuffer> = new Float64Array(FIRST_RANKING_CAPACITY);
+  #sequences: Float64Array<ArrayBuffer> = new Float64Array(FIRST_RANKING_CAPACITY);
   #count = 0;
 
   clear(): void {
@@ -321,12 +334,29 @@ class RankingRows {
     this.#count += 1;
   }
 
-  rowids(): Float64Array<ArrayBuffer> {
-    return this.#rowids.slice(0, this.#count);
+  addWithSession(indexRowid: number, rank: number, sessionRowid: number, sequence: number): void {
+    if (this.#count === this.#sessionRowids.length) {
+      this.#sessionRowids = grown(this.#sessionRowids);
+      this.#sequences = grown(this.#sequences);
+    }
+    this.#sessionRowids[this.#count] = sessionRowid;
+    this.#sequences[this.#count] = sequence;
+    this.add(indexRowid, rank);
   }
 
-  ranks(): Float64Array<ArrayBuffer> {
-    return this.#ranks.slice(0, this.#count);
+  range(): RankedRange {
+    return {
+      rowids: this.#rowids.slice(0, this.#count),
+      ranks: this.#ranks.slice(0, this.#count),
+    };
+  }
+
+  rangeWithSessions(): RankedRange {
+    return {
+      ...this.range(),
+      sessionRowids: this.#sessionRowids.slice(0, this.#count),
+      sequences: this.#sequences.slice(0, this.#count),
+    };
   }
 }
 

@@ -1,7 +1,7 @@
 // The messages between the search thread and one of its rankers. Each request is answered once, in
 // the order it was sent; a ranked range's arrays move across rather than being copied.
 
-import type { RankedIndexRow, RankedSessionScope, RowidRange } from "../../ranking.js";
+import type { RowidRange } from "../../ranking.js";
 import type { CarriedError } from "../../../../worker-thread/carried-error.js";
 
 /** What a ranker is started with. */
@@ -14,8 +14,8 @@ export type RankerRequest =
   | {
       readonly type: "rank";
       readonly matchExpression: string;
-      /** The sessions whose rows the range is read with, `undefined` to read the words alone. */
-      readonly sessions: readonly RankedSessionScope[] | undefined;
+      /** Whether the range is read with each row's session and position. */
+      readonly readsSessions: boolean;
       readonly range: RowidRange;
     }
   | { readonly type: "close" };
@@ -30,7 +30,8 @@ export type RankerReply =
       readonly version: number;
       readonly rowids: Float64Array<ArrayBuffer>;
       readonly ranks: Float64Array<ArrayBuffer>;
-      readonly ownedRows: readonly RankedIndexRow[] | undefined;
+      readonly sessionRowids: Float64Array<ArrayBuffer> | undefined;
+      readonly sequences: Float64Array<ArrayBuffer> | undefined;
     }
   | { readonly type: "rank-failed"; readonly error: CarriedError }
   | { readonly type: "closed" };
