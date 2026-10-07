@@ -9,11 +9,16 @@ import type { SessionState } from "@ai-sidekicks/contracts/session/methods";
 const DELETING_SESSION_STATE: SessionState = "purge_requested";
 
 /**
- * One row. `state` is the wire's own string, rendered verbatim. There is no `title`: a row
- * renders by its identifier and users and never by an invented name.
+ * One row. `state` is the wire's own string, rendered verbatim. A row is titled by the name the
+ * daemon's list carries and never by an invented one.
  */
 export interface SessionListRow {
   readonly sessionId: string;
+  /**
+   * The session's name as the daemon's list names it, or `undefined` while the session is
+   * untitled or the list does not name it yet.
+   */
+  readonly name: string | undefined;
   /** Wire-verbatim lifecycle state, or `undefined` where the wire named none. */
   readonly state: string | undefined;
   /** ISO-8601 of the newest event that touched the session, wire-verbatim. */

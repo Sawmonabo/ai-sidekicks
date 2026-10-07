@@ -5,10 +5,9 @@
 //
 // The degraded flag is sticky: a gap, a drop or a projection failure sets it, and only a
 // completed re-pull clears it, since a later event proves nothing about the one that never
-// arrived. A snapshot read past a hole too wide to fill moves the window on with
-// `skipToSnapshot`, which keeps the hole as a gap. `prependEarlierEvents` is the only way the log
-// grows at its head, and what is outstanding outlives the capped transcript in the
-// waiting-on-person register.
+// arrived. The re-pull resets the store, whose stream then sends everything after the new base
+// again. `prependEarlierEvents` is the only way the log grows at its head, and what is
+// outstanding outlives the capped transcript in the waiting-on-person register.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -38,7 +37,7 @@ import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
-  admitsBaseStateAt,
+  admitsBaseState,
   establishedState,
   uninitializedState,
   type TranscriptRetainedEnd,
@@ -157,13 +156,13 @@ export class SessionStore {
   }
 
   /**
-   * Establish the base state from a read response and drain anything that arrived first.
-   * Idempotent against a rewind and admits the equal-cursor repair (`admitsBaseStateAt`).
+   * Establish the base state from a read response and drain anything that arrived first. Taken
+   * only by a store with none yet or a degraded one, which it resets (`admitsBaseState`).
    * Answers whether the base state was taken, since only then does the window start there.
    */
   public initialize(baseState: SessionBaseState): boolean {
     const current = this.#store.getState();
-    if (current.initialized && !admitsBaseStateAt(baseState.cursor, current)) {
+    if (!admitsBaseState(current)) {
       return false;
     }
 
@@ -173,25 +172,27 @@ export class SessionStore {
     // A backward read still in flight was addressed from the replaced head, so its claim stops
     // being current and its page settles nowhere.
     this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
-    // The register keeps the older asks this read did not carry; the seed moves only the
-    // window-head fact, which is a property of this read.
-    this.#waitingOnPersonRegister.seedFrom({
-      entities: baseState.entities,
-      cursor: baseState.cursor,
-      windowHeadCursor: baseState.readFromCursor,
-    });
     const transcript = orderBatchBySequence(baseState.transcript ?? []);
-    this.#waitingOnPersonRegister.admit(transcript);
     this.#reconciler.rebaseTo(
       baseState.cursor,
       transcript.map((event) => event.sequence),
     );
+    // The register keeps the older asks this read did not carry; the seed moves only the
+    // window-head fact, which is a property of this read. A base with no sequence seeds below
+    // every row the stream delivers after it.
+    this.#waitingOnPersonRegister.seedFrom({
+      entities: baseState.entities,
+      cursor: this.#reconciler.cursor,
+      windowHeadCursor: baseState.readFromCursor,
+    });
+    this.#waitingOnPersonRegister.admit(transcript);
 
     // A re-pull clears the sticky flag here; every other path merges the cause upward.
     this.#store.setState(
       establishedState({
         sessionId: this.#sessionId,
         baseState,
+        cursor: this.#reconciler.cursor,
         orderedTranscript: transcript,
         transcriptCap: this.#transcriptCap,
         revision: current.revision + 1,
@@ -204,29 +205,6 @@ export class SessionStore {
       this.applyBatch(buffered);
     }
     return true;
-  }
-
-  /**
-   * Move the window past a stretch a snapshot read skipped. The rows already held stay, the
-   * sequences from the cursor to the read's position become one gap, so the two stretches are
-   * never joined as one, and the degraded flag clears because the repair ran. Before the first
-   * read there is nothing to skip from, so the base state is established instead.
-   */
-  public skipToSnapshot(baseState: SessionBaseState): void {
-    const current = this.#store.getState();
-    if (!current.initialized) {
-      this.initialize(baseState);
-      return;
-    }
-    this.#reconciler.skipTo(baseState.cursor);
-    this.#store.setState({
-      ...current,
-      cursor: this.#reconciler.cursor,
-      degradedCause: undefined,
-      lastReadFailed: false,
-      gaps: this.#reconciler.gaps(),
-      revision: current.revision + 1,
-    });
   }
 
   /**

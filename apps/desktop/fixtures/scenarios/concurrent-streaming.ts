@@ -547,10 +547,11 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           createdAt: STARTED_AT_ISO,
           updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
           draft: "",
+          tags: [],
         },
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length),
+          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length - 1),
         },
       },
     },

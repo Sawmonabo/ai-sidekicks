@@ -1,17 +1,14 @@
-// A frame carrying the daemon's drop mark, and the repair it takes, on its two arms, which do not
-// end the same way. A hole within the repairable bound is filled by opening the stream again after
-// the last change delivered, so the store ends with the rows a reader that was never dropped
-// holds. A wider one is skipped: a snapshot read moves the window past it, the store keeps the
-// hole as a gap, and its rows differ from that reader's. No scenario drops, so the cases set
-// frames aside and stamp the mark through the fixture bridge's subscribe arm.
+// A frame carrying the daemon's drop mark, and the repair it takes, on its two arms. A hole within
+// the repairable bound is filled by opening the stream again after the last change delivered. A
+// wider one is repaired by a read: the store stays degraded until that read resets it, and the
+// stream after it sends every row again. Either way the store ends with the rows a reader that was
+// never dropped holds. No scenario drops, so the cases set frames aside and stamp the mark through
+// the fixture bridge's subscribe arm.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
-import type {
-  SessionReadResponse,
-  SessionStreamFrame,
-} from "@ai-sidekicks/contracts/session/methods";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
@@ -20,11 +17,11 @@ import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "#renderer/store/session/caps.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { BASE_STATE_CURSOR, type SessionStoreState } from "#renderer/store/session/state.js";
-import { withDaemonCall, withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
+import { type SessionStoreState } from "#renderer/store/session/state.js";
+import { withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { composeScenarioEventEnvelope } from "../daemon/event/envelope.fixture.js";
-import { sessionReadThroughDaemon } from "../daemon/session/read.js";
+import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { SessionEventSubscriber } from "./subscriber.js";
@@ -56,7 +53,7 @@ function openSessionReader(
       reasonsSeen.push(...reasons);
       return readThroughDaemon
         ? readSession(sessionId, reasons, opening)
-        : Promise.resolve({ cursor: BASE_STATE_CURSOR, entities: [] });
+        : Promise.resolve({ entities: [] });
     },
     clock,
     refreshDebounceMs: 0,
@@ -172,7 +169,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
       isFilled: true,
     },
     {
-      name: "takes a snapshot instead of filling a hole one wider than the bound",
+      name: "re-reads instead of filling a hole one wider than the bound",
       droppedFrame: { ...frameAt([MAX_REPAIRABLE_SEQUENCE_GAP + 3]), dropped: true },
       isFilled: false,
     },
@@ -213,45 +210,31 @@ describe("SessionEventSubscriber — the drop mark", () => {
       expect(reader.state()?.transcript.map((event) => event.sequence)).toEqual([1]);
       expect(reader.state()?.degradedCause).toBeUndefined();
     } else {
-      // The stream opens again after the snapshot's position, not after the last change.
+      // The stream opens again after the read's position, not after the last change, and the
+      // reset store waits for it to send the rows again.
       expect(opens).toEqual([{ sessionId: SESSION_ID }, { sessionId: SESSION_ID }]);
       expect(reader.reasonsSeen).toEqual(["gap-repull"]);
-      expect(reader.state()?.transcript.map((event) => event.sequence)).toEqual([1]);
+      expect(reader.state()?.transcript).toEqual([]);
+      expect(reader.state()?.degradedCause).toBeUndefined();
     }
 
     reader.subscriber.dispose();
   });
 
-  it("skips a hole too wide to fill, keeping it as a gap where a whole reader holds rows", async () => {
-    // The log holds sequences 0 to 1,107. The dropped reader receives 0 to 2, then a frame whose
-    // drop mark opens a hole of 1,100; by the snapshot read the newest row is 1,105, and the
-    // stream after it carries 1,106 and 1,107. The whole reader receives everything.
+  it("re-reads past a hole too wide to fill, ending with a whole reader's rows", async () => {
+    // The log holds sequences 0 to 1,105. The dropped reader receives 0 to 2, then a frame whose
+    // drop mark opens a hole of 1,100; its repair read resets it at the floor, and the stream after
+    // that sends every row again. The whole reader receives everything once.
     const lastBeforeDrop = 2;
     const firstAfterDrop = lastBeforeDrop + MAX_REPAIRABLE_SEQUENCE_GAP + 77;
-    const latestAtSnapshot = firstAfterDrop + 2;
-    const newestRow = latestAtSnapshot + 2;
+    const newestRow = firstAfterDrop + 2;
     const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
-      scenario: { ...CONCURRENT_STREAMING_SCENARIO, id: "drop-mark-snapshot-probe", beats: [] },
-    });
-    // `session.read` names the log's floor and the newest row the daemon holds when it answers.
-    let latestPosition = START_OF_LOG_POSITION;
-    const { bridge: reading } = withDaemonCall(base, async (call, passThrough) => {
-      const reply = await passThrough();
-      if (call.method !== "session.read") {
-        return reply;
-      }
-      return {
-        ...(reply as SessionReadResponse),
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: encodeEventCursor(latestPosition),
-        },
-      };
+      scenario: { ...CONCURRENT_STREAMING_SCENARIO, id: "drop-mark-reread-probe", beats: [] },
     });
     const opens: unknown[] = [];
     const handlers: ((frame: unknown) => void)[] = [];
     // Every frame is one the case hands over; no open reaches the fixture's empty log.
-    const bridge = withDaemonSubscribe(reading, (_passThrough, handler, request) => {
+    const bridge = withDaemonSubscribe(base, (_passThrough, handler, request) => {
       opens.push(request);
       handlers.push(handler);
       return () => undefined;
@@ -265,38 +248,54 @@ describe("SessionEventSubscriber — the drop mark", () => {
     deliverInFrames(wholeStream!, 0, newestRow);
     deliverInFrames(droppedStream!, 0, lastBeforeDrop);
     droppedStream!({ ...frameAt([firstAfterDrop, firstAfterDrop + 1]), dropped: true });
-    latestPosition = latestAtSnapshot;
+    // Nothing reads the window as whole while the read is still to land.
+    expect(dropped.state()?.degradedCause).toBe("stream-diverged");
     engine.advance(APPLY_COALESCE_MS + 1);
     await crossMacrotaskBoundary();
-    deliverInFrames(handlers[2]!, latestAtSnapshot + 1, newestRow);
+    deliverInFrames(handlers[2]!, 0, newestRow);
     engine.advance(APPLY_COALESCE_MS + 1);
 
-    // Each stream first opened at the floor the first read named; the dropped one opened again
-    // after the snapshot's newest row, not after the last change it delivered.
+    // Each stream first opened at the floor the first read named; the dropped one opened there
+    // again after its one repair read, not after the last change it delivered.
     const floor = encodeEventCursor(START_OF_LOG_POSITION);
     expect(opens).toEqual([
       { sessionId: SESSION_ID, afterCursor: floor },
       { sessionId: SESSION_ID, afterCursor: floor },
-      { sessionId: SESSION_ID, afterCursor: encodeEventCursor(latestAtSnapshot) },
+      { sessionId: SESSION_ID, afterCursor: floor },
     ]);
     expect(dropped.reasonsSeen).toEqual(["subscribe", "gap-repull"]);
-    expect(whole.state()?.transcript.map((event) => event.sequence)).toEqual(
-      sequencesFrom(0, newestRow),
-    );
-    // The re-read moved the live store past the hole, and the hole stays where the rows were.
-    expect(dropped.state()?.transcript.map((event) => event.sequence)).toEqual([
-      ...sequencesFrom(0, lastBeforeDrop),
-      latestAtSnapshot + 1,
-      newestRow,
-    ]);
-    expect(dropped.state()?.gaps).toEqual([
-      { fromSequence: lastBeforeDrop + 1, toSequence: latestAtSnapshot },
-    ]);
+    const sequencesHeld = (reader: SessionReader): number[] | undefined =>
+      reader.state()?.transcript.map((event) => event.sequence);
+    expect(sequencesHeld(whole)).toEqual(sequencesFrom(0, newestRow));
+    expect(sequencesHeld(dropped)).toEqual(sequencesFrom(0, newestRow));
+    expect(dropped.state()?.gaps).toEqual([]);
     expect(dropped.state()?.cursor).toBe(newestRow);
     expect(dropped.state()?.degradedCause).toBeUndefined();
     expect(whole.state()?.gaps).toEqual([]);
 
     whole.subscriber.dispose();
     dropped.subscriber.dispose();
+  });
+
+  it("keeps the session waiting on its repair read when the drop lands inside the open", async () => {
+    // The catch-up delivers before `daemon.subscribe` returns: the frame past the bound closes
+    // the stream and the session waits on its repair read, which the open must not forget.
+    const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
+      scenario: { ...CONCURRENT_STREAMING_SCENARIO, id: "drop-inside-open-probe", beats: [] },
+    });
+    const bridge = withDaemonSubscribe(base, (_passThrough, handler) => {
+      handler(frameAt([1]));
+      handler({ ...frameAt([MAX_REPAIRABLE_SEQUENCE_GAP + 3]), dropped: true });
+      return () => undefined;
+    });
+    const reader = openSessionReader(bridge, engine.clock);
+    engine.advance(0);
+    await crossMacrotaskBoundary();
+
+    expect(reader.subscriber.boundSessionIds).toEqual([]);
+    // Retained, so a returning edge asks for the read again if it could not reach the daemon.
+    expect(reader.subscriber.unboundSessionIds).toEqual([SESSION_ID]);
+
+    reader.subscriber.dispose();
   });
 });

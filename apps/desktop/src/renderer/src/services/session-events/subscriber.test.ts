@@ -14,7 +14,7 @@ import {
   withDaemonCall,
   withDaemonSubscribe,
 } from "#test/helpers/fixture/bridge.js";
-import { sessionReadThroughDaemon } from "../daemon/session/read.js";
+import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
 import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -85,7 +85,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     const registry = new SessionStoreRegistry({
       read: (_sessionId, reasons) => {
         reasonsSeen.push(...reasons);
-        return Promise.resolve({ cursor: 0, entities: [] });
+        return Promise.resolve({ entities: [] });
       },
       clock: engine.clock,
       refreshDebounceMs: 0,

@@ -1,6 +1,5 @@
 // Where a session's window opens on a read: the acknowledged position, else the log's floor,
-// `earliest`. Pure: `services/daemon/session/read.ts` applies it to the cursor block `session.read`
-// answered with.
+// `earliest`. Pure: `base-state.ts` applies it to the cursor block `session.read` answered with.
 //
 // The cursors are relayed verbatim, so nothing here orders two of them: the only comparison is
 // whether two strings the daemon issued are the same one.

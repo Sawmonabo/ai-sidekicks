@@ -340,7 +340,6 @@ function runningChat(sessionId: SessionId, name: string): SessionListEntry {
     sessionId,
     name,
     shape: "chat",
-    documentCount: 0,
     state: "active",
     activity: "running",
     activityRenewedAt: OBSERVED_AT,

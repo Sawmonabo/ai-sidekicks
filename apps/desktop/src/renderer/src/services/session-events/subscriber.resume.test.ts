@@ -14,7 +14,6 @@ import type { Scenario } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -105,7 +104,7 @@ async function createResumeHarness(
   const registry = new SessionStoreRegistry({
     read: (_sessionId, reasons) => {
       reasonsSeen.push(...reasons);
-      return Promise.resolve({ cursor: BASE_STATE_CURSOR, entities: [] });
+      return Promise.resolve({ entities: [] });
     },
     clock: engine.clock,
     refreshDebounceMs: 0,

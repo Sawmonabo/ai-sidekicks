@@ -66,6 +66,8 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
     // The retained end is private; a caller sees only which rows survive the cap.
     expect(store.prependEarlierEvents(eventsAt([17])).admitted).toBe(1);
 
+    // A store holding a window takes a read only as a repair.
+    store.markReadFailed();
     store.initialize({
       cursor: 30,
       entities: [],

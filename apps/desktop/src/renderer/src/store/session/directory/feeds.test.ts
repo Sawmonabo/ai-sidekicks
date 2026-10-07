@@ -57,10 +57,19 @@ function listOf(names: readonly string[], isComplete = true): SessionDirectoryFr
   return { kind: "list", sessions: entriesOf(...names), chatCount: 0, isComplete };
 }
 
-function pageOf(names: readonly string[], chatCount: number, isComplete: boolean) {
+/** One continuing page, which carries at least one session. */
+function pageOf(
+  [firstName, ...otherNames]: readonly [string, ...string[]],
+  chatCount: number,
+  isComplete: boolean,
+) {
+  const sessions: [SessionListEntry, ...SessionListEntry[]] = [
+    sessionListEntry({ sessionId: `session-${firstName}`, name: firstName }),
+    ...entriesOf(...otherNames),
+  ];
   return {
     kind: "change",
-    change: { kind: "page", sessions: entriesOf(...names), chatCount, isComplete },
+    change: { kind: "page", sessions, chatCount, isComplete },
   } as const satisfies SessionDirectoryFrame;
 }
 

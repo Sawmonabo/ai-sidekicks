@@ -4,18 +4,20 @@
 // An entry owns the `SessionStore`, the `ApplyQueue` in front of its chokepoint and the
 // `RefreshScheduler` behind its re-pull, created and disposed together so neither outlives the
 // store. One owner also closes the repair loop: the drain reads each `ApplyOutcome` and asks this
-// session's scheduler for a re-pull when a hole opened, so a quiet session still repairs itself.
+// session's scheduler for a re-pull when a hole opened. The re-pull resets the degraded store at
+// the resume position and the stream opens again after it, so the daemon sends every row after
+// that position again and a quiet session still repairs itself.
 //
-// Where the window opens is decided here, per read, and handed to the read: at the resume rule's
-// `acknowledged ?? earliest`, or, once the store could not follow the stream, at the newest
-// position, past a hole too wide to fill, which the store keeps as a gap. The read answers the
-// base state at that position, and only a base state the store takes moves the stream: the entry
-// names where it opens next, and the session-events subscriber opens it after that position. A
-// read the store refuses, a live window already past it, moves nothing.
+// The window opens where the resume rule says, `acknowledged ?? earliest`, never at a position
+// the stream refused. The read answers the base state there, and only a base state the store takes
+// moves the stream: the entry names where it opens next, and the session-events subscriber opens
+// it after that position. What the old stream left queued is dropped then, since the new stream
+// sends what the base lacks. A read the store refuses, a whole live window, moves nothing.
 //
 // The subscriber reports when the stream cannot be followed: a hole too wide to fill, or a
-// position the stream refused. An open window then skips past to the newest position; a refused
-// position is never handed out again, so a window not yet open resumes from the floor instead.
+// position the stream refused. The window is then marked degraded and its one repair read asked
+// for, which resets it; a refused position is never handed out again. A failed read is told to
+// the subscriber too, which asks again for one its stream waits on.
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
@@ -37,24 +39,15 @@ import { type ApplyOutcome } from "../apply/outcome.js";
 import type { SessionBaseState } from "../state.js";
 import { SessionStore } from "../store.js";
 
-/**
- * Which position of a read's cursor block the window opens at. A union, so the position the
- * stream refused travels only with the opening that could hand it out.
- */
-export type SessionWindowOpening =
-  | {
-      /** `acknowledged ?? earliest`, the resume rule. */
-      readonly opensAt: "resume";
-      /** The one position the stream refused, which the read never opens at again. */
-      readonly refusedCursor: EventCursor | undefined;
-    }
-  | {
-      /** The newest position: a snapshot past a hole too wide to fill. */
-      readonly opensAt: "latest";
-    };
+/** What a read must know to place the window by the resume rule, `acknowledged ?? earliest`. */
+export interface SessionWindowOpening {
+  /** The one position the stream refused, which the read never opens at again. */
+  readonly refusedCursor: EventCursor | undefined;
+}
 
 /**
- * The read a refresh performs: the base state at the position `opening` names.
+ * The read a refresh performs: the base state where the resume rule places the window, never at
+ * the position `opening` says the stream refused.
  *
  * Returns the base state to establish, or `undefined` for "nothing was read", deliberately not an
  * empty base state, which would tell the store the session is empty and clear its degraded flag
@@ -71,8 +64,11 @@ export type SessionBaseStateReader = (
 export interface SessionStreamPosition {
   /** The daemon-issued position the stream opens after; `undefined` opens it at the log's start. */
   readonly afterCursor: EventCursor | undefined;
-  /** The sequence `afterCursor` names, which a drop's width is measured from. */
-  readonly afterSequence: number;
+  /**
+   * The sequence `afterCursor` names, which a drop's width is measured from, when the read said
+   * it; a daemon read does not, so the width is measured from the first delivery.
+   */
+  readonly afterSequence: number | undefined;
 }
 
 /**
@@ -108,6 +104,7 @@ export class OpenSessionEntry {
   #refusedCursor: EventCursor | undefined = undefined;
   #streamPosition: SessionStreamPosition | undefined = undefined;
   readonly #streamPositions = new Emitter<SessionStreamPosition>("session stream position");
+  readonly #readFailures = new Emitter<void>("session read failure");
   readonly #releaseCauseCapture: () => void;
 
   public constructor(sessionId: string, options: OpenSessionEntryOptions) {
@@ -151,6 +148,7 @@ export class OpenSessionEntry {
       // beside any worse standing cause, so the line under the header says it could not catch up.
       onError: () => {
         this.store.markReadFailed();
+        this.#readFailures.emit();
       },
       ...(options.refreshDebounceMs === undefined ? {} : { debounceMs: options.refreshDebounceMs }),
       ...(options.refreshMaxWaitMs === undefined ? {} : { maxWaitMs: options.refreshMaxWaitMs }),
@@ -178,17 +176,18 @@ export class OpenSessionEntry {
     });
   }
 
-  /** Release the cause capture, drop the position listeners and dispose the queue and scheduler. */
+  /** Release the cause capture, drop every listener and dispose the queue and scheduler. */
   public dispose(): void {
     this.#releaseCauseCapture();
     this.#streamPositions.clear();
+    this.#readFailures.clear();
     this.applyQueue.dispose();
     this.refreshScheduler.dispose();
   }
 
   /**
    * Where the stream opens after the last read that moved the window, or `undefined` before one
-   * has, or once the stream refused it. Kept so a stream bound after that read still finds it.
+   * has, or once the stream was lost. Kept so a stream bound after that read still finds it.
    */
   public get streamPosition(): SessionStreamPosition | undefined {
     return this.#streamPosition;
@@ -201,57 +200,18 @@ export class OpenSessionEntry {
     return this.#streamPositions.subscribe(listener);
   }
 
-  /**
-   * The stream dropped a hole too wide to fill, so the window cannot follow it from where it is:
-   * marked so, its re-read skips to the newest position and moves the stream there.
-   */
-  public skipPastStream(): void {
-    this.#loseStream();
+  /** Be told each time a read of this session fails. */
+  public subscribeToReadFailure(listener: () => void): Unsubscribe {
+    return this.#readFailures.subscribe(listener);
   }
 
   /**
-   * The stream refused the position it was opened after, so the log no longer resolves it. An
-   * open window cannot follow the stream from there, so its re-read skips to the newest position;
-   * a window not yet open re-reads from the floor.
+   * The stream can no longer be followed from the window's position, as when it dropped a hole
+   * too wide to fill: the position is forgotten so no stream opens there, an open window is marked
+   * degraded until the reset lands, and the one read that resets it is asked for. Through the
+   * scheduler, so a burst of these costs one read.
    */
-  public refuseStreamCursor(cursor: EventCursor): void {
-    this.#refusedCursor = cursor;
-    this.#loseStream();
-  }
-
-  /**
-   * One refresh: the read at the position this store's state calls for, then the stream moved
-   * after it when the store took the base state. A snapshot is always taken, since it only moves
-   * the window forward.
-   */
-  async #performRead(
-    read: SessionBaseStateReader,
-    sessionId: string,
-    reasons: readonly RefreshReason[],
-  ): Promise<void> {
-    const opening = this.#nextOpening();
-    const baseState = await read(sessionId, reasons, opening);
-    if (baseState === undefined) {
-      return;
-    }
-    if (opening.opensAt === "latest") {
-      this.store.skipToSnapshot(baseState);
-    } else if (!this.store.initialize(baseState)) {
-      return;
-    }
-    this.#streamPosition = {
-      afterCursor: baseState.streamAfterCursor,
-      afterSequence: baseState.cursor,
-    };
-    this.#streamPositions.emit(this.#streamPosition);
-  }
-
-  /**
-   * The stream can no longer be followed from the window's position: the position is forgotten so
-   * no stream opens there, an open window is marked unable to follow, and the read that places
-   * the window again is asked for.
-   */
-  #loseStream(): void {
+  public loseStream(): void {
     this.#streamPosition = undefined;
     if (this.store.snapshot().initialized) {
       this.store.markDegraded("stream-diverged");
@@ -260,28 +220,52 @@ export class OpenSessionEntry {
   }
 
   /**
-   * The newest position once an open window could not follow the stream, since filling that hole
-   * is past what a read repairs; otherwise the resume rule, never at the refused position.
+   * The stream refused the position it was opened after, so the log no longer resolves it: the
+   * stream is lost, and no read opens the window there again.
    */
-  #nextOpening(): SessionWindowOpening {
-    const state = this.store.snapshot();
-    return state.initialized && state.degradedCause === "stream-diverged"
-      ? { opensAt: "latest" }
-      : { opensAt: "resume", refusedCursor: this.#refusedCursor };
+  public refuseStreamCursor(cursor: EventCursor): void {
+    this.#refusedCursor = cursor;
+    this.loseStream();
+  }
+
+  /**
+   * One refresh: the read by the resume rule, then the stream moved after it when the store took
+   * the base state. Rows the replaced stream left queued are dropped once a live store takes a
+   * base: the stream opened after the base sends what the base lacks, and a stale row drained
+   * first would place the run past rows still to come.
+   */
+  async #performRead(
+    read: SessionBaseStateReader,
+    sessionId: string,
+    reasons: readonly RefreshReason[],
+  ): Promise<void> {
+    const baseState = await read(sessionId, reasons, { refusedCursor: this.#refusedCursor });
+    if (baseState === undefined) {
+      return;
+    }
+    const wasInitialized = this.store.snapshot().initialized;
+    if (!this.store.initialize(baseState)) {
+      return;
+    }
+    if (wasInitialized) {
+      this.applyQueue.discardPending();
+    }
+    this.#streamPosition = {
+      afterCursor: baseState.streamAfterCursor,
+      afterSequence: baseState.cursor,
+    };
+    this.#streamPositions.emit(this.#streamPosition);
   }
 }
 
 /**
- * Whether one `applyBatch` left the projection known-incomplete, so an authoritative re-read is
- * owed. Read off the outcome, not the sticky degraded cause, which would make every batch after
- * the first look repair-worthy. `duplicates` and `refusedForeignSession` are absent on purpose:
- * neither leaves a hole in this store that a read could fill.
+ * Whether one `applyBatch` lost rows the stream still holds, so an authoritative re-read is owed:
+ * it resets the store and the stream sends them again. Read off the outcome, not the sticky
+ * degraded cause, which would make every batch after the first look repair-worthy. The other
+ * counts are absent on purpose: a duplicate or another session's row leaves no hole, and a row
+ * whose sequence diverged or whose projector threw comes again on the replay and fails again, so
+ * asking would reset the store in a loop. Those leave it degraded until a person asks again.
  */
 function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
-  return (
-    outcome.gapDetected ||
-    outcome.droppedBeforeInitialization > 0 ||
-    outcome.refusedDivergedSequence > 0 ||
-    outcome.projectionFailures > 0
-  );
+  return outcome.gapDetected || outcome.droppedBeforeInitialization > 0;
 }

@@ -29,6 +29,6 @@ export function sessionListEntry(entry: {
     lastActivityAt: LAST_ACTIVE_AT,
   } as const;
   return entry.shape === "chat"
-    ? { ...common, shape: "chat", documentCount: 0 }
+    ? { ...common, shape: "chat" }
     : { ...common, shape: "project", repoMountId: REPO_MOUNT_ID };
 }

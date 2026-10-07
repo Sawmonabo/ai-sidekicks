@@ -43,6 +43,7 @@ export class SessionStoreRegistry {
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
   // Apart from `#changes`, whose listeners re-render on any change of the open set.
   readonly #streamOpenings = new Emitter<SessionStreamOpening>("session stream opening");
+  readonly #readFailures = new Emitter<string>("session read failure");
   // The open set as an array, rebuilt only when the set changes. Load-bearing:
   // `useSyncExternalStore` re-renders while consecutive reads differ by `Object.is`, so a getter
   // spreading the map per call would spin forever. Every mutation pairs with
@@ -74,9 +75,12 @@ export class SessionStoreRegistry {
       );
     }
     const entry = new OpenSessionEntry(sessionId, this.#options);
-    // Released by `entry.dispose`, which drops every position listener.
+    // Released by `entry.dispose`, which drops every listener.
     entry.subscribeToStreamPosition((position) => {
       this.#streamOpenings.emit({ sessionId, ...position });
+    });
+    entry.subscribeToReadFailure(() => {
+      this.#readFailures.emit(sessionId);
     });
     this.#entriesBySessionId.set(sessionId, entry);
     this.#forgetOpenSessionIds();
@@ -183,15 +187,16 @@ export class SessionStoreRegistry {
   }
 
   /**
-   * Tell a session its stream dropped a hole too wide to fill, so its next read skips past it.
-   * Answers with a refusal, not a throw, when the session is not open.
+   * Tell a session its stream can no longer be followed, as when it dropped a hole too wide to
+   * fill, so the session is marked degraded and re-read. Answers with a refusal, not a throw, when
+   * the session is not open.
    */
-  public skipPastStream(sessionId: string): Refusal | undefined {
+  public loseStream(sessionId: string): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
     if (entry === undefined) {
-      return this.#sessionNotOpen(sessionId, "skip the stream of");
+      return this.#sessionNotOpen(sessionId, "lose the stream of");
     }
-    entry.skipPastStream();
+    entry.loseStream();
     return undefined;
   }
 
@@ -242,6 +247,14 @@ export class SessionStoreRegistry {
     return this.#streamOpenings.subscribe(listener);
   }
 
+  /**
+   * Subscribe to each failed read of an open session, by session id, so a session whose stream
+   * waits on its read is asked again. Through the shared emitter, for `subscribe`'s reasons.
+   */
+  public subscribeToReadFailures(listener: (sessionId: string) => void): Unsubscribe {
+    return this.#readFailures.subscribe(listener);
+  }
+
   /** True once `disposeAll` has run. A disposed registry opens nothing. */
   public get isDisposed(): boolean {
     return this.#disposed;
@@ -254,6 +267,7 @@ export class SessionStoreRegistry {
     }
     this.#changes.clear();
     this.#streamOpenings.clear();
+    this.#readFailures.clear();
     this.#disposed = true;
   }
 

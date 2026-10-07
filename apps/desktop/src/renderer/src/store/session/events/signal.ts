@@ -5,7 +5,8 @@
 //
 // Cursor bookkeeping is the hazard: comparing against the newly-arrived state rather than the
 // last one seen would re-signal on every transition, and forgetting the `<=` guard would
-// re-signal on one that admitted nothing.
+// re-signal on one that admitted nothing. A read that resets the store moves its cursor back,
+// so the last one seen moves back with it and the rows sent again are counted afresh.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
@@ -27,6 +28,7 @@ export function subscribeToSessionEventKinds(
   return sessionStore.readable.subscribe((state) => {
     const previousCursor = lastSeenCursor;
     if (state.cursor <= previousCursor) {
+      lastSeenCursor = state.cursor;
       return;
     }
     lastSeenCursor = state.cursor;

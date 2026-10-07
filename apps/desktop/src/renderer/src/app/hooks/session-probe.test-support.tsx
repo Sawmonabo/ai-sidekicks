@@ -16,7 +16,6 @@ import {
 } from "#renderer/store/session/events/run/lifecycle-projector.js";
 import { useActiveSessionStore } from "./useActiveSessionStore.js";
 import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
-import { fixtureSessionBaseState } from "#renderer/services/daemon/session/base-state.fixture.js";
 
 /** What a probe saw on one render: the window's registry and the active session's store. */
 export interface Observation {
@@ -30,14 +29,16 @@ export interface SessionProbeProps {
   readonly onObserve: (observation: Observation) => void;
 }
 
-/** The concurrent-streaming scenario's base state for a session, standing in for the read. */
-const readConcurrentStreamingSession: SessionBaseStateReader = (sessionId) =>
-  Promise.resolve(fixtureSessionBaseState(CONCURRENT_STREAMING_SCENARIO, sessionId));
+/**
+ * A read at the start of the log, standing in for the daemon's: the stream then opens with no
+ * position and delivers every beat the scenario plays.
+ */
+const readSessionAtLogStart: SessionBaseStateReader = () => Promise.resolve({ entities: [] });
 
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {
   const projectorRegistry = useRunLifecycleProjectorRegistry();
-  const registry = useSessionStoreRegistry(projectorRegistry, readConcurrentStreamingSession);
+  const registry = useSessionStoreRegistry(projectorRegistry, readSessionAtLogStart);
   const store = useActiveSessionStore(registry, props.sessionId);
   props.onObserve({ registry, store });
   return null;

@@ -37,6 +37,7 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
           draft: "",
+          tags: [],
         },
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),

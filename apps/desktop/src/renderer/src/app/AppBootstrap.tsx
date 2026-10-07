@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useBridgeResolution } from "#renderer/services/platform/hooks/useBridgeResolution.js";
 import type { BridgeUnavailable } from "#renderer/services/platform/bridge-context.js";
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
-import { sessionReadThroughDaemon } from "#renderer/services/daemon/session/read.js";
+import { sessionReadThroughDaemon } from "#renderer/services/daemon/session/read/base-state.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useBridgeUnavailableWindow } from "./hooks/useBridgeUnavailableWindow.js";
 import { AppWindows } from "./AppWindows.js";

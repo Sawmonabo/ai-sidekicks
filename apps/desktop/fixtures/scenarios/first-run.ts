@@ -79,10 +79,11 @@ export const FIRST_RUN_SCENARIO: Scenario = {
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
           draft: "",
+          tags: [],
         },
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(FIRST_RUN_BEATS, FIRST_RUN_BEATS.length),
+          latest: findBeatCursor(FIRST_RUN_BEATS, FIRST_RUN_BEATS.length - 1),
         },
       },
     },

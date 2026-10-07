@@ -11,8 +11,8 @@
 //   `MAX_REPAIRABLE_SEQUENCE_GAP` of accumulated loss, or for a sequence too large or malformed
 //   to increment, the event is refused: admitting it would move the cursor to a position an
 //   authoritative read may never answer at, and every later repair would be refused as a rewind.
-// - A hole past that bound is not filled: a snapshot read names a newer position and `skipTo`
-//   records the hole as a gap and moves the run past it.
+// - A read names its position by the daemon's opaque cursor, never by a sequence, so a run placed
+//   by a read stands unplaced until its first admitted sequence, which starts it with no gap.
 // - The batch is ordered first (`orderBatchBySequence`); the reconciler assumes ascending
 //   delivery.
 
@@ -29,6 +29,9 @@ export interface SequenceGap {
   readonly toSequence: number;
 }
 
+/** The cursor of a run that has admitted no sequence since it was placed. */
+export const UNPLACED_CURSOR = -1;
+
 /** What the reconciler did with one delivered sequence. */
 export type SequenceAdmission =
   | {
@@ -44,7 +47,12 @@ const DIVERGED: SequenceAdmission = { outcome: "diverged" };
 
 /** The admitted run of one session's stream: where it stands and what it is missing. */
 export class SequenceReconciler {
-  #cursor = -1;
+  #cursor = UNPLACED_CURSOR;
+  /**
+   * Whether the cursor is a sequence the run reached. `false` after a read that named its position
+   * only by the daemon's cursor, until the next admitted sequence places the run.
+   */
+  #isPlaced = true;
   #missingSequenceCount = 0;
   #gaps: SequenceGap[] = [];
   readonly #admittedSequences = new Set<number>();
@@ -71,6 +79,9 @@ export class SequenceReconciler {
   public reconcile(sequence: number): SequenceAdmission {
     if (this.#admittedSequences.has(sequence) || sequence <= this.#cursor) {
       return DUPLICATE;
+    }
+    if (!this.#isPlaced) {
+      return this.#placeAt(sequence);
     }
     const missingBefore = sequence - (this.#cursor + 1);
     if (this.#missingSequenceCount + missingBefore > MAX_REPAIRABLE_SEQUENCE_GAP) {
@@ -103,27 +114,13 @@ export class SequenceReconciler {
   }
 
   /**
-   * Move the run past a hole no read will fill: the cursor jumps to `cursor` and the sequences
-   * between are recorded as one gap. The accumulated loss starts over, since the new cursor is a
-   * position the daemon named, so later holes are measured from it. A cursor at or behind the
-   * run leaves it as it is.
+   * Re-base the run onto an authoritative read: a new cursor, no recorded holes, and dedupe memory
+   * seeded from the sequences that read carried. An `undefined` cursor is a read that named its
+   * position only by the daemon's cursor, so the next admitted sequence places the run.
    */
-  public skipTo(cursor: number): void {
-    if (cursor <= this.#cursor) {
-      return;
-    }
-    this.#gaps.push({ fromSequence: this.#cursor + 1, toSequence: cursor });
-    this.#cursor = cursor;
-    this.#missingSequenceCount = 0;
-    this.releaseSequencesAtOrBelowCursor();
-  }
-
-  /**
-   * Re-base the run onto an authoritative read: a new cursor, no recorded holes,
-   * and dedupe memory seeded from the sequences that read carried.
-   */
-  public rebaseTo(cursor: number, admittedSequences: Iterable<number>): void {
-    this.#cursor = cursor;
+  public rebaseTo(cursor: number | undefined, admittedSequences: Iterable<number>): void {
+    this.#cursor = cursor ?? UNPLACED_CURSOR;
+    this.#isPlaced = cursor !== undefined;
     this.#missingSequenceCount = 0;
     this.#gaps = [];
     this.#admittedSequences.clear();
@@ -131,6 +128,17 @@ export class SequenceReconciler {
       this.#admittedSequences.add(sequence);
     }
     this.releaseSequencesAtOrBelowCursor();
+  }
+
+  /**
+   * Place a run that waits on its first sequence there. The stream was opened after the read's
+   * position, so this sequence is the next one and opens no hole.
+   */
+  #placeAt(sequence: number): SequenceAdmission {
+    this.#isPlaced = true;
+    this.#admittedSequences.add(sequence);
+    this.#cursor = sequence;
+    return { outcome: "admitted", openedGap: undefined };
   }
 }
 

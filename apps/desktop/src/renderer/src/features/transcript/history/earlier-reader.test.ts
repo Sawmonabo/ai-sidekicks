@@ -198,8 +198,9 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
     expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 40, 41]);
 
     // The same head cursor, so comparing positions would notice nothing; the store's window
-    // generation, re-taken by any completed read, does. The cursor is ahead of the store's,
-    // since a read behind it is refused as stale.
+    // generation, re-taken by any completed read, does. A store holding a window takes a read
+    // only as a repair.
+    store.markReadFailed();
     store.initialize({
       cursor: 45,
       entities: [],
@@ -212,7 +213,9 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
   });
 });
 
+/** A repair read landing on the store, its window opened higher up the log. */
 function refreshWindowHigherUp(store: SessionStore): void {
+  store.markReadFailed();
   store.initialize({
     cursor: 61,
     entities: [],

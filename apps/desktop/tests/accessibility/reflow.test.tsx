@@ -103,6 +103,7 @@ describe("reflow — the console at 320 CSS px", () => {
         <SessionRow
           row={{
             sessionId: UNBREAKABLE_SESSION_ID,
+            name: undefined,
             state: "active",
             touchedAtIso: undefined,
             userIds: [],

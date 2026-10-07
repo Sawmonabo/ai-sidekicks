@@ -11,12 +11,12 @@ import { openObservedSubscription } from "../transport/observed-subscription.js"
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
 import { type PlatformBridge } from "../platform/bridge.js";
 import { withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
+import { REOPEN_WAITS_MS } from "../transport/reopen-backoff.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
 import { SessionEventSubscriber } from "./subscriber.js";
 import { PAST_EVERY_BEAT_MS, SESSION_ID, landReads } from "./subscriber.test-support.js";
 
@@ -67,7 +67,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
   const registry = new SessionStoreRegistry({
     read: (_sessionId, reasons) => {
       reasonsSeen.push(...reasons);
-      return Promise.resolve({ cursor: BASE_STATE_CURSOR, entities: [] });
+      return Promise.resolve({ entities: [] });
     },
     clock: engine.clock,
     refreshDebounceMs: 0,
@@ -137,6 +137,58 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
     expect(reasonsSeen).toEqual(["subscribe", "subscribe"]);
 
     releaseMachineTail();
+    subscriber.dispose();
+  });
+
+  it("asks again for a first read that failed: after a wait with the wire up, on the edge without", async () => {
+    // A read the daemon refuses with the wire still there brings no returning edge, so without the
+    // wait nothing would read the session again and its stream would never open.
+    const { bridge, scenarioEngine: engine } = createFixtureBridge({
+      scenario: CONCURRENT_STREAMING_SCENARIO,
+    });
+    let readCount = 0;
+    let failingReads = 1;
+    const registry = new SessionStoreRegistry({
+      read: () => {
+        readCount += 1;
+        if (failingReads > 0) {
+          failingReads -= 1;
+          return Promise.reject(new Error("the daemon refused the read"));
+        }
+        return Promise.resolve({ entities: [] });
+      },
+      clock: engine.clock,
+      refreshDebounceMs: 0,
+    });
+    const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });
+    subscriber.attach();
+    registry.open(SESSION_ID);
+    await landReads(engine);
+    expect(readCount).toBe(1);
+    expect(subscriber.boundSessionIds).toEqual([]);
+
+    // The first wait after a failure is the one past none.
+    engine.advance(REOPEN_WAITS_MS[1]!);
+    await landReads(engine);
+    expect(readCount).toBe(2);
+    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.unboundSessionIds).toEqual([]);
+
+    // With the wire away the returning edge asks instead, so no wait polls a link that is down.
+    registry.close(SESSION_ID);
+    failingReads = 1;
+    bridge.transportReconnect.observe("unreachable");
+    registry.open(SESSION_ID);
+    await landReads(engine);
+    expect(readCount).toBe(3);
+    engine.advance(REOPEN_WAITS_MS.at(-1)! * 2);
+    await landReads(engine);
+    expect(readCount).toBe(3);
+    bridge.transportReconnect.observe("reachable");
+    await landReads(engine);
+    expect(readCount).toBe(4);
+    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+
     subscriber.dispose();
   });
 });

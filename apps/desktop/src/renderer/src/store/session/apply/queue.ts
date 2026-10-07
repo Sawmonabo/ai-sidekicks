@@ -128,14 +128,22 @@ export class ApplyQueue {
     }
   }
 
-  /** Drop everything queued without draining. Terminal: a later enqueue counts and drops. */
-  public dispose(): void {
-    this.#disposed = true;
+  /**
+   * Drop everything queued without draining, and keep taking events. For a store that took a new
+   * base state: what is queued came from the stream that base replaces.
+   */
+  public discardPending(): void {
     if (this.#armedHandle !== undefined) {
       this.#clock.cancel(this.#armedHandle);
       this.#armedHandle = undefined;
     }
     this.#buffer = [];
+  }
+
+  /** Drop everything queued without draining. Terminal: a later enqueue counts and drops. */
+  public dispose(): void {
+    this.#disposed = true;
+    this.discardPending();
   }
 
   #arm(): void {

@@ -98,15 +98,16 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
       );
     }
     previousAtMs = entry.atMs;
-    const eventId = `${options.eventIdStem}${String(entryIndex + 1).padStart(4, "0")}`;
+    const eventId = `${options.eventIdStem}${String(entryIndex).padStart(4, "0")}`;
     return {
       atMs: entry.atMs,
       event: {
         id: eventId,
         sessionId: options.sessionId,
-        sequence: entryIndex + 1,
+        // Numbered as the daemon numbers a log: its first event is at 0, one past the start.
+        sequence: entryIndex,
         // The position the scenario's stream delivers the beat at, in the daemon's cursor format.
-        cursor: encodeEventCursor(entryIndex + 1),
+        cursor: encodeEventCursor(entryIndex),
         kind: entry.kind,
         occurredAt: composeScenarioInstant(options.startedAtMs, entry.atMs),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),

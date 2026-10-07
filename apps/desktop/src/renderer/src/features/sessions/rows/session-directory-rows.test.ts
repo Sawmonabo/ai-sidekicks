@@ -19,6 +19,7 @@ function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
 
 function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }): SessionListRow {
   return {
+    name: undefined,
     state: "active",
     touchedAtIso: "2026-01-01T10:00:00.000Z",
     userIds: [],
@@ -37,13 +38,19 @@ describe("mergeSessionRows — two sources, neither dropped", () => {
     expect(rows.map((row) => row.sessionId)).toStrictEqual(["session-node", "session-local"]);
   });
 
-  it("names a session once when both sources hold it", () => {
+  it("names a session once when both sources hold it, by the name the daemon's list carries", () => {
     const rows = mergeSessionRows({
-      directory: servedDirectory(["session-both"]),
+      directory: {
+        status: "served",
+        sessions: [sessionListEntry({ sessionId: "session-both", name: "Storage backends" })],
+        chatCount: 0,
+      },
       windowSessionIds: ["session-both"],
       projectedRows: [projectedRow({ sessionId: "session-both" })],
     });
 
     expect(rows).toHaveLength(1);
+    // The store holds no name, so its fuller row must not drop the one the list carries.
+    expect(rows[0]?.name).toBe("Storage backends");
   });
 });

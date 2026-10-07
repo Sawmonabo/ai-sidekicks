@@ -1,9 +1,9 @@
 // The one thing in the renderer that subscribes to the bridge. Components subscribe to a store,
-// and this feeds every store through `registry.enqueue`, the queue in front of
-// `SessionStore.applyBatch`; without it a session opened in a window receives nothing. It lives in
-// `services/` because it must know both the registry and `daemon.subscribe`, and `store/` sits
-// below `services/` so a store cannot reach a wire. `app/hooks/useSessionStoreRegistry.ts`
-// composes it with the registry.
+// and this feeds every store through `registry.enqueue`, the queue in front of the store's
+// `applyBatch`; without it a session opened in a window receives nothing. It lives in `services/`
+// because it must know both the registry and `daemon.subscribe`, and `store/` sits below
+// `services/` so a store cannot reach a wire. `app/hooks/useSessionStoreRegistry.ts` composes it
+// with the registry.
 //
 // - One apply path: it holds no store reference, so the queue is the only writer.
 // - One subscription path: a session's wire subscription opens when the registry says the session
@@ -14,7 +14,8 @@
 //   waits on that read, so the first stream already carries the resume position.
 // - No session left unbound because the wire was away when it opened:
 //   `failed-subscription-retry.ts` remembers failed opens, and sessions still waiting on their
-//   read, and retries them on the returning edge.
+//   read, and retries them on the returning edge. A read that fails with the wire still there
+//   gets no such edge, so it is asked for again after the re-open waits.
 // - No feed lost when it stops: a stream that ends after it opened is opened again from the
 //   cursor of the last change it delivered, so the daemon catches up from there and nothing is
 //   missed or applied twice. One that delivered since it opened is opened again through the
@@ -38,11 +39,10 @@
 // `MAX_REPAIRABLE_SEQUENCE_GAP` the frame is set aside and the stream opened again after the last
 // change delivered, so the daemon fills the hole in order and the store never sees it; a
 // caught-up frame names no sequence, so it is filled the same way. Past the bound the hole is not
-// filled: the stream is closed, the store marked unable to follow it, and its re-read is a
-// snapshot that moves the window past the hole, which the store keeps as a gap; the stream then
-// opens after the snapshot's position. Reading a frame
-// is `services/daemon/session/event/payload.ts`. The four reads the endurance tier makes
-// (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
+// filled: the stream is closed and the store marked degraded, and its one repair read resets it
+// at the resume position; the stream then opens after that position and sends every row again.
+// Reading a frame is `services/daemon/session/event/payload.ts`. The four reads the endurance
+// tier makes (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
@@ -102,6 +102,7 @@ export class SessionEventSubscriber {
   readonly #diagnostics: SessionDiagnostics;
   #unsubscribeFromRegistry: Unsubscribe | undefined;
   #unsubscribeFromStreamOpenings: Unsubscribe | undefined;
+  #unsubscribeFromReadFailures: Unsubscribe | undefined;
   #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
   #unreadableDeliveryCount = 0;
   #droppedAfterCloseCount = 0;
@@ -129,10 +130,10 @@ export class SessionEventSubscriber {
    * unobserved; the worst case is binding twice, and `#bindSession` is idempotent by session id.
    *
    * It also listens for where each session's read places its window, which is where its stream
-   * opens, and takes one subscription for the subscriber's whole life to the transport's returning
-   * edge, which re-attempts sessions whose open threw. The signal emits only on `unreachable →
-   * reachable`, so a window whose wire never went away pays nothing. Idempotent, and a no-op once
-   * disposed.
+   * opens, and for the reads that fail, and takes one subscription for the subscriber's whole life
+   * to the transport's returning edge, which re-attempts sessions whose open threw. The signal
+   * emits only on `unreachable → reachable`, so a window whose wire never went away pays nothing.
+   * Idempotent, and a no-op once disposed.
    */
   public attach(): void {
     if (this.#disposed || this.#attached) {
@@ -148,6 +149,9 @@ export class SessionEventSubscriber {
     });
     this.#unsubscribeFromStreamOpenings = this.#registry.subscribeToStreamOpenings((opening) => {
       this.#openStreamAt(opening);
+    });
+    this.#unsubscribeFromReadFailures = this.#registry.subscribeToReadFailures((sessionId) => {
+      this.#askAgainForFailedRead(sessionId);
     });
     this.#unsubscribeFromTransportReconnect = this.#bridge.transportReconnect.subscribe(() => {
       this.#retry.runOnePass();
@@ -167,7 +171,7 @@ export class SessionEventSubscriber {
     return [...this.#bindingBySessionId.keys()];
   }
 
-  /** Open sessions with no stream open: it could not be, or waits on a read. The retry's reading. */
+  /** Open sessions with no stream open, which could not open or waits on a read. */
   public get unboundSessionIds(): readonly string[] {
     return this.#retry.retainedSessionIds;
   }
@@ -215,12 +219,13 @@ export class SessionEventSubscriber {
     this.#unsubscribeFromRegistry = undefined;
     this.#unsubscribeFromStreamOpenings?.();
     this.#unsubscribeFromStreamOpenings = undefined;
+    this.#unsubscribeFromReadFailures?.();
+    this.#unsubscribeFromReadFailures = undefined;
     this.#unsubscribeFromTransportReconnect?.();
     this.#unsubscribeFromTransportReconnect = undefined;
-    for (const binding of this.#bindingBySessionId.values()) {
-      binding.release();
+    for (const [sessionId, binding] of [...this.#bindingBySessionId]) {
+      this.#releaseBinding(sessionId, binding);
     }
-    this.#bindingBySessionId.clear();
     for (const backoff of this.#backoffBySessionId.values()) {
       backoff.cancel();
     }
@@ -310,7 +315,10 @@ export class SessionEventSubscriber {
       return;
     }
     binding.release = release;
-    this.#retry.forget(sessionId);
+    // A stream that ended or set a frame aside inside the open retained the session itself.
+    if (this.#bindingBySessionId.get(sessionId) === binding) {
+      this.#retry.forget(sessionId);
+    }
     this.#resumingSessionIds.add(sessionId);
     if (this.#sessionIdsMarkedClosed.delete(sessionId)) {
       // The failed first open marked the store, and only a completed re-pull clears the mark.
@@ -362,6 +370,29 @@ export class SessionEventSubscriber {
   #awaitRead(sessionId: string): void {
     this.#retry.retain(sessionId);
     this.#registry.requestRefresh(sessionId, "subscribe");
+  }
+
+  /**
+   * A read failed. A session whose stream waits on it is asked for again after the next re-open
+   * wait, since a read the daemon refused with the wire up brings no returning edge; with the
+   * wire away, the edge asks instead. A session already streaming or placed waits for none.
+   */
+  #askAgainForFailedRead(sessionId: string): void {
+    if (
+      this.#disposed ||
+      !this.#registry.has(sessionId) ||
+      this.#bindingBySessionId.has(sessionId) ||
+      this.#deliveredPositionBySessionId.has(sessionId) ||
+      this.#readPositionFor(sessionId) !== undefined ||
+      this.#bridge.transportReconnect.reachability === "unreachable"
+    ) {
+      return;
+    }
+    const backoff = this.#backoffFor(sessionId);
+    backoff.skipImmediateReopen();
+    backoff.schedule(() => {
+      this.#bindSession(sessionId);
+    });
   }
 
   /**
@@ -449,8 +480,8 @@ export class SessionEventSubscriber {
    * Handles one delivered frame. The drop mark is acted on before the events are queued, and the
    * frame is set aside either way, which is why the position is read before this frame moves it.
    * Within the bound the hole is filled from the last change delivered. Past it the stream is
-   * closed and the store marked unable to follow it (which the catching-up line reads), so its
-   * re-read is the snapshot that moves the window past the hole.
+   * closed and the store marked degraded (which the catching-up line reads) until the read that
+   * resets it lands.
    *
    * The refusal arm of `enqueue` covers a close race: emission iterates a snapshot of subscribers,
    * so a session closed mid-delivery still reaches this handler, and a throw here would break the
@@ -470,7 +501,7 @@ export class SessionEventSubscriber {
       if (isFillableDrop(previous, events)) {
         this.#fillDroppedChanges(sessionId, binding);
       } else {
-        this.#skipDroppedChanges(sessionId, binding);
+        this.#rereadPastDroppedChanges(sessionId, binding);
       }
       return;
     }
@@ -497,16 +528,16 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Skips a hole too wide to fill: the stream is closed and its position forgotten, and the
-   * session told, so its re-read is a snapshot past the hole that opens the stream again. Retained
-   * meanwhile, so a returning edge asks again when that read could not reach the daemon.
+   * Repairs a hole too wide to fill by a read: the stream is closed and its position forgotten,
+   * and the session told it lost the stream, so its read resets it and opens the stream again.
+   * Retained meanwhile, so a returning edge asks again when that read could not reach the daemon.
    */
-  #skipDroppedChanges(sessionId: string, binding: StreamBinding): void {
+  #rereadPastDroppedChanges(sessionId: string, binding: StreamBinding): void {
     this.#releaseBinding(sessionId, binding);
-    recordWireFact("dropped-changes-skipped", `session ${sessionId}`);
+    recordWireFact("dropped-changes-reread", `session ${sessionId}`);
     this.#deliveredPositionBySessionId.delete(sessionId);
     this.#retry.retain(sessionId);
-    this.#registry.skipPastStream(sessionId);
+    this.#registry.loseStream(sessionId);
   }
 
   #backoffFor(sessionId: string): ReopenBackoff {

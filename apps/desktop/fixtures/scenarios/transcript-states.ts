@@ -446,7 +446,7 @@ const TRANSCRIPT_STATES_BEATS = composeScriptBeats({
 });
 
 /** The acknowledged log position: the implementer's answer after its rewind. */
-const ACKNOWLEDGED_LOG_POSITION = 30;
+const ACKNOWLEDGED_LOG_POSITION = 29;
 
 /** The id of the transcript-states scenario. */
 export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
@@ -498,13 +498,14 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           createdAt: STARTED_AT_ISO,
           updatedAt: newestBeatInstant(TRANSCRIPT_STATES_BEATS),
           draft: "",
+          tags: [],
         },
         // An acknowledged position beside `latest` makes the resume cycle reachable: the store
         // submits the acknowledged position on its next read. It sits behind `latest`, the newest
         // row, as a real one does.
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length),
+          latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length - 1),
           acknowledged: findBeatCursor(TRANSCRIPT_STATES_BEATS, ACKNOWLEDGED_LOG_POSITION),
         },
       },

@@ -29,7 +29,7 @@ export interface EarlierTranscriptPage {
   /**
    * Where this window ended, the position the next backward page is asked before. Present on every
    * continuing page and permitted on a terminal one. It is opaque: relayed verbatim or not at all
-   * (`store/session/transcript-resume.ts`).
+   * (`services/daemon/session/read/transcript-resume.ts`).
    */
   readonly nextBeforeCursor: string | undefined;
 }

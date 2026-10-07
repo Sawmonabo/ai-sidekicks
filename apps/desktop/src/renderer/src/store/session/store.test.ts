@@ -2,8 +2,8 @@
 // the recorded loss rather than the absence of a crash, since not throwing is not behaving
 // correctly: an event that came early, one addressed elsewhere, one that skipped or repeated a
 // sequence, a subscriber writing back during notification, a sequence cursor arithmetic cannot
-// carry, the repair read answering at the cursor the store already reached, a buffer whose read
-// never came, and a projector that throws.
+// carry, a read landing on a store that already holds one, a buffer whose read never came, and a
+// projector that throws.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -164,60 +164,36 @@ describe("a delivered sequence the store cannot reconcile", () => {
   });
 });
 
-describe("the repair read answers at the cursor the store already reached", () => {
-  /**
-   * A store that admitted event 7 over cursor 5: its cursor is 7, sequence 6 is missing and the
-   * sticky flag is set. An authoritative re-pull answers through 7, the same cursor.
-   */
-  function degradedAtCursorSeven(): SessionStore {
+describe("a read lands on a store that already holds a base state", () => {
+  it("resets a degraded store, whose stream then sends every row after the read again", () => {
     const store = new SessionStore({ sessionId: "session-1" });
     store.initialize({ cursor: 5, entities: [] });
-    store.apply(eventAt(7));
-    return store;
-  }
-
-  it("admits an equal-cursor base state into a degraded store and clears the gap", () => {
-    const store = degradedAtCursorSeven();
+    store.applyBatch([eventAt(7), eventAt(9)]);
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
-    expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 6, toSequence: 6 }]);
 
-    store.initialize({
-      cursor: 7,
-      entities: [],
-      transcript: [eventAt(6), eventAt(7)],
-    });
+    // A daemon read names its position by cursor only, here one behind the rows held.
+    store.initialize({ entities: [] });
+    // The stream opened after that position starts at its next row, which opens no gap.
+    store.applyBatch([eventAt(3), eventAt(4), eventAt(5), eventAt(6), eventAt(7)]);
 
-    // Discarding this base state would leave 6 missing and the banner stuck.
+    // Refusing the read behind the cursor would leave 6 and 8 missing and the store stuck.
     expect(store.snapshot().degradedCause).toBeUndefined();
     expect(store.snapshot().gaps).toStrictEqual([]);
-    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([6, 7]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
+      3, 4, 5, 6, 7,
+    ]);
   });
 
-  it("still refuses a base state BEHIND the cursor, so a racing re-read cannot rewind", () => {
-    const store = degradedAtCursorSeven();
-    const before = store.snapshot();
-
-    store.initialize({
-      cursor: 6,
-      entities: [],
-      transcript: [eventAt(6)],
-    });
-
-    // Same state object: the guard returned before any transition, so event 7 is kept.
-    expect(store.snapshot()).toBe(before);
-    expect(store.snapshot().cursor).toBe(7);
-    expect(store.snapshot().degradedCause).toBe("sequence-gap");
-  });
-
-  it("leaves a HEALTHY store untouched by an equal-cursor base state", () => {
-    // Guards against admitting every equal-cursor base state, which would rebuild the projection on
-    // each focus refresh and empty the transcript for a base state carrying none.
+  it("leaves a WHOLE store untouched by any base state, whatever it names", () => {
+    // Guards against admitting every read, which would rebuild the projection on each focus
+    // refresh and empty the transcript for a base state carrying none.
     const store = new SessionStore({ sessionId: "session-1" });
     store.initialize({ cursor: 0, entities: [] });
     store.apply(eventAt(1));
     const before = store.snapshot();
 
-    store.initialize({ cursor: 1, entities: [] });
+    expect(store.initialize({ entities: [] })).toBe(false);
+    expect(store.initialize({ cursor: 9, entities: [] })).toBe(false);
 
     expect(store.snapshot()).toBe(before);
     expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([1]);

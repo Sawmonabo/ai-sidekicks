@@ -7,7 +7,6 @@ import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { SessionEventSubscriber } from "./subscriber.js";
 
@@ -38,7 +37,7 @@ export function createHarness(
 ): SubscriberHarness {
   const { bridge, scenarioEngine: engine } = createFixtureBridge({ scenario });
   const registry = new SessionStoreRegistry({
-    read: () => Promise.resolve({ cursor: BASE_STATE_CURSOR, entities: [] }),
+    read: () => Promise.resolve({ entities: [] }),
     clock: engine.clock,
     refreshDebounceMs: 0,
   });
