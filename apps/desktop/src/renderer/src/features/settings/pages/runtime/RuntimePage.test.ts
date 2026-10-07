@@ -11,6 +11,7 @@ import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { drawnText } from "#test/helpers/live-region.js";
 import { settle } from "#test/helpers/settle.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
 import type { DaemonOperations } from "./daemon-status-read.js";
@@ -177,7 +178,7 @@ describe("RuntimePage — the two controls", () => {
     // Cancel goes with it: nothing behind the bridge is cancelable, so a live Cancel
     // here would read as retracting a call that has already gone out.
     expect(getButton(container, "Cancel").disabled).toBe(true);
-    expect(container.textContent).toContain("It cannot be taken back");
+    expect(drawnText(container)).toContain("It cannot be taken back");
   });
 
   it("backs out on cancel without calling — the control", () => {
@@ -185,6 +186,6 @@ describe("RuntimePage — the two controls", () => {
     fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Cancel"));
     expect(ledger.calls).toStrictEqual([]);
-    expect(container.textContent).not.toContain("Restart the background service?");
+    expect(drawnText(container)).not.toContain("Restart the background service?");
   });
 });

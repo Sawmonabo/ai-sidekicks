@@ -1,3 +1,4 @@
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { type SettingsSearchHit } from "../search.js";
 
 /** Props for {@link SettingsSearchResults}. */
@@ -16,10 +17,14 @@ export interface SettingsSearchResultsProps {
  */
 export function SettingsSearchResults(props: SettingsSearchResultsProps): React.JSX.Element {
   if (props.hits.length === 0) {
+    // It mounts holding its words when the last hit goes, so it says them through the announcer.
     return (
-      <p className="meridian-settings__no-match" role="status">
-        No setting matches “{props.query.trim()}”.
-      </p>
+      <AnnouncedLine
+        element="p"
+        className="meridian-settings__no-match"
+        words={`No setting matches “${props.query.trim()}”.`}
+        politeness="polite"
+      />
     );
   }
   return (

@@ -29,6 +29,7 @@ import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { drawnText } from "#test/helpers/live-region.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
@@ -574,11 +575,11 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
     await settleScheduledRead(supersededBridge.scenarioEngine.clock);
     selectServer(container, "filesystem");
     fireEvent.click(firstEnableButton(container));
-    expect(container.textContent).not.toContain("Sending…");
+    expect(drawnText(container)).not.toContain("Sending…");
     act(() => {
       supersededBridge.scenarioEngine.advance(LOADING_NOTICE_DELAY_MS);
     });
-    expect(container.textContent).toContain("Sending…");
+    expect(drawnText(container)).toContain("Sending…");
 
     const replacementBridge = fixtureBridge();
     rerender(mcpPageTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
@@ -586,12 +587,13 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
     // The replacement answered its own inventory; the superseded press is not reported as in
     // flight against it.
     expect(container.querySelectorAll(".meridian-mcp__entry")).toHaveLength(2);
-    expect(container.textContent).not.toContain("Sending…");
+    expect(drawnText(container)).not.toContain("Sending…");
 
     await act(async () => {
       superseded.answerHeldMutation();
       await crossMacrotaskBoundary();
     });
+    // Neither drawn nor said: the whole container, the announcer's regions included.
     expect(container.textContent).not.toContain(HELD_MUTATION_OUTCOME_TEXT);
   });
 

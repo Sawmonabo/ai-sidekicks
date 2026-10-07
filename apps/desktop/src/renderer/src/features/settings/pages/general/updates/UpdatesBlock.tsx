@@ -92,6 +92,14 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
     });
   }, [failureMessage, clock]);
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
+  // A read's `Try again` clears the refusal and reopens in one act, so a reopen that throws at once
+  // leaves the same line drawn; the press count says it again. The feed's own reopens after a
+  // wait do not count, so they are not read out one by one.
+  const [readAgainCount, setReadAgainCount] = useState(0);
+  const readAgain = (): void => {
+    setReadAgainCount((count) => count + 1);
+    preferences.readAgain();
+  };
   const press = (request: () => Promise<void>, failedDetail: string): void => {
     setControlRefusal(undefined);
     request().catch(() => {
@@ -146,10 +154,14 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         ) : null}
       </div>
       {controlRefusal === undefined ? null : (
-        <InlineRefusal code={controlRefusal.code} detail={controlRefusal.detail} />
+        <InlineRefusal
+          code={controlRefusal.code}
+          detail={controlRefusal.detail}
+          attempt={controlRefusal}
+        />
       )}
 
-      {renderAutomaticCheck(preferences, clock)}
+      {renderAutomaticCheck(preferences, clock, { readAgain, readAgainCount })}
     </section>
   );
 }
@@ -161,6 +173,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 function renderAutomaticCheck(
   preferences: UpdatesBlockProps["preferences"],
   clock: Clock,
+  readAgainPress: { readonly readAgain: () => void; readonly readAgainCount: number },
 ): ReactNode {
   const { reading, readRefusal } = preferences.snapshot;
   if (reading === undefined) {
@@ -170,7 +183,8 @@ function renderAutomaticCheck(
       <InlineRefusal
         code={readRefusal.code}
         detail="The settings could not be read."
-        onTryAgain={preferences.readAgain}
+        onTryAgain={readAgainPress.readAgain}
+        attempt={readAgainPress.readAgainCount}
       />
     );
   }

@@ -54,10 +54,10 @@ export function MutationOutcomeLine(props: {
   // Read out as drawn: each session named as the list names it.
   const words = [
     ...settlement.grades.map((grade) => settleLineFor(grade, binding.provider)),
-    ...failedSessions.map(
-      ({ entry }) =>
-        `${formatWireString(sessionDisplayTitleOf(entry).text)} is still running with the old setting.`,
-    ),
+    ...failedSessions.map(({ entry }) => {
+      const name = formatWireString(sessionDisplayTitleOf(entry).text);
+      return `${name} is still running with the old setting.`;
+    }),
   ].join(" ");
   return (
     <AnnouncedLine

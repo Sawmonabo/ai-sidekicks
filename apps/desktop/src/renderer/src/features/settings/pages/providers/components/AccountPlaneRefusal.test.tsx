@@ -49,7 +49,7 @@ function renderRefusal(
 }
 
 describe("an account-plane refusal on a console screen", () => {
-  it("renders the daemon's sentence before anything it adds, and reads both out in that order", () => {
+  it("draws the daemon's sentence before what it adds, and reads both out in that order", () => {
     const { shown, announced } = renderRefusal("provideraccount.not_registered");
     const remedy = "Sign in to run work on this provider.";
     const text = shown.textContent;
