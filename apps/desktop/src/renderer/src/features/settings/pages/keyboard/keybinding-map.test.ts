@@ -39,8 +39,8 @@ function press(
 }
 
 /**
- * Why the host takes the chord the recorder reads from this press, or `undefined`. The reserved
- * table matches the recorded spelling exactly, so this goes through the recorder.
+ * Why the host takes the chord the recorder reads from this press, or `undefined`: the verdict a
+ * person meets when they record the press on the keyboard page.
  */
 function hostReasonFor(
   platform: ChordPlatform,
@@ -183,14 +183,15 @@ describe("reading a keystroke as a chord", () => {
 
   it("on Linux, reads each of GNOME's Escape chords as a chord the host takes", () => {
     const escape = { key: "Escape", code: "Escape" };
-    for (const fields of [
-      { altKey: true },
-      { altKey: true, shiftKey: true },
-      { ctrlKey: true, altKey: true },
-      { ctrlKey: true, altKey: true, shiftKey: true },
-      { metaKey: true },
-    ]) {
-      expect(hostReasonFor("linux", { ...escape, ...fields })).toMatch(/^GNOME /u);
+    const chords: readonly [Parameters<typeof press>[0], RegExp][] = [
+      [{ altKey: true }, /^GNOME switches windows /u],
+      [{ altKey: true, shiftKey: true }, /^GNOME switches windows /u],
+      [{ ctrlKey: true, altKey: true }, /^GNOME switches system controls /u],
+      [{ ctrlKey: true, altKey: true, shiftKey: true }, /^GNOME switches system controls /u],
+      [{ metaKey: true }, /^GNOME restores its own shortcuts /u],
+    ];
+    for (const [fields, reason] of chords) {
+      expect(hostReasonFor("linux", { ...escape, ...fields })).toMatch(reason);
     }
     // Negative control: Super+Shift+Esc is held by GNOME only during an input capture session.
     expect(hostReasonFor("linux", { ...escape, metaKey: true, shiftKey: true })).toBeUndefined();
@@ -214,6 +215,13 @@ describe("reading a keystroke as a chord", () => {
     // Negative controls: Microsoft lists no Ctrl+Alt+Esc, and the Windows key is no class elsewhere.
     expect(hostReasonFor("win32", { ...escape, ctrlKey: true, altKey: true })).toBeUndefined();
     expect(hostReasonFor("linux", { key: "e", code: "KeyE", metaKey: true })).toBeUndefined();
+  });
+
+  it("refuses a hand-written spelling of a reserved chord as it refuses the recorded one", () => {
+    // A hand-edited keyboard map or a stored override need not spell a chord as the recorder does.
+    expect(reservedChordReason("Ctrl+Escape", "win32")).toMatch(/Start menu/u);
+    expect(reservedChordReason("Control+Shift+Escape", "win32")).toMatch(/Task Manager/u);
+    expect(reservedChordReason("Shift+Alt+Escape", "linux")).toMatch(/^GNOME switches windows /u);
   });
 
   it("falls back to the key when the host supplies no physical code", () => {

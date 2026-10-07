@@ -1,5 +1,6 @@
 // The page tab strip appears only once there are two pages to choose between, a middle-click on
-// a tab closes that page as its close control does, and only the bare menu key opens its menu.
+// a tab closes that page as its close control does, and only the bare menu key or Shift+F10
+// opens its menu.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -77,23 +78,7 @@ describe("the tab strip", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("opens a tab's menu on the menu key alone, and on no chord that adds a modifier", () => {
-    render(
-      <PageTabStrip
-        reading={{
-          kind: "served",
-          frame: { pages: [page({ pageId: "a" }), page({ pageId: "b" })], activeIndex: 0 },
-        }}
-        onSelect={vi.fn()}
-        onClose={vi.fn()}
-        onReorder={vi.fn()}
-      />,
-      { wrapper },
-    );
-    const face = document.querySelector(".meridian-preview-tab__face");
-    if (face === null) {
-      throw new Error("the strip drew no tab");
-    }
+  it("opens a tab's menu on the menu key alone or Shift+F10, and on no chord adding a modifier", () => {
     const otherChords = [
       { key: "F10", shiftKey: true, ctrlKey: true },
       { key: "F10", shiftKey: true, metaKey: true },
@@ -101,19 +86,38 @@ describe("the tab strip", () => {
       { key: "ContextMenu", ctrlKey: true },
       { key: "ContextMenu", shiftKey: true },
     ];
-    for (const chord of otherChords) {
-      const press = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...chord });
-      fireEvent(face, press);
-      expect(press.defaultPrevented).toBe(false);
+    for (const opening of [{ key: "ContextMenu" }, { key: "F10", shiftKey: true }]) {
+      const strip = render(
+        <PageTabStrip
+          reading={{
+            kind: "served",
+            frame: { pages: [page({ pageId: "a" }), page({ pageId: "b" })], activeIndex: 0 },
+          }}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          onReorder={vi.fn()}
+        />,
+        { wrapper },
+      );
+      const face = document.querySelector(".meridian-preview-tab__face");
+      if (face === null) {
+        throw new Error("the strip drew no tab");
+      }
+      for (const chord of otherChords) {
+        const press = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...chord });
+        fireEvent(face, press);
+        expect(press.defaultPrevented).toBe(false);
+      }
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      const openingPress = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        ...opening,
+      });
+      fireEvent(face, openingPress);
+      expect(openingPress.defaultPrevented).toBe(true);
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      strip.unmount();
     }
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    const menuKey = new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      key: "ContextMenu",
-    });
-    fireEvent(face, menuKey);
-    expect(menuKey.defaultPrevented).toBe(true);
-    expect(document.querySelector('[role="menu"]')).not.toBeNull();
   });
 });

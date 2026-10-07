@@ -62,9 +62,12 @@ exclude = [
 # parallel. `max_retries = 2` (2 retries on top of the initial attempt
 # = 3 total) covers transient timeouts and 5xx hiccups.
 max_retries = 2
-# chromium.googlesource.com answers bursts with 503; a pause before each retry lets it recover.
-retry_wait_time = 5
 timeout = 20
 max_concurrency = 16
 cache = false
 require_https = false
+
+# chromium.googlesource.com answers bursts with 503, so its links go one at a time, 3 s apart.
+[hosts."chromium.googlesource.com"]
+concurrency = 1
+request_interval = "3s"
