@@ -127,7 +127,6 @@ A file several units edit (a `package.json`, the daemon's schema, the handler re
 | `workflow-nodes-4` | Catalog batch 4 | attention, workflow-nodes-3, workflow-triggers | Plan-014 Phase 3: T3.1, T3.3; Plan-014 Phase 5: T5.18, T5.25 |
 | `banner-mode` | Banner mode, turned on through notifications-main's poster. Also: main's `--banner` start, which builds no window, takes the single-instance lock or exits, and hands to the poster, a `second-instance` launch meanwhile turning it into the windowed app | notifications-main | Plan-020 Phase 3: T-020r-3-3 |
 | `switch-and-limit-rows` | The rows a provider or an account leaves in the flow: an agent's provider switch with its hand-over brief, a failed switch with its reason and `Sign in again`; the `Retrying…` working line and the did-not-answer and limit-reached rows with `Try again` | agent-tree, composer-card, transcript-prose-rows | Plan-010 Phase 4: T4.5, T4.23; Plan-003 Phase 3B: T3.44 EXTEND |
-| `locked-window` | The developer tools open only in a development build | — | Plan-020 Phase 1B: T-020p-1B-2 EXTEND |
 | `app-facts` | Main reads the machine's region and its 12- or 24-hour setting into the bridge's `app` facts | — | Plan-020 Phase 2: T-020r-2-9 EXTEND |
 | `empty-view-mark` | The app's logo mark in an empty session view | multiple-windows | Plan-020 Phase 5: T-020r-5-3 EXTEND (the empty view's logo mark) |
 | `menu-bar-face` | The menu-bar icon's live face: idle, working, needs you | multiple-windows, notifications-main, session-directory, workflow-handlers | Plan-020 Phase 5: T-020r-5-17 |

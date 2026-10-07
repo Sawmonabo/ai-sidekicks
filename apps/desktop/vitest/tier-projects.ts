@@ -78,8 +78,9 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Tier: bundle. Chunk sizes against `tests/budget/document.json`, and claims about what a
-    // release bundle does not contain, since both need the built tree and no other tier has one.
+    // Tier: bundle. Chunk sizes against `tests/budget/document.json`, claims about what a release
+    // bundle does not contain, and what the release main refuses when launched, since all of them
+    // need the release build and no other tier has one.
     //
     // It names renderer constants so a rename breaks it at compile time, and those modules read
     // the renderer's build-time gate, which is `false` here because this process is not a build.

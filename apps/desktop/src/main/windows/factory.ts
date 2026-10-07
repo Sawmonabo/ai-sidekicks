@@ -65,10 +65,25 @@ const HIDDEN_WINDOW_BOUNDS: Rectangle = { x: 0, y: 0, width: 800, height: 600 };
 /** The state the hidden window is revealed into when it shows its load-failure document. */
 const FAILURE_REVEAL: RevealState = { isMaximized: false, isFullScreen: false };
 
+/** The `webContents` methods a JavaScript caller opens developer tools through. */
+const DEVELOPER_TOOLS_OPENERS = [
+  "openDevTools",
+  "toggleDevTools",
+  "inspectElement",
+  "inspectSharedWorker",
+  "inspectSharedWorkerById",
+  "inspectServiceWorker",
+] as const satisfies readonly (keyof WebContents)[];
+
+/** Where the factory's refusals are recorded in main's log. */
+const LOG_SOURCE = "main/windows/factory";
+
 /**
  * The single owner of the locked `webPreferences` block, and the only `new BaseWindow(...)` and
  * `new WebContentsView(...)` call site under `src/main/`; ESLint refuses a second one. An adopted
- * `webContents` keeps the preferences it was made with, which Chromium copied from its opener's.
+ * `webContents` keeps the preferences it was made with, its opener's security settings, but not
+ * `devTools`, so outside a development build its developer-tools openers are refused here, and in
+ * each of the console's windows developer tools anything else opens are closed.
  */
 function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
   const baseWindow = new BaseWindow({
@@ -89,6 +104,9 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
       nodeIntegration: false,
       nodeIntegrationInWorker: false,
       webSecurity: true,
+      // Vite's development flag, a literal in the bundle: outside a development build the
+      // console document has no developer tools to open.
+      devTools: import.meta.env.DEV,
       preload: PRELOAD_PATH,
       additionalArguments: [...options.additionalArguments],
     },
@@ -110,8 +128,49 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
   webContents.on("page-title-updated", (_event, title: string) => {
     baseWindow.setTitle(title);
   });
+  if (!import.meta.env.DEV) {
+    if (options.adoptedWebContents !== undefined) {
+      refuseDeveloperToolsOpeners(webContents, options.log);
+    }
+    closeDeveloperToolsOnOpen(webContents, options.log);
+  }
 
   return { baseWindow, view };
+}
+
+/**
+ * Replaces an adopted document's developer-tools openers with one that logs and opens nothing.
+ * Electron builds a `window.open` guest with no options, so no `devTools` preference reaches it.
+ */
+function refuseDeveloperToolsOpeners(
+  webContents: WebContents,
+  log: SharedWindowOptions["log"],
+): void {
+  const refuse = (): void => {
+    log.write({
+      level: "warning",
+      source: LOG_SOURCE,
+      message: "a request to open developer tools was refused: only a development build has them",
+    });
+  };
+  for (const opener of DEVELOPER_TOOLS_OPENERS) {
+    Object.defineProperty(webContents, opener, { value: refuse });
+  }
+}
+
+/** Closes developer tools the moment anything opens them, for a path a later Electron adds. */
+function closeDeveloperToolsOnOpen(
+  webContents: WebContents,
+  log: SharedWindowOptions["log"],
+): void {
+  webContents.on("devtools-opened", () => {
+    webContents.closeDevTools();
+    log.write({
+      level: "error",
+      source: LOG_SOURCE,
+      message: "developer tools opened outside a development build and were closed",
+    });
+  });
 }
 
 /** The view fills the window's content area; `WebContentsView` does not size itself. */

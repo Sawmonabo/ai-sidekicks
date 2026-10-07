@@ -51,6 +51,7 @@ import {
   BUILD_TARGETS,
   readBuiltTextOrFailLoudly,
   readSourceMapsOrFailLoudly,
+  SMOKE_PROBE_FOLDER,
   type BuiltFile,
   type BuiltSourceMap,
 } from "./built-renderer-tree.js";
@@ -81,9 +82,6 @@ const RELEASE_ABSENT_METER_KINDS = [
   "apply-latency",
   "store-size",
 ] as const satisfies readonly PerformanceMeterKind[];
-
-/** The folder of the main-process probes, which only a smoke build may ship. */
-const SMOKE_PROBE_FOLDER = "/src/main/probes/";
 
 /** Which built files carry a marker. */
 function carriersOf(marker: string, files: readonly BuiltFile[]): readonly string[] {

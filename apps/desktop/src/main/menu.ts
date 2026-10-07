@@ -118,6 +118,7 @@ function applicationMenuTemplate(
         ),
         { type: "separator" },
         { role: "togglefullscreen" },
+        ...(import.meta.env.DEV ? [{ role: "toggleDevTools" } as const] : []),
       ],
     },
     { role: "windowMenu" },

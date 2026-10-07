@@ -1,7 +1,8 @@
 // Spawns a real Electron process on a private profile and reads its tagged probe lines.
 // The harness asserts nothing: the suite decides whether a reading is acceptable, and
 // `diagnosis.ts` explains a missing one. `src/main/probes/smoke.ts` emits the
-// lines.
+// lines. A caller may add Chromium switches and app arguments, so a launch of another build
+// (the bundle tier's release launch) reads the same output and profile.
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
@@ -104,6 +105,16 @@ export interface SpawnResult {
   readonly diagnosticCollectionMs: number | null;
   // The `$DISPLAY` the child was given, or undefined when none was set.
   readonly childDisplay: string | undefined;
+  // The launch's private profile, on disk until the test settles; undefined when refused before it.
+  readonly profileDirectory: string | undefined;
+}
+
+/** What a caller adds to the launch's command line. */
+export interface SpawnElectronOptions {
+  /** Chromium switches, placed before the entry script so the browser process reads them. */
+  readonly chromiumSwitches?: readonly string[];
+  /** The app's own arguments, placed after the entry script, where main reads them. */
+  readonly appArguments?: readonly string[];
 }
 
 // Chromium switches for the headless-Linux path only. None weakens the renderer sandbox (CI
@@ -123,7 +134,7 @@ const LINUX_HEADLESS_CHROMIUM_SWITCHES: readonly string[] = [
  * a null probe and the reason in the output. The profile comes off disk after the child is gone,
  * at the end of the test; a removal that fails fails the test.
  */
-export async function spawnElectron(): Promise<SpawnResult> {
+export async function spawnElectron(options: SpawnElectronOptions = {}): Promise<SpawnResult> {
   const startedAt = Date.now();
 
   const spawnBudgetMs = SPAWN_TIMEOUT_MS;
@@ -147,6 +158,7 @@ export async function spawnElectron(): Promise<SpawnResult> {
     timedOut: false,
     diagnosticCollectionMs: null,
     childDisplay,
+    profileDirectory: undefined,
   });
 
   // Refuse before spawning when the named display is not serving, instead of discovering it as a
@@ -175,7 +187,9 @@ export async function spawnElectron(): Promise<SpawnResult> {
   const electronArgs = [
     ...(process.platform === "linux" ? LINUX_HEADLESS_CHROMIUM_SWITCHES : []),
     `--user-data-dir=${profile.directory}`,
+    ...(options.chromiumSwitches ?? []),
     MAIN_ENTRY_PATH,
+    ...(options.appArguments ?? []),
   ];
   const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
   const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
@@ -299,6 +313,7 @@ export async function spawnElectron(): Promise<SpawnResult> {
         timedOut: deadlineFired,
         diagnosticCollectionMs: collectionMs,
         childDisplay,
+        profileDirectory: profile.directory,
       });
     });
 
@@ -318,6 +333,7 @@ export async function spawnElectron(): Promise<SpawnResult> {
         timedOut: deadlineFired,
         diagnosticCollectionMs: collectionMs,
         childDisplay,
+        profileDirectory: profile.directory,
       });
     });
   });

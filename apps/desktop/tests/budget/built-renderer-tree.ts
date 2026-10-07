@@ -29,6 +29,9 @@ export interface BuiltSourceMap {
   readonly sources: readonly string[];
 }
 
+/** The folder of the main-process probes, which only a smoke build may ship. */
+export const SMOKE_PROBE_FOLDER = "/src/main/probes/";
+
 /** The three build targets, each written to `out/<target>/` from `src/<target>/`. */
 export const BUILD_TARGETS = ["main", "preload", "renderer"] as const;
 
