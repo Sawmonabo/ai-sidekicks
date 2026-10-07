@@ -4,8 +4,8 @@
 
 import path from "node:path";
 
-import { PACKAGE_ROOT } from "../fixture/bundle.ts";
-import { type Budget, BudgetRegistryError, readBudgetDocument } from "./document.ts";
+import { PACKAGE_ROOT } from "../fixture/bundle.js";
+import { type Budget, BudgetRegistryError, readBudgetDocument } from "./document.js";
 
 /** Absolute path of the checked-in `tests/budget/document.json`. */
 const BUDGETS_FILE_PATH: string = path.join(PACKAGE_ROOT, "tests", "budget", "document.json");

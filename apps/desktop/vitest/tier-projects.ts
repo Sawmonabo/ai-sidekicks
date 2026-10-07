@@ -80,8 +80,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
   {
     // Tier: bundle. Claims about what a release bundle does not contain, and what the release main
     // refuses when launched, since both need the release build and no other tier has one. The
-    // bundle's sizes are size-limit's, against `.size-limit.ts`; this tier checks which files that
-    // config hands it.
+    // bundle's sizes are size-limit's, against `.size-limit.ts`; the test of which files that
+    // config is handed sits here beside its reader, though it plants its own build.
     //
     // It names renderer constants so a rename breaks it at compile time, and those modules read
     // the renderer's build-time gate, which is `false` here because this process is not a build.

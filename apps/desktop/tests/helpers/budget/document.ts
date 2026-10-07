@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 
 import { z } from "zod";
 
-import { describeFailure } from "#shared/failure-message.ts";
+import { describeFailure } from "#shared/failure-message.js";
 
 /**
  * The only registry revision this reader accepts. An older document is refused rather than

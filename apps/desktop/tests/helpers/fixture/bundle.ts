@@ -1,12 +1,12 @@
-// Where the built app and the Electron launcher are, and whether the build is there. Every
-// Electron tier reads these paths, so a tier cannot skip itself by looking where the build does
-// not write.
+// Where the package, the built app and the Electron launcher are, and whether the build is there.
+// Every Electron tier reads these paths, so a tier cannot skip itself by looking where the build
+// does not write; the budget readers resolve their files from the same package root.
 
 import { statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** The desktop package root (`apps/desktop/`), the working directory every spawn runs in. */
+/** The desktop package root (`apps/desktop/`), where every spawn runs and paths resolve from. */
 export const PACKAGE_ROOT: string = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "..",

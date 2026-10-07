@@ -397,7 +397,8 @@ jobs:
 
       # No build step of its own: each tier's turbo edges build what it reads, the workspace
       # packages and the one desktop build flavor it needs, so a leg builds each once. A separate
-      # `turbo run build` would build the uncached desktop release bundle a second time.
+      # `turbo run build` would build the uncached desktop release bundle in every leg: a second
+      # time in the bundle leg, and for nothing in the others.
       #
       # `--continue` so a leg naming two tasks reports both results; without it the first failure
       # hides the second. `--concurrency=1` only on legs the matrix marks `serial`.

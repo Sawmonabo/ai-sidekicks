@@ -17,10 +17,10 @@
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // `.size-limit.ts`, the Vitest config and the test helpers they reach are loaded by their
-    // tools, so they name what they import by its real `.ts` path, since Node maps no `.js`
-    // specifier to a `.ts` source; a program that pulls them in needs this option. Legal here
-    // because this config is `noEmit`.
+    // `.size-limit.ts` and the reader it imports name what they import by its real `.ts` path,
+    // because Node loads them directly and maps no `.js` specifier to a `.ts` source, and the
+    // Vitest config's modules under `vitest/` name the package modules they import the same way; a
+    // program that pulls them in needs this option. Legal here because this config is `noEmit`.
     "allowImportingTsExtensions": true
   },
   // `files` rather than `include`, deliberately: `exclude` filters `include`, and this path sits
@@ -30,8 +30,8 @@
   // string it greps for rather than copying it. Those modules need the renderer's ambient
   // declarations, which that file holds.
   "files": ["src/renderer/src/vite-env.d.ts"],
-  // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, the
-  // executables' tests under `scripts/`, the smoke and GC launches directly under `tests/`, the
+  // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, any test
+  // beside an executable under `scripts/`, the smoke and GC launches directly under `tests/`, the
   // bundle tier and the budget registry's own test; the size-limit config; and the Vitest config,
   // the modules it composes under `vitest/` and the root `vitest.shared.ts` it imports. The other
   // folders under `tests/` hold DOM or Electron-driving code and are typechecked by

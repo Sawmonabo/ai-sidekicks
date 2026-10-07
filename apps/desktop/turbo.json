@@ -115,7 +115,8 @@
       "outputs": []
     },
     // No tsconfig: the cruise resolves through an explicit extension list and the package's
-    // `imports` in `package.json`, which also holds the script that invokes it.
+    // `imports` in `package.json`, which also holds the script that invokes it. It follows imports
+    // out of the folders it is given, into the test helpers and the root `vitest.shared.ts`.
     "structure:layering": {
       "inputs": [
         "src/**",
@@ -123,6 +124,8 @@
         "build/**",
         "scripts/**",
         "vitest/**",
+        "tests/helpers/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
         ".dependency-cruiser.mjs",
         ".dependency-cruiser.layers.mjs",
         "package.json"
@@ -178,7 +181,8 @@
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.
       // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
-      // pull every other script in with it.
+      // pull every other script in with it. The two sources named after `vitest/**` are the ones
+      // the Vitest config imports.
       "inputs": [
         "tests/*.test.ts",
         "tests/helpers/**",
@@ -186,6 +190,8 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
+        "src/shared/failure-message.ts",
+        "src/renderer/src/styles/glyphs.ts",
         "tsconfig*.json",
         "package.json",
         "tests/budget/document.json"
@@ -200,9 +206,10 @@
     // throughout, as above: these assert against a tree state, and a cached pass would report on a
     // tree that is no longer there.
     //
-    // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`), so each
-    // lists `tests/budget/document.json` and `tests/helpers/**`, which holds the registry that
-    // loads it.
+    // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`) and imports
+    // `src/shared/failure-message.ts` and the renderer's glyph constants, so each lists
+    // `tests/budget/document.json`, `tests/helpers/**`, which holds the registry that loads it,
+    // and those two sources or a folder holding them.
 
     "test:renderer": {
       "dependsOn": ["^build"],
@@ -270,6 +277,8 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
+        "src/shared/failure-message.ts",
+        "src/renderer/src/styles/glyphs.ts",
         "package.json",
         "electron.vite.config.ts",
         "src/renderer/src/app/fixture/global-names.ts",
