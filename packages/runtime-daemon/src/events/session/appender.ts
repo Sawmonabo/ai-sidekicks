@@ -1,5 +1,5 @@
-// The envelope build and single append the workspace and worktree lifecycle emitters share. Each
-// emitter parses its own payload and passes it here; this module owns the envelope fields.
+// The envelope build and single append every daemon-authored session event shares. Each producer
+// builds its own payload and passes it here; this module owns the envelope fields.
 //
 //   * One append per call: no retry, no fan-out.
 //   * No sequence number, chain hash or signature: the append path owns them.
@@ -7,32 +7,32 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
-import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { WriteStatement } from "../database/statement.js";
+import type { WriteStatement } from "../../database/statement.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
-} from "../events/log-service.js";
-import { mintUuidV7 } from "../uuid-v7.js";
+} from "../log-service.js";
+import { mintUuidV7 } from "../../uuid-v7.js";
 
 /**
  * The durable append seam, typed against the append path's own signature. A table write that must
  * commit atomically with the event row is passed as `transactionalPrelude`, statements the append
  * path commits in the same write, just before the row.
  */
-export interface LifecycleEventLog {
+export interface SessionEventLog {
   append(
     envelope: UnsequencedEventEnvelope,
     options?: EventLogAppendOptions,
   ): Promise<EventLogAppendReceipt>;
 }
 
-/** Dependencies of a lifecycle emitter; every member but `sessionEvents` has a default. */
-export interface LifecycleEventEmitterDeps {
-  readonly sessionEvents: LifecycleEventLog;
+/** Dependencies of a session event producer; every member but `sessionEvents` has a default. */
+export interface SessionEventAppenderDeps {
+  readonly sessionEvents: SessionEventLog;
   /** Source for `monotonic_ns` (in-daemon ordering only; a rebuild orders by `sequence`). */
   readonly monotonicNow?: () => bigint;
   /** Source for `occurredAt` (ISO 8601). */
@@ -42,22 +42,28 @@ export interface LifecycleEventEmitterDeps {
 }
 
 /** The envelope linkage and atomic table write one emission carries. */
-export interface LifecycleEventLinkage {
+export interface SessionEventLinkage {
   readonly correlationId?: string | null | undefined;
   readonly causationId?: string | null | undefined;
   /** Forwarded to the append path (see `EventLogAppendOptions.transactionalPrelude`). */
   readonly transactionalPrelude?: readonly WriteStatement[] | undefined;
 }
 
-/** Builds one lifecycle envelope from a parsed payload and appends it. */
-export class LifecycleEventAppender {
-  readonly #sessionEvents: LifecycleEventLog;
+/** The members the envelope reads back from a payload: its session and, when one acted, its actor. */
+export interface AppendedPayload {
+  readonly sessionId: SessionId;
+  readonly actor?: string | null | undefined;
+}
+
+/** Builds one session event envelope from a built payload and appends it. */
+export class SessionEventAppender {
+  readonly #sessionEvents: SessionEventLog;
   readonly #monotonicNow: () => bigint;
   readonly #now: () => string;
   readonly #newEventId: () => string;
   readonly #version: EventEnvelopeVersion;
 
-  constructor(deps: LifecycleEventEmitterDeps, version: EventEnvelopeVersion) {
+  constructor(deps: SessionEventAppenderDeps, version: EventEnvelopeVersion) {
     this.#sessionEvents = deps.sessionEvents;
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
     this.#now = deps.now ?? (() => new Date().toISOString());
@@ -66,21 +72,21 @@ export class LifecycleEventAppender {
   }
 
   /**
-   * Appends `type` with `payload`. The envelope's session and actor are read back from the parsed
+   * Appends `type` with `payload`. The envelope's session and actor are read back from the
    * payload, so the two cannot disagree. Throws when the type has no registered category.
    */
-  async append<TState extends string>(
+  async append(
     type: SessionEventType,
-    payload: RepoWorkspaceLifecyclePayloadOf<TState>,
-    linkage: LifecycleEventLinkage,
+    payload: AppendedPayload,
+    linkage: SessionEventLinkage,
   ): Promise<EventLogAppendReceipt> {
     // Looked up from the registry: the strict layer refuses an envelope whose category disagrees
     // with its type.
     const category: EventCategory | undefined = SESSION_EVENT_CATEGORY_BY_TYPE.get(type);
     if (category === undefined) {
       throw new Error(
-        `No category is registered for event type "${type}": a lifecycle type must be present in ` +
-          "SESSION_EVENT_CATEGORY_BY_TYPE for the strict layer to interpret what is written.",
+        `No category is registered for event type "${type}": an appended type must be present ` +
+          "in SESSION_EVENT_CATEGORY_BY_TYPE for the strict layer to interpret what is written.",
       );
     }
     const envelope: UnsequencedEventEnvelope = {
@@ -90,7 +96,7 @@ export class LifecycleEventAppender {
       category,
       type,
       actor: payload.actor ?? null,
-      payload,
+      payload: { ...payload },
       // Absent, not null: the correlation pair is optional and not nullable on the envelope.
       ...(linkage.correlationId != null ? { correlationId: linkage.correlationId } : {}),
       ...(linkage.causationId != null ? { causationId: linkage.causationId } : {}),

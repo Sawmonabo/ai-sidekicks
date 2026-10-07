@@ -17,7 +17,7 @@ import { EventLogService } from "../../../events/log-service.js";
 import type { UnsequencedEventEnvelope } from "../../../events/log-service.js";
 import { WorktreeEventEmitter } from "../event-emitter.js";
 import type { EmitWorktreeEventInput } from "../event-emitter.js";
-import type { LifecycleEventLog } from "../../../workspace/lifecycle-event-appender.js";
+import type { SessionEventLog } from "../../../events/session/appender.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -77,7 +77,7 @@ function payloadState(envelope: UnsequencedEventEnvelope): unknown {
  * A plain-object append seam that records the envelopes it is handed. It proves the emitter names
  * no concrete storage class and shows envelope facts SQL cannot (the correlation pair's absence).
  */
-function recordingEventLog(appended: UnsequencedEventEnvelope[]): LifecycleEventLog {
+function recordingEventLog(appended: UnsequencedEventEnvelope[]): SessionEventLog {
   return {
     append: (envelope) => {
       appended.push(envelope);

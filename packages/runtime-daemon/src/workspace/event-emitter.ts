@@ -24,10 +24,10 @@ import type {
 
 import type { EventLogAppendReceipt } from "../events/log-service.js";
 import {
-  LifecycleEventAppender,
-  type LifecycleEventEmitterDeps,
-  type LifecycleEventLinkage,
-} from "./lifecycle-event-appender.js";
+  SessionEventAppender,
+  type SessionEventAppenderDeps,
+  type SessionEventLinkage,
+} from "../events/session/appender.js";
 
 // Event names come from indexed access on the registered contracts variants (contracts exports no
 // union), so a rename there fails this compile.
@@ -52,7 +52,7 @@ const REPO_WORKSPACE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionS
  * Input for the four workspace lifecycle events. Discrete fields, so `sessionId` and `actor` are
  * written into both envelope and payload from one value.
  */
-export interface EmitWorkspaceEventInput extends LifecycleEventLinkage {
+export interface EmitWorkspaceEventInput extends SessionEventLinkage {
   /** The append path's sequence-allocation partition key. */
   readonly sessionId: string;
   readonly workspaceId: string;
@@ -68,10 +68,10 @@ export interface EmitWorkspaceEventInput extends LifecycleEventLinkage {
  * receipt, so a producer reads the `sequence` the append path assigned.
  */
 export class WorkspaceEventEmitter {
-  readonly #appender: LifecycleEventAppender;
+  readonly #appender: SessionEventAppender;
 
-  constructor(deps: LifecycleEventEmitterDeps) {
-    this.#appender = new LifecycleEventAppender(deps, REPO_WORKSPACE_EVENT_VERSION);
+  constructor(deps: SessionEventAppenderDeps) {
+    this.#appender = new SessionEventAppender(deps, REPO_WORKSPACE_EVENT_VERSION);
   }
 
   /** Emit `workspace.preparing` — the workspace's materialization began. */
