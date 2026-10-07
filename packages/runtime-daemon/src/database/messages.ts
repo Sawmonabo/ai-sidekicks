@@ -2,6 +2,7 @@
 // request is answered once, in the order it was sent.
 
 import type { SessionEventRow } from "../events/session/insert.js";
+import type { CarriedError } from "../worker-thread/carried-error.js";
 import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type { StatementResult, WriteStatement } from "./statement.js";
 
@@ -9,14 +10,6 @@ import type { StatementResult, WriteStatement } from "./statement.js";
 export interface WriteJob {
   readonly statements: readonly WriteStatement[];
   readonly events: readonly SessionEventRow[];
-}
-
-/** An error carried across the thread boundary, which keeps only plain data. */
-export interface CarriedError {
-  readonly message: string;
-  readonly stack: string | undefined;
-  /** The SQLite result code, present when SQLite raised it. */
-  readonly sqliteCode: string | undefined;
 }
 
 /** How one write in a committed batch ended. */

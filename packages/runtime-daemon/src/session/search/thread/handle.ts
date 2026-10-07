@@ -14,7 +14,7 @@ import type {
   TranscriptSearchResponse,
 } from "@ai-sidekicks/contracts/transcript/search";
 
-import { workerModuleUrlBeside } from "../../../worker-url.js";
+import { workerModuleUrlBeside } from "../../../worker-thread/module-url.js";
 import {
   rebuildSearchError,
   type SearchThreadReply,

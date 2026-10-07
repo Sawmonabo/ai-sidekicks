@@ -10,9 +10,9 @@ import { LRUCache } from "lru-cache";
 
 import { prepareSessionEventInsert } from "../events/session/insert.js";
 import { openDatabase } from "../session/migration-runner.js";
+import { carryError } from "../worker-thread/carried-error.js";
 import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type {
-  CarriedError,
   WriteJob,
   WriteJobOutcome,
   WriterReply,
@@ -174,17 +174,4 @@ function serve(connection: Database): void {
         return;
     }
   });
-}
-
-// A thread boundary keeps only plain data, so an error travels as its message, stack and code.
-function carryError(error: unknown): CarriedError {
-  if (!(error instanceof Error)) {
-    return { message: String(error), stack: undefined, sqliteCode: undefined };
-  }
-  const code: unknown = "code" in error ? error.code : undefined;
-  return {
-    message: error.message,
-    stack: error.stack,
-    sqliteCode: typeof code === "string" && code.startsWith("SQLITE_") ? code : undefined,
-  };
 }

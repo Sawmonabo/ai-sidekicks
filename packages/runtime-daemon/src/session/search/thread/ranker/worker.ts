@@ -10,7 +10,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 
 import { SearchIndexVersion } from "../../index/version.js";
 import { SessionTextRanking, type RankedRange } from "../../ranking.js";
-import { carrySearchError } from "../messages.js";
+import { carryError } from "../../../../worker-thread/carried-error.js";
 import type { RankerReply, RankerRequest, RankerWorkerData } from "./messages.js";
 
 if (parentPort === null) {
@@ -26,7 +26,7 @@ let connection: DatabaseType | undefined;
 try {
   connection = new Database(databasePath, { readonly: true, fileMustExist: true });
 } catch (error) {
-  post({ type: "open-failed", error: carrySearchError(error) });
+  post({ type: "open-failed", error: carryError(error) });
   port.close();
 }
 if (connection !== undefined) {
@@ -53,7 +53,7 @@ function serve(reader: DatabaseType): void {
         try {
           [version, range] = rankRange(request);
         } catch (error) {
-          post({ type: "rank-failed", error: carrySearchError(error) });
+          post({ type: "rank-failed", error: carryError(error) });
           return;
         }
         post(

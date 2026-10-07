@@ -2,7 +2,7 @@
 // the order it was sent; a ranked range's arrays move across rather than being copied.
 
 import type { RankedIndexRow, RankedSessionScope, RowidRange } from "../../ranking.js";
-import type { CarriedSearchError } from "../messages.js";
+import type { CarriedError } from "../../../../worker-thread/carried-error.js";
 
 /** What a ranker is started with. */
 export interface RankerWorkerData {
@@ -23,7 +23,7 @@ export type RankerRequest =
 /** What a ranker answers: once when its connection is open, then once per request. */
 export type RankerReply =
   | { readonly type: "opened" }
-  | { readonly type: "open-failed"; readonly error: CarriedSearchError }
+  | { readonly type: "open-failed"; readonly error: CarriedError }
   | {
       readonly type: "ranked";
       /** The index version the range was read at. */
@@ -32,5 +32,5 @@ export type RankerReply =
       readonly ranks: Float64Array<ArrayBuffer>;
       readonly ownedRows: readonly RankedIndexRow[] | undefined;
     }
-  | { readonly type: "rank-failed"; readonly error: CarriedSearchError }
+  | { readonly type: "rank-failed"; readonly error: CarriedError }
   | { readonly type: "closed" };

@@ -14,6 +14,11 @@ import type {
 
 import { DaemonDomainError, type DomainErrorJsonRpcCode } from "../../../ipc/domain-error.js";
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
+import {
+  carryError,
+  rebuildError,
+  type CarriedError,
+} from "../../../worker-thread/carried-error.js";
 
 /** What the main thread asks of the search thread. */
 export type SearchThreadRequest =
@@ -36,7 +41,7 @@ export type CarriedSearchError =
       readonly fields: Record<string, unknown> | undefined;
     }
   | { readonly kind: "event_cursor_unresolvable"; readonly cursor: string }
-  | { readonly kind: "other"; readonly message: string; readonly stack: string | undefined };
+  | ({ readonly kind: "other" } & CarriedError);
 
 /** What the search thread answers: once when its connection is open, then once per request. */
 export type SearchThreadReply =
@@ -69,9 +74,7 @@ export function carrySearchError(error: unknown): CarriedSearchError {
   if (error instanceof EventCursorUnresolvableError) {
     return { kind: "event_cursor_unresolvable", cursor: error.cursor };
   }
-  return error instanceof Error
-    ? { kind: "other", message: error.message, stack: error.stack }
-    : { kind: "other", message: String(error), stack: undefined };
+  return { kind: "other", ...carryError(error) };
 }
 
 /** The error a carried one was, as the class it was thrown as, or a plain `Error` for any other. */
@@ -87,12 +90,7 @@ export function rebuildSearchError(carried: CarriedSearchError): Error {
       return new SessionNotFoundError(carried.message, carried.fields);
     case "event_cursor_unresolvable":
       return new EventCursorUnresolvableError(carried.cursor);
-    case "other": {
-      const error = new Error(carried.message);
-      if (carried.stack !== undefined) {
-        error.stack = carried.stack;
-      }
-      return error;
-    }
+    case "other":
+      return rebuildError(carried);
   }
 }

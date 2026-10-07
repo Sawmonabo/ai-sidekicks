@@ -12,8 +12,8 @@ import {
   type RankedSessionScope,
   type RowidRange,
 } from "../../ranking.js";
-import { workerModuleUrlBeside } from "../../../../worker-url.js";
-import { rebuildSearchError } from "../messages.js";
+import { rebuildError } from "../../../../worker-thread/carried-error.js";
+import { workerModuleUrlBeside } from "../../../../worker-thread/module-url.js";
 import type { RankerReply, RankerRequest, RankerWorkerData } from "./messages.js";
 
 const WORKER_URL = workerModuleUrlBeside(import.meta.url);
@@ -133,7 +133,7 @@ class Ranker {
         return;
       }
       if (reply.type === "open-failed") {
-        this.#fail(rebuildSearchError(reply.error));
+        this.#fail(rebuildError(reply.error));
         return;
       }
       const pendingReply = this.#pendingReplies.shift();
@@ -142,7 +142,7 @@ class Ranker {
         return;
       }
       if (reply.type === "rank-failed") {
-        pendingReply.reject(rebuildSearchError(reply.error));
+        pendingReply.reject(rebuildError(reply.error));
         return;
       }
       pendingReply.resolve(reply);

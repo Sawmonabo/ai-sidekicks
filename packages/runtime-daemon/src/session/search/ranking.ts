@@ -55,7 +55,7 @@ type RankedSessionRow = readonly [
 // What one matching row costs the ranking: its rowid and rank as doubles, its heap slot.
 const BYTES_PER_ROW = 8 + 8 + 4;
 
-// The ranking's arrays start this long and double as rows arrive.
+// A read's arrays start this long and double as rows arrive.
 const FIRST_RANKING_CAPACITY = 1024;
 
 // The most sessions and groups one narrowed read names. Past it, the index's merge of their keys
@@ -142,6 +142,7 @@ export class SessionTextRanking {
   readonly #rankedRows: Statement<{ expression: string }, RankedRow>;
   readonly #narrowedRankedRows: Statement<{ expression: string }, RankedIndexRow>;
   readonly #rankedRowsWithSessions: Statement<{ expression: string }, RankedSessionRow>;
+  readonly #rows = new RankingRows();
 
   constructor(reader: Database) {
     this.#rankedRows = reader.prepare<{ expression: string }, RankedRow>(RANKED_ROWS_SQL).raw(true);
@@ -159,7 +160,8 @@ export class SessionTextRanking {
   /** The rows the match expression finds in one rowid range, ranked as the whole index would. */
   rankRange(matchExpression: string, range: RowidRange): RankedRange {
     // Streamed into the arrays, so the rows never sit in memory as one row object each.
-    const rows = new RankingRows();
+    const rows = this.#rows;
+    rows.clear();
     for (const [indexRowid, rank] of this.#rankedRows.iterate({
       expression: matchExpression,
       ...range,
@@ -180,7 +182,8 @@ export class SessionTextRanking {
   ): RankedRange {
     const sessionIds = new Set(sessions.map((session) => session.sessionId));
     const groupIndexRowids = new Set(sessions.map((session) => session.groupIndexRowid));
-    const ranked = new RankingRows();
+    const ranked = this.#rows;
+    ranked.clear();
     const ownedRows: RankedIndexRow[] = [];
     for (const [indexRowid, rank, sessionId, sequence] of this.#rankedRowsWithSessions.iterate({
       expression: matchExpression,
@@ -283,11 +286,16 @@ function rankingOf(rowids: Float64Array, ranks: Float64Array): TextRanking {
   };
 }
 
-// A ranking's rows as they are read, in arrays that double when full.
+// A ranking's rows as one read gives them, in arrays kept from read to read that double when full,
+// so they grow to the largest read and no read leaves garbage behind but the copies it returns.
 class RankingRows {
   #rowids: Float64Array<ArrayBuffer> = new Float64Array(FIRST_RANKING_CAPACITY);
   #ranks: Float64Array<ArrayBuffer> = new Float64Array(FIRST_RANKING_CAPACITY);
   #count = 0;
+
+  clear(): void {
+    this.#count = 0;
+  }
 
   add(indexRowid: number, rank: number): void {
     if (this.#count === this.#rowids.length) {

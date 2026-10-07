@@ -9,17 +9,15 @@
 
 import { Worker } from "node:worker_threads";
 
-import Database from "better-sqlite3";
-
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { waitWithin } from "../bounded-wait.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
-import { workerModuleUrlBeside } from "../worker-url.js";
+import { rebuildError } from "../worker-thread/carried-error.js";
+import { workerModuleUrlBeside } from "../worker-thread/module-url.js";
 import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
 import type {
-  CarriedError,
   WriteJob,
   WriteJobOutcome,
   WriterReply,
@@ -572,18 +570,6 @@ export class DatabaseWriter {
 
 function describeTags(tags: EventTags | undefined): string {
   return tags === undefined ? "" : `; session_id=${tags.sessionId} event_category=${tags.category}`;
-}
-
-// A SQLite error comes back as better-sqlite3's own class, so a caller can test its code.
-function rebuildError(carried: CarriedError): Error {
-  const error =
-    carried.sqliteCode === undefined
-      ? new Error(carried.message)
-      : new Database.SqliteError(carried.message, carried.sqliteCode);
-  if (carried.stack !== undefined) {
-    error.stack = carried.stack;
-  }
-  return error;
 }
 
 function unexpectedReply(reply: WriterReply): Error {
