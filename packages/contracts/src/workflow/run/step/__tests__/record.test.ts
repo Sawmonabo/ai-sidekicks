@@ -1,9 +1,9 @@
 // A run's steps cross from the daemon to the run page, the runs table and the live stream. These
-// tests hold the step record's own rules: only a waiting step names its cause, only an account
-// wait names its spent account, by a label as long as a reported identity, and resumes itself,
-// only a wait on a person has a deadline, only a reply wait holds a question and only an answered
-// step its answer, an inline payload stays under its cap, and only a failed step says how its
-// process exited.
+// tests hold the step record's own rules: only a waiting step names its cause, one from the set,
+// only an account wait names its spent account, by a label as long as a reported identity, and
+// resumes itself, only a wait on a person has a deadline, only a reply wait holds a question and
+// only an answered step its answer, an inline payload stays under its cap, and only a failed step
+// says how its process exited.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -76,8 +76,10 @@ describe("WorkflowStepSchema", () => {
     );
   });
 
-  it("refuses a waiting step with no cause", () => {
+  it("refuses a waiting step with no cause or one outside the set", () => {
     expect(WorkflowStepSchema.safeParse({ ...STEP, status: "waiting" }).success).toBe(false);
+    const heldByMemory = { ...STEP, status: "waiting", waitCause: "memory" };
+    expect(WorkflowStepSchema.safeParse(heldByMemory).success).toBe(false);
   });
 
   it("refuses a cause on a step that is not waiting", () => {

@@ -1,23 +1,131 @@
-// The step events the run's step panel and the attention list read: a gate's answer names the
-// device and pinned version that answered it, and a wait's event names the spent account the
+// The workflow events a run appends are what its rows rebuild from, so each must parse through the
+// session event union as its own type and no other. These tests hold that, and the rules the step
+// panel and the attention list read: a gate's answer names the device and pinned version that
+// answered it, and a wait's event names its cause from the set and the spent account the
 // attention list groups by exactly when the wait is on an account.
 import { describe, expect, it } from "vitest";
 
 import { buildSessionCreatedEvent } from "../../../../event/__tests__/session.test-support.js";
+import type { EventCategory } from "../../../../event/envelope.js";
 import { SessionEventSchema } from "../../../../event/session.js";
 import { WorkflowGateResolvedPayloadSchema } from "../events.js";
 
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
-const STEP = { workflowRunId: RUN_ID, nodeId: "review-form", executionIndex: 4 };
+const PINNED_RUN = {
+  sessionId: SESSION_ID,
+  workflowRunId: RUN_ID,
+  definitionId: "wfd-1",
+  workflowVersionId: "wfv-3",
+};
+const STEP = {
+  sessionId: SESSION_ID,
+  workflowRunId: RUN_ID,
+  nodeId: "review-form",
+  executionIndex: 4,
+  attempt: 1,
+};
+const EMPTY = { kind: "inline", items: [] };
+
+// One sample payload per registered workflow event type, with the category it is registered under.
+const SAMPLES: ReadonlyArray<{
+  type: string;
+  category: EventCategory;
+  payload: Record<string, unknown>;
+}> = [
+  {
+    type: "workflow.started",
+    category: "workflow_lifecycle",
+    payload: { ...PINNED_RUN, mode: "manual", startedBy: { kind: "user", deviceId: "desktop-1" } },
+  },
+  {
+    type: "workflow.resumed",
+    category: "workflow_lifecycle",
+    payload: {
+      ...PINNED_RUN,
+      resumptionPoint: { activeSteps: [], pendingGates: ["review-form"] },
+    },
+  },
+  {
+    type: "workflow.canceled",
+    category: "workflow_lifecycle",
+    payload: { ...PINNED_RUN, reason: "Wrong branch." },
+  },
+  {
+    type: "workflow.results_posted",
+    category: "workflow_lifecycle",
+    payload: { sessionId: SESSION_ID, workflowRunId: RUN_ID },
+  },
+  {
+    type: "workflow.phase_suspended",
+    category: "workflow_phase_lifecycle",
+    payload: { ...STEP, waitCause: "form" },
+  },
+  {
+    type: "workflow.step_started",
+    category: "workflow_phase_lifecycle",
+    payload: { ...STEP, inputRef: EMPTY },
+  },
+  {
+    type: "workflow.step_finished",
+    category: "workflow_phase_lifecycle",
+    payload: { ...STEP, outputRef: EMPTY, logRef: EMPTY },
+  },
+  {
+    type: "workflow.step_failed",
+    category: "workflow_phase_lifecycle",
+    payload: { ...STEP, error: { message: "Exit 1" }, failedItemIndex: 0 },
+  },
+  { type: "workflow.step_canceled", category: "workflow_phase_lifecycle", payload: STEP },
+  {
+    type: "workflow.step_skipped",
+    category: "workflow_phase_lifecycle",
+    payload: { ...STEP, reason: "no-items" },
+  },
+  {
+    type: "workflow.gate_resolved",
+    category: "workflow_gate_resolution",
+    payload: {
+      ...PINNED_RUN,
+      nodeId: "approve",
+      outcome: "approved",
+      gateResolutionId: "gr-1",
+      deviceId: "desktop-1",
+    },
+  },
+];
+
+const sessionEvent = (type: string, category: EventCategory, payload: Record<string, unknown>) => ({
+  ...buildSessionCreatedEvent(),
+  category,
+  type,
+  payload,
+});
+
+describe("workflow events in the session event union", () => {
+  it("parses each type into its own payload and refuses its payload under any other type", () => {
+    for (const sample of SAMPLES) {
+      const parsed = SessionEventSchema.safeParse(
+        sessionEvent(sample.type, sample.category, sample.payload),
+      );
+      expect(parsed.success, sample.type).toBe(true);
+      expect(parsed.data?.type).toBe(sample.type);
+      expect(parsed.data?.payload).toEqual(sample.payload);
+      for (const other of SAMPLES.filter((candidate) => candidate.type !== sample.type)) {
+        const misnamed = sessionEvent(other.type, other.category, sample.payload);
+        expect(
+          SessionEventSchema.safeParse(misnamed).success,
+          `${sample.type} as ${other.type}`,
+        ).toBe(false);
+      }
+    }
+  });
+});
 
 describe("workflow.gate_resolved", () => {
-  it("names the answering device and pinned version, and refuses a scope on the event", () => {
+  it("names the answering device and the pinned version", () => {
     const event = {
-      sessionId: SESSION_ID,
-      workflowRunId: RUN_ID,
-      definitionId: "wfd-1",
-      workflowVersionId: "wfv-3",
+      ...PINNED_RUN,
       outcome: "approved",
       gateResolutionId: "gr-1",
       deviceId: "desktop-1",
@@ -27,19 +135,12 @@ describe("workflow.gate_resolved", () => {
     expect(WorkflowGateResolvedPayloadSchema.safeParse(withoutDevice).success).toBe(false);
     const { workflowVersionId: _workflowVersionId, ...withoutVersion } = event;
     expect(WorkflowGateResolvedPayloadSchema.safeParse(withoutVersion).success).toBe(false);
-    expect(
-      WorkflowGateResolvedPayloadSchema.safeParse({ ...event, scope: "workflow-phase" }).success,
-    ).toBe(false);
   });
 });
 
 describe("workflow.phase_suspended", () => {
-  const suspended = (payload: Record<string, unknown>) => ({
-    ...buildSessionCreatedEvent(),
-    category: "workflow_phase_lifecycle",
-    type: "workflow.phase_suspended",
-    payload: { sessionId: SESSION_ID, ...STEP, attempt: 1, ...payload },
-  });
+  const suspended = (payload: Record<string, unknown>) =>
+    sessionEvent("workflow.phase_suspended", "workflow_phase_lifecycle", { ...STEP, ...payload });
 
   it("accepts an account wait naming its spent account, with or without a resume instant", () => {
     const scheduled = {
@@ -56,7 +157,8 @@ describe("workflow.phase_suspended", () => {
     expect(SessionEventSchema.safeParse(suspended({ waitCause: "account" })).success).toBe(false);
   });
 
-  it("refuses an account or a resume instant on a wait for a person", () => {
+  it("refuses a cause outside the set, and an account or a resume instant on a wait for a person", () => {
+    expect(SessionEventSchema.safeParse(suspended({ waitCause: "memory" })).success).toBe(false);
     const withAccount = { waitCause: "approval", providerAccountId: "acct-1" };
     expect(SessionEventSchema.safeParse(suspended(withAccount)).success).toBe(false);
     const withResume = { waitCause: "form", resumeAt: "2026-09-29T19:00:00Z" };

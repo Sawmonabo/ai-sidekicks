@@ -778,14 +778,22 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     stepCount: read.steps.filter((step) => step.finishedAt !== undefined).length,
     ...(isRunGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
     ...(read.cost === undefined ? {} : { cost: read.cost }),
-    ...(read.state === "waiting" && waitingStep?.waitCause !== undefined
-      ? { waitCause: waitingStep.waitCause }
-      : {}),
-    ...(read.state === "waiting" && waitingStep?.resumeAt !== undefined
-      ? { resumeAt: waitingStep.resumeAt }
-      : {}),
+    ...(read.state === "waiting" ? waitOfStep(waitingStep) : {}),
     keep: read.keep,
   };
+}
+
+// Only an account wait carries a resume instant onto the row.
+function waitOfStep(
+  step: WorkflowStep | undefined,
+):
+  | { waitCause?: Exclude<WorkflowWaitCause, "account"> }
+  | { waitCause: "account"; resumeAt?: string } {
+  if (step?.waitCause === undefined) return {};
+  if (step.waitCause !== "account") return { waitCause: step.waitCause };
+  return step.resumeAt === undefined
+    ? { waitCause: "account" }
+    : { waitCause: "account", resumeAt: step.resumeAt };
 }
 
 // The fixture's paying account carries its provider-reported identity, so it always has a label.

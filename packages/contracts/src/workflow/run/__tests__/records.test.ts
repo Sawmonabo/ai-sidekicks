@@ -1,10 +1,10 @@
 // The run page, the runs table, the runs-needing-you section and the live stream read run
 // records. These tests hold the rules those readers depend on: the run read's chain and capture
 // facts, Review only on a finished run, a live step only on a going one, a waiting run carrying
-// the step that waits, the chain's question only on its first run, the runs table's filters, a
-// row whose duration, live step and wait cause agree with its status, a page that never
-// outnumbers its total, account lines standing above the runs that need a person, counted apart
-// from them, and a removal that names its runs.
+// the step that waits, the chain's question only on its first run, the runs table's filters and a
+// version scope that names its workflow, a row whose duration, live step and wait agree with its
+// status, a page that never outnumbers its total, account lines standing above the runs that need
+// a person, counted apart from them, and a removal that names its runs.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -137,8 +137,11 @@ describe("workflow.runList", () => {
     expect(WorkflowRunListRequestSchema.safeParse(request).success).toBe(true);
   });
 
-  it("refuses a filter the runs table does not have", () => {
+  it("refuses a filter the runs table does not have, and a version scope with no workflow", () => {
     expect(WorkflowRunListRequestSchema.safeParse({ tag: "nightly" }).success).toBe(false);
+    expect(WorkflowRunListRequestSchema.safeParse({ workflowVersionId: "wfv-5" }).success).toBe(
+      false,
+    );
   });
 
   it("accepts a going row with its live step and a finished row with its duration", () => {
@@ -162,11 +165,17 @@ describe("workflow.runList", () => {
     );
   });
 
-  it("refuses a row whose duration, live step or wait cause disagrees with its status", () => {
+  it("refuses a row whose duration, live step or wait disagrees with its status", () => {
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, durationMs: 1_000 }).success).toBe(false);
     const finished = { ...ROW, status: "failed", durationMs: 1_000 };
     expect(WorkflowRunSummarySchema.safeParse(finished).success).toBe(false);
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, status: "waiting" }).success).toBe(false);
+    // Only an account wait resumes itself, so only it carries the instant it resumes.
+    const resumeAt = "2026-09-29T10:00:00Z";
+    const parked = { ...ROW, status: "waiting", waitCause: "account", resumeAt };
+    expect(WorkflowRunSummarySchema.safeParse(parked).success).toBe(true);
+    const approving = { ...parked, waitCause: "approval" };
+    expect(WorkflowRunSummarySchema.safeParse(approving).success).toBe(false);
   });
 
   it("refuses a page holding more runs than its total", () => {

@@ -4,6 +4,7 @@
 // descriptor registers nothing.
 import { z } from "zod";
 
+import { countSchema } from "../../internal/wire-scalars.js";
 import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../../project.js";
@@ -45,6 +46,18 @@ export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
   .refine((reason) => jsonUtf8ByteLength(reason) <= WORKFLOW_CANCEL_REASON_BYTE_CAP, {
     message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes as JSON.`,
   });
+
+/**
+ * A re-pin as a resume's reply and its `workflow.resumed` event record it: on an accepted re-pin
+ * both the version the run left and the one it joined, and otherwise neither.
+ */
+export type WorkflowVersionRepin =
+  | { repinnedFromWorkflowVersionId?: undefined; repinnedToWorkflowVersionId?: undefined }
+  | { repinnedFromWorkflowVersionId: string; repinnedToWorkflowVersionId: string };
+const workflowVersionRepinFields = {
+  repinnedFromWorkflowVersionId: WorkflowVersionIdSchema,
+  repinnedToWorkflowVersionId: WorkflowVersionIdSchema,
+};
 
 // Several replies answer with only some statuses. Each subset is taken from the one
 // status list rather than spelled again, so a renamed status cannot leave a subset behind.
@@ -186,27 +199,19 @@ export const WorkflowRunResumeRequestSchema: z.ZodType<
  * that reaches a provider account still out of quota waits again, and that new wait is
  * what the person sees. The two repinned ids are present only on an accepted re-pin.
  */
-export interface WorkflowRunResumeResponse {
+export type WorkflowRunResumeResponse = {
   workflowRunId: WorkflowRunId;
   state: Extract<WorkflowRunStatus, "running" | "waiting">;
-  repinnedFromWorkflowVersionId?: string | undefined;
-  repinnedToWorkflowVersionId?: string | undefined;
-}
-/** Wire schema for {@link WorkflowRunResumeResponse}. */
-export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["running", "waiting"]),
-    repinnedFromWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-    repinnedToWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (reply) =>
-      (reply.repinnedFromWorkflowVersionId === undefined) ===
-      (reply.repinnedToWorkflowVersionId === undefined),
-    { path: ["repinnedToWorkflowVersionId"], message: "A re-pin names both versions." },
-  );
+} & WorkflowVersionRepin;
+const workflowRunResumeResponseFields = {
+  workflowRunId: WorkflowRunIdSchema,
+  state: workflowRunStatusEnum.extract(["running", "waiting"]),
+};
+/** Wire schema for {@link WorkflowRunResumeResponse}; a re-pin names both versions or neither. */
+export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z.union([
+  z.object(workflowRunResumeResponseFields).strict(),
+  z.object({ ...workflowRunResumeResponseFields, ...workflowVersionRepinFields }).strict(),
+]);
 
 // workflow.runRetry
 
@@ -262,6 +267,14 @@ export const WorkflowRunRerunRequestSchema: z.ZodType<
 // workflow.nodeExecute
 
 /**
+ * What a node run covers: the node alone (`Run this node`), or the node and its ancestors
+ * (`Run from here`).
+ */
+export const WORKFLOW_NODE_EXECUTE_SCOPES = ["node", "fromHere"] as const;
+/** One of {@link WORKFLOW_NODE_EXECUTE_SCOPES}. */
+export type WorkflowNodeExecuteScope = (typeof WORKFLOW_NODE_EXECUTE_SCOPES)[number];
+
+/**
  * The `workflow.nodeExecute` input: `Run this node` (`node`) or `Run from here`
  * (`fromHere`, the node and its ancestors) on a saved version, never unsaved bytes.
  * `projectId` is the project the builder's `Repository` panel names for a node run on a `chat` or
@@ -274,7 +287,7 @@ export interface WorkflowNodeExecuteRequest {
   sessionId?: SessionId | undefined;
   projectId?: ProjectId | undefined;
   nodeId: WorkflowNodeId;
-  scope: "node" | "fromHere";
+  scope: WorkflowNodeExecuteScope;
   dirtyNodeIds?: WorkflowNodeId[] | undefined;
 }
 /** Wire schema for {@link WorkflowNodeExecuteRequest}. */
@@ -287,7 +300,7 @@ export const WorkflowNodeExecuteRequestSchema: z.ZodType<
     sessionId: SessionIdSchema.optional(),
     projectId: ProjectIdSchema.optional(),
     nodeId: WorkflowNodeIdSchema,
-    scope: z.enum(["node", "fromHere"]),
+    scope: z.enum(WORKFLOW_NODE_EXECUTE_SCOPES),
     dirtyNodeIds: z.array(WorkflowNodeIdSchema).optional(),
   })
   .strict();
@@ -336,6 +349,9 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 
 // Refusals
 
+// A refusal that names the nodes it is about names at least one.
+const refusedNodeIdsSchema = z.array(WorkflowNodeIdSchema).min(1);
+
 /**
  * A start the policy check denied, or whose principal could not be resolved.
  *
@@ -369,7 +385,26 @@ export interface WorkflowRepositoryRequiredDetails {
  * @consumedBy the start and node-run handlers that refuse a run needing a repository
  */
 export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowRepositoryRequiredDetails> =
-  z.object({ nodeIds: z.array(WorkflowNodeIdSchema).min(1) }).strict();
+  z.object({ nodeIds: refusedNodeIdsSchema }).strict();
+
+/**
+ * A start of a version whose Code steps' packages are not locked; a later save that locks them
+ * makes the version runnable. Nothing runs.
+ *
+ * @consumedBy the start handler that refuses a version whose Code packages are not locked
+ */
+export const WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = "workflow.code_packages_not_locked" as const;
+/** The unlocked-packages refusal's details: the Code nodes whose packages are not locked. */
+export interface WorkflowCodePackagesNotLockedDetails {
+  nodeIds: WorkflowNodeId[];
+}
+/**
+ * Wire schema for {@link WorkflowCodePackagesNotLockedDetails}.
+ *
+ * @consumedBy the start handler that refuses a version whose Code packages are not locked
+ */
+export const WorkflowCodePackagesNotLockedDetailsSchema: z.ZodType<WorkflowCodePackagesNotLockedDetails> =
+  z.object({ nodeIds: refusedNodeIdsSchema }).strict();
 
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume
@@ -476,25 +511,51 @@ export const WorkflowCanceledPayloadSchema: z.ZodType<WorkflowCanceledPayload> =
   })
   .strict();
 
-/** `workflow.resumed`, with the version pair only on an accepted re-pin. */
-export interface WorkflowResumedPayload extends WorkflowRunEventPayload {
-  repinnedFromWorkflowVersionId?: string | undefined;
-  repinnedToWorkflowVersionId?: string | undefined;
+/** One step a resumed run picks up, by its node, its attempt and which execution of the node. */
+export interface WorkflowResumedStep {
+  nodeId: WorkflowNodeId;
+  attempt: number;
+  executionIndex: number;
 }
-/** Wire schema for {@link WorkflowResumedPayload}; a re-pin names both versions. */
-export const WorkflowResumedPayloadSchema: z.ZodType<WorkflowResumedPayload> = z
-  .object({
-    ...workflowRunEventFields,
-    repinnedFromWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-    repinnedToWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (payload) =>
-      (payload.repinnedFromWorkflowVersionId === undefined) ===
-      (payload.repinnedToWorkflowVersionId === undefined),
-    { path: ["repinnedToWorkflowVersionId"], message: "A re-pin names both versions." },
-  );
+
+/**
+ * Where a resumed run picks up, so a reader rebuilds it without replaying the run's whole history:
+ * the steps going on and the approval steps still waiting for an answer.
+ */
+export interface WorkflowResumptionPoint {
+  activeSteps: WorkflowResumedStep[];
+  pendingGates: WorkflowNodeId[];
+}
+
+/**
+ * `workflow.resumed`: a person or an armed schedule resumed a waiting or failed run, with where it
+ * picks up and, only on an accepted re-pin, the version it left and the one it joined.
+ */
+export type WorkflowResumedPayload = WorkflowRunEventPayload & {
+  resumptionPoint: WorkflowResumptionPoint;
+} & WorkflowVersionRepin;
+const workflowResumedFields = {
+  ...workflowRunEventFields,
+  resumptionPoint: z
+    .object({
+      activeSteps: z.array(
+        z
+          .object({
+            nodeId: WorkflowNodeIdSchema,
+            attempt: z.number().int().positive(),
+            executionIndex: countSchema,
+          })
+          .strict(),
+      ),
+      pendingGates: z.array(WorkflowNodeIdSchema),
+    })
+    .strict(),
+};
+/** Wire schema for {@link WorkflowResumedPayload}; a re-pin names both versions or neither. */
+export const WorkflowResumedPayloadSchema: z.ZodType<WorkflowResumedPayload> = z.union([
+  z.object(workflowResumedFields).strict(),
+  z.object({ ...workflowResumedFields, ...workflowVersionRepinFields }).strict(),
+]);
 
 /**
  * `workflow.results_posted`: a finished run's results landed as the results row in
