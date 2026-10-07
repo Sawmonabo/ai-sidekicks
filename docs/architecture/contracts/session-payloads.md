@@ -443,6 +443,43 @@ interface TranscriptSearchHit {
   matchRanges: SearchMatchRange[];
 }
 
+// SessionList — session.list, live: the list, then each change. The opening list comes as the
+// acknowledgment and then `page` changes, each fitting one message (PAGE_MAX_BYTES), before any other
+// change; it is whole at the acknowledgment or page marked `isComplete`. A reader shows no part of it as
+// the whole list.
+interface SessionListAck {
+  subscriptionId: SubscriptionId;
+  sessions: SessionListEntry[];
+  chatCount: number; // the chats not archived, closed or awaiting purge, counted by the daemon
+  isComplete: boolean;
+}
+type SessionListChange =
+  | { kind: "page"; sessions: SessionListEntry[]; chatCount: number; isComplete: boolean } // at least one entry
+  | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
+  | { kind: "remove"; sessionId: SessionId; chatCount: number }; // only a purge removes one
+// A project entry names its project's mount, its branch and the group it sits in; a chat entry counts
+// its documents.
+type SessionListEntry = (
+  | {
+      shape: "project";
+      repoMountId: RepoMountId;
+      branch?: string;
+      group?: { groupId: SessionGroupId; name: string };
+    }
+  | { shape: "chat"; documentCount: number }
+) & {
+  sessionId: SessionId;
+  name?: string; // absent while untitled; the row then shows firstMessagePreview
+  firstMessagePreview?: string;
+  state: SessionState;
+  activity: "running" | "waiting" | "done" | "failed" | "idle";
+  activityRenewedAt: string; // republished every 15 s while running or waiting; older than 45 s reads idle
+  pinnedAt?: string;
+  muted: boolean;
+  exchange?: { peerSessionId: SessionId; peerName: string; messageCount: number };
+  lastActivityAt: string;
+};
+
 // ---- Groups, links and tags: the person's half ----
 // The person places, relates and labels sessions as the agents do through `session_group` and
 // `session_update` (Spec-014), on the same service and the same tables

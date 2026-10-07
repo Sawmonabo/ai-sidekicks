@@ -167,8 +167,10 @@ CREATE TABLE session_tags (
 CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, session_id);
 
 -- Each session's related list, computed ahead by personalized PageRank cut at two steps and stored
--- under the session's id, so a read is one indexed lookup. A new link re-scores, in the background
--- after its event is written, only the two sessions it joins and their neighbors.
+-- under the session's id, so a read is one indexed lookup. Only the sessions it links to directly are
+-- stored, each scored with the two-step paths that also reach it, since every row of the list names a
+-- link. A new link re-scores, in the background after its event is written, only the two sessions it
+-- joins and their neighbors.
 CREATE TABLE session_related (
   session_id          TEXT NOT NULL,
   related_session_id  TEXT NOT NULL,
@@ -179,7 +181,7 @@ CREATE TABLE session_related (
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
 ```
 
-Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on SQLite 3.50.4 at that size, a stored related list read in 0.012 ms and a tag or group lookup in 0.033 ms at p95.
+Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link 55 ms at p95, off the verb's path.
 
 ---
 
