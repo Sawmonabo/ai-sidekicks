@@ -52,8 +52,8 @@ import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrumen
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 // The viewport's own overscan, so the bound below is not a figure kept in step by hand.
 import { TRANSCRIPT_OVERSCAN_ROWS } from "#renderer/features/transcript/viewport/caps.js";
-import { BudgetRegistry } from "#scripts/budget/registry.mts";
-import { evaluateBudget } from "#scripts/budget/evaluation.mts";
+import { BudgetRegistry } from "../helpers/budget/registry.js";
+import { evaluateBudget } from "../helpers/budget/evaluation.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

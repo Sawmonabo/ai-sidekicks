@@ -43,7 +43,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
-import { DESKTOP_PACKAGE_ROOT } from "#scripts/budget/registry.mts";
+import { PACKAGE_ROOT } from "../helpers/fixture/bundle.js";
 import { FIXTURE_GLOBAL_NAMES } from "#renderer/app/fixture/global-names.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "#shared/fixture-launch.js";
 import { type PerformanceMeterKind } from "#renderer/lib/performance-meters/registry.js";
@@ -200,11 +200,11 @@ describe("release build — the fixture code is absent, not merely unreachable",
       "src/renderer/src/app/pane-harness/Planted.tsx",
       "src/renderer/src/features/transcript/planted.test.ts",
       "src/renderer/src/features/transcript/planted.test-support.ts",
-    ].map((modulePath) => join(DESKTOP_PACKAGE_ROOT, modulePath));
+    ].map((modulePath) => join(PACKAGE_ROOT, modulePath));
     const planted: readonly BuiltSourceMap[] = [
       {
         relativePath: "renderer/assets/clean.js.map",
-        sources: [join(DESKTOP_PACKAGE_ROOT, "src/renderer/src/app/App.tsx")],
+        sources: [join(PACKAGE_ROOT, "src/renderer/src/app/App.tsx")],
       },
       { relativePath: "renderer/assets/planted.js.map", sources: plantedSources },
     ];

@@ -33,8 +33,8 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { HeapSampler, retainedGrowthBytes } from "../heap/sampling.js";
 import { createTranscriptEnduranceFixture } from "./long-log.test-support.js";
 import { deriveTranscriptWindow } from "#renderer/features/transcript/window/transcript-window.js";
-import { BudgetRegistry } from "#scripts/budget/registry.mts";
-import { evaluateBudget } from "#scripts/budget/evaluation.mts";
+import { BudgetRegistry } from "#test/helpers/budget/registry.js";
+import { evaluateBudget } from "#test/helpers/budget/evaluation.js";
 
 /**
  * The length of log this tier measures the transcript at.

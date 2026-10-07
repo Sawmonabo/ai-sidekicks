@@ -50,7 +50,7 @@
       "cache": false
     },
     "typecheck": {
-      // `scripts/**` is an input because the harnesses there are TypeScript that
+      // `scripts/**` is an input because the scripts there are TypeScript that
       // `tsconfig.scripts.json` typechecks, so a change to one must invalidate this task.
       // The Vitest config and the root module it imports are typechecked by `tsconfig.test.json`.
       "inputs": [
@@ -132,9 +132,9 @@
       // Every tree the project's `include` discovers tests in, and every file those tests read.
       // `src/**` rather than its main, preload and shared folders, because the fixture-launch unit
       // imports the scenario catalog in `fixtures/**`, whose scenarios import renderer modules, and
-      // the config's icon plugin imports the renderer's glyph constants. The budget registry is
-      // read, since the budget scripts' own tests evaluate its rows. The config also imports the
-      // root `vitest.shared.ts`.
+      // the config's icon plugin imports the renderer's glyph constants. The budget document is
+      // read, since the registry's own test evaluates its rows. The config also imports the root
+      // `vitest.shared.ts`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -162,7 +162,7 @@
         "tsconfig*.json",
         "package.json",
         "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/helpers/**"
       ],
       "outputs": ["coverage/**"],
       "cache": false
@@ -174,9 +174,8 @@
       "dependsOn": ["build:smoke", "@ai-sidekicks/runtime-daemon#build"],
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.
-      // `scripts/materialize-electron.ts` is named because this task runs it, and
-      // `scripts/budget/**` because the config reads the launch budgets through it; `scripts/**`
-      // would pull every other script in with them.
+      // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
+      // pull every other script in with it.
       "inputs": [
         "tests/*.test.ts",
         "tests/helpers/**",
@@ -186,8 +185,7 @@
         "vitest/**",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -200,7 +198,8 @@
     // tree that is no longer there.
     //
     // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`), so each
-    // lists `tests/budget/document.json` and the `scripts/budget/**` reader that loads it.
+    // lists `tests/budget/document.json` and `tests/helpers/**`, which holds the registry that
+    // loads it.
 
     "test:renderer": {
       "dependsOn": ["^build"],
@@ -216,8 +215,7 @@
         "vitest/**",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -234,8 +232,7 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -254,8 +251,7 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -267,7 +263,7 @@
       "dependsOn": ["build"],
       "inputs": [
         "tests/budget/**",
-        "scripts/budget/**",
+        "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
@@ -303,8 +299,7 @@
         "vitest/**",
         "package.json",
         "out/**",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -327,8 +322,7 @@
         "vitest/**",
         "package.json",
         "out/**",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -348,7 +342,7 @@
       "inputs": [
         ".size-limit.ts",
         "tests/budget/built-renderer-tree.ts",
-        "scripts/budget/**",
+        "tests/helpers/fixture/bundle.ts",
         "out/renderer/**",
         "package.json"
       ],

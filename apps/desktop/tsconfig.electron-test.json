@@ -16,11 +16,11 @@
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
-    // The budget registry's modules import each other by their real `.mts` path, because
-    // `node --experimental-strip-types` resolves the extension it is given and does no `.mjs` to
-    // `.mts` rewriting. A program that pulls them in needs this option, and this tier does, through
-    // `tests/helpers/launch/budgets.ts`, which reads the harness bounds off the same registry.
-    // Legal here because this config is `noEmit`.
+    // The budget registry under `tests/helpers/budget/` names what it imports by its real `.ts`
+    // path, because the Vitest config loads it and Node maps no `.js` specifier to a `.ts` source.
+    // A program that pulls it in needs this option, and these tiers do, through their budget
+    // checks and `tests/helpers/launch/budgets.ts`, which reads the harness bounds off it. Legal
+    // here because this config is `noEmit`.
     "allowImportingTsExtensions": true,
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
     // project-references graph.

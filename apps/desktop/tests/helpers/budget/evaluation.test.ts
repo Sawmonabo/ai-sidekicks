@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "./registry.mts";
-import { BudgetRegistryError } from "./document.mts";
-import { evaluateBudget } from "./evaluation.mts";
+import { BudgetRegistryError } from "./document.js";
+import { evaluateBudget } from "./evaluation.js";
+import { BudgetRegistry } from "./registry.js";
 
 const registry = BudgetRegistry.load();
 

@@ -68,8 +68,8 @@ import {
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
 } from "#renderer/features/terminal/caps.js";
 import { TerminalRendererPool } from "#renderer/features/terminal/emulator/renderer-pool.js";
-import { BudgetRegistry } from "#scripts/budget/registry.mts";
-import { evaluateBudget } from "#scripts/budget/evaluation.mts";
+import { BudgetRegistry } from "#test/helpers/budget/registry.js";
+import { evaluateBudget } from "#test/helpers/budget/evaluation.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

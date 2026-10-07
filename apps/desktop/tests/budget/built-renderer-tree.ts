@@ -14,7 +14,7 @@
 import { existsSync, globSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
-import { DESKTOP_PACKAGE_ROOT } from "#scripts/budget/registry.mts";
+import { PACKAGE_ROOT } from "../helpers/fixture/bundle.ts";
 
 /** One built file: where it sits in the renderer output, and what it holds. */
 export interface BuiltFile {
@@ -47,7 +47,7 @@ export const SMOKE_PROBE_FOLDER = "/src/main/probes/";
 export const BUILD_TARGETS = ["main", "preload", "renderer"] as const;
 
 /** `out/`, the directory every build target writes beneath. */
-const BUILD_OUTPUT_DIRECTORY: string = join(DESKTOP_PACKAGE_ROOT, "out");
+const BUILD_OUTPUT_DIRECTORY: string = join(PACKAGE_ROOT, "out");
 
 /** `out/renderer/`, the `renderer.build.outDir` of `electron.vite.config.ts`. */
 const RENDERER_OUTPUT_DIRECTORY: string = join(BUILD_OUTPUT_DIRECTORY, "renderer");

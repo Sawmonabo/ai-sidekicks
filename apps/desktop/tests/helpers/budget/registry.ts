@@ -1,24 +1,14 @@
 // Query layer over `tests/budget/document.json`, where every numeric budget the app is gated on is
 // written down except the bundle sizes, which `.size-limit.ts` holds. Validation is
-// `document.mts`, and comparing a measurement is `evaluation.mts`.
+// `document.ts`, and comparing a measurement is `evaluation.ts`.
 
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { type Budget, BudgetRegistryError, readBudgetDocument } from "./document.mts";
-
-const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
-
-/** `apps/desktop`, resolved from this file so every default path is absolute. */
-export const DESKTOP_PACKAGE_ROOT: string = path.resolve(THIS_DIRECTORY, "..", "..");
+import { PACKAGE_ROOT } from "../fixture/bundle.ts";
+import { type Budget, BudgetRegistryError, readBudgetDocument } from "./document.ts";
 
 /** Absolute path of the checked-in `tests/budget/document.json`. */
-const BUDGETS_FILE_PATH: string = path.join(
-  DESKTOP_PACKAGE_ROOT,
-  "tests",
-  "budget",
-  "document.json",
-);
+const BUDGETS_FILE_PATH: string = path.join(PACKAGE_ROOT, "tests", "budget", "document.json");
 
 /** The parsed `tests/budget/document.json`. Construct with `BudgetRegistry.load()`. */
 export class BudgetRegistry {

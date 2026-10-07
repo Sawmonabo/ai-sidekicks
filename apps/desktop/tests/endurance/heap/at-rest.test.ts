@@ -32,8 +32,8 @@ import {
 } from "../workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "#scripts/budget/registry.mts";
-import { evaluateBudget } from "#scripts/budget/evaluation.mts";
+import { BudgetRegistry } from "../../helpers/budget/registry.js";
+import { evaluateBudget } from "../../helpers/budget/evaluation.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

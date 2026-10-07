@@ -1,7 +1,7 @@
 // Compares a measurement with a budget's ceiling. Every harness runs this one comparison, so `<=`
 // is never written a second time in a measuring script, where a budget could be loosened.
 
-import { type Budget } from "./document.mts";
+import { type Budget } from "./document.ts";
 
 /** The outcome of comparing one measurement with one budget, in the canonical unit. */
 export interface BudgetVerdict {
