@@ -66,7 +66,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const listId = useId();
   const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
-  const listScrollbarRef = useOverlayScrollbar(listRef);
+  const scrollerScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
   // Set by a press that could not be honored; cleared by the next move or act.
@@ -169,42 +169,46 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         entry starts no turn.
       </p>
       {entries.length === 0 ? null : (
-        <ul
-          className="meridian-command-discovery__list"
-          id={listId}
-          ref={listScrollbarRef}
-          role="listbox"
-          tabIndex={0}
-          aria-label="Commands and skills"
-          aria-describedby={ledeId}
-          aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
-          onKeyDown={onListKeyDown}
-        >
-          {/* An empty group is left out: a heading over no rows would assert a category the
-              filtered catalog does not have. */}
-          {consoleRows.length === 0 ? null : (
-            <CommandListGroup
-              rows={consoleRows}
-              labelText={CONSOLE_GROUP_LABEL}
-              labelElementId={`${listId}-group-console`}
-              activeFlatIndex={boundedIndex}
-              rowElementId={(flatIndex) => rowId(listId, flatIndex)}
-              onSelect={setActiveIndex}
-              onRun={runConsoleCommand}
-            />
-          )}
-          {providerRows.length === 0 ? null : (
-            <CommandListGroup
-              rows={providerRows}
-              labelText={PROVIDER_GROUP_LABEL}
-              labelElementId={`${listId}-group-provider`}
-              activeFlatIndex={boundedIndex}
-              rowElementId={(flatIndex) => rowId(listId, flatIndex)}
-              onSelect={setActiveIndex}
-              onRun={runConsoleCommand}
-            />
-          )}
-        </ul>
+        // The bar is drawn inside the scroller, so the scroller is not the listbox: a listbox
+        // holds only its groups and options.
+        <div className="meridian-command-discovery__scroller" ref={scrollerScrollbarRef}>
+          <ul
+            className="meridian-command-discovery__list"
+            id={listId}
+            ref={listRef}
+            role="listbox"
+            tabIndex={0}
+            aria-label="Commands and skills"
+            aria-describedby={ledeId}
+            aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
+            onKeyDown={onListKeyDown}
+          >
+            {/* An empty group is left out: a heading over no rows would assert a category the
+                filtered catalog does not have. */}
+            {consoleRows.length === 0 ? null : (
+              <CommandListGroup
+                rows={consoleRows}
+                labelText={CONSOLE_GROUP_LABEL}
+                labelElementId={`${listId}-group-console`}
+                activeFlatIndex={boundedIndex}
+                rowElementId={(flatIndex) => rowId(listId, flatIndex)}
+                onSelect={setActiveIndex}
+                onRun={runConsoleCommand}
+              />
+            )}
+            {providerRows.length === 0 ? null : (
+              <CommandListGroup
+                rows={providerRows}
+                labelText={PROVIDER_GROUP_LABEL}
+                labelElementId={`${listId}-group-provider`}
+                activeFlatIndex={boundedIndex}
+                rowElementId={(flatIndex) => rowId(listId, flatIndex)}
+                onSelect={setActiveIndex}
+                onRun={runConsoleCommand}
+              />
+            )}
+          </ul>
+        </div>
       )}
       {isServedEmpty ? (
         <Nothing

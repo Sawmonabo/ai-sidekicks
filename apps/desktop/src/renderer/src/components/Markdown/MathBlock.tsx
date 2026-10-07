@@ -21,7 +21,9 @@ export interface MathBlockProps {
 /** A formula typeset by KaTeX, or its source beside an error state when it cannot be. */
 export function MathBlock(props: MathBlockProps): React.JSX.Element {
   const state = useKatexMarkup(props.source, props.isDisplayMode);
-  const displayScrollbarRef = useOverlayScrollbar<HTMLSpanElement>();
+  const displayScrollbarRef = useOverlayScrollbar<HTMLSpanElement>(undefined, {
+    start: "on-first-interaction",
+  });
 
   if (state.status === "rendered") {
     // KaTeX's MathML output over `trust: false`.

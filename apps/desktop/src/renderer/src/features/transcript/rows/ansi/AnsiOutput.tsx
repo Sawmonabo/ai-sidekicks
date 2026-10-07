@@ -34,7 +34,9 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
     () => parseAnsiSpans(props.source, spanCap),
     [props.source, spanCap],
   );
-  const bodyScrollbarRef = useOverlayScrollbar<HTMLPreElement>();
+  const bodyScrollbarRef = useOverlayScrollbar<HTMLPreElement>(undefined, {
+    start: "on-first-interaction",
+  });
 
   return (
     <div className="meridian-ansi">

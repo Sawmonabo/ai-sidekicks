@@ -57,9 +57,16 @@ function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
 
 /** The payload text in a box that scrolls under the overlay scrollbar. */
 function ArtifactPayloadPreview(props: { readonly text: string }): React.JSX.Element {
-  const previewScrollbarRef = useOverlayScrollbar<HTMLPreElement>();
+  const previewScrollbarRef = useOverlayScrollbar<HTMLPreElement>(undefined, {
+    start: "on-first-interaction",
+  });
   return (
-    <pre className="meridian-artifact-payload__preview" ref={previewScrollbarRef}>
+    // A tab stop, so a keyboard alone can scroll text that holds nothing focusable.
+    <pre
+      className="meridian-artifact-payload__preview meridian-focus-inset"
+      ref={previewScrollbarRef}
+      tabIndex={0}
+    >
       {/* An element, not bare text: React writes a lone text child through `textContent`, which
           would delete the scrollbar drawn inside the box. */}
       <span>{props.text}</span>

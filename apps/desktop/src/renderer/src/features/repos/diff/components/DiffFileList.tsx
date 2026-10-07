@@ -38,7 +38,9 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     () => "",
   );
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef);
+  const isScrolling = props.diff.files.length > DIFF_FILE_LIST_SCROLL_THRESHOLD;
+  // A list under the threshold never scrolls, so it attaches no bar.
+  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef, { isEnabled: isScrolling });
   const clock = useBridgeClock();
 
   const { entries, matchCount } = useMemo(
@@ -75,8 +77,6 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     rowSetIdentity: entries,
     windowRevision: virtualRows,
   });
-
-  const isScrolling = props.diff.files.length > DIFF_FILE_LIST_SCROLL_THRESHOLD;
 
   return (
     <div className={`meridian-diff-files${isScrolling ? " meridian-diff-files--scrolling" : ""}`}>

@@ -86,7 +86,9 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
-  const bodyScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const bodyScrollbarRef = useOverlayScrollbar<HTMLDivElement>(undefined, {
+    start: "on-first-interaction",
+  });
 
   return (
     <section

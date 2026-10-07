@@ -30,7 +30,7 @@ export interface PayloadRowWindowProps {
 /** A payload's rows in one scroll box, drawn only where the reader is. */
 export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef);
+  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef, { start: "on-first-interaction" });
   const clock = useBridgeClock();
   const { virtualizer } = useRowWindow({
     rowCount: props.rowCount,

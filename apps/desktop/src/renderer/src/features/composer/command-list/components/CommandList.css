@@ -16,14 +16,17 @@
   font-size: var(--meridian-text-xs);
 }
 
+.meridian-command-discovery__scroller {
+  max-height: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+}
+
 .meridian-command-discovery__list {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
   margin: 0;
   padding: 0;
-  max-height: var(--meridian-enumeration-max-height);
-  overflow-y: auto;
   list-style: none;
 }
 

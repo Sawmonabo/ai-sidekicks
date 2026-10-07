@@ -25,7 +25,7 @@ export interface WorkflowStartCandidatesProps {
 /** The candidate list, for the caller to mount while a `/workflow run` argument is open. */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
-  const listScrollbarRef = useOverlayScrollbar<HTMLUListElement>();
+  const listScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
   return (
     <div className="meridian-workflow-start__candidates">
       {renderReading(definitions, complete, typedPrefix, onComplete, listScrollbarRef)}
@@ -39,7 +39,7 @@ function renderReading(
   complete: boolean,
   typedPrefix: string | undefined,
   onComplete: (definitionName: string) => void,
-  listScrollbarRef: React.RefCallback<HTMLUListElement>,
+  listScrollbarRef: React.RefCallback<HTMLDivElement>,
 ): React.JSX.Element {
   if (complete && definitions.length === 0) {
     return <Nothing kind="empty" title="No workflows yet" />;
@@ -61,25 +61,25 @@ function renderReading(
       />
     );
   }
+  // The bar is drawn inside the scroller, so the scroller is not the list: a list holds only its
+  // items.
   return (
-    <ul
-      className="meridian-workflow-start__candidate-list"
-      aria-label="Workflows"
-      ref={listScrollbarRef}
-    >
-      {candidates.map((definition) => (
-        <li key={definition.id} className="meridian-workflow-start__candidate">
-          <button
-            type="button"
-            className="meridian-workflow-start__candidate-name"
-            onClick={() => {
-              onComplete(definition.name);
-            }}
-          >
-            {definition.name}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="meridian-workflow-start__candidate-scroller" ref={listScrollbarRef}>
+      <ul className="meridian-workflow-start__candidate-list" aria-label="Workflows">
+        {candidates.map((definition) => (
+          <li key={definition.id} className="meridian-workflow-start__candidate">
+            <button
+              type="button"
+              className="meridian-workflow-start__candidate-name"
+              onClick={() => {
+                onComplete(definition.name);
+              }}
+            >
+              {definition.name}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

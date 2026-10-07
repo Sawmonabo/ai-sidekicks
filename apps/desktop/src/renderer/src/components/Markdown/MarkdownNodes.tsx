@@ -190,7 +190,9 @@ function MarkdownTable(props: {
   readonly node: Table;
   readonly context: MarkdownRenderContext;
 }): React.JSX.Element {
-  const tableScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
+  const tableScrollbarRef = useOverlayScrollbar<HTMLDivElement>(undefined, {
+    start: "on-first-interaction",
+  });
   return (
     <div className="meridian-markdown__table-scroll" ref={tableScrollbarRef}>
       <table className="meridian-markdown__table">

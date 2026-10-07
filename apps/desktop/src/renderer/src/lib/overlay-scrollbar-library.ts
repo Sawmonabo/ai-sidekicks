@@ -3,10 +3,17 @@
 // frames by a page that never draws, and its bars would never start. Each window document loads
 // the library's browser bundle as a script of its own, which runs in that window's realm and sets
 // `OverlayScrollbarsGlobal` there. The script element carries its own load state, so a reader in
-// any window finds the copy through the document and no registry of windows is kept.
+// any window finds the copy through the document and no registry of windows is kept. A copy that
+// fails to load is recorded once for its window, however many scrollers wait on it.
 
 import libraryUrl from "overlayscrollbars/browser/overlayscrollbars.browser.es6.min.js?url";
 import type * as OverlayScrollbarLibraryModule from "overlayscrollbars";
+
+import { RealClock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
 
 /** The library's exports, as its browser bundle sets them on a window. */
 export type OverlayScrollbarLibrary = typeof OverlayScrollbarLibraryModule;
@@ -33,6 +40,15 @@ export function installOverlayScrollbarLibrary(windowDocument: Document): void {
     "error",
     () => {
       script.dataset[LOAD_STATE_KEY] = "failed";
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(new RealClock()),
+        severity: "error",
+        source: LIBRARY_SOURCE,
+        kind: "overlay-scrollbar-library-unloaded",
+        detail:
+          `Load the overlay scrollbar library from ${libraryUrl}: this window's scrollers show ` +
+          "the platform's bar until it loads.",
+      });
     },
     { once: true },
   );
@@ -40,23 +56,20 @@ export function installOverlayScrollbarLibrary(windowDocument: Document): void {
 }
 
 /**
- * The document's copy of the library once it has loaded; `undefined` for a document that was
- * never given one, whose scrollers keep the platform's bar. Rejects when the script failed to load.
+ * The document's copy of the library once its script has settled: `undefined` when the script
+ * failed, whose failure the installer has already recorded. Returns `undefined` at once for a
+ * document never given a copy; either way its scrollers keep the platform's bar.
  */
-export function loadOverlayScrollbarLibrary(
+export function waitForOverlayScrollbarLibrary(
   windowDocument: Document,
-): Promise<OverlayScrollbarLibrary> | undefined {
+): Promise<OverlayScrollbarLibrary | undefined> | undefined {
   const script = windowDocument.getElementById(LIBRARY_SCRIPT_ID);
   if (script === null) {
     return undefined;
   }
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const settle = (): void => {
-      if (script.dataset[LOAD_STATE_KEY] === "failed") {
-        reject(new Error(`The overlay scrollbar library did not load from ${libraryUrl}.`));
-      } else {
-        resolve(libraryOf(windowDocument));
-      }
+      resolve(script.dataset[LOAD_STATE_KEY] === "failed" ? undefined : libraryOf(windowDocument));
     };
     if (script.dataset[LOAD_STATE_KEY] !== undefined) {
       settle();
@@ -70,6 +83,9 @@ export function loadOverlayScrollbarLibrary(
 
 /** The id of the script element that loads the library into a window document. */
 const LIBRARY_SCRIPT_ID = "meridian-overlay-scrollbar-library";
+
+/** The subsystem a failed load's diagnostic record names. */
+const LIBRARY_SOURCE = "lib/overlay-scrollbar-library";
 
 /** The script element's `data-*` key holding `loaded` or `failed` once it has settled. */
 const LOAD_STATE_KEY = "loadState";

@@ -38,7 +38,9 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
   );
   // Held, not derived; written only when the offset crosses the top, not per wheel notch.
   const [isClippedAbove, setIsClippedAbove] = useState(false);
-  const scrollerScrollbarRef = useOverlayScrollbar<HTMLOListElement>();
+  const scrollerScrollbarRef = useOverlayScrollbar<HTMLDivElement>(undefined, {
+    start: "on-first-interaction",
+  });
   if (contents.rows.length === 0 && contents.unheldRowCount === 0) {
     return null;
   }
@@ -46,11 +48,12 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
     <div className="meridian-run-group-body">
       {/* Never the scroll anchor: an anchored overlay would hold the fade still. */}
       {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
-      <ol
+      {/* The bar is drawn inside the scroller, so the scroller is not the list: a list holds
+          only its items. */}
+      <div
         ref={scrollerScrollbarRef}
         className="meridian-run-group-body__scroller"
         style={{ maxBlockSize }}
-        aria-label="Earlier entries in this run"
         onScroll={(event) => {
           const clippedAbove = event.currentTarget.scrollTop > 0;
           if (clippedAbove !== isClippedAbove) {
@@ -58,18 +61,20 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
           }
         }}
       >
-        {contents.rows.map((row) => (
-          <li key={row.id} className="meridian-run-group-body__row">
-            <span className="meridian-run-group-body__time">{row.timestamp}</span>
-            <span className="meridian-run-group-body__type">{row.type}</span>
-            {row.summary.length === 0 ? (
-              <Nothing kind="empty" placement="inline" title="This entry carries no summary." />
-            ) : (
-              <span className="meridian-run-group-body__summary">{row.summary}</span>
-            )}
-          </li>
-        ))}
-      </ol>
+        <ol className="meridian-run-group-body__rows" aria-label="Earlier entries in this run">
+          {contents.rows.map((row) => (
+            <li key={row.id} className="meridian-run-group-body__row">
+              <span className="meridian-run-group-body__time">{row.timestamp}</span>
+              <span className="meridian-run-group-body__type">{row.type}</span>
+              {row.summary.length === 0 ? (
+                <Nothing kind="empty" placement="inline" title="This entry carries no summary." />
+              ) : (
+                <span className="meridian-run-group-body__summary">{row.summary}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
       {contents.unheldRowCount === 0 ? null : (
         <p className="meridian-run-group-body__unheld">
           {String(contents.unheldRowCount)}
