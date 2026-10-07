@@ -26,11 +26,12 @@ import {
   COMMAND_B,
   COMMAND_C,
   openLease,
-  refusalOf,
+  holderOf,
+  untilTicked,
   inVersionOrder,
   paneOn,
   IDLE,
-  WRITE,
+  HAND_OFF,
   NOT_HELD,
 } from "./control-lease.test-support.js";
 
@@ -54,28 +55,28 @@ describe("ShellControlLease", () => {
         await expect(lease.take(paneOn(deviceId, 1), force)).rejects.toMatchObject(heldByRunA);
       }
     }
-    expect(refusalOf(() => lease.admitResize(paneOn(MACHINE, 9)))).toMatchObject(heldByRunA);
-    expect(refusalOf(() => lease.admitClose(MACHINE, true))).toMatchObject(heldByRunA);
+    await expect(lease.admitResize(paneOn(MACHINE, 9), HAND_OFF)).rejects.toMatchObject(heldByRunA);
+    await expect(lease.admitClose(MACHINE, true, HAND_OFF)).rejects.toMatchObject(heldByRunA);
     await expect(
-      lease.admitWrite({ kind: "device", ...paneOn(MACHINE, 9) }, WRITE),
+      lease.admitWrite({ kind: "device", ...paneOn(MACHINE, 9) }, HAND_OFF),
     ).rejects.toMatchObject(NOT_HELD);
 
     // The same run's retake keeps the run; from another of its commands it names that command,
     // so stopping the run reaches the live one, and from the same command it changes nothing.
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
-    expect(lease.holder()).toEqual({
+    expect(await holderOf(lease)).toEqual({
       holderDeviceId: MACHINE,
       holderRunId: RUN_A,
       holderCommandId: COMMAND_C,
     });
-    await lease.admitWrite({ kind: "run", runId: RUN_A }, WRITE);
+    await lease.admitWrite({ kind: "run", runId: RUN_A }, HAND_OFF);
 
     await lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B }, IDLE);
-    await expect(lease.admitWrite({ kind: "run", runId: RUN_A }, WRITE)).rejects.toMatchObject(
+    await expect(lease.admitWrite({ kind: "run", runId: RUN_A }, HAND_OFF)).rejects.toMatchObject(
       NOT_HELD,
     );
-    await lease.admitWrite({ kind: "run", runId: RUN_B }, WRITE);
+    await lease.admitWrite({ kind: "run", runId: RUN_B }, HAND_OFF);
 
     // The run that lost the hold leaving its running state releases nothing.
     await lease.releaseRun(RUN_A);
@@ -87,9 +88,9 @@ describe("ShellControlLease", () => {
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
     await lease.releaseCommand({ runId: RUN_B, commandId: COMMAND_C });
-    expect(lease.holder()).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_C });
+    expect(await holderOf(lease)).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_C });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_C });
-    expect(lease.holder()).toBeNull();
+    expect(await holderOf(lease)).toBeNull();
     await lease.releaseRun(RUN_A);
 
     const runHold = { sessionId: SESSION_ID, terminalId: TERMINAL_ID };
@@ -159,7 +160,7 @@ describe("ShellControlLease", () => {
       true,
     );
     await expect(
-      lease.admitWrite({ kind: "device", ...paneOn(LAPTOP, 3) }, WRITE),
+      lease.admitWrite({ kind: "device", ...paneOn(LAPTOP, 3) }, HAND_OFF),
     ).rejects.toMatchObject(NOT_HELD);
     await expect(lease.take(paneOn(LAPTOP, 3), true)).rejects.toMatchObject({
       code: PTY_CONTROL_HELD_BY_OTHER_CODE,
@@ -169,30 +170,30 @@ describe("ShellControlLease", () => {
     // to the device on the one still open.
     await lease.releaseConnection(1);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
-    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
-    await lease.admitWrite({ kind: "device", ...paneOn(LAPTOP, 3) }, WRITE);
+    expect(await holderOf(lease)).toEqual({ holderDeviceId: LAPTOP });
+    await lease.admitWrite({ kind: "device", ...paneOn(LAPTOP, 3) }, HAND_OFF);
 
     // A hold kept aside follows the hold through another run's take, back to the device.
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     await lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B }, IDLE);
     await lease.releaseRun(RUN_A);
     await lease.releaseRun(RUN_B);
-    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
+    expect(await holderOf(lease)).toEqual({ holderDeviceId: LAPTOP });
 
     // A hold handed back is no longer kept aside: once its connection ends, a later run's take
     // from nobody hands the shell back to nobody.
     await lease.releaseConnection(3);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     await lease.releaseRun(RUN_A);
-    expect(lease.holder()).toBeNull();
+    expect(await holderOf(lease)).toBeNull();
 
     // Once the last of the device's connections ends under the run, the hand-back reaches nobody.
     await lease.take(paneOn(LAPTOP, 5), false);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C }, IDLE);
     await lease.releaseConnection(5);
-    expect(lease.holder()).toMatchObject({ holderRunId: RUN_A });
+    expect(await holderOf(lease)).toMatchObject({ holderRunId: RUN_A });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_C });
-    expect(lease.holder()).toBeNull();
+    expect(await holderOf(lease)).toBeNull();
 
     const shell = { sessionId: SESSION_ID, terminalId: TERMINAL_ID };
     const laptopTake = {
@@ -243,7 +244,7 @@ describe("ShellControlLease", () => {
     const laptopPane = paneOn(LAPTOP, 1);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
     await lease.releaseSubscription(laptopPane.outputSubscriptionId);
-    expect(lease.holder()).toMatchObject({ holderRunId: RUN_A });
+    expect(await holderOf(lease)).toMatchObject({ holderRunId: RUN_A });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
 
     // The pane the lent hold was taken through closes under the run, its connection still open.
@@ -251,7 +252,7 @@ describe("ShellControlLease", () => {
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_B }, IDLE);
     await lease.releaseSubscription(laptopPane.outputSubscriptionId);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_B });
-    expect(lease.holder()).toBeNull();
+    expect(await holderOf(lease)).toBeNull();
     expect(changes.map((change) => [change.reason, change.holderDeviceId])).toEqual([
       ["taken", MACHINE],
       ["auto_released_command_ended", null],
@@ -277,7 +278,7 @@ describe("ShellControlLease", () => {
     await expect(
       lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, () => false),
     ).resolves.toBe(false);
-    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
+    expect(await holderOf(lease)).toEqual({ holderDeviceId: LAPTOP });
     expect(changes).toHaveLength(1);
 
     // A run's take waiting on a change in flight checks the prompt once that change has settled,
@@ -297,7 +298,7 @@ describe("ShellControlLease", () => {
     await phoneTake;
     await keystroke;
     await expect(runTake).resolves.toBe(false);
-    expect(lease.holder()).toEqual({ holderDeviceId: PHONE });
+    expect(await holderOf(lease)).toEqual({ holderDeviceId: PHONE });
   });
 
   it("lets one change of holder through at a time, a release waiting out a chain of them", async () => {
@@ -327,15 +328,14 @@ describe("ShellControlLease", () => {
     const laptopGone = lease.releaseConnection(1);
     landTake();
     await laptopTake;
-    for (let tick = 0; tick < 10 && lease.holder()?.holderRunId === undefined; tick++) {
-      await Promise.resolve();
-    }
+    // The run's take starts once the device's has settled.
+    await untilTicked(() => queued.length === 0);
     failRunTake();
     await expect(runTake).rejects.toThrow("the event log is unavailable");
     await laptopGone;
     // The connection's end waited out the run's failed take as well, so it ended the hold the
     // undo put back rather than leaving it standing for a connection that is gone.
-    expect(lease.holder()).toBeNull();
+    expect(await holderOf(lease)).toBeNull();
 
     // A run's command end and its idle transition wait out a chain the same way: each ends the hold
     // the failed take's undo put back.
@@ -360,13 +360,11 @@ describe("ShellControlLease", () => {
       const ended = release();
       landRunTake();
       await firstTake;
-      for (let tick = 0; tick < 10 && lease.holder()?.holderRunId !== RUN_B; tick++) {
-        await Promise.resolve();
-      }
+      await untilTicked(() => queued.length === 0);
       failOtherTake();
       await expect(otherTake).rejects.toThrow("the event log is unavailable");
       await ended;
-      expect(lease.holder()).toBeNull();
+      expect(await holderOf(lease)).toBeNull();
     }
 
     // A keystroke handed on in the same tick as its check is seen by a run's take that follows it.
@@ -378,6 +376,6 @@ describe("ShellControlLease", () => {
     const typedOver = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, () => !isTyped);
     await keystroke;
     await expect(typedOver).resolves.toBe(false);
-    expect(lease.holder()).toEqual({ holderDeviceId: LAPTOP });
+    expect(await holderOf(lease)).toEqual({ holderDeviceId: LAPTOP });
   });
 });

@@ -1,5 +1,6 @@
 // What every control-lease test builds on: the ids, a lease that records each broadcast parsed
-// against the wire schema, a connection's terminal pane, and the refusals a check throws.
+// against the wire schema, one whose broadcasts fail or wait on a case, a connection's terminal
+// pane, and the refusals a check throws.
 
 import { type CommandId, CommandIdSchema } from "@ai-sidekicks/contracts/command";
 import { SubscriptionIdSchema } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -9,6 +10,7 @@ import {
   PtyControlChangedPayloadSchema,
   TerminalIdSchema,
   type PtyControlChangedPayload,
+  type TerminalControlHolder,
   type TerminalId,
 } from "@ai-sidekicks/contracts/pty";
 import { type RunId, RunIdSchema } from "@ai-sidekicks/contracts/run/id";
@@ -60,14 +62,73 @@ export function openLease(terminalId: TerminalId = TERMINAL_ID): LeaseUnderTest 
   return { lease, changes };
 }
 
-/** The error a synchronous check threw; fails the test when it threw nothing. */
-export function refusalOf(act: () => unknown): unknown {
-  try {
-    act();
-  } catch (error) {
-    return error;
+/** A lease whose broadcasts fail while it is failing, and a case can hold the next one back. */
+export interface UnreliableLease {
+  lease: ShellControlLease;
+  /** Makes every later broadcast fail, or land again; a lease opens failing. */
+  setFailing: (isFailing: boolean) => void;
+  /** Holds the next broadcast back until the case fails it, whether the lease is failing or not. */
+  holdNextBroadcast: () => HeldBroadcast;
+}
+
+/** One broadcast a case holds back. */
+export interface HeldBroadcast {
+  /** Whether the lease has started it. */
+  isStarted: () => boolean;
+  /** Fails it, which fails the change that sent it. */
+  fail: () => void;
+}
+
+/** The failure every unreliable broadcast throws. */
+export const LOG_UNAVAILABLE = "the event log is unavailable";
+
+/** Opens an {@link UnreliableLease}, failing. */
+export function openUnreliableLease(): UnreliableLease {
+  let isFailing = true;
+  let held: { started: boolean; verdict: Promise<void> } | undefined;
+  const lease = new ShellControlLease({
+    sessionId: SESSION_ID,
+    terminalId: TERMINAL_ID,
+    machineDeviceId: MACHINE,
+    broadcast: async () => {
+      if (held !== undefined && !held.started) {
+        held.started = true;
+        return held.verdict;
+      }
+      if (isFailing) {
+        throw new Error(LOG_UNAVAILABLE);
+      }
+    },
+  });
+  return {
+    lease,
+    setFailing: (next) => {
+      isFailing = next;
+    },
+    holdNextBroadcast: () => {
+      let fail = (): void => undefined;
+      const verdict = new Promise<void>((_resolve, reject) => {
+        fail = () => {
+          reject(new Error(LOG_UNAVAILABLE));
+        };
+      });
+      const current = { started: false, verdict };
+      held = current;
+      return { isStarted: () => current.started, fail };
+    },
+  };
+}
+
+/** Who holds the lease's shell once every change in flight has settled. */
+export async function holderOf(lease: ShellControlLease): Promise<TerminalControlHolder | null> {
+  return (await lease.readHolder()).holder;
+}
+
+/** Lets a bounded few ticks pass until `isDone` holds, for a change that settles before it acts. */
+export async function untilTicked(isDone: () => boolean): Promise<void> {
+  for (let tick = 0; tick < 10 && !isDone(); tick++) {
+    await Promise.resolve();
   }
-  throw new Error("expected the act to be refused");
 }
 
 /** The changes a lease broadcast, each raising the lease version by one from a shell at 0. */
@@ -91,8 +152,8 @@ export function paneOn(deviceId: DeviceId, transportId: number, pane = 0): Shell
 /** The shell table's idle check, for every take that is not about it: nothing typed at the prompt. */
 export const IDLE = (): boolean => true;
 
-/** The frame's hand-off, for every write that is not about it. */
-export const WRITE = (): void => undefined;
+/** The hand-off of an admitted write, resize or close, for every case that is not about it. */
+export const HAND_OFF = (): void => undefined;
 
 /** The refusal of a write or resize from a writer that does not hold the test shell. */
 export const NOT_HELD: object = {

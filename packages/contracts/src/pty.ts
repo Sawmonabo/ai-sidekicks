@@ -1,16 +1,20 @@
 // A session's shells as a client addresses them: the live list, opening, closing and ordering,
 // one shell's output stream, writing and resizing, flow control, and the per-shell control lease.
 //
-// Every request names the session and the terminal; a request whose terminal is not that session's
-// is refused, so a terminal id alone never reaches another session's shell.
+// Every request names the session and the terminal, and a take or a write names the pane's output
+// subscription it comes through; a request whose terminal is not that session's, or whose
+// subscription is not the calling connection's open subscription to that shell, is refused, so a
+// terminal id alone never reaches another session's shell and a hold is never bound to another
+// connection's pane.
 //
 // The lease is one per shell, held by one of the user's devices or by an agent's running command on
 // this machine. A run's hold carries this machine's device id, the run's id and the holding
 // command's id, so a screen can tell "this device", "another device" and "a run" apart and stop
-// the command. There is no release: a hold ends when another device takes the shell, the holding
-// connection or the pane's output subscription it was taken through ends, or the holding run's
-// command ends or the run leaves its running state. Every change of holder raises the shell's
-// lease version by one, so a client keeps whichever reading of the holder is newest.
+// the command. There is no release: a device's hold is bound to each connection and pane output
+// subscription it was taken or written through, either one ending ends that binding, and the hold
+// ends with its last or when another device takes the shell; a run's hold ends when its command
+// ends or the run leaves its running state. Every change of holder raises the shell's lease version
+// by one, so a client keeps whichever reading of the holder is newest.
 import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
@@ -272,9 +276,10 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
 export type PtyWriteKind = "keys" | "paste";
 
 /**
- * Input for one shell, written as it arrives; the writer's connection must hold the shell. A first
- * write to a shell nobody holds takes it, bound to `outputSubscriptionId`, the writing pane's own
- * `pty.outputSubscribe` subscription to that shell.
+ * Input for one shell, written as it arrives; the writer's connection must hold the shell. The
+ * write is bound to `outputSubscriptionId`, the writing pane's own `pty.outputSubscribe`
+ * subscription to that shell: a first write to a shell nobody holds takes it through that
+ * subscription, and a holding connection's write binds it to the hold.
  */
 export interface PtyWriteRequest {
   sessionId: SessionId;
