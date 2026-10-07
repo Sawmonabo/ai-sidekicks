@@ -37,7 +37,7 @@ export function RegistrationOutcomeLine(props: {
       keychainCause === undefined &&
       outcome.refusal.code !== PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE
     ) {
-      // The refusal is its own status region, so the line is announced once.
+      // No live role: the refusal announces itself through the app's announcer.
       return (
         <p className="meridian-settings-page__state meridian-settings-page__state--failed">
           <InlineRefusal {...outcome.refusal} />

@@ -10,24 +10,31 @@
 // announcer coalesces only an immediate repeat and `[partial, cut, partial]` would speak the
 // first sentence twice.
 //
-// Always polite: an incomplete reading changes only what one view claims about itself, not
-// what the person can do, which is the assertive lane (`components/LiveAnnouncer/announcer.ts`).
+// Polite unless the caller names the lane: an incomplete reading changes only what one view
+// claims about itself, while a refusal or failure takes the assertive lane
+// (`components/LiveAnnouncer/announcer.ts`).
 //
-// `useSettlementAnnouncement.ts` composes one sentence over this latch.
+// `useSettlementAnnouncement.ts` and `useAnnounceWhenShown.ts` compose one sentence over this
+// latch.
 
 import { useEffect, useRef } from "react";
 
+import type { AnnouncementPoliteness } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { useAnnounce } from "./useAnnounce.js";
 
 /**
- * Say each of a pass's sentences once, in the polite region. The one latch.
+ * Say each of a pass's sentences once, in the polite region unless `politeness` names the
+ * assertive one. The one latch.
  *
  * `sentences` is what this pass has to say, or `undefined` where it makes no claim. An array
  * replaces what was said, so a sentence absent from it is forgotten and speaks again if it
  * returns; `undefined` leaves the memory standing, since a view whose read has not settled
  * has nothing to retract.
  */
-export function useAnnounceOncePerSentence(sentences: readonly string[] | undefined): void {
+export function useAnnounceOncePerSentence(
+  sentences: readonly string[] | undefined,
+  politeness: AnnouncementPoliteness = "polite",
+): void {
   const announce = useAnnounce();
   // A ref, not state: it must not cause a render, and it guards the effect's next run.
   const announcedSentencesRef = useRef<ReadonlySet<string>>(undefined);
@@ -44,8 +51,8 @@ export function useAnnounceOncePerSentence(sentences: readonly string[] | undefi
       if (alreadyAnnounced?.has(sentence) === true) {
         continue;
       }
-      announce(sentence, "polite");
+      announce(sentence, politeness);
     }
     announcedSentencesRef.current = spoken;
-  }, [sentences, announce]);
+  }, [sentences, politeness, announce]);
 }

@@ -12,6 +12,7 @@ import type { RunControlCommandRun } from "../../run/controls/contributions/comm
 import type { RunControlCalls } from "../../run/controls/services/dispatch.js";
 import { RUN_ID } from "../../run/controls/commands.test-support.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The agent every mounted box steers. */
 export const STEERED_AGENT_NAME = "builder";
@@ -94,6 +95,7 @@ export function renderSteerBox(answer: ScriptedAnswer = APPLIED_STEER): {
         dismissals += 1;
       }}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
   return { container, calls, dismissCount: () => dismissals };
 }

@@ -13,6 +13,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
+import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
 
 /** What the progress row draws: one provider's import. */
@@ -26,11 +27,19 @@ const IMPORT_REFUSED_CODE = "import-refused";
 /** The class every state of the row wears. */
 const PROGRESS_CLASS = "meridian-provider-import__progress";
 
+/** What a stopped import's row says. */
+const IMPORT_STOPPED_SENTENCE =
+  "Import stopped. The sessions already read are in the sessions list.";
+
 /** One provider's import row, or nothing where the service has reported none. */
 export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.Element | null {
   const { model } = props;
   const { progress } = model;
   const providerLabel = PROVIDER_LABELS[model.provider];
+  // The row mounts holding its words, so it speaks them through the app's announcer; a refused
+  // row's refusal speaks for itself.
+  const sentence = rowSentence(model, providerLabel);
+  useAnnounceWhenShown(sentence, "polite");
   if (progress.status === "failed") {
     return (
       <InlineRefusal
@@ -43,13 +52,8 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   const { newest } = progress;
   if (model.isUnderway) {
     return (
-      // The count is its own status region, apart from the stop refusal's, so each is announced
-      // once.
       <div className={PROGRESS_CLASS}>
-        <span role="status">
-          {`Importing from ${providerLabel}…`}
-          {newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : null}
-        </span>
+        <span>{sentence}</span>
         {model.isReading ? (
           <button
             type="button"
@@ -88,13 +92,32 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
     );
   }
   if (settlement.outcome === "stopped") {
-    return (
-      <p className={PROGRESS_CLASS} role="status">
-        Import stopped. The sessions already read are in the sessions list.
-      </p>
-    );
+    return <p className={PROGRESS_CLASS}>{IMPORT_STOPPED_SENTENCE}</p>;
   }
   return <SettledLine settlement={settlement} providerLabel={providerLabel} />;
+}
+
+/**
+ * The words the row shows where they are the row's own: while an import runs, once it stopped,
+ * and once it settled. `undefined` where the row is a refusal or draws nothing.
+ */
+function rowSentence(model: ProviderImportModel, providerLabel: string): string | undefined {
+  const { progress } = model;
+  if (progress.status === "failed") {
+    return undefined;
+  }
+  const { newest } = progress;
+  if (model.isUnderway) {
+    const count = newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : "";
+    return `Importing from ${providerLabel}…${count}`;
+  }
+  if (newest?.kind !== "settled" || newest.settlement.outcome === "refused") {
+    return undefined;
+  }
+  if (newest.settlement.outcome === "stopped") {
+    return IMPORT_STOPPED_SENTENCE;
+  }
+  return settledSentence(newest.settlement, providerLabel);
 }
 
 /**
@@ -109,14 +132,10 @@ function SettledLine(props: {
   const failures = settlement.outcome === "finished" ? settlement.failures : [];
   const line = settledSentence(settlement, providerLabel);
   if (failures.length === 0 && settlement.unreadableFiles.length === 0) {
-    return (
-      <p className={PROGRESS_CLASS} role="status">
-        {line}
-      </p>
-    );
+    return <p className={PROGRESS_CLASS}>{line}</p>;
   }
   return (
-    <Collapsible.Root className={PROGRESS_CLASS} role="status">
+    <Collapsible.Root className={PROGRESS_CLASS}>
       <Collapsible.Trigger className="meridian-disclosure-trigger">{line}</Collapsible.Trigger>
       <Collapsible.Panel className="meridian-provider-import__unfolded">
         <ul className="meridian-provider-import__unfolded-list">

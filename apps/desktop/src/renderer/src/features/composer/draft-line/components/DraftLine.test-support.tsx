@@ -12,6 +12,7 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import type { ComposerProps } from "#renderer/registries/composer/registry.js";
 import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { SESSION_ID, STEER_APPLIED } from "../send/router.test-support.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DraftLine } from "./DraftLine.js";
 import { agentPane, inertBridge } from "../../Composer.test-support.js";
 import { SendButton } from "./SendButton.js";
@@ -54,6 +55,8 @@ export function mountDraftLine(options: {
       calls={options.calls}
       workflowStartOperations={options.workflowStartOperations ?? fixtureWorkflowStartOperations()}
     />,
+    // A refused send speaks through the announcer, which throws outside its provider.
+    { wrapper: LiveAnnouncerProvider },
   );
   const line = result.container.querySelector("textarea");
   if (!(line instanceof HTMLTextAreaElement)) {
@@ -185,7 +188,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
       workflowStartOperations={workflowStartOperations}
     />
   );
-  const result = render(barFor(FIRST_AGENT_ID));
+  const result = render(barFor(FIRST_AGENT_ID), { wrapper: LiveAnnouncerProvider });
   return {
     result,
     frameStore,

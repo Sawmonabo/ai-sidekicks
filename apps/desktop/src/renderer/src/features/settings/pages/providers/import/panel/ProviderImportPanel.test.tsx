@@ -17,6 +17,8 @@ import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportCalls } from "../hooks/useProviderImport.js";
 import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
+import { liveRegionText } from "#test/helpers/live-region.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The id the stubbed start answers with. */
 const IMPORT_ID = "provider-import-3" as ProviderImportId;
@@ -66,7 +68,7 @@ async function renderPanel(
 ): Promise<{ readonly stream: DrivenProgressStream; readonly sent: SentRequests }> {
   const stream = new DrivenProgressStream();
   const { calls, sent } = recordingCalls(stream);
-  render(<ImportHarness provider={provider} calls={calls} />);
+  render(<ImportHarness provider={provider} calls={calls} />, { wrapper: LiveAnnouncerProvider });
   await settle();
   return { stream, sent };
 }
@@ -87,9 +89,18 @@ function importAction(label: string): HTMLButtonElement {
   return screen.getByRole<HTMLButtonElement>("button", { name: label });
 }
 
-/** What the one progress row says. */
+/** What the one progress row says: the panel's last part, under its head. */
 function rowText(): string {
-  return screen.getByRole("status").textContent;
+  const row = document.querySelector(".meridian-provider-import")?.lastElementChild;
+  if (row === null || row === undefined) {
+    throw new Error("the import panel drew no progress row");
+  }
+  return row.textContent;
+}
+
+/** What one lane of the window's announcer is saying. */
+function announced(politeness: "polite" | "assertive"): string {
+  return liveRegionText(document.body, politeness);
 }
 
 describe("one provider's import", () => {
@@ -103,6 +114,7 @@ describe("one provider's import", () => {
       settledMessage("codex", { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] }),
     );
     expect(rowText()).toBe("Nothing new to import from Codex · 4 already here.");
+    expect(announced("polite")).toBe("Nothing new to import from Codex · 4 already here.");
     // History is not a running import: the action stays offered.
     expect(importAction("Import sessions from Codex").disabled).toBe(false);
   });
@@ -204,6 +216,7 @@ describe("one provider's import", () => {
       settledMessage("codex", { outcome: "refused", reason: "The Codex folder is missing." }),
     );
     expect(rowText()).toContain("The Codex folder is missing.");
+    expect(announced("assertive")).toBe("The Codex folder is missing.");
     act(() => {
       screen.getByRole("button", { name: "Try again" }).click();
     });
