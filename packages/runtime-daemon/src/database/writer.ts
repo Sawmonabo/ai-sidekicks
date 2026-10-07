@@ -15,6 +15,7 @@ import Database from "better-sqlite3";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
+import { waitWithin } from "../bounded-wait.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
 import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
@@ -324,17 +325,7 @@ export class DatabaseWriter {
       await this.flush();
       return true;
     }
-    let boundTimer: ReturnType<typeof setTimeout> | undefined;
-    const boundPassed = new Promise<boolean>((resolve) => {
-      boundTimer = setTimeout(() => {
-        resolve(false);
-      }, boundMs);
-    });
-    try {
-      return await Promise.race([this.flush().then(() => true), boundPassed]);
-    } finally {
-      clearTimeout(boundTimer);
-    }
+    return waitWithin(this.flush(), boundMs);
   }
 
   // Resolves with the write's outcome once committed, or `undefined` when it was dropped.

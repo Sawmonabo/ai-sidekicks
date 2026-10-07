@@ -79,8 +79,8 @@ export interface SessionMethodsDeps {
 /**
  * Builds the session services and registers their verbs on `registry`. Returns the stop that ends
  * the background work they started: the sessions list, the self-naming, the related lists' rename
- * follow and the index merge. It settles once the related-list round under way has finished, and
- * never rejects.
+ * follow, the index merge and the pass finishing sessions left provisioning. It settles once the
+ * related-list round under way and that pass have finished.
  */
 export function registerSessionMethods(
   registry: MethodRegistry,
@@ -91,8 +91,13 @@ export function registerSessionMethods(
     writer: database.writer,
     reader: database.reader,
     projectionStatements: directoryStatementsFor,
+    writeServiceLog: deps.writeServiceLog,
   });
-  const listFeed = new SessionListFeed({ reader: database.reader, eventLog });
+  const listFeed = new SessionListFeed({
+    reader: database.reader,
+    eventLog,
+    writeServiceLog: deps.writeServiceLog,
+  });
   const sessions = new SessionService(database.reader);
   const git = createHookNeutralizedGitCommand({
     git: runGitWithExecFile,
@@ -142,6 +147,7 @@ export function registerSessionMethods(
   registerSessionConvert(registry, {
     conversion: new SessionConversion({
       reader: database.reader,
+      writer: database.writer,
       events: eventLog,
       lock: changes.lock,
       repoMounts,
@@ -196,10 +202,12 @@ export function registerSessionMethods(
   });
   indexMerge.start();
   const stopRelatedRanking = relatedRanking.start();
+  // Finishes, in the background, each session a create left provisioning when the daemon stopped.
+  const finishingProvisioning = creation.finishProvisioningSessions();
   return async () => {
     indexMerge.stop();
     stopAutoTitle();
     listFeed.close();
-    await stopRelatedRanking();
+    await Promise.all([stopRelatedRanking(), finishingProvisioning]);
   };
 }

@@ -424,20 +424,33 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
+    // Settles with the session services' failure, so one inside the bound is one of the stop's.
+    const sessionServicesStop = this.#stopSessionServices().then(
+      () => undefined,
+      (error: unknown) => ({ error }),
+    );
     // The calls under way, the recovery pass, the session services' background work and the
-    // terminals are independent, so all finish inside one drain bound. A call or a pass still
-    // running at the bound fails once the database closes under it.
-    const [stillWriting, hasPassEnded, drain, sessionServices] = await Promise.allSettled([
+    // terminals are independent, so all finish inside one drain bound. A call, a pass or a
+    // background write still running at the bound fails once the database closes under it, and
+    // its batch rolls back.
+    const [stillWriting, hasPassEnded, drain, haveSessionServicesEnded] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
       waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
       this.#ptyHost.shutdown({
         perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
         hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
       }),
-      this.#stopSessionServices(),
+      waitWithin(sessionServicesStop, DAEMON_STOP_DRAIN_BOUND_MS),
     ]);
-    if (sessionServices.status === "rejected") {
-      failures.push(sessionServices.reason);
+    if (haveSessionServicesEnded.status === "fulfilled" && haveSessionServicesEnded.value) {
+      const sessionServicesFailure = await sessionServicesStop;
+      if (sessionServicesFailure !== undefined) {
+        failures.push(sessionServicesFailure.error);
+      }
+    } else {
+      this.#writeServiceLog(
+        "The stop's drain bound passed; the session services' background work is still running.",
+      );
     }
     if (stillWriting.status === "fulfilled" && stillWriting.value > 0) {
       this.#writeServiceLog(
