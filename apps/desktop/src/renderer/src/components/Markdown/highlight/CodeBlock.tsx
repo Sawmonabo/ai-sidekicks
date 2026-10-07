@@ -7,6 +7,7 @@
 
 import "./CodeBlock.css";
 
+import type { BlockCopyOffer } from "../block-copy-offer.js";
 import type { CodeSpanReader } from "./code-span-reader.js";
 import { resolveHighlightableLanguage } from "./languages.js";
 import { HighlightedSource } from "./HighlightedSource.js";
@@ -21,10 +22,10 @@ export interface CodeBlockProps {
   /** Where the block's colors come from. */
   readonly codeSpanReader: CodeSpanReader;
   /**
-   * Draws the Copy that copies `source` alone, or `undefined` where the body offers none. An
-   * empty block copies nothing, so it draws no Copy.
+   * Draws the block's Copy, which copies `source` alone as plain text, or `undefined` where the
+   * body offers none. An empty block copies nothing, so it draws no Copy.
    */
-  readonly renderCopy: ((source: string) => React.ReactNode) | undefined;
+  readonly renderCopy: ((offer: BlockCopyOffer) => React.ReactNode) | undefined;
 }
 
 /** A fenced code block, colored by the daemon once it has settled. */
@@ -37,7 +38,7 @@ export function CodeBlock(props: CodeBlockProps): React.JSX.Element {
   const copy =
     props.renderCopy === undefined || props.source === ""
       ? undefined
-      : props.renderCopy(props.source);
+      : props.renderCopy({ label: "Copy", content: () => ({ text: props.source }) });
   return (
     <div className="meridian-code-block">
       {languageWord === undefined && copy === undefined ? null : (

@@ -181,7 +181,7 @@ describe("accessibility — the regions inside a transcript row", () => {
               isSettled: true,
               definedFootnoteIdentifiers: new Set(),
               codeSpanReader: NO_CODE_SPANS,
-              renderCodeCopy: undefined,
+              renderCopy: undefined,
             }}
           />
           <button type="button">After the rows</button>
