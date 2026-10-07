@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { ANSI_SPAN_RENDER_CAP } from "./spans.js";
-import { parseAnsiSpans } from "./spans.js";
+import { ANSI_SPAN_RENDER_CAP, type AnsiSpan } from "./spans.js";
+import { AnsiSpanParser } from "./spans.js";
+import { publishedTextOf } from "../../reveal/published-text.js";
+import { RevealTextRope } from "../../reveal/text-rope.js";
 
 /** Built from its code point: a raw escape in source is invisible in a diff. */
 const ESCAPE = String.fromCodePoint(0x1b);
@@ -11,30 +13,94 @@ function styledRuns(runCount: number): string {
   return `${ESCAPE}[31ma${ESCAPE}[39m`.repeat(runCount);
 }
 
+/** Each span's text, foreground and decorations: what a reader sees of it. */
+function drawnRuns(spans: readonly AnsiSpan[]): readonly (readonly unknown[])[] {
+  return spans.map((span) => [span.text, span.foreground, span.decorations]);
+}
+
 describe("parsing ANSI output", () => {
   it("keeps the text and drops the escape sequences", () => {
-    const { spans } = parseAnsiSpans(`${ESCAPE}[31mfailed${ESCAPE}[39m`);
+    const { spans } = new AnsiSpanParser().read(
+      publishedTextOf(`${ESCAPE}[31mfailed${ESCAPE}[39m`),
+    );
     expect(spans.map((span) => span.text).join("")).toBe("failed");
     expect(spans.map((span) => span.text).join("")).not.toContain(ESCAPE);
   });
 
   it("bounds what it renders and says how much it left out", () => {
-    const { spans, elidedSpanCount } = parseAnsiSpans(styledRuns(ANSI_SPAN_RENDER_CAP + 40));
+    const { spans, elidedSpanCount } = new AnsiSpanParser().read(
+      publishedTextOf(styledRuns(ANSI_SPAN_RENDER_CAP + 40)),
+    );
     expect(spans.length).toBe(ANSI_SPAN_RENDER_CAP);
     // The exact figure: the card prints it, and the entry total would also be positive.
     expect(elidedSpanCount).toBe(40);
   });
 
   it("takes the cap from its caller, so a fold can be lifted for one block", () => {
-    // `AnsiOutput` re-parses the same source under a wider cap when the reader asks for the
-    // rest.
-    const source = styledRuns(10);
-    const folded = parseAnsiSpans(source, 4);
+    // `AnsiOutput` re-parses the same text under a wider cap when the reader asks for the rest.
+    const parser = new AnsiSpanParser();
+    const text = publishedTextOf(styledRuns(10));
+    const folded = parser.read(text, 4);
     expect(folded.spans).toHaveLength(4);
     expect(folded.elidedSpanCount).toBe(6);
 
-    const lifted = parseAnsiSpans(source, folded.spans.length + folded.elidedSpanCount);
+    const lifted = parser.read(text, folded.spans.length + folded.elidedSpanCount);
     expect(lifted.spans).toHaveLength(10);
     expect(lifted.elidedSpanCount).toBe(0);
+  });
+
+  it("parses a growing output a part at a time into what one parse of the whole draws", () => {
+    // Red opens before a boundary and closes after it, and growth steps stop inside an escape;
+    // the style must carry across each boundary and no sequence may be split.
+    const final =
+      `plain ${ESCAPE}[31mred ${ESCAPE}[1mred bold${ESCAPE}[22m red again` +
+      `${ESCAPE}[39m plain end`;
+    const rope = new RevealTextRope("lane-1");
+    rope.append(final);
+    const parser = new AnsiSpanParser();
+    const growthSteps = [
+      final.indexOf(`${ESCAPE}[31m`) + 3,
+      final.indexOf("bold"),
+      final.indexOf(`${ESCAPE}[39m`) + 2,
+      final.length,
+    ];
+    for (const revealedLength of growthSteps) {
+      rope.advance(revealedLength - rope.length);
+      const read = parser.read(rope);
+      expect(read).toEqual(new AnsiSpanParser().read(publishedTextOf(rope.slice(0))));
+      if (revealedLength === final.indexOf("bold")) {
+        // The last run is parsed from the state the parsed part left: red, then bold on top.
+        expect(drawnRuns(read.spans)).toEqual([
+          ["plain ", undefined, []],
+          ["red ", "red", []],
+          ["red ", "red", ["bold"]],
+        ]);
+      }
+    }
+    expect(drawnRuns(parser.read(rope).spans)).toEqual([
+      ["plain ", undefined, []],
+      ["red ", "red", []],
+      ["red bold", "red", ["bold"]],
+      [" red again", "red", []],
+      [" plain end", undefined, []],
+    ]);
+
+    // A rewrite of the `ESC [` the parsed part ends before joins its text to the run before it.
+    const parsedLength = final.indexOf(`${ESCAPE}[39m`);
+    rope.rebase(`${final.slice(0, parsedLength)} still red`, parsedLength);
+    rope.advance(rope.pendingCharacterCount);
+    expect(drawnRuns(parser.read(rope).spans).at(-1)).toEqual([" red again still red", "red", []]);
+
+    // A rewrite below the parsed part draws the new text, not the old.
+    const rewritten = `plain ${ESCAPE}[32mgreen${ESCAPE}[39m done`;
+    rope.rebase(rewritten, 2);
+    rope.advance(rope.pendingCharacterCount);
+    const afterRewrite = parser.read(rope);
+    expect(afterRewrite).toEqual(new AnsiSpanParser().read(publishedTextOf(rewritten)));
+    expect(drawnRuns(afterRewrite.spans)).toEqual([
+      ["plain ", undefined, []],
+      ["green", "green", []],
+      [" done", undefined, []],
+    ]);
   });
 });

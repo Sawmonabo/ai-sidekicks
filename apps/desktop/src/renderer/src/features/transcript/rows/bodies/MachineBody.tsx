@@ -101,8 +101,8 @@ function renderBodyText(
   isComplete: boolean,
 ): React.JSX.Element {
   if (kind === "command-output") {
-    // The span parser reads one whole string, so this arm builds it on each render it draws.
-    return <AnsiOutput source={drawnText.slice(0)} label={props.label} />;
+    // Read through the handle: the block parses only the text past what it already parsed.
+    return <AnsiOutput publishedText={drawnText} label={props.label} />;
   }
   if (kind === "plain-text") {
     // Verbatim: no parse, no footnotes. Preformatted, so text copied out of it keeps its lines.
@@ -116,7 +116,7 @@ function renderBodyText(
       footnotes={props.footnotes}
       isComplete={isComplete}
       // Only an agent's reply is drawn as prose here; a tool's output never is.
-      offersCodeCopy
+      offersBlockCopy
     />
   );
 }

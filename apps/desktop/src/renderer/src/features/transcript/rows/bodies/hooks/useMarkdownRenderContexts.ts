@@ -19,10 +19,10 @@ export interface MarkdownRenderContexts {
 export function useMarkdownRenderContexts(
   definedFootnoteIdentifiers: ReadonlySet<string>,
   isComplete: boolean,
-  offersCodeCopy: boolean,
+  offersBlockCopy: boolean,
 ): MarkdownRenderContexts {
   const codeSpanReader = useCodeSpanReader();
-  const renderCopy = offersCodeCopy ? renderBlockCopy : undefined;
+  const renderCopy = offersBlockCopy ? renderBlockCopy : undefined;
   const settled = useMemo<MarkdownRenderContext>(
     () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader, renderCopy }),
     [definedFootnoteIdentifiers, codeSpanReader, renderCopy],

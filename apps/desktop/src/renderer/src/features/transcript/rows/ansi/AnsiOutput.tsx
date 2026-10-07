@@ -1,37 +1,48 @@
-// Command output: the spans `spans.ts` produced, as elements in a `<pre>` because the
-// output is preformatted. The one piece of state is the fold: `ANSI_SPAN_RENDER_CAP` withholds
-// the tail of a color-heavy log, so a control lifts the cap for this block, keyed to the source
-// it was granted for so a changed body returns to the default.
+// Command output: the spans `spans.ts` parses from the output's handle, as elements in a `<pre>`
+// because the output is preformatted. The block keeps one parser, so a streaming output is parsed
+// only past what earlier revisions parsed. The other piece of state is the fold:
+// `ANSI_SPAN_RENDER_CAP` withholds the tail of a color-heavy log, so a control lifts the cap for
+// this block, keyed to the handle and revision it was granted for so a changed body returns to the
+// default.
 
 import { useMemo, useState } from "react";
 
 import { ANSI_SPAN_RENDER_CAP } from "./spans.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { ansiSpanClassNames, parseAnsiSpans } from "./spans.js";
+import { type PublishedText } from "../../reveal/published-text.js";
+import { AnsiSpanParser, ansiSpanClassNames } from "./spans.js";
 
 import "./AnsiOutput.css";
 
 /** The tool output to render and the label a screen reader gives its block. */
 export interface AnsiOutputProps {
-  /** The tool's output, wire-verbatim, escape sequences and all. */
-  readonly source: string;
+  /** The tool's output, wire-verbatim, escape sequences and all, read through its handle. */
+  readonly publishedText: PublishedText;
   /** What a screen reader calls this block. */
   readonly label: string;
 }
 
 /** Renders ANSI-styled command output, with a control to show the spans past the render cap. */
 export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
+  const publishedText = props.publishedText;
+  const revision = publishedText.revision;
+  const [parser] = useState(() => new AnsiSpanParser());
   const [revealed, setRevealed] = useState<RevealedSpanCap>({
-    source: props.source,
+    publishedText,
+    revision,
     spanCap: ANSI_SPAN_RENDER_CAP,
   });
   // Derived during render rather than reset by an effect, which would flash the previous
-  // source's reveal for a frame.
-  const spanCap = revealed.source === props.source ? revealed.spanCap : ANSI_SPAN_RENDER_CAP;
+  // text's reveal for a frame.
+  const spanCap =
+    revealed.publishedText === publishedText && revealed.revision === revision
+      ? revealed.spanCap
+      : ANSI_SPAN_RENDER_CAP;
   const { spans, elidedSpanCount } = useMemo(
-    () => parseAnsiSpans(props.source, spanCap),
-    [props.source, spanCap],
+    () => parser.read(publishedText, spanCap),
+    // The handle stays the same while a streaming output grows; its revision is what changed.
+    [parser, publishedText, revision, spanCap],
   );
 
   return (
@@ -68,7 +79,11 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
               // The transcript's retry control, already the shape a `Nothing` action takes here.
               className="meridian-transcript-retry"
               onClick={() => {
-                setRevealed({ source: props.source, spanCap: spans.length + elidedSpanCount });
+                setRevealed({
+                  publishedText,
+                  revision,
+                  spanCap: spans.length + elidedSpanCount,
+                });
               }}
             >
               Show the rest
@@ -80,8 +95,9 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
   );
 }
 
-/** The cap this block is rendering under, and the source it was granted for. */
+/** The cap this block is rendering under, and the text and revision it was granted for. */
 interface RevealedSpanCap {
-  readonly source: string;
+  readonly publishedText: PublishedText;
+  readonly revision: number;
   readonly spanCap: number;
 }
