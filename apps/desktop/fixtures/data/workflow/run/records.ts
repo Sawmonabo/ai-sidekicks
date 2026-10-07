@@ -10,7 +10,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import { encodeEventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,
@@ -311,7 +311,7 @@ const FILE_EVENT: WorkflowStartedBy = { kind: "fileEvent" };
 const CHAT: WorkflowStartedBy = {
   kind: "chat",
   sessionId: WORKFLOW_CHAT_SESSION,
-  messageAnchorCursor: "cursor-0000000000000042" as EventCursor,
+  messageAnchorCursor: encodeEventCursor(42),
 };
 const CHAIN_ROOT: WorkflowChainRoot = {
   runId: WORKFLOW_RUN_IDS.chainHeld as WorkflowRunId,

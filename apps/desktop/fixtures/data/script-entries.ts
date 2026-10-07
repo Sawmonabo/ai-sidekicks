@@ -17,6 +17,7 @@
 // none.
 
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import type { ScenarioBeat } from "../scenario.js";
 
@@ -101,8 +102,8 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
         id: eventId,
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
-        // The position the scenario's stream delivers the beat at; its frames relay it verbatim.
-        cursor: eventId,
+        // The position the scenario's stream delivers the beat at, in the daemon's cursor format.
+        cursor: encodeEventCursor(entryIndex + 1),
         kind: entry.kind,
         occurredAt: composeScenarioInstant(options.startedAtMs, entry.atMs),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),

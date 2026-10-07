@@ -37,7 +37,7 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
         },
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: "empty-session-cursor-0",
+          latest: encodeEventCursor(START_OF_LOG_POSITION),
         },
       },
     },

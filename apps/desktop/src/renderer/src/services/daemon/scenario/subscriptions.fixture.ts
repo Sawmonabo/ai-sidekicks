@@ -33,15 +33,15 @@ const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
  * then follow, in the frames `event/envelope.fixture.ts` composes; opened with an `afterCursor` it
  * catches up on what follows that change alone (on the whole log after the start-of-log cursor),
  * and one this playback never delivered ends the subscription refused, as the daemon refuses a
- * cursor it cannot resolve. A bare event-type name carries only itself, one envelope per beat. The two `run.*` streams are registered projections
- * (`RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary`) built by
- * `projection.fixture.ts`, with no catch-up because they are live; the envelope would teach
- * subscribers a frame the live bridge cannot send. A beat the projection cannot build throws, and
- * `lib/emitter.ts` re-raises after every sink has run, so the authoring error reaches whoever
- * advanced the clock without silencing other subscribers. The presence subscription is not an event
- * feed: the fixture scripts no device, so it is accepted and never delivers. The machine's notice
- * streams deliver the frame the scenario opens them with, then the notices its settled replies
- * push, live, with no catch-up.
+ * cursor it cannot resolve. A bare event-type name carries only itself, one envelope per beat. The
+ * two `run.*` streams are registered projections (`RunStateChangeEvent | RunRolledBackEvent` and
+ * `QueueItemSummary`) built by `projection.fixture.ts`, with no catch-up because they are live; the
+ * envelope would teach subscribers a frame the live bridge cannot send. A beat the projection
+ * cannot build throws, and `lib/emitter.ts` re-raises after every sink has run, so the authoring
+ * error reaches whoever advanced the clock without silencing other subscribers. The presence
+ * subscription is not an event feed: the fixture scripts no device, so it is accepted and never
+ * delivers. The machine's notice streams deliver the frame the scenario opens them with, then the
+ * notices its settled replies push, live, with no catch-up.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
