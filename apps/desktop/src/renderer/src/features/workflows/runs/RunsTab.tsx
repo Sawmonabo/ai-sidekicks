@@ -17,7 +17,7 @@ import type {
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -70,7 +70,7 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
   const { filters, listState, attentionState } = props;
   const clock = useClock();
   // The first read's count stands; a later answer that changes it is said.
-  useAnnounceWhenShown(runsSettlementSentence(listState, props.runCountState), "polite", {
+  useAnnounceWhenChanged(runsSettlementSentence(listState, props.runCountState), "polite", {
     isReadSettlement: true,
   });
   const attentionEntries =
@@ -242,24 +242,28 @@ function isWithoutRuns(runCountState: PushDrivenReadState<number>): boolean {
 
 /**
  * What a screen reader hears when a later answer changes the runs: how many are listed, or `No
- * runs yet` where there is no run at all. A failed read's error line and a filter matching nothing
- * say so in their own lines instead.
+ * runs yet` where there is no run at all; `undefined` while either read is in flight. A failed
+ * read's error line and a filter matching nothing say so in their own lines instead, so the
+ * summary settles on `null` there.
  */
 function runsSettlementSentence(
   listState: PushDrivenReadState<RunListAnswer>,
   runCountState: PushDrivenReadState<number>,
-): string | undefined {
+): string | null | undefined {
   switch (listState.kind) {
     case "not-loaded":
       return undefined;
     case "failed":
-      return undefined;
+      return null;
     case "loaded": {
       const { response } = listState.value;
       if (response.runs.length > 0) {
         return `${runCountWords(response.totalCount)} listed.`;
       }
-      return isWithoutRuns(runCountState) ? "No runs yet" : undefined;
+      if (runCountState.kind === "not-loaded") {
+        return undefined;
+      }
+      return isWithoutRuns(runCountState) ? "No runs yet" : null;
     }
   }
 }

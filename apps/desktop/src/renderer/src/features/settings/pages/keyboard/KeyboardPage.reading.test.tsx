@@ -83,7 +83,7 @@ describe("keyboard page — a command registered after the page first rendered",
 });
 
 describe("keyboard page — the keyboard map read after the page opened", () => {
-  it("draws the chord the read declined, and says nothing of it", async () => {
+  it("draws the chord the read declined unsaid, and says what a later read declines", async () => {
     const said = spiedAnnouncer();
     const { container } = render(
       <LiveAnnouncerProvider announcer={said.announcer}>
@@ -107,6 +107,20 @@ describe("keyboard page — the keyboard map read after the page opened", () => 
       "A chord kept for Sessions was not installed this time.",
     );
     expect(said.spoken()).toStrictEqual([]);
+
+    // The read answered, so the page has opened: a later read's new decline is a change.
+    await act(async () => {
+      await keybindingOverrides.hydrateFrom(
+        keyboardMapStoring({
+          "bridge.checkForUpdates": "Alt+KeyK",
+          "frame.goToWorkflows": "Alt+KeyK",
+        }),
+      );
+      await crossMacrotaskBoundary();
+    });
+    expect(said.spoken()).toStrictEqual([
+      expect.stringMatching(/^A chord kept for Workflows was not installed this time\./),
+    ]);
   });
 });
 

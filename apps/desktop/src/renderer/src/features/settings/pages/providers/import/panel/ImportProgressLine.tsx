@@ -13,7 +13,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
 
 /** What the progress row draws: one provider's import. */
@@ -37,7 +37,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   // otherwise be read out frame by frame. What the stream replayed as it opened is not news; a
   // new press is, even where its words match the last press's.
   const sentence = rowSentence(model, providerLabel);
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     model.isUnderway && progress.status !== "failed" ? importingWords(providerLabel) : sentence,
     "polite",
     { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },

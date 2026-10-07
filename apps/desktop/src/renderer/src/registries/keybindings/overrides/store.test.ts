@@ -222,6 +222,30 @@ describe("what one window wrote, the next one reads", () => {
     expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
   });
 
+  it("counts the map read once no read is out, though a rebinding superseded it", async () => {
+    const replaced = heldMapHolding("frame.goToSessions", "Alt+Digit3");
+    const current = heldMapHolding("frame.goToWorkflows", "Alt+Digit4");
+    const overrides = overrideStore();
+    const first = overrides.hydrateFrom(replaced);
+    const second = overrides.hydrateFrom(current);
+    await replaced.answer();
+    await first;
+    // The read a page waits on is the one still out, not the one it superseded.
+    expect(overrides.isKeyboardMapRead).toBe(false);
+    await current.answer();
+    await second;
+    expect(overrides.isKeyboardMapRead).toBe(true);
+
+    // A rebinding installs nothing from the read it supersedes, but that read still answered.
+    const rebound = overrideStore();
+    const held = heldMapHolding("frame.goToSessions", "Alt+Digit3");
+    const hydration = rebound.hydrateFrom(held);
+    await rebound.bind("frame.goToWorkflows", "Alt+Digit5");
+    await held.answer();
+    await hydration;
+    expect(rebound.isKeyboardMapRead).toBe(true);
+  });
+
   it("discloses a refused write rather than reporting a preference that was kept", async () => {
     // The chord is bound for this window, and the store says it will not come back.
     const keyboardMap = new MemoryKeyboardMap();

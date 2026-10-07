@@ -1,4 +1,4 @@
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { AttentionReading } from "#renderer/store/attention/summary.js";
 import { describeAttentionSettlement } from "../attention-sentences.js";
 
@@ -9,7 +9,7 @@ import { describeAttentionSettlement } from "../attention-sentences.js";
  * moves without the reading, and is composed from counts, never a clock.
  */
 export function useAttentionSettlementAnnouncement(reading: AttentionReading): void {
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     reading.phase === "reading" ? undefined : describeAttentionSettlement(reading),
     "polite",
     { isReadSettlement: true },

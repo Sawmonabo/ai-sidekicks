@@ -14,8 +14,8 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
- * Where one import call has got to. `pressOrdinal` is the press it answers, counted from one: a
- * new press is a new attempt, even where it ends in the words the last one did.
+ * Where one import call has got to. `pressOrdinal` counts the calls put, from one, so a caller can
+ * tell one press's settlement from the one before.
  */
 export type ProviderImportCallSettlement<TAnswer> =
   | { readonly status: "unattempted" }

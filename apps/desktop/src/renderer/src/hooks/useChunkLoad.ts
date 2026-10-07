@@ -24,6 +24,11 @@ export interface ChunkLoad<TModule> {
   readonly state: ChunkLoadState<TModule>;
   /** Ask for the chunk again; only a refused fetch offers it. Stable for the mount. */
   readonly retry: () => void;
+  /**
+   * The retries the state answers, from `0`: the failure line's attempt, so a retry that fails
+   * again in the same words is said again.
+   */
+  readonly attempt: number;
 }
 
 const LOADING_CHUNK = { status: "loading" } as const;
@@ -79,5 +84,5 @@ export function useChunkLoad<TModule>(
     setAttempt((previous) => previous + 1);
   }, []);
 
-  return { state, retry };
+  return { state, retry, attempt };
 }

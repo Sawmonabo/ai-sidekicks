@@ -39,10 +39,11 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
   const mountElementRef = useRef<HTMLDivElement | null>(null);
   const adapterRef = useRef<XtermTerminalAdapterInstance | undefined>(undefined);
   const [rendererMode, setRendererMode] = useState<TerminalRendererMode | undefined>(undefined);
-  const { state: emulator, retry: retryEmulator } = useChunkLoad(
-    terminalEmulatorLoader,
-    "terminal-emulator-chunk",
-  );
+  const {
+    state: emulator,
+    retry: retryEmulator,
+    attempt: emulatorAttempt,
+  } = useChunkLoad(terminalEmulatorLoader, "terminal-emulator-chunk");
 
   const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
   const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
@@ -127,7 +128,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
           aria-label={isWritable ? props.label : `${props.label}, read-only`}
         />
       ) : (
-        renderEmulatorAbsence(emulator, retryEmulator)
+        renderEmulatorAbsence(emulator, retryEmulator, emulatorAttempt)
       )}
     </div>
   );
@@ -143,6 +144,7 @@ type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTe
 function renderEmulatorAbsence(
   emulator: Exclude<ChunkLoadState<TerminalEmulatorModule>, { status: "loaded" }>,
   retry: () => void,
+  attempt: number,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
     <Nothing kind="not-loaded" placement="block" title="Loading the terminal…" />
@@ -152,6 +154,7 @@ function renderEmulatorAbsence(
       placement="block"
       title="Could not load the terminal"
       action={<TryAgainButton word="Retry" onPress={retry} />}
+      attempt={attempt}
     />
   );
 }

@@ -16,7 +16,7 @@ import "./Nothing.css";
 
 import { GLYPH_SIZE_ROW, type GlyphName } from "#renderer/styles/glyphs.js";
 import type { AnnouncementPoliteness } from "../LiveAnnouncer/announcer.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
 /** The closed set of empty-state kinds. */
@@ -125,7 +125,7 @@ export function Nothing(props: NothingProps): React.JSX.Element {
   const className =
     `meridian-nothing ${SHAPE_MODIFIER_BY_PLACEMENT[placement]} ` +
     `meridian-nothing--${props.kind}`;
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     traits.politeness === undefined ? undefined : shownWords(props, placement),
     traits.politeness ?? "polite",
     { attempt: props.attempt },

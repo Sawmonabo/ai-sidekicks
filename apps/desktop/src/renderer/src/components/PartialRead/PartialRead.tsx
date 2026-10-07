@@ -10,7 +10,7 @@
 //
 // Neither this component nor the notice creates a live region: the `reading` arm draws `Nothing`'s
 // skeleton, which is not read out, and a prose arm nests `InlineRefusal`, which says its own words,
-// so a wrapper would say them twice. To speak the sentence, a view calls `useAnnounceWhenShown`.
+// so a wrapper would say them twice. To speak the sentence, a view calls `useAnnounceWhenChanged`.
 
 import { ReadingNotice } from "./ReadingNotice.js";
 import { partialReadNotices, type ReadingState } from "#renderer/lib/partial-read.js";

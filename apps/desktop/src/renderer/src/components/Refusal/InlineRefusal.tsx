@@ -12,7 +12,7 @@ import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { TryAgainButton } from "../TryAgainButton/TryAgainButton.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { type RefusalProps } from "./props.js";
 
 /** Props for `InlineRefusal`. */
@@ -42,7 +42,7 @@ export interface InlineRefusalProps extends RefusalProps {
  */
 export function InlineRefusal(props: InlineRefusalProps): React.JSX.Element {
   const detail = formatWireString(props.detail);
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     props.remedyWords === undefined ? detail : `${detail} ${props.remedyWords}`,
     "assertive",
     { attempt: props.attempt, isStanding: props.isStanding },

@@ -1,4 +1,4 @@
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { describeDefinitionSettlement, type AgentDefinitionReading } from "../definition-rows.js";
 
 /**
@@ -7,7 +7,7 @@ import { describeDefinitionSettlement, type AgentDefinitionReading } from "../de
  * `undefined` while the read is in flight leaves the last sentence standing.
  */
 export function useDefinitionSettlementAnnouncement(reading: AgentDefinitionReading): void {
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     reading.kind === "not-loaded" ? undefined : describeDefinitionSettlement(reading),
     "polite",
     { isReadSettlement: true },

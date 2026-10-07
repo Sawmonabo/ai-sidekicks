@@ -4,7 +4,7 @@
 import { refusalSentence } from "#renderer/lib/code-words.js";
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
-import { useAnnounceWhenShown } from "./useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "./useAnnounceWhenChanged.js";
 
 /**
  * Announce a view's own refusal banner on the assertive lane: the code's words, then the message,
@@ -12,7 +12,7 @@ import { useAnnounceWhenShown } from "./useAnnounceWhenShown.js";
  * new attempt, said again in the same words.
  */
 export function useAnnounceBannerRefusal(refusal: ExtendedRefusal | undefined): void {
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     refusal === undefined
       ? undefined
       : refusalSentence(refusal.code, refusal.reason, formatWireString(refusal.detail)),

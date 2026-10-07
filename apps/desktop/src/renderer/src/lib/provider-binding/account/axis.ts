@@ -11,6 +11,7 @@ import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provi
 
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { findReadRefusal, type WireReadState } from "#renderer/lib/reads/wire-state.js";
+import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 
 /**
  * The narrow slice of the window's account registry reading this axis reads; the full readout
@@ -41,12 +42,13 @@ export interface AccountChoice {
 
 /**
  * What the account axis can offer right now. Five arms, because the four that are not a
- * list would each read as "no accounts exist" if rendered as an empty picker.
+ * list would each read as "no accounts exist" if rendered as an empty picker. A refused read
+ * carries the registry's own refusal, whose identity tells one failed read from the next.
  */
 export type AccountAxisReading =
   | { readonly kind: "driver-unchosen" }
   | { readonly kind: "reading" }
-  | { readonly kind: "refused" }
+  | { readonly kind: "refused"; readonly refusal: ExtendedRefusal }
   | { readonly kind: "unknown-provider"; readonly driverName: string }
   | {
       readonly kind: "served";
@@ -78,8 +80,9 @@ export function accountAxisReadingFor(
   }
   // Through the phase-aware accessor: a reading whose newest read served carries no
   // refusal, though an earlier one failed.
-  if (findReadRefusal(registry) !== undefined) {
-    return { kind: "refused" };
+  const readRefusal = findReadRefusal(registry);
+  if (readRefusal !== undefined) {
+    return { kind: "refused", refusal: readRefusal };
   }
   if (registry.phase === "reading") {
     return { kind: "reading" };

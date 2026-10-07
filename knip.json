@@ -206,6 +206,8 @@
         // sessions list.
         "src/renderer/src/store/attention/AttentionProvider.tsx",
         "src/renderer/src/store/attention/hooks/useAttention.ts",
+        // What the Notifications list says of the attention read when a later read changes it.
+        "src/renderer/src/layout/NotificationsList/hooks/useAttentionSettlementAnnouncement.ts",
         // The operating-system notification permission fold, which moves to main beside the
         // notification poster.
         "src/renderer/src/features/settings/pages/notifications/os/delivery.ts",

@@ -207,8 +207,9 @@ export function KeyboardPage(): ReactNode {
 
       <section className="meridian-settings-page__block" aria-label="What the keyboard reports">
         <h3 className="meridian-settings-page__section-head">What the keyboard reports</h3>
-        {/* What the keyboard map's read finds stands, however late it lands; what a rebinding
-            changes after it is said. The read failing is said. */}
+        {/* What the keyboard map's read finds stands, however late it lands; what changes after it
+            is said. The read failing while the page is open is said; one that failed before stands
+            with the page. */}
         <StandingContent isOpening={!keybindingOverrides.isKeyboardMapRead}>
           {audit.conflicts.length === 0 ? (
             <Nothing

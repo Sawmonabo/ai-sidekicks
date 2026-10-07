@@ -16,7 +16,7 @@ import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-setti
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -53,7 +53,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const reading = useUpdateReading(updater);
   const clock = useClock();
   // The state the first read lands on stands; a later change of state is said.
-  useAnnounceWhenShown(updateSettlementSentence(reading), "polite", { isReadSettlement: true });
+  useAnnounceWhenChanged(updateSettlementSentence(reading), "polite", { isReadSettlement: true });
   const status = reading.kind === "state" ? reading.state.status : undefined;
   const failureMessage =
     reading.kind === "state" && reading.state.status === "error"
@@ -197,12 +197,16 @@ function renderAutomaticCheck(
 /**
  * The one sentence this block announces, the settled state's drawn words, or `undefined` while no
  * state has settled; a refused read and the updater's failure are drawn as lines that speak for
- * themselves. It carries no figure: `downloading` re-settles on every push, and a sentence with
- * the percent would be announced once per percentage point.
+ * themselves, so the sentence settles on `null` there. It carries no figure: `downloading`
+ * re-settles on every push, and a sentence with the percent would be announced once per
+ * percentage point.
  */
-function updateSettlementSentence(reading: UpdateReading): string | undefined {
-  if (reading.kind !== "state" || reading.state.status === "error") {
+function updateSettlementSentence(reading: UpdateReading): string | null | undefined {
+  if (reading.kind === "not-read") {
     return undefined;
+  }
+  if (reading.kind === "failed" || reading.state.status === "error") {
+    return null;
   }
   return UPDATE_STATE_WORDS[reading.state.status];
 }

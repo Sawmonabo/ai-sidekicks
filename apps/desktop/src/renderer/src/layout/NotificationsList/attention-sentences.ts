@@ -11,14 +11,14 @@ import {
 } from "#renderer/store/attention/summary.js";
 
 /**
- * One settled attention read, in one sentence for the polite lane, or `undefined` when
- * nothing waits and the read covered every session: that read says nothing, the way the
- * list draws nothing under its heading.
+ * One settled attention read, in one sentence for the polite lane, or `null` when nothing waits
+ * and the read covered every session: that read says nothing, the way the list draws nothing under
+ * its heading.
  */
-export function describeAttentionSettlement(reading: AnsweredAttentionReading): string | undefined {
+export function describeAttentionSettlement(reading: AnsweredAttentionReading): string | null {
   const needsYou = needsYouClause(reading);
   if (needsYou === undefined) {
-    return undefined;
+    return null;
   }
   const clauses = [needsYou];
   if (reading.refusedSessions.length > 0) {

@@ -1,11 +1,11 @@
 // A line drawn when something happens (an act settled, a check closed a control, a failure). It
 // carries no live role and says its words through the app's announcer when they report a change
-// (`hooks/announce/useAnnounceWhenShown.ts` says why); drawn as its view opens, it stands.
+// (`hooks/announce/useAnnounceWhenChanged.ts` says why); drawn as its view opens, it stands.
 
 import type { ReactNode } from "react";
 
 import type { AnnouncementPoliteness } from "../LiveAnnouncer/announcer.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 
 /** Props for `AnnouncedLine`. */
 export interface AnnouncedLineProps {
@@ -34,7 +34,7 @@ export interface AnnouncedLineProps {
 
 /** A drawn line that speaks its words through the app's announcer. */
 export function AnnouncedLine(props: AnnouncedLineProps): React.JSX.Element {
-  useAnnounceWhenShown(props.words, props.politeness, { attempt: props.attempt });
+  useAnnounceWhenChanged(props.words, props.politeness, { attempt: props.attempt });
   const Element = props.element;
   return (
     <Element className={props.className} id={props.id} aria-busy={props.isBusy}>

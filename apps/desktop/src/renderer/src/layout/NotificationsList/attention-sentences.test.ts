@@ -68,7 +68,7 @@ describe("what one settled attention read says", () => {
   it("stays silent only for a read that found nothing and covered everything", () => {
     // A read that answered for every session and dropped nothing has nothing to say; anything less
     // must say so, since a listener cannot see the panel.
-    expect(describeAttentionSettlement(answered({}))).toBeUndefined();
+    expect(describeAttentionSettlement(answered({}))).toBeNull();
     expect(
       describeAttentionSettlement(answered({ refusedSessions: [refusedSession("s-1")] })),
     ).toBe("Nothing was found in what this read covered. One session could not be checked.");

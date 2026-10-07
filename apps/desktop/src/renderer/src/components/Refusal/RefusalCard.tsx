@@ -8,7 +8,7 @@ import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
 import { refusalSentence } from "#renderer/lib/code-words.js";
-import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { type RefusalProps } from "./props.js";
 import { RefusalWords } from "./RefusalWords.js";
 
@@ -27,7 +27,7 @@ export interface RefusalCardProps extends RefusalProps {
 export function RefusalCard(props: RefusalCardProps): React.JSX.Element {
   const detail = formatWireString(props.detail);
   const sentence = refusalSentence(props.code, props.reason, detail);
-  useAnnounceWhenShown(
+  useAnnounceWhenChanged(
     props.remedyWords === undefined ? sentence : `${sentence} ${props.remedyWords}`,
     "assertive",
     { attempt: props.attempt },
