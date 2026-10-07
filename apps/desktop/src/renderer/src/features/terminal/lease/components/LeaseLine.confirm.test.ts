@@ -14,6 +14,7 @@ import {
   leaseLineWithTake,
   leaseState,
   renderLease,
+  type RenderedLease,
 } from "./LeaseLine.test-support.js";
 import { OTHER_DEVICE_ID } from "../state.test-support.js";
 
@@ -25,9 +26,10 @@ const HELD_BY_THE_MAC_MINI = leaseState({
 const QUESTION = "Mac mini holds the shell. Take it?";
 
 /** Open the confirm on a line held by the Mac mini, over the given takes. */
-function openConfirm(takes: HeldTakes): void {
-  renderLease(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge);
+function openConfirm(takes: HeldTakes): RenderedLease {
+  const view = renderLease(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge);
   fireEvent.click(screen.getByRole("button", { name: "Take the shell" }));
+  return view;
 }
 
 describe("taking the shell from another device", () => {
@@ -92,22 +94,30 @@ describe("taking the shell from another device", () => {
     expect(takes.takes).toHaveLength(1);
   });
 
-  it("keeps the confirm open with the daemon's reason when the take is refused", async () => {
+  it("keeps the confirm open with the daemon's reason when the take is refused, said each time", async () => {
     const takes = new HeldTakes();
-    openConfirm(takes);
+    const { said } = openConfirm(takes);
+    const reason = "an agent's running command holds this shell";
     fireEvent.click(screen.getByRole("button", { name: "Take it" }));
     await settle();
     await settle(() => {
-      takes.refuse(0, "pty.control_held_by_other", "an agent's running command holds this shell");
+      takes.refuse(0, "pty.control_held_by_other", reason);
     });
     expect(screen.getByRole("group", { name: QUESTION })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe(
-      "an agent's running command holds this shell",
-    );
+    expect(screen.getByRole("group", { name: "Terminal lease" }).textContent).toContain(reason);
     // Focus stayed on `Take it` through the take, which answers again.
     const takeIt = screen.getByRole("button", { name: "Take it" });
     expect(document.activeElement).toBe(takeIt);
     expect(takeIt.getAttribute("aria-disabled")).toBe("false");
+
+    // A second press refused in the same words is said again, since the person pressed again.
+    fireEvent.click(takeIt);
+    await settle();
+    await settle(() => {
+      takes.refuse(1, "pty.control_held_by_other", reason);
+    });
+    expect(said.spokenOn("assertive")).toStrictEqual([reason, reason]);
+    expect(said.spokenOn("polite")).toStrictEqual([]);
   });
 
   it("closes an open confirm when the holder changes, so it never asks about a device that let go", () => {

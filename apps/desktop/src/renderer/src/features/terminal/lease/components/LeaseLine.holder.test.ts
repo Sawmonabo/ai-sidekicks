@@ -3,10 +3,17 @@
 // shell draws nothing because the first keystroke takes it, and a holder whose name has not been
 // read draws nothing either, so the line never speaks for a holder it cannot name.
 
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { leaseState, renderLease } from "./LeaseLine.test-support.js";
+import { drawnText } from "#test/helpers/live-region.js";
+import { HeldTakes } from "../hooks/useTakeShell.test-support.js";
+import {
+  THIRD_DEVICE_ID,
+  leaseLineWithTake,
+  leaseState,
+  renderLease,
+} from "./LeaseLine.test-support.js";
 import { COMMAND_ID, OTHER_DEVICE_ID, RUN_ID, THIS_DEVICE_ID } from "../state.test-support.js";
 
 const HELD_BY_THE_MAC_MINI = leaseState({
@@ -45,14 +52,45 @@ describe("the holder line", () => {
       leaseState({ holder: "unheld", holderDeviceId: null }),
       "Mac mini",
     );
-    expect(container.textContent).toBe("");
+    expect(drawnText(container)).toBe("");
   });
 
   it("draws nothing for a holder whose name has not been read", () => {
     for (const state of [HELD_BY_THE_MAC_MINI, HELD_BY_A_RUN]) {
       const { container, unmount } = renderLease(state, undefined);
-      expect(container.textContent).toBe("");
+      expect(drawnText(container)).toBe("");
       unmount();
     }
+  });
+
+  it("says each change of holder after the pane first drew it, and never the question", () => {
+    const takes = new HeldTakes();
+    const view = renderLease(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge);
+    // The line the pane opened with stands, a re-read in the same words says nothing, and the
+    // confirm's question is the person's own act, read where focus lands.
+    view.rerender(leaseLineWithTake(HELD_BY_THE_MAC_MINI, "Mac mini", takes.bridge));
+    fireEvent.click(screen.getByRole("button", { name: "Take the shell" }));
+    expect(view.said.spoken()).toStrictEqual([]);
+
+    const heldByTheIpad = leaseState({
+      holder: "held-by-another-device",
+      holderDeviceId: THIRD_DEVICE_ID,
+    });
+    view.rerender(leaseLineWithTake(heldByTheIpad, "iPad", takes.bridge));
+    view.rerender(leaseLineWithTake(HELD_BY_A_RUN, "Codex", takes.bridge));
+    // This device holds it for a while, and the iPad takes it back: the line comes back and is said.
+    view.rerender(
+      leaseLineWithTake(
+        leaseState({ holder: "held-by-this-device", holderDeviceId: THIS_DEVICE_ID }),
+        "Mac",
+        takes.bridge,
+      ),
+    );
+    view.rerender(leaseLineWithTake(heldByTheIpad, "iPad", takes.bridge));
+    expect(view.said.spokenOn("polite")).toStrictEqual([
+      "iPad holds the shell.",
+      "Codex's running command holds the shell.",
+      "iPad holds the shell.",
+    ]);
   });
 });
