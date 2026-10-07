@@ -155,6 +155,16 @@ export class RustSidecarPtyHost implements PtyHost {
     );
   }
 
+  /** Stops the sidecar reading a session's terminal. Rejects for an unknown session id. */
+  public async pause(sessionId: string): Promise<void> {
+    await this.sendFlowControl(sessionId, true, "pause");
+  }
+
+  /** Has the sidecar read a session's terminal again. Rejects for an unknown session id. */
+  public async resume(sessionId: string): Promise<void> {
+    await this.sendFlowControl(sessionId, false, "resume");
+  }
+
   /** Writes bytes to a session's terminal. Rejects for an unknown session id. */
   public async write(sessionId: string, bytes: Uint8Array): Promise<void> {
     if (!this.sessions.has(sessionId)) {
@@ -455,6 +465,7 @@ export class RustSidecarPtyHost implements PtyHost {
       }
       case "spawn_response":
       case "resize_response":
+      case "flow_control_response":
       case "write_response":
       case "kill_response":
       case "ping_response": {
@@ -464,6 +475,7 @@ export class RustSidecarPtyHost implements PtyHost {
       // The sidecar never sends requests; warn and skip.
       case "spawn_request":
       case "resize_request":
+      case "flow_control_request":
       case "write_request":
       case "kill_request":
       case "ping_request": {
@@ -548,10 +560,11 @@ export class RustSidecarPtyHost implements PtyHost {
     if (head === undefined) {
       return;
     }
-    // Only these four response kinds carry the optional `error` field.
+    // Only these five response kinds carry the optional `error` field.
     if (
       (envelope.kind === "spawn_response" ||
         envelope.kind === "resize_response" ||
+        envelope.kind === "flow_control_response" ||
         envelope.kind === "write_response" ||
         envelope.kind === "kill_response") &&
       envelope.error !== undefined
@@ -631,6 +644,23 @@ export class RustSidecarPtyHost implements PtyHost {
       }
     });
     handle.unref();
+  }
+
+  // Shared by `pause` and `resume`, which differ only in `paused`.
+  private async sendFlowControl(
+    sessionId: string,
+    paused: boolean,
+    verb: "pause" | "resume",
+  ): Promise<void> {
+    // An unknown id rejects before any request is sent, as in NodePtyHost.
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`RustSidecarPtyHost.${verb}: unknown sessionId '${sessionId}'`);
+    }
+    await this.childProcess.ensureChild(this.shuttingDown);
+    await this.sendRequest(
+      { kind: "flow_control_request", session_id: sessionId, paused },
+      "flow_control_response",
+    );
   }
 
   /**

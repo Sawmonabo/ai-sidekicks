@@ -8,10 +8,11 @@
 // - `SpawnRequest.env` is an array of pairs, not a record: process spawn preserves order and
 //   accepts duplicate keys, which a record would silently dedupe and reorder.
 // - `bytes` fields are base64 strings; decoding is the consumer's job.
-// - `SpawnResponse`, `ResizeResponse`, `WriteResponse` and `KillResponse` carry `error?: string`,
-//   absent on the wire when the handler succeeded. `ExitCodeNotification.signal_code` differs: it
-//   is `null` on the wire when absent, because there absent is a meaningful value. Without a typed
-//   error response the daemon's awaiting request would hang, since `sendRequest` has no timeout.
+// - `SpawnResponse`, `ResizeResponse`, `FlowControlResponse`, `WriteResponse` and `KillResponse`
+//   carry `error?: string`, absent on the wire when the handler succeeded.
+//   `ExitCodeNotification.signal_code` differs: it is `null` on the wire when absent, because there
+//   absent is a meaningful value. Without a typed error response the daemon's awaiting request
+//   would hang, since `sendRequest` has no timeout.
 
 /** POSIX signal names accepted by `KillRequest.signal`; the on-wire shape only. */
 export type PtySignal = "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP";
@@ -60,6 +61,27 @@ interface ResizeRequest {
  */
 interface ResizeResponse {
   kind: "resize_response";
+  session_id: string;
+  /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
+  error?: string;
+}
+
+/**
+ * Stop reading a session's PTY while `paused` is true, so a flooding program blocks where it
+ * writes, and read it again once a request with `paused` false arrives.
+ */
+interface FlowControlRequest {
+  kind: "flow_control_request";
+  session_id: string;
+  paused: boolean;
+}
+
+/**
+ * Reply to a `FlowControlRequest`. `error` is set when the handler failed, most often
+ * `UnknownSession` because the session exited before the sidecar dispatched the request.
+ */
+interface FlowControlResponse {
+  kind: "flow_control_response";
   session_id: string;
   /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
   error?: string;
@@ -156,6 +178,8 @@ export type Envelope =
   | SpawnResponse
   | ResizeRequest
   | ResizeResponse
+  | FlowControlRequest
+  | FlowControlResponse
   | WriteRequest
   | WriteResponse
   | KillRequest

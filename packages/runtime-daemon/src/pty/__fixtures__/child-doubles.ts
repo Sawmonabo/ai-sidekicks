@@ -36,6 +36,8 @@ export function makeFakeChild(pid: number = 12345): {
     kill: vi.fn(),
     resize: vi.fn(),
     write: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
   return {
     child,

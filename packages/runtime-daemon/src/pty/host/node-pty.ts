@@ -23,7 +23,7 @@ import type { DrainResult, PtyHost } from "./contract.js";
 
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer
 // (it is loaded lazily), and the types list exactly what is consumed: `pid`, `onData`,
-// `onExit`, `kill`, `resize` and `write`.
+// `onExit`, `kill`, `resize`, `write`, `pause` and `resume`.
 
 /** Shape of a single PTY-child wrapper as returned by `node-pty.spawn`. */
 export interface NodePtyChild {
@@ -41,6 +41,10 @@ export interface NodePtyChild {
   resize(cols: number, rows: number): void;
   /** Write a chunk to the PTY's master FD. */
   write(data: string | Uint8Array): void;
+  /** Stop reading the PTY's master FD. */
+  pause(): void;
+  /** Read the PTY's master FD again. */
+  resume(): void;
 }
 
 /** Options passed to `node-pty.spawn`. */
@@ -361,6 +365,28 @@ export class NodePtyHost implements PtyHost {
       throw new Error(`NodePtyHost.write: unknown sessionId '${sessionId}'`);
     }
     record.child.write(bytes);
+  }
+
+  /** Stops reading the PTY. Throws for an unknown session id; an exited child gets nothing. */
+  public async pause(sessionId: string): Promise<void> {
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+    if (record === undefined) {
+      throw new Error(`NodePtyHost.pause: unknown sessionId '${sessionId}'`);
+    }
+    if (!record.hasExited) {
+      record.child.pause();
+    }
+  }
+
+  /** Reads the PTY again. Throws for an unknown session id; an exited child gets nothing. */
+  public async resume(sessionId: string): Promise<void> {
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+    if (record === undefined) {
+      throw new Error(`NodePtyHost.resume: unknown sessionId '${sessionId}'`);
+    }
+    if (!record.hasExited) {
+      record.child.resume();
+    }
   }
 
   /**
