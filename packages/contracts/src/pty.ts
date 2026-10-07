@@ -2,10 +2,11 @@
 // one shell's output stream, writing and resizing, flow control, and the per-shell control lease.
 //
 // Every request names the session and the terminal, and a take or a write names the pane's output
-// subscription it comes through; a request whose terminal is not that session's, or whose
-// subscription is not the calling connection's open subscription to that shell, is refused, so a
-// terminal id alone never reaches another session's shell and a hold is never bound to another
-// connection's pane.
+// subscription it comes through. A request whose terminal is not that session's is refused
+// `pty.not_found`, so a terminal id alone never reaches another session's shell; only the
+// flow-control signal, which may race a closing shell, changes nothing instead. A take or write
+// whose subscription is not the calling connection's open subscription to that shell is refused
+// `pty.output_subscription_not_found`, so a hold is never bound to another connection's pane.
 //
 // The lease is one per shell, held by one of the user's devices or by an agent's running command on
 // this machine. A run's hold carries this machine's device id, the run's id and the holding
@@ -324,7 +325,7 @@ const PtyActResponseSchema: z.ZodType<PtyActResponse> = z.null();
  * The state this connection declares for one shell: `paused` while it is behind, false once it has
  * caught up. The daemon stops reading the shell only while every live watcher is behind, and a
  * connection's state clears when it disconnects. Not gated by the lease: it moves no bytes toward
- * the shell.
+ * the shell. A call naming a shell the session does not have changes nothing and is not refused.
  */
 export interface SessionSetTerminalFlowControlRequest {
   sessionId: SessionId;
@@ -516,6 +517,35 @@ export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
  * @consumedBy the handler that returns the `pty.control_not_held` error
  */
 export type PtyControlNotHeldCode = typeof PTY_CONTROL_NOT_HELD_CODE;
+
+/**
+ * A request naming a shell its session does not have: no such shell, or another session's, which
+ * the refusal never tells apart.
+ *
+ * @consumedBy the daemon's shell handlers, which check each request's shell against its session
+ */
+export const PTY_NOT_FOUND_CODE = "pty.not_found" as const;
+/**
+ * Type of {@link PTY_NOT_FOUND_CODE}.
+ *
+ * @consumedBy the handlers that return the `pty.not_found` error
+ */
+export type PtyNotFoundCode = typeof PTY_NOT_FOUND_CODE;
+
+/**
+ * A take or a write naming an output subscription that is not the calling connection's own open
+ * subscription to that shell: no such subscription, another connection's, or one to another
+ * shell, which the refusal never tells apart, so a hold is never bound to another pane.
+ *
+ * @consumedBy the take and write handlers, which check the subscription before the lease reads it
+ */
+export const PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE = "pty.output_subscription_not_found" as const;
+/**
+ * Type of {@link PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE}.
+ *
+ * @consumedBy the handlers that return the `pty.output_subscription_not_found` error
+ */
+export type PtyOutputSubscriptionNotFoundCode = typeof PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE;
 
 /** The `pty.*` methods, keyed by name. */
 export interface PtyMethodDescriptors {

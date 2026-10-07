@@ -14,7 +14,7 @@ import { registerDescribedMethod } from "../register-described-method.js";
 
 /** What `session.takeControl`'s handler calls. */
 export interface SessionTakeControlDeps {
-  /** Finds a shell's lease in the session; throws for a terminal that is not that session's. */
+  /** Finds a shell's lease in the session; throws `pty.not_found` for a shell it does not have. */
   readonly findShellLease: (sessionId: SessionId, terminalId: TerminalId) => ShellControlLease;
 }
 
