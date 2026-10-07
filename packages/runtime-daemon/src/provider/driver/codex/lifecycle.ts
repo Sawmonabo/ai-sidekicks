@@ -471,21 +471,30 @@ export class CodexLifecycleManager {
 
   /**
    * Binds the session's goal on the provider natively. Only `objective` is sent; `status` and
-   * `tokenBudget` are provider-side state the daemon does not own.
+   * `tokenBudget` are provider-side state the daemon does not own. The goal is the person's own
+   * `/goal`, so it is sent as `origin: "user"`: Codex records only such a goal in the model's
+   * history as the person's instruction, which its automatic reviewer reads as authorization.
    */
   async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
     const record = this.#requireSession(params.sessionId);
     await record.connection.request("thread/goal/set", {
       threadId: record.threadId,
+      origin: "user",
       objective: params.goalText,
     });
     return { status: "applied" };
   }
 
-  /** Clears the session's goal natively; a `cleared: false` answer is still `applied`. */
+  /**
+   * Clears the session's goal natively, as the person's own act (`origin: "user"`); a
+   * `cleared: false` answer is still `applied`.
+   */
   async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     const record = this.#requireSession(params.sessionId);
-    await record.connection.request("thread/goal/clear", { threadId: record.threadId });
+    await record.connection.request("thread/goal/clear", {
+      threadId: record.threadId,
+      origin: "user",
+    });
     return { status: "applied" };
   }
 
