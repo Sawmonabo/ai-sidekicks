@@ -51,15 +51,22 @@ function createTestProgram(context: CommandContext, failure: unknown): Command {
   return program;
 }
 
-async function run(args: readonly string[], failure: unknown = undefined): Promise<RunOutcome> {
+async function runBuilt(
+  buildProgram: (context: CommandContext) => Command,
+  args: readonly string[],
+): Promise<RunOutcome> {
   let stdout = "";
   let stderr = "";
   const context: CommandContext = {
     stdout: { write: (chunk) => void (stdout += chunk) },
     stderr: { write: (chunk) => void (stderr += chunk) },
   };
-  const exitCode = await runProgram(createTestProgram(context, failure), args);
+  const exitCode = await runProgram(buildProgram(context), args);
   return { exitCode, stdout, stderr };
+}
+
+function run(args: readonly string[], failure: unknown = undefined): Promise<RunOutcome> {
+  return runBuilt((context) => createTestProgram(context, failure), args);
 }
 
 describe("runProgram", () => {
@@ -113,6 +120,19 @@ describe("runProgram", () => {
     expect(await run(args)).toEqual({ exitCode: 64, stdout: "", stderr: message });
   });
 
+  it("refuses a bare invocation and an unknown word before any command is registered", async () => {
+    const bare = await runBuilt(createProgram, []);
+    expect(bare.exitCode).toBe(64);
+    expect(bare.stdout).toBe("");
+    expect(bare.stderr.startsWith("Usage: sidekicks [options] [command]\n")).toBe(true);
+
+    expect(await runBuilt(createProgram, ["nope", "extra"])).toEqual({
+      exitCode: 64,
+      stdout: "",
+      stderr: "error: unknown command 'nope'\n",
+    });
+  });
+
   it.each([
     ["the program", [], "Usage: sidekicks [options] [command]\n"],
     ["a group", ["daemon"], "Usage: sidekicks daemon [options] [command]\n"],
@@ -148,7 +168,7 @@ describe("runProgram", () => {
       "an unreachable daemon",
       new JsonRpcTransportUnavailableError("/tmp/daemon.sock", new Error("refused")),
       69,
-      "error: The daemon's socket /tmp/daemon.sock cannot be reached: refused\n",
+      "error: The background service is not answering at /tmp/daemon.sock: refused\n",
     ],
     [
       "a connection closed mid-call",

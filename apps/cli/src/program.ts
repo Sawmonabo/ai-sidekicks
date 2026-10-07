@@ -27,17 +27,32 @@ class PrintedCommanderExit extends Error {
  * it can no longer fail.
  */
 export function createProgram(context: CommandContext): Command {
-  return new Command("sidekicks")
-    .description("Drive AI Sidekicks sessions from the terminal.")
-    .version(packageManifest.version)
-    .helpCommand(true) // Commander adds `help` itself only once a command exists.
-    .exitOverride((commanderError) => {
-      throw new PrintedCommanderExit(commanderError);
-    })
-    .configureOutput({
-      writeOut: (text) => context.stdout.write(text),
-      writeErr: (text) => context.stderr.write(text),
-    });
+  return (
+    new Command("sidekicks")
+      .description("Drive AI Sidekicks sessions from the terminal.")
+      .version(packageManifest.version)
+      .helpCommand(true) // Commander adds `help` itself only once a command exists.
+      // Reached only when no command matched, so it holds with or without commands registered: a
+      // bare `sidekicks` refuses with its usage on stderr, and any other word is an unknown command.
+      .usage("[options] [command]")
+      .argument("[words...]")
+      .action((words: string[], _options: unknown, program: Command) => {
+        const [unknownWord] = words;
+        if (unknownWord === undefined) {
+          program.help({ error: true });
+        }
+        program.error(`error: unknown command '${unknownWord}'`, {
+          code: "commander.unknownCommand",
+        });
+      })
+      .exitOverride((commanderError) => {
+        throw new PrintedCommanderExit(commanderError);
+      })
+      .configureOutput({
+        writeOut: (text) => context.stdout.write(text),
+        writeErr: (text) => context.stderr.write(text),
+      })
+  );
 }
 
 function writeFailure(program: Command, error: unknown): void {

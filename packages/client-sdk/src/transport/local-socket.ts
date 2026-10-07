@@ -30,7 +30,7 @@ export class JsonRpcTransportUnavailableError extends Error {
   public readonly data: JsonRpcErrorData;
 
   public constructor(socketPath: string, cause: Error) {
-    super(`The daemon's socket ${socketPath} cannot be reached: ${cause.message}`, { cause });
+    super(`The background service is not answering at ${socketPath}: ${cause.message}`, { cause });
     this.name = "JsonRpcTransportUnavailableError";
     const reason = "code" in cause && typeof cause.code === "string" ? cause.code : cause.message;
     this.data = { type: TRANSPORT_UNAVAILABLE_CODE, fields: { reason } };
