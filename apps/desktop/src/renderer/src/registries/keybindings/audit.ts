@@ -5,9 +5,10 @@
 // `KeybindingTable.conflictsIn` (a pre-flight check that avoids a half-replaced table), and
 // dropped rows from offering each binding to a throwaway table. A second overlap rule or chord
 // parser here would drift from the table. The reserved-chord table below lists chords the
-// operating system consumes, so a binding on one installs but never fires; a chord is looked up in
-// its one spelling with its key decoded, so `Ctrl+Escape` meets `$mod+Escape`. On Windows every
-// chord holding the Windows key is reserved as a class, since Windows keeps that key for itself.
+// operating system consumes, so a binding on one installs but never fires. A chord reaches the
+// lookup in its one spelling, so only its key is folded: `$mod+escape` meets `$mod+Escape`, which
+// on Windows and Linux is Ctrl+Esc. On Windows every chord holding the Windows key is reserved as a class,
+// since Windows keeps that key for itself.
 
 import { CommandRegistry } from "../commands/registry.js";
 import { type Keybinding } from "../commands/keybinding.js";
@@ -15,8 +16,7 @@ import { type KeybindingConflict } from "./conflicts.js";
 import { KeybindingTable } from "./table.js";
 import {
   HOST_CHORD_PLATFORM,
-  decodeChordKeyToken,
-  normalizeChord,
+  foldChordKeyToken,
   splitChordTokens,
   type ChordPlatform,
 } from "#renderer/lib/chord-format.js";
@@ -37,6 +37,10 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
     {
       chord: "$mod+Tab",
       reason: "macOS switches applications on this chord before any application sees it.",
+    },
+    {
+      chord: "$mod+Control+Space",
+      reason: "macOS opens Emoji & Symbols on this chord before any application sees it.",
     },
   ],
   win32: [
@@ -112,12 +116,12 @@ export function reservedChordReason(
   chord: string,
   platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): string | undefined {
-  const candidate = keystrokeOf(chord, platform);
+  const candidate = foldKeystroke(chord);
   if (platform === "win32" && candidate.modifiers.includes("Meta")) {
     return WINDOWS_KEY_REASON;
   }
   return RESERVED_CHORDS_BY_PLATFORM[platform].find((reserved) => {
-    const held = keystrokeOf(reserved.chord, platform);
+    const held = foldKeystroke(reserved.chord);
     return held.key === candidate.key && held.modifiers.join(" ") === candidate.modifiers.join(" ");
   })?.reason;
 }
@@ -148,11 +152,11 @@ export function auditKeybindings(bindings: readonly Keybinding[]): KeybindingAud
   return { conflicts: KeybindingTable.conflictsIn(bindings), dropped };
 }
 
-// The chord in its one spelling, its key decoded and case ignored as tinykeys matches a key.
-function keystrokeOf(
-  chord: string,
-  platform: ChordPlatform,
-): { readonly modifiers: readonly string[]; readonly key: string } {
-  const { modifiers, key } = splitChordTokens(normalizeChord(chord, platform));
-  return { modifiers, key: decodeChordKeyToken(key).toLowerCase() };
+// The chord as spelled, its key folded as tinykeys compares a key.
+function foldKeystroke(chord: string): {
+  readonly modifiers: readonly string[];
+  readonly key: string;
+} {
+  const { modifiers, key } = splitChordTokens(chord);
+  return { modifiers, key: foldChordKeyToken(key) };
 }

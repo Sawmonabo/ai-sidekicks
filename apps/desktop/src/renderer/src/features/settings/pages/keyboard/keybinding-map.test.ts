@@ -217,11 +217,10 @@ describe("reading a keystroke as a chord", () => {
     expect(hostReasonFor("linux", { key: "e", code: "KeyE", metaKey: true })).toBeUndefined();
   });
 
-  it("refuses a hand-written spelling of a reserved chord as it refuses the recorded one", () => {
-    // A hand-edited keyboard map or a stored override need not spell a chord as the recorder does.
-    expect(reservedChordReason("Ctrl+Escape", "win32")).toMatch(/Start menu/u);
-    expect(reservedChordReason("Control+Shift+Escape", "win32")).toMatch(/Task Manager/u);
-    expect(reservedChordReason("Shift+Alt+Escape", "linux")).toMatch(/^GNOME switches windows /u);
+  it("on macOS, reads ⌃⌘Space as a chord the host takes, for Emoji & Symbols", () => {
+    expect(hostReasonFor("darwin", { key: " ", code: "Space", metaKey: true, ctrlKey: true })).toBe(
+      "macOS opens Emoji & Symbols on this chord before any application sees it.",
+    );
   });
 
   it("falls back to the key when the host supplies no physical code", () => {
