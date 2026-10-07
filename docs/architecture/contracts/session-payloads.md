@@ -372,8 +372,13 @@ type SessionVerbResponse = Record<string, never>;
 
 // SessionConvert — session.convert. Converts a chat to a project in place: attaches the repository at
 // the typed `path`, copies the chat's files in, skipping each it cannot copy safely, keeps the managed
-// workspace, and records `session.converted`. A retry with the same `clientIdempotencyKey` answers the
-// conversion that key made and copies nothing.
+// workspace, and records `session.converted`. Each file's outcome is recorded as it lands, so a
+// conversion that stopped part way (`session.convert_incomplete`) resumes when a convert names the
+// same folder, under any key: no file is copied twice, the counts are the whole conversion's, and
+// that request's key takes the conversion over. A convert naming another folder is refused
+// `session.convert_refused`, reason `conversion_unfinished`. A retry with the key of a finished
+// conversion answers it and copies nothing. Files whose copies land just before the daemon stops,
+// and so have no record yet, read as `repository_has_file` when the conversion resumes.
 interface SessionConvertRequest {
   sessionId: SessionId;
   path: string; // the folder as typed, carried as data and checked before anything is copied
@@ -444,9 +449,10 @@ interface SessionAdvisorChangedPayload {
 interface SessionSearchRequest {
   query: string;
   // Opaque, the daemon's own. It continues the search its first page read, so a write between pages
-  // neither repeats nor drops a hit. It is refused `session.search_cursor_unresolvable` when it names no
-  // page, or names a search the daemon has let go (over its memory budget or 10 minutes unpaged); the
-  // client then searches again.
+  // neither repeats a hit nor drops one, except a hit whose row, group membership or session has since
+  // gone. It is refused `session.search_cursor_unresolvable` when it names no page, names a search the
+  // daemon has let go (over its memory budget or 10 minutes unpaged), or was written before more than
+  // 4,096 deletes that each lowered a searched table's highest rowid; the client then searches again.
   afterCursor?: SessionSearchCursor;
   limit?: number; // hits per page, at most SESSION_SEARCH_PAGE_LIMIT_MAX (256), which is also the default
 }

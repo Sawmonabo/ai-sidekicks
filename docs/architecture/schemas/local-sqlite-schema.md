@@ -180,35 +180,44 @@ CREATE TABLE session_related (
 
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
 
--- The idempotency key each session.create carried and the session it made, so a create retried after a
--- lost reply answers the session it already made instead of making a second. Written in the
--- session.created write.
+-- Each session.create's idempotency key, the session it made and where that session works: its
+-- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written
+-- in the session.created write, so a retry with the key, or the daemon's start, finishes a session
+-- left provisioning.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
-  session_id              TEXT NOT NULL UNIQUE
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL,
+  execution_mode          TEXT NOT NULL
+    CHECK (execution_mode IN ('bound-root', 'provisioned-worktree')),
+  group_id                TEXT
 ) STRICT;
 
--- The idempotency key the session.convert that converted a chat carried, so a convert retried after a
--- lost reply answers the conversion already made instead of a refusal. Written in the
--- session.converted write.
+-- A chat's conversion: the session.convert key it runs under, which the latest request that
+-- resumed it takes over, and the project mount it attached. Written as soon as the mount is, so a
+-- retry resumes onto that mount, and answered from session.converted once that lands. One per chat.
 CREATE TABLE session_convert_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
-  session_id              TEXT NOT NULL UNIQUE
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL
 ) STRICT;
 
--- Every file a conversion did not copy, with its reason, so the conversion's row lists each one however
--- many there are; read a page at a time by session.convertSkippedFileList. A session converts once;
--- written in the session.converted write.
-CREATE TABLE session_convert_skipped_files (
+-- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
+-- copied with the reason. A resumed conversion skips every path here and counts from these rows;
+-- the files not copied are read a page at a time by session.convertSkippedFileList.
+CREATE TABLE session_convert_files (
   session_id  TEXT NOT NULL,
   path        TEXT NOT NULL,
-  reason      TEXT NOT NULL
-    CHECK (reason IN ('repository_has_file', 'repository_path_not_a_folder', 'link', 'special_file')),
+  outcome     TEXT NOT NULL
+    CHECK (outcome IN ('copied', 'repository_has_file', 'repository_path_not_a_folder', 'link',
+      'special_file')),
   PRIMARY KEY (session_id, path)
 ) STRICT, WITHOUT ROWID;
 ```
 
-Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link runs in the background in slices that yield to the event loop every 2 ms, so one turn of the daemon's main thread holds at most 12 ms of it (6 to 10 ms at p95).
+Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link took 55 ms of wall time at p95 in the background, yielding to the event loop every 2 ms between sessions; one session's scoring is not split, and the longest turn of the daemon's main thread measured 12 ms (6 to 10 ms at p95).
+
+A conversion records each file as its copy lands without waiting for that record before the next copy, with at most 100 records waiting at once, so the writer folds them into shared batches. Measured on the same build, converting a chat of 1 KiB files in 100 folders took 0.36 s and 68 writer batches at 1,000 files and 29 s at 100,000 files; awaiting each record would hold every file for the writer's 10 ms batch window, 12.6 s at 1,000 files.
 
 ---
 
@@ -527,7 +536,7 @@ CREATE TABLE workspaces (
                   CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
   fs_root         TEXT,                       -- resolved filesystem root
   state           TEXT NOT NULL DEFAULT 'preparing'
-                  CHECK(state IN ('preparing', 'ready', 'stale', 'archived')),
+                  CHECK(state IN ('preparing', 'ready', 'busy', 'stale', 'archived')),
   metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the bound-root execution-root carrier, never cleared by a new preparation (Spec-007/Spec-008)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
@@ -535,6 +544,10 @@ CREATE TABLE workspaces (
 
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
+-- A session has one live workspace on a mount, so binding it again answers that one; an archived
+-- row is history and does not count.
+CREATE UNIQUE INDEX idx_workspaces_live_session_mount
+  ON workspaces(session_id, repo_mount_id) WHERE state <> 'archived';
 
 -- Owner: Plan-007 (provenance columns, active-branch uniqueness, cleanup stamp — D-007-5)
 CREATE TABLE worktrees (
