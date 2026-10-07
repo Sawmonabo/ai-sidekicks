@@ -1,12 +1,14 @@
-// Binds the `transcript.*` methods onto the registry and answers `transcript.bodyRead`.
+// Binds the `transcript.*` methods onto the registry and answers `transcript.bodyRead` and
+// `transcript.search`.
 //
 // * `registerTranscriptMethod` takes a method name and a handler; the schemas and the `mutating`
 //   flag come from `TRANSCRIPT_METHOD_DESCRIPTORS`, so a name cannot be paired with another
 //   operation's schemas and a handler for the wrong operation fails to compile.
 // * The caller's principal is not in the request (each transcript request is `.strict()`); a
 //   handler reads it from the `HandlerContext` passed as its second argument.
-// * Only `transcript.bodyRead` is answered here. The other methods are bound by the service that
-//   answers them, so no placeholder handler puts a method on the wire that answers nothing.
+// * Only `transcript.bodyRead` and `transcript.search` are answered here. The other methods are
+//   bound by the service that answers them, so no placeholder handler puts a method on the wire
+//   that answers nothing.
 
 import {
   TRANSCRIPT_BODY_READ_METHOD,
@@ -27,6 +29,7 @@ import type {
 } from "@ai-sidekicks/contracts/transcript/methods";
 
 import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content/read.js";
+import type { TranscriptSearchService } from "../../session/search/transcript.js";
 import { RegistryDispatchError } from "../registry.js";
 
 // ----------------------------------------------------------------------------
@@ -280,5 +283,28 @@ export function registerTranscriptBodyRead(
       }
       return hydrateStoredEvent(storedRow).content;
     },
+  });
+}
+
+/** What `transcript.search` reads through: the session's rows in the full-text index. */
+export interface TranscriptSearchDependencies {
+  /**
+   * An unknown session throws `SessionNotFoundError` (`session.not_found`); a cursor that names
+   * no position throws `EventCursorUnresolvableError` (`event.cursor_unresolvable`).
+   */
+  readonly transcriptSearch: Pick<TranscriptSearchService, "search">;
+}
+
+/**
+ * Binds `transcript.search`, one session's find over every row it holds, loaded on screen or
+ * not: its hits newest first, each with its row's cursor, and the whole session's match count.
+ */
+export function registerTranscriptSearch(
+  registry: MethodRegistry,
+  dependencies: TranscriptSearchDependencies,
+): void {
+  registerTranscriptMethod(registry, {
+    method: TRANSCRIPT_SEARCH_METHOD,
+    handler: async (request) => dependencies.transcriptSearch.search(request),
   });
 }

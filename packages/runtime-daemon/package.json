@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@ai-sidekicks/search-ranking": "workspace:*",
     "@anthropic-ai/sandbox-runtime": "0.0.78",
     "@cedar-policy/cedar-wasm": "4.13.0",
     "@dagrejs/dagre": "3.1.1",
@@ -48,6 +49,8 @@
     "bun": "1.4.2",
     "canonicalize": "5.1.0",
     "croner": "10.0.1",
+    "fdir": "6.5.0",
+    "ignore": "7.0.12",
     "jsonata": "2.2.2",
     "koffi": "^3.3.2",
     "lru-cache": "^11.5.3",
