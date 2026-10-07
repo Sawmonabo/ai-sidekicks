@@ -196,6 +196,13 @@ export const AGENTS_PANE_WIDTH_REM = 27.5;
  */
 export const CONVERSATION_FLOOR_REM = 26.25;
 
+/**
+ * The separator between two panes in a pane row, in rem: its width is the drag target and a
+ * hairline is drawn down its middle. Summed into the window's floor, which holds one separator
+ * between the conversation and one pane.
+ */
+export const PANE_SEPARATOR_WIDTH_REM: number = scaleStep(SPACE_SCALE_REM, "space-2");
+
 /** The gutter either side of a transcript row's column, in rem: 36 px at the default text size. */
 export const ROW_GUTTER_REM = 2.25;
 

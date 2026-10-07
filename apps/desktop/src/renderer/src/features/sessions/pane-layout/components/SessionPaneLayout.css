@@ -57,7 +57,7 @@
  * bar: the width is the target and the gradient is the line.
  */
 .meridian-pane-layout__separator {
-  width: var(--meridian-space-2);
+  width: var(--meridian-pane-separator-width);
   border: 0;
   background: linear-gradient(
     to right,

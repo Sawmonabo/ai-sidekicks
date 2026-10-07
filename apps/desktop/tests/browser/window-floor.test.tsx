@@ -1,9 +1,9 @@
 // The window's floor and the frame's three tracks, measured in Chromium, since happy-dom has no
 // layout. The floor the frame reports is recomputed from its parts when the text size changes, its
 // root-relative parts growing and the pane term holding in px, and a window held at that floor
-// gives the rail, the open sessions track and a column as wide as the conversation's floor and one
-// pane, measured as laid out, with nothing scrolling sideways; one rem narrower, the column no
-// longer holds them. A closed track takes no width, where an open one does. At the floor the agent
+// gives the rail, the open sessions track and the real pane layout, the conversation at its own
+// floor and one pane past the separator at the loosest pane floor, with nothing scrolling
+// sideways; one rem narrower, that pane falls under its floor. A closed track takes no width, where an open one does. At the floor the agent
 // library keeps its two columns and an entity record keeps each label beside its value on one
 // line, a long value truncated with its whole text as its title, with nothing overflowing or
 // overlapping; a box planted too wide, one planted over a row, a short value that is not cut, and
@@ -21,7 +21,17 @@ import {
 } from "#renderer/features/agents/library/AgentLibrary.test-support.js";
 import { EntityRecord } from "#renderer/features/inspector/entity-detail/components/EntityRecord.js";
 import { wireFacet } from "#renderer/features/inspector/entity-detail/facets.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
 import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/pane-layout/measures.js";
+import type { SessionPane } from "#renderer/features/sessions/pane-layout/state.js";
+import {
+  PANE_LAYOUT_RESTORED_PANE_CAP,
+  PaneLayoutStore,
+} from "#renderer/features/sessions/pane-layout/store.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { AppFrame } from "#renderer/layout/AppShell/AppFrame.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
 import type { WindowSize } from "#shared/window/size.js";
@@ -141,6 +151,31 @@ function boxOf(selector: string): DOMRect {
   return element.getBoundingClientRect();
 }
 
+/** A pane registry whose transcript and terminal bodies are framed panes, as the app's are. */
+function framedPaneRegistry(): PaneRegistry {
+  const registry = new PaneRegistry();
+  for (const kind of ["transcript", "terminal"] as const) {
+    registry.register({
+      kind,
+      owner: "window-floor-test",
+      render: () => (
+        <PaneFrame kind={kind} sessionId="session-window-floor">
+          <p>{kind} body</p>
+        </PaneFrame>
+      ),
+    });
+  }
+  return registry;
+}
+
+/**
+ * The pane context, cast: the bodies above read nothing from it, so filling the stores a real
+ * body reads would make the setup the subject.
+ */
+function framedPaneContext(pane: SessionPane): PaneContext {
+  return { kind: pane.kind, entity: pane.entity, paneId: pane.paneId } as unknown as PaneContext;
+}
+
 function screenRegion(): HTMLElement {
   const region = document.querySelector<HTMLElement>(".meridian-frame__screen");
   if (region === null) {
@@ -182,6 +217,31 @@ describe("the window floor", () => {
       throw new Error("the frame reported no floor");
     }
     await resizeViewport(Math.ceil(floor.width), Math.ceil(floor.height));
+    const conversationFloorPx = laidOutWidth(screenRegion(), "var(--meridian-conversation-floor)");
+    const separatorPx = laidOutWidth(screenRegion(), "var(--meridian-pane-separator-width)");
+    const columnPx = boxOf(".meridian-frame__column").width;
+    cleanup();
+
+    // The real pane layout in the frame at its floor: the conversation and one pane, the
+    // conversation held at its own floor, so the pane gets whatever the floor left it.
+    const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
+    const conversationPaneId = layout.open({ kind: "transcript" });
+    const paneId = layout.open({ kind: "terminal" });
+    const conversationPercent = (conversationFloorPx / (columnPx - separatorPx)) * 100;
+    layout.applyLayout(
+      { [conversationPaneId]: conversationPercent, [paneId]: 100 - conversationPercent },
+      0,
+    );
+    await renderFrame(
+      <p>sessions</p>,
+      <LiveAnnouncerProvider>
+        <SessionPaneLayout
+          layout={layout}
+          registry={framedPaneRegistry()}
+          paneContextFor={framedPaneContext}
+        />
+      </LiveAnnouncerProvider>,
+    );
 
     const rail = boxOf(".meridian-rail");
     const sessionsTrack = boxOf(".meridian-frame__sessions-track");
@@ -191,23 +251,24 @@ describe("the window floor", () => {
     expect(column.right).toBeLessThanOrEqual(window.innerWidth);
     expect(rail.width + sessionsTrack.width + column.width).toBeCloseTo(window.innerWidth, 0);
     expect(document.documentElement.scrollWidth).toBe(document.documentElement.clientWidth);
-    // The pane term is read where the frame set it, on the floor box.
-    const sessionView =
-      laidOutWidth(screenRegion(), "var(--meridian-conversation-floor)") +
-      laidOutWidth(
-        elementOf(document, ".meridian-frame__window-floor"),
-        "var(--meridian-frame-minimum-pane-width)",
-      );
-    expect(column.width).toBeGreaterThanOrEqual(sessionView);
-    // Main rounds the floor up to whole pixels, so the column holds them with under one to spare.
-    expect(column.width - sessionView).toBeLessThan(1);
+    const conversationPane = boxOf(".meridian-pane--transcript");
+    const pane = boxOf(".meridian-pane--terminal");
+    expect(conversationPane.width).toBeCloseTo(conversationFloorPx, 0);
+    expect(pane.left).toBeGreaterThanOrEqual(conversationPane.right + separatorPx - 0.5);
+    expect(pane.right).toBeLessThanOrEqual(column.right + 0.5);
+    expect(pane.width).toBeGreaterThanOrEqual(PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX);
+    // Main rounds the floor up to whole pixels, so the pane holds its floor with under one to
+    // spare.
+    expect(pane.width - PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX).toBeLessThan(1);
 
-    // Negative control: one rem narrower, the column no longer holds the conversation and a pane.
+    // Negative control: one rem narrower, the conversation at its floor leaves the pane short.
     await resizeViewport(
       Math.ceil(floor.width) - DEFAULT_APPEARANCE_RECORD.textSize,
       Math.ceil(floor.height),
     );
-    expect(boxOf(".meridian-frame__column").width).toBeLessThan(sessionView);
+    await expect
+      .poll(() => boxOf(".meridian-pane--terminal").width)
+      .toBeLessThan(PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX);
   });
 
   it("gives the sessions track no width while it is closed", async () => {

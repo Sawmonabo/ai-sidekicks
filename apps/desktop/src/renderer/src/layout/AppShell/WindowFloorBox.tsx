@@ -5,7 +5,7 @@ import type { WindowSize } from "#shared/window/size.js";
 import { useReportWindowFloor } from "./hooks/useReportWindowFloor.js";
 
 /** What the floor box sums and reports to. */
-export interface WindowFloorProbeProps {
+export interface WindowFloorBoxProps {
   /** The narrowest one pane may be, in CSS px; the stylesheet adds it to the floor's width. */
   readonly minimumPaneWidthPx: number;
   /** The window's smallest size, in CSS px, on first layout and on every change. */
@@ -13,7 +13,7 @@ export interface WindowFloorProbeProps {
 }
 
 /** A hidden, out-of-flow box as large as the smallest window the frame fits in. */
-export function WindowFloorProbe(props: WindowFloorProbeProps): React.JSX.Element {
+export function WindowFloorBox(props: WindowFloorBoxProps): React.JSX.Element {
   const windowFloorRef = useReportWindowFloor(props.onWindowFloorChange);
   const paneTerm: WindowFloorPaneTerm = {
     "--meridian-frame-minimum-pane-width": `${props.minimumPaneWidthPx}px`,
