@@ -233,7 +233,8 @@ type WorkflowRun = {
 } &
   // `error` says why a run that failed, was canceled or crashed did so: kept when the run cap
   // (`max_duration`, SA-2) or the retry bound (`max_retries`) fails the run, and carrying a person's
-  // cancellation reason as its message. A going or succeeded run carries none.
+  // cancellation reason as its message, stored as `workflow_runs.error_json`. A going or succeeded
+  // run carries none.
   (| { status: "new" | "running" | "waiting" }
     | { status: "failed"; finishedAt?: string; error?: WorkflowStepError }
     | { status: "succeeded"; finishedAt: string }
