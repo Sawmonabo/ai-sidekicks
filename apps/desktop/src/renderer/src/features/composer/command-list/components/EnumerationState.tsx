@@ -35,14 +35,16 @@ export function EnumerationState(props: {
         </div>
       );
     case "not-loaded":
+      // The empty state and the refusal below are their own status regions, so each line is
+      // announced once.
       return (
-        <div className="meridian-command-discovery__state" role="status">
+        <div className="meridian-command-discovery__state">
           <Nothing kind="not-loaded" title="Reading the provider's commands and skills" />
         </div>
       );
     case "refused":
       return (
-        <div className="meridian-command-discovery__state" role="status">
+        <div className="meridian-command-discovery__state">
           <InlineRefusal code={enumeration.refusal.code} detail={enumeration.refusal.detail} />
         </div>
       );

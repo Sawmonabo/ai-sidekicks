@@ -49,10 +49,8 @@ export function AccountCheckNow(props: {
       </button>
       {check.kind === "checked" ? <p role="status">That account was checked again.</p> : null}
       {check.kind === "refused" ? (
-        <p
-          className="meridian-settings-page__state meridian-settings-page__state--failed"
-          role="alert"
-        >
+        // The refusal is its own status region, so the line is announced once.
+        <p className="meridian-settings-page__state meridian-settings-page__state--failed">
           <InlineRefusal {...check.refusal} />
         </p>
       ) : null}

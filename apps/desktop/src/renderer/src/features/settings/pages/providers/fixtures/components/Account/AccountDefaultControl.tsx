@@ -41,10 +41,8 @@ export function AccountDefaultControl(props: {
         account stays where it is.
       </p>
       {isThisAccount && move.kind === "refused" ? (
-        <div
-          className="meridian-settings-page__state meridian-settings-page__state--failed"
-          role="alert"
-        >
+        // The refusal is its own status region, so the line is announced once.
+        <div className="meridian-settings-page__state meridian-settings-page__state--failed">
           <AccountPlaneRefusal
             refusal={move.refusal}
             provider={account.provider}

@@ -43,8 +43,10 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   const { newest } = progress;
   if (model.isUnderway) {
     return (
-      <div className={PROGRESS_CLASS} role="status">
-        <span>
+      // The count is its own status region, apart from the stop refusal's, so each is announced
+      // once.
+      <div className={PROGRESS_CLASS}>
+        <span role="status">
           {`Importing from ${providerLabel}…`}
           {newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : null}
         </span>

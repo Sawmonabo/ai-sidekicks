@@ -33,18 +33,25 @@ export function RegistrationOutcomeLine(props: {
   }
   if (outcome.kind === "refused") {
     const keychainCause = readKeychainRefusalCause(outcome.refusal);
+    if (
+      keychainCause === undefined &&
+      outcome.refusal.code !== PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE
+    ) {
+      // The refusal is its own status region, so the line is announced once.
+      return (
+        <p className="meridian-settings-page__state meridian-settings-page__state--failed">
+          <InlineRefusal {...outcome.refusal} />
+        </p>
+      );
+    }
     return (
       <p
         className="meridian-settings-page__state meridian-settings-page__state--failed"
         role="alert"
       >
-        {keychainCause !== undefined ? (
-          KEYCHAIN_REFUSAL_LINES[keychainCause]
-        ) : outcome.refusal.code === PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE ? (
-          "The provider did not accept that token."
-        ) : (
-          <InlineRefusal {...outcome.refusal} />
-        )}
+        {keychainCause !== undefined
+          ? KEYCHAIN_REFUSAL_LINES[keychainCause]
+          : "The provider did not accept that token."}
       </p>
     );
   }
