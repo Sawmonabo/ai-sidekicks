@@ -5,6 +5,7 @@
 import "./ArtifactPayloadSection.css";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 
 /** What the payload section draws. */
@@ -48,8 +49,20 @@ function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
           <p className="meridian-artifact-payload__note">
             The whole payload. <WireFigure value={payload.encoding} />
           </p>
-          <pre className="meridian-artifact-payload__preview">{payload.text}</pre>
+          <ArtifactPayloadPreview text={payload.text} />
         </>
       );
   }
+}
+
+/** The payload text in a box that scrolls under the overlay scrollbar. */
+function ArtifactPayloadPreview(props: { readonly text: string }): React.JSX.Element {
+  const previewScrollbarRef = useOverlayScrollbar<HTMLPreElement>();
+  return (
+    <pre className="meridian-artifact-payload__preview" ref={previewScrollbarRef}>
+      {/* An element, not bare text: React writes a lone text child through `textContent`, which
+          would delete the scrollbar drawn inside the box. */}
+      <span>{props.text}</span>
+    </pre>
+  );
 }

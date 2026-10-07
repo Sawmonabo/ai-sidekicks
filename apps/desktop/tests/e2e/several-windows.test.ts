@@ -273,6 +273,15 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — several windows", () => {
       // The console still draws the third window: its tree is mounted and its frames arrive.
       expect(await third.locator(".meridian-frame").count()).toBe(1);
       expect(await countFramesFromConsole(appUnderTest, THIRD_WINDOW_ID)).toBeGreaterThan(0);
+      // The window draws its scroll bars through its own copy of the overlay scrollbar library; a
+      // copy in the console document would never start them, since that page never paints.
+      await expect
+        .poll(
+          async () =>
+            await third.locator(".meridian-frame__screen[data-overlayscrollbars-viewport]").count(),
+          { timeout: stepTimeout(), message: "the window drew no overlay scrollbar" },
+        )
+        .toBe(1);
       // The minimized window's frames are not asserted: a minimized window pauses its own
       // drawing, but the test build switches background throttling off, so here it keeps
       // drawing. What holds either way is that the console still holds it, below.

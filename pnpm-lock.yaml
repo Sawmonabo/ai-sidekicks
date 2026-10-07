@@ -21,6 +21,9 @@ catalogs:
       version: 4.1.11
 
 patchedDependencies:
+  overlayscrollbars@2.16.0:
+    hash: 3cdc5d8fa81fb987843b15ef00d2f2c7352cd1b6ccb22e124246433d485d7c88
+    path: patches/overlayscrollbars@2.16.0.patch
   signalsmith-stretch@1.3.2:
     hash: 57d4569b9fb9b9f1948d03cb1df3a04d8a52bc27d8d0057761a9c9d387a92fc7
     path: patches/signalsmith-stretch@1.3.2.patch
@@ -285,10 +288,7 @@ importers:
         version: 3.0.0
       overlayscrollbars:
         specifier: 2.16.0
-        version: 2.16.0
-      overlayscrollbars-react:
-        specifier: 0.5.6
-        version: 0.5.6(overlayscrollbars@2.16.0)(react@19.3.0)
+        version: 2.16.0(patch_hash=3cdc5d8fa81fb987843b15ef00d2f2c7352cd1b6ccb22e124246433d485d7c88)
       perfect-freehand:
         specifier: 1.2.3
         version: 1.2.3
@@ -5878,12 +5878,6 @@ packages:
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
-
-  overlayscrollbars-react@0.5.6:
-    resolution: {integrity: sha512-E5To04bL5brn9GVCZ36SnfGanxa2I2MDkWoa4Cjo5wol7l+diAgi4DBc983V7l2nOk/OLJ6Feg4kySspQEGDBw==}
-    peerDependencies:
-      overlayscrollbars: ^2.0.0
-      react: '>=16.8.0'
 
   overlayscrollbars@2.16.0:
     resolution: {integrity: sha512-N03oje/q7j93D0aLZtoCdsDSYLmhheSsv8H7oSLE7HhdV9P/bmCURtLV/KbPye7P/bpfyt/obSfDpGUYoJ0OWg==}
@@ -13190,12 +13184,7 @@ snapshots:
       type-check: 0.4.0
       word-wrap: 1.2.5
 
-  overlayscrollbars-react@0.5.6(overlayscrollbars@2.16.0)(react@19.3.0):
-    dependencies:
-      overlayscrollbars: 2.16.0
-      react: 19.3.0
-
-  overlayscrollbars@2.16.0: {}
+  overlayscrollbars@2.16.0(patch_hash=3cdc5d8fa81fb987843b15ef00d2f2c7352cd1b6ccb22e124246433d485d7c88): {}
 
   own-keys@1.0.2:
     dependencies:

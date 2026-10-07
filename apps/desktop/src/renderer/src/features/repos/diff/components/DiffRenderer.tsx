@@ -8,6 +8,7 @@ import "./DiffRenderer.css";
 import { useMemo, useRef } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
@@ -41,6 +42,7 @@ export interface DiffRendererProps {
 /** The diff as one virtualized scroller of file headers and rows. */
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollerScrollbarRef = useOverlayScrollbar(scrollerRef);
   const clock = useBridgeClock();
 
   // Re-flattened only when the diff, expansion, shown file or view mode changes, not per scroll.
@@ -100,7 +102,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   return (
     <div
       className={className}
-      ref={scrollerRef}
+      ref={scrollerScrollbarRef}
       // Focusable so the diff can be read with a keyboard.
       tabIndex={0}
       role="table"

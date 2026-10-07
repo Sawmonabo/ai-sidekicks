@@ -20,7 +20,7 @@ export function useWindowFloorReport(
   return useCallback(
     (element: Element | null) => {
       if (element === null) {
-        // React 19 detaches through the cleanup returned on attach, so this arm armed nothing.
+        // A ref callback that returned a cleanup is never called with null.
         return undefined;
       }
       return observeElementResize(element, () => {

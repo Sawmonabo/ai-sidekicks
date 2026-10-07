@@ -6,6 +6,7 @@
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { workflowDefinitionCandidates } from "../definition/match.js";
 import "./WorkflowStartCandidates.css";
 
@@ -24,9 +25,10 @@ export interface WorkflowStartCandidatesProps {
 /** The candidate list, for the caller to mount while a `/workflow run` argument is open. */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
+  const listScrollbarRef = useOverlayScrollbar<HTMLUListElement>();
   return (
     <div className="meridian-workflow-start__candidates">
-      {renderReading(definitions, complete, typedPrefix, onComplete)}
+      {renderReading(definitions, complete, typedPrefix, onComplete, listScrollbarRef)}
     </div>
   );
 }
@@ -37,6 +39,7 @@ function renderReading(
   complete: boolean,
   typedPrefix: string | undefined,
   onComplete: (definitionName: string) => void,
+  listScrollbarRef: React.RefCallback<HTMLUListElement>,
 ): React.JSX.Element {
   if (complete && definitions.length === 0) {
     return <Nothing kind="empty" title="No workflows yet" />;
@@ -59,7 +62,11 @@ function renderReading(
     );
   }
   return (
-    <ul className="meridian-workflow-start__candidate-list" aria-label="Workflows">
+    <ul
+      className="meridian-workflow-start__candidate-list"
+      aria-label="Workflows"
+      ref={listScrollbarRef}
+    >
       {candidates.map((definition) => (
         <li key={definition.id} className="meridian-workflow-start__candidate">
           <button

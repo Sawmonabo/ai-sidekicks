@@ -8,3 +8,6 @@ import "./action-buttons.css";
 import "./accent-fill.css";
 import "./form.css";
 import "./focus-inset.css";
+// The overlay scrollbar's own layout rules, then its one theme over them.
+import "overlayscrollbars/overlayscrollbars.css";
+import "./overlay-scrollbar.css";

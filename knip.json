@@ -126,9 +126,6 @@
         "electron-updater",
         // A diagram block in a reply drawn as a picture.
         "mermaid",
-        // The overlay scrollbar on every scroller but the conversation.
-        "overlayscrollbars",
-        "overlayscrollbars-react",
         // The strokes a person draws to mark up the Preview page.
         "perfect-freehand",
         // A Codex voice hold played into the call faster with its pitch kept.
@@ -143,8 +140,6 @@
         // The anchored popover that registers its airspace over the Preview page, for the worktree
         // popover and the context ring's compaction popover.
         "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
-        // The overlay scrollbar on every scroller but the conversation.
-        "src/renderer/src/components/OverlayScrollArea/OverlayScrollArea.tsx",
         // The provider, model and effort pickers of the agent definition editor and of the
         // workflow node inspector.
         "src/renderer/src/components/AxisField/AxisCombobox.tsx",

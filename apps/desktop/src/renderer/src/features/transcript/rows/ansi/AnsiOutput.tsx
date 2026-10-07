@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 
 import { ANSI_SPAN_RENDER_CAP } from "./spans.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { ansiSpanClassNames, parseAnsiSpans } from "./spans.js";
 
@@ -33,10 +34,11 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
     () => parseAnsiSpans(props.source, spanCap),
     [props.source, spanCap],
   );
+  const bodyScrollbarRef = useOverlayScrollbar<HTMLPreElement>();
 
   return (
     <div className="meridian-ansi">
-      <pre className="meridian-ansi__body" aria-label={props.label}>
+      <pre className="meridian-ansi__body" aria-label={props.label} ref={bodyScrollbarRef}>
         {spans.map((span, index) => {
           const classNames = ansiSpanClassNames(span);
           // The index is in the key because identical adjacent runs are distinct; the text is in

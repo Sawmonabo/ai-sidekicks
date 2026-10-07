@@ -19,6 +19,7 @@ import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
 import { type RailDestination } from "#renderer/routing/readers.js";
 import type { WindowSize } from "#shared/window/size.js";
 import { WindowFloorProbe } from "./WindowFloorProbe.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 
 /** What a caller hands the frame chrome. */
 export interface FrameChromeProps {
@@ -45,6 +46,7 @@ export interface FrameChromeProps {
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
 export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
   useRefusalBannerAnnouncements(props.banners);
+  const screenScrollbarRef = useOverlayScrollbar<HTMLElement>();
   return (
     <div className="meridian-frame">
       <div className="meridian-frame__background" inert={props.modalOverlayOpen === true}>
@@ -82,7 +84,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
               ))}
             </div>
           )}
-          <main className="meridian-frame__screen">
+          <main className="meridian-frame__screen" ref={screenScrollbarRef}>
             {/* Keyed by the route so navigating away from a crash clears the boundary's error. */}
             <ErrorBoundary key={formatRoute(props.route)} regionName={screenNameFor(props.route)}>
               {props.children}

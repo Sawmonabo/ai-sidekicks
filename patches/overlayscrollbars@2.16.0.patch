@@ -1,0 +1,12 @@
+diff --git a/package.json b/package.json
+index 62c5c78b3d7e3e7fbf4ea9c23863bd160fb1a482..051be26a586687c04ffe6578d87b8581ff72037f 100644
+--- a/package.json
++++ b/package.json
+@@ -40,6 +40,7 @@
+       }
+     },
+     "./package.json": "./package.json",
++    "./browser/overlayscrollbars.browser.es6.min.js": "./browser/overlayscrollbars.browser.es6.min.js",
+     "./overlayscrollbars.css": "./styles/overlayscrollbars.css",
+     "./styles/overlayscrollbars.css": "./styles/overlayscrollbars.css",
+     "./overlayscrollbars.scriptingenabled.css": "./styles/overlayscrollbars.scriptingenabled.css",

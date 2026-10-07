@@ -8,6 +8,7 @@ import "./MathBlock.css";
 import { useEffect, useState } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 
 /** What one formula is drawn from. */
 export interface MathBlockProps {
@@ -20,15 +21,19 @@ export interface MathBlockProps {
 /** A formula typeset by KaTeX, or its source beside an error state when it cannot be. */
 export function MathBlock(props: MathBlockProps): React.JSX.Element {
   const state = useKatexMarkup(props.source, props.isDisplayMode);
+  const displayScrollbarRef = useOverlayScrollbar<HTMLSpanElement>();
 
   if (state.status === "rendered") {
-    return (
-      <span
-        className={props.isDisplayMode ? "meridian-math--display" : undefined}
-        data-math=""
-        // KaTeX's MathML output over `trust: false`.
-        dangerouslySetInnerHTML={{ __html: state.mathMarkup }}
-      />
+    // KaTeX's MathML output over `trust: false`.
+    const markup = { __html: state.mathMarkup };
+    return props.isDisplayMode ? (
+      // The markup sits one element in: written straight into the scroller, it would replace
+      // the scrollbar drawn inside it.
+      <span className="meridian-math--display" data-math="" ref={displayScrollbarRef}>
+        <span dangerouslySetInnerHTML={markup} />
+      </span>
+    ) : (
+      <span data-math="" dangerouslySetInnerHTML={markup} />
     );
   }
 

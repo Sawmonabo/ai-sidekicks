@@ -24,6 +24,12 @@ declare module "*.woff2?url" {
   export default assetUrl;
 }
 
+// A script a window document loads into its own realm, emitted and addressed the same way.
+declare module "*.js?url" {
+  const assetUrl: string;
+  export default assetUrl;
+}
+
 // Side-effect stylesheet imports (`import "./Chip.css"`), which Vite bundles. TypeScript checks
 // that a side-effect import resolves, and a stylesheet has no declarations, so the wildcard says
 // every `.css` specifier is a module with no exports.

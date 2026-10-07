@@ -9,6 +9,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReadScope } from "#renderer/hooks/useReadScope.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { readWorkflowPayloadItems } from "#renderer/services/artifacts/workflow-payload-items.js";
@@ -94,8 +95,9 @@ export function StepPanel(props: StepPanelProps): React.JSX.Element {
     passes.find((entry) => entry.step.executionIndex === pickedExecution) ?? passes.at(-1);
   const step = picked?.step;
   const name = props.nodeName(nodeId);
+  const panelScrollbarRef = useOverlayScrollbar<HTMLElement>();
   return (
-    <aside className="meridian-workflow-step" aria-label="Step panel">
+    <aside className="meridian-workflow-step" aria-label="Step panel" ref={panelScrollbarRef}>
       <header className="meridian-workflow-step__head">
         <h3 className="meridian-workflow-step__name">{name}</h3>
         {step === undefined ? <Chip label="Not reached" /> : <StepStateChip step={step} />}

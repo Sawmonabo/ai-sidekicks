@@ -11,6 +11,7 @@ import "./PaneFrame.css";
 import { useId } from "react";
 
 import { Glyph } from "../Glyph/Glyph.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
@@ -85,6 +86,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
+  const bodyScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
 
   return (
     <section
@@ -118,7 +120,9 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
           )}
         </span>
       </header>
-      <div className="meridian-pane__body">{props.children}</div>
+      <div className="meridian-pane__body" ref={bodyScrollbarRef}>
+        {props.children}
+      </div>
     </section>
   );
 }

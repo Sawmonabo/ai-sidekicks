@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import {
   listClippedHeadRowIds,
   resolveRunGroupBodyHeight,
@@ -37,6 +38,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
   );
   // Held, not derived; written only when the offset crosses the top, not per wheel notch.
   const [isClippedAbove, setIsClippedAbove] = useState(false);
+  const scrollerScrollbarRef = useOverlayScrollbar<HTMLOListElement>();
   if (contents.rows.length === 0 && contents.unheldRowCount === 0) {
     return null;
   }
@@ -45,6 +47,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
       {/* Never the scroll anchor: an anchored overlay would hold the fade still. */}
       {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
       <ol
+        ref={scrollerScrollbarRef}
         className="meridian-run-group-body__scroller"
         style={{ maxBlockSize }}
         aria-label="Earlier entries in this run"
