@@ -2,8 +2,8 @@
 // the oldest context past its limit, which is what the cap protects.
 //
 // Churn cases: a disposed `WebglAddon` leaves its context behind, so the cap is checked against
-// contexts created, not terminals drawing. Duplicate-pane cases: two panes on one session build
-// two contexts, so the lease and not the terminal id is the unit; a pool keyed on the id let
+// contexts created, not terminals drawing. Duplicate-pane cases: two panes on one shell build two
+// contexts, so the lease and not the terminal id is the unit; a pool keyed on the id let
 // either teardown retire the other's record and walked past the cap.
 
 import { describe, expect, it } from "vitest";
@@ -39,11 +39,11 @@ describe("the renderer pool", () => {
     // Same cap and context count, distributed differently over terminal ids: the pool
     // refuses at the same place in both.
     const acrossOneTerminal = new TerminalRendererPool(2);
-    grantedLease(acrossOneTerminal, "shared-session");
-    grantedLease(acrossOneTerminal, "shared-session");
+    grantedLease(acrossOneTerminal, "shared-shell");
+    grantedLease(acrossOneTerminal, "shared-shell");
     expect(acrossOneTerminal.isExhausted).toBe(true);
-    expect(acrossOneTerminal.acquire("shared-session")).toBeUndefined();
-    expect(acrossOneTerminal.acquire("another-session")).toBeUndefined();
+    expect(acrossOneTerminal.acquire("shared-shell")).toBeUndefined();
+    expect(acrossOneTerminal.acquire("another-shell")).toBeUndefined();
 
     const acrossTwoTerminals = new TerminalRendererPool(2);
     grantedLease(acrossTwoTerminals, "session-one");

@@ -83,29 +83,27 @@ describe("the page pool's grant", () => {
   });
 });
 
-describe("two panes on one session", () => {
+describe("two panes on one shell", () => {
   it("spend two contexts, and one pane's teardown leaves the other drawing", () => {
     const pool = new TerminalRendererPool();
-    const sessionTerminalId = "shared-session";
-    const firstPane = trackAdapter(
-      new XtermTerminalAdapter({ terminalId: sessionTerminalId, pool }),
-    );
+    const shellTerminalId = "shared-shell";
+    const firstPane = trackAdapter(new XtermTerminalAdapter({ terminalId: shellTerminalId, pool }));
     firstPane.attach(attachedMountElement());
     const secondPane = trackAdapter(
-      new XtermTerminalAdapter({ terminalId: sessionTerminalId, pool }),
+      new XtermTerminalAdapter({ terminalId: shellTerminalId, pool }),
     );
     secondPane.attach(attachedMountElement());
 
     expect(FakeWebglRenderer.live).toHaveLength(2);
     expect(pool.createdContextCount).toBe(2);
-    expect(pool.heldContextCountFor(sessionTerminalId)).toBe(2);
+    expect(pool.heldContextCountFor(shellTerminalId)).toBe(2);
 
     firstPane.dispose();
 
     // A teardown releases its own lease and does not reclaim it (the context outlives its
     // addon), so the pane still on screen keeps its context.
-    expect(pool.heldContextCountFor(sessionTerminalId)).toBe(1);
-    expect(pool.holds(sessionTerminalId)).toBe(true);
+    expect(pool.heldContextCountFor(shellTerminalId)).toBe(1);
+    expect(pool.holds(shellTerminalId)).toBe(true);
     expect(pool.createdContextCount).toBe(2);
     expect(secondPane.rendererMode).toBe("webgl");
   });

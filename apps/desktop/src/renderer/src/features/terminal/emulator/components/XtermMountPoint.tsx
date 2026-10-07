@@ -17,7 +17,7 @@ import type { TerminalRendererMode } from "../xterm/addons.js";
 
 /** Props for the emulator's box: which terminal, the write gate, and the callbacks to forward. */
 export interface XtermMountPointProps {
-  /** The shared terminal this emulator shows. One per session. */
+  /** The shell this emulator shows, by its terminal id. */
   readonly terminalId: string;
   /** Whether the lease says this user may type. Watch mode is `false`. */
   readonly isWriteEnabled: boolean;
