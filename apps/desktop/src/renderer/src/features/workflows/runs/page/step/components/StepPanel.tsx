@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { WORKFLOW_STEP_TABS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
@@ -38,16 +39,13 @@ import { StepPayloadTab } from "./StepPayloadTab.js";
 import { StepRecordTab } from "./StepRecordTab.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
-/** The step panel's five tabs, in the order they stand. */
-const STEP_TABS = ["input", "output", "logs", "cost", "error"] as const;
-
 /** One of the step panel's tabs. */
-type StepTab = (typeof STEP_TABS)[number];
+type StepTab = (typeof WORKFLOW_STEP_TABS)[number];
 
 const STEP_TAB_LABELS: Readonly<Record<StepTab, string>> = {
   input: "Input",
   output: "Output",
-  logs: "Logs",
+  log: "Logs",
   cost: "Cost",
   error: "Error",
 };
@@ -181,7 +179,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
         }}
       >
         <Tabs.List className="meridian-workflow-step__tabs" aria-label="Step data">
-          {STEP_TABS.map((candidate) => (
+          {WORKFLOW_STEP_TABS.map((candidate) => (
             <Tabs.Tab key={candidate} value={candidate} className="meridian-workflow-step__tab">
               {STEP_TAB_LABELS[candidate]}
             </Tabs.Tab>
@@ -196,12 +194,12 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
               ))}
             </ul>
           ) : null}
-          {tab === "input" || tab === "output" || tab === "logs" ? (
+          {tab === "input" || tab === "output" || tab === "log" ? (
             <StepPayloadTab
               key={tab}
               bridge={bridge}
               step={step}
-              which={tab === "logs" ? "log" : tab}
+              which={tab}
               view={view}
               label={label}
             />

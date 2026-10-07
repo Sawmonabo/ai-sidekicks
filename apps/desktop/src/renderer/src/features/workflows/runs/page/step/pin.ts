@@ -8,6 +8,7 @@ import type {
   WorkflowItem,
   WorkflowPinnedItem,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -27,10 +28,10 @@ export function pinAvailability(
 ): RunControlAvailability {
   const mainOutputs = new Set(
     (document?.edges ?? [])
-      .filter(
-        (edge) => edge.source === step.nodeId && edge.sourceHandle.startsWith("outputs/main/"),
-      )
-      .map((edge) => edge.sourceHandle),
+      .filter((edge) => edge.source === step.nodeId)
+      .map((edge) => parseWorkflowHandle(edge.sourceHandle))
+      .filter((handle) => handle.mode === "outputs" && handle.type === "main")
+      .map((handle) => handle.index),
   );
   if (mainOutputs.size > 1) {
     return { kind: "refused", reason: "Only a step with one main output can be pinned." };
