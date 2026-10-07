@@ -551,11 +551,7 @@ export interface TerminalControlMethodDescriptors {
     SessionSetTerminalFlowControlResponse
   >;
 }
-/**
- * The lease take and flow control methods: their names, how each answers, and their shapes.
- *
- * @consumedBy the daemon's terminal take-control and flow-control handlers
- */
+/** The lease take and flow control methods: their names, how each answers, and their shapes. */
 export const TERMINAL_CONTROL_METHOD_DESCRIPTORS: TerminalControlMethodDescriptors =
   defineMethodDescriptors({
     "session.takeControl": {
