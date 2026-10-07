@@ -1,7 +1,10 @@
 // Pure fold from a session's event stream to a `DaemonSessionRecord`. It does no I/O; the
-// caller supplies events in `sequence ASC` order and the projector trusts that order.
+// caller supplies events in `sequence ASC` order and the projector trusts that order. The
+// directory columns come from the same table the event's own write applies to the `sessions` row.
 
-import type { DaemonSessionRecord, StoredEvent } from "./records.js";
+import { foldDirectoryRow, openDirectoryRow } from "./directory/row.js";
+import { sessionActivityOf } from "./directory/run-activity.js";
+import type { DaemonSessionRecord, SessionDirectoryRow, StoredEvent } from "./records.js";
 
 /**
  * Folds a session's events into a record, or returns `null` for an empty list, since a
@@ -9,7 +12,8 @@ import type { DaemonSessionRecord, StoredEvent } from "./records.js";
  *
  * Throws when the first event is not a `session.created` at sequence 0: a bootstrap at another
  * sequence means earlier events were lost or the producer broke the contract, and projecting
- * from it would present partial state as complete.
+ * from it would present partial state as complete. Throws for a later `session.created`, which
+ * would replace the session mid-stream.
  */
 export function rebuildSession(events: ReadonlyArray<StoredEvent>): DaemonSessionRecord | null {
   if (events.length === 0) {
@@ -29,46 +33,21 @@ export function rebuildSession(events: ReadonlyArray<StoredEvent>): DaemonSessio
         `earlier events or a producer-side bootstrap-contract violation`,
     );
   }
-  let record: DaemonSessionRecord = bootstrapFromCreated(first);
+  let row: SessionDirectoryRow = openDirectoryRow(first);
   for (let i = 1; i < events.length; i++) {
-    record = projectEvent(record, events[i]!);
+    row = foldDirectoryRow(row, events[i]!);
   }
-  return record;
-}
-
-/**
- * Applies one event to a record and returns the new record without mutating the input.
- * Every type except `session.created` only advances `asOfSequence`; a `session.created` here
- * throws.
- */
-function projectEvent(record: DaemonSessionRecord, event: StoredEvent): DaemonSessionRecord {
-  switch (event.type) {
-    case "session.created":
-      // A second `session.created` would replace the session's state mid-stream or duplicate
-      // the bootstrap. The storage schema would accept one at a later sequence, so the
-      // projector refuses it.
-      throw new Error(
-        `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=` +
-          `${String(event.sequence)})`,
-      );
-    default:
-      // Every other event type only advances the sequence.
-      return { ...record, asOfSequence: event.sequence };
-  }
-}
-
-function bootstrapFromCreated(event: StoredEvent): DaemonSessionRecord {
-  // The owner is the envelope's `actor`. A system-emitted bootstrap has `actor: null` (legal
-  // on the wire), which stays `null` rather than an invented identity. An empty string is
-  // normalized to `null` so readers check one absent form.
-  const rawOwnerActor: string | null = event.actor;
-  const ownerActor: string | null =
-    rawOwnerActor !== null && rawOwnerActor.length > 0 ? rawOwnerActor : null;
-
   return {
-    sessionId: event.sessionId,
-    createdAt: event.occurredAt,
-    asOfSequence: event.sequence,
-    ownerActor,
+    ...row,
+    activity: sessionActivityOf(row),
+    asOfSequence: events[events.length - 1]!.sequence,
+    ownerActor: ownerActorOf(first),
   };
+}
+
+// The owner is the envelope's `actor`. A system-emitted bootstrap has `actor: null` (legal on the
+// wire), which stays `null` rather than an invented identity. An empty string is normalized to
+// `null` so readers check one absent form.
+function ownerActorOf(created: StoredEvent): string | null {
+  return created.actor !== null && created.actor.length > 0 ? created.actor : null;
 }

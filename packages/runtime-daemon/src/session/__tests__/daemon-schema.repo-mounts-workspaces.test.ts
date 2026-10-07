@@ -1,5 +1,6 @@
 // Proves the `repo_mounts` and `workspaces` constraints: each CHECK admits exactly its contract
-// union, a workspace needs a real mount, and the active-root key is per node.
+// union, a managed mount names its one chat, a workspace needs a real mount, and the active-root
+// key is per node.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -59,12 +60,15 @@ describe("repo_mounts and workspaces constraints", () => {
     nodeId?: string;
     canonicalRoot?: string;
     vcsType?: string;
+    origin?: string;
+    managedSessionId?: string | null;
     state?: string;
   }): void {
     db.prepare(
       `INSERT INTO repo_mounts
-         (id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, node_id, local_path, canonical_root, vcs_type, origin, managed_session_id, state,
+          attached_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       overrides.id,
       overrides.nodeId ?? "node-alpha",
@@ -72,6 +76,8 @@ describe("repo_mounts and workspaces constraints", () => {
       `${overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT}/src/services`,
       overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT,
       overrides.vcsType ?? "git",
+      overrides.origin ?? "attached",
+      overrides.managedSessionId ?? null,
       overrides.state ?? "attached",
       FIXTURE_TIMESTAMP,
       FIXTURE_TIMESTAMP,
@@ -136,6 +142,39 @@ describe("repo_mounts and workspaces constraints", () => {
     expect(() => {
       insertRepoMountRow({ id: "mount-vcs-hg", canonicalRoot: "/repos/vcs-hg", vcsType: "hg" });
     }).toThrow(/CHECK constraint failed/i);
+  });
+
+  it("ties a mount's origin to the chat it is managed for, one mount per chat", () => {
+    // No contract union names the origin yet, so its two members are listed here.
+    insertRepoMountRow({ id: "mount-attached", canonicalRoot: "/repos/attached" });
+    insertRepoMountRow({
+      id: "mount-managed",
+      canonicalRoot: "/workspaces/chat-1",
+      origin: "managed",
+      managedSessionId: "chat-1",
+    });
+    expect(() => {
+      insertRepoMountRow({ id: "mount-cloned", canonicalRoot: "/repos/cloned", origin: "cloned" });
+    }).toThrow(/CHECK constraint failed/i);
+    // A managed mount names its chat; an attached one names none.
+    expect(() => {
+      insertRepoMountRow({ id: "mount-orphan", canonicalRoot: "/workspaces/x", origin: "managed" });
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertRepoMountRow({
+        id: "mount-claimed",
+        canonicalRoot: "/repos/claimed",
+        managedSessionId: "chat-2",
+      });
+    }).toThrow(/CHECK constraint failed/i);
+    expect(() => {
+      insertRepoMountRow({
+        id: "mount-second-for-chat",
+        canonicalRoot: "/workspaces/chat-1-again",
+        origin: "managed",
+        managedSessionId: "chat-1",
+      });
+    }).toThrow(/UNIQUE constraint failed: repo_mounts.managed_session_id/i);
   });
 
   it("enforces the state CHECK on `workspaces`", () => {
