@@ -47,6 +47,9 @@ export default defineConfig({
                 testTimeout: ENDURANCE_TIMEOUT_MS,
                 hookTimeout: ENDURANCE_TIMEOUT_MS,
                 fileParallelism: false,
+                // Added to the root's arguments: the tier collects its seeding's garbage before it
+                // times anything.
+                execArgv: ["--expose-gc"],
               },
             },
           ]),

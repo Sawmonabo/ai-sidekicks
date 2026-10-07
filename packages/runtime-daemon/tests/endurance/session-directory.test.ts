@@ -1,7 +1,8 @@
 // Tier: endurance. The session directory's budgets, measured on the seeded set through the paths
 // the daemon serves them on: every search class's first page and next page on the search thread,
 // how long a search holds the daemon's main thread, and a stored related list's read. It prints
-// p50 and p95 per class against each budget and fails on any class over one.
+// p50 and p95 per class against each budget, with the test process's resident memory beside them,
+// and fails on any class over one.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,7 +29,7 @@ import { SEEDED_SET_SIZE, seedDirectorySet, type SeededSet } from "./seeded-set.
 
 // A search, its first page or a later one, answers within this at p95.
 const SEARCH_P95_BUDGET_MS = 50;
-// No turn of the daemon's main thread a search takes runs longer than this.
+// No turn of the daemon's main thread a search takes runs longer than this on the thread itself.
 const MAIN_THREAD_TURN_BUDGET_MS = 5;
 // A session's stored related list reads within this at p95.
 const RELATED_LIST_P95_BUDGET_MS = 1;
@@ -52,6 +53,12 @@ interface Timing {
   readonly p95Ms: number;
 }
 
+// The main thread's longest turn while a measurement ran, and how late its timer fired at most.
+interface MainThreadTurns {
+  readonly longestTurnMs: number;
+  readonly longestLatenessMs: number;
+}
+
 // One line of the printed table, and whether its numbers are inside their budgets.
 interface MeasuredClass {
   readonly label: string;
@@ -70,15 +77,47 @@ function formatTiming(timing: Timing): string {
   return `${timing.p50Ms.toFixed(1)}/${timing.p95Ms.toFixed(1)} ms`;
 }
 
+function formatTurns(turns: MainThreadTurns): string {
+  return (
+    `longest main-thread turn ${turns.longestTurnMs.toFixed(1)} ms ` +
+    `(timer ${turns.longestLatenessMs.toFixed(1)} ms late at most)`
+  );
+}
+
+function residentMemory(): string {
+  return `resident ${(process.memoryUsage.rss() / 2 ** 20).toFixed(0)} MiB`;
+}
+
+// Follows the main thread's turns until the returned stop. A turn is timed by the thread's own CPU
+// time: a 1 ms tick reads it, so a turn that holds the thread shows whole at the next tick, while a
+// wait for a core on a busy machine, which delays the tick without the thread running, does not.
+// How late the tick's timer fired, which counts those waits too, is reported beside it.
+function followMainThreadTurns(): () => MainThreadTurns {
+  const lateness = monitorEventLoopDelay({ resolution: 1 });
+  let longestTurnMs = 0;
+  let lastCpu = process.threadCpuUsage();
+  const readTurn = (): void => {
+    const cpu = process.threadCpuUsage();
+    const turnMs = (cpu.user - lastCpu.user + cpu.system - lastCpu.system) / 1000;
+    longestTurnMs = Math.max(longestTurnMs, turnMs);
+    lastCpu = cpu;
+  };
+  const ticker = setInterval(readTurn, 1);
+  lateness.enable();
+  return () => {
+    lateness.disable();
+    clearInterval(ticker);
+    readTurn();
+    return { longestTurnMs, longestLatenessMs: lateness.max / 1e6 };
+  };
+}
+
 // Times `run` repeatedly after one untimed run that warms the caches, fewer times once one run is
-// slow, and reports the longest turn the main thread took meanwhile.
-async function measure(
-  run: () => Promise<unknown>,
-): Promise<Timing & { readonly longestTurnMs: number }> {
+// slow, and reports the main thread's turns meanwhile.
+async function measure(run: () => Promise<unknown>): Promise<Timing & MainThreadTurns> {
   await run();
-  const turns = monitorEventLoopDelay({ resolution: 1 });
+  const stopFollowingTurns = followMainThreadTurns();
   const durationsMs: number[] = [];
-  turns.enable();
   for (let index = 0; index < RUNS; index += 1) {
     const start = performance.now();
     await run();
@@ -92,8 +131,7 @@ async function measure(
       break;
     }
   }
-  turns.disable();
-  return { ...timingOf(durationsMs), longestTurnMs: turns.max / 1e6 };
+  return { ...timingOf(durationsMs), ...stopFollowingTurns() };
 }
 
 describe("the session directory's budgets on the seeded set", () => {
@@ -113,6 +151,13 @@ describe("the session directory's budgets on the seeded set", () => {
       { sql: "INSERT INTO session_search_index (session_search_index) VALUES ('optimize')" },
     ]);
     await database.writer.checkpoint("TRUNCATE");
+    // The seeding leaves this thread's heap large and mostly garbage, which the daemon's main
+    // thread never holds; collected and given back now, no collection of it lands in a measured
+    // turn.
+    if (gc === undefined) {
+      throw new Error("The endurance tier runs with --expose-gc, which its project sets.");
+    }
+    gc({ type: "major", execution: "sync", flavor: "last-resort" });
     searchThread = SearchThread.start(databasePath);
   });
 
@@ -169,14 +214,17 @@ describe("the session directory's budgets on the seeded set", () => {
           .filter((timing) => (timing?.longestTurnMs ?? 0) > MAIN_THREAD_TURN_BUDGET_MS)
           .map(() => "main thread"),
       ];
-      const longestTurnMs = Math.max(firstPage.longestTurnMs, nextPage?.longestTurnMs ?? 0);
+      const turns: MainThreadTurns = {
+        longestTurnMs: Math.max(firstPage.longestTurnMs, nextPage?.longestTurnMs ?? 0),
+        longestLatenessMs: Math.max(firstPage.longestLatenessMs, nextPage?.longestLatenessMs ?? 0),
+      };
       measured.push({
         label,
         line:
           `${label.padEnd(32)} ${JSON.stringify(query).padEnd(24)} ` +
           `first ${formatTiming(firstPage)}` +
           `  next ${nextPage === undefined ? "none" : formatTiming(nextPage)}` +
-          `  longest main-thread turn ${longestTurnMs.toFixed(1)} ms`,
+          `  ${formatTurns(turns)}  ${residentMemory()}`,
         misses,
       });
     }
@@ -196,7 +244,7 @@ describe("the session directory's budgets on the seeded set", () => {
           label: `transcript, ${sessionLabel}, ${label}`,
           line:
             `transcript ${sessionLabel} ${label}`.padEnd(45) +
-            ` ${formatTiming(page)}  longest main-thread turn ${page.longestTurnMs.toFixed(1)} ms`,
+            ` ${formatTiming(page)}  ${formatTurns(page)}  ${residentMemory()}`,
           misses: [
             ...(page.p95Ms > SEARCH_P95_BUDGET_MS ? ["page"] : []),
             ...(page.longestTurnMs > MAIN_THREAD_TURN_BUDGET_MS ? ["main thread"] : []),
@@ -208,8 +256,9 @@ describe("the session directory's budgets on the seeded set", () => {
       `Search on ${String(SEEDED_SET_SIZE.sessions)} sessions, ` +
         `${String(SEEDED_SET_SIZE.messages)} messages and ${String(SEEDED_SET_SIZE.tags)} tags ` +
         `(p50/p95; budget ${String(SEARCH_P95_BUDGET_MS)} ms at p95, main-thread turn ` +
-        `${String(MAIN_THREAD_TURN_BUDGET_MS)} ms):\n` +
-        measured.map((entry) => `  ${entry.line}`).join("\n"),
+        `${String(MAIN_THREAD_TURN_BUDGET_MS)} ms; the test process's memory after each):\n` +
+        measured.map((entry) => `  ${entry.line}`).join("\n") +
+        `\n  peak resident ${(process.resourceUsage().maxRSS / 2 ** 10).toFixed(0)} MiB`,
     );
     expect(
       measured
@@ -243,9 +292,8 @@ describe("the session directory's budgets on the seeded set", () => {
       writer: database.writer,
       relatedRanking: ranking,
     });
-    const turns = monitorEventLoopDelay({ resolution: 1 });
+    const stopFollowingTurns = followMainThreadTurns();
     const rescoresMs: number[] = [];
-    turns.enable();
     for (let index = 0; index < RESCORED_LINKS; index += 1) {
       await links.add({
         sessionId: sessionAt(index * 31),
@@ -255,15 +303,15 @@ describe("the session directory's budgets on the seeded set", () => {
       await ranking.whenIdle();
       rescoresMs.push(performance.now() - start);
     }
-    turns.disable();
+    const turns = stopFollowingTurns();
     const read = timingOf(readsMs);
     const rescore = timingOf(rescoresMs);
     console.log(
       `Related list on ${String(SEEDED_SET_SIZE.sessions)} sessions and ` +
         `${String(SEEDED_SET_SIZE.links)} links (p50/p95): read ${read.p50Ms.toFixed(3)}/` +
         `${read.p95Ms.toFixed(3)} ms, budget ${String(RELATED_LIST_P95_BUDGET_MS)} ms at p95; ` +
-        `re-score after one new link ${formatTiming(rescore)} in the background, longest ` +
-        `main-thread turn ${(turns.max / 1e6).toFixed(1)} ms`,
+        `re-score after one new link ${formatTiming(rescore)} in the background, ` +
+        `${formatTurns(turns)}; ${residentMemory()}`,
     );
     expect(serviceLogLines).toEqual([]);
     expect(read.p95Ms).toBeLessThanOrEqual(RELATED_LIST_P95_BUDGET_MS);
