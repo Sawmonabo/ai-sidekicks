@@ -8,7 +8,8 @@ import type { Mock } from "vitest";
 import { NodePtyHost } from "../node-pty.js";
 import type { ConsoleCtrlEvent, NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
 import type { TaskkillResult } from "../../taskkill-windows.js";
-import { makeFakeChild } from "../../__fixtures__/child-doubles.js";
+import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
+import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../../orphan/registry.js";
 import type { SpawnRequest } from "../protocol.js";
 
 // Distinctive, so a failing assertion names the fixture.
@@ -51,7 +52,7 @@ beforeEach(() => {
   const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
     vi.fn();
 
-  const host = new NodePtyHost({
+  const host = new NodePtyHost(makeOrphanGuardDouble(), {
     platform: "win32",
     ptySpawn: ptySpawnStub,
     generateConsoleCtrlEvent: mockGCCE,
@@ -229,7 +230,7 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
       const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
         vi.fn();
 
-      const host = new NodePtyHost({
+      const host = new NodePtyHost(makeOrphanGuardDouble(), {
         platform: "win32",
         ptySpawn: ptySpawnStub,
         // The SIGKILL path never calls the console-control sender; a no-op keeps the host from
@@ -354,7 +355,7 @@ describe("NodePtyHost — close() on Windows routes through taskkill", () => {
     const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
       vi.fn();
 
-    const host = new NodePtyHost({
+    const host = new NodePtyHost(makeOrphanGuardDouble(), {
       platform: "linux",
       ptySpawn: ptySpawnStub,
       spawnTaskkill: mockTaskkill,
@@ -506,7 +507,7 @@ describe("NodePtyHost — kill translation", () => {
   it("on platform=linux, SIGINT delegates to child.kill('SIGINT')", async () => {
     const { child } = makeFakeChild();
     const ptySpawnStub: Mock<NodePtySpawnFn> = vi.fn<NodePtySpawnFn>().mockReturnValue(child);
-    const host = new NodePtyHost({
+    const host = new NodePtyHost(makeOrphanGuardDouble(), {
       platform: "linux",
       ptySpawn: ptySpawnStub,
     });
@@ -534,10 +535,11 @@ describe("NodePtyHost — spawn, resize and write", () => {
     const [command, args, options] = ctx.ptySpawnStub.mock.calls[0]!;
     expect(command).toBe("cmd.exe");
     expect(args).toEqual(["/c", "ping -t 127.0.0.1"]);
-    // node-pty takes an env record, not tuples.
+    // node-pty takes an env record, not tuples, and the child carries its registry nonce.
     expect(options.env).toEqual({
       PATH: "/usr/bin",
       FOO: "bar",
+      [SPAWN_NONCE_ENVIRONMENT_NAME]: "nonce-1",
     });
     // `useConptyDll` must stay `false`.
     expect(options.useConptyDll).toBe(false);

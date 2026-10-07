@@ -50,6 +50,7 @@ import { DatabaseWriter } from "../../database/writer.js";
 import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
 import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
+import { openOrphanGuard } from "../../pty/orphan/guard.js";
 import { DaemonAlreadyRunningError } from "../already-running-error.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { MachineSettingsFile } from "../machine/settings/file.js";
@@ -120,7 +121,15 @@ async function startDaemon(
   const options: DaemonProcessOptions = {
     homeDirectory: place.homeDirectory ?? homeDirectory,
     runFolder: place.runFolder ?? runFolder,
-    ptyHost,
+    openOrphanGuard: (dataFolder) =>
+      openOrphanGuard({
+        dataFolder,
+        bootId: PROCESS_IDENTITY.bootId,
+        readProcessIdentity: () => Promise.resolve(undefined),
+        operatingSystem: {},
+        writeServiceLog: () => {},
+      }),
+    createPtyHost: () => ptyHost,
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     serviceVersion: SERVICE_VERSION,

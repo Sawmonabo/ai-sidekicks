@@ -1,10 +1,11 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
 // two starts on one data folder only one goes on; it then opens the database, through its writer
-// for writes and a read-only connection for reads, knows this machine, captures the environment
-// providers are built from, listens on its socket and writes this start's session token once the
-// bind has succeeded. A client that reads the previous token in the moment between the bind and
-// the write is refused once, and its next read finds this start's token. Its stop, asked for over
-// the socket or by a terminate signal, ends it cleanly.
+// for writes and a read-only connection for reads, kills the terminal children a previous run left
+// running and builds the terminal host over this run's orphan guard, knows this machine, captures
+// the environment providers are built from, listens on its socket and writes this start's session
+// token once the bind has succeeded. A client that reads the previous token in the moment between
+// the bind and the write is refused once, and its next read finds this start's token. Its stop,
+// asked for over the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -23,6 +24,7 @@ import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/mac
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
 import { bootstrap } from "../bootstrap/index.js";
+import { withCleanupFailures } from "../cleanup-failures.js";
 import {
   closeDatabaseConnections,
   openDatabaseConnections,
@@ -36,6 +38,8 @@ import { MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
+import type { OrphanGuard } from "../pty/orphan/guard.js";
+import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -62,8 +66,15 @@ export interface DaemonProcessOptions {
   readonly homeDirectory: string;
   /** The run folder the socket and the session token file live in. */
   readonly runFolder: DaemonRunFolder;
-  /** The terminal host; the daemon drains it at its stop. */
-  readonly ptyHost: Pick<PtyHost, "shutdown">;
+  /**
+   * Sweeps the data folder's orphan registry of what a previous run left and opens this run's
+   * guard over it; called once the data folder is this daemon's alone.
+   */
+  readonly openOrphanGuard: (
+    dataFolder: string,
+  ) => Promise<{ guard: OrphanGuard; sweep: OrphanSweepResult }>;
+  /** Builds the terminal host over the orphan guard; the daemon drains it at its stop. */
+  readonly createPtyHost: (orphanGuard: OrphanGuard) => Pick<PtyHost, "shutdown">;
   /** Reads this machine's friendly name; called only at the first start. */
   readonly readMachineName: () => Promise<string>;
   /** Captures the base environment every provider process is built from. */
@@ -101,6 +112,7 @@ export class DaemonProcess {
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
+  readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
   #processState: DaemonProcessState = "starting";
@@ -112,6 +124,7 @@ export class DaemonProcess {
     dataFolder: string;
     dataFolderLock: DataFolderLock;
     database: DatabaseConnections;
+    orphanGuard: OrphanGuard;
     localMachine: LocalMachine;
     providerBaseEnvironment: readonly SpawnEnvPair[];
     sessionToken: string;
@@ -121,7 +134,8 @@ export class DaemonProcess {
     this.providerBaseEnvironment = parts.providerBaseEnvironment;
     this.#dataFolderLock = parts.dataFolderLock;
     this.#database = parts.database;
-    this.#ptyHost = options.ptyHost;
+    this.#orphanGuard = parts.orphanGuard;
+    this.#ptyHost = options.createPtyHost(parts.orphanGuard);
     this.#writeServiceLog = options.writeServiceLog;
 
     // The negotiation gate wraps the recording registry, so a refused call is never recorded.
@@ -213,7 +227,11 @@ export class DaemonProcess {
         databasePath: path.join(dataFolder, DATABASE_FILE_NAME),
         writeServiceLog: options.writeServiceLog,
       });
+      let orphanGuard: OrphanGuard | undefined;
       try {
+        const orphans = await options.openOrphanGuard(dataFolder);
+        orphanGuard = orphans.guard;
+        options.writeServiceLog(describeOrphanSweep(orphans.sweep));
         const localMachine = await readOrMintLocalMachine(
           database,
           options.readMachineName,
@@ -230,6 +248,7 @@ export class DaemonProcess {
           dataFolder,
           dataFolderLock,
           database,
+          orphanGuard,
           localMachine,
           providerBaseEnvironment,
           sessionToken,
@@ -237,16 +256,18 @@ export class DaemonProcess {
         await daemon.#listen(options.runFolder, sessionToken);
         return daemon;
       } catch (startError) {
+        const cleanupFailures: unknown[] = [];
+        try {
+          await orphanGuard?.close();
+        } catch (closeError) {
+          cleanupFailures.push(closeError);
+        }
         try {
           await closeDatabaseConnections(database);
         } catch (closeError) {
-          throw new AggregateError(
-            [startError, closeError],
-            "The daemon's start failed, and closing its database after that failed too",
-            { cause: closeError },
-          );
+          cleanupFailures.push(closeError);
         }
-        throw startError;
+        throw withCleanupFailures(startError, cleanupFailures, "The daemon's start");
       }
     } catch (startError) {
       try {
@@ -265,8 +286,9 @@ export class DaemonProcess {
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
    * the drain bound, waits for the calls already under way and drains every terminal (each gets
-   * its graceful signal, then a kill); then, in what is left of the bound, waits for every write
-   * taken to commit, failing any still unfinished, closes the database and lets the data folder go.
+   * its graceful signal, then a kill); then stops watching terminal children's exits and, in what
+   * is left of the bound, waits for every write taken to commit, failing any still unfinished,
+   * closes the database and lets the data folder go.
    * Repeated calls share the first stop.
    */
   stop(): Promise<void> {
@@ -357,6 +379,12 @@ export class DaemonProcess {
       this.#writeServiceLog(describeDrain(drain.value));
     } else {
       failures.push(drain.reason);
+    }
+    // After the drain, so the exit of every child it ended is still retired.
+    try {
+      await this.#orphanGuard.close();
+    } catch (error) {
+      failures.push(error);
     }
     // The writer's queue drains in what is left of the drain bound, so the caller's signal never
     // cuts a commit short; a write still unfinished then fails, and its batch rolls back whole.

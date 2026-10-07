@@ -1,5 +1,5 @@
-// Shared fakes for the PTY host tests: a `node-pty` child for `NodePtyHost`, and a sidecar child
-// process with Content-Length frame helpers for `RustSidecarPtyHost`.
+// Shared fakes for the PTY host tests: a `node-pty` child and an orphan guard for `NodePtyHost`,
+// and a sidecar child process with Content-Length frame helpers for `RustSidecarPtyHost`.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 
 import { vi } from "vitest";
 
-import type { NodePtyChild } from "../host/node-pty.js";
+import type { NodePtyChild, NodePtyOrphanGuard } from "../host/node-pty.js";
 import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar/child-supervisor.js";
 import type { Envelope, SpawnRequest } from "../host/protocol.js";
 import type { RustSidecarPtyHost } from "../sidecar/host.js";
@@ -51,6 +51,19 @@ export function makeFakeChild(pid: number = 12345): {
       const event: NodePtyExitEvent = signal === undefined ? { exitCode } : { exitCode, signal };
       exitListener(event);
     },
+  };
+}
+
+/** An orphan guard that records nothing, for tests of the host's own behavior. */
+export function makeOrphanGuardDouble(): NodePtyOrphanGuard {
+  let spawnCount = 0;
+  return {
+    prepareSpawn: () => {
+      spawnCount += 1;
+      return Promise.resolve(`nonce-${String(spawnCount)}`);
+    },
+    completeSpawn: () => Promise.resolve(),
+    retire: () => undefined,
   };
 }
 

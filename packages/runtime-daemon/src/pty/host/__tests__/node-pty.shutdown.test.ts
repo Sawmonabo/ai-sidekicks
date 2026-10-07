@@ -8,7 +8,7 @@ import { NodePtyHost } from "../node-pty.js";
 import type { ConsoleCtrlEvent, NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
 import type { TaskkillResult } from "../../taskkill-windows.js";
 import { PtyBackendUnavailableError } from "../../sidecar/binary-path.js";
-import { makeFakeChild } from "../../__fixtures__/child-doubles.js";
+import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import type { SpawnRequest } from "../protocol.js";
 import type { DrainResult } from "../contract.js";
 
@@ -54,7 +54,7 @@ beforeEach(() => {
     .fn<(pid: number) => Promise<TaskkillResult>>()
     .mockResolvedValue({ exitCode: 0 });
 
-  const host = new NodePtyHost({
+  const host = new NodePtyHost(makeOrphanGuardDouble(), {
     // POSIX, so `kill` takes the plain `child.kill(signal)` branch.
     platform: "linux",
     ptySpawn: ptySpawnStub,
@@ -273,7 +273,7 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
         (sessionId: string, exitCode: number, signalCode?: number) => void
       > = vi.fn();
 
-      const winHost = new NodePtyHost({
+      const winHost = new NodePtyHost(makeOrphanGuardDouble(), {
         platform: "win32",
         ptySpawn: winPtySpawn,
         generateConsoleCtrlEvent: winGCCE,

@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import { NodePtyHost } from "../node-pty.js";
 
 // Below a million, where the BSD `seq` on macOS switches to exponent notation.
@@ -16,7 +17,7 @@ const MAX_BYTES_AFTER_PAUSE = 128 * 1024;
 
 describe.skipIf(process.platform === "win32")("NodePtyHost flow control", () => {
   it("holds a flood back while paused, then delivers all of it in order", async () => {
-    const host = new NodePtyHost();
+    const host = new NodePtyHost(makeOrphanGuardDouble());
     const decoder = new TextDecoder();
     let receivedBytes = 0;
     let text = "";

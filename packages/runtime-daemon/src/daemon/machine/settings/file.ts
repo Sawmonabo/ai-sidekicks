@@ -8,8 +8,7 @@
 // page can say both happened. Reads, writes and repairs run one at a time, so a change never
 // interleaves with another and a new listener's first reading is never older
 // than a change announced after it.
-import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
@@ -22,6 +21,8 @@ import {
   type SettingsFileRepair,
   type SettingsFileRepairCause,
 } from "@ai-sidekicks/contracts/machine-settings";
+
+import { writeFileAtomically } from "../../../atomic-file-write.js";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;
@@ -143,23 +144,13 @@ export class MachineSettingsFile {
     }
   }
 
-  // A temporary file beside the real one, flushed to disk, then renamed over
-  // it: a reader sees the old file or the new one, never half of either.
+  // A reader sees the old file or the new one, never half of either.
   async #writeAtomically(settings: MachineSettings): Promise<void> {
     await mkdir(dirname(this.#filePath), { recursive: true, mode: SETTINGS_FOLDER_MODE });
-    const temporaryPath = `${this.#filePath}.${randomBytes(8).toString("hex")}.tmp`;
-    try {
-      const handle = await open(temporaryPath, "wx", SETTINGS_FILE_MODE);
-      try {
-        await handle.writeFile(`${JSON.stringify(settings, null, 2)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await rename(temporaryPath, this.#filePath);
-    } catch (error) {
-      await rm(temporaryPath, { force: true });
-      throw error;
-    }
+    await writeFileAtomically(
+      this.#filePath,
+      `${JSON.stringify(settings, null, 2)}\n`,
+      SETTINGS_FILE_MODE,
+    );
   }
 }

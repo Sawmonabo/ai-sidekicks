@@ -1,6 +1,8 @@
 // In-process `node-pty` implementation of the `PtyHost` contract.
 //
 // - The selector picks it on every platform (see `host/selector.ts`).
+// - Each child is recorded through the orphan guard: its intent before the start, its process
+//   after, its end; a child the guard cannot record is killed and the spawn rejects.
 // - `node-pty.kill(signal)` on Windows signals one PID and does not walk console-control or
 //   process-tree semantics (microsoft/node-pty#167, #437), so the Windows kill translation
 //   lives here:
@@ -16,6 +18,9 @@
 
 import { randomUUID } from "node:crypto";
 
+import { importKoffi } from "../koffi.js";
+import type { OrphanGuard } from "../orphan/guard.js";
+import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../orphan/registry.js";
 import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
 import { defaultSpawnTaskkill, type TaskkillResult } from "../taskkill-windows.js";
 import type { PtySignal, SpawnRequest, SpawnResponse } from "./protocol.js";
@@ -46,6 +51,9 @@ export interface NodePtyChild {
   /** Read the PTY's master FD again. */
   resume(): void;
 }
+
+/** The part of the orphan guard the host reports each child's life to. */
+export type NodePtyOrphanGuard = Pick<OrphanGuard, "prepareSpawn" | "completeSpawn" | "retire">;
 
 /** Options passed to `node-pty.spawn`. */
 interface NodePtySpawnOptions {
@@ -112,6 +120,8 @@ interface ResolvedNodePtyHostDeps {
 interface PtySessionRecord {
   /** Underlying `node-pty` child. */
   readonly child: NodePtyChild;
+  /** The nonce the orphan registry records the child under. */
+  readonly nonce: string;
   /**
    * Subscriptions held so `close()` can dispose them. Mutable so
    * `spawn()` can populate after attaching listeners; the contents are
@@ -173,46 +183,7 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
 > {
   // No platform guard: tests inject the FFI seam directly, and a real Windows failure surfaces
   // with its own diagnostics.
-  //
-  // `koffi` ships ESM with both a default export and a named `load`; `.default ?? mod` takes
-  // whichever shape the installed version has.
-  type KoffiBinding = {
-    load(name: string): {
-      func(signature: string): (...args: unknown[]) => unknown;
-    };
-  };
-  const specifier: string = "koffi";
-  let koffi: KoffiBinding;
-  try {
-    // A missing install would surface as a raw ERR_MODULE_NOT_FOUND; it is re-thrown below with
-    // an install hint.
-    const koffiMod = (await import(specifier)) as {
-      default?: KoffiBinding;
-      load?: KoffiBinding["load"];
-    };
-    const resolved: { load?: KoffiBinding["load"] } = koffiMod.default ?? koffiMod;
-    if (typeof resolved.load !== "function") {
-      throw new Error(
-        "loadGenerateConsoleCtrlEvent: `koffi` module did not expose a " +
-          "`load` function (checked both default-export and named-export " +
-          "shapes). This usually means the installed `koffi` version's " +
-          "ESM-bridge shape changed; pin the dep or update this loader.",
-      );
-    }
-    koffi = resolved as KoffiBinding;
-  } catch (cause) {
-    // The shape-mismatch error above is already clear; only a missing module gets the hint.
-    if (cause instanceof Error && cause.message.startsWith("loadGenerateConsoleCtrlEvent:")) {
-      throw cause;
-    }
-    throw new Error(
-      "NodePtyHost: `koffi` is required for Windows kill-translation but " +
-        "is not installed. Install with `pnpm add koffi` (or restore the " +
-        "optional dep via `pnpm install` without `--no-optional`). The Rust " +
-        "sidecar backend does not help here: its kill returns an error on Windows.",
-      { cause },
-    );
-  }
+  const koffi = await importKoffi("Windows kill-translation");
   const kernel32 = koffi.load("kernel32.dll");
   const binding = kernel32.func(
     "int __stdcall GenerateConsoleCtrlEvent(uint32 dwCtrlEvent, uint32 dwProcessGroupId)",
@@ -243,6 +214,9 @@ export class NodePtyHost implements PtyHost {
   /** Effective deps record after constructor wiring. */
   private readonly deps: ResolvedNodePtyHostDeps;
 
+  /** Records each child in the orphan registry from before its start to its end. */
+  private readonly orphanGuard: NodePtyOrphanGuard;
+
   /** Consumer callbacks; no-ops until the daemon registers its own with `setOnData`/`setOnExit`. */
   private dataListener: (sessionId: string, chunk: Uint8Array) => void = () => {};
 
@@ -265,13 +239,17 @@ export class NodePtyHost implements PtyHost {
   private readonly shutdownWaiters: Map<string, (result: "drained" | "forced") => void> = new Map();
 
   /** Partial `deps` merge with production defaults. */
-  public constructor(deps?: Partial<NodePtyHostDeps>) {
+  public constructor(orphanGuard: NodePtyOrphanGuard, deps?: Partial<NodePtyHostDeps>) {
+    this.orphanGuard = orphanGuard;
     this.deps = resolveDefaultDeps(deps ?? {});
   }
 
   // ---- PtyHost methods --------------------------------------------------
 
-  /** Starts a PTY child and returns its session id. Rejects once `shutdown()` has begun. */
+  /**
+   * Starts a PTY child and returns its session id. Rejects once `shutdown()` has begun, and when
+   * the orphan registry cannot record the child, which is then killed.
+   */
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
     if (this.shuttingDown) {
       // Refuse new spawns so no PTY child can outlive `shutdown()`.
@@ -282,26 +260,38 @@ export class NodePtyHost implements PtyHost {
       );
     }
     const ptySpawn: NodePtySpawnFn = await this.resolvePtySpawn();
-    if (this.shuttingDown) {
-      // `shutdown()` may have started while `resolvePtySpawn()` was awaited, after the drain
-      // snapshot was taken. Reject before `ptySpawn`, so no orphan child exists to clean up.
-      throw new PtyBackendUnavailableError(
-        { attemptedBackend: "node-pty" },
-        "NodePtyHost: shutdown() in progress or complete; " +
-          "the host is terminal — re-create a fresh instance for new sessions.",
-      );
-    }
-    const env: Record<string, string> = envTuplesToRecord(spec.env);
+    // The intent is durable before the child exists, so a crash at any later moment leaves the
+    // registry able to find it.
+    const nonce: string = await this.orphanGuard.prepareSpawn();
+    const env: Record<string, string> = {
+      ...envTuplesToRecord(spec.env),
+      [SPAWN_NONCE_ENVIRONMENT_NAME]: nonce,
+    };
 
-    const child: NodePtyChild = ptySpawn(spec.command, spec.args, {
-      name: "xterm-color",
-      cols: spec.cols,
-      rows: spec.rows,
-      cwd: spec.cwd,
-      env,
-      // Must stay `false`; see `NodePtySpawnOptions.useConptyDll`.
-      useConptyDll: false,
-    });
+    let child: NodePtyChild;
+    try {
+      if (this.shuttingDown) {
+        // `shutdown()` may have started during the awaits above, after the drain snapshot was
+        // taken. Reject before `ptySpawn`, so no orphan child exists to clean up.
+        throw new PtyBackendUnavailableError(
+          { attemptedBackend: "node-pty" },
+          "NodePtyHost: shutdown() in progress or complete; " +
+            "the host is terminal — re-create a fresh instance for new sessions.",
+        );
+      }
+      child = ptySpawn(spec.command, spec.args, {
+        name: "xterm-color",
+        cols: spec.cols,
+        rows: spec.rows,
+        cwd: spec.cwd,
+        env,
+        // Must stay `false`; see `NodePtySpawnOptions.useConptyDll`.
+        useConptyDll: false,
+      });
+    } catch (error) {
+      this.orphanGuard.retire(nonce);
+      throw error;
+    }
 
     // Not `mintUuidV7`: this is a host-local handle, dead when the PTY closes, with a
     // backend-private format (the Rust sidecar backend mints `s-{n}`), and no row stores it.
@@ -310,6 +300,7 @@ export class NodePtyHost implements PtyHost {
     // visible to `kill()`.
     const record: PtySessionRecord = {
       child,
+      nonce,
       subscriptions: [],
       hasExited: false,
       pendingEscalation: null,
@@ -325,6 +316,7 @@ export class NodePtyHost implements PtyHost {
     );
     record.subscriptions.push(
       child.onExit((event: { exitCode: number; signal?: number | undefined }) => {
+        this.orphanGuard.retire(nonce);
         // The child exited on its own, so the taskkill escalation is no longer needed.
         this.clearPendingEscalation(record);
         // `invokeTaskkill` already reported a synthetic exit (code 1); the exit is reported once.
@@ -345,6 +337,12 @@ export class NodePtyHost implements PtyHost {
     );
 
     this.sessions.set(sessionId, record);
+    // Listeners attach before this read, so an exit during it is still seen.
+    try {
+      await this.orphanGuard.completeSpawn(nonce, child.pid);
+    } catch (failure) {
+      await this.killUnrecordedChild(sessionId, record, failure);
+    }
 
     return { kind: "spawn_response", session_id: sessionId };
   }
@@ -452,6 +450,38 @@ export class NodePtyHost implements PtyHost {
       }
     }
     this.sessions.delete(sessionId);
+  }
+
+  // A child the orphan registry could not record must not outlive the spawn that started it, so
+  // it is killed outright, since a hangup can be ignored, and the spawn rejects with why.
+  private async killUnrecordedChild(
+    sessionId: string,
+    record: PtySessionRecord,
+    failure: unknown,
+  ): Promise<never> {
+    if (this.deps.platform === "win32") {
+      // `close()` ends the whole tree with `taskkill /T /F` there.
+      await this.close(sessionId);
+    } else {
+      for (const subscription of record.subscriptions) {
+        subscription.dispose();
+      }
+      this.sessions.delete(sessionId);
+      try {
+        record.child.kill("SIGKILL");
+      } catch (killError: unknown) {
+        // A child already gone needs no kill; any other refusal leaves it running.
+        if (!(killError instanceof Error && "code" in killError && killError.code === "ESRCH")) {
+          throw new AggregateError(
+            [failure, killError],
+            "The orphan registry could not record a terminal child, and killing it failed",
+            { cause: killError },
+          );
+        }
+      }
+    }
+    this.orphanGuard.retire(record.nonce);
+    throw failure;
   }
 
   /**
