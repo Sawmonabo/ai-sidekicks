@@ -38,7 +38,6 @@ import {
   type AppliedChordRecording,
   type KeybindingRow,
 } from "./keybinding-map.js";
-import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
@@ -249,13 +248,14 @@ export function KeyboardPage(): ReactNode {
             ))}
           </ul>
         )}
+        {/* Only the keyboard map's read draws the repair line and the declined chords, so they
+            stand and are reached by browsing. */}
         {keybindingOverrides.repair === undefined ? null : (
-          <AnnouncedLine
-            element="p"
-            className="meridian-settings-page__state"
-            words={KEYBOARD_MAP_REPAIRED_SENTENCE}
-            politeness="assertive"
-          />
+          <p className="meridian-settings-page__state">
+            The keyboard map could not be read, so the chords the app ships with were used and the
+            file was written out again. Any chord changed before now is back at the one the app
+            ships with.
+          </p>
         )}
         {keybindingOverrides.readRefusal === undefined ? null : (
           <InlineRefusal
@@ -273,6 +273,7 @@ export function KeyboardPage(): ReactNode {
                     `A chord kept for ${titleOf(declined.commandId)} was not ` +
                     `installed this time. ${declined.refusal.detail}`
                   }
+                  isStanding
                 />
               </li>
             ))}
@@ -319,8 +320,3 @@ function describeBinding(
     : `${act} for as long as this window is open, and will not come ` +
         `back after a reload. ${unsaved.detail}`;
 }
-
-/** What the page says where the keyboard map could not be read and was written out again. */
-const KEYBOARD_MAP_REPAIRED_SENTENCE =
-  "The keyboard map could not be read, so the chords the app ships with were used and the file " +
-  "was written out again. Any chord changed before now is back at the one the app ships with.";

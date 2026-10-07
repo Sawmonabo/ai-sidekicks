@@ -25,6 +25,9 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 /** The id the stubbed start answers with. */
 const IMPORT_ID = "provider-import-3" as ProviderImportId;
 
+/** An import from before the panel opened, whose outcome the stream replays first. */
+const EARLIER_IMPORT_ID = "provider-import-2" as ProviderImportId;
+
 /** What each call received, in order. */
 interface SentRequests {
   readonly begin: unknown[];
@@ -90,8 +93,9 @@ async function emit(stream: DrivenProgressStream, message: ProviderImportProgres
 function settledMessage(
   provider: ProviderName,
   settlement: ProviderImportOutcome,
+  importId: ProviderImportId = IMPORT_ID,
 ): ProviderImportProgress {
-  return { kind: "settled", provider, importId: IMPORT_ID, settlement };
+  return { kind: "settled", provider, importId, settlement };
 }
 
 function importAction(label: string): HTMLButtonElement {
@@ -222,11 +226,11 @@ describe("one provider's import", () => {
 
   it("draws a refused import in the service's own words, and Try again starts it again", async () => {
     const { stream, sent, said } = await renderPanel("codex");
-    const refused = settledMessage("codex", {
+    const refusal: ProviderImportOutcome = {
       outcome: "refused",
       reason: "The Codex folder is missing.",
-    });
-    await emit(stream, refused);
+    };
+    await emit(stream, settledMessage("codex", refusal, EARLIER_IMPORT_ID));
     expect(rowText()).toContain("The Codex folder is missing.");
     // Replayed as the stream opened, so it stands; the same refusal answering a press is news.
     expect(said.spokenOn("assertive")).toStrictEqual([]);
@@ -235,7 +239,9 @@ describe("one provider's import", () => {
     });
     await settle();
     expect(sent.begin).toStrictEqual([{ provider: "codex" }]);
-    await emit(stream, refused);
+    // Until the started import settles, the row reports it running, never the old refusal.
+    expect(said.spokenOn("assertive")).toStrictEqual([]);
+    await emit(stream, settledMessage("codex", refusal));
     expect(said.spokenOn("assertive")).toStrictEqual(["The Codex folder is missing."]);
   });
 });

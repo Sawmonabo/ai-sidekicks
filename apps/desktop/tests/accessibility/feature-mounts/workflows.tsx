@@ -198,7 +198,8 @@ export async function mountWorkflowRunPage(
  *
  * Addressed rather than empty: the unaddressed arm draws one empty-state block, while this one
  * composes the node graph and draft regions. It needs no wait
- * because the pane puts no read in flight.
+ * because the pane puts no read in flight. The announcer wraps it because its state strip says a
+ * refusal through `useAnnounce`, which throws outside its provider.
  */
 export async function mountWorkflowBuilderPane(): Promise<MountedView> {
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("workflow-builder-pane") });
@@ -206,21 +207,23 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={fixture}>
-      <WorkflowBuilderPaneBody
-        context={paneContext(
-          {
-            kind: "workflow-builder",
-            entity: { kind: "workflow-definition", id: definition().id },
-          },
-          {
-            paneId: "pane-workflow-builder",
-            bridge,
-            sessionStore: probeSessionStore(),
-            // The builder hands its canvas the UI-state store, node layout's home, so it answers.
-            uiStateStore: openUiStateStore(),
-          },
-        )}
-      />
+      <LiveAnnouncerProvider>
+        <WorkflowBuilderPaneBody
+          context={paneContext(
+            {
+              kind: "workflow-builder",
+              entity: { kind: "workflow-definition", id: definition().id },
+            },
+            {
+              paneId: "pane-workflow-builder",
+              bridge,
+              sessionStore: probeSessionStore(),
+              // The builder hands its canvas the UI-state store, node layout's home, so it answers.
+              uiStateStore: openUiStateStore(),
+            },
+          )}
+        />
+      </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };

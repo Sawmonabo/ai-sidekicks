@@ -1,8 +1,9 @@
-// A line that mounts already holding its words is not announced by most screen readers, so a
-// line drawn on a refusal, a failure or a settled act speaks through the app's one announcer.
+// A line that mounts already holding its words is not announced from a live role (the reason
+// `announcer.ts` keeps its regions mounted empty), so a line drawn on a refusal, a failure or a
+// settled act speaks through the app's one announcer.
 //
-// What a line reports is said when it changed after the content around it was first drawn: a line
-// that appears because of an act or a pushed change, or whose words or attempt change in place.
+// What a line reports is said when it changed after its view's first read settled: a line that
+// appears because of an act or a pushed change, or whose words or attempt change in place.
 // What a view's first read draws, what a stream replays and what a remounted row redraws stands,
 // and is reached by browsing. A retry that fails the same way leaves the same words drawn, so a
 // caller passes the attempt: a new attempt value says the words again.
