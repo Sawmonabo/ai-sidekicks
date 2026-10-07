@@ -1,0 +1,101 @@
+/*
+ * A corner cap: a square the size of the radius over one corner of its box, showing the corner of
+ * a box twice its size that wears the box's radius and edge, with the ground as that box's shadow,
+ * so the curve is drawn as the box's own would be. Seated on the box's edge, so the cap's edge
+ * covers it. Imported by `CornerCaps.tsx`.
+ */
+.meridian-corner-cap {
+  position: absolute;
+  z-index: 1;
+  inline-size: var(--meridian-corner-cap-radius, 0px);
+  block-size: var(--meridian-corner-cap-radius, 0px);
+  overflow: hidden;
+  border-color: inherit;
+  pointer-events: none;
+}
+
+.meridian-corner-cap::before,
+.meridian-corner-cap::after {
+  content: "";
+  position: absolute;
+  box-sizing: border-box;
+  inline-size: calc(2 * var(--meridian-corner-cap-radius, 0px));
+  block-size: calc(2 * var(--meridian-corner-cap-radius, 0px));
+}
+
+/* The ground, out to half the edge, so the edge's outer rim blends with the ground alone and never
+   with what the box draws beneath it. */
+.meridian-corner-cap::before {
+  border-radius: calc(
+    var(--meridian-corner-cap-radius, 0px) - var(--meridian-corner-cap-edge, 0px) / 2
+  );
+  box-shadow: 0 0 0 var(--meridian-corner-cap-radius, 0px)
+    var(--meridian-corner-cap-ground, transparent);
+}
+
+.meridian-corner-cap::after {
+  border: var(--meridian-corner-cap-edge, 0px) solid;
+  border-color: inherit;
+  border-radius: var(--meridian-corner-cap-radius, 0px);
+}
+
+.meridian-corner-cap--start-start,
+.meridian-corner-cap--start-end {
+  inset-block-start: calc(-1 * var(--meridian-corner-cap-edge, 0px));
+}
+
+.meridian-corner-cap--end-start,
+.meridian-corner-cap--end-end {
+  inset-block-end: calc(-1 * var(--meridian-corner-cap-edge, 0px));
+}
+
+.meridian-corner-cap--start-start,
+.meridian-corner-cap--end-start {
+  inset-inline-start: calc(-1 * var(--meridian-corner-cap-edge, 0px));
+}
+
+.meridian-corner-cap--start-end,
+.meridian-corner-cap--end-end {
+  inset-inline-end: calc(-1 * var(--meridian-corner-cap-edge, 0px));
+}
+
+/* Inside the cap, the ground's box sits half the edge in from the corner and the edge's box on it. */
+.meridian-corner-cap--start-start::before,
+.meridian-corner-cap--start-end::before {
+  inset-block-start: calc(var(--meridian-corner-cap-edge, 0px) / 2);
+}
+
+.meridian-corner-cap--end-start::before,
+.meridian-corner-cap--end-end::before {
+  inset-block-end: calc(var(--meridian-corner-cap-edge, 0px) / 2);
+}
+
+.meridian-corner-cap--start-start::before,
+.meridian-corner-cap--end-start::before {
+  inset-inline-start: calc(var(--meridian-corner-cap-edge, 0px) / 2);
+}
+
+.meridian-corner-cap--start-end::before,
+.meridian-corner-cap--end-end::before {
+  inset-inline-end: calc(var(--meridian-corner-cap-edge, 0px) / 2);
+}
+
+.meridian-corner-cap--start-start::after,
+.meridian-corner-cap--start-end::after {
+  inset-block-start: 0;
+}
+
+.meridian-corner-cap--end-start::after,
+.meridian-corner-cap--end-end::after {
+  inset-block-end: 0;
+}
+
+.meridian-corner-cap--start-start::after,
+.meridian-corner-cap--end-start::after {
+  inset-inline-start: 0;
+}
+
+.meridian-corner-cap--start-end::after,
+.meridian-corner-cap--end-end::after {
+  inset-inline-end: 0;
+}

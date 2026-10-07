@@ -46,6 +46,11 @@
   visibility: hidden;
 }
 
+/* A lifted pane glides over its neighbors, so it clips its corners to show them through. */
+.meridian-pane-layout__pane[data-reorder-lifted] {
+  --meridian-pane-overflow: hidden;
+}
+
 /*
  * The separator is the library's widget wearing our chrome: focusable, arrow-operable, with
  * the window-splitter ARIA, so every line below is paint. Drawn as a hairline and hit as a

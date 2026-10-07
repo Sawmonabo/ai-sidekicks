@@ -30,7 +30,7 @@
  */
 .meridian-composer__line {
   --meridian-text-box-height-cap: calc(var(--meridian-session-screen-height) / 3);
-  padding: var(--meridian-space-2);
+  --meridian-text-box-padding: var(--meridian-space-2);
   color: var(--meridian-text);
   font: inherit;
   font-family: var(--meridian-font-sans);
@@ -48,7 +48,7 @@
   outline: none;
 }
 
-.meridian-composer__line:has(> [readonly]) {
+.meridian-composer__line:has([readonly]) {
   color: var(--meridian-text-muted);
   background: var(--meridian-surface-sunken);
 }

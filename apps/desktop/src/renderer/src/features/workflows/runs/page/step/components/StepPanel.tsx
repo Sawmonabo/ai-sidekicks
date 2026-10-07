@@ -95,41 +95,43 @@ export function StepPanel(props: StepPanelProps): React.JSX.Element {
     passes.find((entry) => entry.step.executionIndex === pickedExecution) ?? passes.at(-1);
   const step = picked?.step;
   const name = props.nodeName(nodeId);
-  const panelScrollbarRef = useOverlayScrollbar<HTMLElement>();
+  const panelScrollbarRef = useOverlayScrollbar<HTMLDivElement>();
   return (
-    <aside className="meridian-workflow-step" aria-label="Step panel" ref={panelScrollbarRef}>
-      <header className="meridian-workflow-step__head">
-        <h3 className="meridian-workflow-step__name">{name}</h3>
-        {step === undefined ? <Chip label="Not reached" /> : <StepStateChip step={step} />}
-        {passes.length > 1 && picked !== undefined ? (
-          <select
-            className="meridian-workflow-step__execution"
-            aria-label="Execution"
-            value={picked.step.executionIndex}
-            onChange={(event) => {
-              setPickedExecution(Number(event.currentTarget.value));
-            }}
-          >
-            {passes.map((entry) => (
-              <option key={entry.step.executionIndex} value={entry.step.executionIndex}>
-                {executionWords(entry, passes)}
-              </option>
-            ))}
-          </select>
-        ) : step === undefined || step.attempt === 1 ? null : (
-          <span className="meridian-workflow-step__attempt">
-            {`Attempt ${formatCount(step.attempt)}`}
-          </span>
+    <aside className="meridian-workflow-step" aria-label="Step panel">
+      <div className="meridian-workflow-step__scroller" ref={panelScrollbarRef}>
+        <header className="meridian-workflow-step__head">
+          <h3 className="meridian-workflow-step__name">{name}</h3>
+          {step === undefined ? <Chip label="Not reached" /> : <StepStateChip step={step} />}
+          {passes.length > 1 && picked !== undefined ? (
+            <select
+              className="meridian-workflow-step__execution"
+              aria-label="Execution"
+              value={picked.step.executionIndex}
+              onChange={(event) => {
+                setPickedExecution(Number(event.currentTarget.value));
+              }}
+            >
+              {passes.map((entry) => (
+                <option key={entry.step.executionIndex} value={entry.step.executionIndex}>
+                  {executionWords(entry, passes)}
+                </option>
+              ))}
+            </select>
+          ) : step === undefined || step.attempt === 1 ? null : (
+            <span className="meridian-workflow-step__attempt">
+              {`Attempt ${formatCount(step.attempt)}`}
+            </span>
+          )}
+          <ActionButton aria-label="Close step panel" onClick={props.onClose}>
+            Close
+          </ActionButton>
+        </header>
+        {step === undefined ? (
+          <StepActs {...props} step={undefined} />
+        ) : (
+          <StepBody {...props} step={step} key={stepKeyText(step)} />
         )}
-        <ActionButton aria-label="Close step panel" onClick={props.onClose}>
-          Close
-        </ActionButton>
-      </header>
-      {step === undefined ? (
-        <StepActs {...props} step={undefined} />
-      ) : (
-        <StepBody {...props} step={step} key={stepKeyText(step)} />
-      )}
+      </div>
     </aside>
   );
 }

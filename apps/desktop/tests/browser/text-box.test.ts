@@ -38,7 +38,10 @@ const tierViewport = { width: window.innerWidth, height: window.innerHeight };
 /** A draft typed past its cap, and what a case measures it by. */
 interface LongDraft {
   readonly line: HTMLTextAreaElement;
+  /** The box that scrolls, inside the frame. */
   readonly box: HTMLElement;
+  /** The box's frame: its edge, the bounds a line shows within. */
+  readonly frame: HTMLElement;
   readonly lineHeightPx: number;
   /** The session screen, whose height the draft's cap is measured against. */
   readonly screen: HTMLElement;
@@ -54,8 +57,16 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
     'textarea[aria-label="Message"]',
   );
   const box = line?.parentElement;
+  const frame = box?.parentElement;
   const screen = appWindow.document.querySelector<HTMLElement>(".meridian-session-screen");
-  if (line === null || box === null || box === undefined || screen === null) {
+  if (
+    line === null ||
+    box === null ||
+    box === undefined ||
+    frame === null ||
+    frame === undefined ||
+    screen === null
+  ) {
     throw new Error("the session screen drew no draft line");
   }
   await act(async () => {
@@ -73,6 +84,7 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
   return {
     line,
     box,
+    frame,
     lineHeightPx: Number.parseFloat(styleOf(box).lineHeight),
     screen,
   };
@@ -101,19 +113,25 @@ function styleOf(element: Element): CSSStyleDeclaration {
  * the last line, and shows no platform bar.
  */
 function expectScrolledToTheCaret(draft: LongDraft): void {
-  const { line, box, lineHeightPx } = draft;
+  const { line, box, frame, lineHeightPx } = draft;
   expect(line.scrollHeight).toBeLessThanOrEqual(line.clientHeight);
   expect(line.clientHeight).toBeGreaterThan(contentHeightOf(box));
   expect(box.scrollTop).toBeGreaterThan(0);
-  expect(isLastLineInView(line, box, lineHeightPx)).toBe(true);
+  expect(isLastLineInView(line, frame, lineHeightPx)).toBe(true);
   expect(styleOf(box).scrollbarWidth).toBe("none");
 }
 
-/** Whether the draft's last line, the text area's bottom line, shows inside the box. */
-function isLastLineInView(line: HTMLTextAreaElement, box: Element, lineHeightPx: number): boolean {
+/** Whether the draft's last line, the text area's bottom line, shows inside the box's frame. */
+function isLastLineInView(
+  line: HTMLTextAreaElement,
+  frame: Element,
+  lineHeightPx: number,
+): boolean {
   const lastLineBottom = line.getBoundingClientRect().bottom;
-  const boxRect = box.getBoundingClientRect();
-  return lastLineBottom - lineHeightPx >= boxRect.top - 1 && lastLineBottom <= boxRect.bottom + 1;
+  const frameRect = frame.getBoundingClientRect();
+  return (
+    lastLineBottom - lineHeightPx >= frameRect.top - 1 && lastLineBottom <= frameRect.bottom + 1
+  );
 }
 
 /** Press keys inside `act`, so the draft store's writes are flushed into the line. */
@@ -144,15 +162,15 @@ describe("the composer's draft", () => {
     expectScrolledToTheCaret(draft);
 
     // Negative control: with the caret back on the first line, the last line is out of view.
-    const { line, box, lineHeightPx } = draft;
+    const { line, box, frame, lineHeightPx } = draft;
     await press("{ArrowUp}".repeat(TYPED_LINE_COUNT));
     expect(line.selectionStart).toBeLessThan("line".length + 1);
     // The caret's line is revealed, not the box's padding above it.
     expect(box.scrollTop).toBeLessThan(lineHeightPx);
     expect(line.getBoundingClientRect().top).toBeGreaterThanOrEqual(
-      box.getBoundingClientRect().top - 1,
+      frame.getBoundingClientRect().top - 1,
     );
-    expect(isLastLineInView(line, box, lineHeightPx)).toBe(false);
+    expect(isLastLineInView(line, frame, lineHeightPx)).toBe(false);
   });
 
   it("stops at a third of the session screen in a short window", async () => {

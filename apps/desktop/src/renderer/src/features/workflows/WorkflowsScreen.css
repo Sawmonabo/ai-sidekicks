@@ -409,16 +409,29 @@
 
 /* --- the step panel ------------------------------------------------------------ */
 
+/*
+ * The panel's edge, ground and rounded corners sit on the panel and its scroll on the box inside,
+ * since the compositor cannot find a scroller with rounded corners under a wheel or a touch.
+ * `min-block-size: 0` lets the panel be shorter than its content, or the box inside never scrolls.
+ */
 .meridian-workflow-step {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-3);
-  inline-size: min(40ch, 40vw);
-  padding: var(--meridian-space-3);
-  overflow: auto;
+  min-block-size: 0;
   background: var(--meridian-surface-raised);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
+}
+
+.meridian-workflow-step__scroller {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  inline-size: min(40ch, 40vw);
+  min-block-size: 0;
+  padding: var(--meridian-space-3);
+  overflow: auto;
 }
 
 .meridian-workflow-step__head {

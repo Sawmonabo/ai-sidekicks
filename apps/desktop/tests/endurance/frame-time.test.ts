@@ -1,12 +1,13 @@
-// The four-lane frame-time budget: the median of three runs' 95th-percentile frame duration
-// while four agent lanes stream into the transcript, compared through the registry's own
-// `evaluateBudget`.
+// The four-lane frame-time budget: the median of three runs' 95th-percentile frame duration while
+// four agent lanes stream into the transcript, in refreshes of the display the run drew on,
+// compared through the registry's own `evaluateBudget`.
 //
-// A frame's duration is the main-thread work it costs, not the interval between frames. The
-// interval between animation-frame callbacks is the display's refresh period (~16.7 ms at 60 Hz,
-// as on the pinned runner's Xvfb source), so its p95 could never be under a 16.7 ms ceiling.
-// The p50 is printed beside the p95 to show which of the two is being reported. The sampler and
-// the workload check are `frame-sampling.ts`'s.
+// A frame's duration is the main-thread work it costs, not the interval between frames: the
+// interval between animation-frame callbacks is the display's refresh period, so its p95 could
+// never be under one refresh. The p50 is printed beside the p95 to show which of the two is being
+// reported. The sampler and the workload check are `frame-sampling.ts`'s; the refresh is the vsync
+// interval the window's compositor recorded in a trace taken over the same frames
+// (`trace/refresh.ts`).
 //
 // The comparison gates only on the pinned runner class (`pinned-runner-class.ts`); elsewhere
 // the figure is printed so the instrument still runs. The negative control is not pinned:
@@ -35,6 +36,8 @@ import {
   sampleFrameTimings,
   type FrameTimingRun,
 } from "./frame-sampling.js";
+import { endTraceRecording, startTraceRecording } from "./trace/recording.js";
+import { readRefreshIntervalMs } from "./trace/refresh.js";
 import { BudgetRegistry } from "../helpers/budget/registry.js";
 import { evaluateBudget } from "../helpers/budget/evaluation.js";
 
@@ -46,30 +49,36 @@ const FRAME_TIME_BUDGET_ID = "frame-time-p95-four-lanes";
 const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(FRAME_TIME_BUDGET_ID);
 
+/** The category whose begin-frame records carry the display's vsync interval. */
+const REFRESH_TRACE_CATEGORIES: readonly string[] = ["benchmark"];
+
 /** The shortest task the browser reports as a long task, in milliseconds. */
 const LONG_TASK_THRESHOLD_MS = 50;
 
 /**
  * The per-frame stall the negative control plants, in milliseconds: synchronous inside the frame's
- * callback, so the verdict does not depend on the display's cadence, and past both twice the row's
- * ceiling and the long-task threshold by a fifth, so each stalled frame is also a long task.
+ * callback, and past the long-task threshold by a fifth, so each stalled frame is also a long task
+ * and lasts several refreshes of any display a reading is taken on.
  */
-const PLANTED_FRAME_STALL_MS: number = Math.ceil(
-  Math.max(budget.limit.canonicalValue * 2, LONG_TASK_THRESHOLD_MS * 1.2),
-);
+const PLANTED_FRAME_STALL_MS: number = Math.ceil(LONG_TASK_THRESHOLD_MS * 1.2);
 
-/** One sampled launch, and the overlay scrollbars started in its window when sampling ended. */
+/** One sampled launch, the refresh it drew at, and the overlay scrollbars it had started. */
 interface MeasuredRun extends FrameTimingRun {
+  /** One refresh of the display the window drew on, in milliseconds. */
+  readonly refreshIntervalMs: number;
   readonly startedOverlayScrollbarCount: number;
 }
 
-/** One launch, opened on the concurrent-streaming session and sampled. */
+/** One launch, opened on the concurrent-streaming session and sampled under a trace. */
 async function runOnce(plantedStallMilliseconds: number): Promise<MeasuredRun> {
   return await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
     await openConcurrentStreamingSessionRoute(appUnderTest);
+    const cdpSession = await appUnderTest.application.context().newCDPSession(appUnderTest.window);
+    await startTraceRecording(cdpSession, REFRESH_TRACE_CATEGORIES);
     const run = await sampleFrameTimings(appUnderTest, plantedStallMilliseconds);
+    const refreshIntervalMs = readRefreshIntervalMs(await endTraceRecording(cdpSession));
     const census = await readOverlayScrollbars(appUnderTest);
-    return { ...run, startedOverlayScrollbarCount: census.startedHosts.length };
+    return { ...run, refreshIntervalMs, startedOverlayScrollbarCount: census.startedHosts.length };
   });
 }
 
@@ -88,25 +97,28 @@ describe.skipIf(!bundleIsBuilt)(
       for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
         const run = await runOnce(0);
         expectFourLaneWorkloadInsideWindow(run);
-        perRunPercentiles.push(percentileByNearestRank(run.frameDurationsMs, 0.95));
+        perRunPercentiles.push(
+          percentileByNearestRank(run.frameDurationsMs, 0.95) / run.refreshIntervalMs,
+        );
         perRunMedians.push(percentileByNearestRank(run.frameDurationsMs, 0.5));
         perRunLongTasks.push(
           `${String(run.longTaskDurationsMs.length)} long tasks ` +
             `(${totalMilliseconds(run.longTaskDurationsMs).toFixed(0)} ms), ` +
-            `${String(run.startedOverlayScrollbarCount)} overlay scrollbars started`,
+            `${String(run.startedOverlayScrollbarCount)} overlay scrollbars started, ` +
+            `one refresh ${run.refreshIntervalMs.toFixed(3)} ms`,
         );
       }
       const measuredP95 = percentileByNearestRank(perRunPercentiles, 0.5);
       const verdict = evaluateBudget(budget, measuredP95);
 
       // Printed before the assertion on every machine, so a shrinking margin shows before a
-      // run crosses. The p50 tells the readings apart: one at the display's cadence (~16.67 ms
-      // at 60 Hz) would mean the instrument reports how often frames arrive.
+      // run crosses. The p50 tells the readings apart: one at the display's cadence would mean
+      // the instrument reports how often frames arrive.
       process.stdout.write(
-        `[endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
+        `[endurance] frame time p95 ${measuredP95.toFixed(3)} refreshes ` +
           `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
-          `${perRunPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
-          `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
+          `${perRunPercentiles.map((value) => value.toFixed(3)).join(", ")}) ` +
+          `of a ${String(budget.limit.canonicalValue)} refresh ceiling ` +
           `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
           `p50 ${percentileByNearestRank(perRunMedians, 0.5).toFixed(2)} ms ` +
           `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}); ` +
@@ -120,8 +132,8 @@ describe.skipIf(!bundleIsBuilt)(
       }
       expect(
         verdict.withinBudget,
-        `${budget.label}: ${measuredP95.toFixed(2)} ms against a ` +
-          `${String(budget.limit.canonicalValue)} ms ceiling`,
+        `${budget.label}: ${measuredP95.toFixed(3)} refreshes against a ` +
+          `${String(budget.limit.canonicalValue)} refresh ceiling`,
       ).toBe(true);
     });
 
@@ -130,20 +142,21 @@ describe.skipIf(!bundleIsBuilt)(
       // sampled nothing, and off the pinned class nothing asserts the figure at all. The stall
       // is synchronous work in each frame's callback through the same sampler.
       const run = await runOnce(PLANTED_FRAME_STALL_MS);
-      const stalledP95 = percentileByNearestRank(run.frameDurationsMs, 0.95);
+      const stalledP95Ms = percentileByNearestRank(run.frameDurationsMs, 0.95);
+      const stalledP95 = stalledP95Ms / run.refreshIntervalMs;
       process.stdout.write(
         `[endurance] frame time p95 under a planted ${String(PLANTED_FRAME_STALL_MS)} ms ` +
-          `per-frame stall: ${stalledP95.toFixed(2)} ms; ` +
+          `per-frame stall: ${stalledP95.toFixed(3)} refreshes, ${stalledP95Ms.toFixed(2)} ms; ` +
           `${String(run.longTaskDurationsMs.length)} long tasks\n`,
       );
 
-      expect(stalledP95).toBeGreaterThan(PLANTED_FRAME_STALL_MS);
+      expect(stalledP95Ms).toBeGreaterThan(PLANTED_FRAME_STALL_MS);
       // The long tasks printed beside the healthy figure are read by the same observers, so a
       // stall they miss would make that zero meaningless.
       expect(run.longTaskDurationsMs.length).toBeGreaterThan(0);
       expect(
         evaluateBudget(budget, stalledP95).withinBudget,
-        "a renderer holding its main thread for twice the frame budget every frame passed this " +
+        "a renderer holding its main thread for several refreshes every frame passed this " +
           "budget, so the gate would report green over the one failure it exists to catch",
       ).toBe(false);
     });

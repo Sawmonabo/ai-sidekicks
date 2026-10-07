@@ -10,6 +10,7 @@ import "./PaneFrame.css";
 
 import { useId } from "react";
 
+import { CornerCaps, type CornerCapCorner } from "../CornerCaps/CornerCaps.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { type EntityRef } from "#renderer/lib/entity-kinds.js";
@@ -51,6 +52,9 @@ export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
  * The kind glyph's size in CSS pixels: the default size, larger than the chrome's control glyphs.
  */
 const PANE_KIND_GLYPH_SIZE = GLYPH_DEFAULT_SIZE;
+
+/** The pane's bottom corners, which its body can reach; the head rounds the top ones itself. */
+const PANE_CORNER_CAPS: readonly CornerCapCorner[] = ["end-start", "end-end"];
 
 /** Props for `PaneFrame`: its kind, the address it is scoped to, and its body. */
 export interface PaneFrameProps {
@@ -125,6 +129,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
       <div className="meridian-pane__body" ref={bodyScrollbarRef}>
         {props.children}
       </div>
+      <CornerCaps corners={PANE_CORNER_CAPS} />
     </section>
   );
 }

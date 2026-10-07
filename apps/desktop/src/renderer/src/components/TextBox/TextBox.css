@@ -1,24 +1,36 @@
 /*
- * The text box: the outer box scrolls and wears the caller's edge, ground and padding; the text
- * area inside is sized to its text and draws nothing of its own. Heights count lines of the box's
- * own text, so they follow the text size. Imported by `TextBox.tsx`.
+ * The text box: a frame wearing the caller's edge, ground, corners and type, the scroller inside it
+ * wearing the padding, and the text area inside that, sized to its text and drawing nothing of its
+ * own. Heights count lines of the box's own text, so they follow the text size. Imported by
+ * `TextBox.tsx`.
  */
 
+/* No padding of its own, whatever the caller's classes give it: the scroller wears it. */
 .meridian-text-box {
-  overflow-y: auto;
-  block-size: calc(var(--meridian-text-box-rows) * 1lh);
+  padding: 0;
   cursor: text;
 }
 
-.meridian-text-box:has(> :disabled) {
+.meridian-text-box:has(.meridian-text-box__field:disabled) {
   cursor: default;
+}
+
+/*
+ * No corners of its own, so the compositor finds it under a wheel or a touch. The frame's own
+ * `resize` is inert, since only a scroller can be dragged, so the scroller takes it.
+ */
+.meridian-text-box__scroller {
+  overflow-y: auto;
+  block-size: calc(var(--meridian-text-box-rows) * 1lh);
+  padding: var(--meridian-text-box-padding, 0);
+  resize: inherit;
 }
 
 /*
  * A caller may cap a growing box lower than its row count through
  * `--meridian-text-box-height-cap`, such as a share of its container's height.
  */
-.meridian-text-box--grows {
+.meridian-text-box--grows > .meridian-text-box__scroller {
   block-size: auto;
   min-block-size: calc(var(--meridian-text-box-rows) * 1lh);
   max-block-size: min(
@@ -29,7 +41,7 @@
 
 /*
  * As tall as its text and never shorter than the box, so a press anywhere in the box lands in
- * it; it never scrolls, the box does.
+ * it; it never scrolls, the scroller does.
  */
 .meridian-text-box__field {
   display: block;
@@ -51,14 +63,14 @@
 }
 
 /* A growing box has no height of its own for a percentage to resolve against. */
-.meridian-text-box--grows > .meridian-text-box__field {
+.meridian-text-box--grows .meridian-text-box__field {
   min-block-size: calc(var(--meridian-text-box-rows) * 1lh);
 }
 
 /*
- * The browser's focus mark moves onto the box, where the scroll cannot clip it. No specificity,
+ * The browser's focus mark moves onto the frame, where the scroll cannot clip it. No specificity,
  * so a caller that marks focus another way wins.
  */
-:where(.meridian-text-box:has(> .meridian-text-box__field:focus-visible)) {
+:where(.meridian-text-box:has(.meridian-text-box__field:focus-visible)) {
   outline: auto 1px -webkit-focus-ring-color;
 }

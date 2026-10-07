@@ -8,6 +8,7 @@ import "./PayloadRowWindow.css";
 
 import { useRef } from "react";
 
+import { CornerCaps, type CornerCapCorner } from "#renderer/components/CornerCaps/CornerCaps.js";
 import { useOverlayScrollbar } from "#renderer/hooks/useOverlayScrollbar.js";
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -43,36 +44,47 @@ export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Elemen
   });
   const virtualRows = virtualizer.getVirtualItems();
   return (
-    <div
-      ref={scrollerScrollbarRef}
-      className={`meridian-workflow-payload__window meridian-focus-inset ${props.className}`}
-      // Focusable so a keyboard can scroll it.
-      tabIndex={0}
-      role="region"
-      aria-label={props.label}
-    >
-      {/* Holds the whole height so the scrollbar spans every row; the window sits at its
+    <div className="meridian-workflow-payload__frame">
+      <div
+        ref={scrollerScrollbarRef}
+        className={`meridian-workflow-payload__window meridian-focus-inset ${props.className}`}
+        // Focusable so a keyboard can scroll it.
+        tabIndex={0}
+        role="region"
+        aria-label={props.label}
+      >
+        {/* Holds the whole height so the scrollbar spans every row; the window sits at its
           offset, and its rows stay in flow so a screen reader walks them in order. */}
-      <div style={{ blockSize: virtualizer.getTotalSize() }}>
-        <div style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}>
-          {virtualRows.map((virtualRow) => (
-            <div
-              key={virtualRow.key}
-              {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: virtualRow.index }}
-              ref={virtualizer.measureElement}
-              className="meridian-workflow-payload__row"
-            >
-              {props.renderRow(virtualRow.index)}
-            </div>
-          ))}
+        <div style={{ blockSize: virtualizer.getTotalSize() }}>
+          <div style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}>
+            {virtualRows.map((virtualRow) => (
+              <div
+                key={virtualRow.key}
+                {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: virtualRow.index }}
+                ref={virtualizer.measureElement}
+                className="meridian-workflow-payload__row"
+              >
+                {props.renderRow(virtualRow.index)}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+      <CornerCaps corners={PAYLOAD_CORNER_CAPS} />
     </div>
   );
 }
 
 /** A row's height before it is measured, in CSS pixels: one line of the panel's small text. */
 export const PAYLOAD_ROW_ESTIMATE_PX = 24;
+
+/** Every corner of the window, since its rows reach all four as they scroll. */
+const PAYLOAD_CORNER_CAPS: readonly CornerCapCorner[] = [
+  "start-start",
+  "start-end",
+  "end-start",
+  "end-end",
+];
 
 /** Rows drawn past each edge, so a quick scroll does not meet an undrawn band. */
 const PAYLOAD_WINDOW_OVERSCAN_ROWS = 8;

@@ -1,7 +1,16 @@
-/* A payload's scroll box: bounded, so only the rows in view are drawn. */
+/*
+ * A payload's scroll box: bounded, so only the rows in view are drawn. Its rounded corners are
+ * caps painted over it from a frame around it, never a clip: the compositor cannot find a scroller
+ * with rounded corners under a wheel or a touch. The ground they paint is the step panel's.
+ */
+
+.meridian-workflow-payload__frame {
+  position: relative;
+  --meridian-corner-cap-radius: var(--meridian-radius-sm);
+  --meridian-corner-cap-ground: var(--meridian-surface-raised);
+}
 
 .meridian-workflow-payload__window {
   max-block-size: 60vh;
   overflow-y: auto;
-  border-radius: var(--meridian-radius-sm);
 }
