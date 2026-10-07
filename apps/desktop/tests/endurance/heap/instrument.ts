@@ -9,7 +9,7 @@
 
 import { expect } from "vitest";
 
-import type { CDPSession } from "@playwright/test";
+import type { CDPSession } from "playwright";
 
 import type { AppUnderTest } from "../../helpers/electron/harness.js";
 import { medianOf } from "../../helpers/sample-statistics.js";

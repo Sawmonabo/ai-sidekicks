@@ -213,18 +213,18 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
         // "esbuild"`; electron-vite overrides it to `false` for every target on the reasoning that
         // a desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
-        // text and the `renderer-initial-bundle` budget measures bytes the app would not need
-        // (measured: 443 585 B gzip unminified, 244 546 B minified). Source maps stay `hidden`
-        // above, so a stack trace is still resolvable by anyone holding the map.
+        // text and the initial-code budgets in `.size-limit.ts` measure bytes the app would not
+        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Source maps stay
+        // `hidden` above, so a stack trace is still resolvable by anyone holding the map.
         minify: "esbuild",
         // `.vite/manifest.json`: the chunk graph Rollup already computed, written out on request.
         // It carries `isEntry`, the static `imports` of every chunk, its `dynamicImports`, `css`
-        // and `assets`, which is the initial-versus-lazy split the initial-bundle budget bounds
-        // (lazy chunks excluded). `scripts/budget/measure-bundle.mts` reads it instead
-        // of re-deriving the graph from emitted text: the bundler that made the split is the
-        // authority on it. The manifest is build metadata, not a shipped asset (nothing links it,
-        // and the protocol handler serves only what `index.html` reaches), so the budget harness
-        // excludes the whole `.vite/` directory from its inventory.
+        // and `assets`, which is the initial-versus-lazy split the bundle budgets bound (lazy
+        // chunks excluded). `readInitialGraphOrFailLoudly` in `tests/budget/built-renderer-tree.ts`
+        // reads it to hand size-limit the initial graph, instead of re-deriving the graph from
+        // emitted text: the bundler that made the split is the authority on it. The manifest is
+        // build metadata, not a shipped asset (nothing links it, and the protocol handler serves
+        // only what `index.html` reaches), so no budget counts it.
         manifest: true,
         rollupOptions: {
           input: {

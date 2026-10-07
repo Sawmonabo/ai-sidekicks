@@ -51,16 +51,15 @@
       // electron-builder plugin to read that file. knip's plugins already find the rest: the
       // electron-vite plugin reads the three process entries (`src/main/index.ts`,
       // `src/preload/index.ts`, `src/renderer/src/main.tsx`) from `electron.vite.config.ts`, the
-      // tool configs are entries of their own plugins, and a file named in a `scripts` entry of
-      // this package's manifest is an entry, so `scripts/budget/measure-bundle.mts` is a root
-      // because the `budget:bundle` script runs it.
+      // tool configs are entries of their own plugins (`.size-limit.ts` of the size-limit one),
+      // and a file named in a `scripts` entry of this package's manifest is an entry, so
+      // `scripts/test-changed.ts` is a root because the `test:changed` script runs it.
       "entry": ["build/browser-snapshot.ts"],
       //
-      // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a
-      // root, so a dead export in `scripts/budget/registry.mts`, a module nothing invokes by
-      // name, would be exempt rather than reported. Listing those entries again is drift the run
-      // refuses: `--treat-config-hints-as-errors` fails the gate on a redundant or unmatched
-      // pattern.
+      // Declaring `scripts/**` as an entry glob would be worse: a helper module added under it
+      // would become a root, so its dead exports would be exempt rather than reported. Listing
+      // the named scripts again is drift the run refuses: `--treat-config-hints-as-errors` fails
+      // the gate on a redundant or unmatched pattern.
 
       // `project` is the universe the entry set is measured against. `build/**` runs during
       // `pnpm build`; `scripts/**` is invoked by name from a package script. Both trees are
@@ -104,8 +103,8 @@
       // time and the plugin reads as one edge per matched file) makes every module under that
       // directory reachable, so no orphan below it can be reported. Measured: a wholly unreachable
       // module planted at `src/renderer/src/lib/` was reported by nothing (rc 0), while the same
-      // plant under `scripts/budget/` failed the run (rc 1). No setting here can see that, so the
-      // rule lives where the pattern is written: mechanical gate 8 in `apps/desktop/AGENTS.md`
+      // plant under `tests/helpers/budget/` failed the run (rc 1). No setting here can see that, so
+      // the rule lives where the pattern is written: mechanical gate 8 in `apps/desktop/AGENTS.md`
       // forbids a directory glob in any module under `src/`, and `no-restricted-syntax` in
       // `apps/desktop/eslint.config.mjs` enforces it.
       "vitest": { "config": ["vitest.config.ts"] },

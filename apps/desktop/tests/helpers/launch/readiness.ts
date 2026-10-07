@@ -3,7 +3,7 @@
 // neither trusted from the build's configuration. `electron/harness.ts` owns the process; this is
 // the phase after it starts.
 
-import type { ElectronApplication, Page } from "@playwright/test";
+import type { ElectronApplication, Page } from "playwright";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { isConsoleWindowId } from "#shared/window/frame-name.js";

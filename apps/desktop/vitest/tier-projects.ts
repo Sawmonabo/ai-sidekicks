@@ -63,9 +63,9 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
   },
   {
     // Tier: accessibility. `axe-core` runs inside the browser-mode page rather than through
-    // `@axe-core/playwright`, which needs a `@playwright/test` `Page`; Vitest browser mode hands
-    // that only to server-side custom commands, and it is the orchestrator page, not the tester
-    // iframe. Runs only by name until the accessibility sweeps become a gate on every PR.
+    // `@axe-core/playwright`, which needs a Playwright `Page`; Vitest browser mode hands that only
+    // to server-side custom commands, and it is the orchestrator page, not the tester iframe. Runs
+    // only by name until the accessibility sweeps become a gate on every PR.
     define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
@@ -78,9 +78,10 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Tier: bundle. Chunk sizes against `tests/budget/document.json`, claims about what a release
-    // bundle does not contain, and what the release main refuses when launched, since all of them
-    // need the release build and no other tier has one.
+    // Tier: bundle. Claims about what a release bundle does not contain, and what the release main
+    // refuses when launched, since both need the release build and no other tier has one. The
+    // bundle's sizes are size-limit's, against `.size-limit.ts`; the test of which files that
+    // config is handed sits here beside its reader, though it plants its own build.
     //
     // It names renderer constants so a rename breaks it at compile time, and those modules read
     // the renderer's build-time gate, which is `false` here because this process is not a build.
@@ -99,8 +100,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // environment because the test file is the driver and the code under test runs in another
     // process. Each file is named for the defect it reproduces, not the module it touches.
     //
-    // Playwright's auto-retrying `expect` is not used: its web-assertion timeouts come from a
-    // test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
+    // Playwright's auto-retrying `expect` is not used: it ships only with Playwright's runner
+    // (`playwright/test`), which this tier never loads. Waiting is explicit (`locator.waitFor`,
     // `expect.poll`), asserting is Vitest's, and every wait is handed
     // `bodyAllowance.boundedMs(<its own bound>)` so the first wait that cannot fit names its step.
     //

@@ -29,8 +29,8 @@
     //
     // `outDir` is not `../../out` or `../../out/renderer`: the latter is the directory
     // `electron.vite.config.ts` gives the renderer bundle, and the former puts this project's emit
-    // one level above it, landing `out/renderer/**` in the same tree either way, so the
-    // bundle-budget harness could not tell an emitted chunk from a typecheck artifact. Its own
+    // one level above it, landing `out/renderer/**` in the same tree either way, so a reader of
+    // the renderer build could not tell an emitted chunk from a typecheck artifact. Its own
     // `out/tsc-<project>` root keeps `rootDir` wide enough for the shared subtree and keeps
     // anything this project emits from being mistaken for bundler output. The renderer bundle is
     // built by `electron-vite`, not by this emit.

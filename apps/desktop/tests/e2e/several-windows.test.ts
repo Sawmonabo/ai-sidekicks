@@ -6,7 +6,7 @@
 // window used last, then the rest of the kept window layout. The test keeps a layout of three
 // windows and reloads the console document, so the console's own start opens all three.
 
-import type { Page } from "@playwright/test";
+import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 
 import { PERSISTENCE_GLOBAL_PARTITION } from "#renderer/store/persistence/adapter.js";

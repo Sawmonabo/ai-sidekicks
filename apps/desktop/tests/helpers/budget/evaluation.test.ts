@@ -3,18 +3,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "./registry.mts";
-import { BudgetRegistryError } from "./document.mts";
-import { evaluateBudget } from "./evaluation.mts";
+import { BudgetRegistryError } from "./document.js";
+import { evaluateBudget } from "./evaluation.js";
+import { BudgetRegistry } from "./registry.js";
 
 const registry = BudgetRegistry.load();
 
 describe("budget evaluation", () => {
   it("compares a measurement against the canonical limit", () => {
-    const budget = registry.requireBudget("renderer-initial-bundle");
-    const under = evaluateBudget(budget, 92_497);
+    const budget = registry.requireBudget("renderer-heap-at-rest");
+    const under = evaluateBudget(budget, 92_497_000);
     expect(under.withinBudget).toBe(true);
-    expect(under.headroomCanonicalValue).toBe(budget.limit.canonicalValue - 92_497);
+    expect(under.headroomCanonicalValue).toBe(budget.limit.canonicalValue - 92_497_000);
 
     const exactlyAtLimit = evaluateBudget(budget, budget.limit.canonicalValue);
     expect(exactlyAtLimit.withinBudget).toBe(true);

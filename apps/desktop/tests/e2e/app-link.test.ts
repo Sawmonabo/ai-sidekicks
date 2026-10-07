@@ -4,7 +4,7 @@
 // after, and one on the command line the app was launched with. A link main's parser refuses
 // reaches the document as nothing.
 
-import type { ElectronApplication, Page } from "@playwright/test";
+import type { ElectronApplication, Page } from "playwright";
 import { describe, expect, it } from "vitest";
 
 import { composeAppLink } from "@ai-sidekicks/contracts/app-link";

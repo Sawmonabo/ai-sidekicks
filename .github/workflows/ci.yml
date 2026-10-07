@@ -83,6 +83,18 @@ jobs:
               - 'packages/**'
               - 'pnpm-lock.yaml'
               - 'turbo.json'
+              # The root settings the desktop's build and tiers run under: the root manifest,
+              # whose package manager Turbo reads, the TypeScript configs the desktop's tsconfigs
+              # extend, the shared Vitest settings its Vitest config imports, the Node version and
+              # the install settings. A change to a patch moves its hash in the lockfile, so the
+              # lockfile entry covers it.
+              - 'package.json'
+              - 'tsconfig.base.json'
+              - 'tsconfig.node.json'
+              - 'vitest.shared.ts'
+              - '.nvmrc'
+              - '.npmrc'
+              - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
@@ -131,7 +143,9 @@ jobs:
           version="$(tr -d '[:space:]' < .nvmrc)"
           echo "major-minor=[\"$(cut -d. -f1,2 <<< "$version")\"]" >> "$GITHUB_OUTPUT"
 
-  # Full-repo lint, format check, build, typecheck and test on the Node floor.
+  # Full-repo lint, format check and typecheck on the Node floor; the build and tests of every
+  # workspace but the desktop, whose build and tiers are the `desktop` job's; and the repository
+  # tooling tests.
   test:
     name: test (${{ matrix.os }} / node ${{ matrix.node }})
     needs: [node-version]
@@ -202,8 +216,10 @@ jobs:
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
 
-      - name: Build
-        run: pnpm turbo run build ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+      # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
+      # its filter names changes, so building it here too would build it twice.
+      - name: Build (excluding desktop)
+        run: pnpm turbo run build --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       - name: Typecheck
         run: pnpm turbo run typecheck ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
@@ -313,7 +329,9 @@ jobs:
           - tier: "test:main-unit test:renderer"
           - tier: "test:browser"
             serial: true
-          - tier: "test:bundle"
+          # The bundle tier and the bundle budgets read the same release build, so they run in one
+          # invocation over one build.
+          - tier: "test:bundle budget:bundle"
             serial: true
           - tier: "test:smoke"
             serial: true
@@ -385,9 +403,6 @@ jobs:
           cat "$wm_log" || true
           exit 1
 
-      - name: Build (excluding control-plane, which the desktop does not use)
-        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
-
       # The browser-mode tiers drive a real Chromium through Vitest browser mode, and `pnpm install`
       # downloads none. `--with-deps` because Playwright's Chromium is not Electron's, and the
       # supported way to satisfy its shared-library set on Ubuntu is the flag, which apt-installs
@@ -396,6 +411,11 @@ jobs:
         if: contains(matrix.tier, 'browser') || contains(matrix.tier, 'smoke') || contains(matrix.tier, 'e2e')
         run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
 
+      # No build step of its own: each tier's turbo edges build what it reads, the workspace
+      # packages and the one desktop build flavor it needs, so a leg builds each once. A separate
+      # `turbo run build` would build the uncached desktop release bundle in every leg: a second
+      # time in the bundle leg, and for nothing in the others.
+      #
       # `--continue` so a leg naming two tasks reports both results; without it the first failure
       # hides the second. `--concurrency=1` only on legs the matrix marks `serial`.
       - name: Run tier

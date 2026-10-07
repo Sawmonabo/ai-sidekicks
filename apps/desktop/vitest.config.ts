@@ -82,8 +82,8 @@ const config: ViteUserConfig = defineConfig({
           // reaches would have no home for its own units. `src/preload/**` follows the same
           // reasoning: `index.ts` is the expose call and holds nothing to check, and a module
           // beside it is a plain unit whose environment is this project's, not a DOM's. `build/**`
-          // and `scripts/**` are the package's two executable trees, with units co-located beside
-          // the executable as in `src/main/**`, spawned as commands from a node environment.
+          // and `scripts/**` are the package's two executable trees, where a unit sits beside its
+          // executable as in `src/main/**`, spawned as commands from a node environment.
           // `tests/helpers/**` joins them because a helper's own suite drives Node scaffolding with
           // no DOM and no need for a renderer bundle. A helper test that needs the DOM runs in the
           // renderer project and is excluded here.

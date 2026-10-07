@@ -16,7 +16,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ElectronApplication, Page } from "@playwright/test";
+import type { ElectronApplication, Page } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";

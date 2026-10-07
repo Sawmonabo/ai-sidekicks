@@ -50,9 +50,10 @@
       "cache": false
     },
     "typecheck": {
-      // `scripts/**` is an input because the harnesses there are TypeScript that
+      // `scripts/**` is an input because the scripts there are TypeScript that
       // `tsconfig.scripts.json` typechecks, so a change to one must invalidate this task.
-      // The Vitest config and the root module it imports are typechecked by `tsconfig.test.json`.
+      // The Vitest config, the root module it imports and the size-limit config are typechecked
+      // by `tsconfig.test.json`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -62,6 +63,7 @@
         "tsconfig*.json",
         "package.json",
         "vitest.config.ts",
+        ".size-limit.ts",
         "vitest/**",
         "$TURBO_ROOT$/vitest.shared.ts"
       ],
@@ -104,6 +106,7 @@
         "scripts/**",
         "$TURBO_ROOT$/knip.json",
         "vitest.config.ts",
+        ".size-limit.ts",
         "vitest/**",
         "electron.vite.config.ts",
         "tsconfig*.json",
@@ -112,7 +115,8 @@
       "outputs": []
     },
     // No tsconfig: the cruise resolves through an explicit extension list and the package's
-    // `imports` in `package.json`, which also holds the script that invokes it.
+    // `imports` in `package.json`, which also holds the script that invokes it. It follows imports
+    // out of the folders it is given, into the test helpers and the root `vitest.shared.ts`.
     "structure:layering": {
       "inputs": [
         "src/**",
@@ -120,6 +124,8 @@
         "build/**",
         "scripts/**",
         "vitest/**",
+        "tests/helpers/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
         ".dependency-cruiser.mjs",
         ".dependency-cruiser.layers.mjs",
         "package.json"
@@ -132,9 +138,9 @@
       // Every tree the project's `include` discovers tests in, and every file those tests read.
       // `src/**` rather than its main, preload and shared folders, because the fixture-launch unit
       // imports the scenario catalog in `fixtures/**`, whose scenarios import renderer modules, and
-      // the config's icon plugin imports the renderer's glyph constants. The budget registry is
-      // read, since the budget scripts' own tests evaluate its rows. The config also imports the
-      // root `vitest.shared.ts`.
+      // the config's icon plugin imports the renderer's glyph constants. The budget document is
+      // read, since the registry's own test evaluates its rows. The config also imports the root
+      // `vitest.shared.ts`.
       "inputs": [
         "src/**",
         "fixtures/**",
@@ -162,7 +168,7 @@
         "tsconfig*.json",
         "package.json",
         "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/helpers/**"
       ],
       "outputs": ["coverage/**"],
       "cache": false
@@ -174,9 +180,9 @@
       "dependsOn": ["build:smoke", "@ai-sidekicks/runtime-daemon#build"],
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.
-      // `scripts/materialize-electron.ts` is named because this task runs it, and
-      // `scripts/budget/**` because the config reads the launch budgets through it; `scripts/**`
-      // would pull every other script in with them.
+      // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
+      // pull every other script in with it. The two sources named after `vitest/**` are the ones
+      // the Vitest config imports.
       "inputs": [
         "tests/*.test.ts",
         "tests/helpers/**",
@@ -184,10 +190,11 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
+        "src/shared/failure-message.ts",
+        "src/renderer/src/styles/glyphs.ts",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -199,8 +206,10 @@
     // throughout, as above: these assert against a tree state, and a cached pass would report on a
     // tree that is no longer there.
     //
-    // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`), so each
-    // lists `tests/budget/document.json` and the `scripts/budget/**` reader that loads it.
+    // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`) and imports
+    // `src/shared/failure-message.ts` and the renderer's glyph constants, so each lists
+    // `tests/budget/document.json`, `tests/helpers/**`, which holds the registry that loads it,
+    // and those two sources or a folder holding them.
 
     "test:renderer": {
       "dependsOn": ["^build"],
@@ -216,8 +225,7 @@
         "vitest/**",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -234,8 +242,7 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -254,23 +261,24 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
     },
     "test:bundle": {
-      // The one tier that measures a build rather than a source tree. The `build` edge is
-      // load-bearing: the gate fails loudly when a build output under `out/` is absent rather than
+      // The tier that checks the release build's output. The `build` edge is
+      // load-bearing: the tier fails loudly when a build output under `out/` is absent rather than
       // skipping, and the edge makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
         "tests/budget/**",
-        "scripts/budget/**",
+        "tests/helpers/**",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
+        "src/shared/failure-message.ts",
+        "src/renderer/src/styles/glyphs.ts",
         "package.json",
         "electron.vite.config.ts",
         "src/renderer/src/app/fixture/global-names.ts",
@@ -303,8 +311,7 @@
         "vitest/**",
         "package.json",
         "out/**",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
@@ -327,27 +334,27 @@
         "vitest/**",
         "package.json",
         "out/**",
-        "tests/budget/document.json",
-        "scripts/budget/**"
+        "tests/budget/document.json"
       ],
       "outputs": [],
       "cache": false
     },
-    // --- Scripts invoked by name (`scripts/**`) --------------------------------
+    // --- The bundle budgets -------------------------------------------------
     //
-    // The budget gate `package.json` declares as a script gets a task with `inputs`, like every tier
-    // above, so a run by name from a terminal, CI or `turbo run` has one declared input set. It is
-    // `cache: false`: it reports on a build present now, and a cached pass would report on one that
-    // is not.
+    // size-limit holding the renderer build to the budgets in `.size-limit.ts`, a task with
+    // `inputs` like every tier above, so a run by name from a terminal, CI or `turbo run` has one
+    // declared input set. It is `cache: false`: it reports on a build present now, and a cached
+    // pass would report on one that is not.
 
     "budget:bundle": {
-      // Measures a build, so it carries the same load-bearing edge the bundle tier does: the
-      // harness refuses loudly when `out/renderer` is absent rather than skipping, and the edge
-      // makes the output present by construction.
+      // Measures a build, so it carries the same load-bearing edge the bundle tier does: reading
+      // the chunk manifest fails loudly when `out/renderer` is absent rather than skipping, and the
+      // edge makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
-        "scripts/budget/**",
-        "tests/budget/document.json",
+        ".size-limit.ts",
+        "tests/budget/built-renderer-tree.ts",
+        "tests/helpers/fixture/bundle.ts",
         "out/renderer/**",
         "package.json"
       ],
@@ -364,11 +371,11 @@
       // The order is load-bearing and is why the script is a chain of `turbo run` invocations
       // rather than one. `build`, `build:smoke` and `build:fixtures` all write `out/**` and differ
       // in the `define` that decides what the renderer talks to, so one invocation would schedule
-      // them concurrently and hand a tier the wrong bundle: the bundle tier would measure a fixture
-      // build against a release budget, and its release-absence assertions would read a tree that
-      // legitimately contains what they refuse. The chain runs the source-only tiers first, then
-      // the browser tier (which builds nothing), then release, smoke and fixtures, each with
-      // its own consumers.
+      // them concurrently and hand a tier the wrong bundle: the bundle budgets would measure a
+      // fixture build against a release budget, and the bundle tier's release-absence assertions
+      // would read a tree that legitimately contains what they refuse. The chain runs the
+      // source-only tiers first, then the browser tier (which builds nothing), then release, smoke
+      // and fixtures, each with its own consumers.
       //
       // No `dependsOn` of its own: every enumerated task declares the build edge it needs, and an
       // aggregate-level edge would run a build outside the sequence above rather than inside it.

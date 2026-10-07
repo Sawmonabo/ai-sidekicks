@@ -17,9 +17,9 @@
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // The bundle tier imports the harnesses under `scripts/budget/`, TypeScript run directly by
-    // `node --experimental-strip-types`. Node resolves the extension it is given and does no `.mjs`
-    // to `.mts` rewriting, so those modules import each other by their real `.mts` path, and a
+    // `.size-limit.ts` and the reader it imports name what they import by its real `.ts` path,
+    // because Node loads them directly and maps no `.js` specifier to a `.ts` source, and the
+    // Vitest config's modules under `vitest/` name the package modules they import the same way; a
     // program that pulls them in needs this option. Legal here because this config is `noEmit`.
     "allowImportingTsExtensions": true
   },
@@ -30,18 +30,21 @@
   // string it greps for rather than copying it. Those modules need the renderer's ambient
   // declarations, which that file holds.
   "files": ["src/renderer/src/vite-env.d.ts"],
-  // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, the
-  // executables' tests under `scripts/`, the smoke and GC launches directly under `tests/`, and the
-  // bundle tier; and the Vitest config, the modules it composes under `vitest/` and the root
-  // `vitest.shared.ts` it imports. The other folders under `tests/` hold DOM or Electron-driving
-  // code and are typechecked by `tsconfig.browser-test.json`, `tsconfig.electron-test.json` and the
-  // renderer's `tsconfig.test.json`. A helper under `tests/helpers/` is typechecked here when a
-  // test here imports it.
+  // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, any test
+  // beside an executable under `scripts/`, the smoke and GC launches directly under `tests/`, the
+  // bundle tier and the budget registry's own test; the size-limit config; and the Vitest config,
+  // the modules it composes under `vitest/` and the root `vitest.shared.ts` it imports. The other
+  // folders under `tests/` hold DOM or Electron-driving code and are typechecked by
+  // `tsconfig.browser-test.json`, `tsconfig.electron-test.json` and the renderer's
+  // `tsconfig.test.json`. Any other helper under `tests/helpers/` is typechecked here when a test
+  // here imports it.
   "include": [
     "src/**/*",
     "scripts/**/*.test.ts",
     "tests/*.test.ts",
     "tests/budget/**/*",
+    "tests/helpers/budget/**/*",
+    ".size-limit.ts",
     "vitest.config.ts",
     "vitest/**/*"
   ],
