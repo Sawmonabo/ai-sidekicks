@@ -35,7 +35,9 @@ export interface ScrollReading {
   /** Of those, the frames presented without the main thread's update for them. */
   readonly mainThreadMissedFrameCount: number;
   readonly movingUpdateCount: number;
-  /** Updates with no frame of their own: they moved nothing, or Chromium merged them into the next. */
+  /**
+   * Updates with no frame of their own: they moved nothing, or Chromium merged them into the next.
+   */
   readonly stillUpdateCount: number;
   /** Each moving update that no presented frame drew. */
   readonly undrawnUpdates: readonly string[];
@@ -211,14 +213,14 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
   const firstDrawnUs = Math.min(...drawnPresentationsUs);
   const lastDrawnUs = Math.max(...drawnPresentationsUs);
   const framesWhileMoving = frames.filter(
-    (frame) =>
+    (frame): frame is SubmittedFrame & { readonly presentedAtUs: number } =>
       frame.presentedAtUs !== undefined &&
       frame.presentedAtUs >= firstDrawnUs &&
       frame.presentedAtUs <= lastDrawnUs,
   );
-  const presentationsUs = [
-    ...new Set(framesWhileMoving.map((frame) => frame.presentedAtUs ?? firstDrawnUs)),
-  ].sort((left, right) => left - right);
+  const presentationsUs = [...new Set(framesWhileMoving.map((frame) => frame.presentedAtUs))].sort(
+    (left, right) => left - right,
+  );
   // A presentation whose every report lacks the main thread's update moved the content alone.
   const mainThreadMissedFrameCount = presentationsUs.filter((atUs) =>
     framesWhileMoving
