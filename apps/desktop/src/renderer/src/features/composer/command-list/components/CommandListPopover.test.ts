@@ -46,11 +46,8 @@ describe("CommandList — the list activates its active row", () => {
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     // Console entries lead the catalog and their number grows with the palette, so step until the
-    // active row lacks the run affordance rather than counting.
-    await stepToFirstUnrunnableRow(mounted, list);
-    expect(
-      activeRow(mounted.container, list)?.querySelector(".meridian-command-discovery__run"),
-    ).toBeNull();
+    // active row is a provider's rather than counting.
+    await stepToFirstProviderRow(mounted, list);
 
     await pressOnList(list, "Enter");
 
@@ -108,20 +105,17 @@ describe("CommandList — only what runs here is drawn", () => {
 });
 
 /**
- * Steps the active row to the first entry without the run affordance, which identifies a provider
- * row. Bounded by the option count so a list of only runnable rows fails instead of looping.
+ * Steps the active row to the first provider entry, the one kind of row that names its provider
+ * binding. Bounded by the option count so a list of only console rows fails instead of looping.
  */
-async function stepToFirstUnrunnableRow(
-  mounted: MountedComposer,
-  list: HTMLElement,
-): Promise<void> {
+async function stepToFirstProviderRow(mounted: MountedComposer, list: HTMLElement): Promise<void> {
   const optionCount = optionNames(mounted.container).length;
   for (let step = 0; step < optionCount; step += 1) {
     const row = activeRow(mounted.container, list);
-    if (row !== null && row.querySelector(".meridian-command-discovery__run") === null) {
+    if (row !== null && row.querySelector(".meridian-command-discovery__binding") !== null) {
       return;
     }
     await pressOnList(list, "ArrowDown");
   }
-  throw new Error("every row in this list can run, so no provider row was reached");
+  throw new Error("every row in this list is a console row, so no provider row was reached");
 }

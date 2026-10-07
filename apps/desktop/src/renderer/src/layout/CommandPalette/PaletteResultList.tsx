@@ -5,8 +5,9 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
 import { type ChordPlatform } from "#renderer/lib/chord-format.js";
@@ -52,6 +53,8 @@ export interface PaletteResultListProps {
 export function PaletteResultList(props: PaletteResultListProps): React.JSX.Element {
   const { rows, context, platform, bindings, onRunResult } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef);
+  const scrollerId = useId();
   const clock = useBridgeClock();
   const ownerWindow = useOwnerWindow();
   // Rows are measured once drawn, so the estimate is only a first guess and the sheet stays the
@@ -72,11 +75,22 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
   });
 
   return (
-    <Combobox.List ref={scrollerRef} className="command-palette__list meridian-focus-inset">
-      {/* Holds the whole height so the scrollbar spans every match; rows sit at their offsets. */}
-      <div
-        role="presentation"
+    // A named tab stop, so the matches can be scrolled from the keyboard as well as walked from
+    // the input. The bar is drawn inside the scroller, so the scroller is not the listbox, which
+    // holds only its groups and options.
+    <div
+      ref={scrollerScrollbarRef}
+      id={scrollerId}
+      className="command-palette__list meridian-focus-inset"
+      tabIndex={0}
+      role="group"
+      aria-label="Matching commands"
+    >
+      {/* Holds the whole height so the scrollbar spans every match; rows sit at their offsets.
+          A listbox must carry a name, so it takes the scroller's rather than a second copy. */}
+      <Combobox.List
         className="command-palette__rows"
+        aria-labelledby={scrollerId}
         style={{ blockSize: virtualizer.getTotalSize() }}
       >
         {drawnCategoryRuns(virtualizer.getVirtualItems(), rows).map((run) => (
@@ -148,8 +162,8 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
             })}
           </Combobox.Group>
         ))}
-      </div>
-    </Combobox.List>
+      </Combobox.List>
+    </div>
   );
 }
 

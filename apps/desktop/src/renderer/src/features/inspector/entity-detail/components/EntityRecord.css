@@ -7,7 +7,8 @@
   min-width: 0;
 }
 
-/* One line at rest, wrapping rather than truncating: a clipped identifier is the wrong one. */
+/* One line at rest; an identifier longer than the record truncates and carries itself as its
+   hover title. */
 .meridian-entity-record__head {
   display: flex;
   flex-wrap: wrap;
@@ -32,7 +33,6 @@
   font-weight: 600;
 }
 
-/* Two columns at the reading measure, one when narrow; the fixed label column aligns values. */
 .meridian-entity-record__facets {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -40,13 +40,12 @@
   margin: 0;
 }
 
-@media (min-width: 30rem) {
-  .meridian-entity-record__facet {
-    display: grid;
-    grid-template-columns: 10rem minmax(0, 1fr);
-    gap: var(--meridian-space-3);
-    align-items: baseline;
-  }
+/* A label beside its value; the fixed label column aligns the values. */
+.meridian-entity-record__facet {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: var(--meridian-space-3);
+  align-items: baseline;
 }
 
 .meridian-entity-record__label {
@@ -54,10 +53,13 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* One line: a value longer than its column truncates and carries its whole text as its title. */
 .meridian-entity-record__value {
   min-width: 0;
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A note is the record speaking about itself; quiet, never mistakable for a value. */

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
 import { createConsoleCommandExecutor } from "../console/executor.js";
@@ -65,6 +66,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const listId = useId();
   const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
+  const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
   // Set by a press that could not be honored; cleared by the next move or act.
@@ -110,11 +112,21 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     }
   }, [stepIntoListToken]);
 
-  const runConsoleCommand = useCallback(
-    (commandId: string) => {
-      setActionOutcome(undefined);
-      setActivationNotice(undefined);
-      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
+  // Enter, Space and a press on a row act through here: a console entry runs, a provider entry
+  // is answered with why nothing ran.
+  const activateEntry = useCallback(
+    (entry: CommandListEntry) => {
+      if (entry.source === "console") {
+        setActionOutcome(undefined);
+        setActivationNotice(undefined);
+        void executor({ commandName: entry.commandId, text: `/${entry.commandId}` }).then(
+          setActionOutcome,
+        );
+        return;
+      }
+      setActivationNotice(
+        isDeclaredUnavailable(entry) ? PROVIDER_ENTRY_DISABLED : PROVIDER_ENTRY_NOT_RUNNABLE,
+      );
     },
     [executor],
   );
@@ -138,18 +150,9 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
-        if (activeEntry === undefined) {
-          return;
+        if (activeEntry !== undefined) {
+          activateEntry(activeEntry);
         }
-        if (activeEntry.source === "console") {
-          runConsoleCommand(activeEntry.commandId);
-          return;
-        }
-        setActivationNotice(
-          isDeclaredUnavailable(activeEntry)
-            ? PROVIDER_ENTRY_DISABLED
-            : PROVIDER_ENTRY_NOT_RUNNABLE,
-        );
         return;
       }
       if (event.key === "Escape") {
@@ -157,7 +160,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         onDismiss();
       }
     },
-    [boundedIndex, entries, onDismiss, runConsoleCommand],
+    [activateEntry, boundedIndex, entries, onDismiss],
   );
 
   return (
@@ -167,42 +170,46 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         entry starts no turn.
       </p>
       {entries.length === 0 ? null : (
-        <ul
-          className="meridian-command-discovery__list"
-          id={listId}
-          ref={listRef}
-          role="listbox"
-          tabIndex={0}
-          aria-label="Commands and skills"
-          aria-describedby={ledeId}
-          aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
-          onKeyDown={onListKeyDown}
-        >
-          {/* An empty group is left out: a heading over no rows would assert a category the
-              filtered catalog does not have. */}
-          {consoleRows.length === 0 ? null : (
-            <CommandListGroup
-              rows={consoleRows}
-              labelText={CONSOLE_GROUP_LABEL}
-              labelElementId={`${listId}-group-console`}
-              activeFlatIndex={boundedIndex}
-              rowElementId={(flatIndex) => rowId(listId, flatIndex)}
-              onSelect={setActiveIndex}
-              onRun={runConsoleCommand}
-            />
-          )}
-          {providerRows.length === 0 ? null : (
-            <CommandListGroup
-              rows={providerRows}
-              labelText={PROVIDER_GROUP_LABEL}
-              labelElementId={`${listId}-group-provider`}
-              activeFlatIndex={boundedIndex}
-              rowElementId={(flatIndex) => rowId(listId, flatIndex)}
-              onSelect={setActiveIndex}
-              onRun={runConsoleCommand}
-            />
-          )}
-        </ul>
+        // The bar is drawn inside the scroller, so the scroller is not the listbox: a listbox
+        // holds only its groups and options.
+        <div className="meridian-command-discovery__scroller" ref={scrollerScrollbarRef}>
+          <ul
+            className="meridian-command-discovery__list"
+            id={listId}
+            ref={listRef}
+            role="listbox"
+            tabIndex={0}
+            aria-label="Commands and skills"
+            aria-describedby={ledeId}
+            aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
+            onKeyDown={onListKeyDown}
+          >
+            {/* An empty group is left out: a heading over no rows would assert a category the
+                filtered catalog does not have. */}
+            {consoleRows.length === 0 ? null : (
+              <CommandListGroup
+                rows={consoleRows}
+                labelText={CONSOLE_GROUP_LABEL}
+                labelElementId={`${listId}-group-console`}
+                activeFlatIndex={boundedIndex}
+                rowElementId={(flatIndex) => rowId(listId, flatIndex)}
+                onSelect={setActiveIndex}
+                onActivate={activateEntry}
+              />
+            )}
+            {providerRows.length === 0 ? null : (
+              <CommandListGroup
+                rows={providerRows}
+                labelText={PROVIDER_GROUP_LABEL}
+                labelElementId={`${listId}-group-provider`}
+                activeFlatIndex={boundedIndex}
+                rowElementId={(flatIndex) => rowId(listId, flatIndex)}
+                onSelect={setActiveIndex}
+                onActivate={activateEntry}
+              />
+            )}
+          </ul>
+        </div>
       )}
       {isServedEmpty ? (
         <Nothing

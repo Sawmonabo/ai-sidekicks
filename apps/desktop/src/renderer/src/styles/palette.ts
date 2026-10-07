@@ -14,14 +14,6 @@ import { type AppearanceTheme } from "#shared/theme/registry.js";
 // heights from `typography.ts`, a leaf that imports nothing local, and the spacing scale here.
 import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
-/**
- * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the shortest
- * window the app ships is 720 px tall, 45 rem at the 16 px root, and an enumeration taking more
- * than a third of it leaves nothing else on screen. Six rows is 13.875 rem and clears that third;
- * seven is 16.1875 rem and does not.
- */
-export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
-
 /** A color token's values: every theme's light and dark. */
 export type ThemedColor = Readonly<Record<AppearanceTheme, SchemePair>>;
 
@@ -151,6 +143,18 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
   2 * scaleStep(SPACE_SCALE_REM, "space-2");
 
 /**
+ * The shortest window the header, the flow and the composer still stack in, in rem: the window's
+ * height floor, 640 px at the default text size. Root-relative, so the floor grows with the text.
+ */
+export const WINDOW_HEIGHT_FLOOR_REM = 40;
+
+// The most whole rows a bounded enumeration shows within a third of the window's height floor; a
+// list any taller would leave the surface holding it with nothing else on screen.
+const BOUNDED_ENUMERATION_MAX_ROWS: number = Math.floor(
+  WINDOW_HEIGHT_FLOOR_REM / 3 / ENUMERATION_ROW_HEIGHT_REM,
+);
+
+/**
  * The height a bounded enumeration scrolls past, in rem: {@link BOUNDED_ENUMERATION_MAX_ROWS}
  * times the row height, computed where the two meet so a stylesheet writes
  * `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
@@ -183,6 +187,33 @@ export const INSPECTOR_WIDTH_REM = 20.25;
  * text size, root-relative like the inspector's. The pane is not resizable.
  */
 export const AGENTS_PANE_WIDTH_REM = 27.5;
+
+/**
+ * The conversation's term in the window's floor, in rem: the width the conversation's header must
+ * hold (the title, the pull-request word, the Review chip with its counts, Preview, Terminal and
+ * More), summed into the floor, 420 px at the default text size. Root-relative, so the floor holds
+ * the header at every text size.
+ */
+export const CONVERSATION_FLOOR_REM = 26.25;
+
+// How many lines of the transcript's reading text the conversation's row keeps, its head
+// included, on a window too short for it and everything under it.
+const CONVERSATION_HEIGHT_FLOOR_LINES = 5;
+
+/**
+ * The shortest the session's pane row gets, in rem: five lines of the transcript's reading text,
+ * 107 px at the default text size, so the conversation's head and its newest lines stay in view.
+ * On a shorter window a tall part of the composer, the open command list, scrolls in what is left.
+ */
+export const CONVERSATION_HEIGHT_FLOOR_REM: number =
+  CONVERSATION_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT;
+
+/**
+ * The separator between two panes in a pane row, in rem: its width is the drag target and a
+ * hairline is drawn down its middle. Summed into the window's floor, which holds one separator
+ * between the conversation and one pane.
+ */
+export const PANE_SEPARATOR_WIDTH_REM: number = scaleStep(SPACE_SCALE_REM, "space-2");
 
 /** The gutter either side of a transcript row's column, in rem: 36 px at the default text size. */
 export const ROW_GUTTER_REM = 2.25;

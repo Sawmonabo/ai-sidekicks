@@ -18,6 +18,12 @@
   opacity: 0;
 }
 
+/*
+ * Rounded without clipping its content: Chromium cannot hit-test a point under a rounded clip on
+ * its compositor, so every wheel turn and touch on the list would wait for the main thread. The
+ * popup's own edge and ground round on their own, and the rows at its top and bottom round their
+ * own grounds; the input draws none, so the popup's shows through it.
+ */
 .command-palette__popup {
   position: fixed;
   /* Above center, so the first result is not below the gaze. */
@@ -28,7 +34,6 @@
   flex-direction: column;
   width: min(40rem, calc(100vw - var(--meridian-space-8)));
   max-height: min(30rem, 70vh);
-  overflow: hidden;
   background: var(--meridian-surface-raised);
   color: var(--meridian-text);
   border: 1px solid var(--meridian-edge);
@@ -54,6 +59,8 @@
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-2) var(--meridian-space-4);
   border-bottom: 1px solid var(--meridian-edge);
+  border-start-start-radius: calc(var(--meridian-radius-lg) - 1px);
+  border-start-end-radius: calc(var(--meridian-radius-lg) - 1px);
   background: var(--meridian-surface);
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
@@ -79,7 +86,7 @@
   padding: var(--meridian-space-4);
   border: 0;
   border-bottom: 1px solid var(--meridian-edge);
-  background: var(--meridian-surface-raised);
+  background: transparent;
   color: var(--meridian-text);
   font-family: inherit;
   font-size: var(--meridian-text-lg);
@@ -203,6 +210,8 @@
   gap: var(--meridian-space-3);
   padding: var(--meridian-space-2) var(--meridian-space-4);
   border-top: 1px solid var(--meridian-edge);
+  border-end-start-radius: calc(var(--meridian-radius-lg) - 1px);
+  border-end-end-radius: calc(var(--meridian-radius-lg) - 1px);
   background: var(--meridian-surface);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);

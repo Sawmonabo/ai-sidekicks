@@ -108,7 +108,7 @@ export const TRANSCRIPT_ROW_SELECTOR: string =
  * allowance, so the enclosing race does not replace the selector's name with the generic
  * overrun.
  */
-async function openRoute(
+export async function openRoute(
   appUnderTest: AppUnderTest,
   hash: string,
   screenSelector: string,

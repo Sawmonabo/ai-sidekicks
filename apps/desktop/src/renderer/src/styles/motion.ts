@@ -38,7 +38,5 @@ export const CHROME_SETTLE_EASING: string =
 /**
  * How long the pointer rests before an overlay scrollbar fades, in milliseconds: long enough that
  * a pause between two wheel turns keeps the bar, short enough that a still page shows none.
- *
- * @consumedBy the overlay scrollbar on every scroller but the conversation
  */
 export const OVERLAY_SCROLLBAR_REST_MS = 500;

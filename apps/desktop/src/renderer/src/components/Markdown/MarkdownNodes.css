@@ -106,13 +106,13 @@
   color: var(--meridian-text-faint);
 }
 
-/* Wide content scrolls inside its own container; the row never scrolls sideways. */
-.meridian-markdown__table-scroll {
-  margin-bottom: var(--meridian-space-2);
-  overflow-x: auto;
-}
-
+/*
+ * A table fits the column rather than scrolling inside it: `anywhere` lets a cell break even a
+ * long unbroken value, which also lets the automatic layout narrow every column until the table
+ * fits, so it never scrolls sideways and never pushes the row wider.
+ */
 .meridian-markdown__table {
+  margin-bottom: var(--meridian-space-2);
   border-collapse: collapse;
   font-size: var(--meridian-text-sm);
 }
@@ -123,6 +123,7 @@
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border: 1px solid var(--meridian-edge);
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 /* The head reads as the head by weight and a rule under the row, not a second ground. */

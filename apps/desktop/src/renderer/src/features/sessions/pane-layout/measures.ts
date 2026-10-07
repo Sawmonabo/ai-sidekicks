@@ -29,3 +29,11 @@ export const PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX: Readonly<Record<PaneLayoutDensit
   // About 32 characters plus chrome, the legibility floor.
   compact: 256,
 };
+
+/**
+ * The loosest preset's pane floor, in CSS pixels: the widest any preset holds a pane to, so a
+ * width that fits it fits one pane at every density.
+ */
+export const PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX: number = Math.max(
+  ...Object.values(PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX),
+);

@@ -20,7 +20,8 @@
   min-width: 0;
 }
 
-textarea.meridian-workflow-param-form__control {
+/* Long-form text's box, which a person may drag taller. */
+.meridian-workflow-param-form__control--long-form {
   resize: vertical;
 }
 
@@ -28,7 +29,7 @@ textarea.meridian-workflow-param-form__control {
  * A refused answer is marked by its sentence and an edge stronger than every control's, never an
  * attention hue.
  */
-.meridian-workflow-param-form__control[aria-invalid="true"] {
+.meridian-workflow-param-form__control--refused {
   border-color: var(--meridian-text);
 }
 

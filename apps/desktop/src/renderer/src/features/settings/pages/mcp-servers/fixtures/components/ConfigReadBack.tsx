@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/server";
 import { SERVER_TRANSPORT_WORDS } from "../../transport-words.js";
 
@@ -14,8 +15,7 @@ import { SERVER_TRANSPORT_WORDS } from "../../transport-words.js";
  * verbatim, since a second redaction rule here would drift from the first. Names render as
  * names, not as a table with a blank value column, which would read as an empty value.
  * Arguments are rendered, not counted, because `--read-only` and `--allow-write` are the same
- * command with opposite grants. The groups are helpers rather than second components: one
- * component per file.
+ * command with opposite grants.
  */
 export function ConfigReadBack(props: {
   readonly config: McpServerInventoryEntry["config"];
@@ -57,11 +57,13 @@ interface KeyedWireString {
  * identity and arrival order carries nothing.
  */
 function renderNameList(caption: string, names: readonly string[] | undefined): ReactNode {
-  return renderWireStrings({
-    caption,
-    entries: names?.map((name) => ({ key: name, value: name })),
-    positional: false,
-  });
+  return (
+    <WireStringGroup
+      caption={caption}
+      entries={names?.map((name) => ({ key: name, value: name }))}
+      positional={false}
+    />
+  );
 }
 
 /**
@@ -71,11 +73,13 @@ function renderNameList(caption: string, names: readonly string[] | undefined): 
  * roots, so position is the identity and reordering would rewrite the command.
  */
 function renderArgumentList(args: readonly string[] | undefined): ReactNode {
-  return renderWireStrings({
-    caption: "Arguments",
-    entries: args?.map((argument, position) => ({ key: String(position), value: argument })),
-    positional: true,
-  });
+  return (
+    <WireStringGroup
+      caption="Arguments"
+      entries={args?.map((argument, position) => ({ key: String(position), value: argument }))}
+      positional
+    />
+  );
 }
 
 /**
@@ -85,12 +89,13 @@ function renderArgumentList(args: readonly string[] | undefined): ReactNode {
  * nothing. `positional` picks the element and class together: an ordered list announces a
  * sequence, true of argv and false of a name group.
  */
-function renderWireStrings(options: {
+function WireStringGroup(props: {
   readonly caption: string;
   readonly entries: readonly KeyedWireString[] | undefined;
   readonly positional: boolean;
 }): ReactNode {
-  const { caption, entries, positional } = options;
+  const { caption, entries, positional } = props;
+  const scrollerRef = useDrawOverlayScrollbar<HTMLDivElement>();
   if (entries === undefined || entries.length === 0) {
     return null;
   }
@@ -102,11 +107,13 @@ function renderWireStrings(options: {
   return (
     <div className="meridian-mcp__names">
       <span className="meridian-settings-page__aside">{caption}</span>
-      {positional ? (
-        <ol className="meridian-mcp__argument-list">{items}</ol>
-      ) : (
-        <ul className="meridian-mcp__name-list">{items}</ul>
-      )}
+      <div className="meridian-mcp__scroller" ref={scrollerRef}>
+        {positional ? (
+          <ol className="meridian-mcp__argument-list">{items}</ol>
+        ) : (
+          <ul className="meridian-mcp__name-list">{items}</ul>
+        )}
+      </div>
     </div>
   );
 }

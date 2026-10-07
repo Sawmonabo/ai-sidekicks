@@ -1,7 +1,8 @@
 // The machine's workflow runs as the fixture daemon holds them: the runs the saved workflows of
-// `../definitions.ts` made, in every status a run can stand in, a run waiting on a chat reply and a
-// chain held behind its question among them. `writes.ts` applies the writes the playback has
-// answered over them and `../replies.ts` answers the calls from that state.
+// `../definitions.ts` made, in every status a run can stand in, a run waiting on a chat reply, a
+// chain held behind its question and a release whose build exited printing errors among them.
+// `writes.ts` applies the writes the playback has answered over them and `../replies.ts` answers
+// the calls from that state.
 
 import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
 import type {
@@ -10,6 +11,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
+import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import { encodeEventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   WorkflowDefinitionId,
@@ -111,6 +113,7 @@ interface StepSeed {
   readonly waitDeadlineAt?: string;
   readonly usdMicros?: number;
   readonly error?: WorkflowStep["error"];
+  readonly processExit?: ProcessExit;
   readonly outputRef?: WorkflowPayloadRef;
   readonly question?: WorkflowStepQuestion;
   readonly resolution?: WorkflowStepResolution;
@@ -149,6 +152,7 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
       logRef: inline(`started ${seed.nodeId}`, ...(finished ? [`finished ${seed.nodeId}`] : [])),
       ...(seed.usdMicros === undefined ? {} : { cost: cost(seed.usdMicros) }),
       ...(seed.error === undefined ? {} : { error: seed.error }),
+      ...(seed.processExit === undefined ? {} : { processExit: seed.processExit }),
       ...(seed.question === undefined ? {} : { question: seed.question }),
       ...(seed.resolution === undefined ? {} : { resolution: seed.resolution }),
       ...(seed.reviewPause === undefined ? {} : { reviewPause: seed.reviewPause }),
@@ -289,6 +293,7 @@ export const WORKFLOW_RUN_IDS = {
   chainHeld: "019b7a10-0280-75e5-8510-ada11a5a4011",
   sweptParent: "019b7a10-0280-75e5-8510-ada11a5a4012",
   sweptChild: "019b7a10-0280-75e5-8510-ada11a5a4013",
+  processExited: "019b7a10-0280-75e5-8510-ada11a5a4014",
 } as const;
 
 /** The question the fixture's reply wait holds, answered through `question.resolve`. */
@@ -297,6 +302,41 @@ export const WORKFLOW_REPLY_QUESTION: WorkflowStepQuestion = {
   waitId: "019b7a40-0280-75e5-8510-ada11a5a7101",
   prompt: "Which label should these issues get?",
 };
+
+/**
+ * The last lines the release build printed before it exited, as the failed build step carries
+ * them: enough of a compiler's report that the step panel stands taller than the run graph.
+ */
+const RELEASE_BUILD_OUTPUT_TAIL = [
+  "> release@2.4.0 build",
+  "> tsc --build && node scripts/bundle.mjs",
+  "",
+  "src/notes/changelog.ts:41:7 - error TS2322: Type 'undefined' is not assignable to 'string'.",
+  "",
+  "41       title: entry.heading,",
+  "         ~~~~~",
+  "",
+  "src/notes/changelog.ts:58:19 - error TS2345: 'Entry[]' is not assignable to 'Section[]'.",
+  "",
+  "58     return render(entries);",
+  "                     ~~~~~~~",
+  "",
+  "src/publish/upload.ts:12:10 - error TS2305: './targets' has no exported member 'Mirror'.",
+  "",
+  "12 import { Mirror } from './targets';",
+  "            ~~~~~~",
+  "",
+  "src/publish/upload.ts:88:5 - error TS7030: Not all code paths return a value.",
+  "",
+  "88     async function pushAsset(asset: Asset) {",
+  "       ~~~~~",
+  "",
+  "Found 4 errors in 2 files.",
+  "",
+  "Errors  Files",
+  "     2  src/notes/changelog.ts:41",
+  "     2  src/publish/upload.ts:12",
+].join("\n");
 
 /** How many runs the held chain has started from its first run. */
 const CHAIN_RUN_COUNT = 100;
@@ -495,6 +535,27 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
         finishedMinutesAgo: 190,
         usdMicros: 52_000,
         error: { message: "The summary came back empty twice.", itemIndex: 1 },
+      },
+    ],
+  }),
+  record({
+    id: WORKFLOW_RUN_IDS.processExited,
+    definitionId: RELEASE,
+    versionNumber: 2,
+    state: "failed",
+    mode: "manual",
+    startedBy: WORKFLOW_STARTED_BY_PERSON,
+    startedMinutesAgo: 320,
+    endedMinutesAgo: 318,
+    steps: [
+      { nodeId: "manual", status: "succeeded", startedMinutesAgo: 320, finishedMinutesAgo: 320 },
+      {
+        nodeId: "build",
+        status: "failed",
+        startedMinutesAgo: 320,
+        finishedMinutesAgo: 318,
+        error: { message: "The release build exited with code 2." },
+        processExit: { exitCode: 2, outputTail: RELEASE_BUILD_OUTPUT_TAIL },
       },
     ],
   }),

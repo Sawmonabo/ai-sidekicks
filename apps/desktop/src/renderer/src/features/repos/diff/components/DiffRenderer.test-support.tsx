@@ -21,9 +21,9 @@ export function noExpansion(): DiffGapExpansion {
   return new Map();
 }
 
-/** The row count the scroller reports for the whole diff. */
+/** The row count the diff's table reports for the whole diff. */
 export function reportedRowCount(container: HTMLElement): number {
-  return Number(container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount"));
+  return Number(container.querySelector(".meridian-diff__content")?.getAttribute("aria-rowcount"));
 }
 
 /** The renderer's props for a case, with whatever that case cares about replaced. */

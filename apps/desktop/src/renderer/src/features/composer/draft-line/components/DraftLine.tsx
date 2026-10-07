@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { subscribeToComposerFocus } from "../../focus-requests.js";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
@@ -14,8 +15,14 @@ import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { DRAFT_PLACEHOLDER } from "../caret.js";
 import { composerDraftKey } from "../draft-key.js";
 
+/** What the message line is handed: the composer's props and, for a measuring caller, its box. */
+export interface DraftLineProps extends ComposerProps {
+  /** The box the draft scrolls in, for the composer that measures what surrounds it. */
+  readonly scrollerRef?: React.RefObject<HTMLDivElement | null>;
+}
+
 /** The message line over the addressed draft. Enter keeps the draft and sends nothing. */
-export function DraftLine(props: ComposerProps): React.JSX.Element {
+export function DraftLine(props: DraftLineProps): React.JSX.Element {
   const { draftStore } = props;
   const target = useComposerAddress(props.sessionStore, props.focusedPane);
   const draftKey = composerDraftKey(target);
@@ -50,15 +57,16 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
 
   return (
     <div className="meridian-composer__send">
-      <textarea
-        ref={lineRef}
+      <TextBox
+        fieldRef={lineRef}
+        {...(props.scrollerRef === undefined ? {} : { scrollerRef: props.scrollerRef })}
         className="meridian-composer__line"
         aria-label="Message"
         placeholder={DRAFT_PLACEHOLDER}
         value={text}
         rows={1}
         // Grow to the cap, then scroll inside the box so the transcript keeps its room.
-        style={{ maxHeight: `calc(${String(COMPOSER_DRAFT_MAX_ROWS)} * 1.5em)` }}
+        maxRows={COMPOSER_DRAFT_MAX_ROWS}
         onChange={onChange}
         onKeyDown={onKeyDown}
       />

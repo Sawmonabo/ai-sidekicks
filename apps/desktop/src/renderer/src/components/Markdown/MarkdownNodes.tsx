@@ -149,10 +149,9 @@ function renderNode(
       // alt text is the author's words and is kept.
       return <span className="meridian-markdown__image-alt">{node.alt ?? ""}</span>;
     case "table":
+      // No box of its own: the cells wrap to the column, so the table never scrolls sideways.
       return (
-        <div className="meridian-markdown__table-scroll">
-          <table className="meridian-markdown__table">{renderTableSections(node, context)}</table>
-        </div>
+        <table className="meridian-markdown__table">{renderTableSections(node, context)}</table>
       );
     case "footnoteDefinition":
       // Drawn from the footnote registry, not inline, which would show the text twice.

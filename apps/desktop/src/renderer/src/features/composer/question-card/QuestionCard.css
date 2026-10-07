@@ -80,7 +80,7 @@
 }
 
 .meridian-input-ask__field {
-  width: 100%;
+  align-self: stretch;
   resize: vertical;
 }
 

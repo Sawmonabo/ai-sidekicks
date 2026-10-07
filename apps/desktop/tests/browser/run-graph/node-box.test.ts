@@ -17,7 +17,7 @@ afterEach(() => {
   document.documentElement.style.fontSize = "";
 });
 
-/** `fixture`'s graph at the largest text size, once it is fitted and painted. */
+/** `fixture`'s graph at the largest text size, once it is fitted, painted and placed. */
 async function mountAtLargestTextSize(
   fixture: FixtureRun,
   edgeItemCounts?: readonly WorkflowEdgeItemCount[],

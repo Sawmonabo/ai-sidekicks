@@ -5,9 +5,10 @@
 
 import "./DiffRenderer.css";
 
-import { useMemo, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
@@ -41,6 +42,8 @@ export interface DiffRendererProps {
 /** The diff as one virtualized scroller of file headers and rows. */
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef);
+  const scrollerId = useId();
   const clock = useBridgeClock();
 
   // Re-flattened only when the diff, expansion, shown file or view mode changes, not per scroll.
@@ -100,12 +103,14 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   return (
     <div
       className={className}
-      ref={scrollerRef}
-      // Focusable so the diff can be read with a keyboard.
+      ref={scrollerScrollbarRef}
+      id={scrollerId}
+      // A named tab stop, so the diff can be scrolled and read with a keyboard. A group, not the
+      // table, since the bar is drawn inside the scroller and a table holds only its rows; not a
+      // region, which would make every diff in a conversation a landmark.
       tabIndex={0}
-      role="table"
+      role="group"
       aria-label={props.label}
-      aria-rowcount={index.rowCount}
       // The row height has one home, `measures.ts`; the sheet reads it from here so the
       // window arithmetic and the painted rows cannot disagree.
       style={
@@ -117,8 +122,15 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     >
       {/* The content box holds the full height so the scrollbar spans the whole diff, and the
           leading spacer puts the window at its offset. Rows stay in flow rather than absolutely
-          positioned, so a screen reader can walk them. */}
-      <div className="meridian-diff__content" style={{ blockSize: virtualizer.getTotalSize() }}>
+          positioned, so a screen reader can walk them. A table must carry a name, so it takes
+          the scroller's rather than a second copy. */}
+      <div
+        className="meridian-diff__content"
+        role="table"
+        aria-labelledby={scrollerId}
+        aria-rowcount={index.rowCount}
+        style={{ blockSize: virtualizer.getTotalSize() }}
+      >
         <div
           className="meridian-diff__window"
           style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}

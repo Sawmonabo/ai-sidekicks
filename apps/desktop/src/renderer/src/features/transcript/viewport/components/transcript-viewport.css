@@ -15,12 +15,14 @@
 /*
  * The one scroll container in the transcript; a second scrolling box would give the chokepoint
  * a rival `scrollTop`. `overscroll-behavior: contain` stops a flick at the end of the log from
- * scrolling the window behind it, which reads as the transcript moving on its own.
+ * scrolling the window behind it, which reads as the transcript moving on its own. It draws no
+ * bar in any state; the wheel, the keys and the chokepoint still scroll it.
  */
 .meridian-transcript-viewport__scroll-container {
   position: relative;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
   min-height: 0;
 }
 

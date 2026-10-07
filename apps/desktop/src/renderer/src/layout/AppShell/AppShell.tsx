@@ -8,6 +8,7 @@ import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import { railDestinationFor } from "#renderer/routing/readers.js";
 import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import type { WindowStore } from "#renderer/store/window/store.js";
+import type { WindowSize } from "#shared/window/size.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
@@ -36,6 +37,10 @@ export interface AppShellProps {
   >;
   /** One line about the window itself, drawn above the banners. */
   readonly notice?: React.ReactNode;
+  /** The narrowest one pane may be, in CSS px, the pane term of the window's floor. */
+  readonly minimumPaneWidthPx: number;
+  /** The window's smallest size, in CSS px, reported on first layout and on every change. */
+  readonly onWindowFloorChange: (floor: WindowSize) => void;
   /** The screen the route names. */
   readonly children: React.ReactNode;
 }
@@ -61,6 +66,8 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       }}
       modalOverlayOpen={palette.open || isModalDialogOpen}
       notice={props.notice}
+      minimumPaneWidthPx={props.minimumPaneWidthPx}
+      onWindowFloorChange={props.onWindowFloorChange}
       banners={banners}
       onDismissBanner={(bannerId) => {
         frameStore.dismissBanner(bannerId);

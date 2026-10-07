@@ -9,12 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { RealClock } from "#renderer/lib/clock.js";
-import {
-  diagnosticStampAt,
-  windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/capture.js";
-import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -80,13 +75,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
     () =>
       openWindows.bringForwardThrough((windowId) => {
         bridge.window.bringForward(windowId).catch((failure: unknown) => {
-          windowDiagnosticCapture.record({
-            at: diagnosticStampAt(new RealClock()),
-            severity: "error",
-            source: "app/AppWindows",
-            kind: "bring-forward-failed",
-            detail: normalizeWireRejection("app/AppWindows", failure).detail,
-          });
+          recordRejectedRequest("app/AppWindows", "bring-forward-failed", failure);
         });
       }),
     [openWindows, bridge],

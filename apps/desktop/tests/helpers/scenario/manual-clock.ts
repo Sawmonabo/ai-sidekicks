@@ -23,14 +23,15 @@ import { settle } from "../settle.js";
 const SCENARIO_SETTLE_PASSES = 24;
 
 /**
- * Drive scenario time until `assert` holds, or fail with `assert`'s own message.
+ * Drive scenario time until `assert` holds, or fail with `assert`'s own message. Takes the engine,
+ * or the control an app's fixture composition hangs on the page.
  *
  * Stops at the first pass that holds, since every extra advance delivers another scenario beat
  * and moves every deadline the view renders against, which would pin a different composition
  * from the one the case is about.
  */
 export async function advanceScenarioUntil(
-  engine: ScenarioEngine,
+  engine: Pick<ScenarioEngine, "advance">,
   assert: () => void,
 ): Promise<void> {
   for (let pass = 0; pass < SCENARIO_SETTLE_PASSES; pass += 1) {

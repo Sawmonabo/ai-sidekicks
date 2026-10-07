@@ -1,8 +1,7 @@
-// One row of the discovery list: the name, what it does, and the state it is in.
-// A provider row has no button: a disabled one would claim the act exists here, and this console
-// never sends a provider command from the line. Only a console row carries a button.
-// An entry the provider declared disabled is rendered disabled and never explained, because the
-// entry has no reason member.
+// One row of the discovery list: the name, what it does, and the state it is in. The row is its
+// own control: a press on it does what Enter does on the active row, and nothing pressable sits
+// inside it, since an option may hold no control. An entry the provider declared disabled is
+// rendered disabled and never explained, because the entry has no reason member.
 
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 
@@ -11,21 +10,22 @@ import { codeWords } from "#renderer/lib/code-words.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { isDeclaredUnavailable, type CommandListEntry } from "../entries.js";
 
-/** The entry one row shows, with the handlers for selecting or running it. */
+/** The entry one row shows, with the handlers for selecting it and acting on it. */
 export interface CommandListRowProps {
   readonly entry: CommandListEntry;
   readonly rowElementId: string;
   readonly isActive: boolean;
   readonly onSelect: () => void;
-  readonly onRun: (commandId: string) => void;
+  /** A press on the row: what Enter does on the active row. */
+  readonly onActivate: () => void;
 }
 
 /** Shown only on an entry the provider declared disabled. */
 const UNAVAILABLE_LABEL = "unavailable — the provider published this entry as disabled";
 
-/** One entry of the discovery list; only a console entry carries a Run button. */
+/** One entry of the discovery list, pressed as a whole. */
 export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
-  const { entry, rowElementId, isActive, onSelect, onRun } = props;
+  const { entry, rowElementId, isActive, onSelect, onActivate } = props;
   const isUnavailable = isDeclaredUnavailable(entry);
   return (
     <li
@@ -37,6 +37,7 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
       // reported. The row stays reachable by the arrows either way.
       aria-disabled={isUnavailable ? true : undefined}
       onMouseDown={onSelect}
+      onClick={onActivate}
     >
       <span className="meridian-command-discovery__name">
         <WireFigure value={entry.name} />
@@ -61,17 +62,6 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
       ) : (
         <span className="meridian-command-discovery__description">{entry.description}</span>
       )}
-      {entry.source === "console" ? (
-        <button
-          type="button"
-          className="meridian-command-discovery__run"
-          onClick={() => {
-            onRun(entry.commandId);
-          }}
-        >
-          Run this
-        </button>
-      ) : null}
     </li>
   );
 }

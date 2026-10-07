@@ -17,11 +17,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { renderAppSettled, renderSettled } from "../helpers/app/harness.js";
-import {
-  describeHorizontalOverflow,
-  narrowTesterViewportTo,
-  restoreTesterViewport,
-} from "./reflow.js";
+import { describeHorizontalOverflow } from "../helpers/horizontal-overflow.js";
+import { narrowTesterViewportTo, restoreTesterViewport } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { routeForDestination } from "#renderer/layout/NavigationRail/destinations.js";

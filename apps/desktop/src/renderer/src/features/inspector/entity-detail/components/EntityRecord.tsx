@@ -88,14 +88,14 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
           <Glyph name={props.glyph} size={GLYPH_SIZE_CHROME} />
         </span>
         <h2 className="meridian-entity-record__heading">{props.heading}</h2>
-        <WireFigure value={props.entityId} />
+        <WireFigure value={props.entityId} title={props.entityId} truncate />
         {props.state === undefined ? null : <Chip tone="neutral" label={codeWords(props.state)} />}
       </header>
       <dl className="meridian-entity-record__facets">
         {props.facets.map((facet) => (
           <div className="meridian-entity-record__facet" key={facet.label}>
             <dt className="meridian-entity-record__label">{facet.label}</dt>
-            <dd className="meridian-entity-record__value">
+            <dd className="meridian-entity-record__value" title={fullTextOf(facet)}>
               <EntityFacetValueView facet={facet} />
             </dd>
           </div>
@@ -110,4 +110,9 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
       )}
     </article>
   );
+}
+
+// The whole value, for the hover title of a value cut short; an unrecorded one carries its own.
+function fullTextOf(facet: EntityFacet): string | undefined {
+  return facet.value.form === "unrecorded" ? undefined : facet.value.text;
 }

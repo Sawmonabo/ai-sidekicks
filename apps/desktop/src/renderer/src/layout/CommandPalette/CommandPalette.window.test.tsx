@@ -78,7 +78,11 @@ describe("the palette — a list longer than the window", () => {
     expect(drawnOption(LAST_COMMAND_TITLE)).toBeNull();
 
     // Up from the top wraps to the last match, which is far below the window.
-    const scroller = screen.getByRole("listbox");
+    // The listbox scrolls inside the list's scroller, which holds the overlay bar beside it.
+    const scroller = screen.getByRole("listbox").parentElement;
+    if (scroller === null) {
+      throw new Error("the palette drew its listbox outside a scroller");
+    }
     layOutScrollExtent(scroller);
     fireEvent.keyDown(screen.getByRole("combobox", { name: "Search commands" }), {
       key: "ArrowUp",

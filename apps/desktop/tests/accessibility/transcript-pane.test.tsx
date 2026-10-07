@@ -15,8 +15,15 @@
 //
 // A loaded transcript and an empty one are different documents, so both run, in both schemes
 // for the frame case's contrast reason.
+//
+// The regions inside a row are mounted directly too, each holding more than a narrow column
+// shows: a table wraps its cells to the column rather than scrolling, and a run group's earlier
+// entries, which scroll inside the row, are a tab stop a real Tab press reaches and the arrows
+// scroll.
 
+import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import { renderSettled } from "../helpers/app/harness.js";
 import { emulateSystemScheme } from "../helpers/media-emulation.js";
@@ -37,6 +44,15 @@ import { transcriptPaneContext } from "#renderer/features/transcript/TranscriptP
 import { SessionStore } from "#renderer/store/session/store.js";
 import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 import { SessionScreenContainer } from "#renderer/features/transcript/SessionScreenContainer.js";
+import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
+import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
+import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
+import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
+import { RunGroupBody } from "#renderer/features/transcript/runs/components/RunGroupBody.js";
+import { groupRowsByRun } from "#renderer/features/transcript/runs/groups.js";
+import { findRunGroup } from "#renderer/features/transcript/runs/groups.test-support.js";
+import { installOverlayScrollbarLibrary } from "#renderer/lib/overlay-scrollbar-library.js";
 
 /**
  * The cursor a scenario's log is applied on top of. Zero rather than `-1`, because
@@ -44,6 +60,30 @@ import { SessionScreenContainer } from "#renderer/features/transcript/SessionScr
  * before the first beat and mark itself degraded.
  */
 const SCENARIO_BASE_CURSOR = 0;
+
+/** A column narrower than the table below, as a narrow conversation is. */
+const ROW_COLUMN_WIDTH = "30rem";
+
+/** A table whose cells, laid out unwrapped, run several times the column's width. */
+const WIDE_TABLE = [
+  `| ${Array.from({ length: 8 }, (_unused, index) => `heading ${String(index)}`).join(" | ")} |`,
+  `|${" --- |".repeat(8)}`,
+  `| ${Array.from({ length: 8 }, () => "an_unbroken_cell_value_with_no_spaces").join(" | ")} |`,
+  "",
+].join("\n");
+
+/** The run's head lands in its body: more rows than the outer list mounts. */
+const CLIPPED_RUN_ROW_COUNT = RUN_GROUP_VISIBLE_ROW_CAP * 2;
+
+/** The table holds no code block, so nothing may ask for code colors. */
+const NO_CODE_SPANS: CodeSpanReader = {
+  heldSpans: () => {
+    throw new Error("A table here asked for code colors.");
+  },
+  readSpans: () => {
+    throw new Error("A table here asked for code colors.");
+  },
+};
 
 /**
  * A real store holding the whole of one scenario's log, so the projection, the run group fold
@@ -123,3 +163,74 @@ describe("accessibility — the transcript", () => {
     });
   }
 });
+
+describe("accessibility — the regions inside a transcript row", () => {
+  it("reaches the run group's earlier entries by Tab, scrolls them by the arrows, and fits a table to the column", async () => {
+    installOverlayScrollbarLibrary(document);
+    const runRows = Array.from({ length: CLIPPED_RUN_ROW_COUNT }, (_unused, index) =>
+      runRow({
+        id: `r${String(index + 1)}`,
+        sequence: index + 1,
+        type: "run.running",
+        summary: `entry ${String(index + 1)}`,
+        runId: "run-a",
+        position: index + 1,
+      }),
+    );
+    const { container } = await renderSettled(
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <div className="row-column" style={{ inlineSize: ROW_COLUMN_WIDTH }}>
+          <button type="button">Before the rows</button>
+          <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
+          <MarkdownNodes
+            nodes={parseSettledBlock(WIDE_TABLE).children}
+            context={{
+              isSettled: true,
+              definedFootnoteIdentifiers: new Set(),
+              codeSpanReader: NO_CODE_SPANS,
+              renderCodeCopy: undefined,
+            }}
+          />
+          <button type="button">After the rows</button>
+        </div>
+      </LiveAnnouncerProvider>,
+    );
+    const column = requireElement(container, ".row-column");
+    const runBody = requireElement(container, ".meridian-run-group-body__scroller");
+    const table = requireElement(container, ".meridian-markdown__table");
+
+    // It overflows, so a keyboard must be able to scroll it.
+    expect(runBody.scrollHeight).toBeGreaterThan(runBody.clientHeight);
+    // The table wraps its cells instead, so it is no region to reach and stays in the column.
+    expect(table.getBoundingClientRect().width).toBeLessThanOrEqual(column.clientWidth);
+
+    requireElement(container, "button").focus();
+    const reached: string[] = [];
+    await act(async () => {
+      await userEvent.tab();
+      reached.push(document.activeElement?.className ?? "nothing");
+      if (document.activeElement !== runBody) {
+        return;
+      }
+      await userEvent.keyboard("{ArrowDown}");
+      await expect.poll(() => runBody.scrollTop).toBeGreaterThan(0);
+      await userEvent.tab();
+      reached.push(document.activeElement?.textContent ?? "nothing");
+    });
+    expect(reached).toStrictEqual([
+      "meridian-run-group-body__scroller meridian-focus-inset",
+      "After the rows",
+    ]);
+
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+  });
+});
+
+/** The one element `selector` names, or a failure naming what was missing. */
+function requireElement(container: HTMLElement, selector: string): HTMLElement {
+  const element = container.querySelector<HTMLElement>(selector);
+  if (element === null) {
+    throw new Error(`nothing matched ${selector}`);
+  }
+  return element;
+}

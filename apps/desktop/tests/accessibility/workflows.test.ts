@@ -108,15 +108,17 @@ describe("accessibility — the workflows views", () => {
       it(`has no axe violation on ${view.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
         const mounted = await view.mount(view.drawnWords);
+        for (const words of view.drawnWords) {
+          expect(mounted.textContent).toContain(words);
+        }
+        view.arrange?.(mounted);
+        // Settled after the person's steps, since a step that grows the panel resizes the graph
+        // beside it, which the graph then places its view for.
         await awaitRunGraphSettled(mounted);
         // The subject, stated before it is read, so the wait above cannot be dropped silently:
         // the fit has not landed at the mount's return whether the lazy chunk is cold or cached.
         // For rows that draw no graph the reading is true by construction.
         expect(isRunGraphSettled(mounted)).toBe(true);
-        for (const words of view.drawnWords) {
-          expect(mounted.textContent).toContain(words);
-        }
-        view.arrange?.(mounted);
 
         expect(describeViolations(await runTierAxe(mounted))).toStrictEqual([]);
       });

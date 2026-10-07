@@ -1,17 +1,23 @@
 // What a window's blank document is given before anything is drawn in it: the console document's
-// language, the Meridian token sheet and the element the window's tree is drawn into, the same
-// `#root` the console document has, so the base sheet sizes it as it sizes that one.
+// language, the Meridian token sheet, the window's own copy of the overlay scrollbar library, and
+// the element the window's tree is drawn into, the same `#root` the console document has, so the
+// base sheet sizes it as it sizes that one.
 
-import { installMeridianTokens } from "./token-installation.js";
+import { installOverlayScrollbarLibrary } from "#renderer/lib/overlay-scrollbar-library.js";
+import { installMeridianTokens } from "../token-installation.js";
 
 /** The id of the element a window's tree is drawn into. */
 const WINDOW_ROOT_ELEMENT_ID = "root";
 
-/** Put the language, the token sheet and the mount point into a window's document; idempotent. */
+/**
+ * Put the language, the token sheet, the overlay scrollbar library and the mount point into a
+ * window's document; idempotent.
+ */
 export function prepareWindowDocument(windowDocument: Document): void {
   // A blank document declares no language, and a screen reader then guesses how to read it.
   windowDocument.documentElement.lang = document.documentElement.lang;
   installMeridianTokens(windowDocument);
+  installOverlayScrollbarLibrary(windowDocument);
   if (windowDocument.getElementById(WINDOW_ROOT_ELEMENT_ID) === null) {
     const root = windowDocument.createElement("div");
     root.id = WINDOW_ROOT_ELEMENT_ID;

@@ -4,6 +4,8 @@
 
 import { useId } from "react";
 
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
+
 /** What the card hands one question's typed field. */
 export interface TypedAnswerFieldProps {
   /** The typed text the card holds for this question. */
@@ -27,9 +29,10 @@ export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Elemen
       <label htmlFor={fieldId} className="meridian-visually-hidden">
         Something else…
       </label>
-      <textarea
+      <TextBox
         id={fieldId}
         className="meridian-input-ask__field meridian-form__input"
+        fieldClassName="meridian-form__text-area"
         placeholder="Something else…"
         value={props.draft}
         rows={2}

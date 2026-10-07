@@ -6,6 +6,7 @@
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { workflowDefinitionCandidates } from "../definition/match.js";
 import "./WorkflowStartCandidates.css";
 
@@ -24,9 +25,10 @@ export interface WorkflowStartCandidatesProps {
 /** The candidate list, for the caller to mount while a `/workflow run` argument is open. */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
+  const listScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   return (
     <div className="meridian-workflow-start__candidates">
-      {renderReading(definitions, complete, typedPrefix, onComplete)}
+      {renderReading(definitions, complete, typedPrefix, onComplete, listScrollbarRef)}
     </div>
   );
 }
@@ -37,6 +39,7 @@ function renderReading(
   complete: boolean,
   typedPrefix: string | undefined,
   onComplete: (definitionName: string) => void,
+  listScrollbarRef: React.RefCallback<HTMLDivElement>,
 ): React.JSX.Element {
   if (complete && definitions.length === 0) {
     return <Nothing kind="empty" title="No workflows yet" />;
@@ -58,21 +61,25 @@ function renderReading(
       />
     );
   }
+  // The bar is drawn inside the scroller, so the scroller is not the list: a list holds only its
+  // items.
   return (
-    <ul className="meridian-workflow-start__candidate-list" aria-label="Workflows">
-      {candidates.map((definition) => (
-        <li key={definition.id} className="meridian-workflow-start__candidate">
-          <button
-            type="button"
-            className="meridian-workflow-start__candidate-name"
-            onClick={() => {
-              onComplete(definition.name);
-            }}
-          >
-            {definition.name}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="meridian-workflow-start__candidate-scroller" ref={listScrollbarRef}>
+      <ul className="meridian-workflow-start__candidate-list" aria-label="Workflows">
+        {candidates.map((definition) => (
+          <li key={definition.id} className="meridian-workflow-start__candidate">
+            <button
+              type="button"
+              className="meridian-workflow-start__candidate-name"
+              onClick={() => {
+                onComplete(definition.name);
+              }}
+            >
+              {definition.name}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -1,17 +1,34 @@
-/* The frame's own styles: the window box, its banners and the screen region. */
+/* The frame's own styles: the window box and its tracks, its banners, the screen region and the
+   box that measures the window's floor. */
 
-/* The reflow floor lives on this box. Below it the document scrolls horizontally, which WCAG 2.2
-   SC 1.4.10 permits under 320 CSS px; above it the frame is fluid. On macOS the rail is as wide
-   as the traffic lights, whose area starts the content at `env(titlebar-area-x)`; that value is
-   undefined in fullscreen and on every other platform, where the rail keeps its own width. */
+/* Three tracks: the rail, the sessions track and the screen column. The reflow floor lives on this
+   box. Below it the document scrolls horizontally, which WCAG 2.2 SC 1.4.10 permits under 320 CSS
+   px; above it the frame is fluid. On macOS the rail is as wide as the traffic lights, whose area
+   starts the content at `env(titlebar-area-x)`; that value is undefined in fullscreen and on every
+   other platform, where the rail keeps its own width. */
 .meridian-frame {
+  --meridian-frame-rail-track: max(var(--meridian-rail-width), env(titlebar-area-x, 0px));
   display: grid;
-  grid-template-columns: max(var(--meridian-rail-width), env(titlebar-area-x, 0px)) minmax(0, 1fr);
+  grid-template-columns: var(--meridian-frame-rail-track) 0 minmax(0, 1fr);
   min-width: var(--meridian-reflow-min-width);
   height: 100%;
   min-height: 0;
   background: var(--meridian-ground);
   color: var(--meridian-text);
+}
+
+/* Opening or open, the middle track takes its width; closing, it gives it back while the track
+   still holds its content. */
+.meridian-frame:is([data-sessions-track="opening"], [data-sessions-track="open"]) {
+  grid-template-columns:
+    var(--meridian-frame-rail-track) var(--meridian-sessions-track-width)
+    minmax(0, 1fr);
+}
+
+/* The grid itself moves, so the screen column slides over as the sessions track opens or closes.
+   Only then: a text-size or full-screen change resizes the tracks at once. */
+.meridian-frame:is([data-sessions-track="opening"], [data-sessions-track="closing"]) {
+  transition: grid-template-columns var(--meridian-motion-settle) var(--meridian-ease-settle);
 }
 
 /* A frame with no rail holds no control, so the whole window is its drag region: with no title
@@ -22,16 +39,53 @@
 }
 
 /* Carries `inert` while a modal overlay is open. `display: contents` keeps it out of the grid, so
-   the rail and the column still get their tracks. */
+   the rail, the sessions track and the column still get their tracks. */
 .meridian-frame__background {
   display: contents;
 }
 
+/* Present while the track holds something or is closing; closed, the track is zero wide with no
+   element. Its child keeps the open width, so the track clips it while the grid moves and nothing
+   in it reflows mid-motion. */
+.meridian-frame__sessions-track {
+  grid-column: 2;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.meridian-frame__sessions-track > * {
+  inline-size: var(--meridian-sessions-track-width);
+  block-size: 100%;
+}
+
+/* Placed by number, so with no track element the column never falls into the empty track. */
 .meridian-frame__column {
+  grid-column: 3;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+/* The window's floor, laid out where the text size and the macOS title-bar inset resolve and
+   measured as one box: the rail, the sessions track and one session view's floor across, the
+   height floor down. A session view's floor is the conversation's, the separator beside it and
+   one pane's. The pane term is the narrowest a pane may be, in px as the pane layout holds it, set
+   on the box by the frame, so one open pane fits beside the conversation at its floor. */
+.meridian-frame__window-floor {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: calc(
+    var(--meridian-frame-rail-track) + var(--meridian-sessions-track-width) +
+      var(--meridian-conversation-floor) + var(--meridian-pane-separator-width) +
+      var(--meridian-frame-minimum-pane-width)
+  );
+  block-size: var(--meridian-window-height-floor);
+  visibility: hidden;
+  pointer-events: none;
+  contain: strict;
 }
 
 .meridian-frame__banners {

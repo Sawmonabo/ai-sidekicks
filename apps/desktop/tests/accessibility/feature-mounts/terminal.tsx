@@ -44,8 +44,9 @@ function terminalSessionStore(): SessionStore {
 }
 
 /**
- * The terminal pane, mounted and waited on until the emulator's chunk has landed. The emulator
- * loads through `import()`, so an early read would see the not-loaded absence, not the grid.
+ * The terminal pane, mounted and waited on until the emulator's chunk has landed and its renderer
+ * has settled. The emulator loads through `import()`, so an early read would see the not-loaded
+ * absence, not the grid; the renderer reports its mode once it attaches, a state change of its own.
  */
 export async function mountTerminalPane(): Promise<MountedView> {
   const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
@@ -73,6 +74,11 @@ export async function mountTerminalPane(): Promise<MountedView> {
     () => {
       if (region.querySelector(".meridian-terminal-mount-point__mount-element") === null) {
         throw new Error("the terminal emulator has not mounted yet");
+      }
+      if (
+        region.querySelector('.meridian-terminal-mount-point[data-renderer="pending"]') !== null
+      ) {
+        throw new Error("the terminal emulator's renderer has not settled yet");
       }
     },
     { timeout: EMULATOR_CHUNK_TIMEOUT_MS },

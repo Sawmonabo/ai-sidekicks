@@ -18,9 +18,12 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   overflow-anchor: auto;
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
+}
+
+.meridian-run-group-body__rows {
   margin: 0;
   padding: 0;
-  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
   list-style: none;
 }
 

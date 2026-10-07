@@ -4,6 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
 import {
@@ -32,34 +33,37 @@ export function ServerLegs(props: {
   readonly nowMilliseconds: number;
 }): ReactNode {
   const { legs, sessionDirectory, nowMilliseconds } = props;
+  const scrollerRef = useDrawOverlayScrollbar<HTMLDivElement>();
   if (legs === undefined || legs.length === 0) {
     return <Nothing kind="empty" placement="inline" title="No running session uses this server." />;
   }
   return (
-    <ul className="meridian-mcp__legs">
-      {legs.map((leg) => {
-        const entry = listedSessionOf(sessionDirectory, leg.sessionId);
-        return (
-          <li key={mcpLiveLegKeyOf(leg)} className="meridian-mcp__leg">
-            {entry === undefined ? null : (
-              <>
-                <SessionName entry={entry} />
-                <span className="meridian-settings-page__aside">·</span>
-              </>
-            )}
-            <Chip
-              label={MCP_SERVER_STATUS_WORDS[leg.status]}
-              tone={toneForServerStatus(leg.status)}
-            />
-            {leg.observedAt === undefined ? null : (
-              <>
-                <span className="meridian-settings-page__aside">· updated</span>
-                <DerivedFigure text={formatRelativeTime(leg.observedAt, nowMilliseconds)} />
-              </>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="meridian-mcp__scroller" ref={scrollerRef}>
+      <ul className="meridian-mcp__legs">
+        {legs.map((leg) => {
+          const entry = listedSessionOf(sessionDirectory, leg.sessionId);
+          return (
+            <li key={mcpLiveLegKeyOf(leg)} className="meridian-mcp__leg">
+              {entry === undefined ? null : (
+                <>
+                  <SessionName entry={entry} />
+                  <span className="meridian-settings-page__aside">·</span>
+                </>
+              )}
+              <Chip
+                label={MCP_SERVER_STATUS_WORDS[leg.status]}
+                tone={toneForServerStatus(leg.status)}
+              />
+              {leg.observedAt === undefined ? null : (
+                <>
+                  <span className="meridian-settings-page__aside">· updated</span>
+                  <DerivedFigure text={formatRelativeTime(leg.observedAt, nowMilliseconds)} />
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

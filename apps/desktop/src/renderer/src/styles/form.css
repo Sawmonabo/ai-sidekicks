@@ -34,26 +34,38 @@
 }
 
 /*
- * A text box, text area or select. Its edge is the strong one, since a control's boundary holds
- * the 3:1 non-text floor that the quiet edge does not.
+ * A one-line input or a select, or the frame of a text box, the box a text area scrolls in. Its
+ * edge is the strong one, since a control's boundary holds the 3:1 non-text floor that the quiet
+ * edge does not.
  */
 :where(.meridian-form__input) {
+  /* Named as a text box reads it, since a text box wears it on the scroller inside its frame. */
+  --meridian-text-box-padding: var(--meridian-space-1) var(--meridian-space-2);
   font: inherit;
   font-size: var(--meridian-text-sm);
-  padding: var(--meridian-space-1) var(--meridian-space-2);
+  padding: var(--meridian-text-box-padding);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface);
   color: var(--meridian-text);
 }
 
-/* What a field asks for, when the field draws no label of its own. */
-:where(.meridian-form__input)::placeholder {
+/*
+ * What a field asks for, when the field draws no label of its own: on the input, or on the text
+ * area a scrolling box holds, which carries `meridian-form__text-area` beside its own class.
+ */
+:where(.meridian-form__input, .meridian-form__text-area)::placeholder {
   color: var(--meridian-text-faint);
 }
 
-/* Closed, it sinks with its text faded, as the raised action button does. */
-:where(.meridian-form__input:disabled) {
+/*
+ * Closed, it sinks with its text faded, as the raised action button does; a box sinks with the
+ * text area it holds.
+ */
+:where(
+  .meridian-form__input:disabled,
+  .meridian-form__input:has(.meridian-form__text-area:disabled)
+) {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;

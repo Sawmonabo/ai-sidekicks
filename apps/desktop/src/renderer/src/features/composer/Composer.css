@@ -4,6 +4,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
+  /* Shorter than its parts on a short window, where the open command list gives way. */
+  min-height: 0;
   padding: var(--meridian-space-3);
   background: var(--meridian-surface-raised);
   border-top: 1px solid var(--meridian-edge);
@@ -21,18 +23,25 @@
   border-radius: var(--meridian-radius-md);
 }
 
-/* Grows to the row cap in `bounds.ts`, then scrolls inside its own box. */
+/*
+ * Grows to the row cap in `bounds.ts` or a third of the conversation's visible height, whichever
+ * is smaller, then scrolls inside its own box: a short window keeps the conversation its room. The
+ * conversation's pane row and the composer share the session screen's flow height, so the row is
+ * that height less the composer's chrome and the draft; a draft a third of what remains is a
+ * quarter of the flow less the chrome. Until the screen and the composer have measured themselves,
+ * the row cap holds alone.
+ */
 .meridian-composer__line {
-  width: 100%;
-  min-height: calc(var(--meridian-space-5) + var(--meridian-space-2));
-  padding: var(--meridian-space-2);
+  --meridian-text-box-height-cap: calc(
+    (var(--meridian-session-flow-height) - var(--meridian-composer-chrome-height)) / 4
+  );
+  --meridian-text-box-padding: var(--meridian-space-2);
   color: var(--meridian-text);
   font: inherit;
   font-family: var(--meridian-font-sans);
   background: var(--meridian-ground);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
-  resize: none;
 }
 
 /* Focus marks the whole card; the message box draws none of its own. */
@@ -40,11 +49,11 @@
   border-color: var(--meridian-edge-strong);
 }
 
-.meridian-composer__line:focus {
+.meridian-composer__line:focus-within {
   outline: none;
 }
 
-.meridian-composer__line[readonly] {
+.meridian-composer__line:has([readonly]) {
   color: var(--meridian-text-muted);
   background: var(--meridian-surface-sunken);
 }

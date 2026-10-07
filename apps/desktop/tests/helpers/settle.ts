@@ -1,4 +1,5 @@
-// The one act-wrapped settle, and the one derived debounce bound.
+// The one act-wrapped settle, the one act-wrapped wait for an assertion, and the one derived
+// debounce bound.
 //
 // The settle waits on a boundary, not a counted number of microtask passes: a hard-coded count is
 // tuned to one case's promise chain, and when a reply grows one link deeper the case stops waiting
@@ -23,6 +24,17 @@ export async function settle(advance?: () => void): Promise<void> {
   await act(async () => {
     advance?.();
     await crossMacrotaskBoundary();
+  });
+}
+
+/**
+ * Wait inside `act` until `assertion` holds, so the state the app settles while it waits (its own
+ * reads, a `transitionend`, a bar starting) is flushed by React, not reported as an update outside
+ * `act`.
+ */
+export async function untilInsideAct(assertion: () => PromiseLike<void>): Promise<void> {
+  await act(async () => {
+    await assertion();
   });
 }
 

@@ -1,6 +1,6 @@
 // The dev-tier perf meters: frame time per feed, reveal drain per frame, apply latency and store
-// size. Only frame time has a budget row (`tests/budget/document.json`, p95 <= 16.7 ms); the other
-// three are ways of spending that p95 which the p95 alone does not show.
+// size. Only frame time has a budget row (`tests/budget/document.json`, a p95 within one refresh);
+// the other three are ways of spending that p95 which the p95 alone does not show.
 //
 // Compiled out of built bundles rather than gated at runtime: each recording entry point is an
 // `if (import.meta.env.DEV)` body, which Vite replaces with a literal, so the registry is

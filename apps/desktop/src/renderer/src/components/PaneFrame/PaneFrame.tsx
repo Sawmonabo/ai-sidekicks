@@ -10,7 +10,9 @@ import "./PaneFrame.css";
 
 import { useId } from "react";
 
+import { CornerCaps, type CornerCapCorner } from "../CornerCaps/CornerCaps.js";
 import { Glyph } from "../Glyph/Glyph.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
@@ -51,6 +53,9 @@ export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
  */
 const PANE_KIND_GLYPH_SIZE = GLYPH_DEFAULT_SIZE;
 
+/** The pane's bottom corners, which its body can reach; the head rounds the top ones itself. */
+const PANE_CORNER_CAPS: readonly CornerCapCorner[] = ["end-start", "end-end"];
+
 /** Props for `PaneFrame`: its kind, the address it is scoped to, and its body. */
 export interface PaneFrameProps {
   readonly kind: PaneKind;
@@ -85,6 +90,12 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
+  // The conversation draws no bar, its right edge being the ask rail's, so the transcript's body
+  // attaches none either.
+  const bodyScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>(undefined, {
+    start: "on-first-interaction",
+    isEnabled: props.kind !== "transcript",
+  });
 
   return (
     <section
@@ -118,7 +129,10 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
           )}
         </span>
       </header>
-      <div className="meridian-pane__body">{props.children}</div>
+      <div className="meridian-pane__body" ref={bodyScrollbarRef}>
+        {props.children}
+      </div>
+      <CornerCaps corners={PANE_CORNER_CAPS} />
     </section>
   );
 }

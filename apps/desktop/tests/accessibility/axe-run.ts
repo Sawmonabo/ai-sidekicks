@@ -31,12 +31,18 @@ export const AXE_TAGS: readonly string[] = [
 ];
 
 /**
- * Run the tier's rule set over one element and hand back what it found. Scoped to an element
- * so a page holding several mounted views does not blame one view for another's violation.
+ * Run the tier's rule set over one element and hand back what it found, with the rules in
+ * `alsoRun` added for a case that needs one outside the set. Scoped to an element so a page
+ * holding several mounted views does not blame one view for another's violation.
  */
-export async function runTierAxe(element: Element): Promise<readonly Result[]> {
+export async function runTierAxe(
+  element: Element,
+  alsoRun: readonly string[] = [],
+): Promise<readonly Result[]> {
   const results = await axeOf(element).run(element, {
     runOnly: { type: "tag", values: [...AXE_TAGS] },
+    // A rule enabled by name runs beside the tags; axe reads `enabled` before it matches tags.
+    rules: Object.fromEntries(alsoRun.map((ruleId) => [ruleId, { enabled: true }])),
   });
   // Copied into this window's array: another window's axe answers in that window's, which a strict
   // comparison here would tell apart from an equal one.
