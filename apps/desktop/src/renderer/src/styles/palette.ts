@@ -184,7 +184,8 @@ export const ATTENTION_TOKENS: Readonly<Record<string, ThemedColor>> = {
  * here rather than in the transcript's sheet so they are fitted into the sRGB gamut and measured
  * against their ground like every other color. A separate record from `ATTENTION_TOKENS`, since
  * the two-hue rule governs what the app colors for attention and a keyword is not one.
- * Painted on `surface-sunken` alone, the ground the contrast check measures them against.
+ * As text they paint on `surface-sunken`, where the contrast check holds them to 4.5:1; three of
+ * them also mark tool rows on every neutral ground through `TOOL_HUE_ALIASES`, held there to 3:1.
  */
 export const CODE_TOKENS: Readonly<Record<string, ThemedColor>> = {
   "code-keyword": {
@@ -355,11 +356,14 @@ export const SPACE_SCALE_REM: Readonly<Record<string, number>> = {
   "space-8": 3,
 };
 
-/** Corner radii, in rem. Chrome is nearly square; only overlays round. */
-export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
-  "radius-sm": 0.1875,
-  "radius-md": 0.375,
-  "radius-lg": 0.625,
+/**
+ * Corner radii, in px. Chrome is nearly square; only overlays round. A radius is drawn, like a
+ * hairline or a glyph stroke, so it stays as drawn when `Text size` grows the chrome around it.
+ */
+export const RADIUS_SCALE_PX: Readonly<Record<string, number>> = {
+  "radius-sm": 3,
+  "radius-md": 6,
+  "radius-lg": 10,
 };
 
 /**
@@ -379,15 +383,15 @@ export const RAIL_WIDTH_REM: number =
   RAIL_BUTTON_SIZE_REM + 2 * scaleStep(SPACE_SCALE_REM, "space-2");
 
 /**
- * One step of a rem scale, such as `SPACE_SCALE_REM` or `TYPE_SCALE_REM`. Throws on an unknown
- * step so a typo cannot become `NaNrem`, which the browser discards silently.
+ * One step of a scale, in the scale's own unit, such as `SPACE_SCALE_REM` or `RADIUS_SCALE_PX`.
+ * Throws on an unknown step so a typo cannot become `NaNrem`, which the browser discards silently.
  */
 export function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
-  const sizeRem = scale[stepName];
-  if (sizeRem === undefined) {
+  const size = scale[stepName];
+  if (size === undefined) {
     throw new RangeError(`unknown Meridian scale step ${stepName}`);
   }
-  return sizeRem;
+  return size;
 }
 
 /**
@@ -421,10 +425,17 @@ export const TRANSCRIPT_ROW_GAP_REM: number =
 export const SESSIONS_TRACK_WIDTH_REM = 18.75;
 
 /**
- * The inspector side pane's width, in rem: as wide as its widest label and value pair reads,
- * 324 px at the default text size.
+ * The inspector's width, in rem: as wide as its widest label and value pair reads, 324 px at the
+ * default text size. The pair's parts have no measure of their own, so the width is that figure,
+ * root-relative so it holds the same pair at every text size; a longer value truncates inside it.
  */
-export const SIDE_PANE_WIDTH_REM = 20.25;
+export const INSPECTOR_WIDTH_REM = 20.25;
+
+/**
+ * The agents pane's width, in rem: as wide as its widest agent row reads, 440 px at the default
+ * text size, root-relative like the inspector's. The pane is not resizable.
+ */
+export const AGENTS_PANE_WIDTH_REM = 27.5;
 
 /** The gutter either side of a transcript row's column, in rem: 36 px at the default text size. */
 export const ROW_GUTTER_REM = 2.25;

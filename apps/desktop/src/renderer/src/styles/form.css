@@ -21,7 +21,7 @@
  * faint, so the value under or beside it is what the eye lands on.
  */
 :where(.meridian-form__label) {
-  font-size: var(--meridian-text-2xs);
+  font-size: var(--meridian-text-10);
   letter-spacing: var(--meridian-tracking-label);
   text-transform: uppercase;
   color: var(--meridian-text-faint);

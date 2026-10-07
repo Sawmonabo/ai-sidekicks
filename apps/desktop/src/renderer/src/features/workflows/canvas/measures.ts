@@ -4,7 +4,7 @@
 // draws workflow nodes sets them on its own element, and its sheet reads them from there.
 
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
-import { RADIUS_SCALE_REM, SPACE_SCALE_REM, scaleStep } from "#renderer/styles/palette.js";
+import { RADIUS_SCALE_PX, SPACE_SCALE_REM, scaleStep } from "#renderer/styles/palette.js";
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 
 /**
@@ -36,7 +36,7 @@ export const WORKFLOW_CANVAS_MEASURES: React.CSSProperties = {
   "--meridian-workflow-canvas-space-1": canvasLength(SPACE_SCALE_REM, "space-1"),
   "--meridian-workflow-canvas-space-2": canvasLength(SPACE_SCALE_REM, "space-2"),
   "--meridian-workflow-canvas-space-3": canvasLength(SPACE_SCALE_REM, "space-3"),
-  "--meridian-workflow-canvas-radius-sm": canvasLength(RADIUS_SCALE_REM, "radius-sm"),
+  "--meridian-workflow-canvas-radius-sm": `${String(scaleStep(RADIUS_SCALE_PX, "radius-sm"))}px`,
   "--meridian-workflow-canvas-ring": `${String(NODE_RING_WIDTH)}px`,
 } as React.CSSProperties;
 

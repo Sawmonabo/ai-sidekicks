@@ -199,3 +199,12 @@ describe("the contrast check", () => {
     }
   });
 });
+
+describe("the value check", () => {
+  it("names each token whose value belongs to another rendering", () => {
+    applyRendering({ theme: "graphite", scheme: "dark" });
+    expect(findForeignValues({ theme: "meridian", scheme: "light" })).toContainEqual(
+      expect.stringMatching(/^meridian light: ground is oklch\(.+\), not oklch\(.+\)$/),
+    );
+  });
+});

@@ -6,7 +6,7 @@
 
 .meridian-workflow-run__eyebrow {
   display: block;
-  font-size: var(--meridian-text-2xs);
+  font-size: var(--meridian-text-10);
   font-weight: 600;
   letter-spacing: var(--meridian-tracking-label);
   text-transform: uppercase;

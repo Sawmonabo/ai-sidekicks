@@ -1,6 +1,6 @@
 // Generator for the token stylesheet. `app/token-installation.ts` writes its output into the
-// document head before first paint. There is no committed copy, so the palette has one record and
-// the contrast test measures the same tables this emits.
+// document head before first paint. There is no committed copy, so the palette has one record, and
+// the contrast check reads what the page paints from this sheet in each of the four renderings.
 //
 // The cascade has three layers, in this order, each declaring Meridian's palette and then
 // Graphite's under `[data-theme="graphite"]`:
@@ -34,13 +34,14 @@ import {
   LEADING_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
   GLASS_OPACITY_PERCENT,
-  RADIUS_SCALE_REM,
+  RADIUS_SCALE_PX,
   RAIL_BUTTON_SIZE_REM,
   RAIL_WIDTH_REM,
   REFLOW_MIN_WIDTH_PX,
   ROW_GUTTER_REM,
   SESSIONS_TRACK_WIDTH_REM,
-  SIDE_PANE_WIDTH_REM,
+  INSPECTOR_WIDTH_REM,
+  AGENTS_PANE_WIDTH_REM,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
   TOOL_HUE_ALIASES,
@@ -255,14 +256,18 @@ function invariantBlock(): string {
   for (const [tokenName, sizeRem] of Object.entries(SPACE_SCALE_REM)) {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
-  for (const [tokenName, sizeRem] of Object.entries(RADIUS_SCALE_REM)) {
-    lines.push(declaration(tokenName, `${sizeRem}rem`));
+  for (const [tokenName, sizePx] of Object.entries(RADIUS_SCALE_PX)) {
+    lines.push(declaration(tokenName, `${sizePx}px`));
   }
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
   lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
   lines.push(declaration("sessions-track-width", `${SESSIONS_TRACK_WIDTH_REM}rem`));
-  lines.push(declaration("side-pane-width", `${SIDE_PANE_WIDTH_REM}rem`));
+  lines.push(declaration("inspector-width", `${INSPECTOR_WIDTH_REM}rem`));
+  lines.push(declaration("agents-pane-width", `${AGENTS_PANE_WIDTH_REM}rem`));
+  // The terminal opens on a third of its pane block's height; the percentage resolves against the
+  // block that reads the token, which must have a definite height.
+  lines.push(declaration("terminal-height", "calc(100% / 3)"));
   lines.push(declaration("row-gutter", `${ROW_GUTTER_REM}rem`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   lines.push(declaration("transcript-row-gap", `${TRANSCRIPT_ROW_GAP_REM}rem`));

@@ -28,14 +28,14 @@ export const READING_LINE_HEIGHT = 1.65;
  * same baseline. Its named steps are `text-xs` to `text-xl`, 11, 13, 14, 16 and 20 px at the
  * default root; the steps named for their size are the other sizes the screens set, each named
  * by its pixels at the default root (`text-12-5` is 12.5 px). A size the named steps already hold
- * takes no second name, so `text-2xs` is the only 10 px step.
+ * takes no second name, so there is no `text-11`, `text-13`, `text-14`, `text-16` or `text-20`.
  */
 export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
   "text-8-5": 0.53125,
   "text-9": 0.5625,
   "text-9-5": 0.59375,
   /** 10 px at the default root: the uppercase field label's size. */
-  "text-2xs": 0.625,
+  "text-10": 0.625,
   "text-10-5": 0.65625,
   "text-xs": 0.6875,
   "text-11-5": 0.71875,
