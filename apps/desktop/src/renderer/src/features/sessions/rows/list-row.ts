@@ -9,8 +9,8 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 const DELETING_SESSION_STATE: SessionState = "purge_requested";
 
 /**
- * One row. `state` is the wire's own string, rendered verbatim. A row is titled from what the
- * daemon's list carries and never by an invented title.
+ * One row. `state` is the wire's own string, read as words on the row. A row is titled from what
+ * the daemon's list carries and never by an invented title.
  */
 export interface SessionListRow {
   readonly sessionId: string;
@@ -23,7 +23,7 @@ export interface SessionListRow {
   readonly firstMessagePreview: string | undefined;
   /** The session's shape as the list carries it, or `undefined` for a row the list lacks. */
   readonly shape: SessionShape | undefined;
-  /** Wire-verbatim lifecycle state, or `undefined` where the wire named none. */
+  /** The wire's lifecycle state, or `undefined` where the wire named none. */
   readonly state: string | undefined;
   /** ISO-8601 of the newest event that touched the session, wire-verbatim. */
   readonly touchedAtIso: string | undefined;
