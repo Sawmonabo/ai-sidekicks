@@ -116,7 +116,7 @@ The builder refuses these at **edit time** — a connection that would produce o
 5. **Any edge whose target is the trigger node.**
 6. **An edge out of a terminal kind** — a terminal kind ends the run, and an outgoing edge would assert a successor the engine will never reach.
 7. **A `tool` edge into a node that has no `tool` input.**
-8. **An orphan node** — one not reachable from the trigger by `main` edges — and **a document with no nodes**, or with no trigger or more than one.
+8. **An orphan node** — one reached neither by `main` edges from the trigger nor by its `tool` edge into a reached node — and **a document with no nodes**, or with no trigger or more than one.
 
 A refusal during a drag is shown as a red connection line plus a one-line reason in the validation strip — never a toast, and never an edge that is created and then removed.
 

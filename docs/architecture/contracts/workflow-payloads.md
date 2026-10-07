@@ -200,7 +200,15 @@ interface WorkflowRunStartResponse {
 interface WorkflowRunReadRequest {
   workflowRunId: WorkflowRunId;
 }
-interface WorkflowRunReadResponse {
+// One workflow run as its row records it; the run read and the runs table's row are built from it.
+// `state` is the status list, and nothing else is displayed: a run is new, running, waiting on a person
+// or a provider, succeeded, failed, canceled or crashed. A gated run is `waiting`, which is the one
+// status never swept on a daemon start and never pruned, so a run parked on a person survives a
+// restart. The stored status CHECK is in lockstep with this union. `endedAt` is present exactly once
+// the run has ended. A `failed` run parked on its failed step has not ended and carries none, which is
+// how the header tells it from a failed run that ended: `Cancel` and `Resume` act on the first and
+// refuse on the second.
+type WorkflowRun = {
   workflowRunId: WorkflowRunId;
   // The session the run lives in: the chat that started it, the one session the workflow owns for a run
   // nobody started from a chat, or, for a sub-workflow child, its parent's.
@@ -209,11 +217,25 @@ interface WorkflowRunReadResponse {
   // opens, because it pins its version.
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
-  // The status list, and nothing else is displayed: a run is new, running, waiting on a person or a
-  // provider, succeeded, failed, canceled or crashed. A gated run is `waiting`, which is the one status
-  // never swept on a daemon start and never pruned, so a run parked on a person survives a restart. The
-  // stored status CHECK is in lockstep with this union.
-  state: WorkflowRunStatus;
+  // How the run was started and by whom, which the run row and the run header both read. `startedBy`
+  // carries the message anchor on a chat-borne start, which is how a run links back to the message that
+  // started it. `triggerKind` is the kind of trigger node that started it, which the header's trigger
+  // fact reads.
+  mode: WorkflowRunMode;
+  triggerKind: WorkflowTriggerKind;
+  startedBy: WorkflowStartedBy;
+  // Whether the person marked the run Keep, which `workflow.runsDelete` leaves untouched.
+  keep: boolean;
+  failureReason?: string; // preserved on any bound breach (SA-1, SA-2); also carries
+  // the cancellation reason when `state` is `canceled`, mirroring the
+  // `workflow_runs.failure_reason` / `failure_detail` split
+  startedAt: string;
+} & (
+  | { state: "new" | "running" | "waiting" }
+  | { state: "failed"; endedAt?: string }
+  | { state: "succeeded" | "canceled" | "crashed"; endedAt: string }
+);
+type WorkflowRunReadResponse = WorkflowRun & {
   // The step array, one entry per execution of one node, each carrying its input, output and log
   // refs. It is the record a run page draws its graph and its step panel from: the graph is the
   // workflow's OWN canvas, read-only, every node in the place the builder put it and colored by
@@ -222,13 +244,6 @@ interface WorkflowRunReadResponse {
   // run waits, per branch, with no rebuild from the transcript (Spec-015 §Park surfacing on the read model).
   // A `waiting` run always carries at least one `waiting` step: a run waits only while a step does.
   steps: WorkflowStep[];
-  // How the run was started and by whom, which the run row and the run header both read. `startedBy`
-  // carries the message anchor on a chat-borne start, which is how a run links back to the message that
-  // started it. `triggerKind` is the kind of trigger node that started it, which the header's trigger
-  // fact reads.
-  mode: WorkflowRunMode;
-  triggerKind: WorkflowTriggerKind;
-  startedBy: WorkflowStartedBy;
   // The first run of this run's chain; its own id for a first run. A run started by an Execute workflow
   // step, by an error trigger, or by a session-event or file-watch trigger on something a run of a chain
   // did joins that chain, and the header names the chain's first run only when `chainRoot.runId` is not
@@ -247,19 +262,9 @@ interface WorkflowRunReadResponse {
   // `None` run, which has no Review. It decides whether `Open in Review` opens
   // what the run changed.
   executionContextCaptured: boolean;
-  // Whether the person marked the run Keep, which `workflow.runsDelete` leaves untouched.
-  keep: boolean;
   // The session a failed step's `Fix in a fresh session` opened, which the header links to for the life
   // of the run.
   fixSessionId?: SessionId;
-  failureReason?: string; // preserved on any bound breach (SA-1, SA-2); also carries
-  // the cancellation reason when `state` is `canceled`, mirroring the
-  // `workflow_runs.failure_reason` / `failure_detail` split
-  startedAt: string;
-  // Present exactly once the run has ended. A `failed` run parked on its failed step has not ended and
-  // carries none, which is how the header tells it from a failed run that ended: `Cancel` and `Resume`
-  // act on the first and refuse on the second.
-  endedAt?: string;
   // Summed from the steps' stored amounts and rounded once; absent where no provider was billed.
   cost?: WorkflowCost;
   // Present only on a `new`, `running` or `waiting` run: the live step's place in the run (1-based,
@@ -280,7 +285,7 @@ interface WorkflowRunReadResponse {
   chainQuestion?:
     | { state: "open" }
     | { state: "answered"; decision: ApprovalDecision; runCount: number; answeredAt: string };
-}
+};
 
 // WorkflowRunCancel — workflow.runCancel. It is the named producer of the `canceled` run
 // status and the reachable caller of Plan-014 T5.20's engine
@@ -335,7 +340,7 @@ interface WorkflowRunResumeRequest {
     targetWorkflowVersionId: string;
   };
 }
-interface WorkflowRunResumeResponse {
+type WorkflowRunResumeResponse = {
   workflowRunId: WorkflowRunId;
   // `running` in the ordinary case. `waiting` where the engine immediately
   // re-parked — an SA-37 usage-limit park whose account is still spent re-parks on
@@ -345,12 +350,13 @@ interface WorkflowRunResumeResponse {
   // and needs no override flag: the machine's own schedule was advisory pacing, and
   // the worst case is one observable re-park.
   state: "running" | "waiting";
-  // Present only on an ACCEPTED re-pin, and then both: the version the run left and the
-  // one it joined — the same pair the audited workflow.resumed payload carries, so the
-  // projected run row stays a function of the log.
-  repinnedFromWorkflowVersionId?: string;
-  repinnedToWorkflowVersionId?: string;
-}
+} & WorkflowVersionRepin;
+// Present only on an ACCEPTED re-pin, and then both: the version the run left and the
+// one it joined — the same pair the audited workflow.resumed payload carries, so the
+// projected run row stays a function of the log.
+type WorkflowVersionRepin =
+  | { repinnedFromWorkflowVersionId?: undefined; repinnedToWorkflowVersionId?: undefined }
+  | { repinnedFromWorkflowVersionId: string; repinnedToWorkflowVersionId: string };
 
 // WorkflowStepOutputList — workflow.stepOutputList. A run's step outputs for a caller outside the run
 // page — the CLI or an SDK — and only the agent and human steps' output summaries and artifact
@@ -394,6 +400,24 @@ interface WorkflowGateResolveResponse {
   // When the answer was recorded, which the step panel's past-tense receipt reads.
   decidedAt: string;
 }
+// What a gate is: a `human.approval` step's question, or the question a chain's first run asks once the
+// chain has started as many runs as the person allows.
+type WorkflowGateKind = "human.approval" | "chain";
+// One answer to a gate of a run, as its append-only workflow_gate_resolutions row holds it: answers are
+// never rewritten, and `sequence` counts the run's answers from 1. An approval step's answer names the
+// step's node; a chain's question belongs to the run and names none.
+type WorkflowGateResolution = {
+  gateResolutionId: string; // the id the workflow.gate_resolved event names
+  workflowRunId: WorkflowRunId;
+  sequence: number;
+  approvalCategory?: ApprovalCategory; // where the approval request carries one
+  approvalRequestId: ApprovalRequestId; // the approval request the answer answered
+  outcome: ApprovalDecision;
+  deviceId: DeviceId; // the device that answered
+  resolvedAt: string;
+  // What the answer was given about: its scope, the resource and the reason text.
+  decisionContext: Record<string, unknown>;
+} & ({ gateKind: "human.approval"; nodeId: WorkflowNodeId } | { gateKind: "chain" });
 
 // WorkflowHumanFormDraftSave — workflow.humanFormDraftSave.
 // Ships at V1: the form kind activates it. Each save writes the daemon-held draft
@@ -501,14 +525,12 @@ interface WorkflowTriggerEventPayload {
 // reconstructs where the run picked up without rebuilding from its whole history, plus the version pair on an
 // accepted frozen-definition repair and only then: the same pair WorkflowRunResumeResponse carries, so
 // the projected run row stays a function of the log (Spec-015 §Frozen-definition repair (SA-38)).
-interface WorkflowResumedPayload extends WorkflowRunEventPayload {
+type WorkflowResumedPayload = WorkflowRunEventPayload & {
   resumptionPoint: {
     activeSteps: Array<{ nodeId: WorkflowNodeId; attempt: number; executionIndex: number }>;
     pendingGates: WorkflowNodeId[];
   };
-  repinnedFromWorkflowVersionId?: string;
-  repinnedToWorkflowVersionId?: string;
-}
+} & WorkflowVersionRepin;
 // workflow.canceled — appended in the same unit of work as the status write, so a projection
 // rebuild cannot apply the last suspension again and resurrect a canceled run. `reason` is the person's own,
 // present when one was given and bounded as the cancel request's is; a chain's `Stop them all`
@@ -521,14 +543,15 @@ interface WorkflowCanceledPayload extends WorkflowRunEventPayload {
 interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {
   cancellationReason: "sibling_failure" | null;
 }
-// workflow.phase_suspended — a step started waiting: its `waitCause`, the durable resume instant where
-// the wait armed one, and, for an `account` wait, the spent account the attention read groups it under.
-// The deadline a `Timeout` arms is written on the step's row as truth and rides no event.
-interface WorkflowPhaseSuspendedPayload extends WorkflowStepEventPayload {
-  waitCause: WorkflowWaitCause;
-  resumeAt?: string; // RFC 3339 UTC — only on an account wait; absent, only the person resumes it
-  providerAccountId?: ProviderAccountId; // present exactly on an `account` wait
-}
+// workflow.phase_suspended — a step started waiting: its `waitCause` and, for an `account` wait, the
+// spent account the attention read groups it under and the durable resume instant where the wait armed
+// one; absent, only the person resumes it. A wait on anything else names neither. The deadline a
+// `Timeout` arms is written on the step's row as truth and rides no event.
+type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
+  (
+    | { waitCause: "account"; providerAccountId: ProviderAccountId; resumeAt?: string } // RFC 3339 UTC
+    | { waitCause: Exclude<WorkflowWaitCause, "account"> }
+  );
 // workflow.phase_waiting_on_pool — diagnostic, for a step the engine's one memory gate holds before it
 // starts (`waiting-memory`). Memory is the only real pool behind the gate: there is no step count and no
 // terminal slot pool, so the payload names no pool. It is emitted on entry to the held state and every

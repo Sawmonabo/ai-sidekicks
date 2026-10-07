@@ -28,7 +28,9 @@ interface WorkflowDocument {
   // Exactly one, and it is a node of the trigger family. A workflow with no trigger that can arm cannot
   // be enabled, which `workflow.enabledSet` in workflow-builder-and-runs-payloads.md refuses rather than accepting silently.
   trigger: WorkflowTriggerNode;
-  nodes: WorkflowNode[]; // every node except the trigger; node ids are unique across the document
+  // Every node except the trigger. A node id names one node: no two nodes, the trigger included,
+  // share one, and a parse refuses a repeat, naming it.
+  nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   layout?: WorkflowLayout;
   pinData?: Record<string, WorkflowPinnedItem[]>; // by node id
@@ -39,13 +41,15 @@ interface WorkflowDocument {
 }
 
 // The builder's unsaved document. It may not have its trigger yet: the builder opens on the trigger
-// picker, and a draft saved before one is placed still survives a reload.
+// picker, and a draft saved before one is placed still survives a reload. Its node ids are unique
+// as a saved document's are, the trigger's included where it has one.
 type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & { trigger?: WorkflowTriggerNode };
 
 // The trigger node, which alone declares the inputs a run starts with: each named and typed, carrying
 // the value it starts on, and marked required where a start must fill it. The Run now panel draws one
 // field per input (a checkbox for a boolean, a list for a select, a folder picker for a path, a box
-// otherwise), and `workflow.runStart`'s `input` carries what was filled in.
+// otherwise), and `workflow.runStart`'s `input` carries what was filled in. A start fills inputs by
+// name, so no two of a trigger's inputs share one.
 interface WorkflowTriggerNode extends WorkflowNode {
   inputs?: WorkflowTriggerInput[];
 }
@@ -53,7 +57,7 @@ type WorkflowTriggerInput = { name: string; required?: boolean } & (
   | { type: "boolean"; default: boolean }
   | { type: "string"; default: string }
   | { type: "path"; default: string }
-  | { type: "select"; default: string; options: string[] } // default is one of the options
+  | { type: "select"; default: string; options: [string, ...string[]] } // default is one of them
 );
 
 interface WorkflowNode {
@@ -65,6 +69,11 @@ interface WorkflowNode {
   kindVersion: number;
   name: string; // display label only; expressions address a node through its id, so a rename is metadata
   order: number; // sibling branch order, never geometry
+  // By the ids the kind's param specs list. A secret is a `secret://shared/<name>` or
+  // `secret://project/<name>` reference and stands only in a param the kind marks `sensitive`,
+  // where a value starting `secret://` must be a whole reference; a `secret://` value in any
+  // other param is refused at save (`secret_outside_sensitive_field`), and so is an expression
+  // naming one. A `secret` param holds the reference alone.
   params: Record<string, unknown>;
   disabled?: boolean;
   notes?: string;
