@@ -1,7 +1,8 @@
 // Converting a chat over a real database, real folders and real git: the chat's files land in the
 // repository without replacing any file it holds, the session keeps its id and transcript and reads
 // as a project of the new mount, a folder that cannot be attached is refused with nothing copied,
-// and no link is followed out of either folder.
+// no link is followed out of either folder, every file not copied is read back page by page with
+// its reason, and a convert retried with its key answers the conversion it made.
 
 import { execFileSync } from "node:child_process";
 import {
@@ -21,9 +22,17 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
-import type { SessionConvertedPayload } from "@ai-sidekicks/contracts/session/convert";
+import {
+  SessionConvertSkippedFileListResponseSchema,
+  type SessionConvertedPayload,
+  type SessionConvertSkippedFile,
+  type SessionConvertSkippedFileCursor,
+} from "@ai-sidekicks/contracts/session/convert";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
+
+import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { KeyedLock } from "../../keyed-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { WorkspaceEventEmitter } from "../../workspace/event-emitter.js";
@@ -31,8 +40,10 @@ import { ManagedWorkspaceService } from "../../workspace/managed/service.js";
 import { RepoMountService } from "../../workspace/repo/mount-service.js";
 import { WorkspaceService } from "../../workspace/service.js";
 import { SessionConversion } from "../convert.js";
-import { openSessionLog, type SessionLog } from "../directory/__fixtures__/session-log.js";
-import { SessionService } from "../service.js";
+import { openSessionLog, type SessionLog } from "../directory/__fixtures__/event-log.js";
+
+// More pages than any list here takes, so a cursor that never moves fails instead of hanging.
+const MAX_PAGES_READ = 50;
 
 let log: SessionLog;
 let scratch: string;
@@ -50,11 +61,7 @@ beforeEach(async () => {
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
   });
-  workspaces = new WorkspaceService({
-    database: log.scratch,
-    events: emitter,
-    sessions: new SessionService(log.scratch.reader),
-  });
+  workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
   managedWorkspaces = new ManagedWorkspaceService({
     homeDirectory: path.join(scratch, "home"),
     repoMounts: mounts,
@@ -121,6 +128,30 @@ function convert(sessionId: SessionId, typedPath: string, using: SessionConversi
   return using.convert({ sessionId, path: typedPath, clientIdempotencyKey: mintUuidV7() });
 }
 
+// Every file the session's conversion did not copy, read page by page with `limit`, each page
+// checked against the wire's schema; a cursor that never ends the list fails the read.
+function skippedFilesOf(sessionId: SessionId, limit?: number): SessionConvertSkippedFile[] {
+  const files: SessionConvertSkippedFile[] = [];
+  let afterCursor: SessionConvertSkippedFileCursor | undefined;
+  for (let pageCount = 0; pageCount < MAX_PAGES_READ; pageCount += 1) {
+    const page = SessionConvertSkippedFileListResponseSchema.parse(
+      conversion.listSkippedFiles({
+        sessionId,
+        ...(afterCursor === undefined ? {} : { afterCursor }),
+        ...(limit === undefined ? {} : { limit }),
+      }),
+    );
+    files.push(...page.files);
+    if (!page.hasMore) {
+      return files;
+    }
+    afterCursor = page.nextCursor;
+  }
+  throw new Error(
+    `The skipped files of ${sessionId} did not end within ${String(MAX_PAGES_READ)} pages`,
+  );
+}
+
 function sessionShape(sessionId: SessionId): string {
   return (
     log.scratch.reader.prepare("SELECT shape FROM sessions WHERE id = ?").get(sessionId) as {
@@ -172,7 +203,11 @@ describe("SessionConversion", () => {
 
     const response = await convert(sessionId, repository);
 
-    expect(response).toStrictEqual({ copiedCount: 2, skippedPaths: ["README.md"] });
+    const outcome = { copiedCount: 2, skippedCount: 1 };
+    expect(response).toStrictEqual(outcome);
+    expect(skippedFilesOf(sessionId)).toStrictEqual([
+      { path: "README.md", reason: "repository_has_file" },
+    ]);
     expect(await readFile(path.join(repository, "README.md"), "utf8")).toBe(
       "the repository's readme",
     );
@@ -187,12 +222,7 @@ describe("SessionConversion", () => {
     const converted = transcriptAfter.at(-1);
     expect(converted?.type).toBe("session.converted");
     const payload = JSON.parse(converted?.payload ?? "{}") as SessionConvertedPayload;
-    expect(payload).toStrictEqual({
-      sessionId,
-      repoMountId: payload.repoMountId,
-      copiedCount: 2,
-      skippedPaths: ["README.md"],
-    });
+    expect(payload).toStrictEqual({ sessionId, repoMountId: payload.repoMountId, ...outcome });
     expect(sessionShape(sessionId)).toBe("project");
     expect(projectOf(sessionId)).toBe(payload.repoMountId);
   });
@@ -221,7 +251,7 @@ describe("SessionConversion", () => {
     expect(eventsOf(sessionId)).toStrictEqual(transcriptBefore);
   });
 
-  it("follows no link out of the workspace or the repository", async () => {
+  it("follows no link out of the workspace or the repository, and names what it left", async () => {
     const sessionId = mintUuidV7() as SessionId;
     const workspace = await startChat(sessionId, {
       "docs/guide.md": "the guide",
@@ -231,6 +261,7 @@ describe("SessionConversion", () => {
     await writeFiles(outside, { "secret.txt": "secret", "folder/inner.txt": "inner" });
     await symlink(path.join(outside, "secret.txt"), path.join(workspace, "secret-link"));
     await symlink(path.join(outside, "folder"), path.join(workspace, "folder-link"));
+    execFileSync("mkfifo", [path.join(workspace, "pipe")]);
     const repository = await makeRepository("project", {});
     // The repository's own `docs` is a link out of it, so nothing is written through it.
     await symlink(outside, path.join(repository, "docs"));
@@ -239,7 +270,13 @@ describe("SessionConversion", () => {
 
     const response = await convert(sessionId, repository);
 
-    expect(response).toStrictEqual({ copiedCount: 1, skippedPaths: ["docs/guide.md"] });
+    expect(response).toStrictEqual({ copiedCount: 1, skippedCount: 4 });
+    expect(skippedFilesOf(sessionId)).toStrictEqual([
+      { path: "docs/guide.md", reason: "repository_path_not_a_folder" },
+      { path: "folder-link", reason: "link" },
+      { path: "pipe", reason: "special_file" },
+      { path: "secret-link", reason: "link" },
+    ]);
     expect((await readdir(repository)).sort()).toStrictEqual([".git", "docs", "plan.md"]);
     expect((await readdir(outside)).sort()).toStrictEqual(["folder", "secret.txt"]);
     expect(projectOf(sessionId)).toBe(existing.repoMountId);
@@ -279,12 +316,135 @@ describe("SessionConversion", () => {
     const transcriptBefore = eventsOf(sessionId);
 
     await expect(convert(sessionId, repository, failingBind)).rejects.toMatchObject({
-      name: "SessionConversionIncompleteError",
-      copiedCount: 1,
-      skippedPaths: [],
-      isBound: false,
+      code: "session.convert_incomplete",
+      detail: { sessionId, copiedCount: 1, skippedCount: 0, isBound: false },
     });
     expect(sessionShape(sessionId)).toBe("chat");
     expect(eventsOf(sessionId)).toStrictEqual(transcriptBefore);
+  });
+
+  it("reads back every file it left exactly once, in path order, over many pages", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    const clashing = Object.fromEntries(
+      Array.from({ length: 7 }, (_, index) => [`notes/${String(index)}.md`, "the chat's"]),
+    );
+    await startChat(sessionId, clashing);
+    const repository = await makeRepository("project", clashing);
+
+    const response = await convert(sessionId, repository);
+
+    expect(response).toStrictEqual({ copiedCount: 0, skippedCount: 7 });
+    expect(skippedFilesOf(sessionId, 2)).toStrictEqual(
+      Object.keys(clashing)
+        .sort()
+        .map((path) => ({ path, reason: "repository_has_file" })),
+    );
+  });
+
+  it("cuts a page of long paths at the page budget and still reads every one", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await log.createSession(sessionId, "project");
+    // Paths at the wire's bound in three-byte characters, so far fewer than a page's count fit.
+    const paths = Array.from(
+      { length: 120 },
+      (_, index) => `${String(index).padStart(3, "0")}/${"語".repeat(FILE_PATH_MAX_LEN - 4)}`,
+    );
+    await log.scratch.writer.write([
+      {
+        sql: `INSERT INTO session_convert_skipped_files (session_id, path, reason)
+              SELECT ?, value, 'link' FROM json_each(?)`,
+        bindings: [sessionId, JSON.stringify(paths)],
+      },
+    ]);
+
+    const firstPage = conversion.listSkippedFiles({ sessionId });
+
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.files.length).toBeLessThan(paths.length);
+    expect(skippedFilesOf(sessionId).map((file) => file.path)).toStrictEqual(paths);
+  });
+
+  it("answers a retried convert with the conversion its key made, copying nothing", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "README.md": "the chat's", "plan.md": "the plan" });
+    const repository = await makeRepository("project", { "README.md": "the repository's" });
+    const request = { sessionId, path: repository, clientIdempotencyKey: mintUuidV7() };
+
+    const first = await conversion.convert(request);
+    await rm(path.join(repository, "plan.md"));
+    const eventsBefore = eventsOf(sessionId);
+    const retried = await conversion.convert(request);
+
+    expect(retried).toStrictEqual(first);
+    expect(first).toStrictEqual({ copiedCount: 1, skippedCount: 1 });
+    expect(eventsOf(sessionId)).toStrictEqual(eventsBefore);
+    expect((await readdir(repository)).sort()).toStrictEqual([".git", "README.md"]);
+    // Another key is another request, and a project does not convert.
+    await expect(convert(sessionId, repository)).rejects.toMatchObject({
+      code: "session.convert_refused",
+    });
+  });
+
+  it("converts one of two chats sent at once with one key, refusing the other with nothing attached", async () => {
+    const firstChatId = mintUuidV7() as SessionId;
+    await startChat(firstChatId, { "plan.md": "the plan" });
+    const secondChatId = mintUuidV7() as SessionId;
+    await startChat(secondChatId, { "notes.md": "notes" });
+    const firstRepository = await makeRepository("first", {});
+    const secondRepository = await makeRepository("second", {});
+    const secondChatEvents = eventsOf(secondChatId);
+    const clientIdempotencyKey = mintUuidV7();
+
+    const [first, second] = await Promise.allSettled([
+      conversion.convert({ sessionId: firstChatId, path: firstRepository, clientIdempotencyKey }),
+      conversion.convert({ sessionId: secondChatId, path: secondRepository, clientIdempotencyKey }),
+    ]);
+
+    expect(first).toStrictEqual({
+      status: "fulfilled",
+      value: { copiedCount: 1, skippedCount: 0 },
+    });
+    expect(second).toMatchObject({
+      status: "rejected",
+      reason: {
+        code: "session.convert_refused",
+        detail: { sessionId: secondChatId, reason: "idempotency_key_reused" },
+      },
+    });
+    expect(attachedMountCount()).toBe(1);
+    expect(await readdir(secondRepository)).toStrictEqual([".git"]);
+    expect(sessionShape(secondChatId)).toBe("chat");
+    expect(eventsOf(secondChatId)).toStrictEqual(secondChatEvents);
+  });
+
+  it("refuses the skipped files of a session it holds no row for", () => {
+    expect(() => conversion.listSkippedFiles({ sessionId: mintUuidV7() as SessionId })).toThrow(
+      SessionNotFoundError,
+    );
+  });
+
+  it("refuses a chat with no managed workspace, and one being purged, with nothing attached", async () => {
+    const bareChatId = mintUuidV7() as SessionId;
+    await log.createSession(bareChatId, "chat");
+    const purgingId = mintUuidV7() as SessionId;
+    await startChat(purgingId, { "plan.md": "plan" });
+    await log.scratch.writer.write([
+      {
+        sql: "UPDATE sessions SET state = 'purge_requested' WHERE id = ?",
+        bindings: [purgingId],
+        expectedRowCount: 1,
+      },
+    ]);
+    const repository = await makeRepository("project", {});
+
+    await expect(convert(bareChatId, repository)).rejects.toMatchObject({
+      code: "session.convert_refused",
+      detail: { reason: "no_managed_workspace" },
+    });
+    await expect(convert(purgingId, repository)).rejects.toMatchObject({
+      code: "session.change_refused",
+    });
+    expect(attachedMountCount()).toBe(0);
+    expect(await readdir(repository)).toStrictEqual([".git"]);
   });
 });

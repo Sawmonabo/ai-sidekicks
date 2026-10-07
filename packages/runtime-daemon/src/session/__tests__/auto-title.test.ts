@@ -8,7 +8,10 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { SessionAutoTitle } from "../auto-title.js";
 import { SessionChanges } from "../changes.js";
-import { openSessionChangesHarness, type SessionChangesHarness } from "./changes.test-support.js";
+import {
+  openSessionChangesHarness,
+  type SessionChangesHarness,
+} from "../__fixtures__/changes-harness.js";
 
 const SESSION_ID = "0190fa20-3c4d-7e5f-8a6b-7c8d9e0f1a01" as SessionId;
 const RUN_ID = "0190fa20-3c4d-7e5f-8a6b-7c8d9e0f1b01";

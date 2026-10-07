@@ -43,6 +43,7 @@ function buildSessionLogRead(): SessionLogRead {
       pendingWorkingFolder: null,
       createdAt: "2026-01-22T19:14:35.000Z",
       updatedAt: "2026-01-22T19:14:35.000Z",
+      tags: [],
     },
     transcriptCursors: {
       earliest: encodeEventCursor(START_OF_LOG_POSITION),

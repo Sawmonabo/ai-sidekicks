@@ -129,7 +129,7 @@ afterEach(async () => {
 // ----------------------------------------------------------------------------
 
 describe("SessionService — readSession", () => {
-  it("answers the session's row with the start of the log as earliest and its head as latest", async () => {
+  it("answers the session's row and tags, the start of the log as earliest and its head as latest", async () => {
     const events = new EventLogService({
       writer: ctx.connections.writer,
       reader: ctx.connections.reader,
@@ -157,6 +157,13 @@ describe("SessionService — readSession", () => {
       payload: { sessionId: SESSION_ID, at: "2026-04-27T12:05:00.000Z" },
       version,
     });
+    await ctx.connections.writer.write([
+      {
+        sql: `INSERT INTO session_tags (session_id, tag, tag_folded)
+              VALUES (?, 'billing', 'billing'), (?, 'Alpha/Refunds', 'alpha/refunds')`,
+        bindings: [SESSION_ID, SESSION_ID],
+      },
+    ]);
 
     expect(ctx.service.readSession({ sessionId: SESSION_ID })).toStrictEqual({
       session: {
@@ -167,6 +174,7 @@ describe("SessionService — readSession", () => {
         pendingWorkingFolder: null,
         createdAt: created.occurredAt,
         updatedAt: "2026-04-27T12:05:00.000Z",
+        tags: ["Alpha/Refunds", "billing"],
       },
       transcriptCursors: {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),

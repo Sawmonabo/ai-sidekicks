@@ -1,7 +1,8 @@
 // The changes a person makes to one session: rename, archive, reactivate, close, pin and mute.
 // Each reads the session's facts, decides, and appends its event with a guard that those facts
 // still hold, so a change that raced another is decided again on what landed. A change that finds
-// the session already as it asks appends nothing.
+// the session already as it asks appends nothing; a closed session, or one being purged, takes no
+// change.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -10,16 +11,19 @@ import {
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
   SessionLifecycleChangePayload,
   SessionMarkChangePayload,
   SessionRenamedPayload,
 } from "@ai-sidekicks/contracts/session/events";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type {
-  SessionRenameRequest,
-  SessionRenameResponse,
-  SessionState,
+import {
+  SESSION_CHANGE_REFUSED_CODE,
+  type SessionRenameRequest,
+  type SessionRenameResponse,
+  type SessionState,
 } from "@ai-sidekicks/contracts/session/methods";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
@@ -29,6 +33,7 @@ import type { EventLogService } from "../events/log-service.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { KeyedLock } from "../keyed-lock.js";
+import type { ProviderDriver } from "../provider/driver/contract.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
 import type { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import { mintUuidV7 } from "../uuid-v7.js";
@@ -85,12 +90,14 @@ export interface SessionChangesDeps {
 
 /**
  * Renames, archives, reactivates, closes, pins and mutes sessions. A session that does not exist
- * is refused with {@link SessionNotFoundError}; a closed one with `session.already_closed`.
+ * is refused with {@link SessionNotFoundError}; a closed one with `session.already_closed`, and
+ * one being purged with `session.change_refused`.
  */
 export class SessionChanges {
   /**
    * The lock every session-wide transition holds for its whole run, keyed by session id: archive,
-   * reactivate and close take it, so one never interleaves with another on the same session.
+   * reactivate, close and convert take it, so one never interleaves with another on the same
+   * session.
    */
   readonly lock: KeyedLock<SessionId> = new KeyedLock<SessionId>(canonicalizeUuid);
 
@@ -126,7 +133,7 @@ export class SessionChanges {
    */
   async rename(request: SessionRenameRequest): Promise<SessionRenameResponse> {
     await this.#change(request.sessionId, (facts) => {
-      refuseClosedSession(request.sessionId, facts.state);
+      refuseUnchangeableSession(request.sessionId, facts.state);
       return facts.name === request.name
         ? undefined
         : renamedEvent(request.sessionId, request.name, facts.name, "user");
@@ -135,22 +142,26 @@ export class SessionChanges {
   }
 
   /**
-   * Names the session only while it is unnamed and not closed, deciding that inside the write, so
-   * a name written in the meantime always wins. Resolves with whether it named the session.
+   * Names the session only while it is unnamed and takes changes, deciding that inside the write,
+   * so a name written in the meantime always wins. Resolves with whether it named the session.
    */
   async nameUnnamed(sessionId: SessionId, name: string): Promise<boolean> {
     return this.#change(sessionId, (facts) =>
-      facts.state === "closed" || facts.name !== null
+      isUnchangeable(facts.state) || facts.name !== null
         ? undefined
         : renamedEvent(sessionId, name, null, "auto"),
     );
   }
 
-  /** Moves the session into the archived ones, leaving its provider process as it was. */
+  /**
+   * Moves an active session into the archived ones, leaving its provider process as it was. A
+   * session still `provisioning` is refused with `session.change_refused`.
+   */
   async archive(sessionId: SessionId): Promise<void> {
     await this.lock.run(sessionId, async () => {
       await this.#change(sessionId, (facts) => {
-        refuseClosedSession(sessionId, facts.state);
+        refuseUnchangeableSession(sessionId, facts.state);
+        refuseProvisioningSession(sessionId, facts.state);
         return facts.state === "archived"
           ? undefined
           : lifecycleEvent("session.archived", sessionId, facts.state, "archived");
@@ -162,7 +173,7 @@ export class SessionChanges {
   async reactivate(sessionId: SessionId): Promise<void> {
     await this.lock.run(sessionId, async () => {
       await this.#change(sessionId, (facts) => {
-        refuseClosedSession(sessionId, facts.state);
+        refuseUnchangeableSession(sessionId, facts.state);
         return facts.state === "archived"
           ? lifecycleEvent("session.reactivated", sessionId, "archived", "active")
           : undefined;
@@ -172,7 +183,10 @@ export class SessionChanges {
 
   /**
    * Closes the session: ends its provider leg through each driver that ran it, then appends
-   * `session.closed`. The session stays readable. Closing a closed session does nothing.
+   * `session.closed`. The session stays readable. Closing a closed session does nothing; one still
+   * `provisioning` or being purged is refused with `session.change_refused`. A session one of whose
+   * runs a driver this daemon has not registered ran is refused with `driver.unavailable` before
+   * any leg is ended, so it never reads closed while that provider may still run it.
    */
   async close(sessionId: SessionId): Promise<void> {
     await this.lock.run(sessionId, async () => {
@@ -180,13 +194,18 @@ export class SessionChanges {
       if (facts.state === "closed") {
         return;
       }
+      refuseUnchangeableSession(sessionId, facts.state);
+      refuseProvisioningSession(sessionId, facts.state);
       // The leg ends first, so a session never reads closed while its provider still runs.
       await this.#endProviderLeg(sessionId);
-      await this.#change(sessionId, (current) =>
-        current.state === "closed"
-          ? undefined
-          : lifecycleEvent("session.closed", sessionId, current.state, "closed"),
-      );
+      await this.#change(sessionId, (current) => {
+        if (current.state === "closed") {
+          return undefined;
+        }
+        // A purge may mark the session while its provider leg is ending.
+        refuseUnchangeableSession(sessionId, current.state);
+        return lifecycleEvent("session.closed", sessionId, current.state, "closed");
+      });
     });
   }
 
@@ -212,7 +231,7 @@ export class SessionChanges {
 
   async #setMark(sessionId: SessionId, mark: SessionMark, isSet: boolean): Promise<void> {
     await this.#change(sessionId, (facts) => {
-      refuseClosedSession(sessionId, facts.state);
+      refuseUnchangeableSession(sessionId, facts.state);
       const isSetNow = (mark === "pin" ? facts.pinnedAt : facts.mutedAt) !== null;
       if (isSetNow === isSet) {
         return undefined;
@@ -271,27 +290,67 @@ export class SessionChanges {
   }
 
   // Each driver that ran one of the session's runs closes the session's leg; both drivers treat a
-  // session they hold nothing for as already closed. A driver this daemon has not registered holds
-  // no live leg, so there is nothing of it to end.
+  // session they hold nothing for as already closed. Every driver is looked up before any leg is
+  // ended, so a missing one refuses the close with nothing ended.
   async #endProviderLeg(sessionId: SessionId): Promise<void> {
     const runIds = this.#selectRunIds.all(sessionId).map((row) => row.runId);
     const driverNames = new Set(
       this.#runtimeBindings.findByRuns(runIds).map((binding) => binding.driverName),
     );
+    const drivers: ProviderDriver[] = [];
     for (const driverName of driverNames) {
-      await this.#providers.lookup(driverName)?.closeSession({ sessionId });
+      drivers.push(this.#registeredDriver(driverName));
     }
+    for (const driver of drivers) {
+      await driver.closeSession({ sessionId });
+    }
+  }
+
+  #registeredDriver(driverName: ProviderName): ProviderDriver {
+    const driver = this.#providers.lookup(driverName);
+    if (driver === undefined) {
+      throw new DaemonDomainError("Provider driver is currently unavailable", {
+        code: "driver.unavailable",
+        jsonRpcCode: JsonRpcErrorCode.InternalError,
+        detail: { driverId: driverName },
+      });
+    }
+    return driver;
   }
 }
 
-/** Refuses a change to a closed session with `session.already_closed`. */
-export function refuseClosedSession(sessionId: SessionId, state: SessionState): void {
+/**
+ * Refuses a change to a session that takes none: a closed one with `session.already_closed`, and
+ * one being purged with `session.change_refused`.
+ */
+export function refuseUnchangeableSession(sessionId: SessionId, state: SessionState): void {
   if (state === "closed") {
     throw new DaemonDomainError("The session is closed and cannot be changed.", {
       code: "session.already_closed",
       detail: { sessionId },
     });
   }
+  if (state === "purge_requested") {
+    throw changeRefused(sessionId, state);
+  }
+}
+
+// Only an active or archived session is archived or closed; one still provisioning has neither move.
+function refuseProvisioningSession(sessionId: SessionId, state: SessionState): void {
+  if (state === "provisioning") {
+    throw changeRefused(sessionId, state);
+  }
+}
+
+function isUnchangeable(state: SessionState): boolean {
+  return state === "closed" || state === "purge_requested";
+}
+
+function changeRefused(sessionId: SessionId, state: SessionState): DaemonDomainError {
+  return new DaemonDomainError("The session's state does not take that change.", {
+    code: SESSION_CHANGE_REFUSED_CODE,
+    detail: { sessionId, state },
+  });
 }
 
 function lifecycleEvent(

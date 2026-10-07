@@ -1,9 +1,12 @@
 // The session log and content port a canonical transcript fold reads, held in memory.
 
+import {
+  EventEnvelopeVersionSchema,
+  type EventEnvelope,
+} from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { StoredEvent } from "../../../session/records.js";
 import {
   CanonicalTranscriptFold,
   type TranscriptContentReference,
@@ -25,32 +28,29 @@ export function storedEvent(
   sequence: number,
   type: string,
   payload: Record<string, unknown>,
-): StoredEvent {
+): EventEnvelope {
   return {
     id: `evt-${sequence.toString()}`,
     sessionId: SESSION_ID,
     sequence,
     occurredAt: "2026-08-26T00:00:00.000Z",
-    monotonicNs: BigInt(sequence),
-    category: "provider",
+    category: "run_lifecycle",
     type,
     actor: null,
     payload,
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
+    version: EventEnvelopeVersionSchema.parse("1.0"),
   };
 }
 
 /** A mutable in-memory log; appending moves the fold's position without a rebuilt fixture. */
 class RecordedEventLog implements TranscriptEventReader {
-  readonly #events: StoredEvent[] = [];
+  readonly #events: EventEnvelope[] = [];
 
-  append(event: StoredEvent): void {
+  append(event: EventEnvelope): void {
     this.#events.push(event);
   }
 
-  readEvents(): ReadonlyArray<StoredEvent> {
+  readEvents(): readonly EventEnvelope[] {
     return [...this.#events];
   }
 }

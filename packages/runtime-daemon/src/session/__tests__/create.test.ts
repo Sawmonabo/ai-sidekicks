@@ -1,9 +1,11 @@
 // Creating a session over a real database, a real settings file and a real managed workspace: the
 // lead runs on what the request names, never on the settings file's last pick, which the create
-// then moves to it; a chat's managed workspace is made and bound inside the create; and a chat
-// that is not born leaves neither a session nor a workspace behind.
+// then moves to it; a chat's managed workspace is made and bound inside the create; a chat that is
+// not born leaves neither a session nor a workspace behind; and a create retried with its key,
+// even while the first is still on its way, answers the first one's session and makes nothing.
 
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
@@ -13,6 +15,7 @@ import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
 } from "@ai-sidekicks/contracts/machine-settings";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type {
   SessionCreateRequest,
@@ -23,6 +26,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { MachineSettingsFile } from "../../daemon/machine/settings/file.js";
 import type { EventLogService } from "../../events/log-service.js";
+import { DaemonDomainError } from "../../ipc/domain-error.js";
 import type { GitRunner } from "../../git/process.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { WorkspaceEventEmitter } from "../../workspace/event-emitter.js";
@@ -33,7 +37,7 @@ import {
 import { RepoMountService } from "../../workspace/repo/mount-service.js";
 import { WorkspaceService } from "../../workspace/service.js";
 import { SessionCreation } from "../create.js";
-import { openSessionLog, type SessionLog } from "../directory/__fixtures__/session-log.js";
+import { openSessionLog, type SessionLog } from "../directory/__fixtures__/event-log.js";
 import { SessionService } from "../service.js";
 
 const ACCOUNT_ID = "claude-work-account";
@@ -51,6 +55,8 @@ let settingsPath: string;
 let emitter: WorkspaceEventEmitter;
 let mounts: RepoMountService;
 let creation: SessionCreation;
+let serviceLogLines: string[];
+let workspacesMade: number;
 
 beforeEach(async () => {
   log = await openSessionLog();
@@ -73,28 +79,41 @@ beforeEach(async () => {
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
   });
+  serviceLogLines = [];
+  workspacesMade = 0;
   creation = creationWith({});
 });
 
-// The create over the scratch database, with the event log or the workspace's git swapped out.
+// The create over the scratch database, with the event log, the workspace's git, the managed
+// workspaces' removal or the settings file's write swapped out.
 function creationWith(swap: {
   readonly events?: Pick<EventLogService, "append">;
   readonly git?: GitRunner;
+  readonly removeWorkspace?: ManagedWorkspaceService["delete"];
+  readonly updateSettings?: MachineSettingsFile["update"];
 }): SessionCreation {
+  const managedWorkspaces = new ManagedWorkspaceService({
+    homeDirectory: home,
+    repoMounts: mounts,
+    ...(swap.git === undefined ? {} : { git: swap.git }),
+  });
+  const settingsFile = new MachineSettingsFile({ filePath: settingsPath, now: () => new Date() });
   return new SessionCreation({
     reader: log.scratch.reader,
     events: swap.events ?? log.eventLog,
-    workspaces: new WorkspaceService({
-      database: log.scratch,
-      events: emitter,
-      sessions: new SessionService(log.scratch.reader),
-    }),
-    managedWorkspaces: new ManagedWorkspaceService({
-      homeDirectory: home,
-      repoMounts: mounts,
-      ...(swap.git === undefined ? {} : { git: swap.git }),
-    }),
-    settingsFile: new MachineSettingsFile({ filePath: settingsPath, now: () => new Date() }),
+    workspaces: new WorkspaceService({ database: log.scratch, events: emitter }),
+    managedWorkspaces: {
+      create: (input) => {
+        workspacesMade += 1;
+        return managedWorkspaces.create(input);
+      },
+      delete: swap.removeWorkspace ?? ((input) => managedWorkspaces.delete(input)),
+    },
+    settingsFile: {
+      read: () => settingsFile.read(),
+      update: swap.updateSettings ?? ((change) => settingsFile.update(change)),
+    },
+    writeServiceLog: (line) => serviceLogLines.push(line),
   });
 }
 
@@ -103,13 +122,12 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+function chatRequest(): SessionCreateRequest {
+  return { clientIdempotencyKey: mintUuidV7(), binding: { kind: "chat" }, lead: SENT_LEAD };
+}
+
 function createChat(using: SessionCreation = creation): Promise<SessionCreateResponse> {
-  const request: SessionCreateRequest = {
-    clientIdempotencyKey: mintUuidV7(),
-    binding: { kind: "chat" },
-    lead: SENT_LEAD,
-  };
-  return using.create(request);
+  return using.create(chatRequest());
 }
 
 function countRows(sql: string): number {
@@ -182,4 +200,168 @@ describe("SessionCreation", () => {
     expect(countRows("SELECT COUNT(*) AS count FROM repo_mounts")).toBe(0);
     expect(await readdir(managedWorkspacesDirectoryOf(home))).toStrictEqual([]);
   });
+
+  it("answers a retried create with the session the first one made, and makes nothing", async () => {
+    const request = chatRequest();
+
+    const first = await creation.create(request);
+    const retried = await creation.create(request);
+
+    expect(retried).toStrictEqual(first);
+    expect(workspacesMade).toBe(1);
+    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(1);
+    expect(countRows("SELECT COUNT(*) AS count FROM repo_mounts")).toBe(1);
+    expect(await readdir(managedWorkspacesDirectoryOf(home))).toHaveLength(1);
+  });
+
+  it("answers a twin that lands first with its session, and removes its own workspace", async () => {
+    const request = chatRequest();
+    let twin: Promise<SessionCreateResponse> | undefined;
+    // The twin passes the same key check, and its session.created lands while this one's waits.
+    const racingEvents: Pick<EventLogService, "append"> = {
+      append: async (envelope, options) => {
+        if (twin === undefined && envelope.type === "session.created") {
+          twin = creation.create(request);
+          await twin;
+        }
+        return log.eventLog.append(envelope, options);
+      },
+    };
+
+    const answered = await creationWith({ events: racingEvents }).create(request);
+
+    expect(answered).toStrictEqual(await twin);
+    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(1);
+    expect(await readdir(managedWorkspacesDirectoryOf(home))).toHaveLength(1);
+  });
+
+  it("runs the lead on the account made current while its session.created was on its way", async () => {
+    const movedAccountId = "claude-personal-account";
+    let hasMoved = false;
+    const movingEvents: Pick<EventLogService, "append"> = {
+      append: async (envelope, options) => {
+        if (!hasMoved) {
+          hasMoved = true;
+          const now = new Date().toISOString();
+          await log.scratch.writer.write([
+            { sql: "UPDATE provider_accounts SET is_default = 0", bindings: [] },
+            {
+              sql: `INSERT INTO provider_accounts
+                      (account_id, provider, credential_home_path, billing_mode, is_default,
+                       created_at, updated_at)
+                    VALUES (?, 'claude', ?, 'subscription', 1, ?, ?)`,
+              bindings: [movedAccountId, path.join(home, "personal-home"), now, now],
+            },
+          ]);
+        }
+        return log.eventLog.append(envelope, options);
+      },
+    };
+
+    const { sessionId, lead } = await createChat(creationWith({ events: movingEvents }));
+
+    expect(lead.providerAccountId).toBe(movedAccountId);
+    expect(createdPayloadOf(sessionId).mainAgent.binding.providerAccountId).toBe(movedAccountId);
+  });
+
+  it("reports both failures when the workspace of a chat not born cannot be removed", async () => {
+    const creationError = new Error("the disk is full");
+    const removalError = new Error("the folder is held open");
+    const failing = creationWith({
+      events: { append: () => Promise.reject(creationError) },
+      removeWorkspace: () => Promise.reject(removalError),
+    });
+
+    const refusal = createChat(failing);
+
+    await expect(refusal).rejects.toBeInstanceOf(AggregateError);
+    await expect(refusal).rejects.toMatchObject({ errors: [creationError, removalError] });
+  });
+
+  it("answers the session when the last pick cannot be kept, and logs why", async () => {
+    const keeping = creationWith({
+      updateSettings: () => Promise.reject(new Error("the settings file is read-only")),
+    });
+
+    const { sessionId, state } = await createChat(keeping);
+
+    expect(state).toBe("active");
+    expect(serviceLogLines).toHaveLength(1);
+    expect(serviceLogLines[0]).toContain("the settings file is read-only");
+    expect(new SessionService(log.scratch.reader).readSession({ sessionId }).session.state).toBe(
+      "active",
+    );
+  });
+
+  it("refuses a group of another project with nothing written", async () => {
+    const repoMountId = await attachProject();
+    const groupId = await insertGroup(mintUuidV7());
+
+    const refusal = creation.create(projectRequest(repoMountId, groupId));
+
+    await expect(refusal).rejects.toBeInstanceOf(DaemonDomainError);
+    await expect(refusal).rejects.toMatchObject({ code: "session.group_refused" });
+    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(0);
+    expect(countRows("SELECT COUNT(*) AS count FROM session_events")).toBe(0);
+  });
+
+  it("activates a session outside a group ungrouped while it was being created", async () => {
+    const repoMountId = await attachProject();
+    const groupId = await insertGroup(repoMountId);
+    // The ungroup lands after the session.created write held the group, before the activation.
+    const ungroupingEvents: Pick<EventLogService, "append"> = {
+      append: async (envelope, options) => {
+        if (envelope.type === "session.activated") {
+          await log.scratch.writer.write([
+            { sql: "DELETE FROM session_groups WHERE id = ?", bindings: [groupId] },
+          ]);
+        }
+        return log.eventLog.append(envelope, options);
+      },
+    };
+
+    const { sessionId, state } = await creationWith({ events: ungroupingEvents }).create(
+      projectRequest(repoMountId, groupId),
+    );
+
+    expect(state).toBe("active");
+    expect(
+      log.scratch.reader
+        .prepare("SELECT state, group_id FROM sessions WHERE id = ?")
+        .get(sessionId),
+    ).toStrictEqual({ state: "active", group_id: null });
+  });
 });
+
+async function attachProject(): Promise<string> {
+  const repository = path.join(home, "project");
+  await mkdir(repository);
+  execFileSync("git", ["init", "--quiet", repository]);
+  return (await mounts.attach({ localPath: repository })).repoMountId;
+}
+
+// A group of the project `projectId` names; answers its id.
+async function insertGroup(projectId: string): Promise<string> {
+  const groupId = mintUuidV7();
+  await log.scratch.writer.write([
+    {
+      sql: `INSERT INTO session_groups (id, project_id, name, name_folded, created_at)
+            VALUES (?, ?, 'Billing', 'billing', ?)`,
+      bindings: [groupId, projectId, new Date().toISOString()],
+    },
+  ]);
+  return groupId;
+}
+
+function projectRequest(repoMountId: string, groupId: string): SessionCreateRequest {
+  return {
+    clientIdempotencyKey: mintUuidV7(),
+    binding: {
+      kind: "project",
+      repoMountId: repoMountId as RepoMountId,
+      executionMode: "bound-root",
+    },
+    lead: SENT_LEAD,
+    groupId: groupId as SessionCreateRequest["groupId"],
+  };
+}

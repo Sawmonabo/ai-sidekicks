@@ -31,6 +31,7 @@ const LOG_READ = {
     pendingWorkingFolder: null,
     createdAt: "2026-09-29T17:00:00.000Z",
     updatedAt: "2026-09-29T17:00:00.000Z",
+    tags: [] as string[],
   },
   transcriptCursors: {
     earliest: encodeEventCursor(START_OF_LOG_POSITION),

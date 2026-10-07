@@ -6,7 +6,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProviderDriver } from "../../provider/driver/contract.js";
 import { RuntimeBindingStore } from "../../provider/runtime-binding-store.js";
 import { SessionChanges } from "../changes.js";
-import { openSessionLog, type SessionLog } from "../directory/__fixtures__/session-log.js";
+import { openSessionLog, type SessionLog } from "../directory/__fixtures__/event-log.js";
 
 /** The session log, the changes over it, and what the driver was asked. */
 export interface SessionChangesHarness {

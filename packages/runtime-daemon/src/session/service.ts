@@ -1,9 +1,11 @@
 // The session service's reads: one session's record and transcript cursors as `session.read`
-// answers them, from the `sessions` row its events keep in step, and a rebuild of the record from
-// the session's log through the projector, over the same envelope reads the event log serves.
+// answers them, from the `sessions` row its events keep in step and its tags; the session's whole
+// log; and a rebuild of the record from that log through the projector, over the same envelope
+// reads the event log serves.
 
 import type { Database, Statement } from "better-sqlite3";
 
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
@@ -34,11 +36,15 @@ interface SessionReadRow {
   readonly updated_at: string;
 }
 
-/** Reads one session: its record and cursors from its row, or its record rebuilt from its log. */
+/**
+ * Reads one session: its record and cursors from its row, its whole log, or its record rebuilt
+ * from that log.
+ */
 export class SessionService {
   readonly #reader: Database;
   readonly #eventReads: SessionEventReads;
   readonly #selectRow: Statement<[string], SessionReadRow>;
+  readonly #selectTags: Statement<[string], { readonly tag: string }>;
 
   constructor(reader: Database) {
     this.#reader = reader;
@@ -49,17 +55,21 @@ export class SessionService {
          FROM sessions
         WHERE id = ?`,
     );
+    this.#selectTags = reader.prepare(
+      "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded",
+    );
   }
 
   /**
    * The session's record, without the held draft, and its transcript cursors: `earliest` is the
-   * start of the log, `latest` its newest event. Row and head are read in one snapshot, so no
-   * event the row reflects lies past `latest`. Throws {@link SessionNotFoundError} for a session
-   * this daemon holds no row for.
+   * start of the log, `latest` its newest event. Row, tags and head are read in one snapshot, so
+   * no event the row reflects lies past `latest`. Throws {@link SessionNotFoundError} for a
+   * session this daemon holds no row for.
    */
   readSession(request: SessionReadRequest): SessionLogRead {
-    const { row, head } = this.#reader.transaction(() => ({
+    const { row, tags, head } = this.#reader.transaction(() => ({
       row: this.#selectRow.get(request.sessionId),
+      tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
       head: this.#eventReads.readHead(request.sessionId),
     }))();
     if (row === undefined) {
@@ -81,6 +91,7 @@ export class SessionService {
           row.pending_move === 1 ? { worktreeId: row.pending_worktree_id } : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        tags,
       },
       transcriptCursors: {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),
@@ -89,15 +100,17 @@ export class SessionService {
     };
   }
 
+  /** Every event of the session's log in sequence order; none for a session with no events. */
+  readEvents(sessionId: SessionId): EventEnvelope[] {
+    const head = this.#eventReads.readHead(sessionId);
+    return head === undefined ? [] : this.#eventReads.readWindow(sessionId, 0, head);
+  }
+
   /**
    * Rebuilds the session's record from its whole log, or `null` when it has no events. Throws
    * what the projector throws for a log that does not open at `session.created`.
    */
   rebuildSession(sessionId: SessionId): DaemonSessionRecord | null {
-    const head = this.#eventReads.readHead(sessionId);
-    if (head === undefined) {
-      return null;
-    }
-    return rebuildSession(this.#eventReads.readWindow(sessionId, 0, head));
+    return rebuildSession(this.readEvents(sessionId));
   }
 }
