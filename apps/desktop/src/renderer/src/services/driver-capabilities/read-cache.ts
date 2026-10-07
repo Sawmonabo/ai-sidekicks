@@ -1,7 +1,8 @@
 // What each bound driver declared, read once per bridge and shared by every view. The answer is
 // addressed at the service, not a run or session, so it belongs to the bridge; the cache is a
 // `WeakMap` so a closed window's entry and a test's fixture reply are not kept.
-// `useDriverCapabilities` and `useDriverCapabilityRepairRead` are the two entry points.
+// `useDriverCapabilities` and `useDriverCapabilityRepairRead` are the two entry points, and
+// `readNextReply` hands the whole report to a read that needs more than the flags.
 //
 // A rejection or an unreadable reply settles with the daemon's refusal on the readout and the
 // flags absent, which keeps gating fail-closed; a reply naming no driver is an answered read, not
@@ -10,21 +11,25 @@
 // read so a control does not vanish on every window focus.
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { ListCapabilitiesResult } from "@ai-sidekicks/contracts/provider/driver/methods";
 
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
 } from "#renderer/store/reads/triggers.js";
 import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
-import { type ReadRound } from "#renderer/lib/reads/scope.js";
+import { isReadAbandoned, type ReadRound } from "#renderer/lib/reads/scope.js";
 import type {
   DeclaredDriverFlags,
   DriverCapabilityReadout,
 } from "#renderer/store/driver-capabilities/readout.js";
-import { callDaemon } from "../daemon/reply.js";
+import { abandonedReadRefusal, callDaemon, type DaemonReply } from "../daemon/reply.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type PlatformBridge } from "../platform/bridge.js";
+
+/** The reply a settled read carries to everyone waiting on it. */
+type CapabilityReply = DaemonReply<ListCapabilitiesResult>;
 
 /** No run has a named binding yet. */
 const NO_RUN_BINDINGS: ReadonlyMap<string, ProviderName> = new Map<string, ProviderName>();
@@ -49,7 +54,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: PlatformBridge;
   readonly #scheduler: RefreshScheduler;
-  readonly #listeners = new Set<() => void>();
+  readonly #listeners = new Set<(reply: CapabilityReply) => void>();
   #readout: DriverCapabilityReadout | undefined;
 
   public constructor(bridge: PlatformBridge, clock: Clock) {
@@ -85,6 +90,39 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   }
 
   /**
+   * The whole report the next settled read serves. Rejects with a `RefusalError` carrying the
+   * daemon's refusal when that read is refused, and with the abandoned-read refusal once `signal`
+   * aborts.
+   */
+  public readNextReply(signal: AbortSignal): Promise<ListCapabilitiesResult> {
+    if (isReadAbandoned(signal)) {
+      return Promise.reject(new RefusalError(abandonedReadRefusal()));
+    }
+    return new Promise<ListCapabilitiesResult>((resolve, reject) => {
+      const onSettled = (reply: CapabilityReply): void => {
+        this.#listeners.delete(onSettled);
+        signal.removeEventListener("abort", onAbandoned);
+        if (reply.status === "refused") {
+          reject(new RefusalError(reply.refusal));
+          return;
+        }
+        resolve(reply.value);
+      };
+      const onAbandoned = (): void => {
+        this.#listeners.delete(onSettled);
+        reject(new RefusalError(abandonedReadRefusal()));
+      };
+      this.#listeners.add(onSettled);
+      signal.addEventListener("abort", onAbandoned, { once: true });
+      // A read already armed or in flight answers this caller too, and a request made mid-flight
+      // would cost a second call. Otherwise it asks as a mounting view does: a new consumer.
+      if (!this.#scheduler.isArmed) {
+        this.#scheduler.request("subscribe");
+      }
+    });
+  }
+
+  /**
    * Takes the service's declarations on the round the scheduler opened. The signal goes to
    * `callDaemon` to stop an abandoned read before its reply is parsed; `settle` guards what
    * reaches the readout, so a replaced round installs nothing and its refusal is never published.
@@ -99,33 +137,30 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
       {},
       { signal: round.signal },
     );
-    if (reply.status === "refused") {
-      round.settle(() => {
-        this.#settle(refusedReadout(reply.refusal));
-      });
-      return;
-    }
-    const flagsByDriverName = new Map<ProviderName, DeclaredDriverFlags>();
-    for (const report of reply.value.drivers) {
-      flagsByDriverName.set(report.driverName, report.capabilities.flags);
-    }
-    // A reply naming no driver settles with no entries and no refusal: the service declares
-    // nothing.
     round.settle(() => {
-      this.#settle({
-        flagsByDriverName,
-        driverNameByRunId: NO_RUN_BINDINGS,
-        readRefusal: undefined,
-      });
+      this.#settle(reply);
     });
   }
 
-  #settle(readout: DriverCapabilityReadout): void {
-    this.#readout = readout;
+  #settle(reply: CapabilityReply): void {
+    this.#readout = readoutOf(reply);
     for (const listener of this.#listeners) {
-      listener();
+      listener(reply);
     }
   }
+}
+
+/** The flags each driver in a reply declared, or nothing and the refusal for a refused read. */
+function readoutOf(reply: CapabilityReply): DriverCapabilityReadout {
+  if (reply.status === "refused") {
+    return refusedReadout(reply.refusal);
+  }
+  const flagsByDriverName = new Map<ProviderName, DeclaredDriverFlags>();
+  for (const report of reply.value.drivers) {
+    flagsByDriverName.set(report.driverName, report.capabilities.flags);
+  }
+  // A reply naming no driver settles with no entries and no refusal: the service declares nothing.
+  return { flagsByDriverName, driverNameByRunId: NO_RUN_BINDINGS, readRefusal: undefined };
 }
 
 /** A reading that declares nothing, carrying the reason it declares nothing. */

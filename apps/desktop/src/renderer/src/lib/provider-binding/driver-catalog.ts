@@ -1,6 +1,7 @@
-// The driver catalog reads (`driver.listModels`, `driver.listCapabilities`) and the selectors
-// every axis control asks of them. The two are read together, all or nothing, because a
-// partial catalog would read as "this provider has no models". Effort levels are per model,
+// The driver catalog's shape, the answers of `driver.listModels` and `driver.listCapabilities`
+// held together, and the selectors every axis control asks of it. The two answers are held
+// together, all or nothing, because a partial catalog would read as "this provider has no
+// models". Effort levels are per model,
 // and an absent list (`undefined`) is a different answer from an empty one. Speed levels are
 // per model where the provider publishes them so, else the driver's one list.
 

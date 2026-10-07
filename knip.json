@@ -146,8 +146,8 @@
         "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
         // The overlay scrollbar on every scroller but the conversation.
         "src/renderer/src/components/OverlayScrollArea/OverlayScrollArea.tsx",
-        // The provider, model, effort and account pickers of the agent definition editor and of
-        // the workflow node inspector.
+        // The provider, model and effort pickers of the agent definition editor and of the
+        // workflow node inspector.
         "src/renderer/src/components/AxisField/AxisCombobox.tsx",
         // The daemon's callback tools on an agent definition's tool allowlist.
         "src/renderer/src/features/agents/definitions/callback-tools/registry.ts",

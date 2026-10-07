@@ -28,7 +28,7 @@ import { ProviderAccountNotificationHold } from "#renderer/store/provider-accoun
 import {
   UnreadableDeliveryCounter,
   type UnreadableDeliveryReading,
-} from "../wire-reads/unreadable-deliveries.js";
+} from "#renderer/lib/reads/unreadable-deliveries.js";
 import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 
 /**

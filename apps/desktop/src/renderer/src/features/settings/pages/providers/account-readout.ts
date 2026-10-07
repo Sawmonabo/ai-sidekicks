@@ -10,8 +10,8 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
-import type { UnreadableDeliveryReading } from "#renderer/services/wire-reads/unreadable-deliveries.js";
-import type { WireReadState } from "#renderer/lib/reads/lifecycle.js";
+import type { UnreadableDeliveryReading } from "#renderer/lib/reads/unreadable-deliveries.js";
+import type { WireReadState } from "#renderer/lib/reads/wire-state.js";
 import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import type { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 

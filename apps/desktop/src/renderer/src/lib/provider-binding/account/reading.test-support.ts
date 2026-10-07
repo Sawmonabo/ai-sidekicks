@@ -1,5 +1,5 @@
-// The registry reading the account axis's two model suites are driven with. Each fixture is
-// a function, so no case is handed an object a previous case held.
+// The registry reading the account axis's model suites and its field's suite are driven with.
+// Each fixture is a function, so no case is handed an object a previous case held.
 
 import type {
   ProviderAccount,

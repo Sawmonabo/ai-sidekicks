@@ -3,8 +3,8 @@
 // unanswered registry as an answer of nothing. The account list's own states read as the
 // Providers page words them, since the picker lists accounts exactly as that page does.
 
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "../TryAgainButton/TryAgainButton.js";
+import { Nothing } from "../Nothing/Nothing.js";
 import {
   ACCOUNT_LIST_READ_WORDS,
   ACCOUNT_PLANE_REMEDY_SENTENCES,

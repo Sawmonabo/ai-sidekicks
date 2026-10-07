@@ -198,7 +198,7 @@ Plan-024 authors the destination's library, editor and `Browse plugins` view as 
 
   The page body is a lazy chunk root and the editor is a second lazy chunk: the renderer's initial import graph is gated at **450 kB gzip over code** (`renderer-initial-bundle`, `apps/desktop/tests/budget/document.json`) and neither surface sits on a launch path.
 
-  The dependent axis chain and the axis combobox (`features/agents/binding/`) are **reused** by the editor's binding chain, never forked. The feature's folder and file names say agent; the destination a person sees is Sidekicks, at `#/sidekicks`.
+  The dependent axis chain and the axis combobox (`lib/provider-binding/` and `components/AxisField/`) are **reused** by the editor's binding chain, never forked. The feature's folder and file names say agent; the destination a person sees is Sidekicks, at `#/sidekicks`.
 
 ## Data And Storage Changes
 

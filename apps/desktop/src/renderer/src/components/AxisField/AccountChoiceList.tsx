@@ -3,6 +3,8 @@
 // renamed account or a newly reported identity never changes the wire identity. The caller mints
 // the label id because `role="combobox"` takes no name from its own content.
 
+import "./AxisField.css";
+
 import { Combobox } from "@base-ui/react/combobox";
 
 import { OverlayComboboxPopup } from "../OverlayPopups/OverlayComboboxPopup.js";
