@@ -7,8 +7,8 @@
 // through the same seam as the tokens (`app/token-installation.ts`).
 //
 //   - One variable file per family and style, Latin-1 split: a variable file serves every weight
-//     the stylesheets ask for as a real instance. The bytes are bounded by the
-//     `renderer-initial-fonts` row in `tests/budget/document.json`.
+//     the stylesheets ask for as a real instance. The bytes are bounded by the initial-fonts
+//     budget in `.size-limit.ts`.
 //   - Both styles, because a family declaring only its upright face renders italics as a
 //     synthesized oblique. A browser fetches the italic files only when a run matches them.
 //   - No `local()` in any `src`: it would hand rendering to whatever Plex the host has.

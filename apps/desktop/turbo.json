@@ -261,8 +261,8 @@
       "cache": false
     },
     "test:bundle": {
-      // The one tier that measures a build rather than a source tree. The `build` edge is
-      // load-bearing: the gate fails loudly when a build output under `out/` is absent rather than
+      // The one tier that reads a build rather than a source tree. The `build` edge is
+      // load-bearing: the tier fails loudly when a build output under `out/` is absent rather than
       // skipping, and the edge makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
@@ -333,21 +333,21 @@
       "outputs": [],
       "cache": false
     },
-    // --- Scripts invoked by name (`scripts/**`) --------------------------------
+    // --- The bundle budgets -------------------------------------------------
     //
-    // The budget gate `package.json` declares as a script gets a task with `inputs`, like every tier
-    // above, so a run by name from a terminal, CI or `turbo run` has one declared input set. It is
-    // `cache: false`: it reports on a build present now, and a cached pass would report on one that
-    // is not.
+    // size-limit holding the renderer build to the budgets in `.size-limit.ts`, a task with
+    // `inputs` like every tier above, so a run by name from a terminal, CI or `turbo run` has one
+    // declared input set. It is `cache: false`: it reports on a build present now, and a cached pass
+    // would report on one that is not.
 
     "budget:bundle": {
-      // Measures a build, so it carries the same load-bearing edge the bundle tier does: the
-      // harness refuses loudly when `out/renderer` is absent rather than skipping, and the edge
-      // makes the output present by construction.
+      // Measures a build, so it carries the same load-bearing edge the bundle tier does: reading
+      // the chunk manifest fails loudly when `out/renderer` is absent rather than skipping, and the
+      // edge makes the output present by construction.
       "dependsOn": ["build"],
       "inputs": [
-        "scripts/budget/**",
-        "tests/budget/document.json",
+        ".size-limit.ts",
+        "tests/budget/built-renderer-tree.ts",
         "out/renderer/**",
         "package.json"
       ],
@@ -364,9 +364,9 @@
       // The order is load-bearing and is why the script is a chain of `turbo run` invocations
       // rather than one. `build`, `build:smoke` and `build:fixtures` all write `out/**` and differ
       // in the `define` that decides what the renderer talks to, so one invocation would schedule
-      // them concurrently and hand a tier the wrong bundle: the bundle tier would measure a fixture
-      // build against a release budget, and its release-absence assertions would read a tree that
-      // legitimately contains what they refuse. The chain runs the source-only tiers first, then
+      // them concurrently and hand a tier the wrong bundle: the bundle budgets would measure a
+      // fixture build against a release budget, and the bundle tier's release-absence assertions
+      // would read a tree that legitimately contains what they refuse. The chain runs the source-only tiers first, then
       // the browser tier (which builds nothing), then release, smoke and fixtures, each with
       // its own consumers.
       //

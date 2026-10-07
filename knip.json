@@ -51,9 +51,9 @@
       // electron-builder plugin to read that file. knip's plugins already find the rest: the
       // electron-vite plugin reads the three process entries (`src/main/index.ts`,
       // `src/preload/index.ts`, `src/renderer/src/main.tsx`) from `electron.vite.config.ts`, the
-      // tool configs are entries of their own plugins, and a file named in a `scripts` entry of
-      // this package's manifest is an entry, so `scripts/budget/measure-bundle.mts` is a root
-      // because the `budget:bundle` script runs it.
+      // tool configs are entries of their own plugins (`.size-limit.ts` of the size-limit one),
+      // and a file named in a `scripts` entry of this package's manifest is an entry, so
+      // `scripts/test-changed.ts` is a root because the `test:changed` script runs it.
       "entry": ["build/browser-snapshot.ts"],
       //
       // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a

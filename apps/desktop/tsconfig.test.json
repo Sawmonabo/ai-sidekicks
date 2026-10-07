@@ -17,10 +17,10 @@
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // The bundle tier imports the harnesses under `scripts/budget/`, TypeScript run directly by
-    // `node --experimental-strip-types`. Node resolves the extension it is given and does no `.mjs`
-    // to `.mts` rewriting, so those modules import each other by their real `.mts` path, and a
-    // program that pulls them in needs this option. Legal here because this config is `noEmit`.
+    // `.size-limit.ts`, which Node loads directly, and the budget registry under `scripts/budget/`
+    // name what they import by its real `.ts` or `.mts` path, since Node resolves the extension it
+    // is given and does no `.js` to `.ts` rewriting; a program that pulls them in needs this
+    // option. Legal here because this config is `noEmit`.
     "allowImportingTsExtensions": true
   },
   // `files` rather than `include`, deliberately: `exclude` filters `include`, and this path sits
@@ -32,8 +32,8 @@
   "files": ["src/renderer/src/vite-env.d.ts"],
   // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, the
   // executables' tests under `scripts/`, the smoke and GC launches directly under `tests/`, and the
-  // bundle tier; and the Vitest config, the modules it composes under `vitest/` and the root
-  // `vitest.shared.ts` it imports. The other folders under `tests/` hold DOM or Electron-driving
+  // bundle tier; the size-limit config; and the Vitest config, the modules it composes under
+  // `vitest/` and the root `vitest.shared.ts` it imports. The other folders under `tests/` hold DOM or Electron-driving
   // code and are typechecked by `tsconfig.browser-test.json`, `tsconfig.electron-test.json` and the
   // renderer's `tsconfig.test.json`. A helper under `tests/helpers/` is typechecked here when a
   // test here imports it.
@@ -42,6 +42,7 @@
     "scripts/**/*.test.ts",
     "tests/*.test.ts",
     "tests/budget/**/*",
+    ".size-limit.ts",
     "vitest.config.ts",
     "vitest/**/*"
   ],

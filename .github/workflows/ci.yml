@@ -313,7 +313,9 @@ jobs:
           - tier: "test:main-unit test:renderer"
           - tier: "test:browser"
             serial: true
-          - tier: "test:bundle"
+          # The bundle tier and the bundle budgets read the same release build, so they run in one
+          # invocation over one build.
+          - tier: "test:bundle budget:bundle"
             serial: true
           - tier: "test:smoke"
             serial: true

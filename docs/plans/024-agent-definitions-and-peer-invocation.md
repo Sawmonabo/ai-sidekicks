@@ -196,7 +196,7 @@ Plan-024 authors the destination's library, editor and `Browse plugins` view as 
   - `editor/` (NEW) — `AgentEditor.tsx`, `InstructionsField.tsx`, `GoalField.tsx`, `ToolAllowlistPicker.tsx`, `ProviderBindings.tsx`, `IconField.tsx`, `TryItPanel.tsx`.
   - the `Browse plugins` view, a third part of the agents feature beside the library and the editor, over the `plugin.*` operations (T6.2); the editor also gains the scope, hooks and memory fields (T5.1).
 
-  The page body is a lazy chunk root and the editor is a second lazy chunk: the renderer's initial import graph is gated at **450 kB gzip over code** (`renderer-initial-bundle`, `apps/desktop/tests/budget/document.json`) and neither surface sits on a launch path.
+  The page body is a lazy chunk root and the editor is a second lazy chunk: the renderer's initial import graph is gated at **450 kB gzip over code** (the initial-code budget in `apps/desktop/.size-limit.ts`) and neither surface sits on a launch path.
 
   The dependent axis chain and the axis combobox (`lib/provider-binding/` and `components/AxisField/`) are **reused** by the editor's binding chain, never forked. The feature's folder and file names say agent; the destination a person sees is Sidekicks, at `#/sidekicks`.
 

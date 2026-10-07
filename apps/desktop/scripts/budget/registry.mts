@@ -1,16 +1,11 @@
-// Query layer over `tests/budget/document.json`, the one place every numeric budget the app is
-// gated on is written down. Validation is `document.mts`, comparing a measurement is
-// `evaluation.mts`, and formatting the un-measured rows is `report.mts`.
+// Query layer over `tests/budget/document.json`, where every numeric budget the app is gated on is
+// written down except the bundle sizes, which `.size-limit.ts` holds. Validation is
+// `document.mts`, and comparing a measurement is `evaluation.mts`.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  type Budget,
-  type BudgetDocument,
-  BudgetRegistryError,
-  readBudgetDocument,
-} from "./document.mts";
+import { type Budget, BudgetRegistryError, readBudgetDocument } from "./document.mts";
 
 const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,31 +22,26 @@ export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
 
 /** The parsed `tests/budget/document.json`. Construct with `BudgetRegistry.load()`. */
 export class BudgetRegistry {
-  readonly budgetsFilePath: string;
-  readonly schemaVersion: number;
-  /** Why the `harness` rows carry the figures they do, stated once for the set. */
-  readonly harnessBudgetDerivation: string | null;
-  readonly budgets: readonly Budget[];
+  readonly #budgetsFilePath: string;
+  readonly #budgets: readonly Budget[];
 
-  private constructor(budgetsFilePath: string, document: BudgetDocument) {
-    this.budgetsFilePath = budgetsFilePath;
-    this.schemaVersion = document.schemaVersion;
-    this.harnessBudgetDerivation = document.harnessBudgetDerivation;
-    this.budgets = document.budgets;
+  private constructor(budgetsFilePath: string, budgets: readonly Budget[]) {
+    this.#budgetsFilePath = budgetsFilePath;
+    this.#budgets = budgets;
   }
 
   /** @throws {BudgetRegistryError} on a missing, unreadable, or malformed registry. */
   static load(budgetsFilePath: string = DEFAULT_BUDGETS_FILE_PATH): BudgetRegistry {
-    return new BudgetRegistry(budgetsFilePath, readBudgetDocument(budgetsFilePath));
+    return new BudgetRegistry(budgetsFilePath, readBudgetDocument(budgetsFilePath).budgets);
   }
 
   /** @throws {BudgetRegistryError} rather than returning a vacuous pass. */
   requireBudget(budgetId: string): Budget {
-    const budget = this.budgets.find((candidate) => candidate.id === budgetId);
+    const budget = this.#budgets.find((candidate) => candidate.id === budgetId);
     if (budget === undefined) {
       throw new BudgetRegistryError(
-        `No budget \`${budgetId}\` in ${this.budgetsFilePath}. ` +
-          `Known ids: ${this.budgets.map((candidate) => candidate.id).join(", ")}.`,
+        `No budget \`${budgetId}\` in ${this.#budgetsFilePath}. ` +
+          `Known ids: ${this.#budgets.map((candidate) => candidate.id).join(", ")}.`,
       );
     }
     return budget;
@@ -65,15 +55,5 @@ export class BudgetRegistry {
    */
   requireCanonicalValue(budgetId: string): number {
     return this.requireBudget(budgetId).limit.canonicalValue;
-  }
-
-  /** The rows a harness measures and gates. */
-  enforcedBudgets(): readonly Budget[] {
-    return this.budgets.filter((budget) => budget.status === "enforced");
-  }
-
-  /** The rows nothing measures yet, each carrying its reason. */
-  unavailableBudgets(): readonly Budget[] {
-    return this.budgets.filter((budget) => budget.status === "n/a");
   }
 }

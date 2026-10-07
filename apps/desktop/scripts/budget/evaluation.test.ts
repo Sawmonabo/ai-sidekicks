@@ -11,10 +11,10 @@ const registry = BudgetRegistry.load();
 
 describe("budget evaluation", () => {
   it("compares a measurement against the canonical limit", () => {
-    const budget = registry.requireBudget("renderer-initial-bundle");
-    const under = evaluateBudget(budget, 92_497);
+    const budget = registry.requireBudget("renderer-heap-at-rest");
+    const under = evaluateBudget(budget, 92_497_000);
     expect(under.withinBudget).toBe(true);
-    expect(under.headroomCanonicalValue).toBe(budget.limit.canonicalValue - 92_497);
+    expect(under.headroomCanonicalValue).toBe(budget.limit.canonicalValue - 92_497_000);
 
     const exactlyAtLimit = evaluateBudget(budget, budget.limit.canonicalValue);
     expect(exactlyAtLimit.withinBudget).toBe(true);
