@@ -9,12 +9,16 @@
 // Intl-only. Byte-for-byte wire strings (ids, digests, versions, state names) are never
 // transformed, not even trimmed: a truncated id is a wrong id.
 //
+// Every clock figure and date is written in the machine's own region and 12- or 24-hour clock,
+// never the app's UI language: callers pass `clockLocaleFor`'s tag as the `locale`.
+//
 // The `Intl` instances and their caches live in `intl-formatter-cache.ts`. Time readings take
 // their instant from `instant.ts`, not `Date.parse`, so display and ordering read a stamp the same
 // way: `Date.parse` normalizes `2026-02-30T10:00:00Z` into March and reads a zone-less stamp
 // in the host's zone. An unreadable stamp renders the em dash used for any figure this module
 // cannot stand behind.
 
+import type { AppFacts } from "#shared/app-facts.js";
 import { MILLISECONDS_PER_DAY, parseInstant } from "../instant.js";
 import {
   dateTimeFormatFor,
@@ -49,6 +53,14 @@ export interface WireDescriptorEntry {
   readonly key: string;
   /** The member's value, as it will be shown. Wire-verbatim for a string. */
   readonly value: string;
+}
+
+/**
+ * The locale every clock figure and date is written in: the machine's region with its 12- or
+ * 24-hour clock folded in as one BCP 47 tag, `en-US-u-hc-h23` for a US Mac set to 24-hour time.
+ */
+export function clockLocaleFor(facts: Pick<AppFacts, "regionLocale" | "hourCycle">): string {
+  return new Intl.Locale(facts.regionLocale, { hourCycle: facts.hourCycle }).toString();
 }
 
 /**

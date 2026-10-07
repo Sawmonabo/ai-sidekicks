@@ -42,6 +42,8 @@ export interface AccountAxisFieldProps {
   readonly isOverridden: boolean;
   /** Where popups portal. The frame's overlay root; `undefined` is its own window's body. */
   readonly overlayContainer?: HTMLElement | null | undefined;
+  /** The machine's clock locale, which the stored reading's instant is written in. */
+  readonly clockLocale: string;
 }
 
 /** The provider-account axis: a picker over the registry, or why there is none. */
@@ -101,7 +103,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
                 "reading, and the request still names no account."}
           </span>
           <ul className="meridian-axis-field__advisories">
-            {accountAdvisoriesFor(advisoryChoice).map((advisory) => (
+            {accountAdvisoriesFor(advisoryChoice, props.clockLocale).map((advisory) => (
               <li key={advisory} className="meridian-axis-field__advisory">
                 {advisory}
               </li>

@@ -12,6 +12,7 @@ import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 
 /** What one transcript row lays out. */
@@ -35,12 +36,13 @@ export interface TranscriptRowLayoutProps {
 /** One transcript row: leading edge, actor and time gutter, body, and a footer. */
 export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.Element {
   const actorId = useId();
+  const clockLocale = useClockLocale();
 
-  // Formatted once per instant: `formatClockTime` builds a new `Intl.DateTimeFormat` per call.
-  // A memo here, not a string on a row model, because callers of this primitive share no model.
+  // Formatted once per instant and locale. A memo here, not a string on a row model, because
+  // callers of this primitive share no model.
   const occurredAtClockTime = useMemo(
-    () => formatClockTime(props.occurredAtIso),
-    [props.occurredAtIso],
+    () => formatClockTime(props.occurredAtIso, clockLocale),
+    [props.occurredAtIso, clockLocale],
   );
   const timePlacement = props.timePlacement ?? "gutter";
   const time = <WireFigure value={occurredAtClockTime} title={props.occurredAtIso} />;

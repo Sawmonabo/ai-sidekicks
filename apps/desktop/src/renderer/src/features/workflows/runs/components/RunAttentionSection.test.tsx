@@ -23,6 +23,9 @@ import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 // Local calendar instants, so every figure below falls on the same day as now.
 const NOW_MS = new Date(2026, 0, 1, 14, 20).getTime();
+
+/** The clock locale the section writes its figures in. */
+const CLOCK_LOCALE = "en-US";
 const RESUME_AT = new Date(2026, 0, 1, 15, 0).toISOString();
 const NEWER_WAIT = new Date(2026, 0, 1, 14, 5).toISOString();
 const OLDER_WAIT = new Date(2026, 0, 1, 8, 30).toISOString();
@@ -74,6 +77,7 @@ describe("the attention list", () => {
         state={{ kind: "loaded", value: DAEMON_GROUPING }}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
+        clockLocale={CLOCK_LOCALE}
         clock={new ManualClock(NOW_MS)}
         readAgain={() => undefined}
         answeredCount={0}
@@ -85,8 +89,8 @@ describe("the attention list", () => {
     expect(lines).toStrictEqual([
       "1 run waits on the Claude Code account Personal, which is spent.",
       "3 runs wait on the Codex account Work, which is spent until " +
-        `${formatDayClock(RESUME_AT, NOW_MS)}.`,
-      `Release · waiting on Approve the release · since ${formatDayClock(NEWER_WAIT, NOW_MS)}`,
+        `${formatDayClock(RESUME_AT, NOW_MS, CLOCK_LOCALE)}.`,
+      `Release · waiting on Approve the release · since ${formatDayClock(NEWER_WAIT, NOW_MS, CLOCK_LOCALE)}`,
       "Weekly notes · waiting on Write the notes · since 8:30 AM",
     ]);
   });
@@ -98,6 +102,7 @@ describe("the attention list", () => {
         state={state}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
+        clockLocale={CLOCK_LOCALE}
         clock={clock}
         readAgain={() => undefined}
         answeredCount={3}

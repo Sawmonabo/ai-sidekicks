@@ -28,6 +28,8 @@ export function RunAttentionSection(props: {
   readonly onOpenRun: (workflowRunId: string) => void;
   /** The instant the clock figures read against, which also names the part of the day. */
   readonly nowMs: number;
+  /** The machine's clock locale, which the clock figures are written in. */
+  readonly clockLocale: string;
   /** The window's clock, which holds the loading line back for the short delay. */
   readonly clock: Clock;
   /** How many runs a person answered since this screen opened. */
@@ -59,7 +61,12 @@ export function RunAttentionSection(props: {
         <ul className="meridian-workflows-attention__entries">
           {state.value.entries.map((entry) => (
             <li key={entryKey(entry)} className="meridian-workflows-attention__entry">
-              <AttentionLine entry={entry} onOpenRun={props.onOpenRun} nowMs={props.nowMs} />
+              <AttentionLine
+                entry={entry}
+                onOpenRun={props.onOpenRun}
+                nowMs={props.nowMs}
+                clockLocale={props.clockLocale}
+              />
             </li>
           ))}
         </ul>
@@ -72,15 +79,18 @@ function AttentionLine(props: {
   readonly entry: WorkflowRunAttentionEntry;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly nowMs: number;
+  readonly clockLocale: string;
 }): React.JSX.Element {
-  const { entry } = props;
+  const { entry, clockLocale } = props;
   if (entry.kind === "account") {
     const runs = runCountWords(entry.affectedRunCount);
     const verb = entry.affectedRunCount === 1 ? "waits" : "wait";
     const account = spentAccountWords(entry.account);
     // The reset is named only where the daemon armed the instant the runs resume.
     const until =
-      entry.resumeAt === undefined ? "" : ` until ${formatDayClock(entry.resumeAt, props.nowMs)}`;
+      entry.resumeAt === undefined
+        ? ""
+        : ` until ${formatDayClock(entry.resumeAt, props.nowMs, clockLocale)}`;
     return <span>{`${runs} ${verb} on the ${account}, which is spent${until}.`}</span>;
   }
   return (
@@ -95,7 +105,7 @@ function AttentionLine(props: {
         {entry.workflowName}
       </button>
       <span className="meridian-workflows-attention__cause">
-        {` · waiting on ${entry.waitingStepName} · since ${formatDayClock(entry.waitingSince, props.nowMs)}`}
+        {` · waiting on ${entry.waitingStepName} · since ${formatDayClock(entry.waitingSince, props.nowMs, clockLocale)}`}
       </span>
     </span>
   );

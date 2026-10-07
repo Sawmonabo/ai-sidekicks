@@ -43,9 +43,10 @@ const NEVER_OBSERVED_ADVISORY = "This account has never been observed.";
 
 /**
  * Every advisory line this account carries: what was stored, then its state and the one remedy
- * that applies, in the Providers page's words. Never empty. `locale` formats the stored instant.
+ * that applies, in the Providers page's words. Never empty. The stored instant is written in
+ * `locale`, the machine's clock locale.
  */
-export function accountAdvisoriesFor(choice: AccountChoice, locale?: string): readonly string[] {
+export function accountAdvisoriesFor(choice: AccountChoice, locale: string): readonly string[] {
   const advisories = [storedHealthAdvisoryFor(choice, locale)];
   const { readiness } = choice;
   if (readiness === undefined) {
@@ -75,7 +76,7 @@ export function unresolvedDefaultAdvisoryIn(
 }
 
 /** The stored reading as one sentence: what was found, and when it was found. */
-function storedHealthAdvisoryFor(choice: AccountChoice, locale: string | undefined): string {
+function storedHealthAdvisoryFor(choice: AccountChoice, locale: string): string {
   const { healthObservedAt } = choice;
   if (healthObservedAt === null) {
     return NEVER_OBSERVED_ADVISORY;

@@ -13,10 +13,14 @@ import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
-import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import { createWorkflowCommandTargets } from "#renderer/features/workflows/command-target.js";
 import { withCommandTargets } from "#renderer/features/workflows/command-target.test-support.js";
 import { ChainQuestion } from "./ChainQuestion.js";
+
+/** The clock locale the fixture bridge carries, which the screen writes its figures in. */
+const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
 
 /** How long the fixture daemon takes to answer `workflow.gateResolve`. */
 const GATE_RESOLVE_DELAY_MS = 200;
@@ -58,7 +62,7 @@ describe("the chain's question", () => {
     expect(
       screen.getByText(
         `Folder sweep has started 100 runs from its ` +
-          `${formatDayClock(run.chainRoot.startedAt, NEXT_DAY_MS)} start. Keep going?`,
+          `${formatDayClock(run.chainRoot.startedAt, NEXT_DAY_MS, CLOCK_LOCALE)} start. Keep going?`,
       ),
     ).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Keep going" }));

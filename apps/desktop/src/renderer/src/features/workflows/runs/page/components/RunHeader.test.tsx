@@ -24,8 +24,12 @@ import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/
 import { mintedRunId } from "#fixtures/data/workflow/run/writes.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
-import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import { RunHeader } from "./RunHeader.js";
+
+/** The clock locale the fixture bridge carries, which the screen writes its figures in. */
+const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
 
 const NODE_KINDS: Readonly<Record<string, string>> = {
   review: "agent.run",
@@ -110,7 +114,7 @@ describe("a run's header", () => {
       "The Claude Code account sam@example.com · Max is spent until the window resets.",
     );
     expect(screen.getByText("Nothing until the account can run again.")).toBeDefined();
-    const resumes = formatDayClock(waiting.resumeAt, dayBeforeMs);
+    const resumes = formatDayClock(waiting.resumeAt, dayBeforeMs, CLOCK_LOCALE);
     expect(screen.getByText(`resumes itself at ${resumes}`)).toBeDefined();
     cleanup();
 
@@ -134,7 +138,9 @@ describe("a run's header", () => {
     }
     renderHeader(approval, [], [], undefined, new ManualClock(dayBeforeMs));
     expect(
-      screen.getByText(`waiting on an approval until ${formatDayClock(deadline, dayBeforeMs)}`),
+      screen.getByText(
+        `waiting on an approval until ${formatDayClock(deadline, dayBeforeMs, CLOCK_LOCALE)}`,
+      ),
     ).toBeDefined();
   });
 
@@ -198,6 +204,7 @@ describe("a run's header", () => {
     const chainLink = `Started by ${chained.chainRoot.workflowName} · ${formatDayClock(
       chained.chainRoot.startedAt,
       WORKFLOW_FIXTURE_NOW_MS,
+      CLOCK_LOCALE,
     )}`;
     const startedBy = screen.getByText("Started by", { selector: "dt" }).nextElementSibling;
     expect(startedBy?.textContent).toBe(`a file event · ${chainLink}`);

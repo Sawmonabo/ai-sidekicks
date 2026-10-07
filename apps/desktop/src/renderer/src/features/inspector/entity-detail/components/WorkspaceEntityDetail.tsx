@@ -1,10 +1,13 @@
 // A workspace's record: the durable side of a repo mount.
 
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+
 import { EntityRecord } from "./EntityRecord.js";
 import { instantFacet, readBodyMember, wireFacet, type EntityDetailProps } from "../facets.js";
 
 /** The workspace record body: repo mount, workspace, actor and last touch. */
 export function WorkspaceEntityDetail(props: EntityDetailProps): React.JSX.Element {
+  const clockLocale = useClockLocale();
   return (
     <EntityRecord
       glyph="workspace"
@@ -25,7 +28,7 @@ export function WorkspaceEntityDetail(props: EntityDetailProps): React.JSX.Eleme
         wireFacet("Repo mount", readBodyMember(props.entity, "repoMountId"), "repo mount"),
         wireFacet("Workspace", readBodyMember(props.entity, "workspaceId"), "workspace"),
         wireFacet("Actor", readBodyMember(props.entity, "actor"), "actor"),
-        instantFacet("Last touched", props.entity?.touchedAt, "touch time"),
+        instantFacet("Last touched", props.entity?.touchedAt, "touch time", clockLocale),
       ]}
       linkedSourcePaneId={props.linkedSourcePaneId}
     />

@@ -8,6 +8,7 @@ import "./AgentBindingCard.css";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
@@ -21,6 +22,7 @@ export interface AgentBindingCardProps {
 
 /** One agent: its identity, the binding it runs under, and the tool allowlist it holds. */
 export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Element {
+  const clockLocale = useClockLocale();
   const { agent } = props;
   const { binding } = agent;
   const toolAllowlist = agentToolAllowlistPosition(agent);
@@ -31,7 +33,10 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
         <h4 className="meridian-agent-card__name">{agent.name}</h4>
         <span className="meridian-agent-card__created">
           <span className="meridian-form__label">Created</span>{" "}
-          <WireFigure value={formatDateTime(agent.createdAt)} title={agent.createdAt} />
+          <WireFigure
+            value={formatDateTime(agent.createdAt, clockLocale)}
+            title={agent.createdAt}
+          />
         </span>
       </header>
 

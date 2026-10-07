@@ -4,6 +4,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { runRow } from "../../event-rows.test-support.js";
 import { SystemMessage } from "./SystemMessage.js";
 import { SystemMessageClassifier } from "../classifier.js";
@@ -38,7 +39,9 @@ function renderSystemMessage(row: TranscriptEventRow): HTMLElement {
   if (systemMessage === undefined) {
     throw new Error(`expected ${row.type} to classify as a system message`);
   }
-  const { container } = render(<SystemMessage systemMessage={systemMessage} />);
+  const { container } = render(<SystemMessage systemMessage={systemMessage} />, {
+    wrapper: liveBridgeWrapper(),
+  });
   return container;
 }
 

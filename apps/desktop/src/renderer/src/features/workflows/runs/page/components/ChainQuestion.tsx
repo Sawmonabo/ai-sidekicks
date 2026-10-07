@@ -10,6 +10,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
@@ -65,6 +66,7 @@ function OpenChainQuestion(props: {
   readonly onAnswered: () => void;
 }): React.JSX.Element {
   const { chainRoot, bridge } = props;
+  const clockLocale = useClockLocale();
   const [answered, setAnswered] = useState<AnsweredChainQuestion | undefined>();
   const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
@@ -97,7 +99,7 @@ function OpenChainQuestion(props: {
   }
   const sentence =
     `${chainRoot.workflowName} has started ${formatCount(chainRoot.runCount)} runs from its ` +
-    `${formatDayClock(chainRoot.startedAt, props.nowMs)} start. Keep going?`;
+    `${formatDayClock(chainRoot.startedAt, props.nowMs, clockLocale)} start. Keep going?`;
   return (
     <div className="meridian-workflow-run__chain-question" role="group" aria-label={sentence}>
       <span className="meridian-workflow-run__eyebrow meridian-workflow-run__eyebrow--attention">

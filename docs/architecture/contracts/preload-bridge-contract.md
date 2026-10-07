@@ -195,8 +195,10 @@ interface PlatformBridge {
     version: string; // the running app's version
     platform: "darwin" | "linux" | "win32"; // the operating system
     arch: "arm64" | "x64"; // the processor architecture
-    locale: string; // the system locale
+    locale: string; // the app's UI language, which no clock figure or date follows
     physicalMemoryBytes: number; // the machine's physical memory, of which the screen's cache budgets are a share
+    regionLocale: string; // the locale the machine's region writes dates in, read by main from the platform's own region settings
+    hourCycle: "h12" | "h23"; // the machine's 12- or 24-hour clock, which every clock figure is written in
     // after a session's decoded pictures are released: frees the cached memory nothing draws any more (`webFrame.clearCache()`)
     freeUnusedMemory(): void;
   };

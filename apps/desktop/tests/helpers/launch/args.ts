@@ -75,6 +75,12 @@ export interface LaunchArgsOptions {
   readonly fixtureScenarioId?: string;
   /** A `sidekicks://` link the app is launched with, as the system launches it for one. */
   readonly appLink?: string;
+  /**
+   * macOS user defaults this launch alone reads, passed as `-Key value` arguments that Cocoa
+   * takes into the process's argument domain, so a test stands the app on a machine setting
+   * without changing the machine's.
+   */
+  readonly macUserDefaults?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -96,5 +102,6 @@ export function composeLaunchArgs(options: LaunchArgsOptions): string[] {
     // The application's own arguments follow the entry path, where the main process reads them.
     ...(options.fixtureScenarioId === undefined ? [] : ["--fixture", options.fixtureScenarioId]),
     ...(options.appLink === undefined ? [] : [options.appLink]),
+    ...Object.entries(options.macUserDefaults ?? {}).flatMap(([key, value]) => [`-${key}`, value]),
   ];
 }

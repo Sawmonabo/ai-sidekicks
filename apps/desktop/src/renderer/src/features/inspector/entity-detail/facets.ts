@@ -73,17 +73,22 @@ export function wireFacet(label: string, value: unknown, memberName: string): En
 }
 
 /**
- * An instant, as a wall-clock reading.
+ * An instant, as a wall-clock reading in `locale`, the machine's clock locale.
  *
  * Wall clock rather than relative: a relative phrase is only true for an instant and the
  * console has no timer. A string that does not parse takes the absent arm, since an em dash
  * reads as "there is none".
  */
-export function instantFacet(label: string, value: unknown, memberName: string): EntityFacet {
+export function instantFacet(
+  label: string,
+  value: unknown,
+  memberName: string,
+  locale: string,
+): EntityFacet {
   if (typeof value !== "string" || parseInstant(value).kind === "malformed") {
     return { label, value: unrecorded(memberName) };
   }
-  return { label, value: { form: "derived", text: formatClockTime(value) } };
+  return { label, value: { form: "derived", text: formatClockTime(value, locale) } };
 }
 
 /** The sentence an absent member carries; one generator so the claim cannot drift. */

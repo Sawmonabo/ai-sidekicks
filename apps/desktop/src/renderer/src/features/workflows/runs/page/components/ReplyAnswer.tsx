@@ -5,6 +5,7 @@ import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
@@ -31,6 +32,7 @@ export function ReplyAnswer(props: {
   const { question, bridge } = props;
   const fieldId = useId();
   const clock = useClock();
+  const clockLocale = useClockLocale();
   const [text, setText] = useState("");
   const answer = useWorkflowCall(
     (typed: string) =>
@@ -40,7 +42,7 @@ export function ReplyAnswer(props: {
       }),
     () => {
       // The question's answer carries no instant; the daemon's own record replaces this one.
-      props.onAnswered(receiptNow("answered", clock.now()));
+      props.onAnswered(receiptNow("answered", clock.now(), clockLocale));
     },
   );
   const isSending = answer.state.kind === "sending";

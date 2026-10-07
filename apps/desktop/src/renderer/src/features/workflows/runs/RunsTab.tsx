@@ -22,6 +22,7 @@ import type { Clock } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { DeleteOlderRuns } from "./components/DeleteOlderRuns.js";
@@ -69,6 +70,7 @@ export interface RunsTabProps {
 export function RunsTab(props: RunsTabProps): React.JSX.Element {
   const { filters, listState, attentionState } = props;
   const clock = useClock();
+  const clockLocale = useClockLocale();
   // The first read's count stands; a later answer that changes it is said.
   useAnnounceWhenChanged(runsSettlementSentence(listState, props.runCountState), "polite", {
     isReadSettlement: true,
@@ -94,6 +96,7 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
         readAgain={props.readAttentionAgain}
         onOpenRun={props.onOpenRun}
         nowMs={nowMs}
+        clockLocale={clockLocale}
         clock={clock}
         answeredCount={props.answeredCount}
       />

@@ -58,6 +58,7 @@ function renderedAxis(axis: AxisCase): HTMLElement {
       inheritedValue={axis.inheritedValue}
       isOverridden={axis.isOverridden}
       onValueChange={axis.onValueChange ?? ((): void => {})}
+      clockLocale="en-US"
     />,
     { wrapper: LiveAnnouncerProvider },
   );

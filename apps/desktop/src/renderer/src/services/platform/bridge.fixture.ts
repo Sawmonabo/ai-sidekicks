@@ -34,6 +34,9 @@ export const FIXTURE_APP_META: PlatformBridge["app"] = {
   locale: "en-US",
   // 16 GiB, the machine the screen's memory budgets were measured on.
   physicalMemoryBytes: 17_179_869_184,
+  // A Mac set to the United States at its own 12-hour clock.
+  regionLocale: "en-US",
+  hourCycle: "h12",
 };
 
 /** The window a fixture console opens first, fixed as the `app` meta is. */

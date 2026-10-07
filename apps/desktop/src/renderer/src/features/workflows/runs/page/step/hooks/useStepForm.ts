@@ -12,6 +12,7 @@ import type { ScheduledHandle } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import {
   useWorkflowCall,
@@ -68,6 +69,7 @@ export function useStepForm(
   onAnswered: (receipt: string) => void,
 ): StepFormHold {
   const clock = useClock();
+  const clockLocale = useClockLocale();
   const subject =
     `${stepKey.workflowRunId}/${stepKey.nodeId}/` +
     `${String(stepKey.attempt)}/${String(stepKey.executionIndex)}`;
@@ -180,7 +182,13 @@ export function useStepForm(
       readonly expectedRevision: number;
     }) => callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
     (submitted) => {
-      onAnswered(resolutionReceipt({ kind: "answered", at: submitted.submittedAt }, clock.now()));
+      onAnswered(
+        resolutionReceipt(
+          { kind: "answered", at: submitted.submittedAt },
+          clock.now(),
+          clockLocale,
+        ),
+      );
     },
   );
 

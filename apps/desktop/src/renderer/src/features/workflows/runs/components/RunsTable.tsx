@@ -7,6 +7,7 @@ import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
 import { formatCount, formatDayClock, formatUnitDuration } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
 import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflowCall.js";
 import { costWithPayer, type PayerReading } from "../cost.js";
@@ -76,6 +77,7 @@ function RunRow(
   },
 ): React.JSX.Element {
   const { run } = props;
+  const clockLocale = useClockLocale();
   const [isConfirming, setIsConfirming] = useState(false);
   const closeConfirm = useCallback(() => {
     setIsConfirming(false);
@@ -108,14 +110,14 @@ function RunRow(
             <span className="meridian-workflows-runs__park">
               {run.resumeAt === undefined
                 ? "parked · awaiting resume"
-                : `parked · resumes ${formatDayClock(run.resumeAt, props.nowMs)}`}
+                : `parked · resumes ${formatDayClock(run.resumeAt, props.nowMs, clockLocale)}`}
             </span>
           ) : null}
         </span>
       </td>
       <td>{TRIGGER_KIND_WORDS[run.triggerKind]}</td>
       <td>{startedByWords(run.startedBy)}</td>
-      <td>{formatDayClock(run.startedAt, props.nowMs)}</td>
+      <td>{formatDayClock(run.startedAt, props.nowMs, clockLocale)}</td>
       <td>
         {run.durationMs === undefined
           ? runDurationWords(run.startedAt, props.nowMs)
@@ -130,7 +132,7 @@ function RunRow(
         {isConfirming ? (
           <DeleteRunConfirm
             workflowName={run.definitionName}
-            startedAt={formatDayClock(run.startedAt, props.nowMs)}
+            startedAt={formatDayClock(run.startedAt, props.nowMs, clockLocale)}
             isSent={isDeleteSent}
             act={isDeleteSent ? DELETE_SENT : remove.state}
             onCancel={closeConfirm}

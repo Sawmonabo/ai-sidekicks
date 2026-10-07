@@ -7,6 +7,7 @@ import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RunStatusChip } from "#renderer/features/workflows/components/RunStatusChip.js";
 import { useRunTimesNow } from "#renderer/features/workflows/hooks/useRunTimesNow.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
@@ -49,6 +50,7 @@ export interface RunHeaderProps {
  */
 export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   const { run, bridge } = props;
+  const clockLocale = useClockLocale();
   const workflowRunId = run.workflowRunId;
   const { review, startedBy } = run;
   // The daemon starts the new run from this run's own version, input and mode.
@@ -74,10 +76,10 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
     nodeName: props.nodeName,
     workflowName: props.workflowName,
   });
-  const liveLine = runLiveLine(run, nowMs);
+  const liveLine = runLiveLine(run, nowMs, clockLocale);
   const durationWords = runDurationUntil(run, isTicking, nowMs);
   const waiting = latestStepWith(run.steps, "waiting");
-  const chainStartedAt = formatDayClock(run.chainRoot.startedAt, nowMs);
+  const chainStartedAt = formatDayClock(run.chainRoot.startedAt, nowMs, clockLocale);
 
   return (
     <header className="meridian-workflow-run__header">
@@ -97,7 +99,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
             <Chip label={`version v${formatCount(props.versionNumber)} pinned`} />
           )}
         </Fact>
-        <Fact term="Started">{formatDayClock(run.startedAt, nowMs)}</Fact>
+        <Fact term="Started">{formatDayClock(run.startedAt, nowMs, clockLocale)}</Fact>
         {durationWords === undefined ? null : <Fact term="Duration">{durationWords}</Fact>}
         <Fact term="Trigger">{TRIGGER_KIND_WORDS[run.triggerKind]}</Fact>
         <Fact term="Started by">

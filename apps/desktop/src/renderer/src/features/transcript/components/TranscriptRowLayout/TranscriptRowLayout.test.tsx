@@ -1,16 +1,22 @@
 // The row's load-bearing decisions: attribution fails closed for a hue step off the wheel (a
-// wrap would attribute the row to the wrong user), and a superseded row says so.
+// wrap would attribute the row to the wrong user), a superseded row says so, and its time is
+// written on the clock the machine is set to, read through the bridge, never the UI language's.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { appFactsSwitches, readAppFactsSwitches, type HourCycle } from "#shared/app-facts.js";
+import { createStubBridge } from "#shared/preload-api.js";
 import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
+import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "#renderer/services/platform/bridge.fixture.js";
+import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
+import { bridgeWrapper, liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
 
 const OCCURRED_AT = "2026-09-01T13:04:05.123Z";
 
 function renderRow(element: React.JSX.Element): HTMLElement {
-  const { container } = render(element);
+  const { container } = render(element, { wrapper: liveBridgeWrapper() });
   const row = container.firstElementChild;
   if (!(row instanceof HTMLElement)) {
     throw new Error("TranscriptRowLayout rendered no element");
@@ -72,5 +78,29 @@ describe("TranscriptRowLayout — superseded rows and the revealed footer", () =
     const ordinary = basicRow();
     expect(ordinary.classList.contains("meridian-transcript-row-layout--superseded")).toBe(false);
     expect(ordinary.querySelector(".meridian-transcript-row-layout__superseded-mark")).toBeNull();
+  });
+});
+
+describe("TranscriptRowLayout — the time on the machine's own clock", () => {
+  /** The row's time on a US machine set to `hourCycle`, under a US English UI language. */
+  function timeOnMachineClock(hourCycle: HourCycle): string | null {
+    // The facts go through main's switches and the preload's read of them, as a window's do.
+    const app = readAppFactsSwitches(
+      appFactsSwitches({ ...FIXTURE_APP_META, locale: "en-US", regionLocale: "en-US", hourCycle }),
+    );
+    // A local wall-clock instant, so the figure is the same in every time zone.
+    const occurredAtIso = new Date(2026, 9, 6, 14, 20, 5).toISOString();
+    const { container } = render(
+      <TranscriptRowLayout agentHueStep={0} occurredAtIso={occurredAtIso} authorLabel="Ada" />,
+      {
+        wrapper: bridgeWrapper(createLiveBridge(createStubBridge(app, FIXTURE_WINDOW_ID))),
+      },
+    );
+    return container.querySelector(`[title="${occurredAtIso}"]`)?.textContent ?? null;
+  }
+
+  it("reads 14:20 on a 24-hour clock and 2:20 PM on a 12-hour one", () => {
+    expect(timeOnMachineClock("h23")).toBe("14:20:05");
+    expect(timeOnMachineClock("h12")).toBe("2:20:05 PM");
   });
 });

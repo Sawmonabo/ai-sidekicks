@@ -3,11 +3,14 @@
 // No registered lifecycle member carries the checkout path, so the record says so rather than
 // leaving a reader to conclude the worktree has none.
 
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+
 import { EntityRecord } from "./EntityRecord.js";
 import { instantFacet, readBodyMember, wireFacet, type EntityDetailProps } from "../facets.js";
 
 /** The worktree record body: worktree, workspace, actor and last touch. */
 export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Element {
+  const clockLocale = useClockLocale();
   return (
     <EntityRecord
       glyph="worktree"
@@ -30,7 +33,7 @@ export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Elemen
         wireFacet("Worktree", readBodyMember(props.entity, "worktreeId"), "worktree"),
         wireFacet("Workspace", readBodyMember(props.entity, "workspaceId"), "workspace"),
         wireFacet("Actor", readBodyMember(props.entity, "actor"), "actor"),
-        instantFacet("Last touched", props.entity?.touchedAt, "touch time"),
+        instantFacet("Last touched", props.entity?.touchedAt, "touch time", clockLocale),
       ]}
       linkedSourcePaneId={props.linkedSourcePaneId}
     >
