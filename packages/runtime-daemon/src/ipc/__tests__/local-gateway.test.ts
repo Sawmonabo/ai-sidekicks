@@ -1,6 +1,7 @@
-// `LocalIpcGateway` over a real local socket: a malformed envelope never reaches a handler, and
-// error replies carry no paths or stack frames. Sockets live under `os.tmpdir()` with a random
-// suffix so parallel workers never collide.
+// `LocalIpcGateway` over a real local socket: a malformed envelope never reaches a handler, a
+// handler reads the connection's device and never one the request names, and error replies carry
+// no paths or stack frames. Sockets live under `os.tmpdir()` with a random suffix so parallel
+// workers never collide.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
@@ -17,6 +18,7 @@ import {
   MAX_MESSAGE_BYTES,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
+import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
 import { bootstrap } from "../../bootstrap/index.js";
 import { LocalIpcGateway } from "../local-gateway.js";
@@ -26,6 +28,9 @@ import { passthroughSchema } from "../__fixtures__/schema-doubles.js";
 import { connect } from "../__fixtures__/local-socket-client.js";
 
 const PROTOCOL_VERSION = "2026-05-01";
+
+// The service's own device id, which every connection on its socket comes from.
+const SERVICE_DEVICE_ID = DeviceIdSchema.parse("service-device");
 
 // Linux caps a socket path (`sun_path`) at 107 bytes, so the path stays short.
 function ephemeralSocketPath(label: string): string {
@@ -67,7 +72,7 @@ describe("LocalIpcGateway", () => {
       passthroughSchema<unknown>(),
       failingHandler,
     );
-    gateway = new LocalIpcGateway({ registry });
+    gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
     await gateway.start();
   });
 
@@ -188,6 +193,20 @@ describe("LocalIpcGateway", () => {
     }
   });
 
+  it("hands the handler the connection's device, not one the request names", async () => {
+    const client = await connect(socketPath);
+    try {
+      client.send({ ...validRequest, params: { deviceId: "spoofed-device" } });
+      expect(await client.replies(1)).toEqual([validReply]);
+      expect(handlerSpy).toHaveBeenCalledWith(
+        { deviceId: "spoofed-device" },
+        { transportId: expect.any(Number), deviceId: SERVICE_DEVICE_ID },
+      );
+    } finally {
+      await client.close();
+    }
+  });
+
   it("answers an oversized frame, closes only that connection, and keeps listening", async () => {
     const client = await connect(socketPath);
     const closed = new Promise<void>((resolve) => {
@@ -243,7 +262,7 @@ describe("LocalIpcGateway stop", () => {
     bootstrap({ localIpcPath: socketPath });
     const registry = new MethodRegistryImpl();
     const largeText = "r".repeat(256 * 1024);
-    const gateway = new LocalIpcGateway({ registry });
+    const gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
     const stopping: Array<Promise<void>> = [];
     const replyThenStop: Handler<unknown, { text: string }> = async () => {
       setImmediate(() => {
@@ -297,7 +316,7 @@ describe("LocalIpcGateway stop", () => {
         writeHandler,
         { mutating: true },
       );
-      gateway = new LocalIpcGateway({ registry });
+      gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
       await gateway.start();
       // A client that keeps its own side open after the gateway ends the connection, so the stop
       // waits on it.
@@ -374,7 +393,10 @@ describe("LocalIpcGateway before SecureDefaults load", () => {
     vi.resetModules();
     const { LocalIpcGateway: UnloadedGateway } = await import("../local-gateway.js");
     const { MethodRegistryImpl: UnloadedRegistry } = await import("../registry.js");
-    const gateway = new UnloadedGateway({ registry: new UnloadedRegistry() });
+    const gateway = new UnloadedGateway({
+      registry: new UnloadedRegistry(),
+      deviceId: SERVICE_DEVICE_ID,
+    });
     await expect(gateway.start()).rejects.toThrow(/must complete before any listener bind/);
   });
 });

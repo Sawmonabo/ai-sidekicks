@@ -1,11 +1,12 @@
 // The daemon started from its command, `src/main.ts`, as a real child process: it answers
-// `daemon.hello` on its socket, keeps serving a client that drops and reconnects, comes back after
-// a SIGKILL over the socket file the crash left with the same machine id and a new session token
-// the old one no longer opens, and stops cleanly on SIGTERM, a second one during its drain
-// included, and one during its start ends the login shell. Its service log goes to standard error
-// and to its own file: a log folder it cannot open never stops it, a start that fails says why in
-// the file, and it runs on, logging to the file, once its standard error's reader is gone. Each run
-// gets its own home and run folder, so the person's own files are never read.
+// `daemon.hello` on its socket naming the machine's own id as the calling device, keeps serving a
+// client that drops and reconnects, comes back after a SIGKILL over the socket file the crash left
+// with the same machine id and a new session token the old one no longer opens, and stops cleanly
+// on SIGTERM, a second one during its drain included, and one during its start ends the login
+// shell. Its service log goes to standard error and to its own file: a log folder it cannot open
+// never stops it, a start that fails says why in the file, and it runs on, logging to the file,
+// once its standard error's reader is gone. Each run gets its own home and run folder, so the
+// person's own files are never read.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -167,12 +168,6 @@ async function sayHello(sessionToken?: string): Promise<unknown> {
   }
 }
 
-const COMPATIBLE_REPLY = {
-  jsonrpc: JSONRPC_VERSION,
-  id: 1,
-  result: { compatible: true, protocolVersion: CURRENT_PROTOCOL_VERSION },
-};
-
 function readLocalMachine(): { readonly node_id: string; readonly name: string } {
   const database = new Database(path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "daemon.db"), {
     readonly: true,
@@ -187,16 +182,29 @@ function readLocalMachine(): { readonly node_id: string; readonly name: string }
   }
 }
 
+/** A compatible hello's reply, naming the machine's stored id as the calling device. */
+function compatibleReply(): unknown {
+  return {
+    jsonrpc: JSONRPC_VERSION,
+    id: 1,
+    result: {
+      compatible: true,
+      protocolVersion: CURRENT_PROTOCOL_VERSION,
+      deviceId: readLocalMachine().node_id,
+    },
+  };
+}
+
 describe("the daemon started from its command", () => {
   it(
     "answers daemon.hello on its socket and keeps serving a client that drops and reconnects",
     async () => {
       const daemon = await startDaemon();
-      expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
+      expect(await sayHello()).toStrictEqual(compatibleReply());
 
       const dropped = await connect(socketPath);
       dropped.socket.destroy();
-      expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
+      expect(await sayHello()).toStrictEqual(compatibleReply());
       expect(daemon.child.exitCode).toBeNull();
     },
     READY_TIMEOUT_MS * 2,
@@ -219,7 +227,7 @@ describe("the daemon started from its command", () => {
         id: 1,
         error: { code: JsonRpcErrorCode.InvalidRequest, data: { type: "auth.token_invalid" } },
       });
-      expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
+      expect(await sayHello()).toStrictEqual(compatibleReply());
       expect(readLocalMachine()).toStrictEqual(machineAtFirstStart);
 
       restarted.child.kill("SIGTERM");
@@ -345,7 +353,7 @@ describe("the daemon started from its command", () => {
       await writeFile(path.join(dataFolder, "logs"), "");
 
       const daemon = await startDaemon();
-      expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
+      expect(await sayHello()).toStrictEqual(compatibleReply());
       const reasons = daemon.standardError().match(/The service log file .* could not be opened/g);
       expect(reasons).toHaveLength(1);
     },
@@ -394,7 +402,7 @@ describe("the daemon started from its command", () => {
         expect(await readServiceLogFile()).toMatch(/Connection \d+ failed/);
       });
       await client.close();
-      expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
+      expect(await sayHello()).toStrictEqual(compatibleReply());
 
       daemon.child.kill("SIGTERM");
       expect(await daemon.exited).toStrictEqual({ code: 0, signal: null });

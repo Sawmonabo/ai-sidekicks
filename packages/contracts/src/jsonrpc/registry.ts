@@ -4,6 +4,8 @@
 // Type-only: keeps zod out of this file's runtime code.
 import type { ZodType } from "zod";
 
+import type { DeviceId } from "../trust-statement.js";
+
 // Re-exported so the daemon's registry can name `ZodType` without listing zod as a dependency.
 export type { ZodType };
 
@@ -16,12 +18,13 @@ export type { ZodType };
 export const METHOD_NAME_FORMAT: RegExp = /^[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*)+$/;
 
 /**
- * Per-dispatch context passed to every handler. `transportId` is the gateway's id for the
- * connection the call arrived on; it is absent when a caller dispatches without a transport, as
- * tests do.
+ * Per-dispatch context passed to every handler. The gateway stamps `transportId`, its id for the
+ * connection the call arrived on, and `deviceId`, the device that connection comes from, never read
+ * from the request; both are absent when a caller dispatches without a transport, as tests do.
  */
 export interface HandlerContext {
   readonly transportId?: number;
+  readonly deviceId?: DeviceId;
 }
 
 /**

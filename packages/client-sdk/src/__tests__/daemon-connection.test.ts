@@ -37,7 +37,11 @@ import {
   JsonRpcTransportUnavailableError,
 } from "../transport/local-socket.js";
 
-const COMPATIBLE_HELLO = { compatible: true, protocolVersion: CURRENT_PROTOCOL_VERSION };
+const COMPATIBLE_HELLO = {
+  compatible: true,
+  protocolVersion: CURRENT_PROTOCOL_VERSION,
+  deviceId: "service-device",
+};
 
 let scratch: string;
 let runFolder: DaemonRunFolder;

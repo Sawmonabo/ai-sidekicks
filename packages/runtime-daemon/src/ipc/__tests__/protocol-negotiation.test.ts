@@ -14,6 +14,7 @@ import {
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
 import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
 import { NegotiationError, ProtocolNegotiator } from "../protocol-negotiation.js";
@@ -50,6 +51,9 @@ interface NegotiatorFixture {
 // This start's token, as the daemon wrote it to its token file.
 const SESSION_TOKEN = "a".repeat(64);
 
+// The device the gateway stamps on every call from a connection.
+const DEVICE_ID = DeviceIdSchema.parse("calling-device");
+
 function makeFixture(): NegotiatorFixture {
   const negotiator = new ProtocolNegotiator(SESSION_TOKEN);
   const raw = new MethodRegistryImpl();
@@ -67,7 +71,7 @@ describe("daemon.hello version negotiation", () => {
       protocolVersion: "2026-05-01",
       supportedProtocols: ["2025-12-31", "2026-05-01"],
     };
-    const ctx: HandlerContext = { transportId: 101 };
+    const ctx: HandlerContext = { transportId: 101, deviceId: DEVICE_ID };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(true);
     expect(ack.protocolVersion).toBe("2026-05-01");
@@ -85,10 +89,11 @@ describe("daemon.hello version negotiation", () => {
         protocolVersion: "2025-12-31",
         supportedProtocols: ["2025-12-31"],
       };
-      const ctx: HandlerContext = { transportId: 102 };
+      const ctx: HandlerContext = { transportId: 102, deviceId: DEVICE_ID };
       const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
       expect(ack.compatible).toBe(false);
       expect(ack.reason).toBe(NEGOTIATION_REASON_FLOOR_EXCEEDED);
+      expect(ack.deviceId).toBe(DEVICE_ID);
       // The daemon's versions are returned so the client can decide whether to retry.
       expect(ack.daemonSupportedProtocols).toBeDefined();
       expect(ack.daemonSupportedProtocols).toStrictEqual(SUPPORTED_PROTOCOL_VERSIONS);
@@ -105,8 +110,14 @@ describe("daemon.hello version negotiation", () => {
     };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, {
       transportId: 105,
+      deviceId: DEVICE_ID,
     })) as DaemonHelloAck;
-    expect(ack).toStrictEqual({ compatible: true, protocolVersion: "2026-01-01" });
+    // The ack names the device the call came from.
+    expect(ack).toStrictEqual({
+      compatible: true,
+      protocolVersion: "2026-01-01",
+      deviceId: DEVICE_ID,
+    });
   });
 
   it("an incompatible handshake from a client too new answers the ceiling reason", async () => {
@@ -117,7 +128,7 @@ describe("daemon.hello version negotiation", () => {
       protocolVersion: "2026-06-01",
       supportedProtocols: ["2026-06-01", "2026-07-01"],
     };
-    const ctx: HandlerContext = { transportId: 103 };
+    const ctx: HandlerContext = { transportId: 103, deviceId: DEVICE_ID };
     const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
     expect(ack.compatible).toBe(false);
     expect(ack.reason).toBe(NEGOTIATION_REASON_CEILING_EXCEEDED);
@@ -125,7 +136,7 @@ describe("daemon.hello version negotiation", () => {
 
   it("a repeated handshake on one connection is refused and echoes the first version", async () => {
     const { gated } = makeFixture();
-    const ctx: HandlerContext = { transportId: 104 };
+    const ctx: HandlerContext = { transportId: 104, deviceId: DEVICE_ID };
     const params: DaemonHello = {
       sessionToken: SESSION_TOKEN,
       protocolVersion: "2026-05-01",
@@ -138,11 +149,12 @@ describe("daemon.hello version negotiation", () => {
     expect(second.reason).toBe(NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED);
     // The version negotiated by the first hello is echoed back.
     expect(second.protocolVersion).toBe("2026-05-01");
+    expect(second.deviceId).toBe(DEVICE_ID);
   });
 
   it("`cleanupTransport` clears the connection's state and ignores an unknown one", async () => {
     const { gated, negotiator } = makeFixture();
-    const ctx: HandlerContext = { transportId: 105 };
+    const ctx: HandlerContext = { transportId: 105, deviceId: DEVICE_ID };
     const params: DaemonHello = {
       sessionToken: SESSION_TOKEN,
       protocolVersion: "2026-05-01",
@@ -190,7 +202,7 @@ describe("the mutating-method gate", () => {
       "`method_not_found` from the inner registry",
     async () => {
       const { gated } = makeFixture();
-      const ctx: HandlerContext = { transportId: 204 };
+      const ctx: HandlerContext = { transportId: 204, deviceId: DEVICE_ID };
       await gated.dispatch(
         DAEMON_HELLO_METHOD,
         { sessionToken: SESSION_TOKEN, protocolVersion: "2026-06-01" },
@@ -216,7 +228,7 @@ describe("the mutating-method gate", () => {
       handler,
       { mutating: true },
     );
-    const ctx: HandlerContext = { transportId: 202 };
+    const ctx: HandlerContext = { transportId: 202, deviceId: DEVICE_ID };
     const params: DaemonHello = {
       sessionToken: SESSION_TOKEN,
       protocolVersion: "2026-05-01",
@@ -244,7 +256,7 @@ describe("the mutating-method gate", () => {
       async () => ({ ok: true }),
       { mutating: true },
     );
-    const ctx: HandlerContext = { transportId: 203 };
+    const ctx: HandlerContext = { transportId: 203, deviceId: DEVICE_ID };
     const params: DaemonHello = {
       sessionToken: SESSION_TOKEN,
       protocolVersion: "2026-06-01",
@@ -278,7 +290,7 @@ describe("the session token", () => {
         async () => ({ ok: true }),
         { mutating: false },
       );
-      const ctx: HandlerContext = { transportId: 301 };
+      const ctx: HandlerContext = { transportId: 301, deviceId: DEVICE_ID };
       const hello: DaemonHello = {
         protocolVersion: "2026-05-01",
         ...(sessionToken !== undefined ? { sessionToken } : {}),
