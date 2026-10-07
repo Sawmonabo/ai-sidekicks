@@ -1,7 +1,8 @@
-// The whole-session purge deletes every purgeable row outright, with the session's directory rows
-// and a chat's managed workspace, refuses a session whose range the receipt could not name, leaves
-// no copy of the content in the database file or its write-ahead log, and never runs inside an
-// append-lock hold. Rows are seeded raw to sit at an exact sequence.
+// The whole-session purge deletes every purgeable row outright, with the session's draft, its
+// directory rows and a chat's managed workspace, re-scores the related lists it leaves behind,
+// refuses a session whose range the receipt could not name, leaves no copy of the content in the
+// database file or its write-ahead log, and never runs inside an append-lock hold. Rows are seeded
+// raw to sit at an exact sequence.
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +20,8 @@ import {
 } from "../../../database/__fixtures__/scratch.js";
 import { sessionAppendLock } from "../append-lock.js";
 import { EventLogService } from "../../log-service.js";
+import { recordedSessionLinkStatement } from "../../../session/links/recorded.js";
+import { SessionRelatedRanking } from "../../../session/related/ranking.js";
 import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
 import { ManagedWorkspaceService } from "../../../workspace/managed/service.js";
 import { RepoMountService } from "../../../workspace/repo/mount-service.js";
@@ -70,6 +73,7 @@ let scratch: ScratchDatabase;
 let nextSequence: number;
 let homeDirectory: string;
 let managedWorkspaces: ManagedWorkspaceService;
+let relatedRanking: SessionRelatedRanking;
 
 beforeEach(async () => {
   scratch = await openScratchDatabase();
@@ -85,9 +89,19 @@ beforeEach(async () => {
       nodeId: NODE,
     }),
   });
+  relatedRanking = new SessionRelatedRanking({
+    reader: scratch.reader,
+    writer: scratch.writer,
+    events: { followAll: () => () => {} },
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+    now: () => new Date(PURGE_INSTANT),
+  });
 });
 
 afterEach(async () => {
+  await relatedRanking.whenIdle();
   await scratch.close();
   rmSync(homeDirectory, { recursive: true, force: true });
 });
@@ -168,6 +182,7 @@ function buildPurge(eventLog: SessionPurgeEventLog = new RecordingEventLog()): S
     nodeId: NODE,
     eventLog,
     managedWorkspaces,
+    relatedRanking,
     now: () => new Date(PURGE_INSTANT),
   });
 }
@@ -190,6 +205,7 @@ function readDirectoryRows() {
     (scratch.reader.prepare(sql).raw().all() as unknown[][]).map((row) => row.join(" "));
   return {
     sessions: read("SELECT id FROM sessions ORDER BY id"),
+    drafts: read("SELECT session_id FROM session_drafts ORDER BY session_id"),
     groups: read("SELECT id FROM session_groups ORDER BY id"),
     runActivity: read("SELECT session_id FROM session_run_activity ORDER BY session_id"),
     consoleState: read("SELECT session_id FROM session_console_state ORDER BY session_id"),
@@ -285,6 +301,10 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
           sql: "INSERT INTO session_tags (session_id, tag, tag_folded) VALUES (?, 'Billing', 'billing')",
           bindings: [sessionId],
         },
+        {
+          sql: "INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, 'unsent', ?)",
+          bindings: [sessionId, PURGE_INSTANT],
+        },
       ]);
     }
     for (const [source, target] of [
@@ -313,6 +333,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(onlyOutcome(result).refusedReason).toBeUndefined();
     expect(readDirectoryRows()).toEqual({
       sessions: [SECOND_SESSION, THIRD_SESSION],
+      drafts: [SECOND_SESSION],
       groups: ["group-kept"],
       runActivity: [SECOND_SESSION],
       consoleState: [SECOND_SESSION],
@@ -323,6 +344,45 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     });
     expect(existsSync(purgedWorkspace.path)).toBe(false);
     expect(existsSync(keptWorkspace.path)).toBe(true);
+  });
+
+  it("re-scores a linked session's list, so no score keeps a share of the purged one", async () => {
+    for (const sessionId of [SESSION, SECOND_SESSION, THIRD_SESSION]) {
+      await seedSessionRow(sessionId);
+    }
+    await seedMessage("hi");
+    for (const [sourceSessionId, targetSessionId] of [
+      [SESSION, SECOND_SESSION],
+      [SECOND_SESSION, THIRD_SESSION],
+    ] as const) {
+      await scratch.writer.write([
+        recordedSessionLinkStatement({
+          sourceSessionId,
+          targetSessionId,
+          kind: "started",
+          occurredAt: PURGE_INSTANT,
+        }),
+      ]);
+    }
+    relatedRanking.rescoreAround([SESSION, SECOND_SESSION, THIRD_SESSION]);
+    await relatedRanking.whenIdle();
+    const secondSessionScores = (): readonly string[] =>
+      (
+        scratch.reader
+          .prepare("SELECT related_session_id, score FROM session_related WHERE session_id = ?")
+          .raw()
+          .all(SECOND_SESSION) as unknown[][]
+      ).map((row) => row.join(" "));
+    // Half of the second session's walk goes to each of its two linked sessions.
+    expect([...secondSessionScores()].sort()).toEqual(
+      [`${SESSION} 0.5`, `${THIRD_SESSION} 0.5`].sort(),
+    );
+
+    const result = await buildPurge().purge([SESSION]);
+    await relatedRanking.whenIdle();
+
+    expect(result.refusedReason).toBeUndefined();
+    expect(secondSessionScores()).toEqual([`${THIRD_SESSION} 1`]);
   });
 
   it("keeps the managed workspace of a session whose rows were refused", async () => {

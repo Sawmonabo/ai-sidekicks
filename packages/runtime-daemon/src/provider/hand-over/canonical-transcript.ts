@@ -22,9 +22,7 @@ import type {
   CanonicalTranscriptTurn,
 } from "../driver/contract.js";
 
-/**
- * The slice of the session store the fold reads: the signature of `SessionService.readEvents`.
- */
+/** The slice of the session store the fold reads: every logged event of one session. */
 export interface TranscriptEventReader {
   readEvents(sessionId: string): ReadonlyArray<StoredEvent>;
 }

@@ -1,7 +1,8 @@
-// How related two sessions are: personalized PageRank from one session, cut at two steps. A link's
-// weight is its kind's, grown with its use count and halved for every 30 days since its last use;
-// a pair's links add up, each walk step goes to a neighbor in proportion to the pair's weight, and
-// a two-step walk counts half of a direct one.
+// How related two linked sessions are: personalized PageRank from one session, cut at two steps. A
+// link's weight is its kind's, grown with its use count and halved for every 30 days since its last
+// use; a pair's links add up, each walk step goes to a neighbor in proportion to the pair's weight,
+// and a two-step walk counts half of a direct one. Only linked sessions are scored, since each
+// related entry names its link, so a two-step walk counts only where it ends on one.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionLinkKind } from "@ai-sidekicks/contracts/session/links";
@@ -65,24 +66,24 @@ function stepShares(
 }
 
 /**
- * Scores every session within two steps of `sessionId`, the session itself left out. `linksOf`
- * answers a session's links as that session sees them.
+ * Scores every session linked to `sessionId`: its share of the walk's first step, plus half of
+ * what each two-step walk through another linked session brings it. `linksOf` answers a session's
+ * links as that session sees them.
  */
 export function scoreRelatedSessions(
   sessionId: SessionId,
   linksOf: (sessionId: SessionId) => readonly SessionLinkEnd[],
   nowMs: number,
 ): Map<SessionId, number> {
-  const scores = stepShares(linksOf(sessionId), sessionId, nowMs);
-  for (const [neighborId, firstShare] of [...scores]) {
+  const firstShares = stepShares(linksOf(sessionId), sessionId, nowMs);
+  const scores = new Map(firstShares);
+  for (const [neighborId, firstShare] of firstShares) {
     for (const [secondId, secondShare] of stepShares(linksOf(neighborId), neighborId, nowMs)) {
-      if (secondId === sessionId) {
-        continue;
+      const score = scores.get(secondId);
+      // The session itself is never in `scores`, so a walk back to it adds nothing.
+      if (score !== undefined) {
+        scores.set(secondId, score + SECOND_STEP_FACTOR * firstShare * secondShare);
       }
-      scores.set(
-        secondId,
-        (scores.get(secondId) ?? 0) + SECOND_STEP_FACTOR * firstShare * secondShare,
-      );
     }
   }
   return scores;

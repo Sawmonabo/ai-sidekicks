@@ -171,9 +171,10 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 }
 
 /**
- * Owns every workspace lifecycle transition and statement against `workspaces`, except the detach
- * cascade's read and archive write in `./repo/mount-service.js`, which share the mount flip's
- * write. Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
+ * Owns every workspace lifecycle transition and write to `workspaces`, except two in
+ * `./repo/mount-service.js` that share a mount's own write: the detach cascade's archive, and
+ * `deleteManaged`'s delete of a chat's workspace rows with its managed mount. Legal predecessor
+ * states live in each `UPDATE`'s `WHERE` clause.
  */
 export class WorkspaceService {
   readonly #events: WorkspaceEventEmitter;

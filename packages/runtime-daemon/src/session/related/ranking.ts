@@ -1,9 +1,12 @@
-// Each session's related list, scored ahead and stored under its id so a read is one indexed
-// lookup. A link change re-scores, in the background after its write commits, the two sessions it
-// joins and their neighbors: no other session's two-step walk crosses a changed share.
+// Each session's related list, its linked sessions scored ahead and stored under its id so a read
+// is one indexed lookup. A link change re-scores, in the background after its write commits, the
+// two sessions it joins and their neighbors: no other session's two-step walk crosses a changed
+// share. A rename re-sends the lists that show the renamed session, since an entry reads its name
+// from the session's row.
 
 import type { Statement } from "better-sqlite3";
 
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionRelatedListEntry,
@@ -14,6 +17,7 @@ import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
+import type { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import {
   SESSION_LINK_KIND_WEIGHT,
@@ -35,15 +39,11 @@ const LINKS_OF_SESSION_SQL = `
          use_count AS useCount, last_at AS lastAt
     FROM session_links WHERE target_session_id = @sessionId`;
 
-// The stored rows of the linked sessions named in `@linkedSessionIds`, one key lookup each, so the
-// read costs the session's own links and never its two-step reach. CROSS JOIN keeps the id list
-// as the outer loop; left to itself the planner walks every stored row of the session instead.
 const STORED_RELATED_SQL = `
   SELECT related.related_session_id AS sessionId, session.name AS name
-    FROM json_each(@linkedSessionIds) AS linked
-    CROSS JOIN session_related AS related
-      ON related.session_id = @sessionId AND related.related_session_id = linked.value
+    FROM session_related AS related
     JOIN sessions AS session ON session.id = related.related_session_id
+   WHERE related.session_id = ?
    ORDER BY related.score DESC, related.related_session_id`;
 
 const REPLACE_RELATED_SQL = `
@@ -67,6 +67,8 @@ interface StoredRelatedRow {
 export interface SessionRelatedRankingOptions {
   readonly reader: DatabaseConnections["reader"];
   readonly writer: Pick<DatabaseWriter, "write">;
+  /** The log whose committed renames re-send the lists showing the renamed session. */
+  readonly events: Pick<EventLogService, "followAll">;
   /** Where a re-score that failed is reported; the next link change re-scores again. */
   readonly writeServiceLog: ServiceLogWriter;
   readonly now?: () => Date;
@@ -75,17 +77,15 @@ export interface SessionRelatedRankingOptions {
 /**
  * Scores, stores and serves each session's related list. Re-scoring runs one round at a time in
  * the background, so a link verb never waits on it, and a session asked for twice before its
- * round is scored once.
+ * round is scored once. Renames reach followers from `start` until stopped.
  */
 export class SessionRelatedRanking {
   readonly #writer: Pick<DatabaseWriter, "write">;
+  readonly #events: Pick<EventLogService, "followAll">;
   readonly #writeServiceLog: ServiceLogWriter;
   readonly #now: () => Date;
   readonly #selectLinks: Statement<{ sessionId: string }, LinkEndRow>;
-  readonly #selectStored: Statement<
-    { sessionId: string; linkedSessionIds: string },
-    StoredRelatedRow
-  >;
+  readonly #selectStored: Statement<[string], StoredRelatedRow>;
   readonly #selectSessionExists: Statement<[string], { readonly found: 1 }>;
   readonly #followers = new Map<SessionId, Set<(update: SessionRelatedListUpdate) => void>>();
   // Sessions whose links changed since the last round; the next round queues them and their
@@ -97,6 +97,7 @@ export class SessionRelatedRanking {
 
   constructor(options: SessionRelatedRankingOptions) {
     this.#writer = options.writer;
+    this.#events = options.events;
     this.#writeServiceLog = options.writeServiceLog;
     this.#now = options.now ?? (() => new Date());
     this.#selectLinks = options.reader.prepare(LINKS_OF_SESSION_SQL);
@@ -104,6 +105,13 @@ export class SessionRelatedRanking {
     this.#selectSessionExists = options.reader.prepare(
       "SELECT 1 AS found FROM sessions WHERE id = ?",
     );
+  }
+
+  /** Follows every committed rename; the returned function stops it. */
+  start(): () => void {
+    return this.#events.followAll((event) => {
+      this.#sendAfterRename(event);
+    });
   }
 
   /**
@@ -140,12 +148,9 @@ export class SessionRelatedRanking {
   #readStored(sessionId: SessionId): SessionRelatedListUpdate {
     const strongestLinks = this.#strongestLinksOf(sessionId);
     const related: SessionRelatedListEntry[] = [];
-    // A session two steps away has no link of its own to name, so the list holds linked ones only.
-    const rows = this.#selectStored.all({
-      sessionId,
-      linkedSessionIds: JSON.stringify([...strongestLinks.keys()]),
-    });
-    for (const row of rows) {
+    // A link removed since the last re-score keeps its stored row until the next one, and the list
+    // names linked sessions only.
+    for (const row of this.#selectStored.all(sessionId)) {
       const link = strongestLinks.get(row.sessionId);
       if (link === undefined) {
         continue;
@@ -244,6 +249,17 @@ export class SessionRelatedRanking {
         },
       },
     ]);
+  }
+
+  // Each followed list that shows the renamed session is the list of a session linked to it.
+  #sendAfterRename(event: EventEnvelope): void {
+    if (event.type !== "session.renamed" || this.#followers.size === 0) {
+      return;
+    }
+    const linkedSessionIds = new Set(
+      this.#selectLinks.all({ sessionId: event.sessionId }).map((link) => link.otherSessionId),
+    );
+    this.#sendToFollowers([...linkedSessionIds]);
   }
 
   #sendToFollowers(sessionIds: readonly SessionId[]): void {
