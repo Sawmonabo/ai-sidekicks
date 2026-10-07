@@ -1,7 +1,7 @@
 // One shell's control lease: racing takes, a run's hold that no device take moves and that names
-// its latest command, forced takes, holds that end with the last connection that took them, and the
-// write, resize and close checks. Every broadcast is
-// parsed against the wire schema, so a contradictory change fails the act that sent it.
+// its latest command, forced takes, holds that end with the last connection that took them, failed
+// broadcasts, and the write, resize and close checks. Every broadcast is parsed against the wire
+// schema, so a contradictory change fails the act that sent it.
 
 import { describe, expect, it } from "vitest";
 
@@ -268,7 +268,7 @@ describe("ShellControlLease", () => {
     expect(second.changes).toHaveLength(1);
   });
 
-  it("undoes a change whose broadcast fails, so no holder changes unannounced", async () => {
+  it("undoes a take whose broadcast fails, never a release, one change at a time", async () => {
     let isBroadcastFailing = true;
     let pendingBroadcast: Promise<void> | undefined;
     const lease = new ShellControlLease({
@@ -331,6 +331,84 @@ describe("ShellControlLease", () => {
       "the event log is unavailable",
     );
     expect(lease.holder()).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_A });
+
+    // A release whose broadcast fails still stands, and its failure reaches the caller.
+    await expect(lease.releaseRun(RUN_A)).rejects.toThrow("the event log is unavailable");
+    expect(lease.holder()).toBeNull();
+
+    // The same command's retake joins a pending run take and fails with it.
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const runTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    const joiningRunTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    pendingBroadcast = undefined;
+    failPendingBroadcast();
+    await expect(runTake).rejects.toThrow("the event log is unavailable");
+    await expect(joiningRunTake).rejects.toThrow("the event log is unavailable");
+    expect(lease.holder()).toBeNull();
+
+    // A release that arrives while a take is in flight applies to the holder that take leaves, so a
+    // failed take never brings back a run that has gone idle or a connection that has ended.
+    isBroadcastFailing = false;
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const otherRunTake = lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B });
+    const idleRelease = lease.releaseRun(RUN_A);
+    pendingBroadcast = undefined;
+    failPendingBroadcast();
+    await expect(otherRunTake).rejects.toThrow("the event log is unavailable");
+    await idleRelease;
+    expect(lease.holder()).toBeNull();
+
+    await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const forcedPhoneTake = lease.take({ deviceId: PHONE, transportId: 2 }, true);
+    const laptopGone = lease.releaseConnection(1);
+    pendingBroadcast = undefined;
+    failPendingBroadcast();
+    await expect(forcedPhoneTake).rejects.toThrow("the event log is unavailable");
+    await laptopGone;
+    expect(lease.holder()).toBeNull();
+
+    // A take that arrives while another is in flight decides on the holder that one leaves, so the
+    // failed take's undo never wipes it out.
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const laptopTake = lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
+    pendingBroadcast = undefined;
+    const phoneTake = lease.take({ deviceId: PHONE, transportId: 2 }, true);
+    failPendingBroadcast();
+    await expect(laptopTake).rejects.toThrow("the event log is unavailable");
+    await phoneTake;
+    expect(lease.holder()).toEqual({ holderDeviceId: PHONE });
+
+    await lease.releaseConnection(2);
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const firstRunTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    pendingBroadcast = undefined;
+    const secondRunTake = lease.takeForRun({ runId: RUN_B, commandId: COMMAND_B });
+    failPendingBroadcast();
+    await expect(firstRunTake).rejects.toThrow("the event log is unavailable");
+    await secondRunTake;
+    expect(lease.holder()).toMatchObject({ holderRunId: RUN_B, holderCommandId: COMMAND_B });
   });
 
   it("refuses writes to an unheld shell, and a non-holder's resize and plain close", async () => {

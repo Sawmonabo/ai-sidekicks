@@ -25,8 +25,11 @@ const SOURCE_LOADER = new URL("tests/helpers/typescript-source-loader.mjs", PACK
 const moduleUrl = (relativePath: string): string => new URL(relativePath, import.meta.url).href;
 // Where a daemon killed inside its spawn writes the child's process id and nonce first.
 const SPAWNED_FILE_NAME = "spawned.json";
-// Spawns killed inside the window: at least the first, then on until one left a process the sweep
-// killed. A node-pty helper outlived 9 of 20 such spawns when measured, so the last is a backstop.
+// Spawns killed inside the window: five, so the kill lands at several points of the spawn, then on
+// until one left a process the sweep killed. Each run checks that nothing of its spawn survives,
+// which also holds when the shell dies on the hangup by itself, so only the count of killed
+// processes proves the sweep. A node-pty helper outlived 9 of 20 such spawns when measured, so the
+// last bound is a backstop.
 const MIN_WINDOW_RUNS = 5;
 const MAX_WINDOW_RUNS = 30;
 
@@ -38,9 +41,9 @@ const readProcessIdentity = createProcessIdentityReader({
 });
 
 // The daemon's part: a guard over the data folder and a real host that starts one shell. With
-// `CRASH_IN_SPAWN` set, the daemon kills itself the moment `node-pty` has started the child, before
-// its process is recorded; otherwise the shell ignores the hangup the terminal sends when the daemon
-// dies, as a program run with `nohup` does.
+// `CRASH_IN_SPAWN` set, the daemon kills itself the moment `node-pty` has started the child,
+// before its process is recorded; otherwise the shell ignores the hangup the terminal sends when
+// the daemon dies, as a program run with `nohup` does.
 const DAEMON_SCRIPT = `
 import { writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";

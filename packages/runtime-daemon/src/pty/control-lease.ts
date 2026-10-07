@@ -7,8 +7,10 @@
 // run leaves its running state. A run's hold is never taken by a device, forced or not.
 //
 // Every decision reads and replaces the holder with no `await` in between, so two takes in one
-// tick cannot both win; the broadcast is called right after the change, in change order, and
-// awaited, so its failure reaches the caller, and the change is undone, so none stands unannounced.
+// tick cannot both win. Changes of holder run one at a time: while one is being broadcast, the
+// next waits for it to settle and then decides on the holder it left. A take whose broadcast fails
+// is undone, so no holder stands unannounced; a release whose broadcast fails still stands, because
+// the holder it ended is gone, and the failure reaches the caller.
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import {
   PTY_CONTROL_HELD_BY_OTHER_CODE,
@@ -88,9 +90,8 @@ export class ShellControlLease {
   readonly #machineDeviceId: DeviceId;
   readonly #broadcast: (change: PtyControlChangedPayload) => Promise<void>;
   #holder: LeaseHolder | null = null;
-  // Counts changes of holder, so a failed broadcast undoes its change only while it stands.
-  #changeCount = 0;
-  // The broadcast of the change that set the holder, while it is pending; a retake awaits it.
+  // The broadcast of the one change of holder in flight; a join awaits it, any other act waits for
+  // it to settle.
   #pendingBroadcast: Promise<void> | undefined;
 
   constructor(options: ShellControlLeaseOptions) {
@@ -102,50 +103,68 @@ export class ShellControlLease {
 
   /**
    * Takes the shell for a device connection. A device's retake of a shell it holds sends no
-   * broadcast, and its connection then keeps the hold too; while the take that gave the device the
-   * hold is still being broadcast, the retake waits for it and fails with it. `force` moves the shell off another
-   * device; nothing moves it off a run.
+   * broadcast, and its connection then keeps the hold too; while the take that gave the device
+   * the hold is still being broadcast, the retake waits for it and fails with it. `force` moves
+   * the shell off another device; nothing moves it off a run.
    */
   async take(caller: ShellLeaseCaller, force: boolean): Promise<SessionTakeControlResponse> {
-    const current = this.#holder;
     const response = { terminalId: this.#terminalId, holderDeviceId: caller.deviceId };
-    if (current?.kind === "device" && current.deviceId === caller.deviceId) {
-      if (!current.transportIds.has(caller.transportId)) {
-        const transportIds = new Set([...current.transportIds, caller.transportId]);
-        this.#rebind({ ...current, transportIds });
+    for (;;) {
+      const current = this.#holder;
+      if (current?.kind === "device" && current.deviceId === caller.deviceId) {
+        // A binding beside the holder, announced by nobody; undoing the hold drops it.
+        this.#holder = {
+          ...current,
+          transportIds: new Set([...current.transportIds, caller.transportId]),
+        };
+        await this.#pendingBroadcast;
+        return response;
       }
-      await this.#pendingBroadcast;
+      if (this.#pendingBroadcast !== undefined) {
+        await this.#settled();
+        continue;
+      }
+      if (current?.kind === "run" || (current !== null && !force)) {
+        throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
+      }
+      await this.#changeHolder(
+        { kind: "device", deviceId: caller.deviceId, transportIds: new Set([caller.transportId]) },
+        current === null ? "taken" : "taken_by_force",
+      );
       return response;
     }
-    if (current?.kind === "run" || (current !== null && !force)) {
-      throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
-    }
-    await this.#changeHolder(
-      { kind: "device", deviceId: caller.deviceId, transportIds: new Set([caller.transportId]) },
-      current === null ? "taken" : "taken_by_force",
-    );
-    return response;
   }
 
   /**
-   * Takes the shell for an agent's running command. The same run's retake keeps the run as holder:
-   * from the same command it changes nothing, waiting on a pending broadcast of the hold as a
-   * device's retake does, and from another it names that command, broadcast as a take. A different run's take moves the hold to it; a device's hold is never taken by a run.
+   * Takes the shell for an agent's running command. The same run's retake from the same command
+   * changes nothing, waiting on a pending broadcast of the hold as a device's retake does; from
+   * another command it names that command, broadcast as a take. A different run's take moves the
+   * hold to it; a device's hold is never taken by a run.
    */
   async takeForRun(run: ShellLeaseRun): Promise<void> {
-    const current = this.#holder;
-    if (current?.kind === "run" && current.runId === run.runId) {
-      if (current.commandId === run.commandId) {
+    for (;;) {
+      const current = this.#holder;
+      if (
+        current?.kind === "run" &&
+        current.runId === run.runId &&
+        current.commandId === run.commandId
+      ) {
         await this.#pendingBroadcast;
-      } else {
-        await this.#changeHolder({ ...current, commandId: run.commandId }, "taken");
+        return;
       }
+      if (this.#pendingBroadcast !== undefined) {
+        await this.#settled();
+        continue;
+      }
+      if (current?.kind === "device") {
+        throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
+      }
+      await this.#changeHolder(
+        { kind: "run", runId: run.runId, commandId: run.commandId },
+        "taken",
+      );
       return;
     }
-    if (current?.kind === "device") {
-      throw new PtyControlHeldByOtherError(this.#heldByOtherDetails(current));
-    }
-    await this.#changeHolder({ kind: "run", runId: run.runId, commandId: run.commandId }, "taken");
   }
 
   /** Lets one write frame through only when its writer holds the shell. */
@@ -184,6 +203,7 @@ export class ShellControlLease {
 
   /** Drops an ended connection from the device's hold, giving the shell back once none remains. */
   async releaseConnection(transportId: number): Promise<void> {
+    await this.#settled();
     const current = this.#holder;
     if (current?.kind !== "device" || !current.transportIds.has(transportId)) {
       return;
@@ -191,7 +211,7 @@ export class ShellControlLease {
     const remaining = new Set(current.transportIds);
     remaining.delete(transportId);
     if (remaining.size > 0) {
-      this.#rebind({ ...current, transportIds: remaining });
+      this.#holder = { ...current, transportIds: remaining };
       return;
     }
     await this.#changeHolder(null, "auto_released_disconnect");
@@ -199,6 +219,7 @@ export class ShellControlLease {
 
   /** Gives the shell back when the run holding it leaves its running state. */
   async releaseRun(runId: RunId): Promise<void> {
+    await this.#settled();
     const current = this.#holder;
     if (current?.kind !== "run" || current.runId !== runId) {
       return;
@@ -225,20 +246,19 @@ export class ShellControlLease {
     return { terminalId: this.#terminalId, ...this.#describeHolder(holder) };
   }
 
-  // Changes a binding beside the holder, which nobody is told of. A failed broadcast of the change
-  // that set the holder still undoes it, dropping the binding with it.
-  #rebind(next: LeaseHolder): void {
-    this.#holder = next;
+  // Waits until no change of holder is in flight. Its failure is its own caller's to report.
+  async #settled(): Promise<void> {
+    while (this.#pendingBroadcast !== undefined) {
+      await Promise.allSettled([this.#pendingBroadcast]);
+    }
   }
 
   // Replaces the holder at once, then broadcasts the change, naming the holder after it, or nobody
-  // after a release, and the device it moved off. A failed broadcast puts the previous holder back
-  // unless a later change has replaced this one, so no change stands without its event.
+  // after a release, and the device it moved off. Called only while no other change is in flight,
+  // so a failed take puts back exactly the holder it replaced; a failed release is not undone.
   async #changeHolder(next: LeaseHolder | null, reason: PtyControlChangedReason): Promise<void> {
     const previous = this.#holder;
     this.#holder = next;
-    this.#changeCount += 1;
-    const change = this.#changeCount;
     const broadcasting = this.#broadcast({
       sessionId: this.#sessionId,
       terminalId: this.#terminalId,
@@ -251,14 +271,12 @@ export class ShellControlLease {
     try {
       await broadcasting;
     } catch (error) {
-      if (this.#changeCount === change) {
+      if (next !== null) {
         this.#holder = previous;
       }
       throw error;
     } finally {
-      if (this.#pendingBroadcast === broadcasting) {
-        this.#pendingBroadcast = undefined;
-      }
+      this.#pendingBroadcast = undefined;
     }
   }
 }

@@ -1,8 +1,9 @@
 // Finds terminal children by the nonce in their environment, for children whose process the daemon
 // never recorded and for descendants that left their parent's tree. A child caught before it starts
 // its program is still node-pty's helper, whose environment the system shows. macOS hides the
-// environment of its own programs, such as `/bin/zsh`, but a shell the helper started dies on the
-// hangup its terminal sends when the daemon's end closes it.
+// environment of its own programs, such as `/bin/zsh`; such a shell dies on the hangup its terminal
+// sends when the daemon's end closes it, unless the person's startup files ignore the hangup
+// (`trap '' HUP`), and a shell like that, never recorded, is the one leftover no search can see.
 
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../registry.js";
 import type { DarwinSystemLibrary } from "./system-library.js";
