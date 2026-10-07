@@ -84,7 +84,7 @@ const LATEST_VERSION_SQL = `SELECT deleted_at,
   FROM workflow_definitions WHERE id = @id`;
 
 const SOFT_DELETE_SQL =
-  "UPDATE workflow_definitions SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL";
+  "UPDATE workflow_definitions SET deleted_at = @at, updated_at = @at WHERE id = @id AND deleted_at IS NULL";
 // A deleted workflow arms nothing; a trigger with no schedule armed has no next fire.
 const DISARM_TRIGGERS_SQL =
   "UPDATE workflow_triggers SET enabled = 0, next_fire_at = NULL WHERE definition_id = ?";
@@ -305,7 +305,7 @@ export class WorkflowDefinitionStore {
       [, , , , pinnedRunCount] = await this.#writer.write([
         {
           sql: SOFT_DELETE_SQL,
-          bindings: [this.#now().toISOString(), definitionId],
+          bindings: { at: this.#now().toISOString(), id: definitionId },
           expectedRowCount: 1,
         },
         { sql: DISARM_TRIGGERS_SQL, bindings: [definitionId] },

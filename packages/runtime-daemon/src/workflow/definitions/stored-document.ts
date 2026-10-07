@@ -16,7 +16,11 @@ export interface StoredWorkflowDocumentColumns {
   readonly tagsJson?: string;
 }
 
-/** Parses a stored canonical body, which the store wrote from a checked document. */
+/**
+ * Parses a stored canonical body, which the store wrote from a checked document.
+ *
+ * @consumedBy the version chain and version difference reads
+ */
 export function parseStoredWorkflowBody(definitionBody: string): WorkflowDocumentHashedBody {
   return JSON.parse(definitionBody) as WorkflowDocumentHashedBody;
 }

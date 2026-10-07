@@ -16,7 +16,11 @@ export function workflowRunNotFound(workflowRunId: WorkflowRunId): DaemonDomainE
   });
 }
 
-/** `workflow.not_found` for a step that is not stored. */
+/**
+ * `workflow.not_found` for a step that is not stored.
+ *
+ * @consumedBy the step read
+ */
 export function workflowStepNotFound(stepKey: WorkflowStepKey): DaemonDomainError {
   return new DaemonDomainError(
     `No step ${String(stepKey.executionIndex)} of node ${stepKey.nodeId} in workflow run ` +

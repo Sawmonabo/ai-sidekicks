@@ -25,7 +25,11 @@ const UPSERT_KEPT_VALUE_SQL = `INSERT INTO workflow_node_state
 const DELETE_KEPT_VALUES_SQL =
   "DELETE FROM workflow_node_state WHERE definition_id = ? AND node_id = ''";
 
-/** One value a workflow keeps: its name, the value, the run that kept it and when. */
+/**
+ * One value a workflow keeps: its name, the value, the run that kept it and when.
+ *
+ * @consumedBy the step executor, which reads kept values as the run's variables
+ */
 export interface WorkflowKeptValue {
   readonly name: string;
   readonly value: unknown;
@@ -48,6 +52,8 @@ export function clearKeptValuesStatement(definitionId: WorkflowDefinitionId): Wr
 /**
  * Keeps, reads and clears a workflow's kept values. A value is stored as the JSON it is given,
  * whatever its size.
+ *
+ * @consumedBy the step executor's Keep for later runs and the kept values clear handler
  */
 export class WorkflowKeptValueStore {
   readonly #writer: Pick<DatabaseWriter, "write">;

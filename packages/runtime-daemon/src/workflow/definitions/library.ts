@@ -113,6 +113,8 @@ interface DefinitionListRow {
  * One workflow in the library list: what a catalog row shows from storage. Whether it is enabled,
  * its schedule and its last skipped fire come from the trigger scheduler, not from these tables.
  * `updatedAt` is the last change to the workflow's row.
+ *
+ * @consumedBy the workflow definition list handler
  */
 export type WorkflowLibraryEntry = Omit<
   WorkflowDefinitionSummary,

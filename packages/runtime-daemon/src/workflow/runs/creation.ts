@@ -14,7 +14,11 @@ import type {
 import type { WriteStatement } from "../../database/statement.js";
 import type { PreparedExecutionRoot } from "../../workspace/execution-root-service.js";
 
-/** Which trigger node started a run, stored as the run's trigger record. */
+/**
+ * Which trigger node started a run, stored as the run's trigger record.
+ *
+ * @consumedBy the engine's run start
+ */
 export interface WorkflowRunTrigger {
   readonly kind: WorkflowTriggerKind;
   readonly nodeId: WorkflowNodeId;

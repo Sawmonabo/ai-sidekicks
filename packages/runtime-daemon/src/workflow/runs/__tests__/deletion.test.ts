@@ -39,6 +39,11 @@ let checkout: WorkflowRunExecutionContext;
 
 beforeEach(async () => {
   database = await openScratchDatabase();
+  // A run's gate answers reference the approval requests table, which the schema does not hold
+  // yet; with foreign keys on, any delete from the answers needs that table to exist.
+  await database.writer.write([
+    { sql: "CREATE TABLE approval_requests (id TEXT PRIMARY KEY) STRICT" },
+  ]);
   deletion = new WorkflowRunDeletion(database);
   versionId = await insertWorkflowVersion(database.writer, "Nightly review");
   checkout = await insertExecutionContextCheckout(database.writer);

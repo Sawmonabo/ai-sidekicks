@@ -42,6 +42,8 @@ export type WorkflowRunListPageRequest = WorkflowRunListRequest & { limit: numbe
 /**
  * One run as the runs list reads it: its row, its workflow's name, how many steps it has, and,
  * while a step waits, what the first waiting step waits on and when an account wait resumes.
+ *
+ * @consumedBy the workflow run list handler
  */
 export type StoredWorkflowRunListEntry = StoredWorkflowRun & {
   definitionName: string;

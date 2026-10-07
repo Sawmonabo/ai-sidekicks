@@ -44,7 +44,9 @@ describe("hashWorkflowDocument", () => {
   });
 
   it("hashes a fixed document to a fixed value", () => {
-    // Filled in once from this test's first run, then fixed for good.
-    expect(hashWorkflowDocument(buildWorkflowDocument("Nightly")).contentHash).toBe("b3:FILL_IN");
+    // A change to this value means every stored version key stops matching its body.
+    expect(hashWorkflowDocument(buildWorkflowDocument("Nightly")).contentHash).toBe(
+      "b3:09ce55947a4da688ad71e87f4303c39e7cc5e2a06eb3c49d1d4977b317f25e86",
+    );
   });
 });
