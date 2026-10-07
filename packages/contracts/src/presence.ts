@@ -24,11 +24,10 @@ export const DEVICE_TYPE_MAX_LEN = 64;
 
 /**
  * A device's report to a machine, sent when `appVisible` changes and otherwise every 15 seconds
- * on each machine connection the device holds. It is also each device `presence.read` lists:
- * the machine answers with the last report it holds per device.
+ * on each machine connection the device holds. It names no device: the machine files it under the
+ * device of the connection that carried it.
  */
 export interface PresenceHeartbeat {
-  deviceId: string;
   deviceType: string;
   /**
    * An app window is in front on this device. A window behind a locked or
@@ -37,12 +36,30 @@ export interface PresenceHeartbeat {
   appVisible: boolean;
 }
 
+// The members a heartbeat carries, which each connected device's row repeats.
+const presenceHeartbeatShape = {
+  deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceHeartbeat.deviceType"),
+  appVisible: z.boolean(),
+};
+
 /** Parses a {@link PresenceHeartbeat}; the object is strict, so an unknown key is refused. */
 export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeartbeat> = z
+  .object(presenceHeartbeatShape)
+  .strict();
+
+/**
+ * One device connected to this machine, as `presence.read` lists it: the last heartbeat the
+ * machine holds from it, under the device that sent it.
+ */
+export interface ConnectedDevice extends PresenceHeartbeat {
+  deviceId: string;
+}
+
+// Strict, so an unknown key is refused.
+const ConnectedDeviceSchema: z.ZodType<ConnectedDevice, ConnectedDevice> = z
   .object({
-    deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceHeartbeat.deviceId"),
-    deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceHeartbeat.deviceType"),
-    appVisible: z.boolean(),
+    deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "ConnectedDevice.deviceId"),
+    ...presenceHeartbeatShape,
   })
   .strict();
 
@@ -51,13 +68,13 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
  * `presence.subscribe` pushes when a device comes, goes or changes.
  */
 export interface MachinePresence {
-  devices: PresenceHeartbeat[];
+  devices: ConnectedDevice[];
 }
 
 /** Parses a {@link MachinePresence}. */
 export const MachinePresenceSchema: z.ZodType<MachinePresence, MachinePresence> = z
   .object({
-    devices: z.array(PresenceHeartbeatSchema),
+    devices: z.array(ConnectedDeviceSchema),
   })
   .strict();
 

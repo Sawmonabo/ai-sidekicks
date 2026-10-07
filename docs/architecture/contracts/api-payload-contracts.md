@@ -488,7 +488,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | --- | --- | --- | --- |
 | `presence.read {}` | Read the devices connected to this machine: each one's `deviceId`, `deviceType`, and whether an app window is in front on it (`appVisible`). It carries no liveness state and no last-seen time: a device is listed while it holds a connection to this machine, and a device card's `Connected now` and `Last seen` are `device.list`'s alone, read from the relay connection | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 5 |
 | `presence.subscribe {}` | Follow the devices connected to this machine as they come and go | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 5 |
-| `presence.heartbeat`, carrying `PresenceHeartbeat` (`deviceId`, `deviceType` and `appVisible`, and no session id) | A device tells the machine whether an app window is in front on it, a locked or sleeping screen counting as not in front, when that changes and otherwise every 15 seconds; the machine keeps the last one per device | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phases 4 and 5 |
+| `presence.heartbeat`, carrying `PresenceHeartbeat` (`deviceType` and `appVisible`, and no session id or device id) | A device tells the machine whether an app window is in front on it, a locked or sleeping screen counting as not in front, when that changes and otherwise every 15 seconds; the machine keeps the last one per device, under the device of the connection that carried it | [Spec-027](../../specs/027-remote-control.md) | [Plan-025](../../plans/025-remote-control.md) Phases 4 and 5 |
 
 ### `preview.*`
 
