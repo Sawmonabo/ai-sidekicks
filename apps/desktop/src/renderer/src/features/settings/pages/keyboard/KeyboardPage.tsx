@@ -7,7 +7,7 @@
 // accessor the frame's key dispatch reads, so a recorded chord is the installed chord. Overrides
 // live in main's keyboard map, one file on this machine; a map main could not use is read as
 // the shipped chords and written out again, and the page says so. The recorder suspends the
-// app keyboard, since the frame's capture-phase table would otherwise navigate on `$mod+1`.
+// app keyboard, since the frame's capture-phase table would otherwise act on `$mod+b`.
 
 import "./KeyboardPage.css";
 

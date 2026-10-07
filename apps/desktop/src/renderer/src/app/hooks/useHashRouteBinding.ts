@@ -1,13 +1,17 @@
 // The two-way binding between the window's location hash and the frame's route. The hash
-// drives the route when a window is opened by URL or the address is edited; the route drives the
-// hash when the rail or palette navigates, as a new history entry or, for a move that only follows
-// a cursor, in place of the current one.
+// drives the route when a window is opened by URL, the address is edited or Back is pressed; the
+// route drives the hash when the rail or palette navigates, as a new history entry or, for a move
+// that only follows a cursor or one the address already entered, in place of the current one.
 //
 // Two rules make the loop terminate. A write is not news: writing the hash raises `hashchange`,
 // and adopting that echo can revert a route the person chose in the same commit and flip the
 // window between two destinations, so the binding ignores exactly the one hash it wrote, once.
 // And the hash projects the route the store holds now, not the one a render closed over: an
 // adopt earlier in the same commit has already moved the store on.
+//
+// An address change a screen holding unsaved edits has not let go of (its question is open, or
+// it answered no) puts the address back on the route still shown as a new entry, so a refused
+// Back keeps the entry it would have returned to; a yes then writes the address it named.
 
 import { useEffect, useRef } from "react";
 
@@ -34,11 +38,18 @@ export function useHashRouteBinding(
   useEffect(() => {
     const echo = unheardWrite.current;
     unheardWrite.current = undefined;
-    if (hash === echo) {
+    if (hash === echo || frameStore.adoptHash(hash)) {
       return;
     }
-    frameStore.adoptHash(hash);
-  }, [frameStore, hash]);
+    // The route did not move, so the route → hash effect below will not run for it.
+    const shown = frameStore.getState().route;
+    if (shown.kind === "not-found") {
+      return;
+    }
+    const restored = formatRoute(shown);
+    unheardWrite.current = restored;
+    ownerWindow.location.hash = restored;
+  }, [frameStore, hash, ownerWindow]);
 
   // Route → hash. A `not-found` route is left unpublished: formatting it back would destroy
   // the text the person typed before they could fix it.
