@@ -1,7 +1,8 @@
 // The half of the attention panel for people who cannot see it. `attention-sentences.test.ts`
-// pins what is said; this pins that a later settlement that says something different is spoken
-// too. The read re-reads whenever a session store moves, so a hook latching a flag at its first
-// settlement would swallow a later coverage gap.
+// pins what is said; this pins when: the first settlement answers the panel's first read and
+// stands, and a later settlement that says something different is spoken. The read re-reads
+// whenever a session store moves, so a hook latching a flag at its first settlement would swallow
+// a later coverage gap.
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -93,14 +94,15 @@ function mountProbe(reading: AttentionReading): {
 }
 
 describe("the attention reading announces its settlement", () => {
-  it("speaks a later settlement that says something different", async () => {
+  it("leaves the first settlement unsaid and speaks a later one that says something different", async () => {
     const probe = mountProbe({ phase: "reading" });
+    await probe.rerender(answered({ items: [itemNeeding("a")] }));
+    expect(probe.spoken()).toStrictEqual([]);
+    // A re-read that found the same thing is silent.
+    await probe.rerender({ phase: "reading" });
     await probe.rerender(answered({ items: [itemNeeding("a")] }));
     await probe.rerender(answered({ items: [itemNeeding("a")], refusedSessionIds: ["session-b"] }));
 
-    expect(probe.spoken()).toStrictEqual([
-      "One item needs you.",
-      "One item needs you. One session could not be checked.",
-    ]);
+    expect(probe.spoken()).toStrictEqual(["One item needs you. One session could not be checked."]);
   });
 });

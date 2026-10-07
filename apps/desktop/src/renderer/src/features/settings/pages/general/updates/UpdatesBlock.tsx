@@ -16,7 +16,7 @@ import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-setti
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -52,8 +52,8 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const { updater, preferences } = props;
   const reading = useUpdateReading(updater);
   const clock = useClock();
-  // Said once, when the updater read lands.
-  useSettlementAnnouncement(updateSettlementSentence(reading));
+  // The state the first read lands on stands; a later change of state is said.
+  useAnnounceWhenShown(updateSettlementSentence(reading), "polite", { isReadSettlement: true });
   const status = reading.kind === "state" ? reading.state.status : undefined;
   const failureMessage =
     reading.kind === "state" && reading.state.status === "error"

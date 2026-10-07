@@ -26,6 +26,7 @@ import {
 } from "#renderer/lib/chord-format.js";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { settingsControlAnchor } from "../../control/anchor.js";
@@ -206,78 +207,79 @@ export function KeyboardPage(): ReactNode {
 
       <section className="meridian-settings-page__block" aria-label="What the keyboard reports">
         <h3 className="meridian-settings-page__section-head">What the keyboard reports</h3>
-        {audit.conflicts.length === 0 ? (
-          <Nothing
-            kind="empty"
-            placement="inline"
-            title="No two chords collide."
-            detail={
-              "Every installed chord is the only one live in its scope, so " +
-              "each keystroke has exactly one answer."
-            }
-          />
-        ) : (
-          <ul className="meridian-settings-page__list">
-            {audit.conflicts.map((conflict) => (
-              <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
-                <InlineRefusal
-                  code={conflict.reason}
-                  detail={
-                    `${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} ` +
-                    `is claimed by both ${titleOf(conflict.commandIds[0])} and ` +
-                    `${titleOf(conflict.commandIds[1])}. ${conflict.detail}`
-                  }
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        {audit.dropped.length === 0 ? null : (
-          <ul className="meridian-settings-page__list">
-            {audit.dropped.map((dropped) => (
-              <li key={`${dropped.chord}:${dropped.commandId}`}>
-                <InlineRefusal
-                  code={CHORD_NOT_INSTALLED_CODE}
-                  detail={
-                    `${titleOf(dropped.commandId)}'s chord ` +
-                    `${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} ` +
-                    `was not installed. ${dropped.reason}`
-                  }
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* Only the keyboard map's read draws the repair line and the declined chords, so they
-            stand and are reached by browsing. */}
-        {keybindingOverrides.repair === undefined ? null : (
-          <p className="meridian-settings-page__state">
-            The keyboard map could not be read, so the chords the app ships with were used and the
-            file was written out again. Any chord changed before now is back at the one the app
-            ships with.
-          </p>
-        )}
+        {/* What the keyboard map's read finds stands, however late it lands; what a rebinding
+            changes after it is said. The read failing is said. */}
+        <StandingContent isOpening={!keybindingOverrides.isKeyboardMapRead}>
+          {audit.conflicts.length === 0 ? (
+            <Nothing
+              kind="empty"
+              placement="inline"
+              title="No two chords collide."
+              detail={
+                "Every installed chord is the only one live in its scope, so " +
+                "each keystroke has exactly one answer."
+              }
+            />
+          ) : (
+            <ul className="meridian-settings-page__list">
+              {audit.conflicts.map((conflict) => (
+                <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
+                  <InlineRefusal
+                    code={conflict.reason}
+                    detail={
+                      `${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} ` +
+                      `is claimed by both ${titleOf(conflict.commandIds[0])} and ` +
+                      `${titleOf(conflict.commandIds[1])}. ${conflict.detail}`
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          {audit.dropped.length === 0 ? null : (
+            <ul className="meridian-settings-page__list">
+              {audit.dropped.map((dropped) => (
+                <li key={`${dropped.chord}:${dropped.commandId}`}>
+                  <InlineRefusal
+                    code={CHORD_NOT_INSTALLED_CODE}
+                    detail={
+                      `${titleOf(dropped.commandId)}'s chord ` +
+                      `${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} ` +
+                      `was not installed. ${dropped.reason}`
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          {keybindingOverrides.repair === undefined ? null : (
+            <p className="meridian-settings-page__state">
+              The keyboard map could not be read, so the chords the app ships with were used and the
+              file was written out again. Any chord changed before now is back at the one the app
+              ships with.
+            </p>
+          )}
+          {keybindingOverrides.hydrationRefusals.length === 0 ? null : (
+            <ul className="meridian-settings-page__list">
+              {keybindingOverrides.hydrationRefusals.map((declined) => (
+                <li key={declined.commandId}>
+                  <InlineRefusal
+                    code={declined.refusal.code}
+                    detail={
+                      `A chord kept for ${titleOf(declined.commandId)} was not ` +
+                      `installed this time. ${declined.refusal.detail}`
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </StandingContent>
         {keybindingOverrides.readRefusal === undefined ? null : (
           <InlineRefusal
             code={keybindingOverrides.readRefusal.code}
             detail={keybindingOverrides.readRefusal.detail}
           />
-        )}
-        {keybindingOverrides.hydrationRefusals.length === 0 ? null : (
-          <ul className="meridian-settings-page__list">
-            {keybindingOverrides.hydrationRefusals.map((declined) => (
-              <li key={declined.commandId}>
-                <InlineRefusal
-                  code={declined.refusal.code}
-                  detail={
-                    `A chord kept for ${titleOf(declined.commandId)} was not ` +
-                    `installed this time. ${declined.refusal.detail}`
-                  }
-                  isStanding
-                />
-              </li>
-            ))}
-          </ul>
         )}
       </section>
 

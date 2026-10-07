@@ -179,4 +179,43 @@ describe("MutationOutcomeLine", () => {
       "Fix login is still running with the old setting.",
     ]);
   });
+
+  it("says a failed session's line once, and nothing more when a lost list is restated", () => {
+    const outcome = settledOn(
+      ["user_config_write"],
+      [
+        {
+          sessionId: TITLED_SESSION,
+          bindingId: "leg-titled",
+          outcome: "failed",
+          errorCode: "mcp.config_write_conflict",
+        },
+      ],
+    );
+    const drawOver = (sessionDirectory: SessionDirectoryState): React.JSX.Element => (
+      <MutationOutcomeLine
+        outcome={outcome}
+        sessionDirectory={sessionDirectory}
+        clock={new ManualClock(0)}
+      />
+    );
+    const { announcer, spoken } = spiedAnnouncer();
+    const { container, rerender } = render(drawOver(DIRECTORY), {
+      wrapper: ({ children }) => (
+        <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+      ),
+    });
+    const sessionLine = "Refresh-token expiry is still running with the old setting.";
+    expect(linesOf(container)).toContain(sessionLine);
+
+    // The feed lost its place, then restated the same list: a re-read, not a new outcome.
+    rerender(drawOver({ status: "failed" }));
+    expect(linesOf(container)).not.toContain(sessionLine);
+    rerender(drawOver(DIRECTORY));
+    expect(linesOf(container)).toContain(sessionLine);
+    expect(spoken()).toStrictEqual([
+      "Saved to Codex's settings. New sessions use it.",
+      sessionLine,
+    ]);
+  });
 });

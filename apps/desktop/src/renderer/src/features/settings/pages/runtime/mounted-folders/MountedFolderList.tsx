@@ -8,7 +8,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import type { SettingsPageContext } from "#renderer/features/settings/types.js";
 import { MountedFolderRow } from "./MountedFolderRow.js";
@@ -80,10 +80,10 @@ export function MountedFolderList(props: {
   );
 
   const state = usePushDrivenRead(inventoryRead);
-  // Said once when the inventory lands, and again only if a later refresh settles
+  // The inventory the first read lands on stands; it is said only if a later refresh settles
   // differently. The focus refresh re-reads on every return, so the sentence names counts
   // and nothing that moves on its own.
-  useSettlementAnnouncement(mountSettlementSentence(state));
+  useAnnounceWhenShown(mountSettlementSentence(state), "polite", { isReadSettlement: true });
 
   if (state.kind === "not-loaded") {
     return <LoadingNotice clock={clock} placement="block" title="Reading this session’s mounts…" />;

@@ -3,8 +3,7 @@
 // a view owes one notice per reading.
 //
 // It branches on the shape once and never re-reads the state. It creates no live region:
-// `InlineRefusal` says its own words, and a view speaks the sentence with
-// `useAnnounceOncePerSentence`.
+// `InlineRefusal` says its own words, and a view speaks the sentence with `useAnnounceWhenShown`.
 
 import "./PartialRead.css";
 

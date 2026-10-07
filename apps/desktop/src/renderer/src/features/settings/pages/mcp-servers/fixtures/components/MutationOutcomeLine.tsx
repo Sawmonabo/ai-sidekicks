@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
+
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import type { Clock } from "#renderer/lib/clock.js";
@@ -9,9 +11,10 @@ import {
 } from "#renderer/store/session/directory/state.js";
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
-import type { McpMutationOutcome } from "../mutation.js";
+import type { McpChangeSettlement, McpMutationOutcome } from "../mutation.js";
 import { SessionName, sessionNameWords } from "./SessionName.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
 
 /**
  * What the last change to one control did, in place: `Sending…` while it is on its way, once past
@@ -42,13 +45,9 @@ export function MutationOutcomeLine(props: {
     return <InlineRefusal code={outcome.refusal.code} detail={outcome.refusal.detail} />;
   }
   const { binding, settlement } = outcome;
-  const failedSessions = (settlement.liveResults ?? []).flatMap((liveResult) => {
-    const entry =
-      liveResult.outcome === "failed"
-        ? listedSessionOf(sessionDirectory, liveResult.sessionId)
-        : undefined;
-    return entry === undefined ? [] : [{ liveResult, entry }];
-  });
+  const failedResults = (settlement.liveResults ?? []).filter(
+    (liveResult) => liveResult.outcome === "failed",
+  );
   // Each line is said on its own, so a session the list names later adds only its own line.
   return (
     <div className="meridian-mcp__outcome">
@@ -61,18 +60,36 @@ export function MutationOutcomeLine(props: {
           politeness="polite"
         />
       ))}
-      {failedSessions.map(({ liveResult, entry }) => (
-        <AnnouncedLine
+      {failedResults.map((liveResult) => (
+        <FailedSessionLine
           key={mcpLiveLegKeyOf(liveResult)}
-          element="p"
-          className="meridian-settings-page__state"
-          words={`${sessionNameWords(entry)} ${OLD_SETTING_WORDS}`}
-          politeness="polite"
-        >
-          <SessionName entry={entry} /> {OLD_SETTING_WORDS}
-        </AnnouncedLine>
+          entry={listedSessionOf(sessionDirectory, liveResult.sessionId)}
+          settlement={settlement}
+        />
       ))}
     </div>
+  );
+}
+
+/**
+ * One running session the change failed on, drawn only while the list names it. It stays mounted
+ * while the list is lost, so a list restated in the same words is a re-read and says nothing; a
+ * new settlement is a new outcome and says its line again.
+ */
+function FailedSessionLine(props: {
+  readonly entry: SessionListEntry | undefined;
+  readonly settlement: McpChangeSettlement;
+}): ReactNode {
+  const { entry } = props;
+  useAnnounceWhenShown(
+    entry === undefined ? undefined : `${sessionNameWords(entry)} ${OLD_SETTING_WORDS}`,
+    "polite",
+    { attempt: props.settlement },
+  );
+  return entry === undefined ? null : (
+    <p className="meridian-settings-page__state">
+      <SessionName entry={entry} /> {OLD_SETTING_WORDS}
+    </p>
   );
 }
 

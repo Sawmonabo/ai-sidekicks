@@ -17,7 +17,7 @@ import type {
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -69,7 +69,10 @@ export interface RunsTabProps {
 export function RunsTab(props: RunsTabProps): React.JSX.Element {
   const { filters, listState, attentionState } = props;
   const clock = useClock();
-  useSettlementAnnouncement(runsSettlementSentence(listState, props.runCountState));
+  // The first read's count stands; a later answer that changes it is said.
+  useAnnounceWhenShown(runsSettlementSentence(listState, props.runCountState), "polite", {
+    isReadSettlement: true,
+  });
   const attentionEntries =
     attentionState.kind === "loaded" ? attentionState.value.entries : NO_ATTENTION_ENTRIES;
   const runs = listState.kind === "loaded" ? listState.value.response.runs : NO_RUNS;
@@ -238,9 +241,9 @@ function isWithoutRuns(runCountState: PushDrivenReadState<number>): boolean {
 }
 
 /**
- * What a screen reader hears once the runs are read: how many are listed, or `No runs yet` where
- * there is no run at all. A failed read's error line and a filter matching nothing say so in their
- * own lines instead.
+ * What a screen reader hears when a later answer changes the runs: how many are listed, or `No
+ * runs yet` where there is no run at all. A failed read's error line and a filter matching nothing
+ * say so in their own lines instead.
  */
 function runsSettlementSentence(
   listState: PushDrivenReadState<RunListAnswer>,
