@@ -2,6 +2,8 @@
 // because the selectors, the hooks and the store all read it, and a shape declared inside the
 // writing class would force every reader to import the writer.
 
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+
 import type { SessionDegradedCause } from "./degradation.js";
 import {
   emptyPartitions,
@@ -27,14 +29,13 @@ export interface SessionStoreState {
   /** The highest sequence this store has admitted. */
   readonly cursor: number;
   /**
-   * The daemon-issued position the read that established this window was performed from, or
-   * `undefined` for a read from the beginning of the log.
+   * The acknowledged position the read that established this window opened it at, or `undefined`
+   * when nothing precedes the window.
    *
    * This is the head of the window and the only cursor the console has for it:
-   * `SessionReadResponse` names no oldest row it sent. It is held unread, as the opaque string
-   * the daemon issued (`transcript-resume.ts`), because a caller may only hand it back.
-   * `undefined` means nothing precedes this window: a read with no position opened at the
-   * start of the log.
+   * `SessionReadResponse` names no oldest row it sent. It is held as the string the daemon
+   * issued, because a caller may only hand it back. `undefined` means the window opened at the
+   * log's floor or its start.
    */
   readonly windowHeadCursor: string | undefined;
   /** Sticky while the projection is known-incomplete; cleared only by a re-pull. */
@@ -51,8 +52,9 @@ export interface SessionStoreState {
    */
   readonly readFailureCount: number;
   /**
-   * Runs of sequences observed as missing, oldest first, rendered by the degraded banner. The
-   * accumulated width they describe is bounded by `MAX_REPAIRABLE_SEQUENCE_GAP`.
+   * Runs of sequences this store holds no rows for, oldest first: holes the stream left, and the
+   * stretch a snapshot read skipped past, so two stretches are never joined as one. The holes a
+   * read can still repair are bounded by `MAX_REPAIRABLE_SEQUENCE_GAP`; a skipped stretch is not.
    */
   readonly gaps: readonly SequenceGap[];
   /** Monotonic transition counter, so a test can assert coalescing by counting. */
@@ -67,23 +69,20 @@ export const BASE_STATE_CURSOR = 0;
 
 /** The base state a read response establishes. */
 export interface SessionBaseState {
-  /** The sequence the base state is current as of. */
+  /** The sequence the base state is current as of; the stream resumes after it. */
   readonly cursor: number;
   /** Entities the read response carried. */
   readonly entities: readonly StoredEntity[];
   /** Events the read response carried, ordered by sequence. */
   readonly transcript?: readonly ProjectedSessionEvent[];
   /**
-   * The cursor block the read answered with, carried unread. The resume rule takes these three
-   * positions, so dropping them would leave the entry unable to learn whether the rows below
-   * the base state still exist. `unknown` because `transcript-resume.ts` owns the shape and a
-   * typed member would assert away the absence that module has to detect.
+   * The daemon-issued position `cursor` names, which the session's stream is opened after. Absent
+   * when the window opens at the start of the log, where the stream is opened with no position.
    */
-  readonly transcriptCursors?: unknown;
+  readonly streamAfterCursor?: EventCursor | undefined;
   /**
-   * The position this read was performed from, as the caller submitted it. It is not in the
-   * reply; the entry that performs the read supplies it, and the store carries it onto
-   * {@link SessionStoreState.windowHeadCursor}.
+   * Where this window begins when rows sit before it: the acknowledged position the window was
+   * opened at. The store carries it onto {@link SessionStoreState.windowHeadCursor}.
    */
   readonly readFromCursor?: string | undefined;
 }

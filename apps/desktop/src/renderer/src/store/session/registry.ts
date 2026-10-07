@@ -7,11 +7,17 @@
 // would each hold half the stream. It reads no wire; the composition root supplies `read`, which
 // keeps `store/` below `services/` in the import direction.
 
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+
 import { RefusalError, refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
-import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open/entry.js";
+import {
+  OpenSessionEntry,
+  type OpenSessionEntryOptions,
+  type SessionStreamPosition,
+} from "./open/entry.js";
 import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import type { SessionDegradedCause } from "./degradation.js";
 import type { SessionStore } from "./store.js";
@@ -25,11 +31,18 @@ export interface SessionRegistryChange {
   readonly change: "opened" | "closed";
 }
 
+/** Where one open session's stream opens, named each time a read moves its window. */
+export interface SessionStreamOpening extends SessionStreamPosition {
+  readonly sessionId: string;
+}
+
 /** The set of open sessions in one window; owns each session's entry and routes deliveries. */
 export class SessionStoreRegistry {
   readonly #options: OpenSessionEntryOptions;
   readonly #entriesBySessionId = new Map<string, OpenSessionEntry>();
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
+  // Apart from `#changes`, whose listeners re-render on any change of the open set.
+  readonly #streamOpenings = new Emitter<SessionStreamOpening>("session stream opening");
   // The open set as an array, rebuilt only when the set changes. Load-bearing:
   // `useSyncExternalStore` re-renders while consecutive reads differ by `Object.is`, so a getter
   // spreading the map per call would spin forever. Every mutation pairs with
@@ -61,6 +74,10 @@ export class SessionStoreRegistry {
       );
     }
     const entry = new OpenSessionEntry(sessionId, this.#options);
+    // Released by `entry.dispose`, which drops every position listener.
+    entry.subscribeToStreamPosition((position) => {
+      this.#streamOpenings.emit({ sessionId, ...position });
+    });
     this.#entriesBySessionId.set(sessionId, entry);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
@@ -147,6 +164,14 @@ export class SessionStoreRegistry {
     return undefined;
   }
 
+  /**
+   * Where an open session's stream opens, as its last read that moved the window named it, or
+   * `undefined` when no read has, or the session is not open.
+   */
+  public streamPositionFor(sessionId: string): SessionStreamPosition | undefined {
+    return this.#entriesBySessionId.get(sessionId)?.streamPosition;
+  }
+
   /** Ask for a re-read of one session, through its scheduler. Never a direct read. */
   public requestRefresh(sessionId: string, reason: RefreshReason): Refusal | undefined {
     const entry = this.#entriesBySessionId.get(sessionId);
@@ -154,6 +179,32 @@ export class SessionStoreRegistry {
       return this.#sessionNotOpen(sessionId, "refresh");
     }
     entry.refreshScheduler.request(reason);
+    return undefined;
+  }
+
+  /**
+   * Tell a session its stream dropped a hole too wide to fill, so its next read skips past it.
+   * Answers with a refusal, not a throw, when the session is not open.
+   */
+  public skipPastStream(sessionId: string): Refusal | undefined {
+    const entry = this.#entriesBySessionId.get(sessionId);
+    if (entry === undefined) {
+      return this.#sessionNotOpen(sessionId, "skip the stream of");
+    }
+    entry.skipPastStream();
+    return undefined;
+  }
+
+  /**
+   * Tell a session the stream refused the position it was opened after, so its next read opens
+   * the window elsewhere. Answers with a refusal, not a throw, when the session is not open.
+   */
+  public refuseStreamCursor(sessionId: string, cursor: EventCursor): Refusal | undefined {
+    const entry = this.#entriesBySessionId.get(sessionId);
+    if (entry === undefined) {
+      return this.#sessionNotOpen(sessionId, "refuse a stream position of");
+    }
+    entry.refuseStreamCursor(cursor);
     return undefined;
   }
 
@@ -183,6 +234,14 @@ export class SessionStoreRegistry {
     return this.#changes.subscribe(listener);
   }
 
+  /**
+   * Subscribe to where each session's stream opens: once its first read places the window, and
+   * again whenever a read moves it. Through the shared emitter, for `subscribe`'s reasons.
+   */
+  public subscribeToStreamOpenings(listener: (opening: SessionStreamOpening) => void): Unsubscribe {
+    return this.#streamOpenings.subscribe(listener);
+  }
+
   /** True once `disposeAll` has run. A disposed registry opens nothing. */
   public get isDisposed(): boolean {
     return this.#disposed;
@@ -194,6 +253,7 @@ export class SessionStoreRegistry {
       this.close(sessionId);
     }
     this.#changes.clear();
+    this.#streamOpenings.clear();
     this.#disposed = true;
   }
 

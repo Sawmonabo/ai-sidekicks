@@ -11,6 +11,8 @@
 //   `MAX_REPAIRABLE_SEQUENCE_GAP` of accumulated loss, or for a sequence too large or malformed
 //   to increment, the event is refused: admitting it would move the cursor to a position an
 //   authoritative read may never answer at, and every later repair would be refused as a rewind.
+// - A hole past that bound is not filled: a snapshot read names a newer position and `skipTo`
+//   records the hole as a gap and moves the run past it.
 // - The batch is ordered first (`orderBatchBySequence`); the reconciler assumes ascending
 //   delivery.
 
@@ -98,6 +100,22 @@ export class SequenceReconciler {
         this.#admittedSequences.delete(sequence);
       }
     }
+  }
+
+  /**
+   * Move the run past a hole no read will fill: the cursor jumps to `cursor` and the sequences
+   * between are recorded as one gap. The accumulated loss starts over, since the new cursor is a
+   * position the daemon named, so later holes are measured from it. A cursor at or behind the
+   * run leaves it as it is.
+   */
+  public skipTo(cursor: number): void {
+    if (cursor <= this.#cursor) {
+      return;
+    }
+    this.#gaps.push({ fromSequence: this.#cursor + 1, toSequence: cursor });
+    this.#cursor = cursor;
+    this.#missingSequenceCount = 0;
+    this.releaseSequencesAtOrBelowCursor();
   }
 
   /**

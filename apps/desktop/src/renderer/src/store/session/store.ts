@@ -5,8 +5,10 @@
 //
 // The degraded flag is sticky: a gap, a drop or a projection failure sets it, and only a
 // completed re-pull clears it, since a later event proves nothing about the one that never
-// arrived. `prependEarlierEvents` is the only way the log grows at its head, and what is
-// outstanding outlives the capped transcript in the waiting-on-person register.
+// arrived. A snapshot read past a hole too wide to fill moves the window on with
+// `skipToSnapshot`, which keeps the hole as a gap. `prependEarlierEvents` is the only way the log
+// grows at its head, and what is outstanding outlives the capped transcript in the
+// waiting-on-person register.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -157,11 +159,12 @@ export class SessionStore {
   /**
    * Establish the base state from a read response and drain anything that arrived first.
    * Idempotent against a rewind and admits the equal-cursor repair (`admitsBaseStateAt`).
+   * Answers whether the base state was taken, since only then does the window start there.
    */
-  public initialize(baseState: SessionBaseState): void {
+  public initialize(baseState: SessionBaseState): boolean {
     const current = this.#store.getState();
     if (current.initialized && !admitsBaseStateAt(baseState.cursor, current)) {
-      return;
+      return false;
     }
 
     // A completed read re-establishes where the window starts, so the count that decides the
@@ -200,6 +203,30 @@ export class SessionStore {
     if (buffered.length > 0) {
       this.applyBatch(buffered);
     }
+    return true;
+  }
+
+  /**
+   * Move the window past a stretch a snapshot read skipped. The rows already held stay, the
+   * sequences from the cursor to the read's position become one gap, so the two stretches are
+   * never joined as one, and the degraded flag clears because the repair ran. Before the first
+   * read there is nothing to skip from, so the base state is established instead.
+   */
+  public skipToSnapshot(baseState: SessionBaseState): void {
+    const current = this.#store.getState();
+    if (!current.initialized) {
+      this.initialize(baseState);
+      return;
+    }
+    this.#reconciler.skipTo(baseState.cursor);
+    this.#store.setState({
+      ...current,
+      cursor: this.#reconciler.cursor,
+      degradedCause: undefined,
+      lastReadFailed: false,
+      gaps: this.#reconciler.gaps(),
+      revision: current.revision + 1,
+    });
   }
 
   /**

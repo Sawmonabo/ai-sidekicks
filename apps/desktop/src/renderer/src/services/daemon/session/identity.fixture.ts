@@ -3,7 +3,7 @@
 // visibility rule, while this names a session the caller already holds, including one still
 // provisioning. It carries no title: a scenario scripts only the session read, which has none.
 
-import { scriptedSessionReadMember } from "../scripted/session-read.fixture.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
 import type { SessionSummary } from "./summary.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
@@ -18,7 +18,10 @@ export function scenarioSessionIdentity(
   if (sessionId !== scenario.sessionId) {
     return undefined;
   }
-  const state = scriptedSessionReadMember(scenario, "session", "state");
+  // The scripted reply's `result` is untyped, so the state is reached by a narrowing walk.
+  const result = scenario.replies.find((reply) => reply.call === "session.read")?.result;
+  const session = isWireRecord(result) ? result["session"] : undefined;
+  const state = isWireRecord(session) ? session["state"] : undefined;
   if (typeof state !== "string") {
     return undefined;
   }

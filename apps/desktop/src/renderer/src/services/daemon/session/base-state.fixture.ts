@@ -3,12 +3,9 @@
 //
 // It is cursor zero, no entities and the scripted transcript cursors. Zero rather than a position
 // derived from the beats, because a base state ahead of the stream would make the store discard
-// every beat below it; the subscription is catch up, then follow, so nothing is missed. A re-read
-// therefore lands behind an initialized store's cursor and is a silent no-op (`admitsBaseStateAt`),
-// so repairing a degraded store needs a read that carries a position, which the wire does not yet.
-// There are no entities because every partition is projected from the delivered log.
+// every beat below it; the subscription is catch up, then follow, so nothing is missed. There are
+// no entities because every partition is projected from the delivered log.
 
-import { scriptedSessionReadMember } from "../scripted/session-read.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 import { BASE_STATE_CURSOR, type SessionBaseState } from "#renderer/store/session/state.js";
 
@@ -20,11 +17,5 @@ export function fixtureSessionBaseState(scenario: Scenario, sessionId: string): 
   if (sessionId !== scenario.sessionId) {
     return { cursor: BASE_STATE_CURSOR, entities: [] };
   }
-  return {
-    cursor: BASE_STATE_CURSOR,
-    entities: [],
-    // Carried unread from the scenario's reply, as a daemon does; the store narrows it. A scenario
-    // that scripts no cursor block reaches the refusal arm, as an older daemon would.
-    transcriptCursors: scriptedSessionReadMember(scenario, "transcriptCursors"),
-  };
+  return { cursor: BASE_STATE_CURSOR, entities: [] };
 }

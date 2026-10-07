@@ -7,6 +7,8 @@ import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { SessionEventSubscriber } from "./subscriber.js";
 
 /** The session every suite drives, named by the scenario rather than by a literal. */
@@ -27,18 +29,27 @@ export interface SubscriberHarness {
 }
 
 /**
- * A registry, a fixture bridge and a subscriber over both. The registry's read is registered but
- * resolves `undefined` (the transient miss between reads): registered so the subscriber binds at
- * all, and `undefined` because a base state would initialize the stores and change what
- * `applyBatch` does with each event.
+ * A registry, a fixture bridge and a subscriber over both. The registry's read lands an empty base
+ * state at the bottom of the stream with no position, so a session's stream opens from the start
+ * of the log once that read has landed (`landReads`).
  */
 export function createHarness(
   scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,
 ): SubscriberHarness {
   const { bridge, scenarioEngine: engine } = createFixtureBridge({ scenario });
   const registry = new SessionStoreRegistry({
-    read: () => Promise.resolve(undefined),
+    read: () => Promise.resolve({ cursor: BASE_STATE_CURSOR, entities: [] }),
     clock: engine.clock,
+    refreshDebounceMs: 0,
   });
   return { registry, subscriber: new SessionEventSubscriber({ registry, bridge }), engine };
+}
+
+/**
+ * Let every read asked for so far land, and the streams waiting on them open: the reads fall due
+ * on the frozen clock and settle across a macrotask.
+ */
+export async function landReads(engine: ScenarioEngine): Promise<void> {
+  engine.advance(0);
+  await crossMacrotaskBoundary();
 }

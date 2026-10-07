@@ -1,125 +1,68 @@
-// The resume position, `acknowledged ?? earliest`, is submitted on the read, and a position the
-// daemon refuses is given up for a re-read with no cursor. Recording the reader's third argument
-// is the one assertion that fails if the app decides a position and submits it nowhere.
+// Where a read opens the window, and when that moves the stream: a read the store takes names the
+// position the stream opens after, a read a live window is already past moves nothing, and a
+// window that could not follow the stream is read at the newest position instead.
 
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
-
 import { ManualClock } from "#renderer/lib/clock.js";
-import { OpenSessionEntry } from "./entry.js";
 import type { SessionBaseState } from "../state.js";
+import {
+  OpenSessionEntry,
+  type SessionStreamPosition,
+  type SessionWindowOpening,
+} from "./entry.js";
 
-describe("OpenSessionEntry — the resume position is submitted on the read", () => {
-  /** One read the entry performed: which position it was asked to start from. */
-  interface RecordedRead {
-    readonly resumeFromCursor: string | undefined;
-  }
+/** An empty base state at one position, the stream opening after it. */
+function baseStateAt(position: number): SessionBaseState {
+  return { cursor: position, entities: [], streamAfterCursor: encodeEventCursor(position) };
+}
 
-  /** What a scripted read does when the entry performs it. */
-  type ScriptedRead = SessionBaseState | { readonly rejectWith: unknown };
-
-  /** An entry whose successive reads follow a script, recording what each was handed. */
-  function entryReadingInTurn(
-    clock: ManualClock,
-    script: readonly ScriptedRead[],
-  ): { readonly entry: OpenSessionEntry; readonly reads: RecordedRead[] } {
-    const reads: RecordedRead[] = [];
-    let readIndex = 0;
+describe("OpenSessionEntry — the read places the window and the stream follows it", () => {
+  it("moves the stream only on a read the store takes, and snapshots once it cannot follow", async () => {
+    const clock = new ManualClock(0);
+    const script = [baseStateAt(5), baseStateAt(3), baseStateAt(9)];
+    const openings: SessionWindowOpening[] = [];
     const entry = new OpenSessionEntry("session-1", {
-      read: (_sessionId, _reasons, resumeFromCursor) => {
-        reads.push({ resumeFromCursor });
-        const step = script[Math.min(readIndex, script.length - 1)];
-        readIndex += 1;
-        if (step !== undefined && "rejectWith" in step) {
-          return Promise.reject(step.rejectWith);
-        }
-        return Promise.resolve(step);
+      read: (_sessionId, _reasons, opening) => {
+        openings.push(opening);
+        return Promise.resolve(script[openings.length - 1]);
       },
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
-    return { entry, reads };
-  }
-
-  /** Ask for a refresh and let the scheduler's deadline and its promise settle. */
-  async function refresh(clock: ManualClock, entry: OpenSessionEntry): Promise<void> {
-    entry.refreshScheduler.request("window-focus");
-    clock.advance(21);
-    for (let turn = 0; turn < 4; turn += 1) {
-      await Promise.resolve();
+    const positions: SessionStreamPosition[] = [];
+    entry.subscribeToStreamPosition((position) => positions.push(position));
+    async function refresh(): Promise<void> {
+      entry.refreshScheduler.request("window-focus");
+      clock.advance(21);
+      for (let turn = 0; turn < 4; turn += 1) {
+        await Promise.resolve();
+      }
     }
-  }
 
-  /** The floor every scripted read names: the position before the oldest surviving row. */
-  const EARLIEST = "0_1723291400000000000";
+    await refresh();
+    // A live window already past this read's position keeps its stream.
+    await refresh();
+    // The stream dropped a hole too wide to fill.
+    entry.skipPastStream();
+    await refresh();
 
-  /** A base state at `cursor`, acknowledged where one is supplied. */
-  function baseStateAt(cursor: number, acknowledged?: string): SessionBaseState {
-    return {
-      cursor,
-      entities: [],
-      transcriptCursors: {
-        earliest: EARLIEST,
-        latest: "9_1723291500000000000",
-        ...(acknowledged === undefined ? {} : { acknowledged }),
-      },
-    };
-  }
-
-  /** The rejection a daemon raises for a position it cannot resolve. */
-  const CURSOR_REFUSAL = {
-    rejectWith: {
-      code: EVENT_CURSOR_UNRESOLVABLE_CODE,
-      message: "the submitted cursor could not be decoded",
-    },
-  };
-
-  it("resumes from the floor with nothing acknowledged and from the acknowledged position after", async () => {
-    const clock = new ManualClock(0);
-    const { entry, reads } = entryReadingInTurn(clock, [
-      baseStateAt(5),
-      baseStateAt(7, "7_1723291480000000000"),
-      baseStateAt(9),
+    expect(openings).toStrictEqual([
+      { opensAt: "resume", refusedCursor: undefined },
+      { opensAt: "resume", refusedCursor: undefined },
+      { opensAt: "latest" },
     ]);
-
-    await refresh(clock, entry);
-    await refresh(clock, entry);
-    // A read from the floor has nothing before its window, so no earlier page is offered.
-    expect(entry.store.snapshot().windowHeadCursor).toBeUndefined();
-    await refresh(clock, entry);
-
-    // Each read starts where the one before it pointed: nowhere, then the floor, then the
-    // acknowledged position, which becomes the head of the window it opened.
-    expect(reads).toStrictEqual([
-      { resumeFromCursor: undefined },
-      { resumeFromCursor: EARLIEST },
-      { resumeFromCursor: "7_1723291480000000000" },
+    expect(positions).toStrictEqual([
+      { afterCursor: encodeEventCursor(5), afterSequence: 5 },
+      { afterCursor: encodeEventCursor(9), afterSequence: 9 },
     ]);
-    expect(entry.store.snapshot().windowHeadCursor).toBe("7_1723291480000000000");
-  });
+    expect(entry.streamPosition).toStrictEqual(positions[1]);
+    // The snapshot kept the window's place and the stretch it skipped as a gap.
+    expect(entry.store.snapshot().gaps).toStrictEqual([{ fromSequence: 6, toSequence: 9 }]);
+    expect(entry.store.snapshot().degradedCause).toBeUndefined();
 
-  it("re-reads with no cursor when the position is refused", async () => {
-    const clock = new ManualClock(0);
-    const { entry, reads } = entryReadingInTurn(clock, [
-      baseStateAt(7, "7_1723291480000000000"),
-      CURSOR_REFUSAL,
-      baseStateAt(0),
-    ]);
-
-    await refresh(clock, entry);
-    await refresh(clock, entry);
-
-    // Three reads: the first, the one carrying the refused position, and the recovery carrying
-    // none. The recovery uses the same reader, so no second read path can drift.
-    expect(reads).toStrictEqual([
-      { resumeFromCursor: undefined },
-      { resumeFromCursor: "7_1723291480000000000" },
-      { resumeFromCursor: undefined },
-    ]);
-    // The store keeps its projection: the recovery answered behind the cursor, which
-    // `admitsBaseStateAt` refuses.
-    expect(entry.store.snapshot().cursor).toBe(7);
+    entry.dispose();
   });
 });

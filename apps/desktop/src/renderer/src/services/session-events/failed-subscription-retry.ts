@@ -2,16 +2,17 @@
 // `subscriber.ts`, which owns which sessions are bound; this owns which opens
 // failed and what the window does about them when the wire comes back.
 //
-// A failed `daemon.subscribe` leaves a session with no stream and no base state, and the
-// registry's `opened` change has already been delivered, so nothing would name that session again
-// until it is closed and reopened. Retaining the id gives the transport's returning edge something
-// to re-attempt. A stream that ended without delivering since it opened is retained the same way.
+// A failed `daemon.subscribe` leaves a session with no stream, and the registry's `opened` change
+// has already been delivered, so nothing would name that session again until it is closed and
+// reopened. Retaining the id gives the transport's returning edge something to re-attempt. A
+// stream that ended without delivering since it opened is retained the same way, and so is a
+// session whose stream waits on a read that may not have reached the daemon.
 // The edge is not produced by this retry's caller: the signal is moved by main's `daemon.status`
 // topic and by `services/transport/observed-subscription.ts`, so a window holding one session
 // whose open threw still sees the edge that retries it.
 //
-// The set is bounded by the open set, not a cap: an id joins on a failed open and leaves on the
-// session's close or a retry that took a subscription. There is no backoff and no timer: a retry
+// The set is bounded by the open set, not a cap: an id joins on a failed open or a wait on a read,
+// and leaves on the session's close or an open that took a subscription. There is no backoff and no timer: a retry
 // that fails again reports `unreachable` through `openObservedSubscription`, and the next
 // returning edge is another attempt.
 
@@ -48,8 +49,8 @@ export class FailedSubscriptionRetry {
   }
 
   /**
-   * Open sessions whose stream could not be opened, in the order they failed. A session named
-   * here has a store the window holds and no wire feeding it.
+   * Open sessions whose stream is not open, in the order they were retained. A session named here
+   * has a store the window holds and no wire feeding it.
    */
   public get retainedSessionIds(): readonly string[] {
     return [...this.#retainedSessionIds];
@@ -63,7 +64,7 @@ export class FailedSubscriptionRetry {
     return this.#retriedBindCount;
   }
 
-  /** Remembers a session whose open threw, for the next returning edge. */
+  /** Remembers a session with no stream open, for the next returning edge. */
   public retain(sessionId: string): void {
     this.#retainedSessionIds.add(sessionId);
   }

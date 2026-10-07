@@ -16,8 +16,9 @@ import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-st
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
 import { SessionEventSubscriber } from "./subscriber.js";
-import { PAST_EVERY_BEAT_MS, SESSION_ID } from "./subscriber.test-support.js";
+import { PAST_EVERY_BEAT_MS, SESSION_ID, landReads } from "./subscriber.test-support.js";
 
 /**
  * A transport that refuses to open a stream a stated number of times, the failure the shipped stub
@@ -53,8 +54,8 @@ interface OutageHarness {
  * A registry, a fixture bridge whose `daemon.subscribe` refuses `refusalCount` times, and a
  * subscriber over both, with a registered read whose reasons are recorded. The registry takes the
  * engine's clock so the apply queue and the scenario's beats cannot drift. The read matters as
- * much as the subscription: a failed open skipped the initial `requestRefresh` too.
- * `refreshDebounceMs: 0` puts the read one frozen millisecond after the request.
+ * much as the subscription: the stream opens only once a read has landed, and a failed first open
+ * leaves a mark only a later read clears. `refreshDebounceMs: 0` puts the read on the next advance.
  */
 function createOutageHarness(refusalCount: number): OutageHarness {
   const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
@@ -66,7 +67,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
   const registry = new SessionStoreRegistry({
     read: (_sessionId, reasons) => {
       reasonsSeen.push(...reasons);
-      return Promise.resolve(undefined);
+      return Promise.resolve({ cursor: BASE_STATE_CURSOR, entities: [] });
     },
     clock: engine.clock,
     refreshDebounceMs: 0,
@@ -91,6 +92,7 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
     const { registry, subscriber, engine, bridge, reasonsSeen } = createOutageHarness(1);
     subscriber.attach();
     registry.open(SESSION_ID);
+    await landReads(engine);
     expect(subscriber.unboundSessionIds).toEqual([SESSION_ID]);
 
     // The wire comes back, driven straight into the signal so this case states what a returning
@@ -101,9 +103,9 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
     expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
     expect(subscriber.unboundSessionIds).toEqual([]);
 
-    engine.advance(1);
-    await Promise.resolve();
-    expect(reasonsSeen).toEqual(["subscribe"]);
+    // The first read placed the window; the retry owes the one that clears the failed open's mark.
+    await landReads(engine);
+    expect(reasonsSeen).toEqual(["subscribe", "subscribe"]);
 
     engine.advance(PAST_EVERY_BEAT_MS);
     expect(subscriber.appliedEventCountFor(SESSION_ID)).toBeGreaterThan(0);
@@ -119,6 +121,7 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
     const { registry, subscriber, engine, bridge, reasonsSeen } = createOutageHarness(1);
     subscriber.attach();
     registry.open(SESSION_ID);
+    await landReads(engine);
     expect(subscriber.unboundSessionIds).toEqual([SESSION_ID]);
     expect(bridge.transportReconnect.reachability).toBe("unreachable");
 
@@ -130,9 +133,8 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
     expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
     expect(subscriber.unboundSessionIds).toEqual([]);
     // The retry owes a read, so the recovered session is re-pulled, not merely re-subscribed.
-    engine.advance(1);
-    await Promise.resolve();
-    expect(reasonsSeen).toEqual(["subscribe"]);
+    await landReads(engine);
+    expect(reasonsSeen).toEqual(["subscribe", "subscribe"]);
 
     releaseMachineTail();
     subscriber.dispose();
