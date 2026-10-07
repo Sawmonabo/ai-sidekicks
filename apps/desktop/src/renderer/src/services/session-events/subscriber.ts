@@ -31,9 +31,13 @@
 // Each session gets its own `session.subscribe`, and deliveries are still checked against that
 // session because the stream comes from another process. A delivery is a frame: a batch of events
 // oldest first, or the caught-up frame with none. When the daemon drops changes for this
-// connection, the next frame carries the drop mark and this asks the registry for the session's
-// re-read, which shows the catching-up line and clears the store's gap mark. Reading a frame is
-// `services/daemon/session/event/payload.ts`. The four reads the endurance tier makes
+// connection, the next frame carries the drop mark. The hole is measured in sequences, from the
+// last change delivered to the frame's first, since the cursors are opaque. Within
+// `MAX_REPAIRABLE_SEQUENCE_GAP` the frame is set aside and the stream opened again after the last
+// change delivered, so the daemon fills the hole in order and the store never sees it; a
+// caught-up frame names no sequence, so it is filled the same way. Past the bound the frame is
+// applied and the session's re-read asked for, which shows the catching-up line. Reading a frame
+// is `services/daemon/session/event/payload.ts`. The four reads the endurance tier makes
 // (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
@@ -50,6 +54,8 @@ import {
 import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { SESSION_EVENT_STREAM } from "#shared/daemon/streams.js";
+import { MAX_REPAIRABLE_SEQUENCE_GAP } from "#renderer/store/session/caps.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { readSessionId } from "../daemon/wire/identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { ReopenBackoff } from "../transport/reopen-backoff.js";
@@ -76,8 +82,8 @@ export class SessionEventSubscriber {
   readonly #bridge: PlatformBridge;
   readonly #clock: Clock;
   readonly #bindingBySessionId = new Map<string, StreamBinding>();
-  /** The cursor of the last change each open session's stream delivered, where it delivered one. */
-  readonly #lastCursorBySessionId = new Map<string, EventCursor>();
+  /** Where each open session's stream left off, where it delivered a change. */
+  readonly #deliveredPositionBySessionId = new Map<string, DeliveredPosition>();
   /** Open sessions whose stream was bound once, so a later open is a resume. */
   readonly #resumingSessionIds = new Set<string>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
@@ -234,14 +240,19 @@ export class SessionEventSubscriber {
       return;
     }
     const isResume = this.#resumingSessionIds.has(sessionId);
-    const afterCursor = this.#lastCursorBySessionId.get(sessionId);
+    const afterCursor = this.#deliveredPositionBySessionId.get(sessionId)?.cursor;
     const binding: StreamBinding = {
       release: () => undefined,
       hasDelivered: false,
+      isReleased: false,
       openedAt: this.#clock.now(),
     };
+    // Held before the open, because a catch-up may deliver, and set the frame aside, before the
+    // open returns.
+    this.#bindingBySessionId.set(sessionId, binding);
+    let release: Unsubscribe;
     try {
-      binding.release = openObservedSubscription(this.#bridge.transportReconnect, () =>
+      release = openObservedSubscription(this.#bridge.transportReconnect, () =>
         // The bridge's type is a claim about another process; `readSessionStreamFrame` checks it.
         this.#bridge.daemon.subscribe(
           SESSION_EVENT_STREAM,
@@ -249,8 +260,13 @@ export class SessionEventSubscriber {
             ? { sessionId: wireSessionId }
             : { sessionId: wireSessionId, afterCursor },
           (frame: unknown) => {
+            // A stream this class closed may still be mid-batch; its frames come again on the
+            // stream that replaced it.
+            if (binding.isReleased) {
+              return;
+            }
             binding.hasDelivered = true;
-            this.#deliver(sessionId, frame);
+            this.#deliver(sessionId, binding, frame);
           },
           (end) => {
             this.#resumeEndedStream(sessionId, binding, end);
@@ -258,6 +274,7 @@ export class SessionEventSubscriber {
         ),
       );
     } catch (subscriptionFailure: unknown) {
+      this.#bindingBySessionId.delete(sessionId);
       this.#retry.retain(sessionId);
       if (!isResume) {
         this.#registry.markDegraded(sessionId, "subscription-closed");
@@ -268,8 +285,8 @@ export class SessionEventSubscriber {
       );
       return;
     }
+    binding.release = release;
     this.#retry.forget(sessionId);
-    this.#bindingBySessionId.set(sessionId, binding);
     this.#resumingSessionIds.add(sessionId);
     // The base-state read, asked for at the moment a stream starts; without it a bound store
     // buffers forever. A stream resumed after a cursor needs none: the daemon catches it up from
@@ -277,6 +294,10 @@ export class SessionEventSubscriber {
     // holds open, so it is dropped rather than re-checked.
     if (afterCursor === undefined) {
       this.#registry.requestRefresh(sessionId, "subscribe");
+    }
+    if (binding.isReleased) {
+      // Its own catch-up set a frame aside and opened the stream again; this one is spent.
+      release();
     }
   }
 
@@ -294,7 +315,7 @@ export class SessionEventSubscriber {
     this.#bindingBySessionId.delete(sessionId);
     recordWireFact("subscription-ended", `session ${sessionId}: ${describeSubscriptionEnd(end)}`);
     if (end.reason === "refused" && end.refusal.data?.type === EVENT_CURSOR_UNRESOLVABLE_CODE) {
-      this.#lastCursorBySessionId.delete(sessionId);
+      this.#deliveredPositionBySessionId.delete(sessionId);
       this.#bindSession(sessionId);
       return;
     }
@@ -320,36 +341,69 @@ export class SessionEventSubscriber {
     // Dropped whether or not a subscription was taken; this bounds the retained set by the open
     // set.
     this.#retry.forget(sessionId);
-    this.#lastCursorBySessionId.delete(sessionId);
+    this.#deliveredPositionBySessionId.delete(sessionId);
     this.#resumingSessionIds.delete(sessionId);
     this.#backoffBySessionId.get(sessionId)?.cancel();
     this.#backoffBySessionId.delete(sessionId);
     const binding = this.#bindingBySessionId.get(sessionId);
-    if (binding === undefined) {
-      return;
+    if (binding !== undefined) {
+      this.#releaseBinding(sessionId, binding);
     }
+  }
+
+  /** Closes one stream this class holds, so frames still in its batch are not handled. */
+  #releaseBinding(sessionId: string, binding: StreamBinding): void {
+    binding.isReleased = true;
     this.#bindingBySessionId.delete(sessionId);
     binding.release();
   }
 
   /**
-   * Handles one delivered frame. The drop mark is acted on before the events are queued: the store
-   * is marked short of rows (which the catching-up line reads) and the session's re-read is asked
-   * for, so a session that went quiet right after a drop does not stay short silently.
+   * Fills a hole the daemon dropped: the stream is closed and opened again after the last change
+   * it delivered, so the daemon sends the hole and what followed it in order. Through the re-open
+   * waits, so a wire that stays full is not re-opened in a loop.
+   */
+  #fillDroppedChanges(sessionId: string, binding: StreamBinding): void {
+    this.#releaseBinding(sessionId, binding);
+    recordWireFact("dropped-changes-filled", `session ${sessionId}`);
+    const backoff = this.#backoffFor(sessionId);
+    backoff.noteEnded(binding.openedAt);
+    backoff.schedule(() => {
+      this.#bindSession(sessionId);
+    });
+  }
+
+  /**
+   * Handles one delivered frame. The drop mark is acted on before the events are queued. Within
+   * the bound the frame is set aside and the hole filled from the last change delivered, which is
+   * why the position is read before this frame moves it. Past it the store is marked short of rows
+   * (which the catching-up line reads) and the session's re-read is asked for, so a session that
+   * went quiet right after a drop does not stay short silently.
    *
    * The refusal arm of `enqueue` covers a close race: emission iterates a snapshot of subscribers,
    * so a session closed mid-delivery still reaches this handler, and a throw here would break the
    * wire's subscription for every other session on it.
    */
-  #deliver(sessionId: string, delivered: unknown): void {
+  #deliver(sessionId: string, binding: StreamBinding, delivered: unknown): void {
     const frame = readSessionStreamFrame(delivered);
     if (frame === undefined) {
       this.#unreadableDeliveryCount += 1;
       return;
     }
+    // Only this session's events reach its store; another session's event has no store here and is
+    // dropped without being counted as unreadable.
+    const events = frame.events.filter((event) => event.sessionId === sessionId);
+    const previous = this.#deliveredPositionBySessionId.get(sessionId);
+    if (frame.dropped && this.#registry.has(sessionId) && isFillableDrop(previous, events)) {
+      this.#fillDroppedChanges(sessionId, binding);
+      return;
+    }
     this.#unreadableDeliveryCount += frame.unreadableEventCount;
     if (this.#registry.has(sessionId)) {
-      this.#lastCursorBySessionId.set(sessionId, frame.resumeCursor);
+      this.#deliveredPositionBySessionId.set(sessionId, {
+        cursor: frame.resumeCursor,
+        sequence: events.at(-1)?.sequence ?? previous?.sequence,
+      });
     }
     if (frame.dropped) {
       // A refusal means the session closed during this delivery; the close-race arm below reports
@@ -358,9 +412,6 @@ export class SessionEventSubscriber {
         this.#registry.requestRefresh(sessionId, "gap-repull");
       }
     }
-    // Only this session's events reach its store; another session's event has no store here and is
-    // dropped without being counted as unreadable.
-    const events = frame.events.filter((event) => event.sessionId === sessionId);
     if (events.length === 0) {
       return;
     }
@@ -396,11 +447,41 @@ export class SessionEventSubscriber {
   }
 }
 
-/** One open stream: how to close it, whether it delivered since it opened, and when it opened. */
+/**
+ * One open stream: how to close it, whether it delivered since it opened, whether this class
+ * closed it, and when it opened.
+ */
 interface StreamBinding {
   release: Unsubscribe;
   hasDelivered: boolean;
+  isReleased: boolean;
   readonly openedAt: number;
+}
+
+/**
+ * Where a stream left off: the cursor a re-open resumes after, and the sequence of the last event
+ * of this session it delivered, which measures a hole the cursor cannot.
+ */
+interface DeliveredPosition {
+  readonly cursor: EventCursor;
+  readonly sequence: number | undefined;
+}
+
+/**
+ * Whether a hole before this frame is filled from the daemon's record rather than repaired by a
+ * read. The width is counted in sequences between the last event delivered and the frame's first;
+ * where either is unknown (the caught-up frame, nothing delivered yet) it is filled, since the
+ * daemon still holds every row.
+ */
+function isFillableDrop(
+  previous: DeliveredPosition | undefined,
+  events: readonly ProjectedSessionEvent[],
+): boolean {
+  const firstSequence = events[0]?.sequence;
+  if (firstSequence === undefined || previous?.sequence === undefined) {
+    return true;
+  }
+  return firstSequence - previous.sequence - 1 <= MAX_REPAIRABLE_SEQUENCE_GAP;
 }
 
 /** Capture a wire fact for diagnostics; it never reaches the screen or the tripwire. */

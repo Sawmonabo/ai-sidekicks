@@ -1,6 +1,6 @@
-// The resume position is submitted on the read, and a position the daemon refuses is given up for
-// a re-read from the window's beginning. Recording the reader's third argument is the one
-// assertion that fails if the app decides a position and submits it nowhere.
+// The resume position, `acknowledged ?? earliest`, is submitted on the read, and a position the
+// daemon refuses is given up for a re-read with no cursor. Recording the reader's third argument
+// is the one assertion that fails if the app decides a position and submits it nowhere.
 
 import { describe, expect, it } from "vitest";
 
@@ -52,12 +52,16 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
     }
   }
 
+  /** The floor every scripted read names: the position before the oldest surviving row. */
+  const EARLIEST = "0_1723291400000000000";
+
   /** A base state at `cursor`, acknowledged where one is supplied. */
   function baseStateAt(cursor: number, acknowledged?: string): SessionBaseState {
     return {
       cursor,
       entities: [],
       transcriptCursors: {
+        earliest: EARLIEST,
         latest: "9_1723291500000000000",
         ...(acknowledged === undefined ? {} : { acknowledged }),
       },
@@ -72,24 +76,31 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
     },
   };
 
-  it("submits nothing on the first read and the acknowledged position on the next", async () => {
+  it("resumes from the floor with nothing acknowledged and from the acknowledged position after", async () => {
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [
+      baseStateAt(5),
       baseStateAt(7, "7_1723291480000000000"),
-      baseStateAt(9, "9_1723291500000000000"),
+      baseStateAt(9),
     ]);
 
     await refresh(clock, entry);
     await refresh(clock, entry);
+    // A read from the floor has nothing before its window, so no earlier page is offered.
+    expect(entry.store.snapshot().windowHeadCursor).toBeUndefined();
+    await refresh(clock, entry);
 
-    // The second read starts where the first was acknowledged.
+    // Each read starts where the one before it pointed: nowhere, then the floor, then the
+    // acknowledged position, which becomes the head of the window it opened.
     expect(reads).toStrictEqual([
       { resumeFromCursor: undefined },
+      { resumeFromCursor: EARLIEST },
       { resumeFromCursor: "7_1723291480000000000" },
     ]);
+    expect(entry.store.snapshot().windowHeadCursor).toBe("7_1723291480000000000");
   });
 
-  it("re-reads from the beginning when the position is refused", async () => {
+  it("re-reads with no cursor when the position is refused", async () => {
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [
       baseStateAt(7, "7_1723291480000000000"),

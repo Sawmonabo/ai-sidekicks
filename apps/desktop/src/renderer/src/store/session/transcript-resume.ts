@@ -1,9 +1,10 @@
-// Where a store's next read of a session's stream starts. Pure: `store/session/open/entry.ts` acts
-// on the decision and recovers when the daemon refuses the position it submitted.
+// Where a store's next read of a session's stream starts: the acknowledged position, else the
+// log's floor, `earliest`. Pure: `store/session/open/entry.ts` acts on the decision and recovers
+// when the daemon refuses the position it submitted.
 //
-// The decision reads `latest` and the optional `acknowledged`. The cursor is opaque to the app,
-// so there is no lost-event arm: a lost row reaches the store as the sequence gap it already
-// reconciles.
+// The cursors are opaque to the app, so nothing here orders two of them: a position is relayed
+// verbatim, and the only comparison is whether two strings the daemon issued are the same one. A
+// lost row reaches the store as the sequence gap it already reconciles.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 
@@ -15,26 +16,37 @@ import { readWireErrorEnvelopeWithCode } from "#renderer/lib/wire/errors.js";
  */
 export type TranscriptResumeDecision =
   | {
-      readonly outcome: "resume";
+      /** A position was acknowledged above the floor, so rows may sit before it. */
+      readonly outcome: "resume-acknowledged";
       /** The acknowledged position. Submitted on the next read of this session. */
       readonly fromCursor: string;
     }
   | {
-      /** Nothing acknowledged: start at the window's beginning and submit no cursor. */
+      /** Nothing acknowledged above the floor: no surviving row sits before this position. */
+      readonly outcome: "resume-earliest";
+      /** The daemon's `earliest`. Submitted on the next read of this session. */
+      readonly fromCursor: string;
+    }
+  | {
+      /** No readable cursor block: submit no cursor, which the daemon reads from the start. */
       readonly outcome: "restart";
     };
 
 /**
- * Decide where one read's cursor block says the next read starts.
+ * Decide where one read's cursor block says the next read starts: `acknowledged ?? earliest`.
  *
- * Takes `unknown` because the block crosses a boundary the compiler does not see. A missing,
- * malformed or acknowledgment-free block all answer `restart`, since none names a position.
+ * Takes `unknown` because the block crosses a boundary the compiler does not see. Only a missing
+ * or malformed block answers `restart`, since it names no position at all.
  */
 export function resolveTranscriptResume(cursors: unknown): TranscriptResumeDecision {
-  const acknowledged = readAcknowledgedCursor(cursors);
-  return acknowledged === undefined
-    ? { outcome: "restart" }
-    : { outcome: "resume", fromCursor: acknowledged };
+  const block = readCursorBlock(cursors);
+  if (block === undefined) {
+    return { outcome: "restart" };
+  }
+  // An acknowledged position equal to the floor has nothing before it either.
+  return block.acknowledged === undefined || block.acknowledged === block.earliest
+    ? { outcome: "resume-earliest", fromCursor: block.earliest }
+    : { outcome: "resume-acknowledged", fromCursor: block.acknowledged };
 }
 
 /**
@@ -49,18 +61,28 @@ export function isUnresolvableCursorRejection(rejection: unknown): boolean {
   return readWireErrorEnvelopeWithCode(rejection, EVENT_CURSOR_UNRESOLVABLE_CODE) !== undefined;
 }
 
-// The acknowledged position a cursor block carries, or nothing. The block stays `unknown` because
-// it crosses a boundary; `latest` must be a cursor too, or the object is not a cursor block.
-function readAcknowledgedCursor(cursors: unknown): string | undefined {
+/** The two positions a readable cursor block carries for the resume rule. */
+interface ResumeCursorBlock {
+  readonly earliest: string;
+  readonly acknowledged: string | undefined;
+}
+
+// The block, or nothing when it is not one: `earliest` and `latest` are required cursors, and an
+// `acknowledged` that is present must be a cursor too.
+function readCursorBlock(cursors: unknown): ResumeCursorBlock | undefined {
   if (typeof cursors !== "object" || cursors === null || Array.isArray(cursors)) {
     return undefined;
   }
   const candidate = cursors as Record<string, unknown>;
-  if (!isCursor(candidate["latest"])) {
+  const earliest = candidate["earliest"];
+  const acknowledged = candidate["acknowledged"];
+  if (!isCursor(earliest) || !isCursor(candidate["latest"])) {
     return undefined;
   }
-  const acknowledged = candidate["acknowledged"];
-  return isCursor(acknowledged) ? acknowledged : undefined;
+  if (acknowledged !== undefined && !isCursor(acknowledged)) {
+    return undefined;
+  }
+  return { earliest, acknowledged };
 }
 
 /** One cursor member: a non-empty string, or not a cursor at all. */

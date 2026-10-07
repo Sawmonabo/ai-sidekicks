@@ -6,14 +6,16 @@
 // store. One owner also closes the repair loop: the drain reads each `ApplyOutcome` and asks this
 // session's scheduler for a re-pull when a hole opened, so a quiet session still repairs itself.
 //
-// The resume rule lands here too. `transcript-resume.ts` decides; this entry submits the position
-// as the third argument of `SessionBaseStateReader` on the read that already happens, since a
-// separate resume read would be a second writer of the base state racing the scheduler.
+// The resume rule lands here too. `transcript-resume.ts` decides `acknowledged ?? earliest`; this
+// entry submits that position as the third argument of `SessionBaseStateReader` on the read that
+// already happens, since a separate resume read would be a second writer of the base state racing
+// the scheduler. A read resumed from `earliest` opens a window with nothing before it, so only an
+// acknowledged position becomes the window's head.
 //
 // A refused position degrades honestly. When the daemon answers `event.cursor_unresolvable` the
-// entry forgets the position, re-reads from the window's beginning through the same reader, and
-// records the refusal in the window's diagnostic capture. The refused cursor is remembered so the
-// next read does not submit it again (two reads per refresh otherwise).
+// entry forgets the position, re-reads with no cursor through the same reader, and records the
+// refusal in the window's diagnostic capture. The refused cursor is remembered so the next read
+// does not submit it again (two reads per refresh otherwise).
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
@@ -38,8 +40,10 @@ import {
 
 /** What the diagnostic capture records when the daemon refuses the submitted position. */
 const UNRESOLVABLE_RESUME_DETAIL =
-  "the remembered read position could not be resolved, so " +
-  "the log was re-read from the beginning of its window";
+  "the remembered read position could not be resolved, so " + "the log was re-read from its start";
+
+/** The decision a store holds before any read has named a position. */
+const RESUME_WITH_NO_CURSOR: TranscriptResumeDecision = { outcome: "restart" };
 
 /**
  * The read a refresh performs.
@@ -49,10 +53,10 @@ const UNRESOLVABLE_RESUME_DETAIL =
  * on a read that never happened.
  *
  * `resumeFromCursor` is where the reader is asked to start: the position the previous read
- * acknowledged, or `undefined` for the beginning of the window. The parameter is required, but
- * a function of fewer parameters is still assignable, so an adapter can ignore the position
- * and type-check; `sessionReadThroughDaemon` does, because the `session.read` request names only
- * the session.
+ * acknowledged, else its `earliest`, or `undefined` before any readable read. The parameter is
+ * required, but a function of fewer parameters is still assignable, so an adapter can ignore the
+ * position and type-check; `sessionReadThroughDaemon` does, because the `session.read` request
+ * names only the session.
  */
 export type SessionBaseStateReader = (
   sessionId: string,
@@ -86,10 +90,10 @@ export class OpenSessionEntry {
   public readonly applyQueue: ApplyQueue;
   public readonly refreshScheduler: RefreshScheduler;
   /**
-   * The position the next read submits, or `undefined` for the window's beginning. After a
-   * refused position it is what the recovering re-read acknowledged.
+   * Where the next read starts, decided by the last read that landed. After a refused position it
+   * is what the recovering re-read named.
    */
-  #resumeFromCursor: string | undefined = undefined;
+  #nextResume: TranscriptResumeDecision = RESUME_WITH_NO_CURSOR;
   /**
    * The one position the daemon refused, remembered so it is never submitted twice. One value,
    * not a set: the daemon issues one acknowledged position per read, so only the last read's
@@ -186,7 +190,8 @@ export class OpenSessionEntry {
     sessionId: string,
     reasons: readonly RefreshReason[],
   ): Promise<void> {
-    const submitted = this.#resumeFromCursor;
+    const resume = this.#nextResume;
+    const submitted = resume.outcome === "restart" ? undefined : resume.fromCursor;
     let baseState: SessionBaseState | undefined;
     try {
       baseState = await read(sessionId, reasons, submitted);
@@ -197,7 +202,7 @@ export class OpenSessionEntry {
       // The submitted cursor is tested before the code is believed: the code refuses a request
       // that carried a cursor, so a read with none cannot have raised it about our position.
       this.#unresolvableCursor = submitted;
-      this.#resumeFromCursor = undefined;
+      this.#nextResume = RESUME_WITH_NO_CURSOR;
       windowDiagnosticCapture.record({
         at: diagnosticStampAt(this.#clock),
         severity: "warning",
@@ -209,36 +214,36 @@ export class OpenSessionEntry {
       if (baseState === undefined) {
         return;
       }
-      // What the recovering read acknowledged is carried forward as the next position.
-      this.#rememberNextResumePosition(resolveTranscriptResume(baseState.transcriptCursors));
-      // The recovering read submitted nothing, so its window opens at the log's beginning.
+      // What the recovering read named is carried forward as the next position.
+      this.#rememberNextResume(resolveTranscriptResume(baseState.transcriptCursors));
+      // The recovering read submitted nothing, so its window opens at the log's start.
       this.store.initialize(baseState);
       return;
     }
     if (baseState === undefined) {
       return;
     }
-    this.#rememberNextResumePosition(resolveTranscriptResume(baseState.transcriptCursors));
+    this.#rememberNextResume(resolveTranscriptResume(baseState.transcriptCursors));
     // `initialize` is what clears the sticky degraded flag, so a completed re-pull lands here.
-    // The submitted position travels with the base state because only this object knows it: the
-    // stream catches up from it, so it is where this window begins, and the reply names no oldest
-    // row. Omitted rather than passed as `undefined` where none was submitted.
+    // An acknowledged position travels with the base state as where this window begins, because
+    // only this object knows it and the reply names no oldest row. A read from `earliest` or from
+    // no cursor has nothing before its window, so the member is omitted, not passed `undefined`.
     this.store.initialize(
-      submitted === undefined ? baseState : { ...baseState, readFromCursor: submitted },
+      resume.outcome === "resume-acknowledged"
+        ? { ...baseState, readFromCursor: resume.fromCursor }
+        : baseState,
     );
   }
 
   /**
-   * Carry a completed read's acknowledged position forward to the next read, except the one the
-   * daemon just refused, which would be submitted and refused again on every refresh.
+   * Carry a completed read's decision forward to the next read, except a position the daemon
+   * just refused, which would be submitted and refused again on every refresh.
    */
-  #rememberNextResumePosition(decision: TranscriptResumeDecision): void {
-    if (decision.outcome !== "resume") {
-      this.#resumeFromCursor = undefined;
-      return;
-    }
-    this.#resumeFromCursor =
-      decision.fromCursor === this.#unresolvableCursor ? undefined : decision.fromCursor;
+  #rememberNextResume(decision: TranscriptResumeDecision): void {
+    this.#nextResume =
+      decision.outcome !== "restart" && decision.fromCursor === this.#unresolvableCursor
+        ? RESUME_WITH_NO_CURSOR
+        : decision;
   }
 }
 
