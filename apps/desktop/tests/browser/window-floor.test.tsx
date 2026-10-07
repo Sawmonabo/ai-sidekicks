@@ -3,11 +3,12 @@
 // root-relative parts growing and the pane term holding in px, and a window held at that floor
 // gives the rail, the open sessions track and the real pane layout, the conversation at its own
 // floor and one pane past the separator at the loosest pane floor, with nothing scrolling
-// sideways; one rem narrower, that pane falls under its floor. A closed track takes no width, where an open one does. At the floor the agent
-// library keeps its two columns and an entity record keeps each label beside its value on one
-// line, a long value truncated with its whole text as its title, with nothing overflowing or
-// overlapping; a box planted too wide, one planted over a row, a short value that is not cut, and
-// a record narrower than its label column are the negative controls.
+// sideways; one rem narrower, that pane falls under its floor. A closed track takes no width,
+// where an open one does. At the floor the agent library keeps its two columns and an entity
+// record keeps each label beside its value on one line, a long value truncated with its whole text
+// as its title, with nothing overflowing or overlapping; a box planted too wide, one planted over
+// a row, a short value that is not cut, and a record narrower than its label column are the
+// negative controls.
 
 import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

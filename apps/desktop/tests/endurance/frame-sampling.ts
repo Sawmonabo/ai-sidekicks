@@ -1,7 +1,7 @@
 // The endurance tier's frame sampler: frame durations and long tasks while the concurrent-streaming
 // script delivers into the open session, and the check that the sampled window held that workload.
-// Shared by the frame-time and scrolling budgets and the started-scrollbar count, so all three drive
-// and read one instrument.
+// Shared by the frame-time and scrolling budgets and the started-scrollbar count, so all three
+// drive and read one instrument.
 //
 // A frame's duration is the main-thread work it costs, not the interval between frames: a sample
 // runs from the start of a frame's animation-frame callback to the first task after that frame's

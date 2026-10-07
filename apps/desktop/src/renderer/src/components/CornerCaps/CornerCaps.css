@@ -59,7 +59,7 @@
   inset-inline-end: calc(-1 * var(--meridian-corner-cap-edge, 0px));
 }
 
-/* Inside the cap, the ground's box sits half the edge in from the corner and the edge's box on it. */
+/* Inside the cap, the ground's box sits half the edge in from the corner, the edge's box on it. */
 .meridian-corner-cap--start-start::before,
 .meridian-corner-cap--start-end::before {
   inset-block-start: calc(var(--meridian-corner-cap-edge, 0px) / 2);

@@ -175,7 +175,7 @@ describe("accessibility — the overlay scrollbar", () => {
     );
     const { container: conversation } = render(
       <BridgeHost>
-        {/* Two cards over the same refs, each holding its diff to a height so its rows overflow. */}
+        {/* Two cards over the same refs, each diff held to a height so its rows overflow. */}
         <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
         <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
         <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />

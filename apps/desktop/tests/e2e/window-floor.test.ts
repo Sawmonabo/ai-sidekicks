@@ -36,7 +36,7 @@ interface MainReading {
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the window floor", () => {
   it("refuses a size under its floor at the default and the largest text size", async () => {
-    // No scenario: a fixture launch answers the floor itself, and only the real bridge reaches main.
+    // No scenario: a fixture launch answers the floor itself; only the real bridge reaches main.
     await withLaunchedApp({}, async (appUnderTest) => {
       await appUnderTest.window.locator(".meridian-frame__window-floor").waitFor({
         state: "attached",
@@ -116,7 +116,7 @@ async function readFloorBox(appWindow: Page): Promise<Size> {
   });
 }
 
-/** The minimum main sets for `floor`: whole px rounded up, no larger than the display's work area. */
+/** The minimum main sets for `floor`: whole px rounded up, at most the display's work area. */
 async function expectedMinimum(appUnderTest: AppUnderTest, floor: Size): Promise<Size> {
   const { workArea } = await readMain(appUnderTest);
   return {
