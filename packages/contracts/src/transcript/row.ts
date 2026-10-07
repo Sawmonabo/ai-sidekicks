@@ -171,8 +171,9 @@ export interface TranscriptEventRowBase {
   payload: Record<string, unknown>;
 }
 
-// Every arm spreads this shape. A function, so each arm gets its own schema instances.
-const buildTranscriptEventRowCommonShape = () => ({
+// Every arm spreads this shape; its field schemas are built once and shared, since Zod schemas
+// are immutable.
+const TRANSCRIPT_EVENT_ROW_COMMON_SHAPE = {
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.id"),
   sessionId: SessionIdSchema,
   sequence: countSchema.max(EVENT_ENVELOPE_SEQUENCE_MAX),
@@ -184,7 +185,7 @@ const buildTranscriptEventRowCommonShape = () => ({
   timestamp: isoDateTimeSchema,
   childRunSummary: ChildRunSummarySchema.optional(),
   omittedPatches: z.array(TranscriptOmittedPatchSchema).min(1).optional(),
-});
+};
 
 // The open payload of the two non-boundary arms. It omits the `__proto__` pre-guard the event
 // envelope applies: that guard protects what the log stores, and a transcript row is a read
@@ -395,7 +396,7 @@ const requirePayloadAttributionToAgree = (
 
 const transcriptGeneralArmSchema = z
   .object({
-    ...buildTranscriptEventRowCommonShape(),
+    ...TRANSCRIPT_EVENT_ROW_COMMON_SHAPE,
     kind: z.literal("general"),
     payload: projectedPayloadSchema,
   })
@@ -407,7 +408,7 @@ const transcriptGeneralArmSchema = z
 
 const runScopedTranscriptArmSchema = z
   .object({
-    ...buildTranscriptEventRowCommonShape(),
+    ...TRANSCRIPT_EVENT_ROW_COMMON_SHAPE,
     kind: z.literal("run"),
     runId: RunIdSchema,
     position: countSchema,
@@ -426,7 +427,7 @@ const transcriptRollbackBoundaryArmSchema = z
   .object({
     // `category` and `type` below replace the base parsers by spread order: this arm carries
     // exactly one registered event. The base has no `payload`; each arm declares its own.
-    ...buildTranscriptEventRowCommonShape(),
+    ...TRANSCRIPT_EVENT_ROW_COMMON_SHAPE,
     kind: z.literal("rollback_boundary"),
     category: z.literal(TRANSCRIPT_RUN_LIFECYCLE_CATEGORY),
     runId: RunIdSchema,

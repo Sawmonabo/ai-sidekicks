@@ -9,12 +9,15 @@ import {
   OrchestrationRejectedPayloadSchema,
   OrchestrationRunCreateRequestSchema,
 } from "../orchestration.js";
+import {
+  AGENT_ID,
+  ORCHESTRATION_REJECTED_PAYLOAD,
+  PARENT_RUN_ID,
+  SESSION_ID,
+} from "./orchestration.test-support.js";
 
-const SESSION_ID = "33333333-3333-4333-8333-333333333333";
-const AGENT_ID = "44444444-4444-4444-8444-444444444444";
 const DEFINITION_ID = "11111111-1111-4111-8111-111111111111";
 const LEAD_AGENT_ID = "77777777-7777-4777-8777-777777777777";
-const PARENT_RUN_ID = "66666666-6666-4666-8666-666666666666";
 const CHILD_RUN_ID = "88888888-8888-4888-8888-888888888888";
 
 const HEAD = {
@@ -108,16 +111,14 @@ describe("orchestration.runCreate", () => {
 
 describe("orchestration.rejected", () => {
   it("records a refused create and refuses a run id, since a refusal leaves no run", () => {
-    const refusal = {
-      sessionId: SESSION_ID,
-      targetAgentId: AGENT_ID,
-      parentRunId: PARENT_RUN_ID,
-      reason: "agent.not_found",
-      detail: "No agent with that id is in the session.",
-    };
-    expect(OrchestrationRejectedPayloadSchema.safeParse(refusal).success).toBe(true);
     expect(
-      OrchestrationRejectedPayloadSchema.safeParse({ ...refusal, runId: CHILD_RUN_ID }).success,
+      OrchestrationRejectedPayloadSchema.safeParse(ORCHESTRATION_REJECTED_PAYLOAD).success,
+    ).toBe(true);
+    expect(
+      OrchestrationRejectedPayloadSchema.safeParse({
+        ...ORCHESTRATION_REJECTED_PAYLOAD,
+        runId: CHILD_RUN_ID,
+      }).success,
     ).toBe(false);
   });
 });

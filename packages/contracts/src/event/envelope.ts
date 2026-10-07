@@ -138,19 +138,20 @@ export interface EventEnvelope {
 }
 
 /**
- * The members `EventEnvelopeSchema` and every variant share. `category` is left out: a variant
- * needs it as a literal so a category/type mismatch fails to parse.
+ * The members `EventEnvelopeSchema` and every variant share, built once and spread into each. Zod
+ * schemas are immutable, so one field schema serves every object that holds it. `category` is
+ * left out: a variant needs it as a literal so a category/type mismatch fails to parse.
  */
-export const buildCommonShape = (): {
-  id: z.ZodString;
-  sessionId: z.ZodType<SessionId, SessionId>;
-  sequence: z.ZodNumber;
-  occurredAt: z.ZodISODateTime;
-  actor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-  correlationId: z.ZodOptional<z.ZodString>;
-  causationId: z.ZodOptional<z.ZodString>;
-  version: z.ZodType<EventEnvelopeVersion>;
-} => ({
+export const EVENT_ENVELOPE_COMMON_SHAPE: {
+  readonly id: z.ZodString;
+  readonly sessionId: z.ZodType<SessionId, SessionId>;
+  readonly sequence: z.ZodNumber;
+  readonly occurredAt: z.ZodISODateTime;
+  readonly actor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+  readonly correlationId: z.ZodOptional<z.ZodString>;
+  readonly causationId: z.ZodOptional<z.ZodString>;
+  readonly version: z.ZodType<EventEnvelopeVersion>;
+} = {
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.id"),
   sessionId: SessionIdSchema,
   // `.int()` already enforces the ceiling; the `.max()` exists so an out-of-range value says why.
@@ -170,12 +171,12 @@ export const buildCommonShape = (): {
   correlationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.correlationId").optional(),
   causationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.causationId").optional(),
   version: EventEnvelopeVersionSchema,
-});
+};
 
 /** Runtime validator for {@link EventEnvelope}: exactly the canonical members, none unknown. */
 export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
   .object({
-    ...buildCommonShape(),
+    ...EVENT_ENVELOPE_COMMON_SHAPE,
     category: EventCategorySchema,
     type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.type"),
     // Zod's record parser skips an own `__proto__` key, so two different wire strings would parse

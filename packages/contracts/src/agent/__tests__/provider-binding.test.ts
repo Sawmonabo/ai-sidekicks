@@ -9,59 +9,30 @@ import {
   AgentProviderBindingChangeFailedPayloadSchema,
   AgentProviderBindingChangedPayloadSchema,
 } from "../provider-binding.js";
-
-const SESSION_ID = "33333333-3333-4333-8333-333333333333";
-const AGENT_ID = "44444444-4444-4444-8444-444444444444";
-const DEVICE_ID = "device-laptop";
-const CLAUDE_BINDING = {
-  driverName: "claude",
-  modelId: "opus",
-  providerAccountId: "claude-work",
-  effort: "high",
-} as const;
-const CODEX_BINDING = {
-  driverName: "codex",
-  modelId: "gpt-5.5",
-  providerAccountId: "codex-personal",
-  effort: "medium",
-} as const;
-
-const CHANGED = {
-  sessionId: SESSION_ID,
-  agentId: AGENT_ID,
-  switchId: "switch-1",
-  actor: DEVICE_ID,
-  from: CLAUDE_BINDING,
-  to: CODEX_BINDING,
-  landedProviderAccountId: "codex-personal",
-  continuity: "brief",
-  declaredLosses: ["conversation_history_summarized", "provider_private_reasoning"],
-} as const;
-
-const FAILED = {
-  sessionId: SESSION_ID,
-  agentId: AGENT_ID,
-  switchId: "switch-2",
-  actor: DEVICE_ID,
-  from: CLAUDE_BINDING,
-  attempted: { driverName: "codex", modelId: "gpt-5.5" },
-  reason: "account_unavailable",
-  accountState: "reauth_required",
-} as const;
+import {
+  BINDING_CHANGED_PAYLOAD,
+  BINDING_CHANGE_FAILED_PAYLOAD,
+  CLAUDE_BINDING,
+} from "./provider-binding.test-support.js";
 
 describe("the declared losses of a switch that applied", () => {
   it("accepts a brief that names the summarized history and the private reasoning", () => {
-    expect(AgentProviderBindingChangedPayloadSchema.safeParse(CHANGED).success).toBe(true);
+    expect(
+      AgentProviderBindingChangedPayloadSchema.safeParse(BINDING_CHANGED_PAYLOAD).success,
+    ).toBe(true);
   });
 
   it("refuses a brief that omits the private reasoning", () => {
-    const payload = { ...CHANGED, declaredLosses: ["conversation_history_summarized"] };
+    const payload = {
+      ...BINDING_CHANGED_PAYLOAD,
+      declaredLosses: ["conversation_history_summarized"],
+    };
     expect(AgentProviderBindingChangedPayloadSchema.safeParse(payload).success).toBe(false);
   });
 
   it("refuses an in-place switch that claims a loss", () => {
     const payload = {
-      ...CHANGED,
+      ...BINDING_CHANGED_PAYLOAD,
       to: { ...CLAUDE_BINDING, effort: "low" },
       landedProviderAccountId: "claude-work",
       continuity: "in_place",
@@ -73,17 +44,20 @@ describe("the declared losses of a switch that applied", () => {
 
 describe("the account state of a failed switch", () => {
   it("accepts an account failure that names why", () => {
-    expect(AgentProviderBindingChangeFailedPayloadSchema.safeParse(FAILED).success).toBe(true);
+    expect(
+      AgentProviderBindingChangeFailedPayloadSchema.safeParse(BINDING_CHANGE_FAILED_PAYLOAD)
+        .success,
+    ).toBe(true);
   });
 
   it("refuses an account failure with no state, and a state on another failure", () => {
-    const { accountState: _accountState, ...withoutState } = FAILED;
+    const { accountState: _accountState, ...withoutState } = BINDING_CHANGE_FAILED_PAYLOAD;
     expect(AgentProviderBindingChangeFailedPayloadSchema.safeParse(withoutState).success).toBe(
       false,
     );
     expect(
       AgentProviderBindingChangeFailedPayloadSchema.safeParse({
-        ...FAILED,
+        ...BINDING_CHANGE_FAILED_PAYLOAD,
         reason: "interrupt_refused",
       }).success,
     ).toBe(false);

@@ -4,12 +4,17 @@ import { describe, expect, it } from "vitest";
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../session.js";
 import {
-  DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   compareEventEnvelopeVersion,
 } from "../envelope.js";
-import { buildAssistantMessageEvent, buildSessionCreatedEvent } from "./session.test-support.js";
+import {
+  buildAssistantMessageEvent,
+  buildAssistantThinkingUpdateEvent,
+  buildEventCompactedEvent,
+  buildSessionCreatedEvent,
+  buildToolActivityEvent,
+} from "./session.test-support.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const VERSION = "1.0";
@@ -239,26 +244,7 @@ describe("EventEnvelopeSchema — canonical carrier", () => {
 // Coverage is at the variant level (through `SessionEventSchema`): a payload-only suite would
 // stay green if an arm were never registered in the union.
 
-const NODE_ID = "node-7f3a2c";
-
-const buildEventCompacted = () => ({
-  id: "evt-0105",
-  sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  sequence: 105,
-  occurredAt: "2026-01-22T19:14:40.000Z",
-  category: "event_maintenance" as const,
-  type: "event.compacted" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    nodeId: NODE_ID,
-    operationId: "compact-2026-01-22-01",
-    occurredAt: "2026-01-22T19:14:40.000Z",
-    removedSessions: [{ sessionId: SESSION_ID, fromSeq: 1, toSeq: 4096 }],
-  },
-});
-
-const SESSION_EVENT_VARIANTS = [["event.compacted", buildEventCompacted]] as const;
+const SESSION_EVENT_VARIANTS = [["event.compacted", buildEventCompactedEvent]] as const;
 
 describe("event_maintenance payload variant", () => {
   it.each(SESSION_EVENT_VARIANTS)("round-trips %s through JSON without loss", (_label, build) => {
@@ -272,7 +258,7 @@ describe("event_maintenance payload variant", () => {
   });
 
   it("event.compacted refuses a deleted range that ends before it starts", () => {
-    const event = buildEventCompacted();
+    const event = buildEventCompactedEvent();
     expect(
       SessionEventSchema.safeParse({
         ...event,
@@ -288,50 +274,12 @@ describe("event_maintenance payload variant", () => {
 // The five body-bearing assistant and tool payload variants. The body is sealed apart from the
 // payload, so no payload may carry it.
 
-const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
-
-const buildAssistantThinkingUpdate = () => ({
-  id: "evt-3602",
-  sessionId: SESSION_ID,
-  sequence: 41,
-  occurredAt: "2026-01-22T19:15:02.000Z",
-  category: "assistant_output" as const,
-  type: "assistant.thinking_update" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
-    contentLength: 128,
-  },
-});
-
-const buildToolRow = (type: "tool.invoked" | "tool.result" | "tool.error", sequence: number) => ({
-  id: `evt-36${String(sequence)}`,
-  sessionId: SESSION_ID,
-  sequence,
-  occurredAt: "2026-01-22T19:15:03.000Z",
-  category: "tool_activity" as const,
-  type,
-  actor: null,
-  version: VERSION,
-  payload: {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
-    toolName: "Bash",
-    toolCallId: "call-0001",
-    durationMs: 1200,
-    contentLength: 262_145,
-    contentTruncated: true as const,
-  },
-});
-
 const BODY_BEARING_VARIANTS = [
   ["assistant.message", buildAssistantMessageEvent],
-  ["assistant.thinking_update", buildAssistantThinkingUpdate],
-  ["tool.invoked", () => buildToolRow("tool.invoked", 42)],
-  ["tool.result", () => buildToolRow("tool.result", 43)],
-  ["tool.error", () => buildToolRow("tool.error", 44)],
+  ["assistant.thinking_update", buildAssistantThinkingUpdateEvent],
+  ["tool.invoked", () => buildToolActivityEvent("tool.invoked", 42)],
+  ["tool.result", () => buildToolActivityEvent("tool.result", 43)],
+  ["tool.error", () => buildToolActivityEvent("tool.error", 44)],
 ] as const;
 
 describe("SessionEventSchema — body-bearing assistant / tool variants", () => {

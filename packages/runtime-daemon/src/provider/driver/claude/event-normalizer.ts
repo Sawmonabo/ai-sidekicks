@@ -78,7 +78,7 @@ export type ClaudeWireFrameKind =
  */
 type ClaudeEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
 
-// Derived from `SESSION_EVENT_TYPES`, which is bound to the live schema union at compile time.
+// Derived from `SESSION_EVENT_TYPES`, the registrations `SessionEventSchema` parses through.
 const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(
   SESSION_EVENT_TYPES,
 );

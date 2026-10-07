@@ -5,9 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SessionGoalUpdateRequestSchema, SessionGoalUpdatedPayloadSchema } from "../goal.js";
-
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const AGENT_ID = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b";
+import { AGENT_ID, GOAL_UPDATED_PAYLOAD_BASE, SESSION_ID } from "./goal.test-support.js";
 
 const goalUpdate = (text: string) => ({
   sessionId: SESSION_ID,
@@ -31,7 +29,7 @@ describe("session.goalUpdate request", () => {
 });
 
 describe("session.goal_updated payload", () => {
-  const updated = { sessionId: SESSION_ID, agentId: AGENT_ID, goal: { text: "Ship it" } };
+  const updated = GOAL_UPDATED_PAYLOAD_BASE;
 
   it("accepts a status with no reason, and impossible with the judge's reason", () => {
     expect(

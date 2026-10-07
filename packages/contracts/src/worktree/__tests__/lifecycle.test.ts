@@ -3,7 +3,6 @@
 import { describe, expect, it } from "vitest";
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../../event/session.js";
-import type { SessionEvent } from "../../event/variant-types.js";
 import {
   ExecutionRootPrepareRequestSchema,
   ExecutionRootPrepareResponseSchema,
@@ -16,22 +15,24 @@ import {
   WorktreeStatusReadResponseSchema,
   type BranchContextId,
   type WorktreeId,
-  type WorktreeState,
 } from "../lifecycle.js";
+import {
+  CREATED_AT,
+  REGISTERED_WORKTREE_EVENTS,
+  REPO_MOUNT_ID,
+  SESSION_ID,
+  WORKSPACE_ID,
+  WORKTREE_ID,
+  buildWorktreeEvent,
+} from "./lifecycle.test-support.js";
 
 // Real RFC 9562 UUIDs (v4 and v7): the schemas validate the version nibble and variant bits,
 // so lookalike strings would not parse.
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
 const PROJECT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f13";
-const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
-const WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
 const BRANCH_CONTEXT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f14";
 const RUN_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f15";
 const EXECUTION_ROOT = "/Users/dev/.ai-sidekicks/worktrees/beacon/1a2b3c4d-fix-login-bug";
 const BRANCH_NAME = "sidekicks/550e8400/add-worktree-wire-pairs";
-const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
-const CREATED_AT = "2026-07-26T09:30:00.000Z";
 const UPDATED_AT = "2026-07-26T09:31:00.000Z";
 
 describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
@@ -72,34 +73,6 @@ describe("WorktreeLifecyclePayloadSchema (the lifecycle payload over worktree st
       ).toBe(false);
     },
   );
-});
-
-// Each event type with the state its emitter writes; `-> failed` has no event. Typing the rows by
-// the union's discriminant makes a dropped union arm stop this fixture compiling.
-const REGISTERED_WORKTREE_EVENTS: ReadonlyArray<readonly [SessionEvent["type"], WorktreeState]> = [
-  ["worktree.created", "creating"],
-  ["worktree.ready", "ready"],
-  ["worktree.dirty", "dirty"],
-  ["worktree.merged", "merged"],
-  ["worktree.retired", "retired"],
-];
-
-const buildWorktreeEvent = (eventType: string, state: string) => ({
-  id: "evt-worktree-0001",
-  sessionId: SESSION_ID,
-  sequence: 11,
-  occurredAt: CREATED_AT,
-  category: "session_lifecycle" as const,
-  type: eventType,
-  actor: USER_ID,
-  version: "1.0",
-  payload: {
-    sessionId: SESSION_ID,
-    repoMountId: REPO_MOUNT_ID,
-    workspaceId: WORKSPACE_ID,
-    worktreeId: WORKTREE_ID,
-    state,
-  },
 });
 
 describe("SessionEventSchema registration of the five worktree events", () => {
