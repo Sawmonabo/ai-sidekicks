@@ -7,10 +7,15 @@ import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-measures.js";
 
 /** The split, as a card renders it. */
 export interface MarkdownSegmentation {
-  /** Complete blocks far enough behind the tail to be final; each is parsed once. */
+  /** Complete blocks far enough behind the tail to be final; each is read once, as it settles. */
   readonly settledBlocks: readonly string[];
-  /** Everything after them, as one string: re-parsed every frame, the only part `remend` sees. */
+  /** Everything after them, as one string: read every frame, the only part `remend` sees. */
   readonly volatileTail: string;
+  /**
+   * Counts the scans restarted from nothing. Within one generation a block never changes at its
+   * index, so a reader keeping state per block reuses it instead of comparing every block again.
+   */
+  readonly generation: number;
 }
 
 /** What a caller knows about the snapshot beyond its text. */
@@ -77,6 +82,7 @@ export class MarkdownBlockSegmenter {
   #scannedSource = "";
   /** Where in `#scannedSource` the uncommitted remainder starts. */
   #remainderOffset = 0;
+  #generation = 0;
 
   /**
    * Re-splits for a new cumulative snapshot. One that does not extend the last (a rollback, a
@@ -95,7 +101,11 @@ export class MarkdownBlockSegmenter {
 
     if (options.isFinal) {
       // The lag is lifted: the scan already committed the remainder, so every block is final.
-      return { settledBlocks: [...this.#completeBlocks], volatileTail: "" };
+      return {
+        settledBlocks: [...this.#completeBlocks],
+        volatileTail: "",
+        generation: this.#generation,
+      };
     }
 
     const settledCount = Math.max(0, this.#completeBlocks.length - MARKDOWN_SETTLE_LAG_BLOCKS);
@@ -105,10 +115,12 @@ export class MarkdownBlockSegmenter {
     return {
       settledBlocks,
       volatileTail: withoutLeadingBlankLines([...laggedBlocks, remainder].join("")),
+      generation: this.#generation,
     };
   }
 
   #reset(): void {
+    this.#generation += 1;
     this.#completeBlocks.length = 0;
     this.#scannedSource = "";
     this.#remainderOffset = 0;

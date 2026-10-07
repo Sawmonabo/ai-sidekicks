@@ -6,12 +6,22 @@
 // under `directDomUpdates`, so no style here sets them; `role="feed"` is declared on the scroll
 // container and its article children by `VirtualRow`, so the relationship does not rest on whatever
 // a registered row renderer draws; the sizer is `role="presentation"`. Attention is steered by
-// luminance, never motion: the only transition is the pill's hover color.
+// luminance, never motion: the only transition is the pill's hover color. The viewport's one
+// selection tracker lives with the scroll container and reaches the rows through context, beside
+// what a long markdown body reads to draw only the blocks near the reader.
+
+import { useMemo } from "react";
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
+import { useTrackViewportSelection } from "../hooks/selection/useTrackViewportSelection.js";
+import { ViewportSelectionTrackerContext } from "../selection/context.js";
+import {
+  MarkdownWindowViewportContext,
+  type MarkdownWindowViewport,
+} from "../../rows/markdown/block-window/context.js";
 
 /** Props for `TranscriptViewport`. */
 export interface TranscriptViewportProps {
@@ -44,57 +54,74 @@ export interface TranscriptViewportProps {
 export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
+  const selection = useTrackViewportSelection(binding.attachScrollContainer);
+  const { tracker } = selection;
+  const { scrollController, rowStartPx } = binding;
+  // One value for the viewport's life: each windowed body holds it while it is mounted.
+  const markdownWindowViewport = useMemo<MarkdownWindowViewport>(
+    () => ({
+      scrollController,
+      rowStartPx,
+      subscribeToSelection: (listener) => tracker.subscribe(listener),
+      readSelectionRange: () => tracker.selectionRange,
+    }),
+    [scrollController, rowStartPx, tracker],
+  );
 
   return (
-    <div className="meridian-transcript-viewport">
-      {/*
-       * Floats over the top of the scroll container as the tail affordance floats over the
-       * bottom; both sit outside the scroll box because a control in the flow changes the
-       * content height the reading position is measured against.
-       */}
-      {props.earlierHistoryControl}
-      <div
-        className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
-        ref={binding.attachScrollContainer}
-        // The feed role is claimed only while there are rows, since `feed` requires owned
-        // articles (`VirtualRow`'s half) and an empty one is invalid, which is worse for a
-        // screen reader than a plain scroll container. The label and busy state go with it.
-        {...(snapshot.rows.length === 0
-          ? {}
-          : {
-              role: "feed",
-              "aria-label": props.feedLabel,
-              "aria-busy": props.hasActiveTurn ?? false,
-            })}
-        // Focusable so the log is reachable and scrollable from the keyboard.
-        tabIndex={0}
-      >
-        <div
-          className="meridian-transcript-viewport__sizer"
-          ref={binding.attachSizer}
-          role="presentation"
-        >
-          {binding.virtualItems.map((virtualItem) => {
-            const row = snapshot.rows[virtualItem.index];
-            return row === undefined ? null : (
-              <VirtualRow
-                key={virtualItem.key}
-                rowIndex={virtualItem.index}
-                row={row}
-                totalRowCount={snapshot.rows.length}
-                renderRow={props.renderRow}
-                attachRow={binding.attachRow}
-              />
-            );
-          })}
+    <ViewportSelectionTrackerContext value={tracker}>
+      <MarkdownWindowViewportContext value={markdownWindowViewport}>
+        <div className="meridian-transcript-viewport">
+          {/*
+           * Floats over the top of the scroll container as the tail affordance floats over the
+           * bottom; both sit outside the scroll box because a control in the flow changes the
+           * content height the reading position is measured against.
+           */}
+          {props.earlierHistoryControl}
+          <div
+            className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
+            ref={selection.attachScrollContainer}
+            // The feed role is claimed only while there are rows, since `feed` requires owned
+            // articles (`VirtualRow`'s half) and an empty one is invalid, which is worse for a
+            // screen reader than a plain scroll container. The label and busy state go with it.
+            {...(snapshot.rows.length === 0
+              ? {}
+              : {
+                  role: "feed",
+                  "aria-label": props.feedLabel,
+                  "aria-busy": props.hasActiveTurn ?? false,
+                })}
+            // Focusable so the log is reachable and scrollable from the keyboard.
+            tabIndex={0}
+          >
+            <div
+              className="meridian-transcript-viewport__sizer"
+              ref={binding.attachSizer}
+              role="presentation"
+            >
+              {binding.virtualItems.map((virtualItem) => {
+                const row = snapshot.rows[virtualItem.index];
+                return row === undefined ? null : (
+                  <VirtualRow
+                    key={virtualItem.key}
+                    rowIndex={virtualItem.index}
+                    row={row}
+                    totalRowCount={snapshot.rows.length}
+                    renderRow={props.renderRow}
+                    attachRow={binding.attachRow}
+                  />
+                );
+              })}
+            </div>
+            {/*
+             * Empty only once the first read has landed: while it is in flight the pane already
+             * draws skeleton rows, and a second element would talk over the loading state.
+             */}
+            {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
+          </div>
+          <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
         </div>
-        {/*
-         * Empty only once the first read has landed: while it is in flight the pane already
-         * draws skeleton rows, and a second element would talk over the loading state.
-         */}
-        {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
-      </div>
-      <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
-    </div>
+      </MarkdownWindowViewportContext>
+    </ViewportSelectionTrackerContext>
   );
 }

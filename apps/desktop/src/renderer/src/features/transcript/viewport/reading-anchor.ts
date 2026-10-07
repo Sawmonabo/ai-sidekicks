@@ -93,13 +93,15 @@ export class ReadingAnchor {
    * tail keeps the last anchor point, since dropping it would leave a frame with nothing to
    * restore.
    *
-   * Leaving takes a `"scroll"` sample: a shrinking viewport raises the distance from the tail with
-   * no reader action, and it must not stop following on its own. A scroll toward the head is a
-   * decision and releases the follow at once, however small, even inside the tail band; arriving
-   * back within the band re-engages it.
+   * Leaving takes a `"scroll"` sample whose offset moved toward the head: a shrinking viewport,
+   * and content growing under a still offset before the virtualizer's end anchor catches up, raise
+   * the distance from the tail with no reader action, and neither may stop following on its own.
+   * A scroll toward the head is a decision and releases the follow at once, however small, even
+   * inside the tail band; arriving back within the band re-engages it.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
-    const scrolledTowardHead = isReaderScrollTowardHead(this.#lastGeometry, geometry);
+    const previous = this.#lastGeometry;
+    const scrolledTowardHead = isReaderScrollTowardHead(previous, geometry);
     this.#lastGeometry = geometry;
     if (geometry.isAtTail && !scrolledTowardHead) {
       // Through `unpin` so a sample that only releases a pin still notifies; the window's prune
@@ -108,7 +110,11 @@ export class ReadingAnchor {
       this.#transition("following", 0);
       return;
     }
-    if (this.#mode === "following" && geometry.cause === "scroll") {
+    if (
+      this.#mode === "following" &&
+      geometry.cause === "scroll" &&
+      hasOffsetMovedTowardHead(previous, geometry)
+    ) {
       this.#transition("reading", this.#newRowCount);
     }
   }
@@ -247,8 +253,19 @@ function isReaderScrollTowardHead(
   return (
     next.cause === "scroll" &&
     previous !== undefined &&
-    next.scrollTop < previous.scrollTop - SCROLL_GEOMETRY_EPSILON_PX &&
+    hasOffsetMovedTowardHead(previous, next) &&
     Math.abs(next.contentHeight - previous.contentHeight) < SCROLL_GEOMETRY_EPSILON_PX &&
     Math.abs(next.viewportHeight - previous.viewportHeight) < SCROLL_GEOMETRY_EPSILON_PX
   );
+}
+
+/**
+ * Whether the offset fell since the previous sample, whatever the sizes did; a first sample has
+ * nothing to stay with, so it counts as a move.
+ */
+function hasOffsetMovedTowardHead(
+  previous: ScrollGeometry | undefined,
+  next: ScrollGeometry,
+): boolean {
+  return previous === undefined || next.scrollTop < previous.scrollTop - SCROLL_GEOMETRY_EPSILON_PX;
 }

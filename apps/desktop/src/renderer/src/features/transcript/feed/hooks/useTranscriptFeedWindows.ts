@@ -1,10 +1,15 @@
 // Every window this feed derives, in the one order they may be derived in: the unfurled
-// projection, the run-group fold, and the part the viewport reconciled onto the screen. Each
-// stage publishes the rows it removed, since re-deriving the difference downstream re-walked the
-// projection on every append. The one viewport binding and reveal engine are minted here.
+// projection, the run-group fold, the rows the feed draws anything for, and the part the viewport
+// reconciled onto the screen. The fold and the viewport's split publish the rows they removed,
+// since re-deriving the difference downstream re-walked the projection on every append; nothing
+// counts a row the feed never draws, so that stage publishes its window alone. The one viewport
+// binding and reveal engine are minted here.
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
@@ -26,9 +31,13 @@ import {
 } from "../../window/transcript-window.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
-import { type RunGroupDisclosure } from "../run-group-fold.js";
+import { densityFor, type RunGroupDisclosure } from "../run-group-fold.js";
+import { isDrawnRow } from "../drawn-rows.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
+import { useDrawnRows } from "./useDrawnRows.js";
+import { type RowHeightKind } from "../../rows/height-kind.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
 import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 
@@ -41,6 +50,8 @@ export interface TranscriptFeedWindowsInputs {
   readonly messageAnchorCursor: string | undefined;
   /** The backward walk a linked message older than the window is reached through, if any. */
   readonly earlierHistory: EarlierHistoryPaging | undefined;
+  /** The registered row renderer's answer to whether it draws anything for a row. */
+  readonly drawsBody: TranscriptRowRenderer["drawsBody"];
 }
 
 /**
@@ -54,8 +65,10 @@ export interface TranscriptFeedWindows {
   /** Every member row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
   readonly runGroupFold: TranscriptPipelineStage;
-  /** The last model window: folded by run group. */
+  /** The last model window: folded by run group, its lists holding only rows the feed draws. */
   readonly transcriptWindow: TranscriptWindowModel;
+  /** Whether the feed draws a row at all, asked of any row of the log, folded away or not. */
+  readonly drawsRow: (row: TranscriptEventRow) => boolean;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
   /** What the viewport reconciled onto the screen, with both absences separable. */
@@ -78,7 +91,17 @@ export function useTranscriptFeedWindows(
     runGroupDisclosure.openedTerminalRunIds,
     inputs.sessionStore.sessionId,
   );
-  const transcriptWindow = runGroupFold.window;
+  const drawsBody = inputs.drawsBody;
+  const transcriptWindow = useDrawnRows(
+    runGroupFold.window,
+    drawsBody,
+    inputs.sessionStore.sessionId,
+  );
+  // Over the unfurled window's system messages, which name the rows a fold hides as well.
+  const drawsRow = useCallback(
+    (row: TranscriptEventRow) => isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
+    [unfurledWindow, drawsBody],
+  );
   // The reveal engine is this feed's, minted once and disposed with it; its drain state reaches
   // the viewport. The frame scheduler is minted above both holders so one object orders the
   // paint: the reveal drain runs in its second phase, while the viewport writes `scrollTop` at
@@ -93,14 +116,24 @@ export function useTranscriptFeedWindows(
     earlierHistory: inputs.earlierHistory,
     unfurledWindow,
     transcriptWindow,
+    drawsRow,
     runGroupDisclosure,
   });
+  // One reader for the mount, over the window the tree last committed: a new reader would mint a
+  // new viewport, and the viewport asks for a row's kind only for rows that window holds.
+  const committedTranscriptWindow = useLatestRef(transcriptWindow);
+  const heightKindOf = useCallback(
+    (rowKey: string) => rowHeightKindOf(committedTranscriptWindow.current, rowKey),
+    [committedTranscriptWindow],
+  );
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: transcriptWindow.viewportRows,
     hasActiveTurn: transcriptWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
     landingRowKey,
+    rememberedRowHeights: inputs.sessionStore.rememberedRowHeights,
+    heightKindOf,
   });
 
   // Registered here, where the session id and the one binding meet, so the session diagnostics a
@@ -146,8 +179,39 @@ export function useTranscriptFeedWindows(
     unfurledWindow,
     runGroupFold,
     transcriptWindow,
+    drawsRow,
     reveal,
     viewport,
     visible,
   };
+}
+
+/**
+ * The height kind the feed draws a key of its list as, decided as the row dispatch decides what
+ * to draw. A tool row's density is the list's alone: a row whose density a person chose was
+ * mounted to be chosen, so it has a measured height and never asks for an estimate.
+ */
+function rowHeightKindOf(transcriptWindow: TranscriptWindowModel, rowKey: string): RowHeightKind {
+  if (transcriptWindow.runGroupByHeaderKey.has(rowKey)) {
+    return "run-group-header";
+  }
+  const row = transcriptWindow.rowsByKey.get(rowKey);
+  if (row === undefined) {
+    return "not-loaded";
+  }
+  if (transcriptWindow.systemMessageByRowId.has(row.id)) {
+    return "system-message";
+  }
+  const kind = classifyTranscriptRow(row)?.kind;
+  if (kind === undefined) {
+    // A card the kind table does not name, which the registered renderer draws: one line until
+    // it measures, as a tool row is.
+    return "tool-call-collapsed";
+  }
+  if (kind !== "tool-call") {
+    return kind;
+  }
+  return densityFor(row.id, transcriptWindow.collapsedRowIds) === "collapsed"
+    ? "tool-call-collapsed"
+    : "tool-call-expanded";
 }

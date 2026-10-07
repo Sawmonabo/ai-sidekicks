@@ -21,13 +21,6 @@ export const TRANSCRIPT_WINDOW_ROW_CAP = 400;
 export const TRANSCRIPT_OVERSCAN_ROWS = 6;
 
 /**
- * The height a row is assumed to have before it is measured, in pixels: near a line with a
- * gutter, a kind label and two lines of body. It only has to keep the first paint's scrollbar
- * from looking wrong, since every mounted row replaces it with a measurement.
- */
-export const TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX = 96;
-
-/**
  * How long the transcript must have been still for the next activity to trim first, in
  * milliseconds.
  *

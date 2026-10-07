@@ -61,13 +61,26 @@ describe("the reading anchor — the three states", () => {
   });
 });
 
-describe("the reading anchor — what a resize may and may not do", () => {
+describe("the reading anchor — distance from the tail the reader did not make", () => {
   it("keeps following when the box shrank rather than the reader moving", () => {
     // A shorter viewport raises the distance from the tail on its own; folding that as "the
     // reader left the tail" would stop following because the window got smaller.
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(4500, true));
     anchor.observeGeometry(geometry(4500, false, "resize"));
+    expect(anchor.state.mode).toBe("following");
+  });
+
+  it("keeps following when content grew under a still offset", () => {
+    // A streaming last row grows before the virtualizer's end anchor catches up, so a write's
+    // sample can read off the tail at an offset the reader never moved.
+    const anchor = new ReadingAnchor();
+    anchor.observeGeometry(geometry(4500, true));
+    anchor.observeGeometry({
+      ...geometry(4500, false),
+      contentHeight: 5300,
+      distanceFromTailPx: 300,
+    });
     expect(anchor.state.mode).toBe("following");
   });
 });

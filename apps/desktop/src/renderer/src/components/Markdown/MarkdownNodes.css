@@ -15,7 +15,14 @@
   overflow-wrap: anywhere;
 }
 
-.meridian-markdown__paragraph:last-child {
+/*
+ * A paragraph ending its container keeps no margin below it. A windowed body puts each block in
+ * its own wrapper, where only the body's final block ends the body: a paragraph ending any other
+ * block keeps its margin, which meets the next block's as it would in one flow.
+ */
+.meridian-markdown__paragraph:last-child:not(
+    :where([data-markdown-block]:not([data-markdown-final-block])) > *
+  ) {
   margin-bottom: 0;
 }
 

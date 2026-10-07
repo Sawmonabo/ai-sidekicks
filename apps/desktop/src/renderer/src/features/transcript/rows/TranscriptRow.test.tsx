@@ -161,7 +161,7 @@ describe("registering the transcript row renderer", () => {
     // picked by import order.
     registerTranscriptRows();
     expect(() => {
-      registerTranscriptRowRenderer("another owner", () => null);
+      registerTranscriptRowRenderer("another owner", { render: () => null, drawsBody: () => true });
     }).toThrow(/transcript row renderer/);
   });
 });

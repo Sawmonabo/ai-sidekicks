@@ -10,7 +10,7 @@ import { TranscriptFeed } from "./TranscriptFeed.js";
 /** What the body needs to choose between the feed and its empty state. */
 export interface TranscriptPaneBodyProps {
   /** The registered row renderer. */
-  readonly renderTranscriptRow: TranscriptRowRenderer;
+  readonly rowRenderer: TranscriptRowRenderer;
   readonly sessionStore: SessionStore | undefined;
   /** The event cursor of the message the route opens the session at, or `undefined`. */
   readonly messageAnchorCursor: string | undefined;
@@ -37,7 +37,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
     <TranscriptFeed
       key={props.sessionStore.sessionId}
       sessionStore={props.sessionStore}
-      renderTranscriptRow={props.renderTranscriptRow}
+      rowRenderer={props.rowRenderer}
       feedLabel="Transcript"
       messageAnchorCursor={props.messageAnchorCursor}
     />

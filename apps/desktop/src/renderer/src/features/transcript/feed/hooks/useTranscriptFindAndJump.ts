@@ -24,16 +24,18 @@ export interface TranscriptFindAndJump {
 export function useTranscriptFindAndJump(inputs: {
   /** What the run group fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TranscriptEventRow[];
+  /** Whether the feed draws a row, so a folded row it would not draw is not counted. */
+  readonly drawsRow: (row: TranscriptEventRow) => boolean;
   readonly visible: VisibleTranscriptWindow;
   /** The transcript's ONE scroll writer. Nothing here touches an element. */
   readonly jumpToRow: (rowId: string) => void;
   readonly focusTranscriptViewport: () => void;
 }): TranscriptFindAndJump {
-  const { foldedAwayRows, visible, jumpToRow, focusTranscriptViewport } = inputs;
+  const { foldedAwayRows, drawsRow, visible, jumpToRow, focusTranscriptViewport } = inputs;
 
   // Every stage, not just the rows on screen: what the walk cannot reach is counted under the
   // stage holding it, each reported by the stage that removed it rather than re-derived here.
-  const find = useTranscriptFind({ visible, foldedAwayRows });
+  const find = useTranscriptFind({ visible, foldedAwayRows, drawsRow });
 
   const onStep = useCallback(
     (direction: FindStepDirection) => {

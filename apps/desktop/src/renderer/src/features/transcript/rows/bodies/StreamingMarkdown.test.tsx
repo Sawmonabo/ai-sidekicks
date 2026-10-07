@@ -62,8 +62,35 @@ describe("a streaming body", () => {
     expect(repeated).toHaveLength(2);
   });
 
+  it("keeps a settled block's element as later blocks settle behind it", () => {
+    // The last line is unterminated and two blocks lag behind it, so only the first two settle.
+    const { container, rerender } = renderInWindow(
+      <StreamingMarkdown
+        publishedText={"first\n\nsecond\n\nthird\n\nfourth\n\nfifth"}
+        sourceId="event-12"
+        footnotes={new FootnoteRegistry()}
+        isComplete={false}
+        offersCodeCopy={false}
+      />,
+    );
+    const firstSettled = container.querySelector(PARAGRAPH_SELECTOR);
+    expect(firstSettled?.textContent).toBe("first");
+
+    rerender(
+      <StreamingMarkdown
+        publishedText={"first\n\nsecond\n\nthird\n\nfourth\n\nfifth\n\nsixth\n\nseventh"}
+        sourceId="event-12"
+        footnotes={new FootnoteRegistry()}
+        isComplete={false}
+        offersCodeCopy={false}
+      />,
+    );
+
+    expect(container.querySelector(PARAGRAPH_SELECTOR)).toBe(firstSettled);
+  });
+
   it("a rebase remounts rather than reusing the old message's element", () => {
-    // Position alone would make every key unique; the text in the key is what remounts.
+    // Position alone would make every key unique; the text's fingerprint in the key remounts.
     const footnotes = new FootnoteRegistry();
     const { container, rerender } = renderInWindow(
       <StreamingMarkdown

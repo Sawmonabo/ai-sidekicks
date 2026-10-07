@@ -9,7 +9,7 @@ import { memo, useCallback } from "react";
 
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
-import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
+import { usePreservedRowSelection } from "../hooks/selection/usePreservedRowSelection.js";
 import type { ViewportRow } from "../snapshot.js";
 
 /**
@@ -39,16 +39,16 @@ export interface VirtualRowProps {
  */
 export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => React.JSX.Element> =
   memo((props: VirtualRowProps): React.JSX.Element => {
-    // The virtualizer measures the row and the selection guard addresses a reader's highlight
-    // inside it; `WindowedListRow` takes one ref, so both are composed here.
-    const attachSelectionGuard = usePreservedRowSelection();
+    // The virtualizer measures the row and the viewport's selection tracker keeps a reader's
+    // highlight inside it; `WindowedListRow` takes one ref, so both are composed here.
+    const attachPreservedSelection = usePreservedRowSelection();
     const attachRow = props.attachRow;
     const attachRowElement = useCallback(
       (element: HTMLElement | null): void => {
         attachRow(element);
-        attachSelectionGuard(element);
+        attachPreservedSelection(element);
       },
-      [attachRow, attachSelectionGuard],
+      [attachRow, attachPreservedSelection],
     );
 
     return (

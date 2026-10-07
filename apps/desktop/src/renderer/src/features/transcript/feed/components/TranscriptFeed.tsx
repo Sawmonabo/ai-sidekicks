@@ -28,7 +28,7 @@ import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
   /** The registered row renderer. Resolved by the pane, so this file reads no registry. */
-  readonly renderTranscriptRow: TranscriptRowRenderer;
+  readonly rowRenderer: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /** The backward page read. A composition with none mounts no `Load earlier`. */
@@ -54,11 +54,13 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     clock,
     messageAnchorCursor: props.messageAnchorCursor,
     earlierHistory,
+    drawsBody: props.rowRenderer.drawsBody,
   });
   const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
+    drawsRow: windows.drawsRow,
     visible,
     jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
@@ -80,7 +82,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // Named off the props object because the callback below keys on it and `props` is a fresh
   // object every render; depending on the whole object rebuilt `renderRow` on every render and
   // re-rendered every mounted row.
-  const renderTranscriptRow = props.renderTranscriptRow;
+  const renderTranscriptRow = props.rowRenderer.render;
   const retainedStateChannel = useMemo(
     () => ({ setRetainedState: setRetainedRowState }),
     [setRetainedRowState],

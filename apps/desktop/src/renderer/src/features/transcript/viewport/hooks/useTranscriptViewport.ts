@@ -2,6 +2,8 @@
 //
 // `useFlushSync: false` and `directDomUpdates` exist only on `@tanstack/react-virtual`'s hook, so
 // the instance is created here; nearly all of its options are the controller's virtualizer options.
+// The two that change with the reading state, the end anchor and the landing on appended rows,
+// are set here from the snapshot, so a follower's position is the library's own.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { VirtualItem } from "@tanstack/react-virtual";
@@ -15,8 +17,11 @@ import {
 } from "react";
 
 import { type Clock } from "#renderer/lib/clock.js";
+import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
+import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { type RowHeightKind } from "../../rows/height-kind.js";
 import { TRANSCRIPT_OVERSCAN_ROWS } from "../caps.js";
 import { ViewportController } from "../controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
@@ -59,12 +64,33 @@ export interface TranscriptViewportBinding {
    * would re-render on every scrolled pixel.
    */
   readonly readWindowDiagnostics: () => TranscriptWindowReading;
+  /**
+   * The one writer of this log's scroll offset, for a row body that moves it or reads its
+   * geometry; stable for the binding's controller.
+   */
+  readonly scrollController: ScrollController;
+  /**
+   * A row's top edge in the scroller's content, in pixels, from the virtualizer's measurements,
+   * read when called and reading no element; `undefined` when the window does not hold the row.
+   */
+  readonly rowStartPx: (rowKey: string) => number | undefined;
 }
 
-/** Inputs to `useTranscriptViewport`: the viewport conditions plus the clock. */
+/**
+ * Inputs to `useTranscriptViewport`: the viewport conditions, the clock, and where row heights
+ * are remembered and how a row's kind is told. A new clock, record or kind reader mints a new
+ * controller.
+ */
 export interface UseTranscriptViewportOptions extends ViewportConditions {
   /** The clock every timer in this frame is minted through; fixed for the mount. */
   readonly clock: Clock;
+  /**
+   * The session's record of its row heights, which outlives this mount, so the rows of a
+   * transcript opened again are laid out at the heights they had. One per mount when omitted.
+   */
+  readonly rememberedRowHeights?: RememberedRowHeights | undefined;
+  /** The height kind the feed draws a row key as, which picks an unmeasured row's estimate. */
+  readonly heightKindOf?: ((rowKey: string) => RowHeightKind) | undefined;
   /**
    * The row a link to a message lands on, or `undefined` for none. Landed once per key, on the
    * first committed render that holds it, and the log takes focus there.
@@ -82,23 +108,31 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
 export function useTranscriptViewport(
   options: UseTranscriptViewportOptions,
 ): TranscriptViewportBinding {
-  const { clock, rows, hasActiveTurn, isRevealDraining, landingRowKey } = options;
+  const {
+    clock,
+    rows,
+    hasActiveTurn,
+    isRevealDraining,
+    landingRowKey,
+    rememberedRowHeights,
+    heightKindOf,
+  } = options;
   // The attached element, for the one act that needs the node. A ref because nothing renders
   // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const [controller, setController] = useState<ViewportController>(
-    () => new ViewportController({ clock }),
+    () => new ViewportController({ clock, rememberedRowHeights, heightKindOf }),
   );
 
   useEffect(() => {
     if (controller.isDisposed) {
-      setController(new ViewportController({ clock }));
+      setController(new ViewportController({ clock, rememberedRowHeights, heightKindOf }));
       return;
     }
     return () => {
       controller.dispose();
     };
-  }, [controller, clock]);
+  }, [controller, clock, rememberedRowHeights, heightKindOf]);
   useObserveDisplaySettings(controller);
 
   const snapshot = useSyncExternalStore(
@@ -106,6 +140,7 @@ export function useTranscriptViewport(
     useCallback(() => controller.snapshot(), [controller]),
   );
 
+  const isFollowing = snapshot.reading.mode === "following";
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
     overscan: TRANSCRIPT_OVERSCAN_ROWS,
@@ -119,6 +154,11 @@ export function useTranscriptViewport(
     observeElementOffset: controller.virtualizerOptions.observeElementOffset,
     observeElementRect: controller.virtualizerOptions.observeElementRect,
     measureElement: controller.virtualizerOptions.measureElement,
+    // While the reader follows, the library holds the tail as rows measure and lands on each
+    // appended row; otherwise the reading anchor holds the position and the library holds none.
+    anchorTo: isFollowing ? "end" : "start",
+    followOnAppend: isFollowing,
+    scrollEndThreshold: controller.virtualizerOptions.scrollEndThreshold,
     // React 19 warns when the adapter flushes inside a lifecycle method, and offsets are written
     // to the DOM directly, so the render is not needed.
     useFlushSync: false,
@@ -175,13 +215,13 @@ export function useTranscriptViewport(
     controller.retryDeferredPrune();
   }, [controller, readingMode, pinnedRootCursor, lastPrune]);
 
-  // Performs the deferred position hold, and a pending landing, once the height they depend on is
+  // Performs the deferred head hold, and a pending landing, once the height they depend on is
   // committed.
-  // `reconcile` runs in a passive effect, so the sizer still has the previous total size: a
-  // glide to the tail would land on the old bottom and a head hold would read a stale offset.
-  // A layout effect declared after `useVirtualizer` runs after the adapter's own height write
-  // and before paint, so `scrollHeight` is the fresh value. No dependency array: the height can
-  // move on any render, and the call is a boolean read when nothing is armed.
+  // `reconcile` runs in a passive effect, so the sizer still has the previous total size and a
+  // head hold would read a stale offset. A layout effect declared after `useVirtualizer` runs
+  // after the adapter's own height write and before paint, so the offsets are the fresh ones. No
+  // dependency array: the height can move on any render, and the call is a boolean read when
+  // nothing is armed.
   useLayoutEffect(() => {
     if (controller.isDisposed) {
       return;
@@ -220,6 +260,8 @@ export function useTranscriptViewport(
     jumpToTail: useCallback(() => {
       controller.jumpToTail();
     }, [controller]),
+    scrollController: controller.scroll,
+    rowStartPx: useCallback((rowKey: string) => controller.rowStartPx(rowKey), [controller]),
     // The revision is a dependency, not a read: a write mints a new reader, so every row that
     // compares it draws again.
     retainedRowState: useCallback(

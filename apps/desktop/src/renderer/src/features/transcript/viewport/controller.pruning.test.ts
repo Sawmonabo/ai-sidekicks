@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX, TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { ViewportController } from "./controller.js";
 import { CALM, attachedController, rowsFrom, syntheticRows } from "./controller.test-support.js";
@@ -31,13 +31,21 @@ describe("the viewport controller — pruning under a reader", () => {
     });
   }
 
-  it("stops the prune at the reader's row and moves the offset by exactly what it took", () => {
+  it("stops at the reader's row and moves the offset by exactly what left the window", () => {
+    // The feed hands over the whole log on every pass, so the cap drops the same rows again each
+    // time; paying for them again would walk the reader down the log by their height per pass.
     const scrollContainer = tallScrollContainer(INITIAL_SCROLL_TOP_PX);
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(scrollContainer);
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
+    const rows = syntheticRows(LOADED_ROW_COUNT);
+    controller.measurements.acceptedHeight("row-3", 250);
+    // A turn in flight: the window keeps the whole log, the rows above the reader among it.
+    controller.reconcile({ rows, hasActiveTurn: true, isRevealDraining: false });
+    const leftHeightPx = controller.measurements.heightOf("row-0") * 9 + 250;
+    const scrollTopBeforePx = scrollContainer.scrollTop;
 
-    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    controller.reconcile({ rows, ...CALM });
 
     expect(controller.snapshot().lastPrune?.prunedKeys).toStrictEqual(
       Array.from({ length: READER_ROW_INDEX }, (_unused, index) => `row-${String(index)}`),
@@ -46,10 +54,13 @@ describe("the viewport controller — pruning under a reader", () => {
     // The reader keeps their pixel by arithmetic, not by a virtualizer read that would still
     // answer in the pre-prune index space.
     expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
-    expect(scrollContainer.scrollTop).toBe(
-      INITIAL_SCROLL_TOP_PX - READER_ROW_INDEX * TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
-    );
-    expect(controller.scroll.writeCount("hold-reading-position")).toBe(0);
+    expect(scrollContainer.scrollTop).toBe(scrollTopBeforePx - leftHeightPx);
+
+    controller.reconcile({ rows, ...CALM });
+
+    expect(controller.snapshot().lastPrune?.prunedKeys).toHaveLength(READER_ROW_INDEX);
+    expect(controller.snapshot().lastPrune?.newlyPrunedKeys).toStrictEqual([]);
+    expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
   });
 });
 
@@ -84,18 +95,6 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
 
     expect(controller.snapshot().rowKeys).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(controller.snapshot().lastPrune?.owedBecause).toBeUndefined();
-  });
-});
-
-describe("the viewport controller — what a prune costs the rest of the frame", () => {
-  it("forgets a pruned row's measurement rather than leaving a prior nobody reads", () => {
-    const { controller } = attachedController();
-    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
-    const pruned = controller.snapshot().lastPrune?.prunedKeys[0] ?? "";
-    expect(pruned).not.toBe("");
-    controller.measurements.acceptedHeight(pruned, 300);
-    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
-    expect(controller.measurements.heightOf(pruned)).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
   });
 });
 

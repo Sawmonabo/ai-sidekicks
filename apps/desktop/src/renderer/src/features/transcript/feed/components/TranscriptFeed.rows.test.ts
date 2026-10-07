@@ -1,13 +1,18 @@
-// What a row is in the mounted feed: a run group header, a system message, or the row renderer's.
-// Every case drives the composed feed, because each pinned model (run group fold, system message
-// classification, retained row state) is derived on every pass and has to reach a component.
+// What a row is in the mounted feed: a run group header, a system message, the row renderer's, or
+// nothing at all. Every case drives the composed feed, because each pinned model (run group fold,
+// drawn rows, system message classification, retained row state) is derived on every pass and has
+// to reach a component.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RetainingRowBody, renderFeed } from "./TranscriptFeed.test-support.js";
 import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
-import { openSessionStoreWithToolRows } from "../../logs.test-support.js";
+import {
+  openSessionStoreWithGeneralLog,
+  openSessionStoreWithToolRows,
+  transcriptFixtureEventId,
+} from "../../logs.test-support.js";
 import {
   openSessionStoreWithSystemMessage,
   openSessionStoreWithTerminalRunGroup,
@@ -77,6 +82,28 @@ describe("the transcript feed — a system message is the transcript's own row",
     expect(systemMessageLine).not.toBeNull();
     expect(systemMessageLine?.textContent).toContain("Context compacted");
     expect(rendererRowTypes).not.toContain("usage.context_compacted");
+  });
+});
+
+describe("the transcript feed — a row the renderer draws nothing for", () => {
+  it("takes no place in the list and is not counted as a row the cap took", () => {
+    withLaidOutViewport();
+    const undrawnRowId = transcriptFixtureEventId(2);
+    const renderedRowIds: string[] = [];
+    const feed = renderFeed(
+      openSessionStoreWithGeneralLog(5),
+      (mount) => {
+        renderedRowIds.push(mount.row.id);
+      },
+      undefined,
+      { drawsBody: (row) => row.id !== undrawnRowId },
+    );
+    const listedRows = feed.querySelectorAll(VIEWPORT_ROW);
+    expect(listedRows).toHaveLength(4);
+    // The list's own count, which a blank row would still have taken a place in.
+    expect(listedRows[0]?.getAttribute("aria-setsize")).toBe("4");
+    expect(renderedRowIds).not.toContain(undrawnRowId);
+    expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
   });
 });
 

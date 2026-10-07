@@ -1,7 +1,7 @@
 // The transcript's row renderer, registered in the transcript row registry.
 
 import { registerTranscriptRowRenderer } from "../rows/renderer.js";
-import { TranscriptRow } from "../rows/TranscriptRow.js";
+import { TranscriptRow, drawsTranscriptRowBody } from "../rows/TranscriptRow.js";
 
 /** The owner the transcript's row renderer registers under. */
 export const TRANSCRIPT_ROW_OWNER = "transcript rows";
@@ -11,5 +11,8 @@ export const TRANSCRIPT_ROW_OWNER = "transcript rows";
  * scoping replaces a second registration under the same owner.
  */
 export function registerTranscriptRows(): void {
-  registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
+  registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, {
+    render: TranscriptRow,
+    drawsBody: drawsTranscriptRowBody,
+  });
 }

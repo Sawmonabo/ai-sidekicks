@@ -39,10 +39,10 @@ export function attachedController(): {
 }
 
 /** The box height the laid-out viewport reports. */
-export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
+const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
 /** The content height the laid-out viewport reports, taller than the box. */
-export const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
+const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 
 /**
  * Give every element a laid-out box for one case: `happy-dom` reports zero, and the virtualizer

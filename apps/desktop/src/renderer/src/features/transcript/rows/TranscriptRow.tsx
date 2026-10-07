@@ -2,9 +2,11 @@
 // disclosure press writes density to the list's retained row state, because the virtualizer
 // unmounts rows scrolled out of range. A `TranscriptEventRow` carries no body, so machine rows
 // render the empty state `MessageContent` and `ToolOutput` draw for an unread body. A type the kind
-// table does not name draws nothing.
+// table does not name has no card, and `drawsTranscriptRowBody` says so before the feed lists it.
 
 import { useCallback, useState } from "react";
+
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
@@ -19,9 +21,10 @@ import { ToolRow } from "./ToolRow.js";
 
 /**
  * One row, through the card its kind names. The classifier decides once and this switch spends
- * the answer, so the glyph, label and layout match what the cards read anywhere else.
+ * the answer, so the glyph, label and layout match what the cards read anywhere else. Throws for
+ * a row with no card, which `drawsTranscriptRowBody` keeps out of the list.
  */
-export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | null {
+export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
   const retainedRowState = useRetainedRowState();
   const rowId = props.row.id;
@@ -48,7 +51,9 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   const liveText = useRowReveal(rowId);
 
   if (rowKind === undefined) {
-    return null;
+    // The feed leaves such a row out of its list, so reaching here is a broken composition, not a
+    // row to draw as a blank band.
+    throw new Error(`TranscriptRow has no card for a ${props.row.type} row.`);
   }
   switch (rowKind.kind) {
     case "tool-call":
@@ -85,6 +90,14 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
         />
       );
   }
+}
+
+/**
+ * Whether `TranscriptRow` draws a card for this row: only a row the kind table names has one. The
+ * same classification the row's own switch spends, so the two cannot disagree.
+ */
+export function drawsTranscriptRowBody(row: TranscriptEventRow): boolean {
+  return classifyTranscriptRow(row) !== undefined;
 }
 
 /** The edit control the footer renderer draws, or nothing. */

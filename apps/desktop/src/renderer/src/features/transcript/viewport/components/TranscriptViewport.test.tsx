@@ -1,7 +1,8 @@
 // What the viewport draws and refuses to mount. `happy-dom` answers zero for every geometry read,
 // so geometry-dependent states (the tail pill, the anchor holding across an append) are asserted in
 // `reading-anchor.test.ts` and `features/transcript/viewport/controller.test.ts`. Here: the feed is
-// named, only a slice of the log is in the document, and a settled viewport has no timer armed.
+// named, only a slice of the log is in the document, a settled viewport has no timer armed, and
+// mounting rows reads no selection.
 // `withLaidOutViewport` stands in for the layout engine only; every module in the assertion path is
 // the shipped one.
 
@@ -90,6 +91,32 @@ describe("the transcript viewport — the feed", () => {
     const mounted = container.querySelectorAll(".meridian-transcript-viewport__row");
     expect(mounted.length).toBeGreaterThan(0);
     expect(mounted.length).toBeLessThan(LONG_LOG_ROW_COUNT / 4);
+  });
+
+  it("mounts its rows without reading the selection, behind one selection listener", () => {
+    withLaidOutViewport({ scrollable: false });
+    // React puts its own `selectionchange` listener on the document with the first root it makes,
+    // so one root goes up first and the count below is the transcript's alone.
+    render(<p />);
+    const addEventListener = vi.spyOn(document, "addEventListener");
+    const getSelection = vi.spyOn(document, "getSelection");
+    const { container } = render(
+      <ComposedTranscriptViewport
+        clock={new ManualClock()}
+        rows={syntheticRows(LONG_LOG_ROW_COUNT)}
+        renderRow={renderRow}
+        feedLabel="Transcript"
+      />,
+      { wrapper: LiveAnnouncerProvider },
+    );
+    expect(container.querySelectorAll(".meridian-transcript-viewport__row").length).toBeGreaterThan(
+      1,
+    );
+    expect(getSelection).not.toHaveBeenCalled();
+    const selectionListeners = addEventListener.mock.calls.filter(
+      ([type]) => type === "selectionchange",
+    );
+    expect(selectionListeners).toHaveLength(1);
   });
 
   it("arms no timer once the first paint has settled", () => {

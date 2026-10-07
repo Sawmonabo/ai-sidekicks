@@ -1,25 +1,21 @@
 // Measurement table for the virtualizer, covering what `@tanstack/react-virtual` does not:
 //   - Epsilon: the library compares sizes exactly, so a streaming row's sub-pixel wobble would
 //     invalidate its cache every frame; `acceptedHeight` is what `measureElement` returns.
-//   - A prior ceiling: its `itemSizeCache` never evicts; this table's priors are bounded,
-//     oldest first.
-//   - Display validity: a device-pixel-ratio or root-font-size change re-lays out every row.
+//   - Remembered heights: an accepted height is written to the session's one record of its row
+//     heights, which outlives this mount, so a transcript mounted again lays its rows out at them.
+//   - Estimates: a row with no height takes its kind's estimate, the median of the kind's newest
+//     measured rows or, before any, the kind's seed.
+//   - Layout validity: a display or row width change re-lays out every row, so the heights and
+//     the samples measured before it are dropped.
 //   - Duplicate keys: its caches are keyed by item key, so two rows sharing one would displace
 //     each other; a distinct virtual key per row keeps every row and counts the defect.
 
 import { SCROLL_GEOMETRY_EPSILON_PX } from "#renderer/lib/scroll/geometry/sample.js";
-import { TRANSCRIPT_WINDOW_ROW_CAP, TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./caps.js";
-
-/**
- * The display facts a measurement is only valid under.
- *
- * Two members and not the whole `window`: these are the two that change a row's
- * laid-out height without changing its content.
- */
-export interface RowDisplaySettings {
-  readonly devicePixelRatio: number;
-  readonly rootFontSizePx: number;
-}
+import {
+  RememberedRowHeights,
+  type RowHeightDisplay,
+} from "#renderer/store/session/remembered-row-heights.js";
+import { ROW_HEIGHT_KINDS, ROW_HEIGHT_SEED_REM, type RowHeightKind } from "../rows/height-kind.js";
 
 /** The keys the virtualizer is given, and what projecting them cost. */
 export interface RowKeyProjection {
@@ -29,10 +25,15 @@ export interface RowKeyProjection {
   readonly duplicateKeyCount: number;
 }
 
-/** Overrides for the estimate and the prior ceiling; both default to the shared constants. */
+/** Where a table's heights are kept and how it tells one row's kind from another's. */
 export interface RowMeasurementTableOptions {
-  readonly estimatedRowHeightPx?: number;
-  readonly measurementCap?: number;
+  /** The session's record of its row heights; a table given none keeps its own. */
+  readonly rememberedHeights?: RememberedRowHeights | undefined;
+  /**
+   * The height kind the feed draws a row key as. A table given none knows no row's kind, and
+   * estimates every row as the one-line notice of a row the window no longer holds.
+   */
+  readonly heightKindOf?: ((rowKey: string) => RowHeightKind) | undefined;
 }
 
 const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount: 0 };
@@ -40,61 +41,86 @@ const EMPTY_PROJECTION: RowKeyProjection = { virtualKeys: [], duplicateKeyCount:
 /**
  * How a repeat's projected key is spelled, declared once.
  *
- * Read back by {@link RowMeasurementTable.forgetAllExcept}, which has to recover
- * the row a projected key was minted for. Two spellings of it would make the trim
- * drop a prior for a row still on screen.
+ * Read back by {@link RowMeasurementTable.forgetAllExcept} and the kind lookup, which have to
+ * recover the row a projected key was minted for. Two spellings of it would make the trim drop a
+ * height for a row still on screen.
  */
 const REPEAT_KEY_SEPARATOR = "~repeat-";
 
-/** Accepted row heights, display validity and distinct virtual keys for the virtualizer. */
-export class RowMeasurementTable {
-  readonly #estimatedRowHeightPx: number;
-  readonly #measurementCap: number;
-  /** Insertion-ordered, so the ceiling evicts the least recently measured. */
-  readonly #acceptedHeightByRowKey = new Map<string, number>();
+/**
+ * The root font size a document has before any rule sets one, in pixels. Seeds are in rem, so
+ * until the display is declared they are converted at this size.
+ */
+const INITIAL_ROOT_FONT_SIZE_PX = 16;
 
-  #displaySettings: RowDisplaySettings | undefined;
+/**
+ * Rows of one kind a median is taken over: the newest thirty-one measured, about two screens of
+ * them. One unusually tall row moves the median by at most one rank, and sorting so few to read
+ * it when the estimates are published costs nothing measurable.
+ */
+const KIND_SAMPLE_SIZE = 31;
+
+/** Accepted row heights, the estimates for rows with none, and distinct keys for the virtualizer. */
+export class RowMeasurementTable {
+  readonly #rememberedHeights: RememberedRowHeights;
+  readonly #heightKindOf: (rowKey: string) => RowHeightKind;
+  readonly #sampleByKind: Readonly<Record<RowHeightKind, KindHeightSample>>;
+  /** What an unmeasured row of each kind is laid out at, in pixels, as last published. */
+  readonly #estimatePxByKind: Record<RowHeightKind, number>;
+
   #cachedRowKeys: readonly string[] | undefined;
   #cachedProjection: RowKeyProjection = EMPTY_PROJECTION;
 
   public constructor(options: RowMeasurementTableOptions = {}) {
-    this.#estimatedRowHeightPx = options.estimatedRowHeightPx ?? TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX;
-    this.#measurementCap = options.measurementCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
+    this.#rememberedHeights = options.rememberedHeights ?? new RememberedRowHeights();
+    this.#heightKindOf = options.heightKindOf ?? (() => "not-loaded");
+    this.#sampleByKind = mapEveryKind(() => new KindHeightSample());
+    this.#estimatePxByKind = mapEveryKind((kind) => this.#seedPxOf(kind));
   }
 
   /**
    * Declare the display the measurements are being taken on.
    *
-   * Returns whether the priors were discarded, so the caller can tell the
-   * virtualizer to drop its own cache in the same act: two caches disagreeing about
-   * a row's height is a scrollbar that never settles.
+   * Returns whether the layout the rows were placed with no longer holds (heights dropped, or the
+   * seeds' pixel size moved), so the caller can tell the virtualizer to drop its own cache in the
+   * same act: two caches disagreeing about a row's height is a scrollbar that never settles.
    */
-  public setDisplaySettings(settings: RowDisplaySettings): boolean {
-    const current = this.#displaySettings;
-    if (
-      current !== undefined &&
-      current.devicePixelRatio === settings.devicePixelRatio &&
-      current.rootFontSizePx === settings.rootFontSizePx
-    ) {
+  public setDisplaySettings(display: RowHeightDisplay): boolean {
+    const previousRootFontSizePx = this.#rootFontSizePx();
+    const isDropped = this.#rememberedHeights.declareDisplay(display);
+    if (isDropped) {
+      this.#clearSamples();
+    }
+    if (!isDropped && display.rootFontSizePx === previousRootFontSizePx) {
       return false;
     }
-    this.#displaySettings = settings;
-    this.#acceptedHeightByRowKey.clear();
+    this.publishEstimates();
     return true;
+  }
+
+  /**
+   * Declare the width rows are laid out at, in pixels, as a row's observation reported it. A new
+   * width rewraps every row, so the remembered heights and the samples go; the published estimates
+   * stay until the next publication.
+   */
+  public declareRowWidth(rowWidthPx: number): void {
+    if (this.#rememberedHeights.declareRowWidth(rowWidthPx)) {
+      this.#clearSamples();
+    }
   }
 
   /**
    * The height the virtualizer should record for a row, given what was observed.
    *
    * A non-positive or non-finite observation is not a measurement (an unlaid-out element
-   * reports zero, which would collapse the window), so the last accepted height or the estimate
-   * stands. An observation within the epsilon of the last one is the same height. Anything else
-   * is accepted and becomes the newest entry in the bounded table.
+   * reports zero, which would collapse the window), so the row's height or estimate stands. An
+   * observation within the epsilon of the last one is the same height. Anything else is accepted,
+   * remembered, and replaces the row's last height in its kind's sample.
    */
   public acceptedHeight(rowKey: string, observedHeightPx: number): number {
-    const previous = this.#acceptedHeightByRowKey.get(rowKey);
+    const previous = this.#rememberedHeights.heightOf(rowKey);
     if (!Number.isFinite(observedHeightPx) || observedHeightPx <= 0) {
-      return previous ?? this.#estimatedRowHeightPx;
+      return previous ?? this.#estimateOf(rowKey);
     }
     if (
       previous !== undefined &&
@@ -102,42 +128,43 @@ export class RowMeasurementTable {
     ) {
       return previous;
     }
-    this.#acceptedHeightByRowKey.delete(rowKey);
-    this.#acceptedHeightByRowKey.set(rowKey, observedHeightPx);
-    while (this.#acceptedHeightByRowKey.size > this.#measurementCap) {
-      const oldestKey = this.#acceptedHeightByRowKey.keys().next().value;
-      if (oldestKey === undefined) {
-        break;
-      }
-      this.#acceptedHeightByRowKey.delete(oldestKey);
-    }
-    return observedHeightPx;
-  }
-
-  /** Forget one row's prior — for a row the window pruned. */
-  public forget(rowKey: string): void {
-    this.#acceptedHeightByRowKey.delete(rowKey);
+    const accepted = this.#rememberedHeights.remember(rowKey, observedHeightPx);
+    this.#sampleByKind[this.#kindOf(rowKey)].replace(previous, accepted);
+    return accepted;
   }
 
   /**
-   * Forgets every prior whose row is not in `retainedRowKeys`.
-   *
-   * Reaches priors `forget` cannot: a duplicate row measured under this module's private
-   * `~repeat-` key, and a row the window let go without a prune. A prior for a retained row is
-   * never dropped, so nothing on screen is re-measured.
+   * Moves every kind's estimate to the median of its sample, or to its seed while the sample is
+   * empty. Called only where a moved estimate cannot shift a row already laid out above the
+   * reader, since the library reads an estimate whenever it re-lays a row out.
    */
-  public forgetAllExcept(retainedRowKeys: readonly string[]): void {
-    const retained = new Set(retainedRowKeys);
-    for (const measuredKey of [...this.#acceptedHeightByRowKey.keys()]) {
-      if (!retained.has(rowKeyOfMeasuredKey(measuredKey))) {
-        this.#acceptedHeightByRowKey.delete(measuredKey);
-      }
+  public publishEstimates(): void {
+    for (const kind of ROW_HEIGHT_KINDS) {
+      this.#estimatePxByKind[kind] = this.#sampleByKind[kind].median() ?? this.#seedPxOf(kind);
     }
   }
 
-  /** The height this table would report for a row, measured or estimated. */
+  /**
+   * Forgets every remembered height whose row is not in `retainedRowKeys`.
+   *
+   * Reaches a duplicate row measured under this module's private `~repeat-` key too. A height for
+   * a retained row is never dropped, so nothing on screen is re-measured.
+   */
+  public forgetAllExcept(retainedRowKeys: readonly string[]): void {
+    const retained = new Set(retainedRowKeys);
+    this.#rememberedHeights.forgetAllExcept((measuredKey) =>
+      retained.has(rowKeyOfMeasuredKey(measuredKey)),
+    );
+  }
+
+  /** The height this table would report for a row: remembered, or its kind's estimate. */
   public heightOf(rowKey: string): number {
-    return this.#acceptedHeightByRowKey.get(rowKey) ?? this.#estimatedRowHeightPx;
+    return this.#rememberedHeights.heightOf(rowKey) ?? this.#estimateOf(rowKey);
+  }
+
+  /** The height the session measured a row at, or `undefined` when it remembers none. */
+  public rememberedHeightOf(rowKey: string): number | undefined {
+    return this.#rememberedHeights.heightOf(rowKey);
   }
 
   /**
@@ -167,6 +194,44 @@ export class RowMeasurementTable {
     this.#cachedProjection = { virtualKeys, duplicateKeyCount };
     return this.#cachedProjection;
   }
+
+  #estimateOf(measuredKey: string): number {
+    return this.#estimatePxByKind[this.#kindOf(measuredKey)];
+  }
+
+  /** The kind of the row a measured key names; a repeat's key is resolved only while one stands. */
+  #kindOf(measuredKey: string): RowHeightKind {
+    return this.#heightKindOf(
+      this.#cachedProjection.duplicateKeyCount === 0
+        ? measuredKey
+        : rowKeyOfMeasuredKey(measuredKey),
+    );
+  }
+
+  #seedPxOf(kind: RowHeightKind): number {
+    return ROW_HEIGHT_SEED_REM[kind] * this.#rootFontSizePx();
+  }
+
+  #rootFontSizePx(): number {
+    return this.#rememberedHeights.display?.rootFontSizePx ?? INITIAL_ROOT_FONT_SIZE_PX;
+  }
+
+  #clearSamples(): void {
+    for (const kind of ROW_HEIGHT_KINDS) {
+      this.#sampleByKind[kind].clear();
+    }
+  }
+}
+
+/** One value per height kind, built by `valueOf`. */
+function mapEveryKind<TValue>(
+  valueOf: (kind: RowHeightKind) => TValue,
+): Record<RowHeightKind, TValue> {
+  const valueByKind: Partial<Record<RowHeightKind, TValue>> = {};
+  for (const kind of ROW_HEIGHT_KINDS) {
+    valueByKind[kind] = valueOf(kind);
+  }
+  return valueByKind as Record<RowHeightKind, TValue>;
 }
 
 /**
@@ -182,4 +247,45 @@ function rowKeyOfMeasuredKey(measuredKey: string): string {
   return ordinal.length > 0 && /^\d+$/.test(ordinal)
     ? measuredKey.slice(0, separatorIndex)
     : measuredKey;
+}
+
+/**
+ * The newest heights measured for one kind, each row once at its latest height: a re-measured
+ * row's new height replaces its old one where the sample still holds it, so a reply streaming for
+ * a minute is one sample rather than a thousand. Unkeyed, so it is no second record of a row.
+ */
+class KindHeightSample {
+  readonly #heightsPx = new Float64Array(KIND_SAMPLE_SIZE);
+
+  #count = 0;
+  /** The slot the next height that replaces nothing is written to, the oldest once full. */
+  #nextSlot = 0;
+
+  /** Record `heightPx`, in place of `previousHeightPx` where the sample holds it. */
+  public replace(previousHeightPx: number | undefined, heightPx: number): void {
+    if (previousHeightPx !== undefined) {
+      const slot = this.#heightsPx.subarray(0, this.#count).indexOf(previousHeightPx);
+      if (slot >= 0) {
+        this.#heightsPx[slot] = heightPx;
+        return;
+      }
+    }
+    this.#heightsPx[this.#nextSlot] = heightPx;
+    this.#nextSlot = (this.#nextSlot + 1) % KIND_SAMPLE_SIZE;
+    this.#count = Math.min(this.#count + 1, KIND_SAMPLE_SIZE);
+  }
+
+  /** The lower median of the sample, or `undefined` while it is empty. */
+  public median(): number | undefined {
+    if (this.#count === 0) {
+      return undefined;
+    }
+    const sorted = this.#heightsPx.slice(0, this.#count).sort();
+    return sorted[(this.#count - 1) >> 1];
+  }
+
+  public clear(): void {
+    this.#count = 0;
+    this.#nextSlot = 0;
+  }
 }

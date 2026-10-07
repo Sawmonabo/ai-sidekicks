@@ -1,18 +1,66 @@
-// The window cap: what it drops, what it refuses to drop, and what it leaves owed. Logs and the
+// The window cap: what it drops, what it refuses to drop, and what it leaves owed, and an ingest
+// that re-indexes only what changed agreeing with one that indexes the whole log. Logs and the
 // all-clear conditions come from `window-cap.test-support.ts`; the retained-state-table seam and
 // the counting rules are `window-cap.retained-row-state.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
-import { TranscriptWindow, type PruneConditions } from "./window-cap.js";
+import { TranscriptWindow, type PruneConditions, type WindowRow } from "./window-cap.js";
 import {
   CHILDREN_PER_RUN_GROUP,
   loadedWindow,
   PRUNABLE,
+  RandomLogChanges,
   syntheticWindowRows,
   TOP_LEVEL_ROW_COUNT,
 } from "./window-cap.test-support.js";
+
+/** A cap small enough that the random logs go over it and prunes land on most steps. */
+const EQUIVALENCE_TOP_LEVEL_CAP = 6;
+
+describe("the transcript window — ingest", () => {
+  it("answers every read and prune as a window that ingested the same log whole", () => {
+    // A window whose index disagrees with its rows drops or duplicates conversation rows. One
+    // long-lived window takes every change span by span, prunes landing between changes, and
+    // must agree after each with a window built fresh from the same log. A fresh window held
+    // nothing before, so the rows that left the window are held to what the long-lived one
+    // showed after its own last prune; paying for a row it never showed moves the reader.
+    for (const seed of [1, 2, 3]) {
+      const changes = new RandomLogChanges(seed);
+      const incremental = new TranscriptWindow({ topLevelCap: EQUIVALENCE_TOP_LEVEL_CAP });
+      let shownRowKeys = new Set<string>();
+      for (let step = 0; step < 300; step += 1) {
+        const { change, log } = changes.next();
+        const whole = new TranscriptWindow({ topLevelCap: EQUIVALENCE_TOP_LEVEL_CAP });
+        incremental.ingest(log);
+        whole.ingest(log);
+        const context = `seed ${String(seed)}, step ${String(step)}, ${change}`;
+        expect(readingOf(incremental), context).toStrictEqual(readingOf(whole));
+        // A second prune with nothing ingested between reads what the first one dropped.
+        for (const conditions of [pruneConditionsFor(step, log), PRUNABLE]) {
+          const { newlyPrunedKeys, ...outcome } = incremental.prune(conditions);
+          const { newlyPrunedKeys: _freshWindowHeldNothing, ...wholeOutcome } =
+            whole.prune(conditions);
+          expect(outcome, context).toStrictEqual(wholeOutcome);
+          expect(newlyPrunedKeys, context).toStrictEqual(
+            outcome.prunedKeys.filter((prunedKey) => shownRowKeys.has(prunedKey)),
+          );
+          shownRowKeys = new Set(incremental.rows().map((row) => row.key));
+          expect(readingOf(incremental), context).toStrictEqual(readingOf(whole));
+          // The count the cap and every outcome read is kept, not walked, so it is held to the
+          // walk: what the window reports retaining, and refusing as under its cap, is what it
+          // holds.
+          const topLevelCount = incremental.topLevelRowKeys().length;
+          expect(outcome.topLevelRetained, context).toBe(topLevelCount);
+          expect(outcome.deferredBecause === "under-cap", context).toBe(
+            !outcome.applied && topLevelCount <= EQUIVALENCE_TOP_LEVEL_CAP,
+          );
+        }
+      }
+    }
+  });
+});
 
 describe("the transcript window — the cap", () => {
   it("caps top-level rows and lets children ride along", () => {
@@ -171,3 +219,32 @@ describe("the transcript window — the reading floor", () => {
     expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 });
+
+/** Everything a caller can read off a window without changing it. */
+function readingOf(window: TranscriptWindow): {
+  readonly rows: readonly WindowRow[];
+  readonly topLevelRowKeys: readonly string[];
+  readonly size: number;
+} {
+  return { rows: window.rows(), topLevelRowKeys: window.topLevelRowKeys(), size: window.size };
+}
+
+/**
+ * The prune a step asks for, cycling through the all-clear, a refusal, a reader parked mid-log and
+ * held head rows, so the walk's stop, skip and refusal all run against the changed index.
+ */
+function pruneConditionsFor(step: number, log: readonly WindowRow[]): PruneConditions {
+  switch (step % 4) {
+    case 0:
+      return PRUNABLE;
+    case 1:
+      return { ...PRUNABLE, hasActiveTurn: true };
+    case 2:
+      return { ...PRUNABLE, readingFloorRowKey: log[Math.floor(log.length / 2)]?.key };
+    default:
+      return {
+        ...PRUNABLE,
+        heldRowKeys: [log[0], log[2]].flatMap((row) => (row === undefined ? [] : [row.key])),
+      };
+  }
+}

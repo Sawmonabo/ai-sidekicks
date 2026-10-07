@@ -19,7 +19,8 @@ export const GEOMETRY_CHANGE_CAUSES = ["scroll", "resize"] as const;
 export type GeometryChangeCause = (typeof GEOMETRY_CHANGE_CAUSES)[number];
 
 /**
- * The three numbers a scroll sample reads, and the facts derived from them.
+ * The three numbers a scroll sample holds (the offset, the viewport height and the content
+ * height), and the facts derived from them.
  *
  * `sampledAt` comes from the clock seam, not `Date.now`, so a frozen fixture clock names one
  * exact frame.

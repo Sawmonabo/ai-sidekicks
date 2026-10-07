@@ -9,7 +9,7 @@ import { SystemMessage } from "../../system-messages/components/SystemMessage.js
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
 import { type ViewportRow } from "../../viewport/snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { type TranscriptRowRenderer } from "../../rows/renderer.js";
+import { type TranscriptRowBody } from "../../rows/renderer.js";
 import { densityFor } from "../run-group-fold.js";
 import { TranscriptFeedRow } from "./TranscriptFeedRow.js";
 
@@ -20,8 +20,8 @@ export interface TranscriptRowDispatchOptions {
   readonly hueForAgent: (actorId: string) => AgentHueAssignment | undefined;
   readonly toggleRunGroup: (runGroup: RunGroup) => void;
   readonly retainedRowState: (rowKey: string) => RetainedRowState | undefined;
-  /** The registered row renderer. STABLE across renders, or the row memo moves with it. */
-  readonly renderTranscriptRow: TranscriptRowRenderer;
+  /** The registered row renderer's body. STABLE across renders, or the row memo moves with it. */
+  readonly renderTranscriptRow: TranscriptRowBody;
 }
 
 /** The props of one dispatched key: the viewport row and the options it is looked up in. */

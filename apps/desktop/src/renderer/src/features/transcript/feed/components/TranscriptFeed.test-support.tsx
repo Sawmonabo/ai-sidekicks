@@ -5,6 +5,8 @@
 
 import { act, render } from "@testing-library/react";
 
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/caps.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -28,8 +30,9 @@ export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;
 /**
  * Mount the feed under a bridge, because the transcript reads the app's clock. `onRowMounted`
  * lets a case read the three decisions the list makes for a row, which reach the row renderer as
- * arguments and never as markup. `messageAnchorCursor` opens the feed at that message, and
- * `readEarlierPage` is the backward read the feed pages through.
+ * arguments and never as markup. `messageAnchorCursor` opens the feed at that message,
+ * `readEarlierPage` is the backward read the feed pages through, and `drawsBody` is the row
+ * renderer's answer to which rows it draws, every row unless a case says otherwise.
  */
 export function renderFeed(
   sessionStore: SessionStore,
@@ -38,6 +41,7 @@ export function renderFeed(
   options: {
     readonly messageAnchorCursor?: string;
     readonly readEarlierPage?: EarlierPageRead;
+    readonly drawsBody?: (row: TranscriptEventRow) => boolean;
   } = {},
 ): HTMLElement {
   const { container } = render(
@@ -45,9 +49,16 @@ export function renderFeed(
       <LiveAnnouncerProvider>
         <TranscriptFeed
           sessionStore={sessionStore}
-          renderTranscriptRow={(mount) => {
-            onRowMounted?.(mount);
-            return renderRowBody === undefined ? <p>{mount.row.summary}</p> : renderRowBody(mount);
+          rowRenderer={{
+            render: (mount) => {
+              onRowMounted?.(mount);
+              return renderRowBody === undefined ? (
+                <p>{mount.row.summary}</p>
+              ) : (
+                renderRowBody(mount)
+              );
+            },
+            drawsBody: options.drawsBody ?? (() => true),
           }}
           feedLabel="Transcript"
           messageAnchorCursor={options.messageAnchorCursor}

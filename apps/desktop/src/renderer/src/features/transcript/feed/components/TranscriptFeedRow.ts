@@ -5,12 +5,12 @@
 
 import { memo } from "react";
 
-import { type TranscriptRowRenderer, type TranscriptRowProps } from "../../rows/renderer.js";
+import { type TranscriptRowBody, type TranscriptRowProps } from "../../rows/renderer.js";
 
 /** What one row hands the row renderer. */
 export interface TranscriptFeedRowProps extends TranscriptRowProps {
-  /** The registered row renderer. STABLE across renders, or this memo moves with it. */
-  readonly renderTranscriptRow: TranscriptRowRenderer;
+  /** The registered row renderer's body. STABLE across renders, or this memo moves with it. */
+  readonly renderTranscriptRow: TranscriptRowBody;
 }
 
 /**

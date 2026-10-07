@@ -39,14 +39,23 @@ export class ViewportAnchorCapture {
     this.#virtualizer = options.virtualizer;
   }
 
-  /** Where a row's top edge sits, from the library's measurements; no element is read. */
+  /**
+   * Where a row's top edge sits in the scroller's content, in pixels: the library's measured
+   * start for it, or the measurement table's priors summed where the library holds no row at that
+   * index yet. Unclamped, and no element is read.
+   */
   public offsetOfIndex(index: number): number {
-    const offsetForIndex = this.#virtualizer()?.getOffsetForIndex(index, "start");
-    if (offsetForIndex !== undefined) {
-      return offsetForIndex[0];
+    const virtualizer = this.#virtualizer();
+    if (virtualizer !== undefined) {
+      // `getTotalSize` rebuilds the library's measurement memo when a row has measured since it
+      // was last read, so the cache read next is current. `getOffsetForIndex` would read
+      // `scrollHeight` to clamp a scroll target, which a row's top is not.
+      virtualizer.getTotalSize();
+      const measured = virtualizer.measurementsCache[index];
+      if (measured !== undefined) {
+        return measured.start;
+      }
     }
-    // Before the virtualizer mounts there are no measurements, so the measurement table's priors
-    // answer.
     const rowKeys = this.#rowKeys();
     let offset = 0;
     for (let cursor = 0; cursor < index; cursor += 1) {

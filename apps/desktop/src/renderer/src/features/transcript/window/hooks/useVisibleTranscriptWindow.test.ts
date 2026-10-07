@@ -4,7 +4,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
+import { TranscriptRowRetention } from "../row-retention.js";
 import {
   useVisibleTranscriptWindow,
   type VisibleTranscriptWindow,
@@ -26,6 +29,7 @@ function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof us
   return useTranscriptFind({
     visible,
     foldedAwayRows: NO_ROWS_REMOVED,
+    drawsRow: () => true,
   });
 }
 
@@ -82,5 +86,49 @@ describe("the clip the window states", () => {
       useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
     );
     expect(result.current.prunedAwayRows).toHaveLength(0);
+  });
+});
+
+describe("a streamed update to a row the viewport holds", () => {
+  /** The log after its newest row streamed more text: that event's payload replaced, nothing else. */
+  function afterStreamedUpdate(
+    log: readonly ProjectedSessionEvent[],
+  ): readonly ProjectedSessionEvent[] {
+    const newest = log.at(-1);
+    if (newest === undefined) {
+      throw new Error("the log has no row to stream into");
+    }
+    return [...log.slice(0, -1), { ...newest, payload: { text: "more of the reply" } }];
+  }
+
+  it("hands find the row's current object while the split it took stands", () => {
+    // One retention across both passes, as the projection keeps one per session, so only the
+    // streamed row takes a new object and every identity is the one the viewport already holds.
+    const retention = new TranscriptRowRetention();
+    const log = syntheticEventLog(LOG_EVENT_COUNT);
+    const before = deriveTranscriptWindow(log, retention);
+    const after = deriveTranscriptWindow(afterStreamedUpdate(log), retention);
+    expect(after.rows.at(-1)).not.toBe(before.rows.at(-1));
+
+    const { result, rerender } = renderHook<
+      VisibleTranscriptWindow,
+      { readonly window: TranscriptWindowModel; readonly held: readonly ViewportRow[] }
+    >((props) => useVisibleTranscriptWindow(props.window, props.held), {
+      initialProps: {
+        window: before,
+        held: before.viewportRows.slice(-RETAINED_ROW_COUNT),
+      },
+    });
+    const prunedBeforeUpdate = result.current.prunedAwayRows;
+
+    // The snapshot is the one reconciled before the update; its rows are the same identities.
+    rerender({ window: after, held: before.viewportRows.slice(-RETAINED_ROW_COUNT) });
+    expect(result.current.rows.at(-1)).toBe(after.rows.at(-1));
+    expect(result.current.prunedAwayRows).toBe(prunedBeforeUpdate);
+
+    // Holding every identity, the viewport took nothing: the window's own rows go to find whole.
+    rerender({ window: after, held: before.viewportRows });
+    expect(result.current.rows).toBe(after.rows);
+    expect(result.current.prunedAwayRows).toBe(NO_ROWS_REMOVED);
   });
 });

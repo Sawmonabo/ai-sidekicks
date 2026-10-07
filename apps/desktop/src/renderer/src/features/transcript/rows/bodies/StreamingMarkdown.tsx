@@ -1,36 +1,21 @@
-// Mounts the markdown pipeline for one body: the block segmenter, two-pass footnote resolution
-// and footnote registration. Block boundaries and settling are decided in the shared renderer,
-// `components/Markdown/`.
+// Mounts the markdown pipeline for one body: the block segmenter, two-pass footnote resolution and
+// footnote registration. Pass one reads each block alone, once, as it settles, for the footnotes
+// it defines; pass two parses a block against the whole body's definitions when it is drawn, so
+// `cite[^1]` in one block references `[^1]: ...` in another.
 // The published text arrives as a prop rather than a reveal-engine subscription, so a settled
-// message, which has no reveal stream, renders through the same path.
+// message, which has no reveal stream, renders through the same path. A long body inside a
+// transcript viewport is drawn as a window over its blocks; any other is drawn whole.
 
-import type { RootContent } from "mdast";
-import { useEffect, useMemo, useRef } from "react";
+import { useContext } from "react";
 
-import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import {
-  MarkdownNodes,
-  type MarkdownRenderContext,
-} from "#renderer/components/Markdown/MarkdownNodes.js";
-import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
-import {
-  footnoteDefinitionPreamble,
-  parseSettledBlock,
-  parseVolatileTail,
-} from "#renderer/components/Markdown/parse.js";
-import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
+import { MarkdownWindowViewportContext } from "../markdown/block-window/context.js";
+import { useFootnoteDefinitionRegistration } from "./hooks/useFootnoteDefinitionRegistration.js";
+import { useMarkdownBodyBlocks } from "./hooks/useMarkdownBodyBlocks.js";
+import { useMarkdownRenderContexts } from "./hooks/useMarkdownRenderContexts.js";
 import { SettledBlock } from "./SettledBlock.js";
-import { renderCodeBlockCopy } from "./CodeBlockCopy.js";
-
-/**
- * The empty node list, once: a fresh `[]` per render would give a body with no tail a new prop
- * identity on every frame and defeat the memoization below.
- */
-const NO_NODES: readonly RootContent[] = Object.freeze([]);
-
-/** The registration state of a freshly mounted body. */
-const NO_NODE_LISTS: readonly (readonly RootContent[])[] = Object.freeze([]);
+import { VolatileBlock } from "./VolatileBlock.js";
+import { WindowedMarkdown } from "./WindowedMarkdown.js";
 
 /** What one markdown body is drawn from. */
 export interface StreamingMarkdownProps {
@@ -53,175 +38,55 @@ export interface StreamingMarkdownProps {
   readonly offersCodeCopy: boolean;
 }
 
-/** Renders a markdown body incrementally: settled blocks memoized, the tail re-parsed. */
+/**
+ * The length from which a body is drawn as a window over its blocks, in characters. Measured, a
+ * reply drawn whole holds about 59 elements per thousand characters and a windowed one 100 to 150
+ * however long it is, so from 8 KB, some 480 elements, the window draws under a third of them. A
+ * shorter body is drawn whole, where the window would spare too little to be worth its wrappers.
+ */
+const WINDOWED_BODY_MIN_CHARACTERS = 8_192;
+
+/** Renders a markdown body incrementally: settled blocks memoized, the tail parsed per frame. */
 export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Element {
-  const segmentation = useBlockSegmentation(props.publishedText, props.isComplete);
-
-  // Pass one, what the body declares, reading each block alone. A definition is found in its
-  // own block, but GFM leaves `[^1]` literal in a block with no matching definition, hence
-  // pass two.
-  const declaredSettledNodeLists = useMemo(
-    () => segmentation.settledBlocks.map((block) => parseSettledBlock(block).children),
-    [segmentation.settledBlocks],
-  );
-  const declaredVolatileNodes = useMemo(
-    () =>
-      segmentation.volatileTail === ""
-        ? NO_NODES
-        : parseVolatileTail(segmentation.volatileTail).children,
-    [segmentation.volatileTail],
-  );
-
-  const definedFootnoteIdentifiers = useMemo(
-    () => collectDefinedIdentifiers(declaredSettledNodeLists, declaredVolatileNodes),
-    [declaredSettledNodeLists, declaredVolatileNodes],
-  );
-  const definitionPreamble = useMemo(
-    () => footnoteDefinitionPreamble(definedFootnoteIdentifiers),
-    [definedFootnoteIdentifiers],
-  );
-
-  // Pass two: the same blocks read against the whole body's definitions, so `cite[^1]` in one
-  // block references `[^1]: ...` in another. With no footnotes the preamble is empty and these
-  // are the pass-one arrays.
-  const settledNodeLists = useMemo(
-    () =>
-      definitionPreamble === ""
-        ? declaredSettledNodeLists
-        : segmentation.settledBlocks.map(
-            (block) => parseSettledBlock(block, definitionPreamble).children,
-          ),
-    [definitionPreamble, declaredSettledNodeLists, segmentation.settledBlocks],
-  );
-  const volatileNodes = useMemo(
-    () =>
-      definitionPreamble === "" || segmentation.volatileTail === ""
-        ? declaredVolatileNodes
-        : parseVolatileTail(segmentation.volatileTail, definitionPreamble).children,
-    [segmentation.volatileTail, definitionPreamble, declaredVolatileNodes],
-  );
-
-  const codeSpanReader = useCodeSpanReader();
-  const renderCodeCopy = props.offersCodeCopy ? renderCodeBlockCopy : undefined;
-  const settledContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy }),
-    [definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
-  );
-  const volatileContext = useMemo<MarkdownRenderContext>(
-    () => ({
-      isSettled: props.isComplete,
-      definedFootnoteIdentifiers,
-      codeSpanReader,
-      renderCodeCopy,
-    }),
-    [props.isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
-  );
-
+  const blocks = useMarkdownBodyBlocks(props.publishedText, props.isComplete);
   // An effect, not a render, so no render mutates a registry that two cards share.
-  useFootnoteDefinitionRegistration({
-    settledNodeLists,
-    volatileNodes,
-    footnotes: props.footnotes,
-    sourceId: props.sourceId,
-  });
+  useFootnoteDefinitionRegistration(blocks, props.footnotes, props.sourceId);
+  const contexts = useMarkdownRenderContexts(
+    blocks.definedFootnoteIdentifiers,
+    props.isComplete,
+    props.offersCodeCopy,
+  );
+  const viewport = useContext(MarkdownWindowViewportContext);
 
+  if (viewport !== undefined && props.publishedText.length >= WINDOWED_BODY_MIN_CHARACTERS) {
+    return (
+      <WindowedMarkdown
+        // A replaced history remounts the window with its measurements.
+        key={blocks.generation}
+        blocks={blocks}
+        contexts={contexts}
+        viewport={viewport}
+        rowKey={props.sourceId}
+      />
+    );
+  }
   return (
     <div className="meridian-markdown">
-      {segmentation.settledBlocks.map((block, index) => (
+      {blocks.settledBlocks.map((block) => (
         <SettledBlock
-          key={settledBlockKey(block, index)}
-          nodes={settledNodeLists[index] ?? NO_NODES}
-          context={settledContext}
+          key={block.key}
+          source={block.source}
+          definitionPreamble={blocks.definitionPreamble}
+          context={contexts.settled}
         />
       ))}
-      {volatileNodes.length === 0 ? null : (
-        <MarkdownNodes nodes={volatileNodes} context={volatileContext} />
+      {blocks.volatileTail === "" ? null : (
+        <VolatileBlock
+          source={blocks.volatileTail}
+          definitionPreamble={blocks.definitionPreamble}
+          context={contexts.volatile}
+        />
       )}
     </div>
   );
-}
-
-/**
- * One settled block's key: its position in the committed prefix plus its own text. Position
- * keeps a repeated paragraph unique among siblings; the text makes the key content-addressed,
- * so a rebase remounts instead of pouring new content into old elements. The prefix is
- * append-only, so a block's key never changes as later blocks settle.
- */
-function settledBlockKey(block: string, positionInPrefix: number): string {
-  return `${String(positionInPrefix)}:${block}`;
-}
-
-/**
- * The split for this snapshot, from a segmenter that survives the frame.
- *
- * A hook because construction belongs in a hook, not a render body. `segment` is idempotent for
- * a repeated snapshot, so calling it in render is safe; memoizing on the snapshot keeps every
- * derived identity stable across re-renders the text did not change in.
- */
-function useBlockSegmentation(
-  publishedText: string,
-  isComplete: boolean,
-): ReturnType<MarkdownBlockSegmenter["segment"]> {
-  const segmenterRef = useRef<MarkdownBlockSegmenter | undefined>(undefined);
-  segmenterRef.current ??= new MarkdownBlockSegmenter();
-  const segmenter = segmenterRef.current;
-  return useMemo(
-    () => segmenter.segment(publishedText, { isFinal: isComplete }),
-    [segmenter, publishedText, isComplete],
-  );
-}
-
-/**
- * Records every footnote definition this body declares. It runs when the content changes, not on
- * every render, and re-walks only the settled blocks whose node arrays differ from last time;
- * the volatile tail is re-parsed each frame, so it is always walked.
- */
-function useFootnoteDefinitionRegistration(input: {
-  readonly settledNodeLists: readonly (readonly RootContent[])[];
-  readonly volatileNodes: readonly RootContent[];
-  readonly footnotes: FootnoteRegistry;
-  readonly sourceId: string;
-}): void {
-  const { footnotes, settledNodeLists, sourceId, volatileNodes } = input;
-  const registeredSettledNodeLists = useRef<readonly (readonly RootContent[])[]>(NO_NODE_LISTS);
-  useEffect(() => {
-    const alreadyRegistered = registeredSettledNodeLists.current;
-    for (const [index, nodes] of settledNodeLists.entries()) {
-      if (alreadyRegistered[index] === nodes) {
-        continue;
-      }
-      registerDefinitionsIn(nodes, footnotes, sourceId);
-    }
-    registeredSettledNodeLists.current = settledNodeLists;
-    registerDefinitionsIn(volatileNodes, footnotes, sourceId);
-  }, [settledNodeLists, volatileNodes, footnotes, sourceId]);
-}
-
-/** One block's definitions, into the registry under this body's own source. */
-function registerDefinitionsIn(
-  nodes: readonly RootContent[],
-  footnotes: FootnoteRegistry,
-  sourceId: string,
-): void {
-  for (const definition of collectFootnoteDefinitions(nodes).definitions) {
-    footnotes.register({
-      sourceId,
-      identifier: definition.identifier,
-      bodyNodes: definition.children,
-    });
-  }
-}
-
-/** Every footnote identifier defined anywhere in this body. */
-function collectDefinedIdentifiers(
-  settledNodeLists: readonly (readonly RootContent[])[],
-  volatileNodes: readonly RootContent[],
-): ReadonlySet<string> {
-  const identifiers = new Set<string>();
-  for (const nodes of [...settledNodeLists, volatileNodes]) {
-    for (const identifier of collectFootnoteDefinitions(nodes).definedIdentifiers) {
-      identifiers.add(identifier);
-    }
-  }
-  return identifiers;
 }

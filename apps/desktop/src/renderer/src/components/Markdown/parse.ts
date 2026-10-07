@@ -1,8 +1,9 @@
-// Markdown parsing with `mdast-util-from-markdown` and GFM. `parseSettledBlock` is memoized;
-// `parseVolatileTail` is not, and closes unterminated constructs with `remend` first.
+// Markdown parsing with `mdast-util-from-markdown` and GFM. `parseSettledBlock` is memoized; a
+// volatile tail is mended with `remend` and parsed uncached, by the transcript's tail parser.
 // Types derive from the library so they follow the pinned version. `micromark` is not a direct
 // dependency: `fromMarkdown` brings it in and no module here imports it.
 
+import type { Nodes } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -11,11 +12,18 @@ import remend from "remend";
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
 
 /**
- * Bytes of parsed-block cache retained across every card. Bounded in bytes, not entries,
- * because block sizes span four orders of magnitude; charged against the source text, which
- * is the cache key.
+ * Bytes of parsed-block cache retained across every card, charged against the source text and
+ * an estimate of the tree it parsed to. Bounded in bytes, not entries, because block sizes span
+ * four orders of magnitude.
  */
 const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
+
+/**
+ * What one parsed node holds on the heap, in bytes. Measured: 171 KB of prose, code and lists
+ * parsed block by block held 5.36 MB in 12,172 nodes, 440 bytes a node, mostly the position
+ * objects. Charging the source alone would let a full cache hold thirty times its cap.
+ */
+const MDAST_NODE_BYTE_ESTIMATE = 440;
 
 /** The document a parse produces. Derived from the parser, never restated. */
 export type MarkdownRoot = ReturnType<typeof fromMarkdown>;
@@ -45,6 +53,7 @@ export function parseMarkdown(source: string): MarkdownRoot {
 
 const settledBlockCache: ByteBoundedCache<MarkdownRoot> = new ByteBoundedCache<MarkdownRoot>(
   MARKDOWN_BLOCK_CACHE_BYTE_CAP,
+  (root) => countNodes(root) * MDAST_NODE_BYTE_ESTIMATE,
 );
 
 /**
@@ -100,32 +109,29 @@ export function parseSettledBlock(blockSource: string, definitionPreamble = ""):
 }
 
 /**
- * Parse the volatile tail, closing its unterminated constructs first.
+ * The volatile tail with its unterminated constructs closed, ready to parse.
  *
  * `remend` runs on the tail only: on a settled block it would rewrite finished text, and on the
- * whole message it would rewrite the committed prefix every frame. It runs before the preamble
+ * whole message it would rewrite the committed prefix every frame. It runs before any preamble
  * is prepended so the synthetic definitions are never inspected or closed.
  */
-export function parseVolatileTail(tailSource: string, definitionPreamble = ""): MarkdownRoot {
-  return parseAgainstDefinitions(remend(tailSource, REMEND_OPTIONS), definitionPreamble);
-}
-
-/** The cache key, built in one place so store and lookup agree; no preamble keys on the source. */
-function settledBlockCacheKey(blockSource: string, definitionPreamble: string): string {
-  return definitionPreamble === ""
-    ? blockSource
-    : definitionPreamble + SETTLED_KEY_SEPARATOR + blockSource;
+export function mendVolatileTail(tailSource: string): string {
+  return remend(tailSource, REMEND_OPTIONS);
 }
 
 /**
  * Parse a block with the body's definitions in scope and return only the block's own nodes.
  *
  * The synthetic definitions are dropped by source offset, not identity: a block's real
- * `[^1]: …` has the same identifier as the synthetic one and must survive. Filtering runs
- * inside the memoized path so the array is stable and `SettledBlock`'s pointer comparison
- * still skips the subtree.
+ * `[^1]: …` has the same identifier as the synthetic one and must survive. Every offset in the
+ * result counts the preamble, so a node's start offset minus the preamble's length is where it
+ * starts in the block. Filtering runs inside the memoized path so the array is stable and
+ * `SettledBlock`'s pointer comparison still skips the subtree.
  */
-function parseAgainstDefinitions(blockSource: string, definitionPreamble: string): MarkdownRoot {
+export function parseAgainstDefinitions(
+  blockSource: string,
+  definitionPreamble: string,
+): MarkdownRoot {
   if (definitionPreamble === "") {
     return parseMarkdown(blockSource);
   }
@@ -136,4 +142,23 @@ function parseAgainstDefinitions(blockSource: string, definitionPreamble: string
       (child) => (child.position?.start.offset ?? 0) >= definitionPreamble.length,
     ),
   };
+}
+
+/** The cache key, built in one place so store and lookup agree; no preamble keys on the source. */
+function settledBlockCacheKey(blockSource: string, definitionPreamble: string): string {
+  return definitionPreamble === ""
+    ? blockSource
+    : definitionPreamble + SETTLED_KEY_SEPARATOR + blockSource;
+}
+
+/** How many nodes a tree holds, itself included: what its heap charge is counted in. */
+function countNodes(node: Nodes): number {
+  if (!("children" in node)) {
+    return 1;
+  }
+  let count = 1;
+  for (const child of node.children) {
+    count += countNodes(child);
+  }
+  return count;
 }

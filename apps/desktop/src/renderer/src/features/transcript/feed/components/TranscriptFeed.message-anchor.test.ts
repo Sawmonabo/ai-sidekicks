@@ -177,6 +177,23 @@ describe("the transcript feed — opened at a message", () => {
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
   });
 
+  it("lands a link to a row the feed draws nothing for on the next row it draws", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(
+      openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT),
+      undefined,
+      RowIdBody,
+      {
+        messageAnchorCursor: transcriptFixtureStreamCursor(FAR_BACK_INDEX),
+        drawsBody: (row) => row.id !== transcriptFixtureEventId(FAR_BACK_INDEX),
+      },
+    );
+    // Reading starts at the next drawn row, so the cap keeps it and takes the one before.
+    expect(isMounted(feed, FAR_BACK_INDEX + 1)).toBe(true);
+    expect(isMounted(feed, FAR_BACK_INDEX - 1)).toBe(false);
+    expect(document.activeElement).toBe(scrollContainerOf(feed));
+  });
+
   it("opens the finished run group holding the message, and lands on it once", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup(), undefined, RowIdBody, {

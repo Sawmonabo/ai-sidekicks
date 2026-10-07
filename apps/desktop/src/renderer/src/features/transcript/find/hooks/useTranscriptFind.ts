@@ -56,6 +56,11 @@ export interface TranscriptFindInputs {
    * the whole projection on every appended row while a query is set.
    */
   readonly foldedAwayRows: readonly TranscriptEventRow[];
+  /**
+   * Whether the feed draws a row. A folded row it draws nothing for stays hidden when its group
+   * opens, so it is no match a person could reach.
+   */
+  readonly drawsRow: (row: TranscriptEventRow) => boolean;
 }
 
 /**
@@ -66,7 +71,10 @@ export interface TranscriptFindInputs {
  * result recomputes as the window moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
-  const { visible, foldedAwayRows } = inputs;
+  const { foldedAwayRows, drawsRow } = inputs;
+  // Each count keys on its own list, which the split keeps across a streamed update to a row the
+  // other list holds.
+  const { rows: visibleRows, prunedAwayRows } = inputs.visible;
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
@@ -75,22 +83,19 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
   const result = useMemo(
     () =>
       query.trim().length === 0
-        ? emptyFindResult(visible.rows.length)
-        : findInTranscript(visible.rows, query),
-    [visible, query],
+        ? emptyFindResult(visibleRows.length)
+        : findInTranscript(visibleRows, query),
+    [visibleRows, query],
   );
 
   const beyondWindowMatchCount = useMemo(
-    () =>
-      query.trim().length === 0
-        ? 0
-        : findInTranscript(visible.prunedAwayRows, query).totalMatchCount,
-    [visible, query],
+    () => (query.trim().length === 0 ? 0 : findInTranscript(prunedAwayRows, query).totalMatchCount),
+    [prunedAwayRows, query],
   );
 
   const foldedAwayMatchCount = useMemo(
-    () => matchesAmong(foldedAwayRows, query),
-    [foldedAwayRows, query],
+    () => matchesAmong(foldedAwayRows, query, drawsRow),
+    [foldedAwayRows, query, drawsRow],
   );
 
   // Looked up, not remembered, so a recomputed result reports where the walk actually is.
@@ -150,12 +155,16 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
 }
 
 /**
- * Matches in one stage's removals. A stage that removed nothing hands back the shared empty
- * set the memo keys on, so an appended row never reaches this.
+ * Matches among the folded rows the feed would draw once opened. A stage that removed nothing
+ * hands back the shared empty set, which answers before any row is read.
  */
-function matchesAmong(rows: readonly TranscriptEventRow[], query: string): number {
+function matchesAmong(
+  rows: readonly TranscriptEventRow[],
+  query: string,
+  drawsRow: (row: TranscriptEventRow) => boolean,
+): number {
   if (rows.length === 0 || query.trim().length === 0) {
     return 0;
   }
-  return findInTranscript(rows, query).totalMatchCount;
+  return findInTranscript(rows.filter(drawsRow), query).totalMatchCount;
 }

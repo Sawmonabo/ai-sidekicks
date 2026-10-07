@@ -45,6 +45,7 @@ import {
 } from "./waiting-on-person/register.js";
 import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
 import { FailedDependentReads } from "./failed-dependent-reads.js";
+import { RememberedRowHeights } from "./remembered-row-heights.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { RepairReplay } from "./repair-replay.js";
 import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
@@ -85,6 +86,11 @@ export class SessionStore {
    * so `initialize` cannot clear a failure only that read's own success clears.
    */
   public readonly failedDependentReads: FailedDependentReads = new FailedDependentReads();
+  /**
+   * The transcript row heights this session measured. Held here rather than by the transcript,
+   * so a transcript mounted again lays its rows out at the heights they had.
+   */
+  public readonly rememberedRowHeights: RememberedRowHeights = new RememberedRowHeights();
   readonly #sessionId: string;
   readonly #transcriptCap: number | undefined;
   readonly #store: StoreApi<SessionStoreState>;

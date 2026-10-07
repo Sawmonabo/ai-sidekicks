@@ -32,6 +32,7 @@ describe("the walk when the result moves under it", () => {
           visible: windowOver(currentRows),
           // Nothing is folded here, so the fold reports the shared empty removal.
           foldedAwayRows: NO_ROWS_REMOVED,
+          drawsRow: () => true,
         }),
       { initialProps: { rows } },
     );
@@ -46,6 +47,7 @@ describe("the walk when the result moves under it", () => {
   function findOverPipeline(stages: {
     readonly unfurled: number;
     readonly folded: number;
+    readonly drawsRow: (row: TranscriptEventRow) => boolean;
   }): RenderHookResult<TranscriptFindState, unknown> {
     const modelOf = (count: number): TranscriptWindowModel =>
       deriveTranscriptWindow(syntheticEventLog(count));
@@ -54,6 +56,7 @@ describe("the walk when the result moves under it", () => {
       useTranscriptFind({
         visible: windowOver(foldedWindow.rows),
         foldedAwayRows: modelOf(stages.unfurled).rows.slice(stages.folded),
+        drawsRow: stages.drawsRow,
       }),
     );
   }
@@ -102,15 +105,21 @@ describe("the walk when the result moves under it", () => {
     expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
   });
 
-  it("counts matches a folded run group is holding", () => {
-    // Finished runs fold by default, so this is most of the matches on a completed session.
-    const { result } = findOverPipeline({ unfurled: 10, folded: 8 });
+  it("counts matches a folded run group is holding, but none the group would not draw", () => {
+    // Finished runs fold by default, so this is most of the matches on a completed session. A
+    // folded row the feed draws nothing for stays hidden when the group opens.
+    const undrawnRowId = wholeLog[LOG_EVENT_COUNT - 1]?.id;
+    const { result } = findOverPipeline({
+      unfurled: LOG_EVENT_COUNT,
+      folded: LOG_EVENT_COUNT - 2,
+      drawsRow: (row) => row.id !== undrawnRowId,
+    });
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
     });
 
-    expect(result.current.result.totalMatchCount).toBe(8);
-    expect(result.current.foldedAwayMatchCount).toBe(2);
+    expect(result.current.result.totalMatchCount).toBe(LOG_EVENT_COUNT - 2);
+    expect(result.current.foldedAwayMatchCount).toBe(1);
   });
 
   it("a new query still restarts the walk", () => {
@@ -138,6 +147,7 @@ describe("the find field's own open act", () => {
         visible: useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
         // Nothing is folded here, so the fold reports the shared empty removal.
         foldedAwayRows: NO_ROWS_REMOVED,
+        drawsRow: () => true,
       }),
     );
   }

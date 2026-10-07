@@ -5,14 +5,20 @@
 // for the wrong reason.
 //
 // Delivery is targeted, not just broadcast: a caller observing N elements arms N observers, so
-// "an ancestor resized" and "everything resized" are different facts.
+// "an ancestor resized" and "everything resized" are different facts. A delivery carries one entry
+// shaped as the platform's for the one observed element, so a consumer reading the observed box
+// reads the height the case gave.
 
 import { vi } from "vitest";
 
 /** What a suite can ask of the installed fake. */
 export interface FakeResizeObserverControl {
-  /** Deliver a size change to every observer watching `target`. */
-  deliverFor(target: Element): void;
+  /**
+   * Deliver a size change to every observer watching `target`, as one entry whose content and
+   * border boxes are `contentBoxHeightPx` tall, in CSS pixels; the element's `clientHeight` when
+   * omitted, which is the content box of an unpadded element.
+   */
+  deliverFor(target: Element, contentBoxHeightPx?: number): void;
   /** Observers constructed and not yet disconnected. Zero is "nothing is armed". */
   liveObserverCount(): number;
 }
@@ -31,10 +37,10 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
   class FakeResizeObserver {
     readonly #record: FakeObserverRecord;
 
-    public constructor(callback: () => void) {
+    public constructor(callback: (entries: readonly ResizeObserverEntry[]) => void) {
       this.#record = {
-        deliver: () => {
-          callback();
+        deliver: (entry) => {
+          callback([entry]);
         },
         targets: new Set<Element>(),
         disconnected: false,
@@ -59,10 +65,11 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
 
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   return {
-    deliverFor: (target: Element) => {
+    deliverFor: (target: Element, contentBoxHeightPx = target.clientHeight) => {
+      const entry = resizeEntryFor(target, contentBoxHeightPx);
       for (const record of records) {
         if (!record.disconnected && record.targets.has(target)) {
-          record.deliver();
+          record.deliver(entry);
         }
       }
     },
@@ -71,7 +78,19 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
 }
 
 interface FakeObserverRecord {
-  readonly deliver: () => void;
+  readonly deliver: (entry: ResizeObserverEntry) => void;
   readonly targets: Set<Element>;
   disconnected: boolean;
+}
+
+/** One observation of `target` at a height, its width the element's own `clientWidth`. */
+function resizeEntryFor(target: Element, contentBoxHeightPx: number): ResizeObserverEntry {
+  const boxSizes = [{ blockSize: contentBoxHeightPx, inlineSize: target.clientWidth }];
+  return {
+    target,
+    contentRect: new DOMRectReadOnly(0, 0, target.clientWidth, contentBoxHeightPx),
+    contentBoxSize: boxSizes,
+    borderBoxSize: boxSizes,
+    devicePixelContentBoxSize: boxSizes,
+  };
 }

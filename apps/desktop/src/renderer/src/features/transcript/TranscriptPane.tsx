@@ -35,7 +35,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
       <TranscriptPaneBody
-        renderTranscriptRow={registeredTranscriptRowRenderer()}
+        rowRenderer={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
         messageAnchorCursor={sessionMessageAnchorCursor(route)}
       />

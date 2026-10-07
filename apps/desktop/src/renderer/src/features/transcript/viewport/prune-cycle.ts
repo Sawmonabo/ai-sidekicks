@@ -6,7 +6,10 @@
 // held rows and whether a pin is gone, and notifies nobody, which keeps the controller's
 // publication point single. It owns the compensation for pruned height because only the pass
 // knows how many pixels it took; the controller decides when to pay it, after the row set is
-// rebuilt, so a glide's geometry sample never wakes a subscriber against stale keys.
+// rebuilt, so a glide's geometry sample never wakes a subscriber against stale keys. The feed
+// hands over the whole log on every pass, so the cap drops the same head rows again each time;
+// the pass pays only for the rows that left the window it last published, and a remembered height
+// outlives its row's prune, so a backward page that brings the row back lays it out at it.
 
 import { IdleMemoryTrim } from "./idle-trim.js";
 import { type ReadingAnchor } from "./reading-anchor.js";
@@ -14,6 +17,7 @@ import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type ViewportConditions } from "./snapshot.js";
+import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import {
   type TranscriptWindow,
   type PruneDeferralReason,
@@ -27,11 +31,16 @@ export interface ViewportPruneCycleOptions {
   readonly anchor: ReadingAnchor;
   readonly scroll: ScrollController;
   readonly clock: Clock;
+  /** The virtualizer that laid the rows out, once it is bound. */
+  readonly virtualizer: () => TranscriptRowVirtualizer | undefined;
 }
 
 /** What one pass took, and the floor it was told to stop at. */
 export interface ViewportPruneCycleResult {
-  /** Measured height of every row the pass dropped, summed in pixels. */
+  /**
+   * The height the rows that left the published window were laid out at, summed in pixels;
+   * zero while following, when no offset is held.
+   */
   readonly prunedHeightPx: number;
   /** The row the drop may not walk past, or `undefined` while following. */
   readonly readingFloorRowKey: string | undefined;
@@ -43,6 +52,7 @@ export class ViewportPruneCycle {
   readonly #measurements: RowMeasurementTable;
   readonly #anchor: ReadingAnchor;
   readonly #scroll: ScrollController;
+  readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
   /**
    * Owned here because `run` is called once per reconcile, the frame's signal that the
    * transcript moved; the trim measures quiet time against the clock.
@@ -66,6 +76,7 @@ export class ViewportPruneCycle {
     this.#measurements = options.measurements;
     this.#anchor = options.anchor;
     this.#scroll = options.scroll;
+    this.#virtualizer = options.virtualizer;
     this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
       window: options.window,
@@ -89,7 +100,7 @@ export class ViewportPruneCycle {
 
   /**
    * Ingests one render's rows, then applies the cap to the full set. The pruned height is summed
-   * before the priors are dropped, since afterwards nothing can say how tall those rows were.
+   * before the virtualizer re-renders, while it still lays out the rows that left.
    */
   public run(conditions: ViewportConditions): ViewportPruneCycleResult {
     // The transcript moved: if it was still for a dwell, the idle trim runs now.
@@ -108,13 +119,8 @@ export class ViewportPruneCycle {
       readingFloorRowKey,
     });
     this.#lastOutcome = outcome;
-    const prunedHeightPx = outcome.prunedKeys.reduce(
-      (heightPx, prunedKey) => heightPx + this.#measurements.heightOf(prunedKey),
-      0,
-    );
-    for (const prunedKey of outcome.prunedKeys) {
-      this.#measurements.forget(prunedKey);
-    }
+    const prunedHeightPx =
+      readingFloorRowKey === undefined ? 0 : this.#laidOutHeightOf(outcome.newlyPrunedKeys);
     return { prunedHeightPx, readingFloorRowKey };
   }
 
@@ -157,6 +163,19 @@ export class ViewportPruneCycle {
   public forgetConditions(): void {
     this.#lastConditions = undefined;
     this.#lastHeldRowKeys = [];
+  }
+
+  /**
+   * The height the virtualizer laid rows out at, summed: the size it holds for a row, else the
+   * estimate it laid the row out at, which no publication moves while a reader holds a position.
+   */
+  #laidOutHeightOf(rowKeys: readonly string[]): number {
+    const virtualizer = this.#virtualizer();
+    let heightPx = 0;
+    for (const rowKey of rowKeys) {
+      heightPx += virtualizer?.itemSizeCache.get(rowKey) ?? this.#measurements.heightOf(rowKey);
+    }
+    return heightPx;
   }
 
   /**
