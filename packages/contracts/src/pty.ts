@@ -153,7 +153,8 @@ export const PtyListUpdateSchema: z.ZodType<PtyListUpdate> = z
 /**
  * Open another shell for the session: the person's own login shell in the session's tree, so the
  * request carries no program, arguments or folder. The caller mints the key, and a retry with the
- * same key never opens a second shell.
+ * same key never opens a second shell. A chat session has no shell, so it is refused
+ * `pty.chat_unsupported`.
  */
 export interface PtyOpenRequest {
   sessionId: SessionId;
@@ -547,6 +548,20 @@ export const PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE = "pty.output_subscription_n
  * @consumedBy the handlers that return the `pty.output_subscription_not_found` error
  */
 export type PtyOutputSubscriptionNotFoundCode = typeof PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE;
+
+/**
+ * `pty.open` on a chat session, which is bound to a managed workspace and no repository and has no
+ * shell. The screen never offers it there, so only a caller fault reaches this refusal.
+ *
+ * @consumedBy the daemon's `pty.open` handler, which checks the session's kind before it starts one
+ */
+export const PTY_CHAT_UNSUPPORTED_CODE = "pty.chat_unsupported" as const;
+/**
+ * Type of {@link PTY_CHAT_UNSUPPORTED_CODE}.
+ *
+ * @consumedBy the handler that returns the `pty.chat_unsupported` error
+ */
+export type PtyChatUnsupportedCode = typeof PTY_CHAT_UNSUPPORTED_CODE;
 
 /** The `pty.*` methods, keyed by name. */
 export interface PtyMethodDescriptors {
