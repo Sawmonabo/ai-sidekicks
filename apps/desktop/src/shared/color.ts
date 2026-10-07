@@ -1,6 +1,6 @@
 // Meridian color math: OKLCH authoring, sRGB rendering, WCAG 2.2 measurement. One conversion path
-// serves the contrast floors a test must measure, the twelve hues drawn from an OKLCH wheel, and
-// the `#rrggbb` grounds main paints a window's first frame in, so both processes read it. OKLCH is
+// serves the colors the token sheet emits, the twelve hues drawn from an OKLCH wheel, and the
+// `#rrggbb` grounds main paints a window's first frame in, so both processes read it. OKLCH is
 // perceptually uniform in lightness, sRGB is what a display emits, and WCAG relative luminance is
 // what the floors are stated in.
 //
@@ -138,22 +138,16 @@ export function formatSrgbHex(color: SrgbColor): string {
 }
 
 /**
- * WCAG 2.2 contrast ratio between two colors already in sRGB; 1 (identical) to 21 (black on
- * white). A CSS `filter` works on sRGB channels and has no OKLCH form, so a filtered treatment is
- * measured on the triple the filter produced: scaling both channels does not preserve their
- * ratio, because relative luminance carries a 0.05 offset.
+ * WCAG 2.2 contrast ratio between two colors as a display shows them, in sRGB; 1 (identical) to
+ * 21 (black on white). Measured on the channels painted, so what the browser's own gamut mapping
+ * and a CSS `filter` did to a color is in the number.
  */
-function srgbContrastRatio(foreground: SrgbColor, background: SrgbColor): number {
+export function contrastRatio(foreground: SrgbColor, background: SrgbColor): number {
   const foregroundLuminance = srgbRelativeLuminance(foreground);
   const backgroundLuminance = srgbRelativeLuminance(background);
   const lighter = Math.max(foregroundLuminance, backgroundLuminance);
   const darker = Math.min(foregroundLuminance, backgroundLuminance);
   return (lighter + 0.05) / (darker + 0.05);
-}
-
-/** WCAG 2.2 contrast ratio between two colors; 1 (identical) to 21 (black on white). */
-export function contrastRatio(foreground: OklchColor, background: OklchColor): number {
-  return srgbContrastRatio(oklchToSrgb(foreground), oklchToSrgb(background));
 }
 
 /**

@@ -1,37 +1,23 @@
-// The appearance record's vocabulary: the theme, the color scheme, the text size, the transcript
-// width and the current theme's two grounds, and the root element main stamps them on and the
-// renderer keeps current. Main and the renderer both read these values, so they are declared here
-// once.
+// The appearance record: the theme, the color scheme, the text size, the transcript width and the
+// current theme's two grounds, and the root element main stamps them on and the renderer keeps
+// current. Main and the renderer both read these values, so they are declared here once.
 
-import { formatSrgbHex, oklchToSrgb, resolveEmittedColor, type OklchColor } from "./color.js";
-
-/** The two themes, and no third. */
-export const APPEARANCE_THEMES = ["meridian", "graphite"] as const;
-
-/** One theme. */
-export type AppearanceTheme = (typeof APPEARANCE_THEMES)[number];
-
-/** Every scheme the app renders in; `ColorScheme` is derived from this tuple. */
-export const COLOR_SCHEMES = ["light", "dark"] as const;
-
-/** A scheme the app renders in: a resolved answer that always paints something. */
-export type ColorScheme = (typeof COLOR_SCHEMES)[number];
-
-/** The preference value that names no scheme and defers to the operating system. */
-export const SYSTEM_SCHEME_PREFERENCE = "system";
-
-/** What a person can choose: a scheme, or the operating system's. */
-export type SchemePreference = ColorScheme | typeof SYSTEM_SCHEME_PREFERENCE;
+import { formatSrgbHex, oklchToSrgb, resolveEmittedColor } from "./color.js";
+import {
+  SYSTEM_SCHEME_PREFERENCE,
+  type ColorScheme,
+  type SchemePair,
+  type SchemePreference,
+} from "./color-scheme.js";
+import { THEME_PALETTES, mapEveryTheme, type AppearanceTheme } from "./theme/registry.js";
+import { tokenVariableName } from "./token-variable.js";
 
 /**
  * The current theme's two grounds, as `#rrggbb` colors, the form the platform paints a window's
  * first frame in. Both are sent because under `system` main cannot know which one the first
  * frame after an operating-system change needs.
  */
-export interface AppearanceGrounds {
-  readonly light: string;
-  readonly dark: string;
-}
+export type AppearanceGrounds = Readonly<Record<ColorScheme, string>>;
 
 /** The four text sizes, `Small · Default · Large · Larger`, as root font sizes in CSS pixels. */
 export const TEXT_SIZES = [15, 16, 18, 20] as const;
@@ -59,20 +45,13 @@ export interface AppearanceRecord {
   readonly grounds: AppearanceGrounds;
 }
 
-/** Meridian's ground, the window's own field, in each scheme: the palette's `ground` token. */
-export const MERIDIAN_GROUND_COLORS: { readonly light: OklchColor; readonly dark: OklchColor } = {
-  light: { lightness: 0.965, chroma: 0.003, hueDegrees: 255 },
-  dark: { lightness: 0.165, chroma: 0.011, hueDegrees: 255 },
-};
-
 /**
- * Meridian's two grounds as the stylesheet paints them, in `#rrggbb`: main paints a window's first
- * frame with them before any page has loaded.
+ * Each theme's two grounds as the stylesheet paints them, in `#rrggbb`: the grounds a choice of
+ * that theme hands main, which paints a window's first frame with them before any page loads.
  */
-export const MERIDIAN_GROUNDS: AppearanceGrounds = {
-  light: formatSrgbHex(oklchToSrgb(resolveEmittedColor(MERIDIAN_GROUND_COLORS.light))),
-  dark: formatSrgbHex(oklchToSrgb(resolveEmittedColor(MERIDIAN_GROUND_COLORS.dark))),
-};
+export const THEME_GROUNDS: Readonly<Record<AppearanceTheme, AppearanceGrounds>> = mapEveryTheme(
+  (theme) => paintedGrounds(THEME_PALETTES[theme].colors.ground),
+);
 
 /**
  * The appearance a missing or broken record reads as: Meridian, following the system's scheme, at
@@ -83,7 +62,7 @@ export const DEFAULT_APPEARANCE_RECORD: AppearanceRecord = {
   scheme: SYSTEM_SCHEME_PREFERENCE,
   textSize: 16,
   transcriptWidth: 57.5,
-  grounds: MERIDIAN_GROUNDS,
+  grounds: THEME_GROUNDS.meridian,
 };
 
 /** The part of the record a person chooses; the grounds come from the theme. */
@@ -108,7 +87,7 @@ export const RESOLVED_SCHEME_ATTRIBUTE = "data-resolved-color-scheme";
 export const THEME_ATTRIBUTE = "data-theme";
 
 /** The root custom property every session's transcript reads its column width from. */
-const TRANSCRIPT_WIDTH_PROPERTY = "--meridian-transcript-width";
+const TRANSCRIPT_WIDTH_PROPERTY = tokenVariableName("transcript-width");
 
 /**
  * What the document's root element carries for one record: its attributes, one left off where
@@ -140,5 +119,12 @@ export function composeRootAppearance(
       "font-size": `${String(record.textSize)}px`,
       [TRANSCRIPT_WIDTH_PROPERTY]: `${String(record.transcriptWidth)}rem`,
     },
+  };
+}
+
+function paintedGrounds(grounds: SchemePair): AppearanceGrounds {
+  return {
+    light: formatSrgbHex(oklchToSrgb(resolveEmittedColor(grounds.light))),
+    dark: formatSrgbHex(oklchToSrgb(resolveEmittedColor(grounds.dark))),
   };
 }

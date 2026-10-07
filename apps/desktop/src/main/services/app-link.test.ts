@@ -17,7 +17,7 @@ import { composeAppLink } from "@ai-sidekicks/contracts/app-link";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
-import { DEFAULT_APPEARANCE_RECORD, MERIDIAN_GROUNDS } from "#shared/appearance.js";
+import { DEFAULT_APPEARANCE_RECORD, THEME_GROUNDS } from "#shared/appearance.js";
 import { BRIDGE_CHANNELS, NAVIGATION_REQUEST_CHANNEL } from "#shared/bridge-channels.js";
 import type { NavigationRequest } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
@@ -87,7 +87,7 @@ async function startLinkHandler(commandLine: readonly string[] = []) {
     },
     screen,
     appearance: {
-      ground: MERIDIAN_GROUNDS.light,
+      ground: THEME_GROUNDS.meridian.light,
       record: DEFAULT_APPEARANCE_RECORD,
       subscribe: () => () => undefined,
     },

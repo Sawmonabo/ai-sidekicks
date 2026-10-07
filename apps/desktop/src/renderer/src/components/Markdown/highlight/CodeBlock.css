@@ -1,8 +1,8 @@
 /* A code block and the code palette its highlighted source paints with. */
 
 /*
- * A code block paints the daemon's five span classes through theme tokens (`styles/palette.ts`),
- * so a scheme switch repaints the same spans in place. A comment uses the faint text color.
+ * A code block paints the daemon's five span classes through theme tokens (each theme's table in
+ * `src/shared/theme/`), so a theme or scheme switch repaints the same spans in place. A comment uses the faint text color.
  */
 .meridian-code__keyword {
   color: var(--meridian-code-keyword);

@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_APPEARANCE_RECORD,
-  MERIDIAN_GROUNDS,
+  THEME_GROUNDS,
   type AppearanceRecord,
 } from "#shared/appearance.js";
 import { createElectronMock, type MenuTemplateItem } from "#test/helpers/electron/mock/module.js";
@@ -109,7 +109,7 @@ describe("the View menu's color scheme", () => {
     const installedBeforeTextSize = electronMock.installedMenuTemplates.length;
     const textSizeKept = appearance.choose(
       { theme: "meridian", scheme: "dark", textSize: 20, transcriptWidth: 57.5 },
-      MERIDIAN_GROUNDS,
+      THEME_GROUNDS.meridian,
     );
     writes[2]?.land();
     await textSizeKept;

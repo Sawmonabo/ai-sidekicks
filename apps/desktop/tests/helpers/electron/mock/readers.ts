@@ -8,7 +8,7 @@ import { expect, vi, type Mock } from "vitest";
 
 import type { MainDiagnosticLog } from "#main/services/diagnostic-log.js";
 import type { WindowFrame } from "#main/windows/factory.js";
-import { MERIDIAN_GROUNDS } from "#shared/appearance.js";
+import { THEME_GROUNDS } from "#shared/appearance.js";
 
 import { createMockWebContents, type MockBaseWindow, type MockWebContents } from "./window.js";
 
@@ -33,7 +33,7 @@ export function testWindowFrame(): WindowFrame & { readonly log: RecordingWindow
   return {
     bounds: { x: 0, y: 25, width: 1200, height: 800 },
     reveal: { isMaximized: false, isFullScreen: false },
-    background: MERIDIAN_GROUNDS.light,
+    background: THEME_GROUNDS.meridian.light,
     openChildWindow: () => undefined,
     log: {
       write: vi.fn<MainDiagnosticLog["write"]>(),

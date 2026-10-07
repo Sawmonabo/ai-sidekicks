@@ -1,0 +1,31 @@
+/*
+ * The overlay scrollbar's one theme, read from the tokens. The strip sizes its content box unless
+ * told otherwise, so it would measure wider than `--os-size`. Hover raises the thumb from the
+ * control-boundary color to the muted text color and never thickens it. The library's own
+ * visibility classes carry the fade; the transition is the console's quick settle, which reduced
+ * motion collapses with every other transition.
+ */
+.os-scrollbar.os-theme-meridian {
+  box-sizing: border-box;
+  --os-size: calc(var(--meridian-space-2) + var(--meridian-space-1) / 2);
+  --os-padding-perpendicular: calc(var(--meridian-space-1) / 2);
+  --os-padding-axis: 0;
+  --os-track-bg: none;
+  --os-track-bg-hover: none;
+  --os-track-bg-active: none;
+  --os-handle-perpendicular-size: 100%;
+  --os-handle-perpendicular-size-hover: 100%;
+  --os-handle-perpendicular-size-active: 100%;
+  --os-handle-min-size: var(--meridian-space-5);
+  --os-handle-border-radius: var(--meridian-radius-sm);
+  --os-handle-bg: var(--meridian-edge-strong);
+  --os-handle-bg-hover: var(--meridian-text-muted);
+  --os-handle-bg-active: var(--meridian-text-muted);
+  transition:
+    opacity var(--meridian-motion-quick) var(--meridian-ease-settle),
+    visibility var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.os-theme-meridian .os-scrollbar-handle {
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}

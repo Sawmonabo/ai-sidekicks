@@ -1,13 +1,9 @@
-// The browser tier: assertions a DOM shim cannot answer. happy-dom resolves no custom property
-// through the cascade and has no layout or `ResizeObserver`, so a resolved color or a published
-// viewport height asserted there would pass while measuring nothing. Every case here reads a
-// computed style or a real resize observation in Chromium.
+// A pane that changed size reaches the transcript's geometry. happy-dom has no layout or
+// `ResizeObserver`, so a published viewport height asserted there would pass while measuring
+// nothing; this reads a real resize observation in Chromium.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
-import { tokenVariableName, type SchemePreference } from "#renderer/styles/tokens.js";
-import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
@@ -29,37 +25,6 @@ async function runObservedResizeFrame(clock: ManualClock): Promise<boolean> {
   }
   return false;
 }
-
-function tokenValue(tokenName: string): string {
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(tokenVariableName(tokenName))
-    .trim();
-}
-
-/** Applies the default appearance on `scheme`, as main's record would arrive. */
-function applyScheme(scheme: SchemePreference): void {
-  applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, scheme });
-}
-
-beforeEach(() => {
-  installMeridianTokens(document);
-  applyScheme("light");
-});
-
-afterEach(() => {
-  applyScheme("system");
-});
-
-describe("browser — the token sheet reaches the cascade", () => {
-  it("swaps the palette when the scheme attribute flips, in both directions", () => {
-    const light = tokenValue("ground");
-    applyScheme("dark");
-    const dark = tokenValue("ground");
-    expect(dark).not.toBe(light);
-    applyScheme("light");
-    expect(tokenValue("ground")).toBe(light);
-  });
-});
 
 describe("browser — a pane that changed size reaches the transcript's geometry", () => {
   it("publishes the new viewport height from a real resize observation", async () => {

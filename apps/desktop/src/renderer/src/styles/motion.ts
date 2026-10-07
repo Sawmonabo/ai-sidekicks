@@ -34,3 +34,11 @@ export const MOTION_DURATIONS_MS: Readonly<Record<MotionDurationToken, number>> 
 export const CHROME_SETTLE_EASING: string =
   "linear(0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, " +
   "0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1, 1)";
+
+/**
+ * How long the pointer rests before an overlay scrollbar fades, in milliseconds: long enough that
+ * a pause between two wheel turns keeps the bar, short enough that a still page shows none.
+ *
+ * @consumedBy the overlay scrollbar on every scroller but the conversation
+ */
+export const OVERLAY_SCROLLBAR_REST_MS = 500;

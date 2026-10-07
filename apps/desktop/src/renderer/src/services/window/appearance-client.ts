@@ -5,7 +5,8 @@
 // not kept, so the window never shows a scheme a restart would lose. An ask still waiting for
 // main's first record when the client closes is refused, so no caller waits forever.
 
-import type { AppearanceRecord, SchemePreference } from "#shared/appearance.js";
+import type { AppearanceRecord } from "#shared/appearance.js";
+import type { SchemePreference } from "#shared/color-scheme.js";
 import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
 import { nextSchemePreference } from "#renderer/styles/tokens.js";
 

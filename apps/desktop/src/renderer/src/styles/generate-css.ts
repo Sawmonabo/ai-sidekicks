@@ -1,15 +1,19 @@
 // Generator for the token stylesheet. `app/token-installation.ts` writes its output into the
-// document head before first paint. There is no committed copy, so the palette has one record and
-// the contrast test measures the same tables this emits.
+// document head before first paint. There is no committed copy, so the palette has one record, and
+// the contrast check reads what the page paints from this sheet in every theme in both schemes.
 //
-// The cascade has three layers, in this order:
+// The cascade has three layers, in this order, each declaring the default theme's palette and then
+// every other theme's under its own `[data-theme]`:
 //   1. `:root` carries the light values, so a document with no scheme signal still paints a
 //      complete palette (nothing is defined only inside a media query).
 //   2. `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-color-scheme="light"])`
 //      redefines the varying tokens, so the system preference wins when the person chose none.
 //   3. `[data-color-scheme="light"]` and `[data-color-scheme="dark"]` are the explicit-choice
-//      layer, which beats the system in both directions. The attribute is stamped on the
-//      document element, so both selectors match `:root` and win on source order.
+//      layer, which beats the system in both directions.
+// Every attribute is stamped on the document element. Within a layer another theme's selector
+// carries one attribute more than the default's, so it wins wherever its theme is stamped, and only
+// one theme is stamped at a time; across layers a later layer ties or beats an earlier one, so it
+// wins on source order.
 //
 // `color-scheme` rides the third layer, not a single root declaration. Custom properties do not
 // reach what the browser paints itself (scrollbars, form controls, the canvas), so an
@@ -17,17 +21,29 @@
 // inside mismatched scrollbars. `light dark` stays on `:root` to mean "follow the system", and
 // each explicit arm pins its own scheme.
 
+import {
+  DEFAULT_APPEARANCE_RECORD,
+  SCHEME_ATTRIBUTE,
+  THEME_ATTRIBUTE,
+} from "#shared/appearance.js";
+import { APPEARANCE_THEMES, THEME_PALETTES, type AppearanceTheme } from "#shared/theme/registry.js";
 import { formatOklch } from "#shared/color.js";
+import { tokenVariableName } from "#shared/token-variable.js";
 import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
 import {
   LEADING_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  RADIUS_SCALE_REM,
+  RADIUS_SCALE_PX,
   RAIL_BUTTON_SIZE_REM,
   RAIL_WIDTH_REM,
   REFLOW_MIN_WIDTH_PX,
+  ROW_GUTTER_REM,
+  SESSIONS_TRACK_WIDTH_REM,
+  INSPECTOR_WIDTH_REM,
+  AGENTS_PANE_WIDTH_REM,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
+  TOOL_HUE_ALIASES,
   TRANSCRIPT_ROW_GAP_REM,
 } from "./palette.js";
 import {
@@ -41,10 +57,9 @@ import {
 import type { ColorScheme } from "./tokens.js";
 import {
   HUE_WHEEL,
-  SCHEME_COLOR_TOKENS,
+  THEMED_COLOR_TOKENS,
   formatHueWheelTokenName,
   tokenReference,
-  tokenVariableName,
 } from "./tokens.js";
 
 /** The complete text of the token stylesheet. Deterministic: same inputs, same bytes. */
@@ -78,17 +93,26 @@ export function generateMeridianCss(): string {
     "",
     "  /* Light scheme — the complete palette, defined unconditionally so no",
     "     token has its only definition inside a media query. */",
-    schemeColorBlock("light", ""),
+    themeColorBlock(DEFAULT_THEME, "light", ""),
     invariantBlock(),
     "}",
+    "",
+    ...THEMES_BESIDE_DEFAULT.map((theme) =>
+      [`${themeSelector(theme, "")} {`, themeColorBlock(theme, "light", ""), "}"].join("\n"),
+    ),
   ].join("\n");
 
+  const systemNotLight = `:not([${SCHEME_ATTRIBUTE}="light"])`;
   const systemDarkBlock = [
     "@media (prefers-color-scheme: dark) {",
     "  /* System preference wins only where the person has expressed none. */",
-    '  :root:not([data-color-scheme="light"]) {',
-    schemeColorBlock("dark", "  "),
-    "  }",
+    ...APPEARANCE_THEMES.map((theme) =>
+      [
+        `  ${themeSelector(theme, systemNotLight)} {`,
+        themeColorBlock(theme, "dark", "  "),
+        "  }",
+      ].join("\n"),
+    ),
     "}",
   ].join("\n");
 
@@ -97,17 +121,23 @@ export function generateMeridianCss(): string {
   const explicitLightBlock = [
     "/* An explicit choice beats the system preference in both directions, for the",
     "   browser's own controls as well as for the palette. */",
-    '[data-color-scheme="light"] {',
+    `:root[${SCHEME_ATTRIBUTE}="light"] {`,
     "  color-scheme: light;",
     "}",
   ].join("\n");
 
+  const explicitDark = `[${SCHEME_ATTRIBUTE}="dark"]`;
   const explicitDarkBlock = [
-    '[data-color-scheme="dark"] {',
+    `${themeSelector(DEFAULT_THEME, explicitDark)} {`,
     "  color-scheme: dark;",
     "",
-    schemeColorBlock("dark", ""),
+    themeColorBlock(DEFAULT_THEME, "dark", ""),
     "}",
+    ...THEMES_BESIDE_DEFAULT.map((theme) =>
+      [`${themeSelector(theme, explicitDark)} {`, themeColorBlock(theme, "dark", ""), "}"].join(
+        "\n",
+      ),
+    ),
   ].join("\n");
 
   const baseBlock = [
@@ -161,11 +191,28 @@ function declaration(tokenName: string, value: string): string {
   return `  ${tokenVariableName(tokenName)}: ${value};`;
 }
 
-function schemeColorBlock(scheme: ColorScheme, indent: string): string {
+/** The theme the bare `:root` rules paint: the one a missing record reads as. */
+const DEFAULT_THEME: AppearanceTheme = DEFAULT_APPEARANCE_RECORD.theme;
+
+/** The themes that override the default's palette under their own attribute. */
+const THEMES_BESIDE_DEFAULT: readonly AppearanceTheme[] = APPEARANCE_THEMES.filter(
+  (theme) => theme !== DEFAULT_THEME,
+);
+
+/** The root selector for one theme under a scheme condition; the default theme needs no attribute. */
+function themeSelector(theme: AppearanceTheme, schemeCondition: string): string {
+  const themeCondition = theme === DEFAULT_THEME ? "" : `[${THEME_ATTRIBUTE}="${theme}"]`;
+  return `:root${themeCondition}${schemeCondition}`;
+}
+
+function themeColorBlock(theme: AppearanceTheme, scheme: ColorScheme, indent: string): string {
   const lines: string[] = [];
-  for (const [tokenName, pair] of SCHEME_COLOR_TOKENS) {
-    lines.push(`${indent}${declaration(tokenName, formatOklch(pair[scheme]))}`);
+  for (const [tokenName, color] of THEMED_COLOR_TOKENS) {
+    lines.push(`${indent}${declaration(tokenName, formatOklch(color[theme][scheme]))}`);
   }
+  lines.push(
+    `${indent}${declaration("glass", `${String(THEME_PALETTES[theme].glassOpacityPercent[scheme])}%`)}`,
+  );
   return lines.join("\n");
 }
 
@@ -182,7 +229,10 @@ function invariantBlock(): string {
   lines.push("  /* Vocabulary aliases — a code or terminal name for an app token.");
   lines.push("     Emitted here rather than in each scheme layer because the token");
   lines.push("     each one defers to already swaps. */");
-  for (const [tokenName, targetTokenName] of Object.entries(TOKEN_ALIASES)) {
+  for (const [tokenName, targetTokenName] of Object.entries({
+    ...TOKEN_ALIASES,
+    ...TOOL_HUE_ALIASES,
+  })) {
     lines.push(declaration(tokenName, tokenReference(targetTokenName)));
   }
 
@@ -205,12 +255,19 @@ function invariantBlock(): string {
   for (const [tokenName, sizeRem] of Object.entries(SPACE_SCALE_REM)) {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
-  for (const [tokenName, sizeRem] of Object.entries(RADIUS_SCALE_REM)) {
-    lines.push(declaration(tokenName, `${sizeRem}rem`));
+  for (const [tokenName, sizePx] of Object.entries(RADIUS_SCALE_PX)) {
+    lines.push(declaration(tokenName, `${sizePx}px`));
   }
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
   lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
+  lines.push(declaration("sessions-track-width", `${SESSIONS_TRACK_WIDTH_REM}rem`));
+  lines.push(declaration("inspector-width", `${INSPECTOR_WIDTH_REM}rem`));
+  lines.push(declaration("agents-pane-width", `${AGENTS_PANE_WIDTH_REM}rem`));
+  // The terminal opens on a third of its pane block's height; the percentage resolves against the
+  // block that reads the token, which must have a definite height.
+  lines.push(declaration("terminal-height", "calc(100% / 3)"));
+  lines.push(declaration("row-gutter", `${ROW_GUTTER_REM}rem`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   lines.push(declaration("transcript-row-gap", `${TRANSCRIPT_ROW_GAP_REM}rem`));
   // The reflow floor is emitted so a stylesheet reads the property instead of copying the

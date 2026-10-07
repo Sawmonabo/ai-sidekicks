@@ -7,7 +7,7 @@
 
 import { app, Menu, type MenuItemConstructorOptions } from "electron";
 
-import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appearance.js";
+import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/color-scheme.js";
 
 import type { KeptAppearance } from "./appearance/kept-record.js";
 import type { OpenWindows } from "./windows/registry.js";
