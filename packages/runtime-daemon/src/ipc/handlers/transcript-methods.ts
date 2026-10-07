@@ -1,14 +1,14 @@
-// Binds the `transcript.*` methods onto the registry and answers `transcript.bodyRead` and
-// `transcript.search`.
+// Binds the `transcript.*` methods onto the registry and answers `transcript.read`,
+// `transcript.bodyRead` and `transcript.search`.
 //
 // * `registerTranscriptMethod` takes a method name and a handler; the schemas and the `mutating`
 //   flag come from `TRANSCRIPT_METHOD_DESCRIPTORS`, so a name cannot be paired with another
 //   operation's schemas and a handler for the wrong operation fails to compile.
 // * The caller's principal is not in the request (each transcript request is `.strict()`); a
 //   handler reads it from the `HandlerContext` passed as its second argument.
-// * Only `transcript.bodyRead` and `transcript.search` are answered here. The other methods are
-//   bound by the service that answers them, so no placeholder handler puts a method on the wire
-//   that answers nothing.
+// * Only `transcript.read`, `transcript.bodyRead` and `transcript.search` are answered here. The
+//   other methods are bound by the service that answers them, so no placeholder handler puts a
+//   method on the wire that answers nothing.
 
 import {
   TRANSCRIPT_BODY_READ_METHOD,
@@ -30,6 +30,7 @@ import type {
 
 import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content/read.js";
 import type { SearchThread } from "../../session/search/thread/handle.js";
+import type { TranscriptWindowReader } from "../../transcript/window.js";
 import { RegistryDispatchError } from "../registry.js";
 
 // ----------------------------------------------------------------------------
@@ -240,6 +241,30 @@ export function registerTranscriptMethod<MethodName extends TranscriptMethodName
     correlatedHandler as Handler<unknown, unknown>,
     { mutating: descriptor.mutating },
   );
+}
+
+/** What `transcript.read` reads through: the transcript's window reader. */
+export interface TranscriptReadDependencies {
+  /**
+   * An unknown session throws `SessionNotFoundError` (`session.not_found`); a cursor that names
+   * no position or one past the session's newest event throws `EventCursorUnresolvableError`
+   * (`event.cursor_unresolvable`).
+   */
+  readonly transcriptWindows: Pick<TranscriptWindowReader, "read">;
+}
+
+/**
+ * Binds `transcript.read`, one bounded window of a session's transcript rows, oldest to newest,
+ * with whether more remain and the cursor that continues it.
+ */
+export function registerTranscriptRead(
+  registry: MethodRegistry,
+  dependencies: TranscriptReadDependencies,
+): void {
+  registerTranscriptMethod(registry, {
+    method: TRANSCRIPT_READ_METHOD,
+    handler: async (request) => dependencies.transcriptWindows.read(request),
+  });
 }
 
 /**

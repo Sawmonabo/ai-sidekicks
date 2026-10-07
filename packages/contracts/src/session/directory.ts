@@ -24,6 +24,7 @@ import { ProjectIdSchema, type ProjectId } from "../project.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import { ExecutionModeSchema, type ExecutionMode } from "../repo/mount.js";
+import { TranscriptRunStampSchema } from "../transcript/row.js";
 import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import {
   SessionConvertRequestSchema,
@@ -563,7 +564,7 @@ export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescrip
       mutating: false,
       requestSchema: SessionSubscribeRequestSchema,
       responseSchema: SessionSubscribeResponseSchema,
-      emissionSchema: SessionStreamFrameSchema(EventEnvelopeSchema),
+      emissionSchema: SessionStreamFrameSchema(EventEnvelopeSchema, TranscriptRunStampSchema),
     },
     "session.convert": {
       method: "session.convert",

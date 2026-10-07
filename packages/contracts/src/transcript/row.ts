@@ -2,10 +2,10 @@
 // literal (`run`, `rollback_boundary`, `general`). `type` is a free-form string so a row
 // projected from a newer producer's event still parses; consumers narrow on `kind`, never on it.
 // Every row is parsed on read, so each arm is a flat `.strict()` object with cheap refinements.
+// `TranscriptRunStamp` is the run arm's attribution alone, for an event delivered without its row.
 import { z } from "zod";
 
 import {
-  ASSISTANT_OUTPUT_EVENT_TYPES,
   INTERACTIVE_REQUEST_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
@@ -94,13 +94,13 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
 
 /**
  * Every event type whose payload always names a run, built from the run-scoped category arrays in
- * `../event/registry.js` so a type added there joins on its own. The `general` arm refuses these
+ * `../event/registry.js` so a type added there joins on its own. The `assistant_output` types are
+ * left to the payload: a voice call's spoken answer comes outside any run. The `general` arm refuses these
  * by type because a projected payload is a summary that may omit `runId`, as a `tool.result`
  * row's can.
  */
 export const TRANSCRIPT_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
   ...RUN_LIFECYCLE_EVENT_TYPES,
-  ...ASSISTANT_OUTPUT_EVENT_TYPES,
   ...TOOL_ACTIVITY_EVENT_TYPES,
   ...INTERACTIVE_REQUEST_EVENT_TYPES.filter(
     (eventType) => !INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN.has(eventType),
@@ -491,3 +491,28 @@ export const TranscriptEventRowSchema: z.ZodType<TranscriptEventRow> = z.discrim
   "kind",
   [transcriptRollbackBoundaryArmSchema, runScopedTranscriptArmSchema, transcriptGeneralArmSchema],
 );
+
+/**
+ * The run attribution the daemon stamps on one event of a run: its turn position, its execution
+ * epoch and, when the turn was rolled back, the superseded marker.
+ */
+export interface TranscriptRunStamp {
+  readonly position: number;
+  readonly epoch: number;
+  readonly superseded?: SupersededMarker | undefined;
+}
+
+/**
+ * Parses a {@link TranscriptRunStamp} with the run arm's own rules, so a stamp and the row it
+ * describes refuse the same marker: one at or above the stamped position.
+ */
+export const TranscriptRunStampSchema: z.ZodType<TranscriptRunStamp> = z
+  .object({
+    position: countSchema,
+    epoch: countSchema,
+    superseded: SupersededMarkerSchema.optional(),
+  })
+  .strict()
+  .superRefine((stamp, issueContext) => {
+    requireMarkerToOutrankRow(stamp, issueContext);
+  });

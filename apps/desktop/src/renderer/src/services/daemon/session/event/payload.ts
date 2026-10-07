@@ -11,6 +11,7 @@ import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { TranscriptRunStampSchema } from "@ai-sidekicks/contracts/transcript/row";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -37,7 +38,10 @@ export interface SessionStreamFrameReading {
  * The `session.subscribe` frame over the tolerant envelope, so an event type this app does not
  * know yet still parses.
  */
-const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);
+const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(
+  EventEnvelopeSchema,
+  TranscriptRunStampSchema,
+);
 
 /**
  * Reads one delivered frame, or returns `undefined` when it is not the registered shape.

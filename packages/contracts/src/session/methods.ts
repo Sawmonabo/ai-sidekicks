@@ -15,6 +15,7 @@ import {
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { TagListSchema } from "../tag.js";
+import type { TranscriptRunStamp } from "../transcript/row.js";
 import {
   SessionConvertSkippedFileListRequestSchema,
   SessionConvertSkippedFileListResponseSchema,
@@ -174,23 +175,32 @@ export type SessionSubscribeResponse = SubscribeAckResponse;
 export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> =
   SubscribeAckResponseSchema;
 
-/** One change on a session's stream: an event of the session's log and the cursor it sits at. */
+/**
+ * One change on a session's stream: an event of the session's log, the cursor it sits at and,
+ * exactly when the event belongs to a run, the daemon's run stamp for it; a session-level event
+ * carries none.
+ */
 export interface SessionStreamChange<Event> {
   readonly cursor: EventCursor;
   readonly event: Event;
+  readonly runStamp?: TranscriptRunStamp | undefined;
 }
 
 /** The value of each `session.subscribe` notify: a batch of changes, or the caught-up frame. */
 export type SessionStreamFrame<Event> = StreamFrame<SessionStreamChange<Event>, EventCursor>;
 
 /**
- * Builds the `session.subscribe` frame schema over the session event union. The union lives in
- * the event contract, which imports this file at load, so it is passed in rather than imported.
+ * Builds the `session.subscribe` frame schema over the session event union and the run stamp
+ * (`TranscriptRunStampSchema`). Both live in modules that import this file at load, so they are
+ * passed in rather than imported.
  */
 export function SessionStreamFrameSchema<Event>(
   eventSchema: z.ZodType<Event>,
+  runStampSchema: z.ZodType<TranscriptRunStamp>,
 ): z.ZodType<SessionStreamFrame<Event>> {
-  const changeSchema = z.object({ cursor: EventCursorSchema, event: eventSchema }).strict();
+  const changeSchema = z
+    .object({ cursor: EventCursorSchema, event: eventSchema, runStamp: runStampSchema.optional() })
+    .strict();
   return StreamFrameSchema(changeSchema, EventCursorSchema);
 }
 

@@ -5,10 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { SessionEventSchema } from "../../event/session.js";
 import { SessionStreamFrameSchema } from "../methods.js";
+import { TranscriptRunStampSchema } from "../../transcript/row.js";
 import { buildSessionCreatedEvent } from "../../event/__tests__/session.test-support.js";
 
 describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", () => {
-  const FrameSchema = SessionStreamFrameSchema(SessionEventSchema);
+  const FrameSchema = SessionStreamFrameSchema(SessionEventSchema, TranscriptRunStampSchema);
   const event = buildSessionCreatedEvent();
   const change = (cursor: string): { cursor: string; event: typeof event } => ({ cursor, event });
 

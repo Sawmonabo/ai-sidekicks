@@ -54,7 +54,6 @@ describe("rollback projection keeps every row's run attribution", () => {
       [{ ...generalRow, runId: RUN_ID, position: 7, epoch: 0 }, ""],
       [{ ...generalRow, runId: RUN_ID }, ""],
       [{ ...generalRow, category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY }, "category"],
-      [{ ...generalRow, category: "assistant_output", type: "assistant.message" }, "type"],
       [{ ...generalRow, category: "assistant_output", type: "tool.result" }, "type"],
       [{ ...generalRow, category: "assistant_output", type: "intervention.applied" }, "type"],
       // `artifact.published` is session-scoped on one row and run-scoped on the next, so the

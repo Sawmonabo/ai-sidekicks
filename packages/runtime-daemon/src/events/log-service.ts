@@ -22,10 +22,7 @@ import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   type EventCursor,
-  START_OF_LOG_POSITION,
-  decodeEventCursor,
   encodeEventCursor,
-  EventCursorUnresolvableError,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ServiceLogWriter } from "../daemon/service-log.js";
@@ -44,6 +41,7 @@ import type { SessionEventRow } from "./session/insert.js";
 import {
   prepareSessionEventReads,
   type DamagedFromSequenceReader,
+  resolveEventCursor,
   type SessionEventReads,
 } from "./session/read.js";
 
@@ -273,7 +271,7 @@ export class EventLogService {
   async readAfterCursor(
     request: EventReadAfterCursorRequest,
   ): Promise<EventReadAfterCursorResponse> {
-    const afterPosition = this.#resolveCursor(
+    const afterPosition = resolveEventCursor(
       request.afterCursor,
       this.#reads.readHead(request.sessionId),
     );
@@ -316,7 +314,7 @@ export class EventLogService {
     if (head === undefined && this.#readDamagedFromSequence(sessionId) === undefined) {
       throw new SessionNotFoundError("The session has no events to follow.", { sessionId });
     }
-    return this.#followers.follow(sessionId, this.#resolveCursor(afterCursor, head), listener);
+    return this.#followers.follow(sessionId, resolveEventCursor(afterCursor, head), listener);
   }
 
   /**
@@ -338,19 +336,6 @@ export class EventLogService {
     onGap?: (sessionId: SessionId) => void,
   ): () => void {
     return this.#followers.followAll(onCommitted, onGap);
-  }
-
-  // The position a cursor names, checked against the session's head; absent is the start of the
-  // log. The head is read before any page, so a cursor past it cannot pass on a later commit.
-  #resolveCursor(cursor: EventCursor | undefined, head: number | undefined): number {
-    if (cursor === undefined) {
-      return START_OF_LOG_POSITION;
-    }
-    const position = decodeEventCursor(cursor);
-    if (position > (head ?? START_OF_LOG_POSITION)) {
-      throw new EventCursorUnresolvableError(cursor);
-    }
-    return position;
   }
 
   // Published in a microtask, in sequence order, so the append's outcome reports only the write;

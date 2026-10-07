@@ -1,11 +1,12 @@
 // Builds the daemon's session services on its one database and binds every `session.*` verb they
-// answer, plus `transcript.search`, then the repository services over the same database. The
-// daemon's one event log is built here with the session directory's statements, so each event's
-// `sessions` row change commits in the event's own write, and the sessions list follows that log
-// from the start, before any append; the daemon's recovery pass and its damaged history append
-// through the same log, which refuses a damaged session's writes, and every session read and
-// search stops at a damaged session's last good point. The services' background work starts only
-// once the recovery pass has ended.
+// answer, plus `transcript.read` and `transcript.search`, then the repository services over the
+// same database. The daemon's one event log is built here with the session directory's statements,
+// so each event's `sessions` row change commits in the event's own write, and the sessions list
+// follows that log from the start, before any append; the daemon's recovery pass and its damaged
+// history append through the same log, which refuses a damaged session's writes, and every session
+// read and search stops at a damaged session's last good point. One transcript projector serves
+// both the read windows and the run stamp on each streamed change. The services' background work
+// starts only once the recovery pass has ended.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
@@ -38,7 +39,10 @@ import {
 } from "../ipc/handlers/session/search.js";
 import { registerSessionSubscribe, type OutboundQueue } from "../ipc/handlers/session/subscribe.js";
 import { registerSessionTagMethods } from "../ipc/handlers/session/tags.js";
-import { registerTranscriptSearch } from "../ipc/handlers/transcript-methods.js";
+import {
+  registerTranscriptRead,
+  registerTranscriptSearch,
+} from "../ipc/handlers/transcript-methods.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
@@ -59,6 +63,8 @@ import { SearchIndexMerging } from "../session/search/merging.js";
 import type { SearchThread } from "../session/search/thread/handle.js";
 import { SessionService } from "../session/service.js";
 import { SessionTagService } from "../session/tags/service.js";
+import { TranscriptProjector } from "../transcript/projector.js";
+import { TranscriptWindowReader } from "../transcript/window.js";
 import { WorkspaceEventEmitter } from "../workspace/event-emitter.js";
 import type { StreamedGitRunner } from "../workspace/clone/streamed-git.js";
 import type { FolderPlace } from "../workspace/folder/place.js";
@@ -226,6 +232,7 @@ export function registerSessionMethods(
     workingTrees: resolver,
   });
   const draftStore = new SessionDraftStore(database);
+  const transcriptProjector = new TranscriptProjector(database.reader);
   const relatedRanking = new SessionRelatedRanking({
     reader: database.reader,
     writer: database.writer,
@@ -248,8 +255,21 @@ export function registerSessionMethods(
   registerSessionSubscribe(registry, {
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
-    subscribeToSession: (sessionId, afterCursor, listener) =>
-      eventLog.follow(sessionId, afterCursor, listener),
+    subscribeToSession: (sessionId, afterCursor, listener) => {
+      // Made before the follow, whose first catch-up page can arrive inside the call.
+      const stampRun = transcriptProjector.createLiveStamper(sessionId);
+      return eventLog.follow(sessionId, afterCursor, {
+        onChange: (change) => {
+          const runStamp = stampRun(change.event);
+          listener.onChange(runStamp === undefined ? change : { ...change, runStamp });
+        },
+        onFailure: (error) => {
+          listener.onFailure(error);
+        },
+        isFull: () => listener.isFull(),
+        onceDrained: (drainListener) => listener.onceDrained(drainListener),
+      });
+    },
   });
   registerSessionRename(registry, { changes });
   registerSessionLifecycleMethods(registry, { changes });
@@ -277,6 +297,13 @@ export function registerSessionMethods(
       git,
       writeServiceLog: deps.writeServiceLog,
     }),
+  });
+  registerTranscriptRead(registry, {
+    transcriptWindows: new TranscriptWindowReader(
+      database.reader,
+      transcriptProjector,
+      deps.readDamagedFromSequence,
+    ),
   });
   registerTranscriptSearch(registry, {
     transcriptSearch: {

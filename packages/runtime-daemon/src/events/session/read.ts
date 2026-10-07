@@ -1,12 +1,19 @@
 // The `session_events` reads, run on the daemon's read-only connection: a session's head, the rows
-// after a log position, of every type or of named types, and the rows of a sequence window, each in
-// sequence order. A row crosses in from the database file, so each one is checked against the
-// envelope contract on the way out. A range the session skipped past as damaged is never read, and
-// while its history is damaged no read goes past its last good point.
+// after a log position, of every type or of named types, the rows up to one, and the rows of a
+// sequence window, each in sequence order, and the check of a cursor against the head. A row
+// crosses in from the database file, so each one is checked against the envelope contract on the
+// way out. A range the session skipped past as damaged is never read, and while its history is
+// damaged no read goes past its last good point.
 
 import type { Database } from "better-sqlite3";
 
 import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import {
+  START_OF_LOG_POSITION,
+  decodeEventCursor,
+  EventCursorUnresolvableError,
+  type EventCursor,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { outsideSkippedRangesSql } from "./skipped-ranges.js";
@@ -77,6 +84,8 @@ export interface SessionEventReads {
     limit: number,
     filter?: SessionEventFilter,
   ): EventEnvelope[];
+  /** The newest `limit` events with a sequence at or below `beforePosition`. */
+  readBefore(sessionId: SessionId, beforePosition: number, limit: number): EventEnvelope[];
   /** The events with a sequence from `fromSequence` to `toSequence`, both included. */
   readWindow(sessionId: SessionId, fromSequence: number, toSequence: number): EventEnvelope[];
 }
@@ -115,6 +124,15 @@ export function prepareSessionEventReads(
       ORDER BY sequence ASC
       LIMIT ?`,
   );
+  // Newest first so the limit keeps the rows nearest the position; the read reverses them.
+  const beforeStatement = reader.prepare(
+    `SELECT ${SELECTED_COLUMNS}
+       FROM session_events AS event
+      WHERE session_id = ? AND sequence <= ? AND sequence < ?
+        AND ${outsideSkippedRangesSql("event")}
+      ORDER BY sequence DESC
+      LIMIT ?`,
+  );
   const windowStatement = reader.prepare(
     `SELECT ${SELECTED_COLUMNS}
        FROM session_events AS event
@@ -123,7 +141,7 @@ export function prepareSessionEventReads(
       ORDER BY sequence ASC`,
   );
   // The earlier of a read's own bound and the session's last good point.
-  const readBefore = (sessionId: SessionId, beforeSequence: number | undefined): number =>
+  const readBound = (sessionId: SessionId, beforeSequence: number | undefined): number =>
     Math.min(
       beforeSequence ?? NO_SEQUENCE_BOUND,
       readDamagedFromSequence(sessionId) ?? NO_SEQUENCE_BOUND,
@@ -135,11 +153,11 @@ export function prepareSessionEventReads(
       if (head === null) {
         return undefined;
       }
-      const readTo = Math.min(head, readBefore(sessionId, undefined) - 1);
+      const readTo = Math.min(head, readBound(sessionId, undefined) - 1);
       return readTo < 0 ? undefined : readTo;
     },
     readAfter: (sessionId, afterPosition, limit, filter) => {
-      const before = readBefore(sessionId, filter?.beforeSequence);
+      const before = readBound(sessionId, filter?.beforeSequence);
       const rows =
         filter?.eventTypes === undefined
           ? afterStatement.all(sessionId, afterPosition, before, limit)
@@ -152,16 +170,47 @@ export function prepareSessionEventReads(
             );
       return (rows as StoredEventRow[]).map(readEnvelope);
     },
+    readBefore: (sessionId, beforePosition, limit) =>
+      (
+        beforeStatement.all(
+          sessionId,
+          beforePosition,
+          readBound(sessionId, undefined),
+          limit,
+        ) as StoredEventRow[]
+      )
+        .reverse()
+        .map(readEnvelope),
     readWindow: (sessionId, fromSequence, toSequence) =>
       (
         windowStatement.all(
           sessionId,
           fromSequence,
           toSequence,
-          readBefore(sessionId, undefined),
+          readBound(sessionId, undefined),
         ) as StoredEventRow[]
       ).map(readEnvelope),
   };
+}
+
+/**
+ * The log position `cursor` names, the start of the log when it is absent, checked against the
+ * session's `head`, which the caller reads before any page so a cursor past it cannot pass on a
+ * later commit. Throws `EventCursorUnresolvableError` for a cursor that names no position or one
+ * past the head.
+ */
+export function resolveEventCursor(
+  cursor: EventCursor | undefined,
+  head: number | undefined,
+): number {
+  if (cursor === undefined) {
+    return START_OF_LOG_POSITION;
+  }
+  const position = decodeEventCursor(cursor);
+  if (position > (head ?? START_OF_LOG_POSITION)) {
+    throw new EventCursorUnresolvableError(cursor);
+  }
+  return position;
 }
 
 // Storage keeps an absent correlation or causation id as NULL, which the envelope omits.
