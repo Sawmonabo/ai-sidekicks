@@ -1,9 +1,9 @@
 // The accessibility tier over scrollers with their overlay bars started and showing: the library
-// appends its bars inside the scroller, so a bar inside a list or a table would be a child it may
-// not hold. A pointer move over each scroller starts a bar that waits for one and shows it before
-// axe runs: Review's file list and a payload, then Review's diff and the command palette's list,
-// each a table or a listbox inside its scroller. The negative control is a list that is itself
-// the scroller, which axe must report.
+// appends its bars inside the scroller, so a bar inside a list would be a child the list may not
+// hold. A pointer move over each scroller starts a bar that waits for one and shows it before axe
+// runs: Review's file list and a payload, then Review's diff and the command palette's list, each
+// keeping its table or listbox inside its scroller, and each scroller reachable from the keyboard.
+// The negative control is a list that is itself the scroller, which axe must report.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
