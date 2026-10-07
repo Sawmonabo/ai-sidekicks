@@ -4,12 +4,18 @@
 // misconfigured dev instance names the variable it lacks. The router mounts no procedures.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import type { RateLimitIdentityEnv } from "../rate-limit/cloudflare-limiter.js";
+import { createAdmissionCheck } from "../rate-limit/enforcement-pipeline.js";
+import { createRateLimiterFactory } from "../rate-limit/factory.js";
 import { t, type ControlPlaneContext } from "./trpc.js";
 import { checkDevEnvironment, type DevEnvironmentEnv } from "./dev-environment-gate.js";
 import { checkFeatureFlag, type FeatureFlagEnv } from "./feature-flag-gate.js";
 
-/** The Worker environment both gates read. */
-export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv;
+// Cloudflare requires a Durable Object class exported from the Worker's main module.
+export { RateLimitIdentityDO } from "../rate-limit/identity-durable-object.js";
+
+/** The Worker environment: what both gates read, and the sign-in routes' counter binding. */
+export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv & RateLimitIdentityEnv;
 
 /** Optional overrides for {@link buildControlPlaneFetchHandler}. */
 export interface ControlPlaneHandlerOptions {
@@ -27,12 +33,35 @@ export interface ControlPlaneHandlerOptions {
 
 const DEFAULT_ENDPOINT = "/trpc";
 
+// Cloudflare sets it to the address the request reached its edge from; a caller cannot set it.
+const CLIENT_ADDRESS_HEADER = "CF-Connecting-IP";
+
 function refuseUnavailable(reason: string, log: (message: string) => void): Response {
   log(`control-plane refused: ${reason}`);
   return new Response("Service Unavailable", {
     status: 503,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
+}
+
+/**
+ * Builds one request's context on the Workers relay: the caller's address as Cloudflare reports it,
+ * the response headers the adapter sends, and the admission check over the address's Durable Object.
+ */
+export function createControlPlaneContext(options: {
+  readonly request: Request;
+  readonly responseHeaders: Headers;
+  readonly env: RateLimitIdentityEnv;
+  readonly requestId: string;
+}): ControlPlaneContext {
+  return {
+    requestId: options.requestId,
+    sourceAddress: options.request.headers.get(CLIENT_ADDRESS_HEADER) ?? undefined,
+    responseHeaders: options.responseHeaders,
+    checkAdmission: createAdmissionCheck({
+      limiterFor: createRateLimiterFactory({ kind: "workers", env: options.env }).forEndpoint,
+    }),
+  };
 }
 
 /**
@@ -60,9 +89,13 @@ export function buildControlPlaneFetchHandler(
       endpoint,
       req: request,
       router,
-      createContext: (): ControlPlaneContext => ({
-        requestId: generateRequestId(),
-      }),
+      createContext: ({ resHeaders }) =>
+        createControlPlaneContext({
+          request,
+          responseHeaders: resHeaders,
+          env,
+          requestId: generateRequestId(),
+        }),
     });
   };
 }

@@ -4,7 +4,10 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "tsBuildInfoFile": "./.tsbuildinfo"
+    "tsBuildInfoFile": "./.tsbuildinfo",
+    // The Worker's runtime types beside Node's: the rate-limit Durable Object runs on Workers, and
+    // the self-hosted relay runs this package's limiter on Node.
+    "types": ["node", "@cloudflare/workers-types"]
   },
   "references": [{ "path": "../contracts" }],
   "include": ["src/**/*"],

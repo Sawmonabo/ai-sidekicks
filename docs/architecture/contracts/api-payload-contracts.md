@@ -127,8 +127,8 @@ type ErrorNamespace =
 // Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry.
 
 // Rate limiting response (Spec-019; canonical shape per Plan-018 I-018-4 —
-// identical in error-contracts.md §Rate Limiting and packages/contracts/src/rate-limiter.ts, which
-// Plan-018 T18.1-1 creates)
+// identical in error-contracts.md §Rate Limiting and in packages/contracts/src/rate-limiter.ts,
+// which exports it with its schema, RateLimitResponseSchema)
 interface RateLimitResponse {
   code: "rate_limited";
   retryAfter: number; // seconds until retry is allowed

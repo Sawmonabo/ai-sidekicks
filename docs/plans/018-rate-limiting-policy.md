@@ -45,18 +45,19 @@ The plan builds on:
 
 ## Target Areas
 
-- `packages/contracts/src/rate-limiter.ts` — **created by this plan.** The wire devices read: the `RateLimitResponse` 429 envelope + `RateLimitResponseSchema` (Zod).
+- `packages/contracts/src/rate-limiter.ts` — **created by this plan.** The wire devices read: the `RateLimitResponse` 429 envelope + `RateLimitResponseSchema` (Zod), and the two codes a sign-in route refuses with, `rate_limited` and `relay.source_address_unresolvable` (the 400 of §Identity resolution).
 - `packages/control-plane/src/rate-limit/` — **created by this plan.**
   - `limiter.ts` — `RateLimitEndpointGroup`, `RateLimitCheckRequest`/`RateLimitCheckResponse` and the `RateLimiter` interface; the control plane and the self-host relay node, which imports the control plane's limiter, are their only users.
   - `endpoint-groups.ts` — canonical endpoint-group → `{ limit, periodSeconds }` config module transcribed from the Spec-019 registry — the one source of the limit for both implementations (T18.2-1).
-  - `cloudflare-limiter.ts` — the Workers implementation over the per-identity Durable Object (D-018-1).
-  - `identity-durable-object.ts` — the `RateLimitIdentityDO` class and its Worker-side stub resolver (Workers only).
-  - the self-hosted relay's in-memory counter (T18.2-4).
+  - `cloudflare-limiter.ts` — the Workers implementation over the per-identity Durable Object (D-018-1), with the Worker-side stub resolver. It imports the DO class as a type only, so the factory that imports it loads on Node, where the self-host relay node runs and `cloudflare:workers` does not resolve.
+  - `identity-durable-object.ts` — the `RateLimitIdentityDO` class (Workers only).
+  - `in-memory-limiter.ts` — `InMemoryRateLimiter`, the self-hosted relay's in-memory counter (T18.2-4).
   - `factory.ts` — the implementation selector.
   - `enforcement-pipeline.ts` — `createAdmissionCheck`, which returns `checkAdmission` (D-018-1).
   - `limiter-contract-suite.ts` — exported shared contract suite (`describeRateLimiterContract`), the I-018-2 parity proof the self-host relay node re-runs.
 - `packages/control-plane/src/middleware/rate-limit.ts` — **created by this plan.** tRPC middleware `rateLimitProcedure`.
-- `packages/control-plane/src/server/host.ts` — **extended by this plan (export-only edit):** re-export `RateLimitIdentityDO` from the Worker entry module (Cloudflare requires DO classes exported from the deployed script), inside the CP-018-1 stable-mount seam.
+- `packages/control-plane/src/server/trpc.ts` — **extended by this plan:** `ControlPlaneContext` carries what the middleware reads — the caller's `sourceAddress` as the deployment's edge reports it, the `responseHeaders` the adapter merges into every response, and `checkAdmission` — and the shared `t`'s `errorFormatter` projects a typed refusal's body into the error's `data`, so a 429's `data` is the `RateLimitResponse`.
+- `packages/control-plane/src/server/host.ts` — **extended by this plan, inside the CP-018-1 stable-mount seam:** re-export `RateLimitIdentityDO` from the Worker entry module (Cloudflare requires DO classes exported from the deployed script); `ControlPlaneEnv` gains the `RATE_LIMIT_IDENTITY` binding; `createContext` supplies `sourceAddress` from `CF-Connecting-IP`, the adapter's `resHeaders`, and `checkAdmission` over the `workers` factory. No procedure is wired here; T18.3-3 does that.
 - `eslint.config.mjs` — a `no-restricted-imports` entry scoped to `packages/runtime-daemon/**` that keeps the daemon from importing the relay's rate-limit code (T18.3-3).
 - `docs/architecture/contracts/api-payload-contracts.md` — carries the `RateLimitResponse` (symbol anchor: `interface RateLimitResponse` under §Error Responses), and the `RateLimitCheckRequest` and `RateLimitCheckResponse`. T18.1-2 verifies shape parity against the typed exports at implementation time and lands only drift fixes.
 - `docs/architecture/contracts/error-contracts.md` — carries the canonical envelope under §Rate Limiting. T18.1-3 verifies code-table parity at implementation time and lands only drift fixes.
@@ -71,8 +72,9 @@ This plan owns no table: every piece of rate-limit state is ephemeral and bounde
 
 - One DO instance per source address, keyed by `idFromName` of the address in its canonical form (D-018-4).
 - Persisted state (survives worker restart) via DO's built-in storage API: the in-window request times for each endpoint group — the counter of record, which gives the authoritative `remaining`/`resetAt` (D-018-1).
-- **Single-alarm scheduling:** Cloudflare permits one scheduled alarm per object and `setAlarm` overrides. On every state change, re-arm to the earliest per-group window expiry. `alarm()` drops expired per-group window state and re-arms if live state remains; once every window has expired it calls `storage.deleteAll()` (no per-identity residue survives) and the DO idles out with no alarm. Every registry window is 60 seconds, so an address's state is gone within a minute of its last request.
-- RPC surface = `checkAndConsume`, the atomic per-group check and consume: it refuses over-threshold and returns the authoritative `remaining`/`resetAt` in the same round trip. The Worker-side stub resolver lives in the same module.
+- **Single-alarm scheduling:** Cloudflare permits one scheduled alarm per object and `setAlarm` overrides. On every state change, re-arm to the earliest per-group window expiry, where a group's window expires one full window after its newest counted request, so an idle address costs one alarm wake rather than one per request. `alarm()` drops expired per-group window state and re-arms if live state remains; once every window has expired it calls `storage.deleteAll()` (no per-identity residue survives) and the DO idles out with no alarm. Every registry window is 60 seconds, so an address's state is gone within a minute of its last request.
+- RPC surface = `checkAndConsume`, the atomic per-group check and consume: it refuses over-threshold and returns the authoritative `remaining`/`resetAt` in the same round trip. A refused request is not recorded, so a caller that keeps knocking never pushes its own window later. The Worker-side stub resolver lives in `cloudflare-limiter.ts` (§Target Areas).
+- The stored window is read back through a Zod schema, the control plane's `zod` dependency: storage outlives the code version that wrote it, so a stored state that fails to parse fails the request rather than being trusted or silently reset.
 
 ### `RateLimitResponse` canonical shape
 
@@ -116,13 +118,13 @@ export interface RateLimiter {
 }
 ```
 
-- `RateLimiter` and its check types live in the control plane's package: only the relay's control plane and the self-host relay node check a limit, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` envelope, which devices read, will ship in `packages/contracts/src/rate-limiter.ts` as interface + Zod schema per the `runtime-node/registration.ts` wire-shape convention.
+- `RateLimiter` and its check types live in the control plane's package: only the relay's control plane and the self-host relay node check a limit, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` envelope, which devices read, lives in `packages/contracts/src/rate-limiter.ts` as interface + Zod schema per the `runtime-node/registration.ts` wire-shape convention.
 
 ### Admission pipeline (D-018-1)
 
 ```ts
 // packages/control-plane/src/rate-limit/enforcement-pipeline.ts
-export interface AdmissionResult {
+interface AdmissionResult {
   admitted: boolean; // false = a counter trip: 429 with the envelope and headers built from `check`
   check: RateLimitCheckResponse;
 }
@@ -139,8 +141,8 @@ One stage on every enforced transport (I-018-1): tRPC procedures and raw routes 
 ### Identity resolution (D-018-4, D-018-5)
 
 - **The source address is the identity.** The check keys on the caller's source address alone (D-018-5).
-- **Canonical form (D-018-4):** IPv4 exact dotted-quad / IPv6 normalized to its /64 prefix (lowercase, compressed).
-- **Client IP provenance.** Workers: the Cloudflare-set `CF-Connecting-IP` header. Self-host: leftmost-untrusted-hop `X-Forwarded-For`, honored ONLY under explicit Fastify trust-proxy configuration for the Caddy hop (the self-host relay node propagates the header; the `trustProxy` setting is its server bootstrap). A request with no resolvable address is refused 400 rather than rate-limited into a shared bucket.
+- **Canonical form (D-018-4):** IPv4 exact dotted-quad / IPv6 normalized to its /64 prefix (lowercase, compressed); an IPv4-mapped IPv6 address counts as its IPv4 address. The parse uses `ipaddr.js`, the maintained, dependency-free parser Fastify's `@fastify/proxy-addr` builds its trust-proxy check on: it runs unchanged in `workerd`, where `node:net` needs the `nodejs_compat` flag this Worker does not set, and it yields the RFC 5952 compressed form; `ip-address` was the alternative, and a hand-written IPv6 parser is code the project would keep forever.
+- **Client IP provenance.** Workers: the Cloudflare-set `CF-Connecting-IP` header. Self-host: leftmost-untrusted-hop `X-Forwarded-For`, honored ONLY under explicit Fastify trust-proxy configuration for the Caddy hop (the self-host relay node propagates the header; the `trustProxy` setting is its server bootstrap). Each host puts the address it trusts in the context's `sourceAddress`; the middleware canonicalizes it. A request with no resolvable address is refused 400 with `relay.source_address_unresolvable`, before anything is counted, rather than rate-limited into a shared bucket.
 
 ### tRPC middleware surface (mounts onto the control-plane host per CP-018-1)
 
@@ -151,7 +153,9 @@ export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =
     const identity = resolveIdentity(ctx); // D-018-4
     const admission = await ctx.checkAdmission({ identity, endpoint: opts.endpoint });
     if (!admission.admitted) {
-      throw tooManyRequests(rateLimitResponseFrom(admission.check)); // 429 + canonical envelope + headers
+      const refusal = rateLimitResponseFrom(admission.check, Date.now()); // the one retryAfter
+      ctx.responseHeaders.set("Retry-After", String(refusal.retryAfter));
+      throw new ControlPlaneRefusal({ trpcCode: "TOO_MANY_REQUESTS", message, body: refusal }); // 429
     }
     return next(); // an allowed response carries no rate-limit header
   });
@@ -159,6 +163,7 @@ export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =
 
 - Usage on a procedure: `t.procedure.use(rateLimitProcedure({ endpoint: 'auth.endpoint' }))`. The tRPC v11 middleware chaining model is documented in [tRPC v11 middlewares](https://trpc.io/docs/server/middlewares) (uses `.use()` with opts `{ ctx, path, type, input, getRawInput, next }`).
 - Header policy: `Retry-After` on every 429, and none on an allowed response.
+- The 429 body: `ControlPlaneRefusal` (in `server/trpc.ts`) is a `TRPCError` carrying a typed body, and the shared `t`'s `errorFormatter` makes that body the error's whole `data`, so a 429 answers `{ error: { message, code, data: RateLimitResponse } }` and the 400 answers `data: { code: "relay.source_address_unresolvable", message }`. tRPC sets the status from the error's code. `Retry-After` reaches the response through the fetch adapter's `resHeaders`, which it merges into every response, an error's included.
 
 ### Retry-After on 429 responses
 
@@ -224,7 +229,7 @@ The phase builds on the shipped contracts package.
   - **Spec coverage:** Spec-019 §Interfaces And Contracts (error-contracts holds error response schemas and error codes)
   - **Verifies invariant:** I-018-4 (registry side)
   - **Consumes:** error-contracts.md §Rate Limiting table.
-- **T18.1-4 — Schema tests.** In `packages/contracts/src/__tests__/`, `RateLimitResponseSchema` parses the full envelope and rejects an envelope missing `retryAfter` or `resetAt`; in the control plane's rate-limit tests, the `RateLimitEndpointGroup` union matches the registry's keys.
+- **T18.1-4 — Schema tests.** In `packages/contracts/src/__tests__/`, `RateLimitResponseSchema` parses the full envelope and rejects an envelope missing `retryAfter` or `resetAt`. The `RateLimitEndpointGroup` union matching the registry's keys is held by the compiler, not a test: `endpoint-groups.ts` types its table `Record<RateLimitEndpointGroup, …>`, so `tsc` refuses a key with no limit and a limit for no key.
   - **Spec coverage:** Spec-019 §Overflow Response (canonical envelope), Spec-019 §Interfaces And Contracts (check shape)
   - **Verifies invariant:** I-018-4
   - **Consumes:** T18.1-1 exports (same Phase).
@@ -253,11 +258,11 @@ The phase builds on the shipped contracts package.
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (the self-hosted relay counts in its process's memory), Spec-019 §Implementation Notes (sliding window), Spec-019 §Acceptance Criteria (the same limit, via the shared suite)
   - **Verifies invariant:** I-018-2, I-018-3
   - **Consumes:** `RateLimiter` ← T18.1-1; `endpoint-groups.ts` ← T18.2-1.
-- **T18.2-5 — `factory.ts`.** `createRateLimiterFactory(config)` with the discriminated config (`{ kind: 'workers'; env } | { kind: 'node' }`), returning `{ forEndpoint(endpoint: RateLimitEndpointGroup): RateLimiter }`: `workers` → `CloudflareWorkersRateLimiter` over the injected `env`, never `process.env`; `node` → `InMemoryRateLimiter`. Table-driven tests: each kind yields its implementation.
+- **T18.2-5 — `factory.ts`.** `createRateLimiterFactory(config)` with the discriminated config (`{ kind: 'workers'; env } | { kind: 'node' }`), returning `{ forEndpoint: (endpoint: RateLimitEndpointGroup) => RateLimiter }` (a function property, so `createAdmissionCheck` takes it unbound as `limiterFor`): `workers` → `CloudflareWorkersRateLimiter` over the injected `env`, never `process.env`; `node` → one `InMemoryRateLimiter` held for the factory's lifetime and returned on every call, since the admission check asks the factory per request and the self-host relay node builds one factory at startup. Test: a behavior row, not a check of which class came back — 21 checks for one address, each through its own `forEndpoint` call on one `node` factory, refuse the 21st. The `workers` kind's one global count is proven by T18.4-1 row (2).
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (swap via deployment configuration), Spec-019 §Implementation Notes (configuration selects the implementation at startup)
   - **Verifies invariant:** I-018-2
   - **Consumes:** T18.2-3 + T18.2-4 (same Phase).
-- **T18.2-6 — `limiter-contract-suite.ts` + runners.** Export `describeRateLimiterContract(makeLimiter: () => Promise<RateLimiter>)` — scenario set: under-limit allow; at-limit deny; header-source fields present + internally consistent; a denial reports the window's `resetAt` and the first check after it is allowed; window expiry re-allow; per-address isolation. Runners: one against the in-memory counter, and `cloudflare-rate-limiter.contract.test.ts` (DO-storage fake — `@cloudflare/workers-types` is types-only; fidelity caveat recorded: local emulation does not reproduce production edge distribution; I-018-2 parity is asserted at the contract level, not edge-distribution level).
+- **T18.2-6 — `limiter-contract-suite.ts` + runners.** Export `describeRateLimiterContract(makeLimiter: () => Promise<RateLimiter>)` — scenario set: under-limit allow; at-limit deny; header-source fields present + internally consistent; a denial reports the window's `resetAt` and a check at exactly that instant is allowed, one a millisecond earlier refused; window expiry re-allow after refusals inside the window (a refusal is never recorded); per-address isolation. Runners: one against the in-memory counter on Node, and one in the Workers project T18.4-1 adds (`cloudflare-limiter.workers.test.ts`), against the real `RateLimitIdentityDO` under `workerd` rather than a storage fake, which would be code kept forever that proves less. Fidelity caveat: local `workerd` does not reproduce production edge distribution, so I-018-2 parity is asserted at the contract level, not the edge-distribution level. Both runners drive time by faking only `Date` with Vitest's fake timers, starting a day ahead of the real clock so no Durable Object alarm comes due mid-test; the fake clock reaches the Durable Object because the Workers project runs it in the test's own isolate.
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (the same limit — the parity proof), Spec-019 §Acceptance Criteria
   - **Verifies invariant:** I-018-2
   - **Consumes:** all Phase-2 tasks; the self-host relay node re-runs this suite (CP-018-2).
@@ -291,15 +296,15 @@ The phase builds on the shipped contracts package.
 
 #### Tasks
 
-- **T18.4-1 — AC-anchored integration verification (`packages/control-plane/src/rate-limit/__tests__/` (CREATE)).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 with `Retry-After` per formula, and the first request after the window frees → allowed; (2) in the Workers test project this task adds, 21 `auth.endpoint` requests from one address split across two simulated edge locations → the 21st refused; (3) a counter error fails that one request, and the next request is counted.
-  - **Files:** `packages/control-plane/vitest.config.ts` (EXTEND — its one node project becomes two Vitest `projects`: the node project, and a Workers project, a `defineProject` carrying the `cloudflareTest()` plugin from `@cloudflare/vitest-plugin` with `wrangler: { configPath: "./wrangler.toml" }`, so row (2) runs in `workerd` with the `RATE_LIMIT_IDENTITY` Durable Object binding Phase 2 declares; the node project excludes the files the Workers project includes, so each row runs in one project only), `packages/control-plane/package.json` (EXTEND — `@cloudflare/vitest-plugin` as a devDependency). The plugin is Cloudflare's own Vitest integration for Workers and replaces `@cloudflare/vitest-pool-workers`; it requires Vitest 4.1 or later, which the workspace's testing catalog meets, and it runs the test inside the Workers runtime against the Worker's own bindings, which a node project cannot.
+- **T18.4-1 — AC-anchored integration verification (`packages/control-plane/src/middleware/__tests__/`, beside the middleware's own tests: rows (1) and (3) in `rate-limit.test.ts` on Node, row (2) in `rate-limit.workers.test.ts`).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 with `Retry-After` per formula, and the first request after the window frees → allowed; (2) in the Workers test project this task adds, 21 `auth.endpoint` requests from one address split across two simulated edge locations → the 21st refused; (3) a counter error fails that one request, and the next request is counted.
+  - **Files:** `packages/control-plane/vitest.config.ts` (EXTEND — its one node project becomes two Vitest `projects`: the node project, and a Workers project, a `defineProject` carrying the `cloudflareTest()` plugin from `@cloudflare/vitest-plugin` with `wrangler: { configPath: "./wrangler.toml" }`, so row (2) runs in `workerd` with the `RATE_LIMIT_IDENTITY` Durable Object binding Phase 2 declares; a test named `*.workers.test.ts` runs in the Workers project and the node project excludes it, so each row runs in one project only), `packages/control-plane/package.json` (EXTEND — `@cloudflare/vitest-plugin` and `@cloudflare/workers-types` as devDependencies). The plugin is Cloudflare's own Vitest integration for Workers and replaces `@cloudflare/vitest-pool-workers`; it requires Vitest 4.1 or later, which the workspace's testing catalog meets, and it runs the test inside the Workers runtime against the Worker's own bindings, which a node project cannot ([Cloudflare: Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/); [Testing Durable Objects](https://developers.cloudflare.com/durable-objects/examples/testing-with-durable-objects/)). The existing request-gate test moves to the Workers project as `request-gates.workers.test.ts`: `server/host.ts` now loads the DO class, which imports `cloudflare:workers`, a module Node cannot load. The runtime types come from `@cloudflare/workers-types` in the package's `tsconfig.json` `types`, beside `node`, rather than from a `wrangler types` file: Cloudflare recommends the package for libraries and shared packages, and this package is both the Worker and the limiter library the Node relay imports, while `wrangler types` would add a generated declaration file of many thousands of lines to commit or regenerate before every typecheck.
   - **Spec coverage:** Spec-019 §Acceptance Criteria, Spec-019 §Fallback Behavior, Spec-019 §Example Flows (the auth-endpoint example)
   - **Verifies invariant:** I-018-1
   - **Consumes:** all prior phases.
 
 ## Parallelization Notes
 
-- Phase 1 lands first; T18.1-1 is the root contract; T18.1-2/-5 (doc parity verification) and T18.1-4 follow it in parallel.
+- Phase 1 lands first; T18.1-1 is the root contract; T18.1-2/-3 (doc parity verification) and T18.1-4 follow it in parallel.
 - Phase 2: T18.2-1 first; then T18.2-2 (the DO) and T18.2-4 (the in-memory counter) in parallel; T18.2-3 after T18.2-2; T18.2-5 after the limiters; T18.2-6 last (drives everything).
 - Phase 3: T18.3-1 → T18.3-2; T18.3-3 after both.
 - Phase 4: T18.4-1.
@@ -309,9 +314,9 @@ The phase builds on the shipped contracts package.
 The per-task test obligations live in each `#### Tasks` row above. Summary by layer:
 
 - **Unit (`packages/control-plane/src/rate-limit/__tests__/`, `src/middleware/__tests__/`):** factory rows; DO single-alarm re-arm, restart persistence, full-expiry eviction and the counter; the in-memory counter's window expiry; pipeline rows; middleware address and header rows.
-- **Contracts (`packages/contracts/src/__tests__/`):** full envelope acceptance / rejection of an envelope missing a field or half-timed (T18.1-4). The registry-key union snapshot runs with the control plane's rate-limit tests (T18.1-4).
+- **Contracts (`packages/contracts/src/__tests__/`):** full envelope acceptance / rejection of an envelope missing a field or half-timed (T18.1-4). The registry-key union is held by the registry table's type, which `tsc` checks (T18.1-4).
 - **Contract parity suite (`limiter-contract-suite.ts`):** the I-018-2 proof, run against both implementations in CI and re-run by the self-host relay node (T18.2-6; CP-018-2).
-- **Integration (`packages/control-plane/src/rate-limit/__tests__/`):** the AC-anchored rows of T18.4-1.
+- **Integration (`packages/control-plane/src/middleware/__tests__/`):** the AC-anchored rows of T18.4-1, through a real tRPC fetch handler over the real counters.
 - **Structural:** the daemon's import boundary is an ESLint `no-restricted-imports` rule (T18.3-3), checked by `pnpm lint`; no test parses sources for it.
 
 ## Rollout Order
@@ -341,7 +346,7 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 - `rateLimitProcedure` is wired on the sign-in, token-refresh and device-linking procedures, and on nothing else.
 - A counter error fails only the request it occurred on.
 - 429s include `Retry-After` computed as `max(0, ceil((resetAt - now) / 1000))`; allowed responses carry no rate-limit header.
-- api-payload-contracts.md parity verified against the typed exports (`RateLimitResponse`, timing pair required; `RateLimitCheckRequest`; `RateLimitCheckResponse`; `ErrorNamespace` + `ratelimit`; T18.1-2 lands only drift fixes), and every code the implementation emits resolves to a registered error-contracts.md row (T18.1-3).
+- api-payload-contracts.md parity verified against the typed exports (`RateLimitResponse`, timing pair required; `RateLimitCheckRequest`; `RateLimitCheckResponse`; T18.1-2 lands only drift fixes), and every code the implementation emits resolves to a registered error-contracts.md row (T18.1-3).
 - Local daemon IPC path is NOT rate-limited — enforced by the daemon's `no-restricted-imports` lint rule, not by review.
 
 ## Dependencies

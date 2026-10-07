@@ -244,13 +244,17 @@
     "packages/control-plane": {
       // The Cloudflare CLI: the worker is run with `wrangler dev` and published with
       // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
-      // Postgres client the control plane's stores are built on, and `@ai-sidekicks/contracts`
-      // holds the wire shapes those stores serve; neither is imported until the stores land.
+      // Postgres client the control plane's stores are built on, not imported until the stores
+      // land.
       "ignoreDependencies": [
         "wrangler",
         "pg",
         "@types/pg",
-        "@ai-sidekicks/contracts",
+        // Not a package: `cloudflare:workers` and `cloudflare:test` are modules the Workers runtime
+        // and its Vitest integration supply, the way Node supplies `node:` modules, and knip reads
+        // the `cloudflare:` scheme as an unlisted package named `cloudflare`. No package installs
+        // them, so this entry stays.
+        "cloudflare",
         // The push senders that present the person's own credentials: the signed headers of a
         // Web Push, a notice sent through Apple's push service, and the sign-in for Firebase's.
         "web-push",

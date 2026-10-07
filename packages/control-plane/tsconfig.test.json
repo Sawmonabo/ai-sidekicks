@@ -12,7 +12,9 @@
     "composite": false,
     "declaration": true,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": false,
+    // `cloudflare:test` and the `cloudflare:workers` env for the tests that run inside workerd.
+    "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules"]
