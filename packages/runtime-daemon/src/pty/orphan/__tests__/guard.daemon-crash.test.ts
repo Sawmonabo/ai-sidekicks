@@ -4,7 +4,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -25,6 +25,11 @@ const SOURCE_LOADER = new URL("tests/helpers/typescript-source-loader.mjs", PACK
 const moduleUrl = (relativePath: string): string => new URL(relativePath, import.meta.url).href;
 // Where a daemon killed inside its spawn writes the child's process id and nonce first.
 const SPAWNED_FILE_NAME = "spawned.json";
+// What the recorded shell writes once it ignores the hangup, so the daemon is killed only after.
+const HANGUP_IGNORED_FILE_NAME = "hangup-ignored";
+// The recorded shell: it ignores the hangup the terminal sends when the daemon dies, as a program
+// run with `nohup` does, says so, and runs on.
+const HANGUP_IGNORING_SHELL_COMMAND = `trap '' HUP; : > ${HANGUP_IGNORED_FILE_NAME}; while :; do sleep 1; done`;
 // Spawns killed inside the window: five, so the kill lands at several points of the spawn, then on
 // until one left a process the sweep killed. Each run checks that nothing of its spawn survives,
 // which also holds when the shell dies on the hangup by itself, so only the count of killed
@@ -42,8 +47,7 @@ const readProcessIdentity = createProcessIdentityReader({
 
 // The daemon's part: a guard over the data folder and a real host that starts one shell. With
 // `CRASH_IN_SPAWN` set, the daemon kills itself the moment `node-pty` has started the child,
-// before its process is recorded; otherwise the shell ignores the hangup the terminal sends when
-// the daemon dies, as a program run with `nohup` does.
+// before its process is recorded; otherwise it starts the shell that ignores the hangup.
 const DAEMON_SCRIPT = `
 import { writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -90,7 +94,10 @@ await new NodePtyHost(guard, { ptySpawn }).spawn({
   kind: "spawn_request",
   ...(isCrashingInSpawn
     ? { command: "/bin/zsh", args: ["-l"] }
-    : { command: "/bin/sh", args: ["-c", "trap '' HUP; while :; do sleep 1; done"] }),
+    : {
+        command: "/bin/sh",
+        args: ["-c", ${JSON.stringify(HANGUP_IGNORING_SHELL_COMMAND)}],
+      }),
   env: [["PATH", "/usr/bin:/bin"], ["HOME", dataFolder]],
   cwd: dataFolder,
   rows: 24,
@@ -168,9 +175,11 @@ describe.skipIf(process.platform !== "darwin")("the orphan sweep after a daemon 
     const { daemon, exit, output } = startDaemon(dataFolder, false);
     let shellProcessId: number | undefined;
     try {
+      // Ready comes once the spawn returns, which can be before the shell has run its first line.
       await vi.waitFor(
-        () => {
+        async () => {
           expect(output()).toContain("ready");
+          await access(path.join(dataFolder, HANGUP_IGNORED_FILE_NAME));
         },
         { timeout: 20_000, interval: 50 },
       );
