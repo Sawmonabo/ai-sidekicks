@@ -72,7 +72,7 @@ function isBrokenPipe(error: unknown): boolean {
 /**
  * The exit code for a failed run, from its error's class: a refusal, an unreachable service, a
  * closed output pipe, a daemon error code, or else a software error. Throws
- * {@link UnmappedExitCodeError} for a daemon code with no exit code.
+ * `UnmappedExitCodeError` for a daemon code with no exit code.
  */
 export function exitCodeForFailure(error: unknown): ExitCode {
   if (error instanceof CommanderError) {

@@ -43,7 +43,7 @@ export class JsonRpcTransportUnavailableError extends Error {
  */
 export class JsonRpcTransportPeerClosedError extends Error {
   public constructor() {
-    super("the background service ended it");
+    super("the service ended it");
     this.name = "JsonRpcTransportPeerClosedError";
   }
 }
