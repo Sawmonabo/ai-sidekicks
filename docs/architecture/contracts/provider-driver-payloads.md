@@ -673,9 +673,10 @@ interface SessionNoticeLevelUnavailable {
   level: PermissionLevel; // the level it left
 }
 
-// session.notice of kind `provider_updated`: the provider's installed build changed under the
-// running session. It draws the banner under the header and no flow row; the running turn is
-// untouched until the session restarts.
+// session.notice of kind `provider_updated`: the session moved to the provider's new build, its
+// process or service replaced and its conversation resumed when its running reply ended, or at once
+// while it was idle. It draws the faint line `<Provider> updated · <old version> → <new version>`
+// above the composer until the next message is sent, and no flow row.
 interface SessionNoticeProviderUpdated {
   sessionId: SessionId;
   kind: "provider_updated";
@@ -686,8 +687,8 @@ interface SessionNoticeProviderUpdated {
 
 // session.notice of kind `provider_restarted`: a provider process that ended on its own under the
 // session is running again, restarted by the daemon or by the person's `Restart`. One flow row,
-// `Restarted · Claude Code is back` (`Restarted · Codex is back` on Codex). A restart after a
-// provider update writes none; the daemon's automatic restart of a shared Codex service writes it
+// `Restarted · Claude Code is back` (`Restarted · Codex is back` on Codex). A move to an updated
+// build writes none; the daemon's automatic restart of a shared Codex service writes it
 // only to the sessions whose running turn the crash ended, and the person's `Restart` of a service
 // left down writes it to every session that showed the banner.
 interface SessionNoticeProviderRestarted {
