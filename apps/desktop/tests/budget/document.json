@@ -14,7 +14,7 @@
   },
   "measurementProtocol": {
     "deterministic": "Heap at rest, steady heap, and first-transcript-row latency against the fixture's frozen clock gate on any runner.",
-    "hardwareDependent": "Frame time and CPU are measured from the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock, ten warm-up seconds discarded, the metric taken as the median of three runs, on the pinned CI runner class the desktop workflow names by label, with thresholds calibrated on that class at first landing with 25 % headroom and one automatic re-run before a failure counts.",
+    "hardwareDependent": "Frame time, scrolling and CPU are measured from the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock, ten warm-up seconds discarded, the metric taken as the median of three runs, on the pinned CI runner class the desktop workflow names by label, with thresholds calibrated on that class at first landing with 25 % headroom and one automatic re-run before a failure counts. A threshold in refreshes is compared against one refresh of the runner's own display, as `referenceProfile` states.",
     "referenceProfile": "The `limit` figures are the product targets on the laptop-class reference profile — eight cores, integrated GPU, one 120 Hz display. A limit stated in refreshes is compared against one refresh of the display the reading was taken on (`unitConventions.refresh`), so a 60 Hz runner and a 120 Hz laptop compare against the same figure. The runner-calibrated thresholds are stated apart from them, so a runner regression and a product regression stay distinguishable."
   },
   "budgets": [
@@ -40,7 +40,7 @@
     {
       "id": "scrolling-four-lanes",
       "label": "Scrolling, four lanes streaming",
-      "subject": "The frames the window presents while a trackpad fling with its momentum moves the frame's screen region, the composer draft's box, Review's diff pane and the command palette's list, read from a DevTools trace of the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock. Each gesture starts once four lanes are mid-turn, and the harness reads the peak number of runs mid-turn during the gesture off the scenario's beats and fails when it is not one lane per attached agent.",
+      "subject": "The frames the window presents while a trackpad fling with its momentum moves the frame's screen region on the Settings › Keyboard page, the longest screen, where the streaming session is open in the store but not on screen, the composer draft's box, Review's diff pane and the command palette's list, the last three over the streaming session, read from a DevTools trace of the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock. Each gesture starts once four lanes are mid-turn, and the harness reads the peak number of runs mid-turn during the gesture off the scenario's beats and fails when it is not one lane per attached agent.",
       "specTarget": "a trackpad fling with its momentum, on every scroller but the conversation, on the reference machine: while it moves the content, p95 ≤ one refresh between presented frames (8.4 ms at 120 Hz); and every scroll's scroller is found on the compositor, with no main-thread hit test",
       "limit": {
         "comparison": "<=",
@@ -59,7 +59,7 @@
     {
       "id": "scrolling-input-to-frame-four-lanes",
       "label": "Scroll input to frame, four lanes streaming",
-      "subject": "The time from a scroll input reaching the renderer to the submit of the frame that draws the content it moved, through a trackpad fling with its momentum and a wheel scroll on the frame's screen region, the composer draft's box, Review's diff pane and the command palette's list, read from the same DevTools traces as `scrolling-four-lanes`, with the same four lanes mid-turn.",
+      "subject": "The time from a scroll input reaching the renderer to the submit of the frame that draws the content it moved, through a trackpad fling with its momentum and a wheel scroll on the frame's screen region on the Settings › Keyboard page, the composer draft's box, Review's diff pane and the command palette's list, read from the same DevTools traces as `scrolling-four-lanes`, with the same four lanes mid-turn.",
       "specTarget": "a trackpad fling with its momentum and a wheel scroll, on every scroller but the conversation, on the reference machine: each scroll input that moves the content is submitted in a frame within two refreshes (16.7 ms at 120 Hz) of reaching the renderer",
       "limit": {
         "comparison": "<=",

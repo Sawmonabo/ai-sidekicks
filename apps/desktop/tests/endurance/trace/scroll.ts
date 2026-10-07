@@ -13,6 +13,10 @@
 // A gesture's scroller is found by the compositor's own hit test unless that test cannot be
 // trusted, as under a rounded clip, when the compositor asks the main thread to find it and the
 // gesture waits for that answer before it moves anything (`PostingHitTestToMainThread`).
+//
+// A frame the compositor presented without the main thread's update for it
+// (`STATE_PRESENTED_PARTIAL`) moved the content on its own: whatever the main thread places as the
+// content scrolls, such as an overlay bar's track, is drawn where it stood a frame before.
 
 import type { TraceEvent } from "./recording.js";
 import { readRefreshIntervalMs } from "./refresh.js";
@@ -26,6 +30,10 @@ export interface ScrollReading {
   readonly refreshIntervalMs: number;
   /** The gaps between presented frames while the gesture moved the content, in whole refreshes. */
   readonly presentedFrameGapsInRefreshes: readonly number[];
+  /** Frames presented while the gesture moved the content, one per presentation. */
+  readonly presentedFrameCount: number;
+  /** Of those, the frames presented without the main thread's update for them. */
+  readonly mainThreadMissedFrameCount: number;
   readonly movingUpdateCount: number;
   /** Updates with no frame of their own: they moved nothing, or Chromium merged them into the next. */
   readonly stillUpdateCount: number;
@@ -63,6 +71,8 @@ interface TraceSpan {
 interface SubmittedFrame {
   readonly submittedUs: number;
   readonly presentedAtUs: number | undefined;
+  /** Whether it was presented without the main thread's update for it. */
+  readonly isMissingMainThreadUpdate: boolean;
 }
 
 const SCROLL_UPDATE_TYPES: ReadonlySet<string> = new Set([
@@ -71,9 +81,12 @@ const SCROLL_UPDATE_TYPES: ReadonlySet<string> = new Set([
   "INERTIAL_GESTURE_SCROLL_UPDATE",
 ]);
 
+/** Chromium's state for a frame presented without the main thread's update for it. */
+const PRESENTED_WITHOUT_MAIN_THREAD_STATE = "STATE_PRESENTED_PARTIAL";
+
 const PRESENTED_FRAME_STATES: ReadonlySet<string> = new Set([
   "STATE_PRESENTED_ALL",
-  "STATE_PRESENTED_PARTIAL",
+  PRESENTED_WITHOUT_MAIN_THREAD_STATE,
 ]);
 
 /** Chromium's damage type for a scroll frame that moved the content. */
@@ -157,6 +170,7 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     const frame: SubmittedFrame = {
       submittedUs,
       presentedAtUs: PRESENTED_FRAME_STATES.has(String(report["state"])) ? end.ts : undefined,
+      isMissingMainThreadUpdate: report["state"] === PRESENTED_WITHOUT_MAIN_THREAD_STATE,
     };
     frames.push(frame);
     frameByDisplayTraceId.set(String(report["display_trace_id"]), frame);
@@ -196,16 +210,21 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
 
   const firstDrawnUs = Math.min(...drawnPresentationsUs);
   const lastDrawnUs = Math.max(...drawnPresentationsUs);
+  const framesWhileMoving = frames.filter(
+    (frame) =>
+      frame.presentedAtUs !== undefined &&
+      frame.presentedAtUs >= firstDrawnUs &&
+      frame.presentedAtUs <= lastDrawnUs,
+  );
   const presentationsUs = [
-    ...new Set(
-      frames
-        .map((frame) => frame.presentedAtUs)
-        .filter(
-          (atUs): atUs is number =>
-            atUs !== undefined && atUs >= firstDrawnUs && atUs <= lastDrawnUs,
-        ),
-    ),
+    ...new Set(framesWhileMoving.map((frame) => frame.presentedAtUs ?? firstDrawnUs)),
   ].sort((left, right) => left - right);
+  // A presentation whose every report lacks the main thread's update moved the content alone.
+  const mainThreadMissedFrameCount = presentationsUs.filter((atUs) =>
+    framesWhileMoving
+      .filter((frame) => frame.presentedAtUs === atUs)
+      .every((frame) => frame.isMissingMainThreadUpdate),
+  ).length;
   // Presentation stamps land a few microseconds either side of a vsync, so each gap is counted in
   // the whole refreshes it spans.
   const presentedFrameGapsInRefreshes = presentationsUs
@@ -219,6 +238,8 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
   return {
     refreshIntervalMs,
     presentedFrameGapsInRefreshes,
+    presentedFrameCount: presentationsUs.length,
+    mainThreadMissedFrameCount,
     movingUpdateCount,
     stillUpdateCount,
     undrawnUpdates,

@@ -150,10 +150,13 @@ const BLURRING_LAYER_COUNT = 48;
 const FOUR_LANE_BEAT_COUNT: number = firstFourLaneBeatCount();
 
 const SCREEN_REGION: ScrollHost = {
-  name: "the screen region",
+  name: "the screen region on Settings › Keyboard",
   scrollerSelector: ".meridian-frame__screen",
   open: async (appUnderTest) => {
-    // The keyboard page's list is the settings page that runs longest.
+    // The keyboard page's list is the settings page that runs longest. The session screen's own
+    // region never overflows, its panes scrolling inside it, so the screen region is measured
+    // here, with the streaming session open in the store but not on screen; the other hosts
+    // scroll over the streaming session.
     await openRoute(
       appUnderTest,
       formatRoute({ kind: "settings", page: "keyboard" }),
@@ -243,6 +246,8 @@ describe.skipIf(!bundleIsBuilt)(
             runSummaries.push(
               `${gesture} ${String(runIndex)}: ${String(reading.movingUpdateCount)} moving, ` +
                 `${String(reading.stillUpdateCount)} still, ` +
+                `${String(reading.mainThreadMissedFrameCount)} of ` +
+                `${String(reading.presentedFrameCount)} frames without the main thread's update, ` +
                 `${String(reading.gestureCount - reading.mainThreadHitTestCount)} of ` +
                 `${String(reading.gestureCount)} gestures found on the compositor, input to ` +
                 `submit up to ${reading.slowestInputToSubmit.durationMs.toFixed(2)} ms`,
