@@ -16,27 +16,20 @@ import { crossMacrotaskBoundary } from "../macrotask-boundary.js";
 import { paneRegistry } from "#renderer/registries/panes/registry.js";
 import { screenRegistry } from "#renderer/registries/screens/registry.js";
 
-/**
- * Loads every deferred body the process-wide pane and screen registries hold.
- *
- * The mount does this, not the tier: a loader-backed body arrives on its own chunk, which a
- * dynamic import can take longer than the one macrotask a render settle crosses, so a tier at a
- * deferred address would read or audit the reserved region. A feature mount builds its own
- * registry and resolves one body through `accessibility/feature-mounts/pane-body-resolution.ts`.
- *
- * It walks every registered key, not the unloaded ones: mounting is itself an ask, so a tier
- * mounting at a lazy address has React call that loader during the initial render and the key has
- * already left `unloadedKeys()`. `preload` settles at once for a body in hand and joins the
- * in-flight promise for one still arriving.
- */
-async function loadRegisteredBodies(): Promise<void> {
-  await Promise.all([
-    ...paneRegistry.registeredPaneKinds().map(async (kind) => paneRegistry.preload(kind)),
-    ...screenRegistry
-      .registeredScreenNames()
-      .map(async (screenName) => screenRegistry.preload(screenName)),
-  ]);
-}
+// Every deferred body the process-wide pane and screen registries hold loads here, while the
+// suite's modules load, so a mount finds each in hand. A loader-backed body arrives on its own
+// chunk, which a dynamic import can take longer than the one macrotask a render settle crosses, so
+// a tier at a deferred address would read or audit the reserved region; and on a loaded machine
+// the chunks take seconds to transform, which inside a test would count against its timeout. The
+// registries are full by now: importing `AppProviders` composed every feature into them. A feature
+// mount builds its own registry and resolves one body through
+// `accessibility/feature-mounts/pane-body-resolution.ts`.
+await Promise.all([
+  ...paneRegistry.registeredPaneKinds().map(async (kind) => paneRegistry.preload(kind)),
+  ...screenRegistry
+    .registeredScreenNames()
+    .map(async (screenName) => screenRegistry.preload(screenName)),
+]);
 
 /**
  * What a mounted app hands back.
@@ -73,11 +66,6 @@ export async function renderSettled(element: ReactElement): Promise<AppMount> {
   await act(async () => {
     render(element, { container });
     await crossMacrotaskBoundary();
-    // After the first settle: a registry is populated by the feature modules an importer pulled
-    // in, and deferred bodies are worth loading only once something has mounted against them.
-    // Nothing follows the join: it awaits every registration's own promise, so the wait is the
-    // join, and `act` flushes the reveal those settlements schedule when this scope closes.
-    await loadRegisteredBodies();
   });
   return { container };
 }
