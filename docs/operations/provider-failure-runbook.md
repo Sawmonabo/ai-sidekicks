@@ -27,7 +27,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 1. Identify whether the failure is startup, active-run, capability-refresh, or resume-related.
 2. Turn off `Available for new sessions` for the affected provider on Settings › Providers until the failure is understood.
-3. If the failure is recovery-related, press `Check again` on Settings › Providers to read the provider again, then `Restart` on a session that shows its provider ended; the daemon resumes that session's conversation. When a Codex service dies, the daemon restarts it at once and resumes its conversations; after three deaths within five minutes it leaves the service down, and each of its sessions shows that the provider ended, with `Restart`.
+3. If the failure is recovery-related, press `Check again` on Settings › Providers to read the provider again, then `Restart` on a session that shows its provider ended; the daemon resumes that session's conversation. When a Claude Code process or a Codex service dies, the daemon restarts it at once and then on waits that double from 1 second, resuming a service's conversations: a session whose running turn the crash ended reads `Turn ended` then `Restarted · <provider> is back`, an idle Claude Code session reads `Restarted · Claude Code is back` alone, and an idle session on a Codex service shows nothing. After five crashes within three minutes it leaves it down, and each of its sessions shows that the provider ended, with `Restart`; on a Codex service one `Restart` brings it back for every session on it, each reading `Restarted · Codex is back`, and only the session where it was pressed sends its waiting messages, the others' waiting until the person sends them there.
 4. If resume is impossible or the restart fails, mark affected runs as `failed` with `provider failure` detail and visible `recovery-needed` condition rather than silently recreating sessions.
 5. Turn `Available for new sessions` back on only after a known-good test run, sent in a session already on that provider, starts, streams events, and reaches a terminal or valid blocking state normally.
 
@@ -106,7 +106,7 @@ A provider is read and checked again on Settings › Providers, and a run is rea
 | Threshold | Value |
 | --- | --- |
 | Providers' own retries | Claude Code retries a rate limit or an overload ten times over about three minutes; Codex retries a transport error; neither retries a plan limit |
-| Codex service restart | At once; after three deaths within five minutes it stays down until `Restart` |
+| Provider process restart (a Claude Code process or a Codex service) | At once, then waits that double from 1 second; after five crashes within three minutes it stays down until `Restart` |
 | Capability refresh latency | < 5s |
 
 ## Who Runs It And Where To Report
