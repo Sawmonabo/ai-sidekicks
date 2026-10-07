@@ -5,7 +5,7 @@
 import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
 import { describe, expect, it } from "vitest";
 
-import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/account-plane-sentences.js";
+import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/provider-accounts/sentences.js";
 import { accountAdvisoriesFor } from "./advisories.js";
 import type { AccountChoice } from "./axis.js";
 import { OBSERVED_AT, registryAccountId } from "./reading.test-support.js";

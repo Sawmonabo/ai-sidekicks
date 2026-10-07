@@ -23,7 +23,7 @@ import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import { subscribeToSessionEventKinds } from "#renderer/store/session/events/signal.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import type { DriverCatalogReading } from "./binding/driver-catalog.js";
+import type { DriverCatalogReading } from "#renderer/lib/provider-binding/driver-catalog.js";
 
 /**
  * The events the agent list refreshes on: a provider switch landing, or failing after

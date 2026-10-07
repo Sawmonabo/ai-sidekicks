@@ -8,8 +8,8 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import {
   ACCOUNT_LIST_READ_WORDS,
   ACCOUNT_PLANE_REMEDY_SENTENCES,
-} from "#renderer/lib/account-plane-sentences.js";
-import type { AccountAxisReading } from "../axis.js";
+} from "#renderer/lib/provider-accounts/sentences.js";
+import type { AccountAxisReading } from "#renderer/lib/provider-binding/account/axis.js";
 
 /** What the empty state shows, and how it asks for a fresh read. */
 export interface AccountChoiceEmptyStateProps {

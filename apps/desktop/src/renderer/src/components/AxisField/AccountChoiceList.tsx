@@ -5,8 +5,8 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 
-import { OverlayComboboxPopup } from "#renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
-import type { AccountAxisReading } from "../axis.js";
+import { OverlayComboboxPopup } from "../OverlayPopups/OverlayComboboxPopup.js";
+import type { AccountAxisReading } from "#renderer/lib/provider-binding/account/axis.js";
 
 /** What the account picker reads, and the id of the label that names its trigger. */
 export interface AccountChoiceListProps {

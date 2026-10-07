@@ -22,7 +22,10 @@ import type {
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 
-import { listedAccount, type ListedProviderAccount } from "./listing.js";
+import {
+  listedAccount,
+  type ListedProviderAccount,
+} from "#renderer/lib/provider-accounts/listing.js";
 
 /** One provider account's quota in one limit window, as a view renders it. */
 export interface ProviderQuotaReading {

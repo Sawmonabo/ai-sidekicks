@@ -1,8 +1,5 @@
 // The Agents pane body as the registry loads it. Loader-backed, so the cards and their sheets
-// stay off the initial import graph. The axis field's sheet styles components in `binding/` and
-// `binding/account/`, so the chunk root loads it.
-
-import "../binding/components/axis-field.css";
+// stay off the initial import graph.
 
 import { createElement } from "react";
 
