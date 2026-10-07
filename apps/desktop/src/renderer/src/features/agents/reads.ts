@@ -1,4 +1,4 @@
-// The three reads behind the Agents pane and what refreshes each one. How long a read
+// The two reads behind the Agents pane and what refreshes each one. How long a read
 // lives is `pane/models.ts`'s concern. The clock is the caller's: no factory
 // reads one of its own, so the scenario clock drives every debounce.
 
@@ -13,17 +13,12 @@ import type {
   ChildRunLinkReadResponse,
 } from "@ai-sidekicks/contracts/orchestration";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Clock } from "#renderer/lib/clock.js";
-import { callDaemon } from "#renderer/services/daemon/reply.js";
-import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
 import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import { subscribeToSessionEventKinds } from "#renderer/store/session/events/signal.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import type { DriverCatalogReading } from "./binding/driver-catalog.js";
 
 /**
  * The events the agent list refreshes on: a provider switch landing, or failing after
@@ -45,8 +40,6 @@ const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
 
 /** Names the agent-list read in a refusal, so a failed read says which read failed. */
 export const AGENT_LIST_ORIGIN = "agent-list";
-/** Names the driver catalog read in a refusal. */
-export const DRIVER_CATALOG_ORIGIN = "driver-catalog";
 /** Names the child-run links read in a refusal. */
 export const CHILD_RUN_LINKS_ORIGIN = "child-run-links";
 
@@ -72,8 +65,6 @@ export interface AgentsPaneCalls {
 
 /** The agent-list read. */
 export type AgentListRead = PushDrivenRead<AgentListReading>;
-/** The driver catalog read. */
-export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
 /** The child-run links read. */
 export type ChildRunLinksRead = PushDrivenRead<ChildRunLinkReadResponse>;
 
@@ -89,36 +80,6 @@ export function createAgentList(
     read: async () => await listAgents({ sessionId: heldIdAsWireId(sessionStore.sessionId) }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, AGENT_LIST_EVENT_KINDS, onChangeSignal),
-  });
-}
-
-/**
- * Both driver catalogs, read together. The model catalog is per session; the capability
- * flags belong to the drivers and take no session.
- *
- * @consumedBy the agent definition editor's provider, model and effort pickers
- */
-export function createDriverCatalogRead(
-  bridge: PlatformBridge,
-  clock: Clock,
-  sessionId: SessionId,
-): DriverCatalogRead {
-  return new PushDrivenRead<DriverCatalogReading>({
-    clock,
-    origin: DRIVER_CATALOG_ORIGIN,
-    read: async (signal: AbortSignal) => {
-      const [modelsReply, capabilitiesReply] = await Promise.all([
-        callDaemon(bridge, "driver.listModels", { sessionId }, { signal }),
-        callDaemon(bridge, "driver.listCapabilities", {}, { signal }),
-      ]);
-      return {
-        models: unwrapDaemonReply(modelsReply),
-        capabilities: unwrapDaemonReply(capabilitiesReply),
-      };
-    },
-    // Nothing on the wire announces that a provider's catalog moved, so the read runs once
-    // and never re-arms.
-    subscribe: () => () => undefined,
   });
 }
 

@@ -305,7 +305,6 @@ function withoutSelectors(bans, ...liftedBans) {
  * components in several folders, and `main.tsx` for the global sheets.
  */
 const STYLESHEET_OWNER_FILES = [
-  "src/renderer/src/features/agents/pane/body.ts",
   "src/renderer/src/features/transcript/contributions/pane-body.ts",
   "src/renderer/src/main.tsx",
 ];

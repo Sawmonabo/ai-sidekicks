@@ -1,19 +1,21 @@
-// A modal's backdrop is airspace, and this proves each wrapper registers it. The visibility
-// predicate in `features/preview/geometry/pane.ts` hides a native view only where a
-// registered overlay rectangle overlaps the pane, so an unregistered full-viewport backdrop
-// would leave a web page painted over a modal.
+// A modal's backdrop and a combobox's list are airspace, and this proves each wrapper registers
+// it. The visibility predicate in `features/preview/geometry/pane.ts` hides a native view only
+// where a registered overlay rectangle overlaps the pane, so an unregistered backdrop or list
+// would leave a web page painted over it.
 //
 // Asserted through a mount, since only a mount sees the ref reach the rendered element and the
 // registration go away on close.
 
 import { render } from "@testing-library/react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
+import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 import { describe, expect, it } from "vitest";
 
 import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
 import { type AirspaceRect } from "#renderer/lib/airspace.js";
 import { OverlayAlertDialogPopup } from "./OverlayAlertDialogPopup.js";
+import { OverlayComboboxPopup } from "./OverlayComboboxPopup.js";
 import { OverlayDialogPopup } from "./OverlayDialogPopup.js";
 
 /** The class that lets each case find the backdrop again. */
@@ -84,5 +86,27 @@ describe("a modal overlay's airspace", () => {
     expect(registry.liveRects()).not.toContainEqual(VIEWPORT_RECT);
     mounted.unmount();
     expect(registry.registeredCount).toBe(before);
+  });
+});
+
+describe("a combobox list's airspace", () => {
+  it("OverlayComboboxPopup registers the list while open and releases it on close", () => {
+    const registry = airspaceRegistryFor(document);
+    const before = registry.registeredCount;
+    const combobox = (open: boolean): React.JSX.Element => (
+      <Combobox.Root items={["opus"]} open={open}>
+        <Combobox.Input aria-label="Model" />
+        <OverlayComboboxPopup className="popup">
+          <Combobox.List>
+            <Combobox.Item value="opus">opus</Combobox.Item>
+          </Combobox.List>
+        </OverlayComboboxPopup>
+      </Combobox.Root>
+    );
+    const mounted = render(combobox(true));
+    expect(registry.registeredCount).toBe(before + 1);
+    mounted.rerender(combobox(false));
+    expect(registry.registeredCount).toBe(before);
+    mounted.unmount();
   });
 });

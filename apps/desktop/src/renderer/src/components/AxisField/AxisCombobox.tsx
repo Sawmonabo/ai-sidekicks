@@ -3,9 +3,11 @@
 // A vocabulary that does not exist gets no control: a disabled one would assert the
 // capability exists but is momentarily unavailable, and the daemon refuses an unsettable axis.
 
+import "./AxisField.css";
+
 import { Combobox } from "@base-ui/react/combobox";
 
-import { OverlayComboboxPopup } from "../../components/OverlayComboboxPopup/OverlayComboboxPopup.js";
+import { OverlayComboboxPopup } from "../OverlayPopups/OverlayComboboxPopup.js";
 
 /** What the axis combobox shows and hands back. */
 export interface AxisComboboxProps {

@@ -1,4 +1,4 @@
-// What the capability suite builds its case from: a driver's report, the counting bridge that
+// What the capability suites build their cases from: a driver's report, the counting bridge that
 // answers it, and the probe that consumes the hook.
 
 import {
@@ -10,6 +10,9 @@ import type { Clock } from "#renderer/lib/clock.js";
 import type { PlatformBridge } from "../../platform/bridge.js";
 import { useDriverCapabilities } from "./useDriverCapabilities.js";
 import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
+
+/** One driver with no models: the model catalog every capability case is answered with. */
+const MODEL_CATALOG = { drivers: [{ driverName: "claude", models: [] }] };
 
 /** A bridge that answers capability reads and records every call. */
 export interface CountingBridge {
@@ -35,13 +38,16 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
 
 /**
  * The shipped fixture answering the capability read, and the record of every call. `answers` is
- * walked in order and the last one stands for every read after it. It uses the shared
- * `bridgeAnswering` so the engine's clock drives the scheduler, and `settleScheduledRead` works as
- * in every other suite.
+ * walked in order and the last one stands for every read after it; the model catalog read is
+ * answered with {@link MODEL_CATALOG}. It uses the shared `bridgeAnswering` so the engine's clock
+ * drives the scheduler, and `settleScheduledRead` works as in every other suite.
  */
 export function answeringCapabilityReads(...answers: readonly unknown[]): CountingBridge {
   let answered = 0;
   const { bridge, calls, engine } = bridgeAnswering(async ({ method }) => {
+    if (method === "driver.listModels") {
+      return MODEL_CATALOG;
+    }
     if (method !== "driver.listCapabilities") {
       return undefined;
     }

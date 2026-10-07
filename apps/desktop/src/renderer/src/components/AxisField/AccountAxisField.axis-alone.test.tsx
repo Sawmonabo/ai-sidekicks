@@ -7,8 +7,13 @@ import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
-import type { AccountRegistryReading } from "../axis.js";
-import { account, registryAccountId, resolvedTo, served } from "../reading.test-support.js";
+import type { AccountRegistryReading } from "#renderer/lib/provider-binding/account/axis.js";
+import {
+  account,
+  registryAccountId,
+  resolvedTo,
+  served,
+} from "#renderer/lib/provider-binding/account/reading.test-support.js";
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 
 /**

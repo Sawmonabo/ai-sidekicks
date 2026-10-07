@@ -4,7 +4,7 @@
 
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
-import { type ReadPhase } from "#renderer/lib/reads/phase.js";
+import { type RowsReadPhase } from "#renderer/lib/reads/rows-phase.js";
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {
@@ -19,7 +19,7 @@ const NO_RECORDS: PartitionedApprovals = { pending: [], history: [] };
  * exactly one list. Both lists are empty for any other phase, which is not an answer.
  */
 export function partitionApprovalRecords(
-  phase: ReadPhase<ApprovalProjectionRow>,
+  phase: RowsReadPhase<ApprovalProjectionRow>,
 ): PartitionedApprovals {
   if (phase.status !== "answered") {
     return NO_RECORDS;

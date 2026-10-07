@@ -7,8 +7,8 @@ import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import {
   BILLING_MODE_WORDS,
   PROVIDER_READINESS_STATE_WORDS,
-} from "#renderer/lib/account-plane-sentences.js";
-import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
+} from "#renderer/lib/provider-accounts/sentences.js";
+import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { observationAgeInDays } from "../../quota-rows.js";
 
 /**

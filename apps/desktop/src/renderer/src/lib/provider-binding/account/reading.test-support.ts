@@ -1,5 +1,5 @@
-// The registry reading the account axis's two model suites are driven with. Each fixture is
-// a function, so no case is handed an object a previous case held.
+// The registry reading the account axis's model suites and its field's suite are driven with.
+// Each fixture is a function, so no case is handed an object a previous case held.
 
 import type {
   ProviderAccount,
@@ -8,7 +8,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { AccountRegistryReading } from "./axis.js";
-import { listedAccount } from "#renderer/store/provider-accounts/listing.js";
+import { listedAccount } from "#renderer/lib/provider-accounts/listing.js";
 
 /** The instant every stored observation in these suites was taken at. */
 export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";

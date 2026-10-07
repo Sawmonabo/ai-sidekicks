@@ -3,15 +3,20 @@
 // and shown by its label, advisories are per account, and "nothing to choose" must say why. The
 // caller owns the registry reading; readiness is advisory and never a gate or a command.
 
+import "./AxisField.css";
+
 import { useId } from "react";
 
-import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "../advisories.js";
+import {
+  accountAdvisoriesFor,
+  unresolvedDefaultAdvisoryIn,
+} from "#renderer/lib/provider-binding/account/advisories.js";
 import {
   advisoryChoiceIn,
   accountAxisReadingFor,
   registryCarriesAccount,
   type AccountRegistryReading,
-} from "../axis.js";
+} from "#renderer/lib/provider-binding/account/axis.js";
 import { AccountChoiceEmptyState } from "./AccountChoiceEmptyState.js";
 import { AccountChoiceList } from "./AccountChoiceList.js";
 

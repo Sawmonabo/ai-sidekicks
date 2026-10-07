@@ -5,7 +5,7 @@ import type { RememberedRule } from "@ai-sidekicks/contracts/approval";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RememberedRules } from "./RememberedRules.js";
-import { type ReadPhase } from "#renderer/lib/reads/phase.js";
+import { type RowsReadPhase } from "#renderer/lib/reads/rows-phase.js";
 
 /**
  * One standing-permission list, rendered for the phase its read is in.
@@ -27,7 +27,7 @@ export function RulesSection(props: RulesSectionProps): React.JSX.Element {
 }
 
 interface RulesSectionProps {
-  readonly phase: ReadPhase<RememberedRule>;
+  readonly phase: RowsReadPhase<RememberedRule>;
   readonly revokingRuleIds: ReadonlySet<string>;
   readonly onRevoke: (ruleId: string) => void;
 }

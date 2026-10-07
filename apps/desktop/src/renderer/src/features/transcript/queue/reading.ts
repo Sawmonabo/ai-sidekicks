@@ -20,7 +20,7 @@ import { QueueOrder } from "./order.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
-import { type WireReadPhase, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
+import { type WireReadPhase, type WireReadState } from "#renderer/lib/reads/wire-state.js";
 
 /**
  * Reads one session's whole queue at one moment, in the daemon's canonical order.

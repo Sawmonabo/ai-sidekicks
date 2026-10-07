@@ -22,10 +22,10 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
+import type { ListedProviderAccount } from "#renderer/lib/provider-accounts/listing.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/account-plane-sentences.js";
+import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
 import { AccountRow } from "./components/Account/AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
