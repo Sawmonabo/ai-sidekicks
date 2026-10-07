@@ -37,7 +37,7 @@ How should the daemon answer session search so that every query, a typed prefix 
 
 ### Trigger
 
-The FTS5 path misses the budget by up to 6.6 times on short prefixes and holds about 450 MiB more after a search than before it. The person ruled on Oct 7, 2026 that search moves off FTS5 to a dedicated index, with LanceDB measured against Tantivy first.
+The FTS5 path misses the budget by up to 6.6 times on short prefixes and holds about 450 MiB more after a search than before it. The person ruled on Oct 7, 2026 that search moves off FTS5 to a dedicated index.
 
 ---
 
@@ -170,7 +170,7 @@ Measured on an Apple M1 Pro (8 cores, 16 GB) under macOS 27.0, Oct 7, 2026, time
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | Tantivy probe at 1M and 10M | Primary research | Bare Rust release build, tantivy 0.26.2, tantivy-common 0.11.0, our scorer, collector and positioned-read directory; 5:11 to 5:12 PM, load 2.6 to 3.4: the latency table in §Thesis; every page identical to FTS5's at 1M and to a full scoring pass at 10M | Local probe, recorded here |
-| Tantivy memory with and without a memory map | Primary research | 4:59 PM, outside the lock, load 1.9 to 2.2, peak memory footprint: 1M 18.9 MiB with positioned reads, 10.3 MiB mapped; 10M 132.6 MiB and 44.5 MiB; `l` at 10M 4.05 against 3.45 ms p95. Memory at 10M includes 31 MiB of term dictionaries read when the index opens and about 8.5 bytes per row of kept columns | Local probe, recorded here |
+| Tantivy memory with and without a memory map | Primary research | 4:59 PM, outside the lock, load 1.9 to 2.2, peak memory footprint: 1M 18.9 MiB with positioned reads, 10.3 MiB mapped; 10M 132.6 MiB and 44.5 MiB; `l` at 10M 4.00 against 3.35 ms p95 in the same run. Memory at 10M includes 31 MiB of term dictionaries read when the index opens and about 8.5 bytes per row of kept columns | Local probe, recorded here |
 | Tantivy writes | Primary research | 5:12 to 5:13 PM, load 2.5 to 2.6: 60 messages per commit 92 µs per message without fsync; a durable commit 66.95 / 102.10 ms p50/p95 at 60 per commit and 65.01 / 108.20 ms at one; build 23.2 s at 1M and 299 s at 10M on four threads; 91.5 MiB at 1M and 905 MiB at 10M with no text stored | Local probe, recorded here |
 | FTS5 path on the session-directory build | Primary research | 5:04 PM and 5:33 PM through the search thread and four rankers: the table in §Context; `l` 322.1 / 329.8 ms, `lo` 210.9 / 224.5 ms; 153 MiB idle to 603 MiB after the set | Local probe, recorded here |
 | FTS5 one-character prefix index | Primary research | 5:13 PM: counting `l*` 45.3 to 32.2 ms, ranking all 915,157 rows 606 to 573 ms, for 43.5 MiB more disk | Local probe, recorded here |
