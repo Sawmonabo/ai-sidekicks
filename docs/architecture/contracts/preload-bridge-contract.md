@@ -93,6 +93,8 @@ interface PlatformBridge {
     getNotificationPermission(): Promise<NotificationPermission>;
     // one clipboard write: a plain line, or the text with a formatted flavor beside it (main's `clipboard.write`)
     copyToClipboard(content: { text: string; html?: string }): Promise<void>;
+    // the clipboard's plain text, read for a paste into a page on another machine (main's `clipboard.readText`)
+    readClipboardText(): Promise<string>;
     // a file or folder shown in the platform's file manager
     revealInFileExplorer(path: FilePathRef): Promise<void>;
   };
@@ -170,6 +172,8 @@ interface PlatformBridge {
     read(): Promise<KeyboardMapReading>;
     // the whole map, written atomically; answered with the map as stored
     write(map: KeyboardMap): Promise<KeyboardMap>;
+    // each key a row of the installed application menu holds, with that row's label and its menu's, so a rebind onto one is refused
+    readMenuKeys(): Promise<MenuKey[]>;
   };
 
   // auto-update — renderer observes state; main process drives
