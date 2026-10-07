@@ -4,7 +4,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 ## Plan-013 — Multi-Agent Orchestration
 
-Contracts per D-013-1..20. Canonical TypeScript source once shipped: `packages/contracts/src/orchestration.ts` (single file). `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (orchestration and agent authority is daemon-local, ADR-001/ADR-003 posture).
+Contracts per D-013-1..20. Canonical TypeScript source: the topic modules [Plan-013 D-013-1](../../plans/013-multi-agent-orchestration.md#design-decisions) names, `packages/contracts/src/orchestration.ts` among them. `AgentId` is a new branded UUID (`brandedUuidIdSchema<AgentId>("AgentId")`). All mutations are daemon JSON-RPC (orchestration and agent authority is daemon-local, ADR-001/ADR-003 posture).
 
 ```ts
 interface OrchestrationRunConfig {
