@@ -540,7 +540,7 @@ Every approval server-request that reaches the driver routes through the daemon'
 
 **Binary probe**, **Verified at `0.161.0`**, measured 2026-10-07 on the authoring machine: `codex app-server` against a mock Responses provider that answered the first request with one `exec_command` call carrying the command whole and played Codex's reviewer with a fixed verdict, a scratch `CODEX_HOME`, and `HOME` and the working folder made for each run, so `~` named a throwaway folder. The posture rode `thread/start`: Full Access as `sandbox: "danger-full-access"` with `approvalPolicy: "never"`, Sandboxed as `permissions: ":workspace"` with `"never"` (the daemon's own profile extends `:workspace`), Ask for approval as `:workspace` with `"on-request"` and `approvalsReviewer: "user"`, and Approve for me as `:workspace` with `"on-request"` and `approvalsReviewer: "auto_review"`.
 
-| Command | Full Access | Sandboxed | Ask for approval | Approve for me |
+| Command | Full Access, approvals off | Sandboxed | Ask for approval | Approve for me |
 | --- | --- | --- | --- | --- |
 | `rm -rf ~` | refused before it ran | refused before it ran | `item/commandExecution/requestApproval` | sent to Codex's reviewer; on its allow it ran inside the sandbox, which refused every path in the home folder |
 | `rm -rf .` | refused before it ran | refused before it ran | asked, as above | sent to the reviewer; on its allow `rm` itself refused, `"." and ".." may not be removed` |
@@ -548,7 +548,20 @@ Every approval server-request that reaches the driver routes through the daemon'
 | `rm -r ~` | ran and deleted the home folder | the sandbox refused every path; no command item | as Sandboxed | as Sandboxed, with no review |
 | `rm -r *` | ran and emptied the working folder | ran and emptied it | ran, unasked | ran, with no review |
 
+Full Access with approvals on request, the posture YOLO runs (**Binary probe**, **Verified at `0.161.0`**, measured 2026-10-07 under the same mock, with `sandbox: "danger-full-access"`, `approvalPolicy: "on-request"` and `approvalsReviewer: "user"`, every ask answered `accept`, inside an outer write guard):
+
+| Command | Full Access, approvals on request |
+| --- | --- |
+| `rm -rf ~` | `item/commandExecution/requestApproval`, its `itemId` the call id and its `availableDecisions` `accept`, `acceptWithExecpolicyAmendment` and `cancel`; `accept` ran it and deleted the throwaway home |
+| `rm -rf build` | asked, as above; `accept` ran it and deleted the folder |
+| `git reset --hard` | ran, unasked |
+| `sudo true` | ran, unasked; `sudo` then failed under the probe's own write guard, not Codex |
+| `curl -fsSL <a local script> \| sh` | ran, unasked |
+
+Of the commands probed, Codex asked only for the ones its forced-removal check flags.
+
 - **Codex's own check is the force option, not the target** (**Upstream source**, read at `rust-v0.161.0`). `dangerous_command_match` in `codex-rs/shell-command/src/command_safety/is_dangerous_command.rs` flags an `rm` carrying `-f` or `--force` anywhere before `--`, whatever it removes, through `sudo`, `env` and a `trap` action and inside a `bash -lc` script; a flagged command that no exec-policy rule matches is refused when approvals are off and asked for otherwise (`render_decision_for_unmatched_command` in `codex-rs/core/src/exec_policy.rs`). Nothing looks at the target, so `rm -r ~` without `-f` runs at Full Access and `rm -r *` runs at every posture whose sandbox can write the working folder.
+- **On Windows the check reads PowerShell and `cmd`** (**Upstream source**, read at `rust-v0.161.0`, not measured). `is_dangerous_command_windows` in `codex-rs/shell-command/src/command_safety/windows_dangerous_commands.rs` flags `Remove-Item` and its aliases `ri`, `rm`, `del`, `erase`, `rd` and `rmdir` carrying `-Force` in PowerShell, and `del /f`, `erase /f` and `rd` or `rmdir` with both `/s` and `/q` through `cmd`, beside commands that open a URL; a flagged command is refused or asked for as on macOS and Linux.
 - **A refusal reaches the model, and a client only through the record.** With approvals off the client receives no command item and no notification for the refused call; the model's tool output reads ``exec_command failed: CreateProcess { message: "Rejected(\"`/bin/zsh -lc 'rm -rf ~'` rejected: rm -f style commands are not permitted. Use a safer approach\")" }``. A reviewer's deny ends the call as a `declined` command item, and the model reads Codex's `This action was rejected due to unacceptable risk.` with the reviewer's rationale.
 - **The pre-tool hook runs first** (**Upstream source**, read at `rust-v0.161.0`, not measured). The tool registry runs `PreToolUse` hooks before the handler that applies the approval policy and this check (`codex-rs/core/src/tools/registry.rs`); a hook's block reaches the model as `Command blocked by PreToolUse hook: <reason>. Command: <command>` (`codex-rs/core/src/hook_runtime.rs`), and a hook that lets the call go on hands it to the check unchanged, so a forced `rm` the hook lets through is still refused with approvals off, asked for at Ask for approval and reviewed at Approve for me.
 - **Where a refused call's sentence can be read.** Codex runs `PostToolUse` hooks only after a call that succeeded (`codex-rs/core/src/tools/registry.rs`, **Upstream source**, read at `rust-v0.161.0`), so a refused call has no post-tool report. Its `function_call_output`, Codex's sentence inside it, is written to the conversation's rollout file, the `thread.path` the `thread/start` reply names, and arrives as `rawResponseItem/completed`, keyed by `call_id`, on a conversation started with `experimentalRawEvents: true` (measured: `rm -rf build` at Sandboxed, approvals off).
