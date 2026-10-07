@@ -1,12 +1,14 @@
 // Splits the reveal engine's cumulative text into settled blocks and a volatile tail. Own-built
 // because re-parsing the whole message per token is quadratic: measured, a whole-message re-parse
 // costs 94.3 ms at 64 KB and grows linearly, while a 256 B-2 KB tail slice costs 0.30-1.31 ms.
-// The segmenter takes a snapshot, not a delta, so a card can re-render from a store read. A
-// settled block is a range of the snapshot, never a copy of its text, so a long reply is held once.
+// The segmenter takes the text, not a delta, so a card can re-render from a store read. It reads
+// the text through its handle, a line at a time from where it last committed, and a settled
+// block is a range of that text, never a copy of it, so a long reply is held once.
 
+import { type PublishedText } from "#renderer/features/transcript/reveal/published-text.js";
 import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-measures.js";
 
-/** Where one block sits in the snapshot it was cut from, in UTF-16 code units, end exclusive. */
+/** Where one block sits in the text it was cut from, in UTF-16 code units, end exclusive. */
 export interface MarkdownBlockRange {
   readonly start: number;
   readonly end: number;
@@ -14,8 +16,8 @@ export interface MarkdownBlockRange {
 
 /** The split, as a card renders it. */
 export interface MarkdownSegmentation {
-  /** The snapshot the ranges index. */
-  readonly source: string;
+  /** The text the ranges index. */
+  readonly source: PublishedText;
   /**
    * Complete blocks far enough behind the tail to be final, as ranges of `source`; each is read
    * once, as it settles.
@@ -33,10 +35,10 @@ export interface MarkdownSegmentation {
   readonly generation: number;
 }
 
-/** What a caller knows about the snapshot beyond its text. */
+/** What a caller knows about the text beyond its characters. */
 export interface MarkdownSegmentationOptions {
   /**
-   * Whether this snapshot is the body's last. Everything otherwise held back against a later
+   * Whether this text is the body's last. Everything otherwise held back against a later
    * character is then settled and the tail is empty; without it a finished body keeps its last
    * two blocks volatile and routes complete text through `remend`, which would close a
    * construct its author left open on purpose.
@@ -90,29 +92,33 @@ const LIST_MARKER = /^( {0,3})(?:([-+*])|(\d{1,9})([.)]))([ \t]+|$)/u;
  * scan resumes from the last committed offset, so a growing message costs its growth.
  */
 export class MarkdownBlockSegmenter {
-  /** Complete blocks, oldest first, as ranges of the snapshot. Grows only at the end. */
+  /** Complete blocks, oldest first, as ranges of the text. Grows only at the end. */
   readonly #completeBlocks: MarkdownBlockRange[] = [];
 
-  /** The snapshot this segmentation was computed from, so growth can be detected. */
-  #scannedSource = "";
-  /** Where in `#scannedSource` the uncommitted remainder starts. */
+  /** The text this segmentation was computed from and how it stood, so growth can be told. */
+  #scanned: ScannedText | undefined;
+  /** Where in the text the uncommitted remainder starts. */
   #remainderOffset = 0;
   #generation = 0;
 
   /**
-   * Re-splits for a new cumulative snapshot. One that does not extend the last (a rollback, a
-   * rebase, a different message) resets the scan: gluing a new history onto an old tail is
-   * worse than redoing the work.
+   * Re-splits for the text as it stands. Text that does not extend what was last scanned (a
+   * rollback, a rebase, a different message) resets the scan: gluing a new history onto an old
+   * tail is worse than redoing the work.
    */
   public segment(
-    cumulativeSource: string,
+    cumulativeSource: PublishedText,
     options: MarkdownSegmentationOptions = { isFinal: false },
   ): MarkdownSegmentation {
-    if (!cumulativeSource.startsWith(this.#scannedSource)) {
+    if (!this.#extendsScannedText(cumulativeSource)) {
       this.#reset();
     }
     this.#scanFrom(cumulativeSource, options.isFinal);
-    this.#scannedSource = cumulativeSource;
+    this.#scanned = {
+      text: cumulativeSource,
+      revision: cumulativeSource.revision,
+      length: cumulativeSource.length,
+    };
 
     if (options.isFinal) {
       // The lag is lifted: the scan already committed the remainder, so every block is final.
@@ -133,17 +139,37 @@ export class MarkdownBlockSegmenter {
     return {
       source: cumulativeSource,
       settledBlocks: this.#completeBlocks.slice(0, settledCount),
-      // A copy, not a cut of the snapshot: a tail parser keeps what it read across frames, and a
-      // cut would keep that frame's whole snapshot alive with it.
+      // A copy, not a cut of the text: a tail parser keeps what it read across frames, and a cut
+      // would keep alive the chunks it was cut from.
       volatileTail: structuredClone(volatileTail),
       generation: this.#generation,
     };
   }
 
+  /**
+   * Whether `text` still begins with everything last scanned. The same handle answers from its
+   * revision; a different one is compared with the last a window at a time, so a body handed a
+   * new text that extends the old one keeps its blocks.
+   */
+  #extendsScannedText(text: PublishedText): boolean {
+    const scanned = this.#scanned;
+    if (scanned === undefined) {
+      return true;
+    }
+    if (text === scanned.text) {
+      return text.keepsPrefix(scanned.revision, scanned.length);
+    }
+    return (
+      text.length >= scanned.length &&
+      scanned.text.keepsPrefix(scanned.revision, scanned.length) &&
+      readsTheSame(text, scanned.text, scanned.length)
+    );
+  }
+
   #reset(): void {
     this.#generation += 1;
     this.#completeBlocks.length = 0;
-    this.#scannedSource = "";
+    this.#scanned = undefined;
     this.#remainderOffset = 0;
   }
 
@@ -151,10 +177,10 @@ export class MarkdownBlockSegmenter {
    * Walks the uncommitted remainder, closing every block boundary it now contains. It starts at
    * `#remainderOffset`, so committed text is never re-examined; fence state is recomputed across
    * the remainder alone, which is sound because a boundary is only committed outside a fence.
-   * On a final snapshot the trailing blank run is a boundary and the unterminated last line is
+   * On a final text the trailing blank run is a boundary and the unterminated last line is
    * the author's last line.
    */
-  #scanFrom(cumulativeSource: string, isFinal: boolean): void {
+  #scanFrom(cumulativeSource: PublishedText, isFinal: boolean): void {
     let openFence: FenceState | undefined;
     let lineStart = this.#remainderOffset;
     let blankRunStart: number | undefined;
@@ -167,7 +193,7 @@ export class MarkdownBlockSegmenter {
         // A line with no terminator has not arrived in full; it cannot close a block.
         break;
       }
-      // On a final snapshot the last line is complete without a terminator.
+      // On a final text the last line is complete without a terminator.
       const lineEnd = newlineIndex === -1 ? cumulativeSource.length : newlineIndex;
       const line = cumulativeSource.slice(lineStart, lineEnd);
       const nextLineStart = lineEnd + 1;
@@ -215,7 +241,7 @@ export class MarkdownBlockSegmenter {
     }
     if (blankRunStart !== undefined) {
       // A trailing blank run is pending only because a lazy continuation could still follow;
-      // on the last snapshot none can. It cannot be set inside a fence: opening one clears it.
+      // on the last text none can. It cannot be set inside a fence: opening one clears it.
       this.#commitBlock(cumulativeSource, blankRunStart + 1);
     }
     this.#commitBlock(cumulativeSource, cumulativeSource.length);
@@ -225,7 +251,7 @@ export class MarkdownBlockSegmenter {
    * Closes the block from the remainder's start to `end` and moves the remainder past it. A block
    * of blank lines alone draws nothing and is not kept.
    */
-  #commitBlock(cumulativeSource: string, end: number): void {
+  #commitBlock(cumulativeSource: PublishedText, end: number): void {
     const start = this.#remainderOffset;
     this.#remainderOffset = end;
     if (cumulativeSource.slice(start, end).trim() === "") {
@@ -233,6 +259,30 @@ export class MarkdownBlockSegmenter {
     }
     this.#completeBlocks.push({ start, end });
   }
+}
+
+/** The text last scanned, at the revision and length it was scanned at. */
+interface ScannedText {
+  readonly text: PublishedText;
+  readonly revision: number;
+  readonly length: number;
+}
+
+/**
+ * Characters compared at a time when a body's text is replaced by another handle, so neither text
+ * is read whole to tell whether one extends the other.
+ */
+const COMPARISON_WINDOW_CHARACTERS = 4_096;
+
+/** Whether two texts agree on their first `length` characters, read a window at a time. */
+function readsTheSame(first: PublishedText, second: PublishedText, length: number): boolean {
+  for (let start = 0; start < length; start += COMPARISON_WINDOW_CHARACTERS) {
+    const end = Math.min(length, start + COMPARISON_WINDOW_CHARACTERS);
+    if (first.slice(start, end) !== second.slice(start, end)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

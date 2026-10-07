@@ -2,6 +2,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import { render, type RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { publishedTextOf } from "../../reveal/published-text.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { MessageContent } from "./MessageContent.js";
@@ -20,7 +21,9 @@ function renderBody(
   const { container } = renderInWindow(
     <MessageContent
       content={content}
-      {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
+      {...(overrides.liveText === undefined
+        ? {}
+        : { liveText: publishedTextOf(overrides.liveText) })}
       {...(overrides.contentType === undefined ? {} : { contentType: overrides.contentType })}
       sourceId="event-01"
       footnotes={new FootnoteRegistry()}

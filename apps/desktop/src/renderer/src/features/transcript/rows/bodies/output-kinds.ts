@@ -1,6 +1,7 @@
 // Which renderer an agent's reply or a tool's result takes: its producer's declared media
 // type first, then its bytes.
 
+import { type PublishedText } from "../../reveal/published-text.js";
 import { carriesAnsiEscapes } from "../ansi/escape-sequences.js";
 
 /**
@@ -23,7 +24,10 @@ const MARKDOWN_MEDIA_TYPES: readonly string[] = ["text/markdown", "text/x-markdo
  * plain arm. With no declaration, a body carrying an escape is command output and any other body
  * is prose.
  */
-export function outputKindOf(body: string, declaredMediaType?: string | undefined): OutputKind {
+export function outputKindOf(
+  body: PublishedText,
+  declaredMediaType?: string | undefined,
+): OutputKind {
   if (declaredMediaType !== undefined) {
     return MARKDOWN_MEDIA_TYPES.includes(declaredEssence(declaredMediaType))
       ? "prose"
@@ -37,7 +41,7 @@ export function outputKindOf(body: string, declaredMediaType?: string | undefine
  * escape is command output and any other is shown verbatim, never parsed as markdown, so a line
  * like `# build` in a program's output stays the line it printed.
  */
-export function toolOutputKindOf(body: string): OutputKind {
+export function toolOutputKindOf(body: PublishedText): OutputKind {
   return carriesAnsiEscapes(body) ? "command-output" : "plain-text";
 }
 

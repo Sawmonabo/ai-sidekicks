@@ -9,7 +9,7 @@ import { replyCopyFlavorOf, type DrawnRowText } from "../drawn-reply-text.js";
 export interface ReplyText {
   /**
    * The whole reply's text, for its Copy: each of the reply's rows that has drawn text, in log
-   * order, joined by a blank line.
+   * order, joined by a blank line. Built when called, for the copy alone.
    */
   readonly read: () => string;
   /**
@@ -55,7 +55,7 @@ export function useReplyText(
 
   const partOf = useCallback(
     (rowId: string): DrawnRowText | undefined => {
-      if (rowId === ownRowId && ownText !== undefined && ownText !== "") {
+      if (rowId === ownRowId && ownText !== undefined && ownText.length > 0) {
         return own;
       }
       const recorded = drawnReplyText?.drawnTextOf(rowId);
@@ -71,7 +71,7 @@ export function useReplyText(
   const read = useCallback(
     () =>
       drawnPartsOf(replyRowIds, partOf)
-        .map((part) => part.text)
+        .map((part) => part.text.slice(0))
         .join(PART_SEPARATOR),
     [replyRowIds, partOf],
   );
@@ -88,5 +88,5 @@ function drawnPartsOf(
 ): readonly DrawnRowText[] {
   return replyRowIds
     .map(partOf)
-    .filter((part): part is DrawnRowText => part !== undefined && part.text !== "");
+    .filter((part): part is DrawnRowText => part !== undefined && part.text.length > 0);
 }

@@ -3,6 +3,7 @@
 // that only speaks the language never loads the scheduler.
 
 import { type RevealCommitMode } from "./gate.js";
+import { type PublishedText } from "./published-text.js";
 
 /** The four states the engine reports. Closed, and derived into a union below. */
 export const REVEAL_ENGINE_STATES = ["idle", "streaming", "catching-up", "settled"] as const;
@@ -35,11 +36,12 @@ export interface RevealDelta {
 export interface RevealLaneState {
   readonly laneId: string;
   /**
-   * The text a consumer may render. Never shorter than last frame, except after an out-of-band
-   * rebase where the producer withdrew published text; that retraction is announced by the
-   * `out-of-band-source-change` diagnostic, which carries how many characters went.
+   * The text a consumer may render, as the lane's one handle. Never shorter than last frame,
+   * except after an out-of-band rebase where the producer withdrew published text; that
+   * retraction is announced by the `out-of-band-source-change` diagnostic, which carries how
+   * many characters went.
    */
-  readonly publishedText: string;
+  readonly publishedText: PublishedText;
   readonly pendingCharacterCount: number;
   /** True while the lane is taking more than its fair share to catch up. */
   readonly isCatchingUp: boolean;

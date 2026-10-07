@@ -40,6 +40,11 @@ export interface RevealBinding {
   ) => void;
   /** Forgets what every row the window no longer holds drew. */
   readonly forgetDrawnTextOutside: (isHeld: (rowId: string) => boolean) => void;
+  /**
+   * Whether the engine still holds a lane for this row, so the row draws live text that may still
+   * grow, until the lane is retired. A map lookup; the same function for the engine's life.
+   */
+  readonly isRevealing: (rowId: string) => boolean;
 }
 
 /** Inputs to `useReveal`. */
@@ -100,7 +105,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     () => ({
       publishedTextFor: (laneId: string) => {
         const published = engine.publishedText(laneId);
-        return published === "" ? undefined : published;
+        return published === undefined || published.length === 0 ? undefined : published;
       },
       drawnReplyText,
       subscribe: (sink: () => void) =>
@@ -130,7 +135,8 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
             continue;
           }
           if (isReplyRow(lane.laneId)) {
-            const text = engine.publishedText(lane.laneId);
+            // The lane's own handle, so the record shares the lane's text rather than copying it.
+            const text = lane.publishedText;
             drawnReplyText.note(lane.laneId, {
               text,
               // The row's own flavor, where it drew and noted one; the bytes' otherwise.
@@ -148,5 +154,6 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
       },
       [drawnReplyText],
     ),
+    isRevealing: useCallback((rowId: string) => engine.holdsLane(rowId), [engine]),
   };
 }

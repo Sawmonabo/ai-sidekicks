@@ -9,6 +9,10 @@ import type { FootnoteDefinition } from "mdast";
 
 import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
 import { footnoteDefinitionPreamble, parseMarkdown } from "#renderer/components/Markdown/parse.js";
+import {
+  publishedTextOf,
+  type PublishedText,
+} from "#renderer/features/transcript/reveal/published-text.js";
 import { type MarkdownBlockRange, type MarkdownSegmentation } from "./parse/block-segmenter.js";
 import { VolatileTailParser } from "./parse/volatile-tail.js";
 
@@ -45,9 +49,9 @@ export interface MarkdownBodyBlocksSnapshot {
   /** Those identifiers as the preamble every block is parsed after. */
   readonly definitionPreamble: string;
   /**
-   * A settled block's text, cut from the body's latest text. The same function until the
-   * generation changes, so a drawn block does not read its text again on a frame that only grew
-   * the body; the cut is for a reader that lets it go, never one to keep.
+   * A settled block's text, cut from the body's text through its handle. The same function until
+   * the generation changes, so a drawn block does not read its text again on a frame that only
+   * grew the body; the cut is for a reader that lets it go, never one to keep.
    */
   readonly readBlockSource: (block: SettledMarkdownBlock) => string;
 }
@@ -171,15 +175,15 @@ export class MarkdownBodyBlocks {
   }
 }
 
-/** One generation's text, as the latest snapshot of it: every block of it is cut from this. */
+/** One generation's text, as the handle it is read through: every block of it is cut from this. */
 class GenerationText {
-  #text = "";
+  #text: PublishedText = NO_TEXT;
 
-  /** A block's text, cut from the generation's latest text, which only ever grew. */
+  /** A block's text, cut from the generation's text, which only ever grew. */
   public readonly readBlockSource = (block: SettledMarkdownBlock): string =>
     this.#text.slice(block.start, block.end);
 
-  public update(text: string): void {
+  public update(text: PublishedText): void {
     this.#text = text;
   }
 }
@@ -208,10 +212,11 @@ const FINGERPRINT_PRIME = 0x01000193;
 const NO_BLOCKS: readonly SettledMarkdownBlock[] = Object.freeze([]);
 const NO_DEFINITIONS: readonly FootnoteDefinition[] = Object.freeze([]);
 const NO_IDENTIFIERS: ReadonlySet<string> = new Set<string>();
+const NO_TEXT: PublishedText = publishedTextOf("");
 
 /** One block read as it settles: its key and fingerprint, and the identifiers it defines. */
 function readSettledBlock(
-  bodyText: string,
+  bodyText: PublishedText,
   range: MarkdownBlockRange,
   index: number,
 ): SettledMarkdownBlock {

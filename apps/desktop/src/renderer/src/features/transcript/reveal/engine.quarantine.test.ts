@@ -13,6 +13,11 @@ import { RevealEngine } from "./engine.js";
 import { RevealTextRope } from "./text-rope.js";
 import type { RevealDiagnostic } from "./model.js";
 
+/** What the engine publishes for a lane, read whole for comparison. Empty for a lane never seen. */
+function publishedTextIn(engine: RevealEngine, laneId: string): string {
+  return engine.publishedText(laneId)?.slice(0) ?? "";
+}
+
 /** One engine on the test's own clock, as the sibling suite builds one. */
 function engineOn(clock: ManualClock): RevealEngine {
   // Every drain is submitted to the frame scheduler's second phase, so `clock.runFrame()` runs
@@ -57,8 +62,8 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
     }).not.toThrow();
 
     // The quarantine is scoped to the lane that threw.
-    expect(engine.publishedText("lane-1")).toBe("");
-    expect(engine.publishedText("lane-2").length).toBeGreaterThan(0);
+    expect(publishedTextIn(engine, "lane-1")).toBe("");
+    expect(publishedTextIn(engine, "lane-2").length).toBeGreaterThan(0);
     // The frame is still armed, because lane 2 still has characters left; a throw escaping past
     // `#armFrame()` would have lost it.
     expect(clock.pendingCount).toBe(1);
@@ -133,7 +138,7 @@ describe("the reveal engine — what a quarantined lane costs", () => {
 
     expect(clock.pendingCount).toBe(1);
     clock.runFrame();
-    expect(engine.publishedText("lane-1").length).toBeGreaterThan(0);
+    expect(publishedTextIn(engine, "lane-1").length).toBeGreaterThan(0);
     expect(engine.state).toBe("streaming");
   });
 });

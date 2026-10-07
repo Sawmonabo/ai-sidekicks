@@ -47,7 +47,8 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   const attributedRunId = reasoningRunIdOf(props.row);
   // The live-text lane is the row, matching `MessageContent`'s `liveText`: keying on the run
   // would give two machine rows of one turn one body. It arrives through the per-row reveal
-  // channel, not the renderer's props, and is `undefined` for every row of a settled log.
+  // channel, not the renderer's props, as the lane's handle rather than its text, and is
+  // `undefined` for every row of a settled log.
   const liveText = useRowReveal(rowId);
 
   if (rowKind === undefined) {

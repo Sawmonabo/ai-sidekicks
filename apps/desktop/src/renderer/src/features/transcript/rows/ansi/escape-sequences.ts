@@ -2,6 +2,8 @@
 // expression: a pattern holding these control bytes trips `no-control-regex`, and each kind of
 // sequence is one branch that can be read against the standard.
 
+import { type PublishedText } from "../../reveal/published-text.js";
+
 /** The one byte every ANSI sequence opens with. */
 const ESCAPE = "\u001b";
 
@@ -23,13 +25,14 @@ const STRING_TERMINATOR = "\u009c";
 const STRING_CONTROL_INTRODUCERS: readonly string[] = ["P", "X", "^", "_"];
 
 /**
- * Whether a body carries ANSI escape sequences, judged by the ESC byte alone.
+ * Whether a body carries ANSI escape sequences, judged by the ESC byte alone. A streaming body
+ * answers from where it last looked, so asking each frame reads only the frame's growth.
  *
  * This is the reading for a body with no declared media type, such as a tool result; a
  * declared type wins (see `outputKindOf`).
  */
-export function carriesAnsiEscapes(source: string): boolean {
-  return source.includes(ESCAPE);
+export function carriesAnsiEscapes(source: PublishedText): boolean {
+  return source.firstIndexOf(ESCAPE) !== -1;
 }
 
 /**
@@ -41,7 +44,7 @@ export function carriesAnsiEscapes(source: string): boolean {
  * end of the sequence.
  */
 export function withoutResidualEscapes(text: string): string {
-  if (!carriesAnsiEscapes(text)) {
+  if (!text.includes(ESCAPE)) {
     return text;
   }
   let kept = "";

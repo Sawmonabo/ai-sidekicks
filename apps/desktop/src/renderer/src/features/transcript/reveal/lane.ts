@@ -1,8 +1,9 @@
-// One lane's bookkeeping: the rope and the text published so far. The engine
+// One lane's bookkeeping: the rope, which holds its text and is what a reader is handed. The engine
 // arbitrates a frame; a lane knows only its own text. Diagnostics go out through a sink the
 // caller passes, so a lane is never a second publisher on the engine's channel.
 
 import type { RevealDelta, RevealDiagnostic, RevealLaneState } from "./model.js";
+import { type PublishedText } from "./published-text.js";
 import { RevealTextRope } from "./text-rope.js";
 
 /** Where a lane's diagnostics go. The engine's emitter, in practice. */
@@ -10,8 +11,7 @@ export type RevealDiagnosticSink = (diagnostic: RevealDiagnostic) => void;
 
 /** One reveal lane. A rebase resets it in place: same lane, the reader's agreed prefix. */
 export class RevealLane {
-  #rope: RevealTextRope;
-  #publishedText = "";
+  readonly #rope: RevealTextRope;
 
   /** Whether this frame gave the lane a share above its fair one. */
   public isCatchingUp = false;
@@ -27,9 +27,12 @@ export class RevealLane {
     return this.#rope.laneId;
   }
 
-  /** The text a consumer may render for this lane. */
-  public get publishedText(): string {
-    return this.#publishedText;
+  /**
+   * The text a consumer may render for this lane: one handle for the lane's whole life, rebases
+   * included, reading only what has been revealed.
+   */
+  public get publishedText(): PublishedText {
+    return this.#rope;
   }
 
   /**
@@ -41,7 +44,7 @@ export class RevealLane {
   public quarantine(): void {
     this.#isQuarantined = true;
     this.isCatchingUp = false;
-    this.#adoptAsWholeSource(this.#publishedText);
+    this.#rope.releasePending();
   }
 
   /** True while the lane has text left to reveal and has not been quarantined. */
@@ -81,8 +84,8 @@ export class RevealLane {
       this.#isQuarantined = false;
       return;
     }
-    const alreadyPublished = this.#publishedText;
-    const agreedPrefixLength = commonPrefixLength(alreadyPublished, delta.text);
+    const publishedLength = this.#rope.length;
+    const agreedPrefixLength = this.#rope.commonRevealedPrefixLength(delta.text);
     report({
       kind: "out-of-band-source-change",
       laneId: delta.laneId,
@@ -90,10 +93,10 @@ export class RevealLane {
         "an authoritative commit did not extend the text this lane had " +
         "published; the lane was re-based on the " +
         `${String(agreedPrefixLength)} characters both sources agree on ` +
-        `and ${String(alreadyPublished.length - agreedPrefixLength)} ` +
+        `and ${String(publishedLength - agreedPrefixLength)} ` +
         "characters were retracted",
     });
-    this.#adoptAsWholeSource(delta.text, agreedPrefixLength);
+    this.#rope.rebase(delta.text, agreedPrefixLength);
     this.isCatchingUp = false;
     this.#isQuarantined = false;
   }
@@ -114,7 +117,6 @@ export class RevealLane {
     const candidateInWindow = Math.min(tail.length + share, window.length);
     const gatedInWindow = gate(window, candidateInWindow);
     const revealed = this.#rope.advance(Math.max(0, gatedInWindow - tail.length));
-    this.#publishedText = this.#rope.revealedText();
     this.isCatchingUp = this.isCatchingUp && !this.#rope.isSettled;
     return revealed;
   }
@@ -123,36 +125,10 @@ export class RevealLane {
   public describe(): RevealLaneState {
     return {
       laneId: this.laneId,
-      publishedText: this.#publishedText,
+      publishedText: this.#rope,
       pendingCharacterCount: this.#rope.pendingCharacterCount,
       isCatchingUp: this.isCatchingUp,
       isSettled: this.#rope.isSettled,
     };
   }
-
-  /**
-   * Replace the rope with one carrying `source`, revealed as far as `revealedLength`. The one
-   * place a lane swaps its rope; published text is read back off the new rope so it stays the
-   * reveal cursor.
-   */
-  #adoptAsWholeSource(source: string, revealedLength: number = source.length): void {
-    const adopted = new RevealTextRope(this.laneId);
-    adopted.append(source);
-    adopted.advance(revealedLength);
-    this.#rope = adopted;
-    this.#publishedText = adopted.revealedText();
-  }
-}
-
-/**
- * How many leading characters two settled strings share. Both are materialized, so nothing
- * still growing is inspected.
- */
-function commonPrefixLength(first: string, second: string): number {
-  const ceiling = Math.min(first.length, second.length);
-  let shared = 0;
-  while (shared < ceiling && first[shared] === second[shared]) {
-    shared += 1;
-  }
-  return shared;
 }

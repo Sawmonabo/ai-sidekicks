@@ -5,6 +5,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { publishedTextOf } from "../../reveal/published-text.js";
 import { type ReasoningReading } from "./reasoning-reading.js";
 import { ThinkingRow } from "./ThinkingRow.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -23,7 +24,7 @@ function renderThinkingRow(
   const { container } = render(
     <ThinkingRow
       runId={"runId" in overrides ? overrides.runId : SAMPLE_RUN_ID}
-      liveText={overrides.liveText}
+      liveText={overrides.liveText === undefined ? undefined : publishedTextOf(overrides.liveText)}
       reading={overrides.reading ?? { status: "not-asked" }}
       onExpand={overrides.onExpand ?? (() => undefined)}
     />,

@@ -3,11 +3,13 @@
 // it defines; pass two parses a block against the whole body's definitions when it is drawn, so
 // `cite[^1]` in one block references `[^1]: ...` in another.
 // The published text arrives as a prop rather than a reveal-engine subscription, so a settled
-// message, which has no reveal stream, renders through the same path. A long body inside a
+// message, which has no reveal stream, renders through the same path: a handle over a lane's text
+// or over a settled string, read in ranges and never held whole. A long body inside a
 // transcript viewport is drawn as a window over its blocks; any other is drawn whole.
 
 import { useContext } from "react";
 
+import { type PublishedText } from "../../reveal/published-text.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { MarkdownWindowViewportContext } from "../markdown/block-window/context.js";
 import { useFootnoteDefinitionRegistration } from "./hooks/useFootnoteDefinitionRegistration.js";
@@ -20,10 +22,11 @@ import { WindowedMarkdown } from "./WindowedMarkdown.js";
 /** What one markdown body is drawn from. */
 export interface StreamingMarkdownProps {
   /**
-   * The text the reveal engine has published for this body, cumulative. Never the raw source:
-   * the reveal gate decides what is safe to show, and an incomplete construct must not mount.
+   * The text the reveal engine has published for this body, cumulative, through its handle. Never
+   * the raw source: the reveal gate decides what is safe to show, and an incomplete construct
+   * must not mount.
    */
-  readonly publishedText: string;
+  readonly publishedText: PublishedText;
   /** The row this body belongs to: the footnote registry's first key half. */
   readonly sourceId: string;
   /** Where this message's footnote definitions are recorded. */

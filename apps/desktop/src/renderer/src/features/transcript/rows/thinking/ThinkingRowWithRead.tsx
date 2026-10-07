@@ -1,6 +1,7 @@
 // The reasoning row with its read. Its own component because hooks bind a component, not
 // a tree: only a reasoning row builds a read, and the ordinary row does not pay for one.
 
+import { type PublishedText } from "../../reveal/published-text.js";
 import { ThinkingRow } from "./ThinkingRow.js";
 import { useReasoningRead } from "./hooks/useReasoningRead.js";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -10,7 +11,7 @@ export interface ThinkingRowWithReadProps {
   /** The run this row's reasoning belongs to, or `undefined` where none is attributed. */
   readonly runId: RunId | undefined;
   /** Text the reveal engine is publishing for this row right now, while it streams. */
-  readonly liveText: string | undefined;
+  readonly liveText: PublishedText | undefined;
 }
 
 /** One reasoning row, fed by its own on-demand read. */

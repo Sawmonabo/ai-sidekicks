@@ -7,6 +7,10 @@
 
 import "./MessageRow.css";
 
+import { useMemo } from "react";
+
+import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
+
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
@@ -27,6 +31,7 @@ import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
 import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
 import { useReplyText } from "../copy/hooks/useReplyText.js";
+import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
 
 /** What a mount hands a message card, beyond the row itself. */
 export interface MessageRowProps extends HydratedRowProps {
@@ -55,14 +60,23 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
-  const copyText = isUser
+  // The text a Copy takes, as a handle: a stored string is read through one made once per string,
+  // and the whole text is built only when Copy is pressed.
+  const storedText = isUser
     ? props.row.summary === ""
       ? undefined
       : props.row.summary
-    : rowKind.kind === "thinking"
+    : rowKind.kind === "thinking" || props.liveText !== undefined
       ? undefined
-      : (props.liveText ??
-        (props.content?.status === "available" ? props.content.body : undefined));
+      : props.content?.status === "available"
+        ? props.content.body
+        : undefined;
+  const storedCopyText = useMemo(
+    () => (storedText === undefined ? undefined : publishedTextOf(storedText)),
+    [storedText],
+  );
+  const copyText: PublishedText | undefined =
+    isUser || rowKind.kind === "thinking" ? storedCopyText : (props.liveText ?? storedCopyText);
   // A reply drawn as markdown copies as markdown with a formatted flavor beside it; the person's
   // own message, and a reply drawn as text, copy as plain text and nothing else.
   const copyFlavor: CopyFlavor =
@@ -78,7 +92,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   );
   const clipboardCopy = useClipboardCopy(() => {
     if (!isReply) {
-      return { text: copyText ?? "" };
+      return { text: copyText?.slice(0) ?? "" };
     }
     const wholeReply = replyText.read();
     return replyText.flavor === "markdown"
@@ -142,7 +156,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
         {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
           <RecordedBodyLine
             contentType={assistantMediaType}
-            contentLength={readWireCount(payload, "contentLength")}
+            contentLength={readWireCount(payload, CONTENT_LENGTH_PAYLOAD_KEY)}
           />
         )}
       </div>

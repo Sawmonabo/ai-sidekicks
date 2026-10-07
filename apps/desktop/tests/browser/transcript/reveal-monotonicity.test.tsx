@@ -63,7 +63,7 @@ function StreamingProbeBody(props: { readonly laneId: string }): React.JSX.Eleme
   const liveText = useRowReveal(props.laneId);
   return (
     <p data-testid="streaming-body" style={{ width: "320px", margin: 0 }}>
-      {liveText ?? ""}
+      {liveText?.slice(0) ?? ""}
     </p>
   );
 }

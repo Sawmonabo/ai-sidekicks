@@ -5,6 +5,7 @@ import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-r
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
+import { publishedTextOf } from "../../reveal/published-text.js";
 
 /** A markdown body drawn inside a window, which supplies its code colors. */
 function renderInWindow(body: React.JSX.Element): RenderResult {
@@ -27,7 +28,7 @@ describe("a streaming body", () => {
   it("renders what has arrived so far", () => {
     const { container } = renderInWindow(
       <StreamingMarkdown
-        publishedText="the first sentence"
+        publishedText={publishedTextOf("the first sentence")}
         sourceId="event-01"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
@@ -46,7 +47,7 @@ describe("a streaming body", () => {
     } = await reportsWhileReactRan(() =>
       renderInWindow(
         <StreamingMarkdown
-          publishedText={REPEATED_BLOCKS_SETTLED}
+          publishedText={publishedTextOf(REPEATED_BLOCKS_SETTLED)}
           sourceId="event-11"
           footnotes={new FootnoteRegistry()}
           isComplete={false}
@@ -66,7 +67,7 @@ describe("a streaming body", () => {
     // The last line is unterminated and two blocks lag behind it, so only the first two settle.
     const { container, rerender } = renderInWindow(
       <StreamingMarkdown
-        publishedText={"first\n\nsecond\n\nthird\n\nfourth\n\nfifth"}
+        publishedText={publishedTextOf("first\n\nsecond\n\nthird\n\nfourth\n\nfifth")}
         sourceId="event-12"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
@@ -78,7 +79,9 @@ describe("a streaming body", () => {
 
     rerender(
       <StreamingMarkdown
-        publishedText={"first\n\nsecond\n\nthird\n\nfourth\n\nfifth\n\nsixth\n\nseventh"}
+        publishedText={publishedTextOf(
+          "first\n\nsecond\n\nthird\n\nfourth\n\nfifth\n\nsixth\n\nseventh",
+        )}
         sourceId="event-12"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
@@ -94,7 +97,7 @@ describe("a streaming body", () => {
     const footnotes = new FootnoteRegistry();
     const { container, rerender } = renderInWindow(
       <StreamingMarkdown
-        publishedText={REPEATED_BLOCKS_SETTLED}
+        publishedText={publishedTextOf(REPEATED_BLOCKS_SETTLED)}
         sourceId="event-13"
         footnotes={footnotes}
         isComplete={false}
@@ -105,7 +108,7 @@ describe("a streaming body", () => {
 
     rerender(
       <StreamingMarkdown
-        publishedText={REBASED_BLOCKS}
+        publishedText={publishedTextOf(REBASED_BLOCKS)}
         sourceId="event-13"
         footnotes={footnotes}
         isComplete={false}
@@ -127,7 +130,7 @@ describe("a body the sender has finished", () => {
     // `remend` is for a prefix; on a finished body it would close emphasis the author left open.
     const { container } = renderInWindow(
       <StreamingMarkdown
-        publishedText={UNCLOSED_EMPHASIS}
+        publishedText={publishedTextOf(UNCLOSED_EMPHASIS)}
         sourceId="event-33"
         footnotes={new FootnoteRegistry()}
         isComplete
@@ -152,7 +155,7 @@ describe("a footnote whose definition settles in another block", () => {
   it("is a real reference marker", () => {
     renderInWindow(
       <StreamingMarkdown
-        publishedText={CROSS_BLOCK_FOOTNOTE}
+        publishedText={publishedTextOf(CROSS_BLOCK_FOOTNOTE)}
         sourceId="event-30"
         footnotes={new FootnoteRegistry()}
         isComplete

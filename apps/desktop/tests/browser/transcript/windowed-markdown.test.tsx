@@ -23,6 +23,7 @@ import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
 
 /** The scroller's box, and the narrower column both bodies are laid out in. */
 const SCROLLER_WIDTH_PX = 680;
@@ -105,7 +106,7 @@ async function mountBodies(
             >
               <MarkdownWindowViewportContext value={viewport}>
                 <StreamingMarkdown
-                  publishedText={text}
+                  publishedText={publishedTextOf(text)}
                   sourceId="reply"
                   footnotes={new FootnoteRegistry()}
                   isComplete={options.isComplete}
@@ -117,7 +118,7 @@ async function mountBodies(
           {options.drawsFlowBody ? (
             <div data-testid="flow" style={{ width: `${String(BODY_WIDTH_PX)}px` }}>
               <StreamingMarkdown
-                publishedText={text}
+                publishedText={publishedTextOf(text)}
                 sourceId="reply-whole"
                 footnotes={new FootnoteRegistry()}
                 isComplete={options.isComplete}

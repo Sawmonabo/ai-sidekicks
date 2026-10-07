@@ -1,28 +1,30 @@
-// The rope's claim that matters: the cursor only moves forward, across part boundaries and never
-// past the source.
+// The rope's claims that matter: the cursor only moves forward, across chunk boundaries and never
+// past the source, and a read of the revealed text through the rope returns exactly the
+// characters revealed, wherever a range falls against the chunks.
 
 import { describe, expect, it } from "vitest";
 
+import { REVEAL_TEXT_CHUNK_CHARACTERS } from "./caps.js";
 import { RevealTextRope } from "./text-rope.js";
 
-function fedWith(parts: readonly string[]): RevealTextRope {
+function fedWith(appends: readonly string[]): RevealTextRope {
   const rope = new RevealTextRope("lane-1");
-  for (const part of parts) {
-    rope.append(part);
+  for (const text of appends) {
+    rope.append(text);
   }
   return rope;
 }
 
 describe("the reveal text rope", () => {
-  it("reveals across part boundaries and never past the source", () => {
+  it("reveals across appends and chunk edges, and never past the source", () => {
     const rope = fedWith(["abc", "de", "fghi"]);
     expect(rope.advance(4)).toBe(4);
-    expect(rope.revealedText()).toBe("abcd");
+    expect(rope.slice(0)).toBe("abcd");
     expect(rope.advance(100)).toBe(5);
-    expect(rope.revealedText()).toBe("abcdefghi");
+    expect(rope.slice(0)).toBe("abcdefghi");
     expect(rope.isSettled).toBe(true);
 
-    // One append long enough that the rope keeps it as several parts of its own: every
+    // One append long enough that the rope keeps it as several chunks of its own: every
     // character still arrives once and in order, at every stop.
     const numbered = Array.from(
       { length: 1_000 },
@@ -32,18 +34,18 @@ describe("the reveal text rope", () => {
     const longRope = fedWith([longSource]);
     while (!longRope.isSettled) {
       longRope.advance(777);
-      expect(longSource.startsWith(longRope.revealedText())).toBe(true);
+      expect(longSource.startsWith(longRope.slice(0))).toBe(true);
       expect(longRope.isPrefixOf(longSource)).toBe(true);
     }
-    expect(longRope.revealedText()).toBe(longSource);
+    expect(longRope.slice(0)).toBe(longSource);
   });
 
   it("never moves the cursor backwards, and never reveals on a negative budget", () => {
     const rope = fedWith(["abcdef"]);
     rope.advance(3);
     expect(rope.advance(-10)).toBe(0);
-    expect(rope.revealedText()).toBe("abc");
-    expect(rope.revealedLength).toBe(3);
+    expect(rope.slice(0)).toBe("abc");
+    expect(rope.length).toBe(3);
   });
 
   it("hands back a bounded tail and a bounded lookahead", () => {
@@ -65,15 +67,48 @@ describe("the reveal text rope", () => {
     expect(rope.isPrefixOf("The run")).toBe(false);
   });
 
-  it("still recognizes its source once the cursor has passed parts and stands inside one", () => {
-    // Passed parts are dropped, so the revealed prefix, the part under the cursor and the part
-    // after it carry the comparison; each refused candidate differs in one of the three.
+  it("still recognizes its source once the cursor stands inside it", () => {
+    // Each refused candidate differs in a different place: before the cursor, just past it, and
+    // in the last append.
     const rope = fedWith(["The run ", "started ", "at noon"]);
     rope.advance(11);
     expect(rope.isPrefixOf("The run started at noon, and ended")).toBe(true);
     expect(rope.isPrefixOf("The ran started at noon, and ended")).toBe(false);
     expect(rope.isPrefixOf("The run starved at noon, and ended")).toBe(false);
     expect(rope.isPrefixOf("The run started at dusk, and ended")).toBe(false);
+  });
+});
+
+describe("the reveal text rope — reading across chunk boundaries", () => {
+  it("reads every range exactly, with no character lost or repeated at a chunk edge", () => {
+    // Appends of odd sizes, so the last chunk is refilled across appends and the edges fall
+    // inside appends rather than between them.
+    const source = Array.from({ length: 2_000 }, (_, index) => `${String(index)}|`).join("");
+    expect(source.length).toBeGreaterThan(REVEAL_TEXT_CHUNK_CHARACTERS * 3);
+    const rope = new RevealTextRope("lane-1");
+    for (let start = 0; start < source.length; start += 337) {
+      rope.append(source.slice(start, start + 337));
+    }
+    const revealedLength = REVEAL_TEXT_CHUNK_CHARACTERS * 3 - 5;
+    rope.advance(revealedLength);
+    const revealed = source.slice(0, revealedLength);
+
+    expect(rope.slice(0)).toBe(revealed);
+    expect(rope.chunks().join("")).toBe(revealed);
+    for (const edge of [REVEAL_TEXT_CHUNK_CHARACTERS, REVEAL_TEXT_CHUNK_CHARACTERS * 2]) {
+      for (const [start, end] of [
+        [edge - 1, edge + 1],
+        [edge, edge + 3],
+        [edge - 3, edge],
+        [edge - 2, edge + REVEAL_TEXT_CHUNK_CHARACTERS + 2],
+      ] as const) {
+        expect(rope.slice(start, end)).toBe(revealed.slice(start, end));
+      }
+      expect(rope.indexOf("|", edge - 2)).toBe(revealed.indexOf("|", edge - 2));
+    }
+    // Nothing past the cursor is read, even inside the chunk the cursor stands in.
+    expect(rope.slice(revealedLength - 2, revealedLength + 10)).toBe(revealed.slice(-2));
+    expect(rope.indexOf("|", revealedLength)).toBe(-1);
   });
 });
 
@@ -99,17 +134,17 @@ describe("the reveal text rope — a frame never cuts a character in half", () =
     for (let budget = 0; budget <= source.length; budget += 1) {
       const rope = fedWith([source]);
       rope.advance(budget);
-      expect(allowed.has(rope.revealedText())).toBe(true);
+      expect(allowed.has(rope.slice(0))).toBe(true);
     }
   });
 
-  it("snaps across a part boundary, where the halves arrived in separate appends", () => {
-    // The check walks the parts from the cursor, so a pair split across two appends
-    // is the same pair — reading it through a materialized source is what the rope
-    // exists to avoid.
-    const rope = fedWith(["ab", GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
-    expect(rope.advance(3)).toBe(4);
-    expect(rope.revealedText()).toBe(`ab${GRINNING_FACE}`);
+  it("snaps across a chunk edge, where the halves arrived in separate appends", () => {
+    // The leading half ends one chunk and the trailing half opens the next, so the check reads
+    // the pair from two chunks, as it does a pair split across two appends.
+    const opening = "a".repeat(REVEAL_TEXT_CHUNK_CHARACTERS - 1);
+    const rope = fedWith([opening, GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
+    expect(rope.advance(REVEAL_TEXT_CHUNK_CHARACTERS)).toBe(REVEAL_TEXT_CHUNK_CHARACTERS + 1);
+    expect(rope.slice(0)).toBe(`${opening}${GRINNING_FACE}`);
   });
 
   it("publishes a producer-split lone surrogate at the source end rather than stalling", () => {
@@ -120,6 +155,6 @@ describe("the reveal text rope — a frame never cuts a character in half", () =
     expect(rope.isSettled).toBe(true);
     rope.append(`${GRINNING_FACE.slice(1)}cd`);
     rope.advance(100);
-    expect(rope.revealedText()).toBe(`ab${GRINNING_FACE}cd`);
+    expect(rope.slice(0)).toBe(`ab${GRINNING_FACE}cd`);
   });
 });

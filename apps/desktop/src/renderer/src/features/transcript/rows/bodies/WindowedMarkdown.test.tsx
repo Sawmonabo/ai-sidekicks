@@ -14,6 +14,7 @@ import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { longReplyMarkdown, suiteWindowViewport } from "./WindowedMarkdown.test-support.js";
+import { publishedTextOf } from "../../reveal/published-text.js";
 
 vi.mock("#renderer/components/Markdown/parse.js", async (importOriginal) => {
   const actual = await importOriginal<typeof markdownParse>();
@@ -62,7 +63,7 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
   const { container, unmount } = render(
     <MarkdownWindowViewportContext value={viewport}>
       <StreamingMarkdown
-        publishedText={text}
+        publishedText={publishedTextOf(text)}
         sourceId="reply"
         footnotes={footnotes}
         isComplete
@@ -105,7 +106,7 @@ describe("a long body drawn as a window over its blocks", () => {
   it("parses only the blocks it draws, and none as they settle", () => {
     const text = longReplyMarkdown(40_000);
     const blockSources = new MarkdownBlockSegmenter()
-      .segment(text, { isFinal: true })
+      .segment(publishedTextOf(text), { isFinal: true })
       .settledBlocks.map(({ start, end }) => text.slice(start, end));
     settledBlockParses.mockClear();
     wholeParses.mockClear();

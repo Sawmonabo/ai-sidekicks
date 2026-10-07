@@ -4,6 +4,7 @@
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 
+import { type PublishedText } from "../reveal/published-text.js";
 import type { TranscriptRowProps } from "./renderer.js";
 import type { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 
@@ -16,11 +17,12 @@ export interface HydratedRowProps extends TranscriptRowProps {
    */
   readonly content?: HydratedSessionEventContent | undefined;
   /**
-   * Text the reveal engine is publishing for this row while it streams. A prop rather than a
-   * subscription: the viewport is what reads the engine, so a card that subscribed would be a
-   * second subscriber to one fact.
+   * Text the reveal engine is publishing for this row while it streams, as the lane's stable
+   * handle; a card memoizes on its `revision`. A prop rather than a subscription: the row
+   * renderer is what reads the engine, so a card that subscribed would be a second subscriber to
+   * one fact.
    */
-  readonly liveText?: string | undefined;
+  readonly liveText?: PublishedText | undefined;
   /** Where this message's footnote definitions are registered. */
   readonly footnotes: FootnoteRegistry;
 }

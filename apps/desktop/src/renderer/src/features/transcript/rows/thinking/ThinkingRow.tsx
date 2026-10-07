@@ -9,6 +9,7 @@ import type {
   ReasoningSurfaceReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import { type PublishedText } from "../../reveal/published-text.js";
 import {
   REASONING_AVAILABILITY_COPY,
   reasoningTailOf,
@@ -22,7 +23,7 @@ export interface ThinkingRowProps {
   /** The run this row's reasoning belongs to, or `undefined` where none is attributed. */
   readonly runId: RunId | undefined;
   /** Text the reveal engine is publishing for this row right now, while it streams. */
-  readonly liveText: string | undefined;
+  readonly liveText: PublishedText | undefined;
   readonly reading: ReasoningReading;
   /** Ask the daemon for this run's reasoning. */
   readonly onExpand: () => void;
@@ -45,7 +46,7 @@ export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
  * `aria-live` is deliberately absent: the lines change many times a second, and a live region
  * would read a reasoning trace aloud over whatever a person was doing.
  */
-function renderReasoningTail(liveText: string | undefined): React.ReactNode {
+function renderReasoningTail(liveText: PublishedText | undefined): React.ReactNode {
   if (liveText === undefined) {
     return null;
   }

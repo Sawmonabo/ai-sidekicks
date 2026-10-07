@@ -1,90 +1,110 @@
-// One lane's text: the revealed prefix as one string, and the text past the cursor as immutable
-// parts. A single growing string is never indexed or re-sliced (quadratic per append and per
-// frame): a slice touches only the part under the cursor, and the revealed prefix is accumulated
-// once. A part the cursor has passed is dropped, so the rope holds each character once.
-// `append` is the single text writer.
+// One lane's text: the source as immutable flat chunks, and a cursor that says how much of it is
+// revealed. The text is held once: revealing moves the cursor and copies nothing, an append
+// rebuilds only the last, partly filled chunk, and a reader reads the revealed prefix through this
+// rope as a `PublishedText` instead of through a growing string. `append` is the single text
+// writer; `advance`, `releasePending` and `rebase` are the only cursor writers.
 
-/** One lane's text as a revealed prefix, unrevealed parts and a cursor that never moves back. */
-export class RevealTextRope {
+import { REVEAL_TEXT_CHUNK_CHARACTERS } from "./caps.js";
+import { type PublishedText } from "./published-text.js";
+
+/**
+ * One lane's text as chunks and a cursor that only a rebase moves back. The rope is also the
+ * lane's `PublishedText`: its reads see the revealed prefix alone, and it is the same object for
+ * the lane's whole life, rebases included.
+ */
+export class RevealTextRope implements PublishedText {
   readonly #laneId: string;
   /**
-   * The parts the cursor has not passed, oldest first; the cursor sits inside the first. Each is
-   * the rope's own copy and immutable once pushed, which is what makes slicing safe.
+   * The source, oldest first. Every chunk but the last holds exactly
+   * `REVEAL_TEXT_CHUNK_CHARACTERS`; each is the rope's own flat copy and never changes once a
+   * later one follows it, which is what makes slicing and handing it out safe.
    */
-  readonly #pendingParts: string[] = [];
+  readonly #chunks: string[] = [];
+  /** The rewrites that cut revealed text, newest last: what `keepsPrefix` answers from. */
+  readonly #retractions: Retraction[] = [];
+  /** Where `firstIndexOf` has looked for each code unit asked about, since the last cut. */
+  readonly #firstIndexScans = new Map<string, FirstIndexScan>();
 
   #sourceLength = 0;
-  /** How far into the first pending part the cursor is. */
-  #cursorOffsetInPart = 0;
-  /** Every character the cursor has passed, concatenated exactly once as it passed. */
-  #revealedText = "";
+  #revealedLength = 0;
+  #revision = 0;
+  /** The newest retraction dropped from the log; a reader older than it cannot be answered. */
+  #forgottenRetractionRevision = NO_REVISION;
 
   public constructor(laneId: string) {
     this.#laneId = laneId;
   }
 
   /**
-   * The single text writer. The text is copied in parts of at most `PART_CHARACTER_CAP`
-   * characters, so no part holds alive a larger string it was cut from (an authoritative commit's
-   * whole source) and a part the cursor is inside holds at most that much revealed text twice. An
-   * empty append pushes no part: nothing grew.
+   * The single text writer. Fills the last chunk, rebuilt as one new flat copy, then copies the
+   * rest in whole chunks, so no chunk holds alive a larger string it was cut from (an
+   * authoritative commit's whole source). An empty append changes nothing.
    */
   public append(text: string): void {
-    for (let start = 0; start < text.length; start += PART_CHARACTER_CAP) {
-      this.#pendingParts.push(structuredClone(text.slice(start, start + PART_CHARACTER_CAP)));
+    let consumed = 0;
+    const lastIndex = this.#chunks.length - 1;
+    const last = this.#chunks[lastIndex];
+    if (last !== undefined && last.length < REVEAL_TEXT_CHUNK_CHARACTERS) {
+      consumed = Math.min(REVEAL_TEXT_CHUNK_CHARACTERS - last.length, text.length);
+      if (consumed > 0) {
+        this.#chunks[lastIndex] = structuredClone(last + text.slice(0, consumed));
+      }
+    }
+    for (let start = consumed; start < text.length; start += REVEAL_TEXT_CHUNK_CHARACTERS) {
+      this.#chunks.push(structuredClone(text.slice(start, start + REVEAL_TEXT_CHUNK_CHARACTERS)));
     }
     this.#sourceLength += text.length;
   }
 
   /**
    * Move the cursor forward by at most `characterBudget` and return how far it went. Never
-   * backwards. The single cursor writer, so the code-point boundary is enforced here.
+   * backwards. The code-point boundary is enforced here, where the budget is spent.
    */
   public advance(characterBudget: number): number {
     const budget = this.#snappedToCodePointBoundary(
       Math.max(0, Math.min(characterBudget, this.pendingCharacterCount)),
     );
-    let remaining = budget;
-    let passedPartCount = 0;
-    while (remaining > 0) {
-      const part = this.#pendingParts[passedPartCount];
-      if (part === undefined) {
-        break;
-      }
-      const availableInPart = part.length - this.#cursorOffsetInPart;
-      if (availableInPart <= remaining) {
-        this.#revealedText +=
-          this.#cursorOffsetInPart === 0 ? part : part.slice(this.#cursorOffsetInPart);
-        remaining -= availableInPart;
-        passedPartCount += 1;
-        this.#cursorOffsetInPart = 0;
-        continue;
-      }
-      this.#revealedText += part.slice(
-        this.#cursorOffsetInPart,
-        this.#cursorOffsetInPart + remaining,
-      );
-      this.#cursorOffsetInPart += remaining;
-      remaining = 0;
+    if (budget > 0) {
+      this.#revealedLength += budget;
+      this.#revision += 1;
     }
-    // A passed part's text now lives in the revealed prefix alone.
-    this.#pendingParts.splice(0, passedPartCount);
-    return budget - remaining;
+    return budget;
   }
 
-  /** The revealed prefix. Free: it is the accumulator `advance` already built. */
-  public revealedText(): string {
-    return this.#revealedText;
+  /**
+   * Drop the text past the cursor, keeping what a reader already saw: the lane will reveal no
+   * more of it. Afterwards the rope is settled.
+   */
+  public releasePending(): void {
+    this.#truncateSource(this.#revealedLength);
+  }
+
+  /**
+   * Replace the source with `source`, keeping the first `agreedLength` characters, which it must
+   * share with the revealed prefix, and revealing exactly those. A cursor left between the halves
+   * of a surrogate pair takes the trailing half too, as a reveal from the start would.
+   */
+  public rebase(source: string, agreedLength: number): void {
+    const revealedBefore = this.#revealedLength;
+    this.#truncateSource(agreedLength);
+    this.append(source.slice(agreedLength));
+    this.#revealedLength += this.#snappedToCodePointBoundary(0, true);
+    if (agreedLength < revealedBefore) {
+      this.#recordRetraction(agreedLength);
+    } else if (this.#revealedLength !== revealedBefore) {
+      this.#revision += 1;
+    }
   }
 
   /**
    * The last `characterCount` characters of the revealed prefix, so the gate gets context behind
-   * the cursor without concatenating the whole growing prefix each frame.
+   * the cursor without reading the whole prefix each frame.
    */
   public revealedTail(characterCount: number): string {
-    return characterCount >= this.#revealedText.length
-      ? this.#revealedText
-      : this.#revealedText.slice(this.#revealedText.length - characterCount);
+    return this.#sliceSource(
+      Math.max(0, this.#revealedLength - characterCount),
+      this.#revealedLength,
+    );
   }
 
   /**
@@ -92,35 +112,38 @@ export class RevealTextRope {
    * cursor stands on a construct. Bounded by the caller rather than materializing the source.
    */
   public lookahead(characterCount: number): string {
-    let collected = "";
-    let offset = this.#cursorOffsetInPart;
-    for (const part of this.#pendingParts) {
-      if (collected.length >= characterCount) {
-        break;
-      }
-      collected += part.slice(offset, offset + (characterCount - collected.length));
-      offset = 0;
-    }
-    return collected;
+    return this.#sliceSource(
+      this.#revealedLength,
+      Math.min(this.#sourceLength, this.#revealedLength + Math.max(0, characterCount)),
+    );
   }
 
-  /**
-   * Whether this rope's source is a prefix of `candidate`. Compares the revealed prefix, then
-   * walks the pending parts rather than materializing the source.
-   */
+  /** Whether this rope's source is a prefix of `candidate`, compared chunk by chunk. */
   public isPrefixOf(candidate: string): boolean {
-    if (candidate.length < this.#sourceLength || !candidate.startsWith(this.#revealedText)) {
+    if (candidate.length < this.#sourceLength) {
       return false;
     }
-    // The first pending part starts behind the cursor, inside the revealed prefix.
-    let offset = this.#revealedText.length - this.#cursorOffsetInPart;
-    for (const part of this.#pendingParts) {
-      if (!candidate.startsWith(part, offset)) {
-        return false;
+    return this.#chunks.every((chunk, index) =>
+      candidate.startsWith(chunk, index * REVEAL_TEXT_CHUNK_CHARACTERS),
+    );
+  }
+
+  /** How many leading characters the revealed prefix shares with `candidate`. */
+  public commonRevealedPrefixLength(candidate: string): number {
+    const ceiling = Math.min(this.#revealedLength, candidate.length);
+    for (let start = 0; start < ceiling; start += REVEAL_TEXT_CHUNK_CHARACTERS) {
+      const end = Math.min(ceiling, start + REVEAL_TEXT_CHUNK_CHARACTERS);
+      const piece = this.#sliceSource(start, end);
+      if (candidate.startsWith(piece, start)) {
+        continue;
       }
-      offset += part.length;
+      let shared = start;
+      while (shared < end && piece[shared - start] === candidate[shared]) {
+        shared += 1;
+      }
+      return shared;
     }
-    return true;
+    return ceiling;
   }
 
   public get laneId(): string {
@@ -131,16 +154,75 @@ export class RevealTextRope {
     return this.#sourceLength;
   }
 
-  public get revealedLength(): number {
-    return this.#revealedText.length;
+  /** The revealed prefix's length: what a reader of this rope sees. */
+  public get length(): number {
+    return this.#revealedLength;
+  }
+
+  public get revision(): number {
+    return this.#revision;
   }
 
   public get pendingCharacterCount(): number {
-    return this.#sourceLength - this.#revealedText.length;
+    return this.#sourceLength - this.#revealedLength;
   }
 
   public get isSettled(): boolean {
     return this.pendingCharacterCount === 0;
+  }
+
+  public slice(start: number, end: number = this.#revealedLength): string {
+    return this.#sliceSource(
+      clampedTo(start, this.#revealedLength),
+      clampedTo(end, this.#revealedLength),
+    );
+  }
+
+  public indexOf(character: string, from: number): number {
+    const start = Math.max(0, from);
+    for (
+      let chunkIndex = Math.floor(start / REVEAL_TEXT_CHUNK_CHARACTERS);
+      chunkIndex * REVEAL_TEXT_CHUNK_CHARACTERS < this.#revealedLength;
+      chunkIndex += 1
+    ) {
+      const chunkStart = chunkIndex * REVEAL_TEXT_CHUNK_CHARACTERS;
+      const found = this.#chunks[chunkIndex]?.indexOf(character, Math.max(0, start - chunkStart));
+      if (found !== undefined && found !== -1) {
+        return chunkStart + found < this.#revealedLength ? chunkStart + found : -1;
+      }
+    }
+    return -1;
+  }
+
+  public firstIndexOf(character: string): number {
+    const scan = this.#firstIndexScans.get(character);
+    if (scan !== undefined && scan.foundAt !== -1) {
+      return scan.foundAt;
+    }
+    // A code unit cannot straddle two chunks, so resuming where the last look ended misses none.
+    const foundAt = this.indexOf(character, scan?.scannedTo ?? 0);
+    this.#firstIndexScans.set(character, { scannedTo: this.#revealedLength, foundAt });
+    return foundAt;
+  }
+
+  public chunks(): readonly string[] {
+    const fullChunkCount = Math.floor(this.#revealedLength / REVEAL_TEXT_CHUNK_CHARACTERS);
+    const revealed = this.#chunks.slice(0, fullChunkCount);
+    const partialLength = this.#revealedLength % REVEAL_TEXT_CHUNK_CHARACTERS;
+    const partialChunk = this.#chunks[fullChunkCount];
+    if (partialLength > 0 && partialChunk !== undefined) {
+      revealed.push(partialChunk.slice(0, partialLength));
+    }
+    return revealed;
+  }
+
+  public keepsPrefix(revision: number, length: number): boolean {
+    if (length > this.#revealedLength || revision < this.#forgottenRetractionRevision) {
+      return false;
+    }
+    return this.#retractions.every(
+      (retraction) => retraction.revision <= revision || retraction.revealedLength >= length,
+    );
   }
 
   /**
@@ -150,14 +232,16 @@ export class RevealTextRope {
    * the frame loop. A budget reaching the end of the source is spent as-is, so a pair split
    * across what the producer has sent so far publishes as it arrived and heals on the next
    * append. Grapheme clusters are not snapped: their completeness is undecidable at the end of
-   * an in-flight source, and a partial cluster renders as valid glyphs.
+   * an in-flight source, and a partial cluster renders as valid glyphs. `atCursor` judges a stop
+   * at the cursor itself, which only a rebase leaves where a reveal did not put it.
    */
-  #snappedToCodePointBoundary(budget: number): number {
-    if (budget === 0 || budget >= this.pendingCharacterCount) {
+  #snappedToCodePointBoundary(budget: number, atCursor = false): number {
+    if ((budget === 0 && !atCursor) || budget >= this.pendingCharacterCount) {
       return budget;
     }
-    const unitAtStop = this.#codeUnitAtCursorOffset(budget);
-    const unitBeforeStop = this.#codeUnitAtCursorOffset(budget - 1);
+    const stop = this.#revealedLength + budget;
+    const unitAtStop = this.#codeUnitAt(stop);
+    const unitBeforeStop = this.#codeUnitAt(stop - 1);
     if (unitAtStop === undefined || unitBeforeStop === undefined) {
       return budget;
     }
@@ -166,28 +250,86 @@ export class RevealTextRope {
       : budget;
   }
 
-  /**
-   * The code unit `offsetFromCursor` units past the cursor. Walks the parts rather than building
-   * a string: it runs for every lane on every frame.
-   */
-  #codeUnitAtCursorOffset(offsetFromCursor: number): string | undefined {
-    let offsetInPart = this.#cursorOffsetInPart + offsetFromCursor;
-    for (const part of this.#pendingParts) {
-      if (offsetInPart < part.length) {
-        return part[offsetInPart];
-      }
-      offsetInPart -= part.length;
+  /** The source's code unit at `offset`, found by division rather than a walk. */
+  #codeUnitAt(offset: number): string | undefined {
+    if (offset < 0) {
+      return undefined;
     }
-    return undefined;
+    return this.#chunks[Math.floor(offset / REVEAL_TEXT_CHUNK_CHARACTERS)]?.[
+      offset % REVEAL_TEXT_CHUNK_CHARACTERS
+    ];
+  }
+
+  /**
+   * The source between two offsets. One chunk's range is that chunk's slice; a longer one joins
+   * the pieces, so only the range is ever built.
+   */
+  #sliceSource(start: number, end: number): string {
+    if (end <= start) {
+      return "";
+    }
+    const firstChunkIndex = Math.floor(start / REVEAL_TEXT_CHUNK_CHARACTERS);
+    const lastChunkIndex = Math.floor((end - 1) / REVEAL_TEXT_CHUNK_CHARACTERS);
+    let text = "";
+    for (let chunkIndex = firstChunkIndex; chunkIndex <= lastChunkIndex; chunkIndex += 1) {
+      const chunkStart = chunkIndex * REVEAL_TEXT_CHUNK_CHARACTERS;
+      text += (this.#chunks[chunkIndex] ?? "").slice(
+        Math.max(0, start - chunkStart),
+        end - chunkStart,
+      );
+    }
+    return text;
+  }
+
+  /**
+   * Cut the source to `length` characters, rebuilding the chunk the cut falls inside as its own
+   * copy so it pins none of the dropped text. The cursor never stays past the source.
+   */
+  #truncateSource(length: number): void {
+    const keptChunkCount = Math.ceil(length / REVEAL_TEXT_CHUNK_CHARACTERS);
+    this.#chunks.length = Math.min(this.#chunks.length, keptChunkCount);
+    const lastIndex = keptChunkCount - 1;
+    const keptInLast = length - lastIndex * REVEAL_TEXT_CHUNK_CHARACTERS;
+    const last = this.#chunks[lastIndex];
+    if (last !== undefined && last.length > keptInLast) {
+      this.#chunks[lastIndex] = structuredClone(last.slice(0, keptInLast));
+    }
+    this.#sourceLength = Math.min(this.#sourceLength, length);
+    this.#revealedLength = Math.min(this.#revealedLength, length);
+  }
+
+  /** Note a rewrite that cut revealed text back to `revealedLength`, under a new revision. */
+  #recordRetraction(revealedLength: number): void {
+    this.#revision += 1;
+    this.#retractions.push({ revision: this.#revision, revealedLength });
+    if (this.#retractions.length > RETRACTION_LOG_CAP) {
+      this.#forgottenRetractionRevision = this.#retractions.shift()?.revision ?? NO_REVISION;
+    }
+    // A cut can remove what a scan found, so every scan starts again.
+    this.#firstIndexScans.clear();
   }
 }
 
+/** One rewrite that cut revealed text, and how much it kept. */
+interface Retraction {
+  readonly revision: number;
+  readonly revealedLength: number;
+}
+
+/** How far `firstIndexOf` has looked for one code unit, and where it found it, or -1. */
+interface FirstIndexScan {
+  readonly scannedTo: number;
+  readonly foundAt: number;
+}
+
 /**
- * The most characters one part holds. Above a frame's whole budget, so a long append is crossed
- * one part or two a frame; small next to a reply, so the part the cursor is inside holds little
- * revealed text a second time.
+ * The most rewrites `keepsPrefix` remembers. A rewrite is a producer's retry or rollback, a few
+ * in a turn; a reader that has not looked since an older one is told no and rescans.
  */
-const PART_CHARACTER_CAP = 1_024;
+const RETRACTION_LOG_CAP = 8;
+
+/** Below every revision a rope reports. */
+const NO_REVISION = -1;
 
 /**
  * The first half of a UTF-16 surrogate pair, on its own. Under the `u` flag a well-formed pair
@@ -197,3 +339,7 @@ const LEADING_SURROGATE = /^[\uD800-\uDBFF]$/u;
 
 /** The second half of a UTF-16 surrogate pair, on its own. */
 const TRAILING_SURROGATE = /^[\uDC00-\uDFFF]$/u;
+
+function clampedTo(offset: number, length: number): number {
+  return Math.min(length, Math.max(0, offset));
+}
