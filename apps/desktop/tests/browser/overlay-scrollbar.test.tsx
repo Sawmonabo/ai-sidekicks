@@ -145,14 +145,14 @@ const OPENED_STATES: readonly OpenedState[] = [
   },
   {
     name: "a run's step panel",
-    route: formatRoute({ kind: "workflows", tab: "runs", runId: WORKFLOW_RUN_IDS.waitingReply }),
+    // The failed build's step carries the last lines its process printed, taller than the run
+    // graph beside the panel, whose height the panel takes.
+    route: formatRoute({ kind: "workflows", tab: "runs", runId: WORKFLOW_RUN_IDS.processExited }),
     scenarioId: CONCURRENT_STREAMING_SCENARIO_ID,
-    // Narrow, so the step's question and answer wrap taller than the run graph beside the panel,
-    // whose height the panel takes.
-    window: { width: 480, height: SHORT_WINDOW.height },
+    window: SHORT_WINDOW,
     scrollerSelector: ".meridian-workflow-step__scroller",
-    // The run page opens its step panel on the step waiting on a person, once the run is read on
-    // the scenario's clock.
+    // The run page opens its step panel on the failed step, once the run is read on the
+    // scenario's clock.
     open: async (appWindow) => {
       await advanceScenarioUntil(runningScenario(), () => {
         expect(
