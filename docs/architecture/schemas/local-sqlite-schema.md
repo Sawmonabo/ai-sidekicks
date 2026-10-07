@@ -204,6 +204,31 @@ The number is carried onto a spawn through `runtime_bindings.spawn_config` and r
 
 ---
 
+## Runs (Plan-002)
+
+The run's state is event-sourced: each `run.*` state change, and each applied or degraded intervention, writes this row in the same write as its event, so the row always equals a rebuild from the log. It is the read `getRun` answers from, and the row a state change's guarded swap moves.
+
+```sql
+-- Owner: Plan-002
+CREATE TABLE runs (
+  run_id         TEXT NOT NULL PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  parent_run_id  TEXT,                          -- NULL on a lead run
+  reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
+                 CHECK(reached_by IS NULL
+                   OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+  state          TEXT NOT NULL
+    CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
+                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
+  run_version    INTEGER NOT NULL CHECK(run_version >= 0)  -- counts every progression (Plan-002 D-002-1)
+) STRICT;
+
+CREATE INDEX idx_runs_session ON runs(session_id);
+CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+CREATE INDEX idx_runs_live ON runs(state)               -- the runs a restart settles
+  WHERE state NOT IN ('completed', 'interrupted', 'stopped', 'failed');
+```
+
 ## Queue and Intervention Tables (Plan-002)
 
 ```sql
@@ -248,6 +273,7 @@ CREATE TABLE interventions (
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
+  fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
