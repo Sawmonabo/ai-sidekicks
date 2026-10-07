@@ -1,5 +1,6 @@
 // A fixture run's graph mounted on real layout, for the run-graph suites: the run and the document
-// it ran, found by the run's id, and the canvas drawn over them once it is fitted and painted.
+// it ran, found by the run's id, and the canvas drawn over them once it is fitted, painted and
+// placed.
 
 import { useState } from "react";
 import { act } from "@testing-library/react";
@@ -48,7 +49,7 @@ export function fixtureRun(runId: string): FixtureRun {
 
 /**
  * Mounts `fixture`'s graph with its own steps, under `edgeItemCounts` or the run's, and waits until
- * it is fitted and painted.
+ * it is fitted, painted and placed.
  */
 export async function mountRunGraph(
   fixture: FixtureRun,

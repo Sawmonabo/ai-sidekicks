@@ -10,9 +10,12 @@
 // So the wait is on a state, never a clock: the fitted transform has been computed.
 //
 // The transform alone is not the picture. The library writes a fitted transform at any container
-// size, including a root collapsed to zero height, so readiness is two readings: the fit has been
-// computed, and the picture is on screen (a painted root with height, holding at least one phase).
-// Refusing matters: a throw fails the audit, where a silent pass would audit an empty box.
+// size, including a root collapsed to zero height, so readiness is three readings: the fit has been
+// computed, the picture is on screen (a painted root with height, holding at least one phase), and
+// the view stands where the graph places it for the root as it now measures. The last holds the
+// wait through a resize after the first fit and the slide that follows it, whose updates would
+// otherwise land during the audit. Refusing matters: a throw fails the audit, where a silent pass
+// would audit an empty box.
 
 import { waitFor } from "@testing-library/react";
 
@@ -23,6 +26,12 @@ import { waitFor } from "@testing-library/react";
  * until the nodes are measured. Naming it lets "fitted" be a state rather than a duration.
  */
 const UNFITTED_VIEWPORT_TRANSFORM = "translate(0px, 0px) scale(1)";
+
+/**
+ * How far, in screen pixels, a center may stand from the root's and still count as placed: the
+ * library measures the root in whole pixels.
+ */
+const PLACEMENT_TOLERANCE_PX = 1;
 
 /**
  * How long a fit may take before the wait throws.
@@ -81,7 +90,36 @@ function isGraphPainted(mountedElement: HTMLElement): boolean {
 }
 
 /**
- * Whether this element is settled: it draws no graph, or its graph is fitted and painted.
+ * Whether the view stands where the graph places it for its root as the root now measures: one
+ * node, the live step it follows, or the bounds of every node, fitted, centered in the root.
+ *
+ * A view mid-slide, or placed for a size the root has since left, has neither at the center.
+ */
+function isViewPlaced(mountedElement: HTMLElement): boolean {
+  const root = mountedElement.querySelector<HTMLElement>(".meridian-run-graph .react-flow");
+  const nodeBoxes = [
+    ...mountedElement.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node"),
+  ].map((node) => node.getBoundingClientRect());
+  if (root === null || nodeBoxes.length === 0) {
+    return false;
+  }
+  const rootBox = root.getBoundingClientRect();
+  const isCentered = (left: number, top: number, right: number, bottom: number): boolean =>
+    Math.abs((left + right) / 2 - (rootBox.left + rootBox.right) / 2) < PLACEMENT_TOLERANCE_PX &&
+    Math.abs((top + bottom) / 2 - (rootBox.top + rootBox.bottom) / 2) < PLACEMENT_TOLERANCE_PX;
+  return (
+    nodeBoxes.some((box) => isCentered(box.left, box.top, box.right, box.bottom)) ||
+    isCentered(
+      Math.min(...nodeBoxes.map((box) => box.left)),
+      Math.min(...nodeBoxes.map((box) => box.top)),
+      Math.max(...nodeBoxes.map((box) => box.right)),
+      Math.max(...nodeBoxes.map((box) => box.bottom)),
+    )
+  );
+}
+
+/**
+ * Whether this element is settled: it draws no graph, or its graph is fitted, painted and placed.
  *
  * The predicate reads the pane's own container rather than the library's, so "no graph here" and
  * "the graph has not arrived" are different answers and a caller can run this over every element.
@@ -90,11 +128,15 @@ export function isRunGraphSettled(mountedElement: HTMLElement): boolean {
   if (mountedElement.querySelector(".meridian-run-graph") === null) {
     return true;
   }
-  return fittedViewportTransform(mountedElement) !== undefined && isGraphPainted(mountedElement);
+  return (
+    fittedViewportTransform(mountedElement) !== undefined &&
+    isGraphPainted(mountedElement) &&
+    isViewPlaced(mountedElement)
+  );
 }
 
 /**
- * Hold until this element's graph has been fitted and painted; throws past the deadline.
+ * Hold until this element's graph has been fitted, painted and placed; throws past the deadline.
  *
  * The fit arrives on a React state update, so it is waited for through the library's `waitFor`,
  * whose polling runs in the async act every other wait goes through; a hand-rolled loop would
@@ -114,6 +156,9 @@ export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise
           "the phase graph was fitted into a root that paints no phase — the box on " +
             "screen is empty",
         );
+      }
+      if (!isViewPlaced(mountedElement)) {
+        throw new Error("the phase graph's view is still moving to where the graph places it");
       }
     },
     { timeout: FIT_DEADLINE_MS },
