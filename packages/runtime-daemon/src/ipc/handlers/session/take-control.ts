@@ -1,7 +1,8 @@
 // `session.takeControl`: takes one shell's control lease for the calling device's connection.
 //
 // The caller is the device and connection the gateway stamped on the call, never a request field,
-// so the lease ends with that connection, or with the pane output subscription the request names.
+// so the binding the take adds ends with that connection or with the pane output subscription the
+// request names, and the hold with its last binding.
 // The registry parses the request before the handler runs.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
