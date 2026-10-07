@@ -1,69 +1,80 @@
-import { Command, CommanderError } from "commander";
+import { inspect } from "node:util";
+
+import { Command, CommanderError, type OutputConfiguration } from "commander";
 
 import packageManifest from "../package.json" with { type: "json" };
 import type { CommandContext } from "./command-context.js";
-import { exitCodeForFailure, LOCAL_FAILURE_EXIT_CODES, PosixExitCode } from "./exit-codes.js";
+import { ExitCode, exitCodeForFailure, LOCAL_FAILURE_EXIT_CODES } from "./exit-codes.js";
 
-/** Commander's codes for `--help` and `--version`, which print their output and succeed. */
-const SUCCESSFUL_DISPLAY_CODES: ReadonlySet<string> = new Set([
-  "commander.helpDisplayed",
-  "commander.version",
-]);
+// An exit commander asked for after it printed the help, the version or the refusal itself, told
+// apart from a `CommanderError` a command body throws, which nothing has printed yet.
+class PrintedCommanderExit extends Error {
+  public readonly commanderError: CommanderError;
+
+  public constructor(commanderError: CommanderError) {
+    super(commanderError.message, { cause: commanderError });
+    this.name = "PrintedCommanderExit";
+    this.commanderError = commanderError;
+  }
+}
 
 /**
  * Builds the `sidekicks` program, whose output and parse refusals go to the context's streams.
  * A command is added with `.command()` on the program or on a group, never with `new Command()`
- * and `.addCommand()`, which drops these output and exit settings; it writes its result only
- * through `context.stdout` and fails by throwing.
+ * and `.addCommand()`, which drops these output and exit settings. An argument parser refuses a
+ * value by throwing commander's `InvalidArgumentError` (a plain `Error` there is a software
+ * failure). A command fails by throwing, and writes its result through `context.stdout` only once
+ * it can no longer fail.
  */
 export function createProgram(context: CommandContext): Command {
   return new Command("sidekicks")
     .description("Drive AI Sidekicks sessions from the terminal.")
     .version(packageManifest.version)
-    .exitOverride()
+    .helpCommand(true) // Commander adds `help` itself only once a command exists.
+    .exitOverride((commanderError) => {
+      throw new PrintedCommanderExit(commanderError);
+    })
     .configureOutput({
       writeOut: (text) => context.stdout.write(text),
       writeErr: (text) => context.stderr.write(text),
     });
 }
 
-function writeFailure(context: CommandContext, error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  context.stderr.write(`error: ${message}\n`);
+function writeFailure(program: Command, error: unknown): void {
+  // Commander fills every output setting when it builds a command; only the getter's type marks
+  // them optional.
+  const { writeErr } = program.configureOutput() as Required<OutputConfiguration>;
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : inspect(error);
+  writeErr(`error: ${message}\n`);
 }
 
 // The mapper throws for a daemon code with no exit code; that failure is reported like any other.
-function exitCodeForRunFailure(error: unknown, context: CommandContext): PosixExitCode {
+function exitCodeForRunFailure(program: Command, error: unknown): ExitCode {
   try {
     return exitCodeForFailure(error);
   } catch (mappingError) {
-    writeFailure(context, mappingError);
+    writeFailure(program, mappingError);
     return LOCAL_FAILURE_EXIT_CODES.software;
   }
 }
 
 /**
- * Runs the program over the arguments after the executable and script and returns the exit code.
- * The one error boundary: every failure is reported on the context's `stderr`, never on `stdout`
- * and never with a stack, and turned into an exit code.
+ * Runs a program from {@link createProgram} over the arguments after the executable and script and
+ * returns the exit code. The one error boundary: every failure is reported on the program's
+ * configured stderr, never on stdout and never with a stack, and turned into an exit code.
  */
-export async function runProgram(
-  program: Command,
-  args: readonly string[],
-  context: CommandContext,
-): Promise<PosixExitCode> {
+export async function runProgram(program: Command, args: readonly string[]): Promise<ExitCode> {
   try {
     await program.parseAsync(args, { from: "user" });
-    return PosixExitCode.Success;
+    return ExitCode.Success;
   } catch (error) {
-    if (error instanceof CommanderError) {
-      if (SUCCESSFUL_DISPLAY_CODES.has(error.code)) {
-        return PosixExitCode.Success;
-      }
-      // Commander has already written the refusal to stderr.
-      return exitCodeForRunFailure(error, context);
+    if (error instanceof PrintedCommanderExit) {
+      return error.commanderError.exitCode === 0
+        ? ExitCode.Success
+        : exitCodeForRunFailure(program, error.commanderError);
     }
-    writeFailure(context, error);
-    return exitCodeForRunFailure(error, context);
+    writeFailure(program, error);
+    return exitCodeForRunFailure(program, error);
   }
 }

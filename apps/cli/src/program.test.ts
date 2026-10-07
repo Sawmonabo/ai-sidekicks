@@ -1,4 +1,8 @@
-import { JsonRpcRemoteError, JsonRpcTransportUnavailableError } from "@ai-sidekicks/client-sdk";
+import {
+  JsonRpcRemoteError,
+  JsonRpcTransportClosedError,
+  JsonRpcTransportUnavailableError,
+} from "@ai-sidekicks/client-sdk";
 import { type Command, InvalidArgumentError } from "commander";
 import { describe, expect, it } from "vitest";
 
@@ -54,7 +58,7 @@ async function run(args: readonly string[], failure: unknown = undefined): Promi
     stdout: { write: (chunk) => void (stdout += chunk) },
     stderr: { write: (chunk) => void (stderr += chunk) },
   };
-  const exitCode = await runProgram(createTestProgram(context, failure), args, context);
+  const exitCode = await runProgram(createTestProgram(context, failure), args);
   return { exitCode, stdout, stderr };
 }
 
@@ -74,10 +78,18 @@ describe("runProgram", () => {
     expect(help.stdout).toMatch(/^Usage: sidekicks \[options\] \[command\]\n/);
     expect(help.stderr).toBe("");
 
-    const nestedHelp = await run(["daemon", "--help"]);
-    expect(nestedHelp.exitCode).toBe(0);
-    expect(nestedHelp.stdout).toMatch(/^Usage: sidekicks daemon \[options\] \[command\]\n/);
-    expect(nestedHelp.stderr).toBe("");
+    expect(await run(["help"])).toEqual(help);
+
+    for (const args of [
+      ["daemon", "--help"],
+      ["help", "daemon"],
+      ["daemon", "help"],
+    ]) {
+      const groupHelp = await run(args);
+      expect(groupHelp.exitCode).toBe(0);
+      expect(groupHelp.stdout).toMatch(/^Usage: sidekicks daemon \[options\] \[command\]\n/);
+      expect(groupHelp.stderr).toBe("");
+    }
 
     expect(await run(["--version"])).toEqual({
       exitCode: 0,
@@ -115,28 +127,41 @@ describe("runProgram", () => {
     ["a plain error", new Error("disk full"), 70, "error: disk full\n"],
     ["a thrown string", "disk full", 70, "error: disk full\n"],
     [
+      "a value with no string form",
+      Object.create(null),
+      70,
+      "error: [Object: null prototype] {}\n",
+    ],
+    [
+      "a raw argument refusal from a command body",
+      new InvalidArgumentError("Not a session id."),
+      64,
+      "error: Not a session id.\n",
+    ],
+    [
       "a daemon invalid-params error",
       new JsonRpcRemoteError(-32602, "bad session id", undefined),
       64,
       "error: bad session id\n",
     ],
     [
-      "a daemon parse error",
-      new JsonRpcRemoteError(-32700, "unreadable request", undefined),
-      65,
-      "error: unreadable request\n",
-    ],
-    [
       "an unreachable daemon",
       new JsonRpcTransportUnavailableError("/tmp/daemon.sock", new Error("refused")),
-      70,
+      69,
       "error: The daemon's socket /tmp/daemon.sock cannot be reached: refused\n",
+    ],
+    [
+      "a connection closed mid-call",
+      new JsonRpcTransportClosedError(new Error("reset")),
+      69,
+      "error: Transport closed: reset\n",
     ],
     [
       "a daemon code with no exit code",
       new JsonRpcRemoteError(-32000, "server error", undefined),
       70,
-      "error: server error\nerror: The daemon's error code -32000 has no exit code\n",
+      "error: server error\n" +
+        "error: The background service returned error code -32000, which has no exit code\n",
     ],
   ])(
     "reports %s as one line per failure on stderr only, with no stack",

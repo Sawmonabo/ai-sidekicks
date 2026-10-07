@@ -7,9 +7,14 @@
 //
 // This config spreads the root `eslint.config.mjs` first and inherits its baselines. Flat config
 // replaces a rule's options at the last matching object, so source and test files each get exactly
-// one `no-restricted-imports` block, built from the shared constants below.
+// one `no-restricted-imports` block, built from the shared constants below, and the source block
+// restates the root's `no-restricted-syntax` bans beside its own.
 import { defineConfig } from "eslint/config";
-import root from "../../eslint.config.mjs";
+import root, {
+  ENUM_DECLARATION,
+  EXPORT_ALL_DECLARATION,
+  requireJsxInTsx,
+} from "../../eslint.config.mjs";
 
 /** Every source file of the command line, tests included. */
 const SOURCE_FILES = ["src/**/*.ts"];
@@ -18,11 +23,11 @@ const SOURCE_FILES = ["src/**/*.ts"];
 const TEST_FILES = ["src/**/*.test.ts"];
 
 /**
- * A relative specifier that climbs at most one folder. From any file under `src/` that stays
- * inside this package (`../package.json` is the one such import today); a file nested deeper that
- * needs a second `../` widens this in the same diff.
+ * A relative specifier of any depth that names no folder found only outside this package: `apps`,
+ * `packages`, `desktop`, `tools` or `node_modules`.
  */
-const RELATIVE_INSIDE_PACKAGE = "\\.\\.?(?:/(?!\\.\\.(?:/|$))[^/]+)+";
+const RELATIVE_INSIDE_PACKAGE =
+  "\\.\\.?(?:/(?!(?:apps|packages|desktop|tools|node_modules)(?:/|$))[^/]+)+";
 
 /** The specifiers source may import. */
 const ALLOWED_SPECIFIERS = [
@@ -38,13 +43,15 @@ function restrictImportsTo(allowedSpecifiers) {
   return [
     "error",
     {
-      paths: ["node:process", "process"].map((name) => ({
-        name,
-        importNames: ["stdout", "stderr"],
-        message:
-          "Write a result to the context's `stdout` and a diagnostic to its `stderr`; only " +
-          "src/main.ts reads the real process streams.",
-      })),
+      paths: [
+        {
+          name: "node:process",
+          importNames: ["stdout", "stderr"],
+          message:
+            "Write a result to the context's `stdout` and a diagnostic to its `stderr`; only " +
+            "src/main.ts reads the real process streams.",
+        },
+      ],
       patterns: [
         {
           regex: `^(?!(?:${allowedSpecifiers.join("|")})$).*$`,
@@ -58,12 +65,21 @@ function restrictImportsTo(allowedSpecifiers) {
   ];
 }
 
-export default defineConfig(
+/** A dynamic `import()`, which `no-restricted-imports` does not check. */
+const DYNAMIC_IMPORT = {
+  selector: "ImportExpression",
+  message:
+    "No dynamic import(): the import allow-list checks only static imports, so every import " +
+    "is written statically.",
+};
+
+const cliConfig = defineConfig(
   ...root,
   {
     files: SOURCE_FILES,
     rules: {
       "no-restricted-imports": restrictImportsTo(ALLOWED_SPECIFIERS),
+      "no-restricted-syntax": ["error", ENUM_DECLARATION, EXPORT_ALL_DECLARATION, DYNAMIC_IMPORT],
       "no-console": "error",
     },
   },
@@ -87,3 +103,5 @@ export default defineConfig(
     },
   },
 );
+
+export default requireJsxInTsx(cliConfig);

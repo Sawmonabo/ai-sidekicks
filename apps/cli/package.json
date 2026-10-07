@@ -11,9 +11,6 @@
   "bin": {
     "sidekicks": "./dist/main.js"
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "rolldown -c rolldown.config.ts",
     "typecheck": "tsc -p tsconfig.json",
