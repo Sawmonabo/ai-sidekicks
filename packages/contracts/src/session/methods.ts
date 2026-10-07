@@ -14,6 +14,8 @@ import {
   type SubscribeAckResponse,
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
+import { RunStateSchema, type RunState } from "../run/state.js";
 import { TagListSchema } from "../tag.js";
 import type { TranscriptRunStamp } from "../transcript/row.js";
 import {
@@ -123,9 +125,28 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   })
   .strict();
 
+/** One run of the session not yet ended, as the daemon's run record holds it now. */
+export interface SessionLiveRun {
+  runId: RunId;
+  /** The run that started it; absent on a lead run. */
+  parentRunId?: RunId | undefined;
+  state: RunState;
+  runVersion: number;
+}
+/** Parses a {@link SessionLiveRun}. */
+export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
+  .object({
+    runId: RunIdSchema,
+    parentRunId: RunIdSchema.optional(),
+    state: RunStateSchema,
+    runVersion: countSchema,
+  })
+  .strict();
+
 /**
- * The `session.read` result: the session and its transcript cursors. A reader with no
- * acknowledged position resumes from `earliest`.
+ * The `session.read` result: the session, its transcript cursors and its runs not yet ended. A
+ * reader with no acknowledged position opens its window at `latest`; the live runs give it the
+ * state of every run whose events lie above that window.
  */
 export interface SessionReadResponse {
   session: SessionRecord;
@@ -135,6 +156,11 @@ export interface SessionReadResponse {
     latest: EventCursor;
     acknowledged?: EventCursor | undefined;
   };
+  /**
+   * Every run of the session not yet ended, with the state it is in now, so a window opened
+   * below a run's earlier events still knows whether that run is working or waiting.
+   */
+  liveRuns: SessionLiveRun[];
 }
 /** Parses a {@link SessionReadResponse}. */
 export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
@@ -147,6 +173,7 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
         acknowledged: EventCursorSchema.optional(),
       })
       .strict(),
+    liveRuns: z.array(SessionLiveRunSchema),
   })
   .strict();
 

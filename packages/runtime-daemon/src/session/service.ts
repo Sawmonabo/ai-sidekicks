@@ -1,5 +1,6 @@
-// The session service's reads: one session's record and transcript cursors as `session.read`
-// answers them, from the `sessions` row its events keep in step and its tags; the session's whole
+// The session service's reads: one session's record, transcript cursors and runs not yet ended as
+// `session.read` answers them, from the `sessions` row its events keep in step, its tags and its
+// run rows; the session's whole
 // log, or a page of it after a known sequence; and a rebuild of the record from that log through
 // the projector, over the same envelope reads the event log serves, which skip a range the session
 // skipped past as damaged and, while its history is damaged, stop at its last good point.
@@ -12,7 +13,10 @@ import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type {
+  SessionLiveRun,
   SessionReadRequest,
   SessionReadResponse,
   SessionRecord,
@@ -29,10 +33,11 @@ import { sessionNotFound } from "./not-found.js";
 import { rebuildSession } from "./projector.js";
 import type { DaemonSessionRecord } from "./records.js";
 
-/** A session's read as its row, tags and log answer it: everything but the held draft. */
+/** A session's read as its row, tags, runs and log answer it: everything but the held draft. */
 export interface SessionLogRead {
   session: Omit<SessionRecord, "draft">;
   transcriptCursors: SessionReadResponse["transcriptCursors"];
+  liveRuns: SessionReadResponse["liveRuns"];
 }
 
 /** A page of a session's events after a known sequence; with no `limit`, every later event. */
@@ -69,6 +74,14 @@ interface SessionReadRow {
   readonly updated_at: string;
 }
 
+// The `runs` columns a live run is answered from.
+interface LiveRunRow {
+  readonly run_id: RunId;
+  readonly parent_run_id: RunId | null;
+  readonly state: RunState;
+  readonly run_version: number;
+}
+
 /**
  * Reads one session: its record and cursors from its row, its whole log, or its record rebuilt
  * from that log.
@@ -78,6 +91,7 @@ export class SessionService {
   readonly #eventReads: SessionEventReads;
   readonly #selectRow: Statement<[string], SessionReadRow>;
   readonly #selectTags: Statement<[string], { readonly tag: string }>;
+  readonly #selectLiveRuns: Statement<[string], LiveRunRow>;
 
   /** `readDamagedFromSequence` says where a damaged session's reads stop; none stop when absent. */
   constructor(reader: Database, readDamagedFromSequence?: DamagedFromSequenceReader) {
@@ -92,19 +106,28 @@ export class SessionService {
     this.#selectTags = reader.prepare(
       "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded",
     );
+    // The ended states are the live-runs index's own condition, so the index serves the scan.
+    this.#selectLiveRuns = reader.prepare(
+      `SELECT run_id, parent_run_id, state, run_version
+         FROM runs
+        WHERE session_id = ?
+          AND state NOT IN ('completed', 'interrupted', 'stopped', 'failed')
+        ORDER BY rowid`,
+    );
   }
 
   /**
-   * The session's record, without the held draft, and its transcript cursors: `earliest` is the
-   * start of the log, `latest` its newest readable event, or the start of the log too when its
-   * history is damaged before any. Row, tags and head are read in one snapshot, so no event the
-   * row reflects lies past `latest`. Throws `session.not_found` for a session this daemon holds no
-   * row for.
+   * The session's record, without the held draft, its transcript cursors and its runs not yet
+   * ended: `earliest` is the start of the log, `latest` its newest readable event, or the start of
+   * the log too when its history is damaged before any. Row, tags, runs and head are read in one
+   * snapshot, so no event the row or a run reflects lies past `latest`. Throws
+   * `session.not_found` for a session this daemon holds no row for.
    */
   readSession(request: SessionReadRequest): SessionLogRead {
-    const { row, tags, head } = this.#reader.transaction(() => ({
+    const { row, tags, liveRuns, head } = this.#reader.transaction(() => ({
       row: this.#selectRow.get(request.sessionId),
       tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
+      liveRuns: this.#selectLiveRuns.all(request.sessionId).map(readLiveRun),
       head: this.#eventReads.readHead(request.sessionId),
     }))();
     if (row === undefined) {
@@ -127,6 +150,7 @@ export class SessionService {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),
         latest: encodeEventCursor(head ?? START_OF_LOG_POSITION),
       },
+      liveRuns,
     };
   }
 
@@ -167,4 +191,13 @@ export class SessionService {
   rebuildSession(sessionId: SessionId): DaemonSessionRecord | null {
     return rebuildSession(this.readEvents(sessionId));
   }
+}
+
+function readLiveRun(row: LiveRunRow): SessionLiveRun {
+  return {
+    runId: row.run_id,
+    ...(row.parent_run_id === null ? {} : { parentRunId: row.parent_run_id }),
+    state: row.state,
+    runVersion: row.run_version,
+  };
 }
