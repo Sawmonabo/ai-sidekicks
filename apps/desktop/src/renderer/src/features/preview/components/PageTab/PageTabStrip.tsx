@@ -130,7 +130,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
               });
             }}
             onKeyDown={(event) => {
-              if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+              if (opensTabMenu(event)) {
                 event.preventDefault();
                 setMenuTarget({ pageId: page.pageId, anchor: event.currentTarget });
               }
@@ -179,6 +179,15 @@ const MIDDLE_BUTTON = 1;
 
 /** The secondary button's number in `MouseEvent.button`: a right-click. */
 const SECONDARY_BUTTON = 2;
+
+// Exactly the menu key alone or Shift+F10: a further modifier makes it another chord, which the
+// strip leaves to whatever holds it.
+function opensTabMenu(event: React.KeyboardEvent): boolean {
+  if (event.ctrlKey || event.altKey || event.metaKey) {
+    return false;
+  }
+  return event.shiftKey ? event.key === "F10" : event.key === "ContextMenu";
+}
 
 /** What a tab shows: the page's own title, then its host until the title arrives. */
 function tabLabel(page: PreviewPage): string {

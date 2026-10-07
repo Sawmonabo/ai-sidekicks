@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
+import { reservedChordReason } from "#renderer/registries/keybindings/audit.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,
@@ -163,6 +164,30 @@ describe("reading a keystroke as a chord", () => {
     expect(
       readChordFromEvent(press({ key: "Escape", code: "Escape", shiftKey: true }), "darwin"),
     ).toEqual({ outcome: "captured", chord: "Shift+Escape" });
+  });
+
+  it("on Linux, reads each of GNOME's Escape chords as a chord the host takes", () => {
+    // The reserved table matches the recorded spelling exactly, so modifier order matters.
+    const reasonFor = (fields: Parameters<typeof press>[0]): string | undefined => {
+      const recording = readChordFromEvent(
+        press({ key: "Escape", code: "Escape", ...fields }),
+        "linux",
+      );
+      return recording.outcome === "captured"
+        ? reservedChordReason(recording.chord, "linux")
+        : undefined;
+    };
+    for (const fields of [
+      { altKey: true },
+      { altKey: true, shiftKey: true },
+      { ctrlKey: true, altKey: true },
+      { ctrlKey: true, altKey: true, shiftKey: true },
+      { metaKey: true },
+    ]) {
+      expect(reasonFor(fields)).toMatch(/^GNOME /u);
+    }
+    // Negative control: Super+Shift+Esc is held by GNOME only during an input capture session.
+    expect(reasonFor({ metaKey: true, shiftKey: true })).toBeUndefined();
   });
 
   it("falls back to the key when the host supplies no physical code", () => {

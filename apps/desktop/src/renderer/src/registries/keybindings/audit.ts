@@ -44,6 +44,27 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
         "The desktop environment usually switches windows " +
         "on this chord before any application sees it.",
     },
+    // GNOME's own Escape chords, spelled in the order the recorder writes a press's modifiers.
+    {
+      chord: "Alt+Escape",
+      reason: "GNOME switches windows on this chord before any application sees it.",
+    },
+    {
+      chord: "Alt+Shift+Escape",
+      reason: "GNOME switches windows on this chord before any application sees it.",
+    },
+    {
+      chord: "$mod+Alt+Escape",
+      reason: "GNOME switches system controls on this chord before any application sees it.",
+    },
+    {
+      chord: "$mod+Alt+Shift+Escape",
+      reason: "GNOME switches system controls on this chord before any application sees it.",
+    },
+    {
+      chord: "Meta+Escape",
+      reason: "GNOME restores its own shortcuts on this chord before any application sees it.",
+    },
   ],
 };
 
