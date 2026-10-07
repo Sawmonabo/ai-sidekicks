@@ -3,6 +3,8 @@
 
 import { z } from "zod";
 
+import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
+
 /** The JSON-RPC method name of the negotiation handshake. */
 export const DAEMON_HELLO_METHOD = "daemon.hello" as const;
 
@@ -105,7 +107,8 @@ export type NegotiationIncompatibleReason =
   | typeof NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED;
 
 /**
- * The `daemon.hello` result. When `compatible` is false only read-only calls are allowed, and
+ * The `daemon.hello` result. `deviceId` is the connecting device's own id, for a local connection
+ * the service's own. When `compatible` is false only read-only calls are allowed, and
  * `protocolVersion` is the daemon's newest rather than the negotiated one; `reason` and
  * `daemonSupportedProtocols` appear only on an incompatible first handshake.
  */
@@ -113,6 +116,7 @@ export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
   .object({
     compatible: z.boolean(),
     protocolVersion: ProtocolVersionSchema,
+    deviceId: DeviceIdSchema,
     reason: z
       .union([
         z.literal(NEGOTIATION_REASON_FLOOR_EXCEEDED),
@@ -135,6 +139,7 @@ export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
 export interface DaemonHelloAck {
   readonly compatible: boolean;
   readonly protocolVersion: string;
+  readonly deviceId: DeviceId;
   readonly reason?: NegotiationIncompatibleReason | undefined;
   readonly serverCapabilities?: ReadonlyArray<string> | undefined;
   readonly daemonSupportedProtocols?: ReadonlyArray<string> | undefined;

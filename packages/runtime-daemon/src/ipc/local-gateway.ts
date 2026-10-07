@@ -9,11 +9,14 @@
 //   contract.
 // * `MethodRegistry` is injected at construction. `DaemonHello` version negotiation lives in
 //   `protocol-negotiation.ts` and streaming in `streaming-primitive.ts`.
+// * Every dispatch carries the connection's id and the service's own device id, never one a
+//   request names.
 // * `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date string.
 
 import * as net from "node:net";
 
 import type { HandlerContext, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type {
   JsonRpcErrorResponse,
   JsonRpcId,
@@ -122,6 +125,8 @@ function allocTransportId(): number {
  */
 export interface LocalIpcGatewayOptions {
   readonly registry: MethodRegistry;
+  /** The device every connection on this local socket comes from: the service's own device id. */
+  readonly deviceId: DeviceId;
   readonly hooks?: SupervisionHooks;
 }
 
@@ -133,6 +138,7 @@ export interface LocalIpcGatewayOptions {
  */
 export class LocalIpcGateway {
   readonly #registry: MethodRegistry;
+  readonly #deviceId: DeviceId;
   readonly #hooks: SupervisionHooks | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
@@ -140,6 +146,7 @@ export class LocalIpcGateway {
 
   constructor(options: LocalIpcGatewayOptions) {
     this.#registry = options.registry;
+    this.#deviceId = options.deviceId;
     this.#hooks = options.hooks ?? null;
     this.#server = null;
     this.#connections = new Map();
@@ -462,7 +469,7 @@ export class LocalIpcGateway {
     // whatever the handler threw; both paths reply through `#sendEnvelope`. The read loop does not
     // wait, so several dispatches can be in flight per connection: JSON-RPC promises no order
     // beyond id correlation.
-    const ctx: HandlerContext = { transportId: state.transport.id };
+    const ctx: HandlerContext = { transportId: state.transport.id, deviceId: this.#deviceId };
     this.#registry.dispatch(methodCandidate, params, ctx).then(
       (result: unknown) => {
         if (isNotification) {

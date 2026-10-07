@@ -28,7 +28,11 @@ const SIGNATURE_PART_MAX_LEN = 4096;
 /** The longest device id any wire member carries. */
 export const DEVICE_ID_MAX_LEN = 256;
 
-/** The control plane's id for one of the person's phones or browsers. Opaque to every client. */
+/**
+ * The id of one of the person's devices: a phone or browser the control plane registers, or a
+ * machine, whose own id is the device of every local connection to its service. Opaque to every
+ * client.
+ */
 export type DeviceId = string & { readonly __brand: "DeviceId" };
 /** Parses a {@link DeviceId}: a non-empty string up to {@link DEVICE_ID_MAX_LEN}. */
 export const DeviceIdSchema: z.ZodType<DeviceId, DeviceId> = z

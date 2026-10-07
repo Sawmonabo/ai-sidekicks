@@ -231,14 +231,12 @@ export class ProtocolNegotiator {
    */
   registerHandshakeMethod(registry: MethodRegistry): void {
     const handler: Handler<DaemonHello, DaemonHelloAck> = async (params, ctx) => {
-      // A missing transport id is a wiring bug, not a client violation, so a plain Error.
-      if (ctx.transportId === undefined) {
-        throw new Error(
-          `${DAEMON_HELLO_METHOD}: handler requires ctx.transportId (per-connection ` +
-            `negotiation state requires a transport identity)`,
-        );
+      // A missing transport or device id is a wiring bug, not a client violation, so a plain Error.
+      const { transportId, deviceId } = ctx;
+      if (transportId === undefined || deviceId === undefined) {
+        const missing = transportId === undefined ? "ctx.transportId" : "ctx.deviceId";
+        throw new Error(`${DAEMON_HELLO_METHOD}: handler requires ${missing}`);
       }
-      const transportId = ctx.transportId;
 
       // A repeated hello is refused and the first outcome stays latched. The ack repeats the first
       // handshake's version; the client already has the supported list.
@@ -250,6 +248,7 @@ export class ProtocolNegotiator {
             existing.kind === "done-compatible"
               ? existing.negotiatedProtocolVersion
               : existing.preferredProtocolVersion,
+          deviceId,
           reason: NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
         };
       }
@@ -270,6 +269,7 @@ export class ProtocolNegotiator {
         return {
           compatible: true,
           protocolVersion: outcome.negotiated,
+          deviceId,
         };
       }
 
@@ -286,6 +286,7 @@ export class ProtocolNegotiator {
       return {
         compatible: false,
         protocolVersion: outcome.daemonPreferred,
+        deviceId,
         reason,
         daemonSupportedProtocols: SUPPORTED_PROTOCOL_VERSIONS,
       };

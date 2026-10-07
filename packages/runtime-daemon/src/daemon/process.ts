@@ -20,6 +20,7 @@ import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder"
 import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
+import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
 import { bootstrap } from "../bootstrap/index.js";
 import {
@@ -165,6 +166,8 @@ export class DaemonProcess {
 
     this.#gateway = new LocalIpcGateway({
       registry,
+      // Every local connection comes from this machine, so its id is the calling device.
+      deviceId: DeviceIdSchema.parse(parts.localMachine.nodeId),
       hooks: {
         onDisconnect: (transport) => {
           negotiator.cleanupTransport(transport.id);
