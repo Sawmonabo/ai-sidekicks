@@ -37,6 +37,12 @@ import type {
 /** Bare name: `system/init` lists `slash_commands` without the leading slash. */
 export const CLAUDE_COMPACTION_COMMAND_NAME = "compact";
 
+/**
+ * How long the transport waits on any one request to the Claude Code process, a control request or
+ * a stdin write, before failing it. Milliseconds.
+ */
+export const CLAUDE_REQUEST_DEADLINE_MS = 60_000;
+
 /** The slash command that asks the provider to compact its context. */
 export const CLAUDE_COMPACTION_COMMAND_TEXT: string = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
 

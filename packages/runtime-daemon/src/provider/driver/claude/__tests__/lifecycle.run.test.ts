@@ -2,6 +2,8 @@
 // their own turn, and the tripwire that fails a run whose command-shaped text the provider
 // swallowed.
 
+import { Writable } from "node:stream";
+
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { describe, expect, it } from "vitest";
 
@@ -12,7 +14,8 @@ import {
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
   CLAUDE_ZERO_TURN_RESULT_FRAME,
 } from "../__fixtures__/turn-evidence-transcripts.js";
-import { ClaudeSessionUnavailableError } from "../session/errors.js";
+import { ClaudeRequestTimeoutError, ClaudeSessionUnavailableError } from "../session/errors.js";
+import { writeStdinLine } from "../session/stdin-write.js";
 import { ClaudeControlRequestRefusedError, type ClaudeRunDispatch } from "../session/transport.js";
 import {
   buildStartRunParams,
@@ -425,6 +428,29 @@ describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
     await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
       TextNeutralizationRefusedError,
     );
+  });
+
+  it("fails the start when its stdin write outlasts the request deadline or the process exits under it", async () => {
+    // A stdin that takes one chunk and never drains, as a process that stopped reading.
+    const stalledStdin = (): Writable => new Writable({ highWaterMark: 1, write: () => undefined });
+
+    const stalledHarness = buildHarness();
+    const stalledChannel = await createLiveSession(stalledHarness);
+    const stalled = stalledStdin();
+    stalledChannel.sendUserText = (frame) => writeStdinLine(stalled, `${frame.wireText}\n`, 20);
+    armRunDispatch(stalledHarness, TEST_RUN_ID, "/status please");
+    await expect(startTestRun(stalledHarness)).rejects.toThrow(ClaudeRequestTimeoutError);
+
+    const exitingHarness = buildHarness();
+    const exitingChannel = await createLiveSession(exitingHarness);
+    const exiting = stalledStdin();
+    exitingChannel.sendUserText = (frame) => {
+      const attempt = writeStdinLine(exiting, `${frame.wireText}\n`);
+      exiting.destroy();
+      return attempt;
+    };
+    armRunDispatch(exitingHarness, TEST_RUN_ID, "/status please");
+    await expect(startTestRun(exitingHarness)).rejects.toThrow("stdin closed");
   });
 
   it("drops a provably unsent frame and its route, so neither reaches a later run", async () => {
