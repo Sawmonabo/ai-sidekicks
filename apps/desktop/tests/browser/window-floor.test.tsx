@@ -9,7 +9,7 @@
 // overlapping; a box planted too wide, one planted over a row, a short value that is not cut, and
 // a record narrower than its label column are the negative controls.
 
-import { cleanup } from "@testing-library/react";
+import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
@@ -68,7 +68,10 @@ async function renderFrame(
       </AppFrame>
     </BridgeHost>,
   );
-  await expect.poll(() => floors.length).toBe(1);
+  // Through Testing Library's wait, so a layout the frame holds may settle its state meanwhile.
+  await waitFor(() => {
+    expect(floors).toHaveLength(1);
+  });
   return floors;
 }
 
@@ -262,13 +265,18 @@ describe("the window floor", () => {
     expect(pane.width - PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX).toBeLessThan(1);
 
     // Negative control: one rem narrower, the conversation at its floor leaves the pane short.
-    await resizeViewport(
-      Math.ceil(floor.width) - DEFAULT_APPEARANCE_RECORD.textSize,
-      Math.ceil(floor.height),
-    );
-    await expect
-      .poll(() => boxOf(".meridian-pane--terminal").width)
-      .toBeLessThan(PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX);
+    // Inside act, since the pane layout sets its state when the window resizes.
+    await act(async () => {
+      await resizeViewport(
+        Math.ceil(floor.width) - DEFAULT_APPEARANCE_RECORD.textSize,
+        Math.ceil(floor.height),
+      );
+    });
+    await waitFor(() => {
+      expect(boxOf(".meridian-pane--terminal").width).toBeLessThan(
+        PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX,
+      );
+    });
   });
 
   it("gives the sessions track no width while it is closed", async () => {
