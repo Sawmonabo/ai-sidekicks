@@ -6,7 +6,7 @@
 // notation scales by 1000, which disagrees with every other tool), so only `formatByteQuantity`
 // scales by powers of 1024, renders the scaled number through `Intl.NumberFormat`, and appends a
 // label from `B / KiB / MiB / GiB / TiB`. Durations, counts, rates and relative times stay
-// Intl-only. Byte-for-byte wire strings (ids, digests, versions, state names) are never
+// Intl-only. Byte-for-byte wire strings (ids, digests, versions, paths) are never
 // transformed, not even trimmed: a truncated id is a wrong id.
 //
 // Every clock figure and date is written in the machine's own region and 12- or 24-hour clock,
@@ -276,7 +276,7 @@ export function relativeTimeChangesAt(fromIso: string, nowMilliseconds: number):
  * A wall-clock time for a transcript row, on the machine's own clock (`2:20:05 PM`), with
  * seconds; the date is shown separately by the day divider, never per row.
  */
-export function formatClockTime(iso: string, locale?: string): string {
+export function formatClockTime(iso: string, locale: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return UNREADABLE_FIGURE;
@@ -291,7 +291,7 @@ export function formatClockTime(iso: string, locale?: string): string {
  * this machine's calendar from `nowMilliseconds`, so the same instant reads differently tomorrow;
  * {@link dayClockChangesAt} says when.
  */
-export function formatDayClock(iso: string, nowMilliseconds: number, locale?: string): string {
+export function formatDayClock(iso: string, nowMilliseconds: number, locale: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return UNREADABLE_FIGURE;
@@ -306,7 +306,7 @@ export function formatDayClock(iso: string, nowMilliseconds: number, locale?: st
 export function formatDayClockAt(
   atMilliseconds: number,
   nowMilliseconds: number,
-  locale?: string,
+  locale: string,
 ): string {
   const days = calendarDaysBetween(nowMilliseconds, atMilliseconds);
   if (days === 0) {
@@ -343,7 +343,7 @@ export function dayClockChangesAt(nowMilliseconds: number): number {
  * stays scannable while order and separators stay the locale's; there are no seconds, on the same
  * clock as its neighbor.
  */
-export function formatDateTime(iso: string, locale?: string): string {
+export function formatDateTime(iso: string, locale: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return UNREADABLE_FIGURE;
@@ -352,7 +352,7 @@ export function formatDateTime(iso: string, locale?: string): string {
 }
 
 /** A calendar day with no time, with the same day fields as {@link formatDateTime}. */
-export function formatDate(iso: string, locale?: string): string {
+export function formatDate(iso: string, locale: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return UNREADABLE_FIGURE;

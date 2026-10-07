@@ -10,6 +10,7 @@ import {
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { RunGraphCanvas } from "./RunGraphCanvas.js";
 
 describe("the run's canvas", () => {
@@ -34,6 +35,7 @@ describe("the run's canvas", () => {
           onSelectNode={() => undefined}
         />
       </div>,
+      { wrapper: liveBridgeWrapper() },
     );
 
     const mark = screen.getByRole("link", { name: "React Flow attribution" });

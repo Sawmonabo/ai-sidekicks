@@ -80,8 +80,8 @@ export function runHeaderLines(
 
 /**
  * The line at the foot of a going run's header: its live step's place, what it is doing or
- * waiting on, the instant it resumes itself or gives up, its day counted from `nowMs` and written in `locale`, and what it
- * has spent so far. A run that has finished has no live line.
+ * waiting on, the instant it resumes itself or gives up, its day counted from `nowMs` and written
+ * in `locale`, and what it has spent so far. A run that has finished has no live line.
  */
 export function runLiveLine(
   run: WorkflowRunReadResponse,

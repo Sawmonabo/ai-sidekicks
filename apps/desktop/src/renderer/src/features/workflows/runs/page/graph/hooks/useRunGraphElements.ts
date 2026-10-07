@@ -18,6 +18,7 @@ import { placeRunGraphNodes, type CanvasPoint } from "../layout.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "../node-views.js";
 import { deriveColumnGap } from "#renderer/features/workflows/canvas/column-gap.js";
 import { widestCompactCount } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /**
  * What the canvas hands the library, and where the live step stands.
@@ -44,14 +45,15 @@ export function useRunGraphElements(
   selectedNodeId: string | undefined,
   nowMs: number,
 ): RunGraphElements {
+  const clockLocale = useClockLocale();
   const handles = useMemo(() => nodeHandleIds(document), [document]);
   const edges = useMemo(
     () => toRunGraphFlowEdges(document, edgeItemCounts, flowingEdgeIds(document, steps)),
     [document, edgeItemCounts, steps],
   );
   const views = useMemo(
-    () => runGraphNodeViews(document, steps, edgeItemCounts, nowMs),
-    [document, steps, edgeItemCounts, nowMs],
+    () => runGraphNodeViews(document, steps, edgeItemCounts, nowMs, clockLocale),
+    [document, steps, edgeItemCounts, nowMs, clockLocale],
   );
   // Every box and gap keeps room for the widest compact count, so no count ever moves a node.
   const countFigure = widestCompactCount();

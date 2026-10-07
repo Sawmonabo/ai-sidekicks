@@ -12,6 +12,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
+import { liveBridgeWrapper } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
 import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
 import { awaitRunGraphSettled } from "../../helpers/run-graph-settled.js";
@@ -73,7 +74,13 @@ export async function mountRunGraph(
     );
   }
   installMeridianTokens(document);
-  const { container } = await renderSettled(<RunGraph />);
+  // The graph writes a resume instant in the machine's clock, which the bridge carries.
+  const BridgeHost = liveBridgeWrapper();
+  const { container } = await renderSettled(
+    <BridgeHost>
+      <RunGraph />
+    </BridgeHost>,
+  );
   await awaitRunGraphSettled(container);
   return {
     container,

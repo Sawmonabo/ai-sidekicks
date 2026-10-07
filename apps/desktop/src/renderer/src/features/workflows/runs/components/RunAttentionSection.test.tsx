@@ -163,6 +163,7 @@ function SectionRefusedOnEveryRead(props: { readonly clock: ManualClock }): Reac
       state={state}
       onOpenRun={() => undefined}
       nowMs={NOW_MS}
+      clockLocale={CLOCK_LOCALE}
       clock={props.clock}
       readAgain={() => {
         setState(refusedRead());

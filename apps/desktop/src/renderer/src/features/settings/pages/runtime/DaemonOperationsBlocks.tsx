@@ -28,6 +28,7 @@ import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButt
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
@@ -87,6 +88,7 @@ export interface DaemonOperationsBlocksProps {
 export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): ReactNode {
   const { mainProcessState } = props.context;
   const clock = useClock();
+  const clockLocale = useClockLocale();
   const [confirming, setConfirming] = useState<DaemonControl | undefined>(undefined);
   const [settlement, setSettlement] = useState<DaemonControlSettlement | undefined>(undefined);
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
@@ -110,7 +112,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     <>
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__section-head">Reported status</h3>
-        {renderStatusRegion(status.reading, status.checkAgain, clock)}
+        {renderStatusRegion(status.reading, status.checkAgain, clock, clockLocale)}
       </section>
 
       <section className="meridian-settings-page__block">
@@ -166,13 +168,15 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
 
 /**
  * The daemon's own status line, on whichever of the read's three phases applies, with
- * `Check again` beside a settled reading. The first read's line waits out the short delay on
- * `clock`, so an answer that comes at once draws no flash of words.
+ * `Check again` beside a settled reading, each reading's time written in `clockLocale`. The first
+ * read's line waits out the short delay on `clock`, so an answer that comes at once draws no flash
+ * of words.
  */
 function renderStatusRegion(
   reading: DaemonStatusReading,
   checkAgain: () => void,
   clock: Clock,
+  clockLocale: string,
 ): ReactNode {
   switch (reading.phase) {
     case "reading":
@@ -197,6 +201,7 @@ function renderStatusRegion(
                       figure: formatPercent(reading.status.processor.percent / 100),
                       readAt: reading.status.processor.readAt,
                     },
+                clockLocale,
               )}
             </SettingsFact>
             <SettingsFact term="Memory">
@@ -207,6 +212,7 @@ function renderStatusRegion(
                       figure: formatByteQuantity(reading.status.memory.residentBytes).text,
                       readAt: reading.status.memory.readAt,
                     },
+                clockLocale,
               )}
             </SettingsFact>
           </dl>
@@ -228,6 +234,7 @@ function renderStatusRegion(
 /** One reading of what the service uses, stamped with when it was taken; none reads as not read. */
 function renderUsageReading(
   reading: { readonly figure: string; readonly readAt: string } | undefined,
+  clockLocale: string,
 ): ReactNode {
   if (reading === undefined) {
     return <span>Not read yet</span>;
@@ -235,7 +242,7 @@ function renderUsageReading(
   return (
     <span>
       <WireFigure value={reading.figure} /> · as of{" "}
-      <WireFigure value={formatClockTime(reading.readAt)} title={reading.readAt} />
+      <WireFigure value={formatClockTime(reading.readAt, clockLocale)} title={reading.readAt} />
     </span>
   );
 }

@@ -5,6 +5,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { formatDate, formatPercent } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { UPDATE_FAILED_DETAIL, UPDATE_STATE_WORDS, type UpdateReading } from "./updater-reading.js";
 
@@ -20,6 +21,7 @@ export function UpdateReadOut(props: {
   readonly onTryAgain: () => void;
 }): React.JSX.Element {
   const { reading, clock } = props;
+  const clockLocale = useClockLocale();
   // Generated, since two windows can render this block and a fixed id would tie one window's
   // label to the other's bar.
   const progressId = useId();
@@ -47,7 +49,7 @@ export function UpdateReadOut(props: {
       return (
         <p className="meridian-settings-page__state">
           Update available — <WireFigure value={state.version} />, released{" "}
-          <DerivedFigure text={formatDate(state.releasedAt)} />.
+          <DerivedFigure text={formatDate(state.releasedAt, clockLocale)} />.
         </p>
       );
     case "downloading":
