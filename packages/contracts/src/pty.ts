@@ -377,10 +377,11 @@ export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = O
 ]);
 
 /**
- * One change of one shell's holder. The holder members say who holds it after the change, so a take
- * names a holder, a disconnect names nobody, and a run's release names the device it hands the
- * shell back to or nobody; the device it moved off is `previousHolderDeviceId`. Clients fold these
- * and never infer a holder from a take they made.
+ * One change of one shell's holder: the holder members name who holds it after the change and
+ * `previousHolderDeviceId` who held it before, so a take names a holder, every release names the
+ * holder it ended, a disconnect names nobody after it, and a run's release names the device it
+ * hands the shell back to or nobody. Clients fold these and never infer a holder from a take they
+ * made.
  */
 export interface PtyControlChangedPayload {
   sessionId: SessionId;
@@ -392,11 +393,10 @@ export interface PtyControlChangedPayload {
   reason: PtyControlChangedReason;
 }
 /**
- * Parses a {@link PtyControlChangedPayload}. A take that names no holder, a release that names no
- * holder it ended, a disconnect that names a holder after it, or a release that names a run
- * contradicts itself and is refused. A forced take is a
- * device's, never a run's, and always moves the shell off another device. A run's take names its
- * holding command.
+ * Parses a {@link PtyControlChangedPayload}, refusing one that contradicts itself: a take that
+ * names no holder, a release that names no holder it ended, a disconnect that names a holder after
+ * it, a release that names a run, a forced take by a run or off no other device, or a run's hold
+ * named apart from its holding command.
  */
 export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
   .object({

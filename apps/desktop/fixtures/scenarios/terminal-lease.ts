@@ -4,14 +4,14 @@
 // lease transitions are wire-true. Terminal output (bytes, scrollback, resize) has no
 // registered type and is absent rather than invented.
 //
-// The script reaches every way a hold moves: another device takes the shell (a shell has no
-// release control), the holder's connection ends, the command a run holds the shell for ends with
-// nobody to hand it back to, a device's first keystroke takes the free shell, a run's next command
-// takes it off that device, and the holding run leaves `running`, which hands it back. Each is
-// reached as the daemon reaches it: after the run's queued, starting and `running` beats, an
+// The script moves the hold every way but a forced take: another device takes the shell (a shell
+// has no release control), the holder's connection ends, the command a run holds the shell for ends
+// with nobody to hand it back to, a device's first keystroke takes the free shell, a run's next
+// command takes it off that device, and the holding run leaves `running`, which hands it back. Each
+// is reached as the daemon reaches it: after the run's queued, starting and `running` beats, an
 // agent-path take bound to the run and its first command, that command's stored ending and the
-// release that follows it, the owner's take, the run's take for its next command off the owner,
-// and the run leaving `running`. That last release is the holding run's first transition out of
+// release that follows it, the owner's take, the run's take for its next command off the owner, and
+// the run leaving `running`. That last release is the holding run's first transition out of
 // `running`.
 //
 // The lease is per shell and the holder is a device: every transition names its shell, and a
@@ -250,7 +250,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
     previousState: "running",
     newState: "completed",
   }),
-  // The release hands the shell back to the owner: the held steady state the pane's header names.
+  // The release hands the shell back to the owner, and the script ends held.
   leaseTransitionEntry({
     atMs: 3700,
     holderDeviceId: OWNER_ID,
@@ -268,11 +268,11 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
   label: "Lease changing hands",
   purpose:
     "One of the session's shells moving between two of the user's devices and an agent " +
-    "run — the run queued, started, taken on the agent path for one command, given back when " +
-    "that command ends, taken by the owner's first keystroke, taken off the owner for the run's " +
-    "next command, and handed back when the run completes, so each release follows the " +
-    "acquisition it releases — reaching every way a hold moves and ending held. The output " +
-    "stream is absent until the terminal pane's renderer is registered.",
+    "run — taken by another device and freed when its connection ends, taken on the agent " +
+    "path for the run's first command and freed when that command ends, taken by the owner's " +
+    "first keystroke, taken off the owner for the run's next command, and handed back when the " +
+    "run completes, so each release follows the acquisition it releases — and ending held. The " +
+    "output stream is absent until the terminal pane's renderer is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: composeScriptBeats({

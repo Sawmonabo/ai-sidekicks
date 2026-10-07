@@ -151,13 +151,9 @@ export class ShellControlLease {
   }
 
   /**
-   * Takes the shell for an agent's running command, answering `false` with nothing changed when
-   * `isShellIdle` says something was typed at the shell's prompt. The check runs in the same tick
-   * as the take, after any change in flight has settled, so a keystroke admitted while the take
-   * waited is never written over. The same run's retake from the same command changes nothing,
-   * waiting on a pending broadcast of the hold as a device's retake does; from another command it
-   * names that command, broadcast as a take. A different run's take moves the hold to it. A take
-   * off a device's hold keeps that hold aside for the hand-back.
+   * Takes the shell for an agent's running command, off a device's hold too, which it keeps aside
+   * for the hand-back. Answers `false` with nothing changed when `isShellIdle`, called in the same
+   * tick as the take, says something was typed at the prompt.
    */
   async takeForRun(run: ShellLeaseRun, isShellIdle: () => boolean): Promise<boolean> {
     for (;;) {
@@ -191,12 +187,9 @@ export class ShellControlLease {
   }
 
   /**
-   * Lets one write frame through only when its writer holds the shell, calling `write` in the same
-   * tick as the check, so no change of holder lands between the check and the frame's hand-off and
-   * the shell table records typed input before any run's take can look. A device's write to a shell
-   * nobody holds takes it for the writing connection first, broadcast as a take, and goes through
-   * once that broadcast has; a write that joins a pending take fails with it. The shell's ordered
-   * write path makes these calls one at a time.
+   * Hands one write frame to `write`, in the same tick as the check that its writer holds the
+   * shell, and refuses it otherwise; a device's write to a shell nobody holds takes it first. The
+   * shell's ordered write path makes these calls one at a time, so frames keep their order.
    */
   async admitWrite(writer: ShellWriter, write: () => void): Promise<void> {
     for (;;) {
@@ -252,7 +245,9 @@ export class ShellControlLease {
    * hold kept aside under a run loses the connection too, and is dropped once none remains.
    */
   async releaseConnection(transportId: number): Promise<void> {
-    await this.#settled();
+    while (this.#pendingBroadcast !== undefined) {
+      await this.#settled();
+    }
     const current = this.#holder;
     if (current?.kind === "run") {
       const keptAside = current.keptAside;
@@ -283,7 +278,9 @@ export class ShellControlLease {
    * it. The shell goes back to the device hold kept aside, or to nobody.
    */
   async releaseCommand(run: ShellLeaseRun): Promise<void> {
-    await this.#settled();
+    while (this.#pendingBroadcast !== undefined) {
+      await this.#settled();
+    }
     const current = this.#holder;
     if (
       current?.kind !== "run" ||
@@ -300,7 +297,9 @@ export class ShellControlLease {
    * kept aside, or to nobody.
    */
   async releaseRun(runId: RunId): Promise<void> {
-    await this.#settled();
+    while (this.#pendingBroadcast !== undefined) {
+      await this.#settled();
+    }
     const current = this.#holder;
     if (current?.kind !== "run" || current.runId !== runId) {
       return;
@@ -327,7 +326,9 @@ export class ShellControlLease {
     return { terminalId: this.#terminalId, ...this.#describeHolder(holder) };
   }
 
-  // Waits until no change of holder is in flight. Its failure is its own caller's to report.
+  // Waits until no change of holder is in flight; that change's failure is its own caller's to
+  // report. The caller resumes a tick later, when another act may have started a change, so every
+  // caller checks again before it acts.
   async #settled(): Promise<void> {
     while (this.#pendingBroadcast !== undefined) {
       await Promise.allSettled([this.#pendingBroadcast]);
