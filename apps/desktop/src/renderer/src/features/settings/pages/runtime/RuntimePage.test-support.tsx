@@ -21,6 +21,7 @@ import { settingsPageContextWith } from "#test/helpers/settings-page-mount.js";
 import { DaemonOperationsBlocks } from "./DaemonOperationsBlocks.js";
 import { RuntimePage } from "./RuntimePage.js";
 import type { DaemonOperations } from "./daemon-status-read.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The calls a case wants to see, in the order they were made. */
 export interface ControlLedger {
@@ -92,6 +93,7 @@ export function renderRuntimePage(options: {
   };
   const { container, rerender } = render(
     pageUnder(options.mainProcessState ?? UNREPORTED_MAIN_PROCESS_STATE),
+    { wrapper: LiveAnnouncerProvider },
   );
   return {
     container,

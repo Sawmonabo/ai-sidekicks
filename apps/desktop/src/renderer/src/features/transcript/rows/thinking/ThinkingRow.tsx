@@ -75,7 +75,14 @@ function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
       return <Nothing kind="not-loaded" placement="block" title="Reading this turn's reasoning." />;
     case "refused":
       // The daemon's own sentence; its code goes to no screen.
-      return <Nothing kind="error" placement="block" title={reading.refusal.detail} />;
+      return (
+        <Nothing
+          kind="error"
+          placement="block"
+          title={reading.refusal.detail}
+          attempt={reading.refusal}
+        />
+      );
     case "read":
       return renderAvailabilityArm(reading.response);
   }

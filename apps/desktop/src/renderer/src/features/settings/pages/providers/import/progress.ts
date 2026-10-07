@@ -29,13 +29,28 @@ export type ImportProgressSubscribeCall = (
 export type ImportStopCall = (request: ProviderImportStopRequest) => Promise<void>;
 
 /**
- * Where one provider's import stream has got to. `failed` is a subscription or a stream that
- * rejected, carrying the service's own words.
+ * Where one provider's import stream has got to. `newest` is the last message any opening of the
+ * stream delivered, so a stream opened again still knows how the last import it heard of stood
+ * until it speaks. `replayed` is the first message this opening delivered: the provider's last
+ * outcome, or the import already running, which was true before the screen looked. `failed` is a
+ * subscription or a stream that rejected, carrying the service's own words.
  */
 export type ImportProgressReading =
-  | { readonly status: "open"; readonly newest: ProviderImportProgress | undefined }
-  | { readonly status: "closed"; readonly newest: ProviderImportProgress | undefined }
-  | { readonly status: "failed"; readonly refusal: Refusal };
+  | {
+      readonly status: "open";
+      readonly newest: ProviderImportProgress | undefined;
+      readonly replayed: ProviderImportProgress | undefined;
+    }
+  | {
+      readonly status: "closed";
+      readonly newest: ProviderImportProgress | undefined;
+      readonly replayed: ProviderImportProgress | undefined;
+    }
+  | {
+      readonly status: "failed";
+      readonly refusal: Refusal;
+      readonly newest: ProviderImportProgress | undefined;
+    };
 
 /**
  * The import still being read, or `undefined` where none is.
@@ -46,7 +61,8 @@ export type ImportProgressReading =
  * progress message always names a running import, whoever started it.
  *
  * Before the stream has spoken, including the frame between the start settling and the
- * stream opening, the running import is the one this screen started. A closed or failed
+ * stream opening, the running import is the one this screen started; a stream opened again
+ * after it already delivered that import's settled message knows it ended. A closed or failed
  * stream reads nothing further, so it ends the reading.
  */
 export function runningImportIdOf(

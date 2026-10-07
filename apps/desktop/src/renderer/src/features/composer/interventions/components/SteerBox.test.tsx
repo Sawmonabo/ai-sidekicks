@@ -22,6 +22,7 @@ import {
 import { inertBridge } from "../../Composer.test-support.js";
 import { RUN_ID, SECOND_RUN_ID } from "../../run/controls/commands.test-support.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 describe("the form is keyed by what it is composing against", () => {
   /** A dispatch that never settles, so the form stays pending across the switch. */
@@ -85,6 +86,7 @@ describe("the form is keyed by what it is composing against", () => {
   } {
     const { container, rerender } = render(
       <TargetSwitchHarness runId={RUN_ID} keyed={keyed} answer={answer} />,
+      { wrapper: LiveAnnouncerProvider },
     );
     return {
       container,
@@ -108,6 +110,7 @@ describe("the form is keyed by what it is composing against", () => {
         answer={NEVER_SETTLES}
         onCommit={(reading) => committed.push(reading)}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     typeInto(steerField(container), "stop and re-read the diff");
     await submit(container);
@@ -191,6 +194,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
           dismissals += 1;
         }}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     typeInto(steerField(container), "the first body");
     await submit(container);
@@ -224,6 +228,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
           dismissals += 1;
         }}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     typeInto(steerField(container), "the first body");
     await submit(container);
@@ -279,7 +284,9 @@ describe("the composer outlives its dispatch", () => {
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
-    expect(container.textContent).toContain("The background service did not apply this.");
+    expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
+      "The background service did not apply this.",
+    );
   });
 });
 

@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { readKeychainRefusalCause } from "#renderer/services/provider-accounts/refusal-details.js";
 import type { TokenRegistrationOutcome } from "../sign-in/flow.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** What each keychain refusal reads as, in the slot a refused token's line takes. */
 const KEYCHAIN_REFUSAL_LINES: Readonly<Record<KeychainRefusalCause, string>> = {
@@ -33,24 +34,36 @@ export function RegistrationOutcomeLine(props: {
   }
   if (outcome.kind === "refused") {
     const keychainCause = readKeychainRefusalCause(outcome.refusal);
-    return (
-      <p
-        className="meridian-settings-page__state meridian-settings-page__state--failed"
-        role="alert"
-      >
-        {keychainCause !== undefined ? (
-          KEYCHAIN_REFUSAL_LINES[keychainCause]
-        ) : outcome.refusal.code === PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE ? (
-          "The provider did not accept that token."
-        ) : (
+    if (
+      keychainCause === undefined &&
+      outcome.refusal.code !== PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE
+    ) {
+      // No live role: the refusal announces itself through the app's announcer.
+      return (
+        <p className="meridian-settings-page__state meridian-settings-page__state--failed">
           <InlineRefusal {...outcome.refusal} />
-        )}
-      </p>
+        </p>
+      );
+    }
+    return (
+      <AnnouncedLine
+        element="p"
+        className="meridian-settings-page__state meridian-settings-page__state--failed"
+        words={
+          keychainCause !== undefined
+            ? KEYCHAIN_REFUSAL_LINES[keychainCause]
+            : "The provider did not accept that token."
+        }
+        politeness="assertive"
+      />
     );
   }
   return (
-    <p className="meridian-settings-page__state" role="status">
-      The token was stored in this machine&rsquo;s keychain. It is never shown here again.
-    </p>
+    <AnnouncedLine
+      element="p"
+      className="meridian-settings-page__state"
+      words="The token was stored in this machine’s keychain. It is never shown here again."
+      politeness="polite"
+    />
   );
 }

@@ -16,7 +16,7 @@ export interface LiveAnnouncerProviderProps {
    * Overrides the announcer (tests). A supplied announcer outlives the provider and is never
    * disposed here.
    */
-  readonly announcer?: LiveAnnouncer;
+  readonly announcer?: LiveAnnouncer | undefined;
   /**
    * The clock the hold deadline runs on. The frame passes `useClock()` so fixture mode stays on
    * the frozen clock; this component sits below `services/` and cannot read it. Ignored when

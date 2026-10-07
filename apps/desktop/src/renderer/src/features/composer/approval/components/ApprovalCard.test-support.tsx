@@ -6,6 +6,7 @@ import type {
 } from "@ai-sidekicks/contracts/approval";
 import { render } from "@testing-library/react";
 
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { ApprovalCard } from "./ApprovalCard.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -23,6 +24,8 @@ export function renderCard(
       refusal={refusal}
       onResolve={(request) => requests.push(request)}
     />,
+    // A refused answer speaks through the announcer, which throws outside its provider.
+    { wrapper: LiveAnnouncerProvider },
   );
   return requests;
 }

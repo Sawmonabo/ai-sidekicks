@@ -44,6 +44,7 @@ export function WorkflowRunReview(props: WorkflowRunReviewProps): React.JSX.Elem
           title="Could not load the changes"
           detail={state.refusal.detail}
           action={<TryAgainButton onPress={readAgain} />}
+          attempt={state.refusal}
         />
       </div>
     );

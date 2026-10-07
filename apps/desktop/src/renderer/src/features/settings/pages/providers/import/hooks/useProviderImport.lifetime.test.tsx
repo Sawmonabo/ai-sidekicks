@@ -18,6 +18,7 @@ import { ProviderImportPanel } from "../panel/ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportCalls } from "./useProviderImport.js";
 import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */
 const IMPORT_ID = "provider-import-19" as ProviderImportId;
@@ -81,7 +82,9 @@ describe("an import whose panel goes away", () => {
   it("keeps reading, and comes back to the same import rather than a fresh one", async () => {
     const stream = new DrivenProgressStream();
     const calls = callsReading(stream);
-    const view = render(<ImportHarness calls={calls} isPanelMounted />);
+    const view = render(<ImportHarness calls={calls} isPanelMounted />, {
+      wrapper: LiveAnnouncerProvider,
+    });
 
     await startAnImport(view.container);
     await act(async () => {

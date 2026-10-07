@@ -5,10 +5,11 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatDuration } from "#renderer/lib/wire/figures.js";
+import { formatDuration, formatWireString } from "#renderer/lib/wire/figures.js";
 import { useOpenSignInPage } from "../hooks/useOpenSignInPage.js";
 import { useSignInTimeLeft } from "../hooks/useSignInTimeLeft.js";
 import type { ProviderSignInFlowState } from "../sign-in/flow.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * What a person needs to finish the provider's own sign-in: the code, the line under it saying how
@@ -31,17 +32,23 @@ export function ProviderSignInCard(props: {
   }
   if (flow.kind === "unfinished") {
     return (
-      <div
+      <AnnouncedLine
+        element="div"
         className="meridian-settings-page__state meridian-settings-page__state--failed"
-        role="alert"
+        words={
+          flow.failureReason === undefined
+            ? SIGN_IN_UNFINISHED_SENTENCE
+            : `${SIGN_IN_UNFINISHED_SENTENCE} ${formatWireString(flow.failureReason)}`
+        }
+        politeness="assertive"
       >
-        <p>Sign-in did not finish.</p>
+        <p>{SIGN_IN_UNFINISHED_SENTENCE}</p>
         {flow.failureReason === undefined ? null : (
           <p className="meridian-settings-page__aside">
             <WireFigure value={flow.failureReason} />
           </p>
         )}
-      </div>
+      </AnnouncedLine>
     );
   }
   return (
@@ -71,19 +78,9 @@ function SignInInProgress(props: {
           <WireFigure value={attempt.userCode} />
         </p>
       )}
-      {attempt.userCode === undefined || timeLeftMilliseconds === undefined ? null : (
-        <p className="meridian-settings-page__aside">
-          {timeLeftMilliseconds > 0 ? (
-            <>
-              This code expires in <DerivedFigure text={formatDuration(timeLeftMilliseconds)} />.
-            </>
-          ) : (
-            <>
-              Code expired · <TryAgainButton word="Sign in again" onPress={onSignInAgain} />
-            </>
-          )}
-        </p>
-      )}
+      {attempt.userCode === undefined || timeLeftMilliseconds === undefined
+        ? null
+        : renderTimeLeft(timeLeftMilliseconds, onSignInAgain)}
       <p className="meridian-settings-page__state">
         <button
           type="button"
@@ -102,10 +99,8 @@ function SignInInProgress(props: {
         />
       </p>
       {refusal === undefined ? null : (
-        <p
-          className="meridian-settings-page__state meridian-settings-page__state--failed"
-          role="alert"
-        >
+        // No live role: the refusal announces itself through the app's announcer.
+        <p className="meridian-settings-page__state meridian-settings-page__state--failed">
           <InlineRefusal {...refusal} />
         </p>
       )}
@@ -120,3 +115,33 @@ function SignInInProgress(props: {
     </div>
   );
 }
+
+/**
+ * The line under the code: how long it has left, or once it has run out, `Code expired` with
+ * `Sign in again`, which is said as it appears; the button beside it is not read out.
+ */
+function renderTimeLeft(timeLeftMilliseconds: number, onSignInAgain: () => void): ReactNode {
+  if (timeLeftMilliseconds > 0) {
+    return (
+      <p className="meridian-settings-page__aside">
+        This code expires in <DerivedFigure text={formatDuration(timeLeftMilliseconds)} />.
+      </p>
+    );
+  }
+  return (
+    <AnnouncedLine
+      element="p"
+      className="meridian-settings-page__aside"
+      words={CODE_EXPIRED_SENTENCE}
+      politeness="assertive"
+    >
+      {CODE_EXPIRED_SENTENCE} · <TryAgainButton word="Sign in again" onPress={onSignInAgain} />
+    </AnnouncedLine>
+  );
+}
+
+/** What a sign-in that ended without signing in says, above the provider's own reason. */
+const SIGN_IN_UNFINISHED_SENTENCE = "Sign-in did not finish.";
+
+/** What the line under the code says once the code has run out. */
+const CODE_EXPIRED_SENTENCE = "Code expired";

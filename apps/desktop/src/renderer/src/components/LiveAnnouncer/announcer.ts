@@ -8,7 +8,8 @@
 //    standing one; each lane is bounded and sheds its oldest entry, keeping the newest fact.
 // 3. Identical consecutive messages coalesce, measured against the standing message and the
 //    queue tail, so a render loop cannot fill the queue with copies. A repeat after the clear
-//    is spoken again.
+//    is spoken again. A message naming the words it replaces takes them out of the queue while
+//    they still wait, so a line redrawn as a person types is read once, in its newest words.
 // 4. At most one timer is armed, for the earliest lane deadline, and re-armed from its own tick.
 //    Nothing polls, and an idle announcer holds no handle.
 
@@ -26,8 +27,18 @@ export const ANNOUNCEMENT_POLITENESS_LEVELS = ["polite", "assertive"] as const;
 /** One of `ANNOUNCEMENT_POLITENESS_LEVELS`. */
 export type AnnouncementPoliteness = (typeof ANNOUNCEMENT_POLITENESS_LEVELS)[number];
 
+/** What a message may say about the words it supersedes. */
+export interface AnnouncementOptions {
+  /** Earlier words of the same line: dropped from the queue if they have not been spoken yet. */
+  readonly replacing?: string | undefined;
+}
+
 /** What a caller is handed by `useAnnounce`. Stable for the announcer's life. */
-export type Announce = (message: string, politeness?: AnnouncementPoliteness) => void;
+export type Announce = (
+  message: string,
+  politeness?: AnnouncementPoliteness,
+  options?: AnnouncementOptions,
+) => void;
 
 /** The text each region is showing right now. Empty string means "say nothing". */
 export interface LiveAnnouncementState {
@@ -77,11 +88,16 @@ export class LiveAnnouncer {
   #disposed = false;
 
   /** Says something. A bound field, so `useAnnounce` can hand it out without losing `this`. */
-  public readonly announce: Announce = (message, politeness = "polite"): void => {
+  public readonly announce: Announce = (message, politeness = "polite", options = {}): void => {
     if (this.#disposed) {
       return;
     }
     const lane = this.#queuedByPoliteness[politeness];
+    const replacedIndex =
+      options.replacing === undefined ? -1 : lane.lastIndexOf(options.replacing);
+    if (replacedIndex !== -1) {
+      lane.splice(replacedIndex, 1);
+    }
     const standing = this.#state[politeness];
     const queuedLast = lane.at(-1);
     if (message === (queuedLast ?? standing)) {

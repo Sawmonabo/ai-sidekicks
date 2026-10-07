@@ -33,3 +33,18 @@ export function liveRegionText(container: HTMLElement, politeness: AnnouncementP
 export function politeText(container: HTMLElement): string {
   return liveRegionText(container, "polite");
 }
+
+/**
+ * The `ignore` a text query passes to find the words drawn on screen, never the announcer's copy
+ * of them; it keeps Testing Library's own `script, style`.
+ */
+export const OUTSIDE_LIVE_REGIONS = "script, style, [data-live-region]";
+
+/** The words a container draws, without the announcer's copy of them in its regions. */
+export function drawnText(container: HTMLElement): string {
+  const drawn = container.cloneNode(true) as HTMLElement;
+  for (const region of drawn.querySelectorAll("[data-live-region]")) {
+    region.remove();
+  }
+  return drawn.textContent ?? "";
+}

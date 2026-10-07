@@ -1,4 +1,5 @@
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "../reading.js";
@@ -22,8 +23,19 @@ export interface MountListProps {
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 
-/** Every mount card for a reading, or the placeholder that says why there are none. */
-export function MountList(props: MountListProps): React.JSX.Element | null {
+/**
+ * Every mount card for a reading, or the placeholder that says why there are none. What the first
+ * read draws stands; a card's line that appears or changes after it is said.
+ */
+export function MountList(props: MountListProps): React.JSX.Element {
+  return (
+    <StandingContent isOpening={props.reading.readAtMilliseconds === 0}>
+      {renderMounts(props)}
+    </StandingContent>
+  );
+}
+
+function renderMounts(props: MountListProps): React.JSX.Element {
   const { reading } = props;
   if (reading.mounts.length > 0) {
     return (

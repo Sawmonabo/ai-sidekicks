@@ -36,6 +36,7 @@ export function StepPayloadTab(props: {
           title="Could not load this step's data"
           detail={read.refusal.detail}
           action={<TryAgainButton onPress={readAgain} />}
+          attempt={read.refusal}
         />
       );
     case "read":

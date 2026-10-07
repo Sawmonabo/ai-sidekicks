@@ -22,8 +22,9 @@ export function EnumerationState(props: {
   const { enumeration, addressedGroup } = props;
   switch (enumeration.phase) {
     case "not-checked":
+      // Drawn as the list opens, so it is read by browsing rather than said.
       return (
-        <div className="meridian-command-discovery__state" role="status">
+        <div className="meridian-command-discovery__state">
           <Nothing
             kind="not-checked"
             title="No sidekick is addressed, so no provider was asked"
@@ -36,20 +37,21 @@ export function EnumerationState(props: {
       );
     case "not-loaded":
       return (
-        <div className="meridian-command-discovery__state" role="status">
+        <div className="meridian-command-discovery__state">
           <Nothing kind="not-loaded" title="Reading the provider's commands and skills" />
         </div>
       );
     case "refused":
       return (
-        <div className="meridian-command-discovery__state" role="status">
+        <div className="meridian-command-discovery__state">
           <InlineRefusal code={enumeration.refusal.code} detail={enumeration.refusal.detail} />
         </div>
       );
     case "served":
       if (addressedGroup === undefined) {
+        // The read's own answer, read by browsing rather than said.
         return (
-          <div className="meridian-command-discovery__state" role="status">
+          <div className="meridian-command-discovery__state">
             <Nothing
               kind="empty"
               title="This run's binding published nothing here"

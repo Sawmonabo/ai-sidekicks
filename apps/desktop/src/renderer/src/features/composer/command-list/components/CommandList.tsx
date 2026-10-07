@@ -2,7 +2,7 @@
 // console can do. A provider row inserts nothing and starts no turn; a console row's button
 // and the Enter and Space keys run the same console-command executor. The empty claim is
 // withheld while the provider read is in flight, refused, or truncated, and only the addressed
-// run's binding group renders. It speaks through its own status region, not the announcer.
+// run's binding group renders. What it says out loud goes through the app's announcer.
 
 import { useCallback, useMemo } from "react";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";

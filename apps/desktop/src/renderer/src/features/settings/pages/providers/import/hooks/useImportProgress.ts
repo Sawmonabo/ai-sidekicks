@@ -2,7 +2,9 @@
 //
 // The stream opens on mount, because its first message is the provider's last outcome, so the row
 // reads the same after a reload. A rejected call, or a stream that rejects part-way, settles the
-// reading as `failed` with the service's own words, and `reopen` asks again. The stream is closed
+// reading as `failed` with the service's own words, and `reopen` asks again; what an earlier
+// opening delivered last is kept until the new one speaks, so an import already seen to end is
+// not taken for running again. The stream is closed
 // on the way out, since one left open after unmount is a producer with no reader; a message
 // arriving after that installs nowhere because the disposal flag is read before every publish.
 
@@ -25,7 +27,11 @@ export interface ImportProgress {
   readonly reopen: () => void;
 }
 
-const NOTHING_SAID: ImportProgressReading = { status: "open", newest: undefined };
+const NOTHING_SAID: ImportProgressReading = {
+  status: "open",
+  newest: undefined,
+  replayed: undefined,
+};
 
 /** The subsystem a failed import stream names as its author. */
 const IMPORT_PROGRESS_ORIGIN = "provider-import-progress";
@@ -41,7 +47,16 @@ export function useImportProgress(
   useEffect(() => {
     let isDisposed = false;
     let openStream: ImportProgressStream | undefined;
-    setReading(NOTHING_SAID);
+    // What an earlier opening heard last carries over for this provider only; unchanged where
+    // nothing was heard yet, so the first opening renders nothing extra.
+    setReading((previous) => {
+      const newest = previous.newest?.provider === provider ? previous.newest : undefined;
+      return previous.status === "open" &&
+        previous.replayed === undefined &&
+        previous.newest === newest
+        ? previous
+        : { status: "open", newest, replayed: undefined };
+    });
 
     const drain = async (): Promise<void> => {
       const stream = await subscribe({ provider });
@@ -50,21 +65,22 @@ export function useImportProgress(
         return;
       }
       openStream = stream;
-      let newest: ProviderImportProgress | undefined;
+      let replayed: ProviderImportProgress | undefined;
       for await (const message of stream.events) {
         if (isDisposed) {
           return;
         }
-        newest = message;
-        setReading({ status: "open", newest: message });
+        replayed ??= message;
+        setReading({ status: "open", newest: message, replayed });
       }
       if (!isDisposed) {
-        setReading({ status: "closed", newest });
+        setReading((previous) => ({ status: "closed", newest: previous.newest, replayed }));
       }
     };
     drain().catch((error: unknown) => {
       if (!isDisposed) {
-        setReading({ status: "failed", refusal: coerceToRefusal(error, IMPORT_PROGRESS_ORIGIN) });
+        const refusal = coerceToRefusal(error, IMPORT_PROGRESS_ORIGIN);
+        setReading((previous) => ({ status: "failed", refusal, newest: previous.newest }));
       }
     });
 

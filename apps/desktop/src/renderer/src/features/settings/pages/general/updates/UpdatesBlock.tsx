@@ -11,13 +11,12 @@
 // the refusal's message, or the screen's fixed sentence for it, in the strip, with `Try again`
 // sending the same change again.
 
-import type { UpdateState } from "#shared/preload-api.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -27,27 +26,10 @@ import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import { UPDATE_FAILED_DETAIL, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
+import { UPDATE_STATE_WORDS, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
-
-/**
- * What each settled arm of the updater's read says, for the person who cannot see it.
- *
- * Total over `UpdateState`, so a new upstream arm is a compile error. It carries no percent:
- * `downloading` re-settles on every push and a sentence with the figure would be announced
- * once per percentage point.
- */
-const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>> = {
-  idle: "Update state read. No update is waiting.",
-  checking: "Update state read. A check is running.",
-  available: "Update state read. An update is available to download.",
-  downloading: "Update state read. An update is downloading.",
-  verifying: "Update state read. The update's signature is being checked.",
-  ready: "Update state read. An update has downloaded and installs on the next restart.",
-  error: `Update state read. ${UPDATE_FAILED_DETAIL}`,
-};
 
 /** The subsystem a refused updater control names as its author. */
 const UPDATER_CONTROL_ORIGIN = "updater-control";
@@ -70,8 +52,8 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const { updater, preferences } = props;
   const reading = useUpdateReading(updater);
   const clock = useClock();
-  // Said once, when the updater read lands.
-  useSettlementAnnouncement(updateSettlementSentence(reading));
+  // The state the first read lands on stands; a later change of state is said.
+  useAnnounceWhenChanged(updateSettlementSentence(reading), "polite", { isReadSettlement: true });
   const status = reading.kind === "state" ? reading.state.status : undefined;
   const failureMessage =
     reading.kind === "state" && reading.state.status === "error"
@@ -91,6 +73,14 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
     });
   }, [failureMessage, clock]);
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
+  // A read's `Try again` clears the refusal and reopens in one act, so a reopen that throws at once
+  // leaves the same line drawn; the press count says it again. The feed's own reopens after a
+  // wait do not count, so they are not read out one by one.
+  const [readAgainCount, setReadAgainCount] = useState(0);
+  const readAgain = (): void => {
+    setReadAgainCount((count) => count + 1);
+    preferences.readAgain();
+  };
   const press = (request: () => Promise<void>, failedDetail: string): void => {
     setControlRefusal(undefined);
     request().catch(() => {
@@ -145,10 +135,14 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         ) : null}
       </div>
       {controlRefusal === undefined ? null : (
-        <InlineRefusal code={controlRefusal.code} detail={controlRefusal.detail} />
+        <InlineRefusal
+          code={controlRefusal.code}
+          detail={controlRefusal.detail}
+          attempt={controlRefusal}
+        />
       )}
 
-      {renderAutomaticCheck(preferences, clock)}
+      {renderAutomaticCheck(preferences, clock, { readAgain, readAgainCount })}
     </section>
   );
 }
@@ -160,6 +154,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 function renderAutomaticCheck(
   preferences: UpdatesBlockProps["preferences"],
   clock: Clock,
+  readAgainPress: { readonly readAgain: () => void; readonly readAgainCount: number },
 ): ReactNode {
   const { reading, readRefusal } = preferences.snapshot;
   if (reading === undefined) {
@@ -169,7 +164,8 @@ function renderAutomaticCheck(
       <InlineRefusal
         code={readRefusal.code}
         detail="The settings could not be read."
-        onTryAgain={preferences.readAgain}
+        onTryAgain={readAgainPress.readAgain}
+        attempt={readAgainPress.readAgainCount}
       />
     );
   }
@@ -199,9 +195,18 @@ function renderAutomaticCheck(
 }
 
 /**
- * The one sentence this block announces, or `undefined` while no state has settled; a refused
- * read is drawn as a refusal, which speaks for itself.
+ * The one sentence this block announces, the settled state's drawn words, or `undefined` while no
+ * state has settled; a refused read and the updater's failure are drawn as lines that speak for
+ * themselves, so the sentence settles on `null` there. It carries no figure: `downloading`
+ * re-settles on every push, and a sentence with the percent would be announced once per
+ * percentage point.
  */
-function updateSettlementSentence(reading: UpdateReading): string | undefined {
-  return reading.kind === "state" ? UPDATE_STATUS_SETTLEMENTS[reading.state.status] : undefined;
+function updateSettlementSentence(reading: UpdateReading): string | null | undefined {
+  if (reading.kind === "not-read") {
+    return undefined;
+  }
+  if (reading.kind === "failed" || reading.state.status === "error") {
+    return null;
+  }
+  return UPDATE_STATE_WORDS[reading.state.status];
 }

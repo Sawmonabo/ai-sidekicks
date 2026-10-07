@@ -42,6 +42,7 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
         kind="error"
         title={ACCOUNT_LIST_READ_WORDS.refused}
         action={<TryAgainButton onPress={onReopen} />}
+        attempt={reading.refusal}
       />
     );
   }

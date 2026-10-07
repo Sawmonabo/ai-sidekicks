@@ -15,6 +15,7 @@ import type {
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { liveRegionText } from "#test/helpers/live-region.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
@@ -26,6 +27,13 @@ const LINK_FAILED: DaemonSubscriptionEnd = { reason: "failed", message: "the lin
 
 /** What the strip reads while a first open or a re-open of the stream threw. */
 const LIVE_UPDATES_PAUSED = "Live updates paused · Reconnecting…";
+
+/** The refusal lines the screen draws, apart from what the announcer says. */
+function drawnRefusals(): string[] {
+  return [...document.querySelectorAll(".meridian-refusal__message")].map(
+    (message) => message.textContent,
+  );
+}
 
 /** The waiting run as the daemon holds it once it finished in the gap. */
 function finished(run: WorkflowRunSummary): WorkflowRunSummary {
@@ -118,7 +126,8 @@ describe("the workflows screen — a stream that ends and opens again", () => {
       workflowStreamEnds[0]?.(LINK_FAILED);
       await crossMacrotaskBoundary();
     });
-    expect(screen.getByText(LIVE_UPDATES_PAUSED)).not.toBeNull();
+    expect(drawnRefusals()).toContain(LIVE_UPDATES_PAUSED);
+    expect(liveRegionText(document.body, "assertive")).toBe(LIVE_UPDATES_PAUSED);
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByText("live through one subscription")).toBeNull();
 
@@ -128,7 +137,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
         screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
       ).not.toBe("true");
     });
-    expect(screen.queryByText(LIVE_UPDATES_PAUSED)).toBeNull();
+    expect(drawnRefusals()).not.toContain(LIVE_UPDATES_PAUSED);
     expect(screen.getByText("live through one subscription")).not.toBeNull();
     mounted.unmount();
   });
@@ -145,7 +154,8 @@ describe("the workflows screen — a stream that ends and opens again", () => {
       },
     });
     await act(crossMacrotaskBoundary);
-    expect(screen.getByText(LIVE_UPDATES_PAUSED)).not.toBeNull();
+    expect(drawnRefusals()).toContain(LIVE_UPDATES_PAUSED);
+    expect(liveRegionText(document.body, "assertive")).toBe(LIVE_UPDATES_PAUSED);
     expect(screen.queryByRole("switch")).toBeNull();
 
     isRefusing = false;
@@ -154,7 +164,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
         screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
       ).not.toBe("true");
     });
-    expect(screen.queryByText(LIVE_UPDATES_PAUSED)).toBeNull();
+    expect(drawnRefusals()).not.toContain(LIVE_UPDATES_PAUSED);
     mounted.unmount();
   });
 });

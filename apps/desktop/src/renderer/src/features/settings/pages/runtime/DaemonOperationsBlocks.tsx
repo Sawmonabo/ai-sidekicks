@@ -20,6 +20,7 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -218,6 +219,7 @@ function renderStatusRegion(
           code={reading.refusal.code}
           detail={NOT_ANSWERING_MESSAGE}
           onTryAgain={checkAgain}
+          attempt={reading.refusal}
         />
       );
   }
@@ -254,7 +256,8 @@ function renderControlConfirm(
   const isDispatched = dispatchedReason !== undefined;
   return (
     <div className="meridian-settings-page__state">
-      <p>{copy.confirmation}</p>
+      {/* The question appears on the press, holding its words, so it says them. */}
+      <AnnouncedLine element="p" words={copy.confirmation} politeness="polite" />
       <div className="meridian-settings-page__actions">
         <button
           type="button"
@@ -278,7 +281,9 @@ function renderControlConfirm(
           Cancel
         </button>
       </div>
-      {isDispatched ? <p>{dispatchedReason}</p> : null}
+      {isDispatched ? (
+        <AnnouncedLine element="p" words={dispatchedReason} politeness="polite" />
+      ) : null}
     </div>
   );
 }
@@ -293,10 +298,20 @@ function renderControlSettlement(settlement: DaemonControlSettlement | undefined
   if (settlement === undefined) {
     return null;
   }
+  const verb = CONTROL_COPY[settlement.control].verb;
   return (
-    <p className="meridian-settings-page__state">
-      <Chip label={CONTROL_COPY[settlement.control].verb} /> sent. The supervisor's state above is
-      what says what happened to it.
-    </p>
+    // A second press that settles the same way is a new settlement, said again.
+    <AnnouncedLine
+      element="p"
+      className="meridian-settings-page__state"
+      words={`${verb} sent. ${SUPERVISOR_STATE_NOTE}`}
+      politeness="polite"
+      attempt={settlement}
+    >
+      <Chip label={verb} /> sent. {SUPERVISOR_STATE_NOTE}
+    </AnnouncedLine>
   );
 }
+
+/** What a sent control's line says after the control's name. */
+const SUPERVISOR_STATE_NOTE = "The supervisor's state above is what says what happened to it.";

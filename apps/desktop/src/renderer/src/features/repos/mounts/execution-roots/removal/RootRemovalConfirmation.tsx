@@ -15,6 +15,7 @@ import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { useConfirmationLifecycle } from "../../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./controller.js";
 import { useRootRemoval } from "./hooks/useRootRemoval.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** What the control says. */
 const REMOVAL_LABEL = "Remove";
@@ -92,9 +93,12 @@ function renderSettlement(reading: RootRemovalReading): React.JSX.Element | null
       return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "settled":
       return (
-        <p className="meridian-form__settlement meridian-form__settlement--inline" role="status">
-          {codeWords(reading.state)}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-form__settlement meridian-form__settlement--inline"
+          words={codeWords(reading.state)}
+          politeness="polite"
+        />
       );
   }
 }

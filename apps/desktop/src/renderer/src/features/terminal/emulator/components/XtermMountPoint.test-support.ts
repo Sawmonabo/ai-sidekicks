@@ -9,6 +9,7 @@ import { expect } from "vitest";
 
 import { terminalEmulatorLoader } from "../loader.js";
 import { terminalRendererPool } from "../renderer-pool.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /**
  * Type one character the way the library's listener sees it: a keydown on the hidden textarea
@@ -45,7 +46,7 @@ export function isEmulatorAcceptingInput(mountElement: HTMLElement): boolean {
  * element alone reads the pending value.
  */
 export async function renderSettledMountPoint(element: React.JSX.Element): Promise<RenderResult> {
-  const view = render(element);
+  const view = render(element, { wrapper: LiveAnnouncerProvider });
   await waitFor(() => {
     expect(mountPointBoxOf(view.container).getAttribute("data-renderer")).not.toBe("pending");
   });

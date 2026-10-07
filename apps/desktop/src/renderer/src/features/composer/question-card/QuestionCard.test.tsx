@@ -12,6 +12,8 @@ import {
   type AnswerDelivery,
   type QuestionReading,
 } from "#renderer/store/session/events/question-reading.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { liveRegionText } from "#test/helpers/live-region.js";
 import { QuestionCard } from "./QuestionCard.js";
 
 const OPEN_QUESTION: QuestionReading = {
@@ -204,7 +206,9 @@ describe("another record", () => {
 describe("what became of the answer", () => {
   it("keeps the person's answers on screen when the answer was refused", () => {
     // A delivery that never reached the daemon must leave the answers to retry from.
-    const { container } = render(<MountedWithDelivery settled={REFUSED_DELIVERY} />);
+    const { container } = render(<MountedWithDelivery settled={REFUSED_DELIVERY} />, {
+      wrapper: LiveAnnouncerProvider,
+    });
 
     pick(container, 0, "develop");
     type(container, 1, "the flaky test is known");
@@ -212,6 +216,9 @@ describe("what became of the answer", () => {
 
     expect(optionRow(container, 0, "develop").getAttribute("aria-pressed")).toBe("true");
     expect(fieldOf(container, 1).value).toBe("the flaky test is known");
-    expect(container.textContent).toContain("The background service is not answering.");
+    expect(container.querySelector(".meridian-refusal")?.textContent).toBe(
+      "The background service is not answering.",
+    );
+    expect(liveRegionText(container, "assertive")).toBe("The background service is not answering.");
   });
 });

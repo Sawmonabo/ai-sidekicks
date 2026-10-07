@@ -8,10 +8,9 @@
 // - The count is the app's own arithmetic, so it wears the derived signature, formatted by
 //   `lib/wire/figures.ts` only.
 //
-// Neither this component nor the notice creates a live region: the `reading` arm delegates to
-// `Nothing` and a prose arm nests `InlineRefusal`, which own theirs, and a wrapper would announce
-// the same sentence twice while mounting with its content already in it. To speak the sentence,
-// a view calls `useAnnounceOncePerSentence`.
+// Neither this component nor the notice creates a live region: the `reading` arm draws `Nothing`'s
+// skeleton, which is not read out, and a prose arm nests `InlineRefusal`, which says its own words,
+// so a wrapper would say them twice. To speak the sentence, a view calls `useAnnounceWhenChanged`.
 
 import { ReadingNotice } from "./ReadingNotice.js";
 import { partialReadNotices, type ReadingState } from "#renderer/lib/partial-read.js";

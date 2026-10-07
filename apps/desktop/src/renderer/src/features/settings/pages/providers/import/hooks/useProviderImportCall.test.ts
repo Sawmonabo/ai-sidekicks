@@ -56,13 +56,14 @@ describe("one import call's settlement", () => {
     expect(start.settlement()).toStrictEqual({ status: "unattempted" });
 
     const running = start.run(REQUEST);
-    expect(start.settlement()).toStrictEqual({ status: "running" });
+    expect(start.settlement()).toStrictEqual({ status: "running", pressOrdinal: 1 });
 
     held.release(startedFor("provider-import-1"));
     await running;
     expect(start.settlement()).toStrictEqual({
       status: "settled",
       answer: startedFor("provider-import-1"),
+      pressOrdinal: 1,
     });
   });
 
@@ -99,11 +100,11 @@ describe("one import call's settlement", () => {
     });
 
     const running = start.run(REQUEST);
-    expect(start.settlement()).toStrictEqual({ status: "running" });
+    expect(start.settlement()).toStrictEqual({ status: "running", pressOrdinal: 1 });
     await start.run(REQUEST);
 
     // Not merely unmoved by value: the refusal published nothing, so no subscriber was woken.
-    expect(start.settlement()).toStrictEqual({ status: "running" });
+    expect(start.settlement()).toStrictEqual({ status: "running", pressOrdinal: 1 });
     expect(notifications).toBe(1);
 
     // The first request still settles normally.
@@ -112,6 +113,7 @@ describe("one import call's settlement", () => {
     expect(start.settlement()).toStrictEqual({
       status: "settled",
       answer: startedFor("provider-import-1"),
+      pressOrdinal: 1,
     });
   });
 
@@ -131,6 +133,7 @@ describe("one import call's settlement", () => {
     expect(start.settlement()).toStrictEqual({
       status: "settled",
       answer: startedFor("provider-import-2"),
+      pressOrdinal: 2,
     });
   });
 });

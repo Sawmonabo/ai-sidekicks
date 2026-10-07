@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
-import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
 import { type BindControlAvailability } from "../../bind-control-availability.js";
 import { preparingDaemon } from "../../repo-mounts.test-support.js";
@@ -39,7 +39,7 @@ function renderForm(): FormUnderTest {
     />
   );
   const { container, rerender } = render(formAt("provisioned-worktree"), {
-    wrapper: bridgeWrapper(bridge, clock),
+    wrapper: withAnnouncer(bridgeWrapper(bridge, clock)),
   });
   return {
     container,

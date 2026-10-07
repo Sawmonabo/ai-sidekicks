@@ -14,6 +14,7 @@ import { registerTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };
@@ -78,6 +79,7 @@ describe("routing a row to its card", () => {
         row={sampleRunRow({ type: "assistant.thinking_update" })}
         listDensity="collapsed"
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     expect(container.querySelector(".meridian-reasoning-surface")).not.toBeNull();
     // Negative control for the routing: without the split, a reasoning row would render through
@@ -98,6 +100,7 @@ describe("the edit control's footer renderer", () => {
         row={sampleRunRow({ type: "user.message", summary: "please run the tests" })}
         listDensity="collapsed"
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
   });
@@ -118,6 +121,7 @@ describe("standing in for the list's density decision", () => {
           written.push({ rowKey, state });
         }}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     expect(disclosureState(container)).toBe("false");
 
@@ -133,6 +137,7 @@ describe("standing in for the list's density decision", () => {
     // row. A private "touched" flag would store "open" and leave the row as it was.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
+      { wrapper: LiveAnnouncerProvider },
     );
 
     pressDisclosure(container);
@@ -143,7 +148,9 @@ describe("standing in for the list's density decision", () => {
     // A no-op default channel would look exactly like a row that will not open; it fails loudly
     // instead.
     expect(() =>
-      render(<TranscriptRow {...rowRendererProps(sampleRunRow({ type: "tool.invoked" }))} />),
+      render(<TranscriptRow {...rowRendererProps(sampleRunRow({ type: "tool.invoked" }))} />, {
+        wrapper: LiveAnnouncerProvider,
+      }),
     ).toThrow(/retained row state provider/);
   });
 });

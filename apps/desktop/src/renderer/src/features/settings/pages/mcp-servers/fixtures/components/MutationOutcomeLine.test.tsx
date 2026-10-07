@@ -15,6 +15,8 @@ import type { SessionDirectoryState } from "#renderer/store/session/directory/st
 import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
 import type { McpMutationOutcome } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 afterEach(() => {
   cleanup();
@@ -68,6 +70,7 @@ describe("MutationOutcomeLine", () => {
           sessionDirectory={DIRECTORY}
           clock={new ManualClock(0)}
         />,
+        { wrapper: LiveAnnouncerProvider },
       );
       expect(linesOf(container)).toStrictEqual([line]);
       expect(container.textContent).not.toContain(grade);
@@ -82,6 +85,7 @@ describe("MutationOutcomeLine", () => {
       outcome: "failed",
       errorCode: "mcp.config_write_conflict",
     });
+    const { announcer, spoken } = spiedAnnouncer();
     const { container } = render(
       <MutationOutcomeLine
         outcome={settledOn(
@@ -97,6 +101,11 @@ describe("MutationOutcomeLine", () => {
         sessionDirectory={DIRECTORY}
         clock={new ManualClock(0)}
       />,
+      {
+        wrapper: ({ children }) => (
+          <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+        ),
+      },
     );
     expect(linesOf(container)).toStrictEqual([
       "Saved to Codex's settings. New sessions use it.",
@@ -108,12 +117,19 @@ describe("MutationOutcomeLine", () => {
       (name) => name.textContent,
     );
     expect(untitledNames).toStrictEqual(["New chat", "New session"]);
+    // Read out as drawn, line by line, the names included.
+    expect(spoken()).toStrictEqual([
+      "Saved to Codex's settings. New sessions use it.",
+      "Refresh-token expiry is still running with the old setting.",
+      "New chat is still running with the old setting.",
+      "New session is still running with the old setting.",
+    ]);
     for (const hidden of [TITLED_SESSION, "mcp.config_write_conflict", "failed", "applied"]) {
       expect(container.textContent).not.toContain(hidden);
     }
   });
 
-  it("draws a failed session's line only once the session list names it", () => {
+  it("draws and says a failed session's line only once the session list names it", () => {
     const outcome = settledOn(
       ["user_config_write"],
       [
@@ -132,7 +148,12 @@ describe("MutationOutcomeLine", () => {
         clock={new ManualClock(0)}
       />
     );
-    const { container, rerender } = render(drawOver({ status: "reading" }));
+    const { announcer, spoken } = spiedAnnouncer();
+    const { container, rerender } = render(drawOver({ status: "reading" }), {
+      wrapper: ({ children }) => (
+        <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+      ),
+    });
     expect(linesOf(container)).toStrictEqual(["Saved to Codex's settings. New sessions use it."]);
     expect(container.textContent).not.toContain("Loading…");
 
@@ -151,6 +172,50 @@ describe("MutationOutcomeLine", () => {
     expect(linesOf(container)).toStrictEqual([
       "Saved to Codex's settings. New sessions use it.",
       "Fix login is still running with the old setting.",
+    ]);
+    // The session's line is said when it is drawn; the grade's line is not said again.
+    expect(spoken()).toStrictEqual([
+      "Saved to Codex's settings. New sessions use it.",
+      "Fix login is still running with the old setting.",
+    ]);
+  });
+
+  it("says a failed session's line once, and nothing more when a lost list is restated", () => {
+    const outcome = settledOn(
+      ["user_config_write"],
+      [
+        {
+          sessionId: TITLED_SESSION,
+          bindingId: "leg-titled",
+          outcome: "failed",
+          errorCode: "mcp.config_write_conflict",
+        },
+      ],
+    );
+    const drawOver = (sessionDirectory: SessionDirectoryState): React.JSX.Element => (
+      <MutationOutcomeLine
+        outcome={outcome}
+        sessionDirectory={sessionDirectory}
+        clock={new ManualClock(0)}
+      />
+    );
+    const { announcer, spoken } = spiedAnnouncer();
+    const { container, rerender } = render(drawOver(DIRECTORY), {
+      wrapper: ({ children }) => (
+        <LiveAnnouncerProvider announcer={announcer}>{children}</LiveAnnouncerProvider>
+      ),
+    });
+    const sessionLine = "Refresh-token expiry is still running with the old setting.";
+    expect(linesOf(container)).toContain(sessionLine);
+
+    // The feed lost its place, then restated the same list: a re-read, not a new outcome.
+    rerender(drawOver({ status: "failed" }));
+    expect(linesOf(container)).not.toContain(sessionLine);
+    rerender(drawOver(DIRECTORY));
+    expect(linesOf(container)).toContain(sessionLine);
+    expect(spoken()).toStrictEqual([
+      "Saved to Codex's settings. New sessions use it.",
+      sessionLine,
     ]);
   });
 });

@@ -35,6 +35,20 @@ export type UpdateReading =
  */
 export const UPDATE_FAILED_DETAIL = "The update could not be verified and was not installed.";
 
+/**
+ * The words each settled arm of the updater's state draws, which is also what a screen reader is
+ * told. The figures drawn beside them (when it last checked, the version, the percent) are not.
+ */
+export const UPDATE_STATE_WORDS: Readonly<Record<Exclude<UpdateState["status"], "error">, string>> =
+  {
+    idle: "No update is waiting.",
+    checking: "Checking for an update…",
+    available: "Update available.",
+    downloading: "Downloading",
+    verifying: "Checking the signature…",
+    ready: "An update has finished downloading and installs on the next restart.",
+  };
+
 /** The held reading, rebuilt on every accepted observation and held by identity. */
 export interface UpdaterReadingSnapshot {
   readonly reading: UpdateReading;

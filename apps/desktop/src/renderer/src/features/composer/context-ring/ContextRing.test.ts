@@ -42,7 +42,7 @@ describe("ComposerToolbar — the context ring", () => {
       const fill = container.querySelector(".meridian-context-ring__fill");
       expect(fill?.getAttributeNames()).toStrictEqual(["class", "style"]);
       expect(fill?.className).toBe("meridian-context-ring__fill");
-      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(container.querySelector('[role="status"]:not([data-live-region])')).toBeNull();
     }
     expect(nearFull.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "84",

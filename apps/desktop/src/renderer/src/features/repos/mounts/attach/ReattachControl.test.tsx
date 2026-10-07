@@ -14,6 +14,8 @@ import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { scriptedRepoOperations } from "../../operations.test-support.js";
 import { confirmationPresses } from "../repo-mounts.test-support.js";
 import { ReattachControl } from "./ReattachControl.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { drawnText } from "#test/helpers/live-region.js";
 
 const SESSION_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
@@ -48,6 +50,7 @@ function renderControl(operations: RepoOperations): ReturnType<typeof render> {
       localPath={LOCAL_PATH}
       onAttached={() => undefined}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
 }
 
@@ -66,7 +69,7 @@ describe("ReattachControl — the confirm press keeps its settlement", () => {
     await pressOpen();
     await pressConfirm();
 
-    expect(container.textContent).toContain("Re-attaching.");
+    expect(drawnText(container)).toContain("Re-attaching.");
     expect(trigger()?.disabled).toBe(true);
   });
 });

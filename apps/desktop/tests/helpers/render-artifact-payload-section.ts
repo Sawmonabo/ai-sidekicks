@@ -17,6 +17,7 @@ import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/compo
 import { SESSION_ID } from "./artifact-list-readers.js";
 import { useArtifactList } from "#renderer/features/inspector/artifacts/hooks/useArtifactList.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The artifact the bound section opens on. */
 export const OPENED_ARTIFACT_ID = "artifact-diff-01" as ArtifactId;
@@ -70,7 +71,7 @@ export function renderArtifactPayloadSection(
   subject: ArtifactPayloadSubject,
   artifactId: ArtifactId = OPENED_ARTIFACT_ID,
 ): ReturnType<typeof render> {
-  return render(artifactPayloadTree(subject, artifactId));
+  return render(artifactPayloadTree(subject, artifactId), { wrapper: LiveAnnouncerProvider });
 }
 
 interface BoundArtifactPayloadSectionProps {

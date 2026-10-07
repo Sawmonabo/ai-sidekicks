@@ -22,6 +22,7 @@ import type { RepoWorkspaceRow } from "../reading.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** A mount's read, its workspaces, and the handlers every control on the card passes through. */
 export interface MountCardProps {
@@ -89,9 +90,12 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       {availability.available ? (
         <p className="meridian-mount-card__sentence">{health.sentence}</p>
       ) : (
-        <p className="meridian-mount-card__withheld" role="status">
-          {availability.unavailableBecause}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-mount-card__withheld"
+          words={availability.unavailableBecause}
+          politeness="polite"
+        />
       )}
       {mount.health.status === "identity_mismatch" && mount.health.isRepository ? (
         <ReattachControl

@@ -12,6 +12,7 @@ import { fixtureSessionBaseState } from "#renderer/services/daemon/session/base-
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 import { renderSettled } from "../../helpers/app/harness.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { type MountedView, paneTrailName, requireLabeledRegion } from "./queries.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";
@@ -53,12 +54,14 @@ export async function mountTerminalPane(): Promise<MountedView> {
     registerTerminalPane,
   );
   const { container } = await renderSettled(
-    <TerminalPaneBody
-      {...paneContext(
-        { kind: "terminal" },
-        { paneId: "pane-terminal", bridge, sessionStore: terminalSessionStore() },
-      )}
-    />,
+    <LiveAnnouncerProvider>
+      <TerminalPaneBody
+        {...paneContext(
+          { kind: "terminal" },
+          { paneId: "pane-terminal", bridge, sessionStore: terminalSessionStore() },
+        )}
+      />
+    </LiveAnnouncerProvider>,
   );
   const region = requireLabeledRegion(
     container,

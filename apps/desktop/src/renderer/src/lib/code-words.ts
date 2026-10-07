@@ -65,6 +65,15 @@ export function refusalWords(code: string, reason?: string): string | undefined 
   return REGISTERED_CODE_FORM.test(code) ? codeWords(code, reason) : undefined;
 }
 
+/**
+ * A refusal card or banner read out as it is drawn: the words line, then the message, or the
+ * message alone where the app wrote the refusal.
+ */
+export function refusalSentence(code: string, reason: string | undefined, message: string): string {
+  const words = refusalWords(code, reason);
+  return words === undefined ? message : `${words}. ${message}`;
+}
+
 // Its label, or its words split at `.`, `_` and `-`: a root before a `.` reads as its screen word,
 // cased as written, and every other word in lower case, the line's first letter capitalized.
 function wordsOf(code: string): string {

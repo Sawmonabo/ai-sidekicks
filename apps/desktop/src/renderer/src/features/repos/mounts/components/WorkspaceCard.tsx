@@ -17,6 +17,7 @@ import { type BindControlAvailability } from "../bind-control-availability.js";
 import { PrepareExecutionRoot } from "../execution-roots/prepare/PrepareExecutionRoot.js";
 import type { PrepareOperations } from "../execution-roots/prepare/controller.js";
 import type { RepoWorkspaceRow } from "../reading.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a new wire member
@@ -72,9 +73,12 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
 
       {workspace.lastError !== undefined ? (
         // The daemon's captured detail, quoted verbatim and inline on the row it is about.
-        <p className="meridian-workspace-card__last-error" role="status">
-          {workspace.lastError}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-workspace-card__last-error"
+          words={workspace.lastError}
+          politeness="assertive"
+        />
       ) : null}
 
       {/* It prepares the root of the mode the row is bound in now, held while the mount refuses

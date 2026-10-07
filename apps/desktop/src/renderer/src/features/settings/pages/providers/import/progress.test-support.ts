@@ -5,7 +5,7 @@ import type { ProviderImportProgress } from "@ai-sidekicks/contracts/provider/im
 import type { ImportProgressStream } from "./progress.js";
 
 /**
- * A progress stream a case drives message by message, and whose closes it counts.
+ * A progress stream a case drives message by message, fails, and whose closes it counts.
  *
  * The close is counted, not flagged, so a drain that closed twice (a double release on the live
  * wire) is caught.
@@ -15,6 +15,7 @@ export class DrivenProgressStream implements ImportProgressStream {
   #wake: (() => void) | undefined;
   #isClosed = false;
   #closeCount = 0;
+  #failure: Error | undefined;
 
   public get events(): AsyncIterable<ProviderImportProgress> {
     return this.#iterate();
@@ -37,6 +38,12 @@ export class DrivenProgressStream implements ImportProgressStream {
     this.#wakeDrain();
   }
 
+  /** Reject the drain part-way, the way a stream the service dropped does. */
+  public fail(failure: Error): void {
+    this.#failure = failure;
+    this.#wakeDrain();
+  }
+
   #wakeDrain(): void {
     this.#wake?.();
     this.#wake = undefined;
@@ -44,6 +51,9 @@ export class DrivenProgressStream implements ImportProgressStream {
 
   async *#iterate(): AsyncGenerator<ProviderImportProgress> {
     while (!this.#isClosed) {
+      if (this.#failure !== undefined) {
+        throw this.#failure;
+      }
       const pending = this.#pending.shift();
       if (pending !== undefined) {
         yield pending;

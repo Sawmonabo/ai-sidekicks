@@ -83,3 +83,9 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
 export function refusalRemedyFor(code: string): AppRefusalRemedy | undefined {
   return Object.hasOwn(REFUSAL_REMEDIES, code) ? REFUSAL_REMEDIES[code] : undefined;
 }
+
+/** A remedy as it is read out: the next move, then each exclusive case, in the order drawn. */
+export function remedyWordsOf(remedy: RefusalRemedy): string {
+  const distinctions = "distinctions" in remedy ? remedy.distinctions : [];
+  return [remedy.nextMove, ...distinctions].join(" ");
+}

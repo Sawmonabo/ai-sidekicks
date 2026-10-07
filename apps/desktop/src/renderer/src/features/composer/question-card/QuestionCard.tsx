@@ -8,6 +8,7 @@
 import type { QuestionAnswer, QuestionAskedPayload } from "@ai-sidekicks/contracts/question";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
 import { SecretAnswerField } from "./SecretAnswerField.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
@@ -140,14 +141,20 @@ function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
       );
     case "accepted":
       return (
-        <Nothing
-          kind="empty"
-          placement="inline"
-          title="The answer was delivered."
-          detail="The background service took this answer."
-        />
+        // What became of the person's answer is said; the line under it is browsed.
+        <AnnouncedLine element="span" words={ANSWER_DELIVERED_SENTENCE} politeness="polite">
+          <Nothing
+            kind="empty"
+            placement="inline"
+            title={ANSWER_DELIVERED_SENTENCE}
+            detail="The background service took this answer."
+          />
+        </AnnouncedLine>
       );
     case "refused":
       return <InlineRefusal code={delivery.refusal.code} detail={delivery.refusal.detail} />;
   }
 }
+
+/** What the card says once the background service took the answer. */
+const ANSWER_DELIVERED_SENTENCE = "The answer was delivered.";

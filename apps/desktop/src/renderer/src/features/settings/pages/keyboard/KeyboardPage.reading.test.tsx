@@ -1,11 +1,16 @@
 // What the keyboard page draws when the set it reads moves: rows appear and vanish as the frame
-// registers and unregisters commands. Changes are in `KeyboardPage.rebinding.test.ts`.
+// registers and unregisters commands, and what the keyboard map's read finds stands however late
+// it lands. Changes are in `KeyboardPage.rebinding.test.ts`.
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { drawnText } from "#test/helpers/live-region.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 import { rowOf } from "./KeyboardPage.test-support.js";
 
@@ -76,3 +81,55 @@ describe("keyboard page — a command registered after the page first rendered",
     expect(() => rowOf(container, "Check for updates")).toThrow();
   });
 });
+
+describe("keyboard page — the keyboard map read after the page opened", () => {
+  it("draws the chord the read declined unsaid, and says what a later read declines", async () => {
+    const said = spiedAnnouncer();
+    const { container } = render(
+      <LiveAnnouncerProvider announcer={said.announcer}>
+        <KeyboardPage />
+      </LiveAnnouncerProvider>,
+    );
+    expect(drawnText(container)).not.toContain("was not installed this time");
+
+    // The stored map gives two commands one chord, so the read installs the first and declines
+    // the second: a line only the read draws, landing after the page's first draw.
+    await act(async () => {
+      await keybindingOverrides.hydrateFrom(
+        keyboardMapStoring({
+          "bridge.checkForUpdates": "Alt+KeyJ",
+          "frame.goToSessions": "Alt+KeyJ",
+        }),
+      );
+      await crossMacrotaskBoundary();
+    });
+    expect(drawnText(container)).toContain(
+      "A chord kept for Sessions was not installed this time.",
+    );
+    expect(said.spoken()).toStrictEqual([]);
+
+    // The read answered, so the page has opened: a later read's new decline is a change.
+    await act(async () => {
+      await keybindingOverrides.hydrateFrom(
+        keyboardMapStoring({
+          "bridge.checkForUpdates": "Alt+KeyK",
+          "frame.goToWorkflows": "Alt+KeyK",
+        }),
+      );
+      await crossMacrotaskBoundary();
+    });
+    expect(said.spoken()).toStrictEqual([
+      expect.stringMatching(/^A chord kept for Workflows was not installed this time\./),
+    ]);
+  });
+});
+
+/** Main's keyboard map holding `stored`, answering every read at once. */
+function keyboardMapStoring(
+  stored: Readonly<Record<string, string>>,
+): PlatformBridge["keyboardMap"] {
+  return {
+    read: async () => await Promise.resolve({ map: stored }),
+    write: async (map) => await Promise.resolve(map),
+  };
+}

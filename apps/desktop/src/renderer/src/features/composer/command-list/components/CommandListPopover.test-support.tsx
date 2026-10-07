@@ -16,6 +16,7 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { MessageComposer } from "../../Composer.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The id of the console command the suites register so the list has an act to offer. */
 export const TEST_COMMAND_ID = "composer-discovery-test.act";
@@ -60,14 +61,16 @@ export async function mountComposer(options: {
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(
-      <MessageComposer
-        sessionStore={sessionStore}
-        bridge={options.bridge}
-        draftStore={draftStore}
-        frameStore={frameStore}
-        route={route}
-        focusedPane={options.focusedPane}
-      />,
+      <LiveAnnouncerProvider>
+        <MessageComposer
+          sessionStore={sessionStore}
+          bridge={options.bridge}
+          draftStore={draftStore}
+          frameStore={frameStore}
+          route={route}
+          focusedPane={options.focusedPane}
+        />
+      </LiveAnnouncerProvider>,
     );
     await crossMacrotaskBoundary();
   });

@@ -27,5 +27,5 @@ export function useOpenSignInPage(): {
 const SIGN_IN_PAGE_UNOPENED = refuse(
   "provider-sign-in-page",
   "open-sign-in-page-failed",
-  "Could not open the sign-in page.",
+  "Could not open the browser. Copy the address beside it to sign in.",
 );

@@ -115,6 +115,8 @@ export class KeybindingOverrideStore {
   #hydrationRefusals: readonly KeybindingHydrationRefusal[] = [];
   #readRefusal: Refusal | undefined;
   #repair: KeyboardMapReading["repair"];
+  #isKeyboardMapRead = false;
+  #hydrationsInFlight = 0;
   /**
    * One generation with two roles, as in `lib/reads/generation-latch.ts`: a rebinding supersedes a
    * hydration in flight (its read holds the map from before the choice), and a second hydration
@@ -169,6 +171,15 @@ export class KeybindingOverrideStore {
   }
 
   /**
+   * Whether this window's first read of the stored map has answered, read or refused, with no later
+   * read still out; it stays true after. What a page draws from the read until then, and with its
+   * answer, is the page opening.
+   */
+  public get isKeyboardMapRead(): boolean {
+    return this.#isKeyboardMapRead;
+  }
+
+  /**
    * Attaches this machine's keyboard map and reads the overrides back. The map is attached before
    * the await so a rebinding made meanwhile is written. Entries for unregistered commands are
    * skipped; each other entry is admitted against the entries admitted before it, so the result
@@ -180,10 +191,12 @@ export class KeybindingOverrideStore {
   public async hydrateFrom(keyboardMap: PlatformBridge["keyboardMap"]): Promise<void> {
     const round = this.#overrideRounds.supersedeAndClaim(this, HYDRATION_KEY);
     this.#keyboardMap = keyboardMap;
+    this.#hydrationsInFlight += 1;
     let reading: KeyboardMapReading;
     try {
       reading = await keyboardMap.read();
     } catch {
+      this.#answerHydration();
       // Main's message can name a local path, which a refusal's detail never carries.
       if (round.isCurrent && this.#keyboardMap === keyboardMap) {
         this.#readRefusal = refuseKeyboardMap(
@@ -191,11 +204,14 @@ export class KeybindingOverrideStore {
           "The keyboard map could not be read, so this window " +
             "uses the chords the app ships with until it is opened again.",
         );
-        this.#publish();
       }
+      this.#publish();
       return;
     }
+    this.#answerHydration();
     if (!round.isCurrent || this.#keyboardMap !== keyboardMap) {
+      // Superseded, so it installs nothing; with no later read out, it still ends the opening.
+      this.#publish();
       return;
     }
     const stored = reading.map;
@@ -278,6 +294,14 @@ export class KeybindingOverrideStore {
     if (this.#recording) {
       this.#recording = false;
       this.#publish();
+    }
+  }
+
+  // A read a rebinding superseded still ends the opening; one a later read superseded waits for it.
+  #answerHydration(): void {
+    this.#hydrationsInFlight -= 1;
+    if (this.#hydrationsInFlight === 0) {
+      this.#isKeyboardMapRead = true;
     }
   }
 

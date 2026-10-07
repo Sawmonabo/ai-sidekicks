@@ -176,7 +176,11 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         }}
       />
       {localRefusal === undefined ? null : (
-        <InlineRefusal code={localRefusal.code} detail={localRefusal.detail} />
+        <InlineRefusal
+          code={localRefusal.code}
+          detail={localRefusal.detail}
+          attempt={localRefusal}
+        />
       )}
       {settlement === undefined || settlement.kind === "landed" ? null : (
         <InlineRefusal code={settlement.notice.code} detail={settlement.notice.detail} />

@@ -5,6 +5,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ProviderAccountProbeCall } from "../../sign-in/flow.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** The subsystem name a refused check carries when the call raised no refusal of its own. */
 const ACCOUNT_CHECK_REFUSAL_ORIGIN = "provider-account-check";
@@ -47,12 +48,12 @@ export function AccountCheckNow(props: {
       >
         Check now
       </button>
-      {check.kind === "checked" ? <p role="status">That account was checked again.</p> : null}
+      {check.kind === "checked" ? (
+        <AnnouncedLine element="p" words="That account was checked again." politeness="polite" />
+      ) : null}
       {check.kind === "refused" ? (
-        <p
-          className="meridian-settings-page__state meridian-settings-page__state--failed"
-          role="alert"
-        >
+        // No live role: the refusal announces itself through the app's announcer.
+        <p className="meridian-settings-page__state meridian-settings-page__state--failed">
           <InlineRefusal {...check.refusal} />
         </p>
       ) : null}

@@ -8,6 +8,7 @@ import { vi } from "vitest";
 import { RememberedRuleSchema, type RememberedRule } from "@ai-sidekicks/contracts/approval";
 
 import { RememberedRules } from "./components/RememberedRules.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The id of the first rule a suite lists. */
 export const FIRST_RULE_ID = "019b7a33-3300-7e01-8110-d1a4c1150581";
@@ -39,5 +40,6 @@ export function renderGrants(options: {
       revokingRuleIds={options.revoking ?? new Set()}
       onRevoke={options.onRevoke ?? vi.fn()}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
 }

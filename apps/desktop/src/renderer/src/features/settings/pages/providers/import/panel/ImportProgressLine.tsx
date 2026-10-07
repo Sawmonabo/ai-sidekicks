@@ -13,6 +13,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
 
 /** What the progress row draws: one provider's import. */
@@ -31,23 +32,31 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   const { model } = props;
   const { progress } = model;
   const providerLabel = PROVIDER_LABELS[model.provider];
+  // The row speaks through the app's announcer; a refused row's refusal speaks for itself. A
+  // running import is said once, without the count it redraws on every frame, which would
+  // otherwise be read out frame by frame. What the stream replayed as it opened is not news; a
+  // new press is, even where its words match the last press's.
+  const sentence = rowSentence(model, providerLabel);
+  useAnnounceWhenChanged(
+    model.isUnderway && progress.status !== "failed" ? importingWords(providerLabel) : sentence,
+    "polite",
+    { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },
+  );
   if (progress.status === "failed") {
     return (
       <InlineRefusal
         code={progress.refusal.code}
         detail={progress.refusal.detail}
         onTryAgain={model.reopen}
+        attempt={progress.refusal}
       />
     );
   }
   const { newest } = progress;
   if (model.isUnderway) {
     return (
-      <div className={PROGRESS_CLASS} role="status">
-        <span>
-          {`Importing from ${providerLabel}…`}
-          {newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : null}
-        </span>
+      <div className={PROGRESS_CLASS}>
+        <span>{sentence}</span>
         {model.isReading ? (
           <button
             type="button"
@@ -82,17 +91,45 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
         code={IMPORT_REFUSED_CODE}
         detail={settlement.reason}
         onTryAgain={model.start}
+        isStanding={model.isShowingReplay}
       />
     );
   }
   if (settlement.outcome === "stopped") {
-    return (
-      <p className={PROGRESS_CLASS} role="status">
-        Import stopped. The sessions already read are in the sessions list.
-      </p>
-    );
+    return <p className={PROGRESS_CLASS}>{IMPORT_STOPPED_SENTENCE}</p>;
   }
   return <SettledLine settlement={settlement} providerLabel={providerLabel} />;
+}
+
+/** What a stopped import's row says. */
+const IMPORT_STOPPED_SENTENCE =
+  "Import stopped. The sessions already read are in the sessions list.";
+
+function importingWords(providerLabel: string): string {
+  return `Importing from ${providerLabel}…`;
+}
+
+/**
+ * The words the row shows where they are the row's own: while an import runs, once it stopped,
+ * and once it settled. `undefined` where the row is a refusal or draws nothing.
+ */
+function rowSentence(model: ProviderImportModel, providerLabel: string): string | undefined {
+  const { progress } = model;
+  if (progress.status === "failed") {
+    return undefined;
+  }
+  const { newest } = progress;
+  if (model.isUnderway) {
+    const count = newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : "";
+    return `${importingWords(providerLabel)}${count}`;
+  }
+  if (newest?.kind !== "settled" || newest.settlement.outcome === "refused") {
+    return undefined;
+  }
+  if (newest.settlement.outcome === "stopped") {
+    return IMPORT_STOPPED_SENTENCE;
+  }
+  return settledSentence(newest.settlement, providerLabel);
 }
 
 /**
@@ -107,14 +144,10 @@ function SettledLine(props: {
   const failures = settlement.outcome === "finished" ? settlement.failures : [];
   const line = settledSentence(settlement, providerLabel);
   if (failures.length === 0 && settlement.unreadableFiles.length === 0) {
-    return (
-      <p className={PROGRESS_CLASS} role="status">
-        {line}
-      </p>
-    );
+    return <p className={PROGRESS_CLASS}>{line}</p>;
   }
   return (
-    <Collapsible.Root className={PROGRESS_CLASS} role="status">
+    <Collapsible.Root className={PROGRESS_CLASS}>
       <Collapsible.Trigger className="meridian-disclosure-trigger">{line}</Collapsible.Trigger>
       <Collapsible.Panel className="meridian-provider-import__unfolded">
         <ul className="meridian-provider-import__unfolded-list">

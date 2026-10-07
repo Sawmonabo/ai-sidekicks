@@ -20,12 +20,16 @@ export type RunGraphProps = RunGraphCanvasProps;
 /** One run on its workflow's canvas, read-only, drawn once the canvas chunk arrives. */
 export function RunGraph(props: RunGraphProps): React.JSX.Element {
   const clock = useClock();
-  const { state: graphModule, retry: retryChunk } = useChunkLoad(runGraphLoader, "run-graph-chunk");
+  const {
+    state: graphModule,
+    retry: retryChunk,
+    attempt: chunkAttempt,
+  } = useChunkLoad(runGraphLoader, "run-graph-chunk");
 
   if (graphModule.status !== "loaded") {
     return (
       <div className="meridian-run-graph">
-        {renderUnloadedCanvas(graphModule, retryChunk, clock)}
+        {renderUnloadedCanvas(graphModule, retryChunk, chunkAttempt, clock)}
       </div>
     );
   }
@@ -49,6 +53,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 function renderUnloadedCanvas(
   graphModule: Exclude<ChunkLoadState<RunGraphModule>, { status: "loaded" }>,
   retryChunk: () => void,
+  chunkAttempt: number,
   clock: Clock,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (
@@ -59,6 +64,7 @@ function renderUnloadedCanvas(
       placement="block"
       title="Could not load the run graph"
       action={<TryAgainButton word="Retry" onPress={retryChunk} />}
+      attempt={chunkAttempt}
     />
   );
 }

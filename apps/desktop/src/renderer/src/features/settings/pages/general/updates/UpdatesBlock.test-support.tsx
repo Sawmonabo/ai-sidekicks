@@ -5,6 +5,7 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { UpdateState } from "#shared/preload-api.js";
+import type { Clock } from "#renderer/lib/clock.js";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
@@ -138,16 +139,19 @@ export async function renderSettled(
 
 /**
  * Mount the block on this window's real machine-settings binding over `machineSettings`, so a
- * write's answer moves the switch exactly as the store folds it.
+ * write's answer moves the switch exactly as the store folds it. `announcerClock` lets a case move
+ * the announcer's hold, so a repeat of the same words can be told from one that coalesced.
  */
 export async function renderOnMachineSettings(
   updater: UpdaterCalls,
   machineSettings: PlatformBridge["machineSettings"],
-): Promise<{ readonly block: HTMLElement }> {
+  announcerClock?: Clock,
+): Promise<{ readonly block: HTMLElement; readonly container: HTMLElement }> {
   const bridge: PlatformBridge = { ...freshBridge(), machineSettings };
   return await mountSettled(
     bridge,
     <UpdatesBlockOnMachineSettings updater={updater} bridge={bridge} />,
+    announcerClock,
   );
 }
 
@@ -169,19 +173,22 @@ function freshBridge(): PlatformBridge {
 async function mountSettled(
   bridge: PlatformBridge,
   block: ReactNode,
-): Promise<{ readonly block: HTMLElement }> {
+  announcerClock?: Clock,
+): Promise<{ readonly block: HTMLElement; readonly container: HTMLElement }> {
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(
       <PlatformBridgeProvider bridge={bridge}>
-        <LiveAnnouncerProvider>{block}</LiveAnnouncerProvider>
+        <LiveAnnouncerProvider {...(announcerClock === undefined ? {} : { clock: announcerClock })}>
+          {block}
+        </LiveAnnouncerProvider>
       </PlatformBridgeProvider>,
     );
     await crossMacrotaskBoundary();
     await crossMacrotaskBoundary();
   });
   const mounted = rendered as ReturnType<typeof render>;
-  return { block: updatesBlockOf(mounted.container) };
+  return { block: updatesBlockOf(mounted.container), container: mounted.container };
 }
 
 /** The block's own element, so a case never reads the announcer's regions by accident. */

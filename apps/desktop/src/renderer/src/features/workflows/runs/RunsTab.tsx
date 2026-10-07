@@ -17,7 +17,7 @@ import type {
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -36,6 +36,8 @@ import { NO_RUN_FILTERS, hasRunFilters, noRunMatchSentence } from "./filters.js"
 import type { RunListAnswer, RunListAsk } from "./list-pages.js";
 import { runCountWords } from "../words.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 
 /** What the Runs tab's list is drawn from, and where it leads. */
 export interface RunsTabProps {
@@ -67,7 +69,10 @@ export interface RunsTabProps {
 export function RunsTab(props: RunsTabProps): React.JSX.Element {
   const { filters, listState, attentionState } = props;
   const clock = useClock();
-  useSettlementAnnouncement(runsSettlementSentence(listState, props.runCountState));
+  // The first read's count stands; a later answer that changes it is said.
+  useAnnounceWhenChanged(runsSettlementSentence(listState, props.runCountState), "polite", {
+    isReadSettlement: true,
+  });
   const attentionEntries =
     attentionState.kind === "loaded" ? attentionState.value.entries : NO_ATTENTION_ENTRIES;
   const runs = listState.kind === "loaded" ? listState.value.response.runs : NO_RUNS;
@@ -80,10 +85,9 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
   });
   return (
     <div className="meridian-workflows-runs">
+      {/* Drawn as the address opens, so it is read by browsing rather than said. */}
       {props.isRunMissing ? (
-        <p className="meridian-workflows-runs__missing" role="status">
-          That run is not here.
-        </p>
+        <p className="meridian-workflows-runs__missing">That run is not here.</p>
       ) : null}
       <RunAttentionSection
         state={attentionState}
@@ -116,7 +120,11 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
         <InlineRefusal code={props.namingRefusal.code} detail={props.namingRefusal.detail} />
       )}
       {filters.lastRefusal === undefined ? null : (
-        <InlineRefusal code={filters.lastRefusal.code} detail={filters.lastRefusal.detail} />
+        <InlineRefusal
+          code={filters.lastRefusal.code}
+          detail={filters.lastRefusal.detail}
+          attempt={filters.lastRefusal}
+        />
       )}
       <RunsList {...props} nowMs={nowMs} clock={clock} />
     </div>
@@ -130,7 +138,7 @@ const NO_ATTENTION_ENTRIES: readonly WorkflowRunAttentionEntry[] = [];
 function RunsList(
   props: RunsTabProps & { readonly nowMs: number; readonly clock: Clock },
 ): React.JSX.Element {
-  const { listState, listAsk, filters } = props;
+  const { listState } = props;
   if (listState.kind === "not-loaded") {
     return <LoadingNotice clock={props.clock} placement="block" title="Loading the runs…" />;
   }
@@ -142,12 +150,23 @@ function RunsList(
         title="Could not load the runs"
         detail={listState.refusal.detail}
         action={<TryAgainButton onPress={props.readListAgain} />}
+        attempt={listState.refusal}
       />
     );
   }
+  // What the first answer draws stands; a line a later answer brings, such as a filter matching
+  // nothing, is said.
+  return <StandingContent>{renderAnsweredRuns(props, listState.value)}</StandingContent>;
+}
+
+function renderAnsweredRuns(
+  props: RunsTabProps & { readonly nowMs: number; readonly clock: Clock },
+  answer: RunListAnswer,
+): React.JSX.Element {
+  const { listAsk, filters } = props;
   // The answer drawn is for the ask it names; until the read for a newer ask lands, its rows and
   // its own filters' words stay on screen rather than giving way to a loading line.
-  const { ask, response } = listState.value;
+  const { ask, response } = answer;
   const isReplacing = ask !== listAsk;
   if (response.runs.length > 0) {
     const isLoadingEarlier =
@@ -162,7 +181,7 @@ function RunsList(
           onRunDeleted={props.readListAgain}
           nowMs={props.nowMs}
         />
-        {listState.value.earlierRefusal === undefined ? (
+        {answer.earlierRefusal === undefined ? (
           response.nextCursor === undefined ? null : (
             <ActionButton disabled={isLoadingEarlier} onClick={props.onLoadEarlier}>
               Load older runs
@@ -173,8 +192,9 @@ function RunsList(
             kind="error"
             placement="block"
             title="Could not load older runs"
-            detail={listState.value.earlierRefusal.detail}
+            detail={answer.earlierRefusal.detail}
             action={<TryAgainButton onPress={props.readListAgain} />}
+            attempt={answer.earlierRefusal}
           />
         )}
       </div>
@@ -192,9 +212,16 @@ function RunsList(
   }
   const definitionId = ask.filters.definitionId;
   const workflowName = props.definitions.find((definition) => definition.id === definitionId)?.name;
+  const noMatchSentence = noRunMatchSentence(ask.filters, workflowName);
   return (
-    <div className="meridian-workflows-runs__no-match" role="status" aria-busy={isReplacing}>
-      <p>{noRunMatchSentence(ask.filters, workflowName)}</p>
+    <AnnouncedLine
+      element="div"
+      className="meridian-workflows-runs__no-match"
+      words={noMatchSentence}
+      politeness="polite"
+      isBusy={isReplacing}
+    >
+      <p>{noMatchSentence}</p>
       {hasRunFilters(ask.filters) ? (
         <ActionButton
           onClick={() => {
@@ -204,7 +231,7 @@ function RunsList(
           Clear filters
         </ActionButton>
       ) : null}
-    </div>
+    </AnnouncedLine>
   );
 }
 
@@ -214,25 +241,29 @@ function isWithoutRuns(runCountState: PushDrivenReadState<number>): boolean {
 }
 
 /**
- * What a screen reader hears once the runs are read: how many are listed, `No runs yet` where
- * there is no run at all, or why they could not be read. A filter matching nothing says so in its
- * own status line instead.
+ * What a screen reader hears when a later answer changes the runs: how many are listed, or `No
+ * runs yet` where there is no run at all; `undefined` while either read is in flight. A failed
+ * read's error line and a filter matching nothing say so in their own lines instead, so the
+ * summary settles on `null` there.
  */
 function runsSettlementSentence(
   listState: PushDrivenReadState<RunListAnswer>,
   runCountState: PushDrivenReadState<number>,
-): string | undefined {
+): string | null | undefined {
   switch (listState.kind) {
     case "not-loaded":
       return undefined;
     case "failed":
-      return listState.refusal.detail;
+      return null;
     case "loaded": {
       const { response } = listState.value;
       if (response.runs.length > 0) {
         return `${runCountWords(response.totalCount)} listed.`;
       }
-      return isWithoutRuns(runCountState) ? "No runs yet" : undefined;
+      if (runCountState.kind === "not-loaded") {
+        return undefined;
+      }
+      return isWithoutRuns(runCountState) ? "No runs yet" : null;
     }
   }
 }

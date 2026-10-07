@@ -8,6 +8,7 @@ import "./WorkflowStateStrip.css";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { useAnnounceBannerRefusal } from "#renderer/hooks/announce/useAnnounceBannerRefusal.js";
 import { type WorkflowStripState } from "../strip-state.js";
 
 /** What a workflows body is handed: a summary line, a state, and the body for `ready`. */
@@ -24,6 +25,7 @@ export interface WorkflowStateStripProps {
  * landmark, because its host (the pane frame or the destination) already is one.
  */
 export function WorkflowStateStrip(props: WorkflowStateStripProps): React.JSX.Element {
+  useAnnounceBannerRefusal(props.state.kind === "refused" ? props.state.refusal : undefined);
   return (
     <div className="meridian-workflow__strip">
       <p className="meridian-workflow__summary">{props.summary}</p>

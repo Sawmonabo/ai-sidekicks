@@ -58,6 +58,11 @@ export function useDependentReadFailed(store: SessionStore): boolean {
   return useStore(store.failedDependentReads.readable, readAnyDependentReadFailed);
 }
 
+/** How many failed passes this session's dependent reads have recorded, repeats included. */
+export function useDependentReadFailedPassCount(store: SessionStore): number {
+  return useStore(store.failedDependentReads.readable, readFailedPassCount);
+}
+
 function readInitialized(state: SessionStoreState): boolean {
   return state.initialized;
 }
@@ -76,4 +81,8 @@ function readDegradedCause(state: SessionStoreState): SessionDegradedCause | und
 
 function readAnyDependentReadFailed(state: FailedDependentReadsState): boolean {
   return state.failedReads.length > 0;
+}
+
+function readFailedPassCount(state: FailedDependentReadsState): number {
+  return state.failedPassCount;
 }

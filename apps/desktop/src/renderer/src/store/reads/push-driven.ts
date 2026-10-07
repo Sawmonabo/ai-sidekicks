@@ -26,6 +26,7 @@ import { type ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";
 import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { type ReadRound } from "#renderer/lib/reads/scope.js";
 import { SUBSCRIBE_FAILED } from "#renderer/lib/reads/failure-codes.js";
+import { keepStandingRefusal } from "#renderer/lib/reads/refresh/standing-refusal.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 
 /** What a push-driven read has to show. Total; every arm renders something. */
@@ -73,8 +74,8 @@ export class PushDrivenRead<TValue> {
     this.#options = options;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
-      perform: async (_reasons, round) => {
-        await this.#performRead(round);
+      perform: async (reasons, round) => {
+        await this.#performRead(reasons, round);
       },
       // The perform body already turns a rejection into the `failed` arm, so this covers only a
       // throw from that conversion; without it the scheduler re-throws inside a timer callback
@@ -177,10 +178,10 @@ export class PushDrivenRead<TValue> {
       // Cleared ahead of the `finally` so a listener answering this refusal with a synchronous
       // `refresh()` reaches `#open`, not the guard.
       this.#opening = false;
-      this.#settle({
-        kind: "failed",
-        refusal: coerceToRefusal(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
-      });
+      this.#settleFailed(
+        coerceToRefusal(subscriptionFailure, this.#options.origin, SUBSCRIBE_FAILED),
+        [reason],
+      );
       return;
     } finally {
       this.#opening = false;
@@ -200,7 +201,7 @@ export class PushDrivenRead<TValue> {
     release?.();
   }
 
-  async #performRead(round: ReadRound): Promise<void> {
+  async #performRead(reasons: readonly RefreshReason[], round: ReadRound): Promise<void> {
     try {
       const value = await this.#options.read(round.signal);
       // The round, not `#disposed` alone: disposal aborts the round, and so does a newer read.
@@ -214,8 +215,18 @@ export class PushDrivenRead<TValue> {
         // newer answer.
         return;
       }
-      this.#settle({ kind: "failed", refusal: this.#refusalFor(error) });
+      this.#settleFailed(this.#refusalFor(error), reasons);
     }
+  }
+
+  /** Settles `failed`, leaving the standing refusal in place where nothing new failed. */
+  #settleFailed(refusal: ExtendedRefusal, reasons: readonly RefreshReason[]): void {
+    const standing = this.#state.kind === "failed" ? this.#state.refusal : undefined;
+    const kept = keepStandingRefusal(standing, refusal, reasons);
+    if (kept === standing) {
+      return;
+    }
+    this.#settle({ kind: "failed", refusal: kept });
   }
 
   #settle(next: PushDrivenReadState<TValue>): void {

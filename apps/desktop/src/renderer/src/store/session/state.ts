@@ -46,6 +46,11 @@ export interface SessionStoreState {
    */
   readonly lastReadFailed: boolean;
   /**
+   * How many reads of this session have failed in this store's life, so a retry that fails again
+   * is a new failure. Never reset: a read landing in between is not a failure.
+   */
+  readonly readFailureCount: number;
+  /**
    * Runs of sequences observed as missing, oldest first, rendered by the degraded banner. The
    * accumulated width they describe is bounded by `MAX_REPAIRABLE_SEQUENCE_GAP`.
    */
@@ -127,6 +132,7 @@ export function uninitializedState(input: {
     windowHeadCursor: undefined,
     degradedCause: input.degradedCause,
     lastReadFailed: false,
+    readFailureCount: 0,
     gaps: [],
     revision: input.revision,
   };
@@ -143,6 +149,8 @@ export function establishedState(input: {
   readonly orderedTranscript: readonly ProjectedSessionEvent[];
   readonly transcriptCap: number | undefined;
   readonly revision: number;
+  /** The failures counted before this read, carried across it. */
+  readonly readFailureCount: number;
 }): SessionStoreState {
   let partitions: SessionPartitions = emptyPartitions();
   for (const entity of input.baseState.entities) {
@@ -157,6 +165,7 @@ export function establishedState(input: {
     windowHeadCursor: input.baseState.readFromCursor,
     degradedCause: undefined,
     lastReadFailed: false,
+    readFailureCount: input.readFailureCount,
     gaps: [],
     revision: input.revision,
   };

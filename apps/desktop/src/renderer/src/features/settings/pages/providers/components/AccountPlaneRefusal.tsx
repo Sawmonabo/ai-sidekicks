@@ -43,14 +43,21 @@ export function AccountPlaneRefusal(props: {
   const handoff = accountPlaneHandoffFor(props.refusal.code, props.carriedRemedy);
   const { openPage } = props;
   const isAlreadyThere = handoff !== undefined && handoff.section === props.currentSection;
+  const remedySentence =
+    handoff === undefined
+      ? undefined
+      : ACCOUNT_PLANE_REMEDY_SENTENCES[handoff.remedyKind](props.provider);
   return (
     <>
-      <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+      {/* The remedy is read out after the reason, as it is drawn; its button is not. */}
+      <InlineRefusal
+        code={props.refusal.code}
+        detail={props.refusal.detail}
+        remedyWords={remedySentence}
+      />
       {handoff === undefined ? null : (
         <p className="meridian-account-handoff">
-          <span className="meridian-account-handoff__sentence">
-            {ACCOUNT_PLANE_REMEDY_SENTENCES[handoff.remedyKind](props.provider)}
-          </span>
+          <span className="meridian-account-handoff__sentence">{remedySentence}</span>
           {isAlreadyThere || openPage === undefined ? null : (
             <button
               type="button"

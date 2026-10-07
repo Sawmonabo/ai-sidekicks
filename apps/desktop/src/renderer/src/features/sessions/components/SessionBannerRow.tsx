@@ -6,6 +6,7 @@ import { Fragment } from "react";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { sessionBannerKey, type SessionBanner } from "../banners.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** One banner row, dismissed by the key the column holds it under. */
 export function SessionBannerRow(props: {
@@ -13,7 +14,13 @@ export function SessionBannerRow(props: {
   readonly onDismiss: (key: string) => void;
 }): React.JSX.Element {
   return (
-    <div className="meridian-session-screen__banner" role="status">
+    <AnnouncedLine
+      element="div"
+      className="meridian-session-screen__banner"
+      words={props.banner.words.join(", ")}
+      // A banner reports a failure, such as a save of the pane layout that did not land.
+      politeness="assertive"
+    >
       {props.banner.words.map((part, index) => (
         <Fragment key={part}>
           {index > 0 ? (
@@ -34,6 +41,6 @@ export function SessionBannerRow(props: {
       >
         <Glyph name="close" size={GLYPH_SIZE_CHROME} />
       </button>
-    </div>
+    </AnnouncedLine>
   );
 }

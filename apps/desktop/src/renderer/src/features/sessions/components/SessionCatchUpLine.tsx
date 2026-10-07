@@ -8,11 +8,13 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import {
   useDependentReadFailed,
+  useDependentReadFailedPassCount,
   useSessionDegraded,
 } from "#renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { useCatchUpLineWords, type CatchUpWords } from "../hooks/useCatchUpLineWords.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** What the catch-up line is handed: the session store and the retry callback. */
 export interface SessionCatchUpLineProps {
@@ -26,7 +28,9 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
   const clock = useClock();
   const isBehind = useSessionDegraded(props.sessionStore);
   const lastReadFailed = useSessionStore(props.sessionStore, readLastReadFailed);
+  const readFailureCount = useSessionStore(props.sessionStore, readReadFailureCount);
   const dependentReadFailed = useDependentReadFailed(props.sessionStore);
+  const dependentFailedPassCount = useDependentReadFailedPassCount(props.sessionStore);
   const words = useCatchUpLineWords(
     standingWords(isBehind, lastReadFailed, dependentReadFailed),
     clock,
@@ -34,9 +38,21 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
   if (words === undefined) {
     return null;
   }
+  const isFailed = words === "could-not-catch-up";
   return (
-    <div className="meridian-session-screen__catch-up" role="status">
-      {words === "could-not-catch-up" ? (
+    // `Try again` beside the failure is not read out.
+    <AnnouncedLine
+      element="div"
+      className="meridian-session-screen__catch-up"
+      words={isFailed ? "Couldn't catch up" : "Catching up…"}
+      politeness={isFailed ? "assertive" : "polite"}
+      // A `Try again` that fails again leaves these words standing; each failure is said. Both
+      // counts only grow, so a read landing beside a standing failure says nothing.
+      attempt={
+        isFailed ? `${String(readFailureCount)}:${String(dependentFailedPassCount)}` : undefined
+      }
+    >
+      {isFailed ? (
         <>
           {"Couldn't catch up · "}
           <TryAgainButton
@@ -49,7 +65,7 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
       ) : (
         "Catching up…"
       )}
-    </div>
+    </AnnouncedLine>
   );
 }
 
@@ -68,7 +84,10 @@ function standingWords(
   return isBehind ? "catching-up" : undefined;
 }
 
-/** Whether the newest read of this session failed, whatever cause stands beside it. */
 function readLastReadFailed(state: SessionStoreState): boolean {
   return state.lastReadFailed;
+}
+
+function readReadFailureCount(state: SessionStoreState): number {
+  return state.readFailureCount;
 }

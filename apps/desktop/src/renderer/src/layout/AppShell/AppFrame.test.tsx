@@ -4,7 +4,7 @@
 // navigating away from a crash the retry, and a raised banner is drawn and announced with its
 // code and reason as words.
 
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
@@ -47,16 +47,13 @@ function ExplodingScreen(): React.JSX.Element {
   throw new Error(RENDER_FAILURE_MESSAGE);
 }
 
-/**
- * The boundary's failure card, scoped to the screen region; the frame's assertive announcer region
- * is a permanent `role="alert"` node, so an unscoped query is ambiguous.
- */
-function screenAlert(container: HTMLElement): HTMLElement | null {
+/** The boundary's failure card in the screen region, or `null` where none is drawn. */
+function screenFailureCard(container: HTMLElement): HTMLElement | null {
   const screenRegion = container.querySelector<HTMLElement>(".meridian-frame__screen");
   if (screenRegion === null) {
     throw new Error("the frame rendered no screen region");
   }
-  return within(screenRegion).queryByRole("alert");
+  return screenRegion.querySelector<HTMLElement>(".meridian-render-failure");
 }
 
 describe("AppFrame — a modal overlay inerts the background and nothing else", () => {
@@ -127,7 +124,8 @@ describe("AppFrame — a failed screen does not survive a route change", () => {
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
-    expect(screenAlert(container)?.textContent).toContain("stopped rendering.");
+    expect(screenFailureCard(container)?.textContent).toContain("stopped rendering.");
+    expect(liveRegionText(container, "assertive")).toBe("The sessions list stopped rendering.");
 
     rerender(
       <AppFrame {...frameProps(SETTINGS_ROUTE)}>
@@ -135,7 +133,7 @@ describe("AppFrame — a failed screen does not survive a route change", () => {
       </AppFrame>,
     );
 
-    expect(screenAlert(container)).toBeNull();
+    expect(screenFailureCard(container)).toBeNull();
     expect(screen.getByText("the settings screen rendered")).not.toBeNull();
   });
 });

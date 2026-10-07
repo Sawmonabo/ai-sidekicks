@@ -11,6 +11,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useBridgeUnavailableWindow } from "./hooks/useBridgeUnavailableWindow.js";
 import { AppWindows } from "./AppWindows.js";
 import { windowMountPoint } from "./window-document.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** What the provider stack hands the gate. */
 export interface AppBootstrapProps {
@@ -54,13 +55,16 @@ function BridgeUnavailableWindow(props: {
     return null;
   }
   return createPortal(
-    <div className="meridian-frame meridian-frame--bare">
-      <Nothing
-        kind="error"
-        title="This window cannot reach the app."
-        detail={props.unavailable.detail}
-      />
-    </div>,
+    // This window has no frame to mount the announcer, so it mounts its own for the card.
+    <LiveAnnouncerProvider>
+      <div className="meridian-frame meridian-frame--bare">
+        <Nothing
+          kind="error"
+          title="This window cannot reach the app."
+          detail={props.unavailable.detail}
+        />
+      </div>
+    </LiveAnnouncerProvider>,
     windowMountPoint(opened.window.document),
   );
 }

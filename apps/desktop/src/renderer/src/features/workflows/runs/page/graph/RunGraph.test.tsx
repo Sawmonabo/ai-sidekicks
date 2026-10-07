@@ -16,6 +16,7 @@ import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/captur
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { RunGraph } from "./RunGraph.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 const { CHUNK_FAILURE_TEXT } = vi.hoisted(() => ({
   CHUNK_FAILURE_TEXT:
@@ -64,6 +65,7 @@ describe("the run graph when its canvas code fails to load", () => {
           onSelectNode={() => undefined}
         />
       </PlatformBridgeProvider>,
+      { wrapper: LiveAnnouncerProvider },
     );
 
     expect(await screen.findByText("Could not load the run graph")).toBeTruthy();

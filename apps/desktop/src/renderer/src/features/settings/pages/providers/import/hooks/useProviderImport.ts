@@ -27,6 +27,7 @@ import {
 } from "../progress.js";
 import { useImportProgress } from "./useImportProgress.js";
 import type {
+  ProviderImportId,
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
   ProviderImportStopRequest,
@@ -62,6 +63,16 @@ export interface ProviderImportModel {
   readonly isUnderway: boolean;
   /** A stop is out. */
   readonly isStopping: boolean;
+  /**
+   * The start press the row reports, counted from one, or `0` before any: a new press is a new
+   * attempt for the row's words, even where they read as the last press's did.
+   */
+  readonly startPressOrdinal: number;
+  /**
+   * The row shows what the stream replayed as it opened and no import this screen started: what
+   * was already true when the person arrived.
+   */
+  readonly isShowingReplay: boolean;
   /** Start an import. A rejected start settles as {@link startRefusal}. */
   readonly start: () => void;
   /** Stop the running import; its stopped outcome arrives on the stream. */
@@ -114,6 +125,8 @@ export function useProviderImport(
     isReading: runningImportId !== undefined,
     isUnderway: started.status === "running" || runningImportId !== undefined,
     isStopping: stopped.status === "running",
+    startPressOrdinal: started.status === "unattempted" ? 0 : started.pressOrdinal,
+    isShowingReplay: isShowingReplayOf(progress, started, runningImportId),
     start: () => {
       void startCall.run({ provider });
     },
@@ -124,6 +137,31 @@ export function useProviderImport(
     },
     reopen,
   };
+}
+
+/**
+ * Whether the row draws only what this opening of the stream replayed: before any start, and
+ * after a start that began no import, the row shows it again. A start still out, or a replayed
+ * message about the import this screen started, is this screen's own news.
+ */
+function isShowingReplayOf(
+  progress: ImportProgressReading,
+  started: ProviderImportCallSettlement<ProviderImportStartResponse>,
+  runningImportId: ProviderImportId | undefined,
+): boolean {
+  if (
+    progress.status === "failed" ||
+    progress.newest === undefined ||
+    progress.newest !== progress.replayed ||
+    started.status === "running"
+  ) {
+    return false;
+  }
+  if (started.status !== "settled") {
+    return true;
+  }
+  const startedImportId = started.answer.importId;
+  return progress.newest.importId !== startedImportId && runningImportId !== startedImportId;
 }
 
 function refusalOf<TAnswer>(

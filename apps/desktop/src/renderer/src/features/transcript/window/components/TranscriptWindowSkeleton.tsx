@@ -34,15 +34,15 @@ export function TranscriptWindowSkeleton(
     return null;
   }
   return (
-    <div
-      className="meridian-transcript-window-skeleton"
-      role="status"
-      aria-busy="true"
-      aria-label="Loading…"
-    >
+    // Drawn at once, so it is not read out; its words are hidden text a reader reaches by browsing.
+    <div className="meridian-transcript-window-skeleton" aria-busy="true">
+      <span className="meridian-visually-hidden">{SKELETON_WORDS}</span>
       {SKELETON_ROW_KEYS.map((key) => (
         <span key={key} className="meridian-transcript-window-skeleton__row" aria-hidden="true" />
       ))}
     </div>
   );
 }
+
+/** What the skeleton holds for a reader while the first read is in flight. */
+const SKELETON_WORDS = "Loading…";

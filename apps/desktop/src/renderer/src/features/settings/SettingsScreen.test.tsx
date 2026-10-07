@@ -1,14 +1,17 @@
 // What the settings screen enforces: the page list is the closed set of pages its cursor opens,
-// an address naming a control lands on it, leaving a page commits the field being edited, and
-// a page is handed the retained session, subscribed, and never the route's projection (which is
-// `undefined` on every settings address).
+// an address naming a control lands on it, leaving a page commits the field being edited, a page
+// is handed the retained session, subscribed, and never the route's projection (which is
+// `undefined` on every settings address), and what a page draws as it opens is left unsaid.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 import { act, fireEvent } from "@testing-library/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { drawnText } from "#test/helpers/live-region.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { settingsRoute } from "#renderer/routing/readers.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./control/anchor.js";
@@ -324,6 +327,33 @@ describe("the session a settings page is handed", () => {
   });
 });
 
+describe("what a page says as it opens", () => {
+  it("draws the page's opening lines unsaid, and says its first read failing once, assertively", async () => {
+    let refuseFirstRead = (): void => {};
+    const firstRead = new Promise<void>((_answer, refuse) => {
+      refuseFirstRead = () => {
+        refuse(new Error("the connection closed"));
+      };
+    });
+    const said = spiedAnnouncer();
+    const { container } = await renderSettingsScreen(
+      windowAt("general").context,
+      generalPageDrawing(() => <PageReadingOnce read={firstRead} />),
+      said.announcer,
+    );
+    expect(drawnText(container)).toContain(STANDING_REFUSAL);
+    expect(said.spoken()).toStrictEqual([]);
+
+    await act(async () => {
+      refuseFirstRead();
+      await crossMacrotaskBoundary();
+    });
+    expect(drawnText(container)).toContain(READ_REFUSAL);
+    expect(said.spoken()).toStrictEqual([READ_REFUSAL]);
+    expect(said.spokenOn("assertive")).toStrictEqual([READ_REFUSAL]);
+  });
+});
+
 /**
  * Class of the probe page's echo of the retained session id.
  *
@@ -370,6 +400,28 @@ function ControlDrawnOnRead(): React.JSX.Element {
           <button type="button">Late control</button>
         </div>
       ) : null}
+    </>
+  );
+}
+
+/** What the probe page draws at once: a refusal already standing when the page opened. */
+const STANDING_REFUSAL = "A chord kept for Find was not installed.";
+
+/** What the probe page draws once its first read is refused. */
+const READ_REFUSAL = "The page could not be read.";
+
+/** A page drawing a standing refusal at once, then the refusal of its first read, if it is refused. */
+function PageReadingOnce(props: { readonly read: Promise<void> }): React.JSX.Element {
+  const [isRefused, setIsRefused] = useState(false);
+  useEffect(() => {
+    props.read.catch(() => {
+      setIsRefused(true);
+    });
+  }, [props.read]);
+  return (
+    <>
+      <InlineRefusal code="chord-not-installed" detail={STANDING_REFUSAL} />
+      {isRefused ? <InlineRefusal code="read-failed" detail={READ_REFUSAL} /> : null}
     </>
   );
 }

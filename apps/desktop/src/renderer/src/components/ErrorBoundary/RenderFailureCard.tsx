@@ -1,4 +1,5 @@
 import { TryAgainButton } from "../TryAgainButton/TryAgainButton.js";
+import { AnnouncedLine } from "../AnnouncedLine/AnnouncedLine.js";
 
 /** What {@link RenderFailureCard} needs: the failed region's name and a retry. */
 export interface RenderFailureCardProps {
@@ -13,8 +14,14 @@ export interface RenderFailureCardProps {
  */
 export function RenderFailureCard(props: RenderFailureCardProps): React.JSX.Element {
   return (
-    <p className="meridian-render-failure" role="alert">
+    // `Retry` is not read out.
+    <AnnouncedLine
+      element="p"
+      className="meridian-render-failure"
+      words={`${props.regionName} stopped rendering.`}
+      politeness="assertive"
+    >
       {props.regionName} stopped rendering. <TryAgainButton word="Retry" onPress={props.onRetry} />
-    </p>
+    </AnnouncedLine>
   );
 }

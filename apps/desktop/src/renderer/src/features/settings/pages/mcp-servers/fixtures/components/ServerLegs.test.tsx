@@ -10,6 +10,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
 import { ServerLegs } from "./ServerLegs.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 afterEach(() => {
   cleanup();
@@ -43,6 +44,7 @@ describe("ServerLegs", () => {
   it("reads each session, its state word and the reading's age, or the state word alone", () => {
     const { container } = render(
       <ServerLegs legs={LEGS} sessionDirectory={DIRECTORY} nowMilliseconds={NOW_MS} />,
+      { wrapper: LiveAnnouncerProvider },
     );
     const lines = [...container.querySelectorAll(".meridian-mcp__leg")].map((line) =>
       [...line.childNodes].map((part) => part.textContent),
@@ -58,6 +60,7 @@ describe("ServerLegs", () => {
   it("negative control: while the list is read no line carries a name, never its id", () => {
     const { container } = render(
       <ServerLegs legs={LEGS} sessionDirectory={{ status: "reading" }} nowMilliseconds={NOW_MS} />,
+      { wrapper: LiveAnnouncerProvider },
     );
     const lines = [...container.querySelectorAll(".meridian-mcp__leg")].map((line) =>
       [...line.childNodes].map((part) => part.textContent),
@@ -75,6 +78,7 @@ describe("ServerLegs", () => {
   it("says no running session uses the server when none does", () => {
     const { container } = render(
       <ServerLegs legs={undefined} sessionDirectory={DIRECTORY} nowMilliseconds={NOW_MS} />,
+      { wrapper: LiveAnnouncerProvider },
     );
     expect(container.textContent).toBe("No running session uses this server.");
   });

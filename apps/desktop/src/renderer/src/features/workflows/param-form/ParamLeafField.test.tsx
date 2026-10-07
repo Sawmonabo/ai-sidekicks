@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 import type { FilePathRef, PickedFolder } from "#shared/preload-api.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { liveRegionText } from "#test/helpers/live-region.js";
 import { seedParamAnswers, type ParamAnswers } from "./answers.js";
 import { ParamForm } from "./ParamForm.js";
 
@@ -56,11 +58,17 @@ describe("a path field", () => {
   });
 
   it("says the chooser could not open when main names no reason", async () => {
-    render(<FolderForm pickFolder={() => Promise.reject(new Error("dialog failed"))} />);
+    const { container } = render(
+      <FolderForm pickFolder={() => Promise.reject(new Error("dialog failed"))} />,
+      { wrapper: LiveAnnouncerProvider },
+    );
 
     await pressBrowse();
 
-    expect(screen.getByRole("status").textContent).toBe("Could not open the folder chooser.");
+    expect(container.querySelector(".meridian-refusal")?.textContent).toBe(
+      "Could not open the folder chooser.",
+    );
+    expect(liveRegionText(container, "assertive")).toBe("Could not open the folder chooser.");
   });
 });
 

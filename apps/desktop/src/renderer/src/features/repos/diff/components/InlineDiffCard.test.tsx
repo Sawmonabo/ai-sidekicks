@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { type DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { InlineDiffCard } from "./InlineDiffCard.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 const CARD: DiffInlineCardProps = {
   kind: "diff",
@@ -15,7 +16,9 @@ const CARD: DiffInlineCardProps = {
 
 describe("inline diff card — the empty state", () => {
   it("says the diff has not been read, and never that there is nothing in it", () => {
-    const { container } = render(<InlineDiffCard card={CARD} />);
+    const { container } = render(<InlineDiffCard card={CARD} />, {
+      wrapper: LiveAnnouncerProvider,
+    });
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });

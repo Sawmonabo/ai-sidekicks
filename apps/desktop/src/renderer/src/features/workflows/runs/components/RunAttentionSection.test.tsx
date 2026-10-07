@@ -3,7 +3,8 @@
 // regrouping of its own. Until the read has answered, or
 // once it has failed, it says so and never `Nothing waiting`.
 
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +17,9 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { RunAttentionSection } from "./RunAttentionSection.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { OUTSIDE_LIVE_REGIONS } from "#test/helpers/live-region.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 // Local calendar instants, so every figure below falls on the same day as now.
 const NOW_MS = new Date(2026, 0, 1, 14, 20).getTime();
@@ -74,6 +78,7 @@ describe("the attention list", () => {
         readAgain={() => undefined}
         answeredCount={0}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
 
     const lines = screen.getAllByRole("listitem").map((item) => item.textContent);
@@ -98,11 +103,15 @@ describe("the attention list", () => {
         answeredCount={3}
       />
     );
-    const { rerender } = render(section({ kind: "not-loaded" }));
+    const { rerender } = render(section({ kind: "not-loaded" }), {
+      wrapper: LiveAnnouncerProvider,
+    });
     act(() => {
       clock.advance(LOADING_NOTICE_DELAY_MS);
     });
-    expect(screen.getByText("Loading what is waiting…")).toBeTruthy();
+    expect(
+      screen.getByText("Loading what is waiting…", { ignore: OUTSIDE_LIVE_REGIONS }),
+    ).toBeTruthy();
     expect(screen.queryByText(/Nothing waiting/)).toBeNull();
 
     rerender(
@@ -115,4 +124,45 @@ describe("the attention list", () => {
     rerender(section({ kind: "loaded", value: { entries: [], waitingOnPersonCount: 0 } }));
     expect(screen.getByText("Nothing waiting · you answered 3 runs this afternoon")).toBeTruthy();
   });
+
+  it("says the failure again when `Try again` fails the same way", () => {
+    // The read stays failed across the retry and settles a new refusal in the same words, so
+    // only the new refusal can tell the announcer it is a second failure.
+    const clock = new ManualClock(NOW_MS);
+    const said = spiedAnnouncer(clock);
+    const section = (
+      <LiveAnnouncerProvider announcer={said.announcer}>
+        <SectionRefusedOnEveryRead clock={clock} />
+      </LiveAnnouncerProvider>
+    );
+    const { rerender } = render(section);
+    // A re-render of the same failure is not a new one.
+    rerender(section);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    const failure = "Could not load what is waiting. Not running.";
+    expect(said.spokenOn("assertive")).toStrictEqual([failure, failure]);
+  });
 });
+
+/** A read of what is waiting, refused in the same words every time it is asked. */
+function refusedRead(): React.ComponentProps<typeof RunAttentionSection>["state"] {
+  return { kind: "failed", refusal: refuse("daemon", "daemon.unavailable", "Not running.") };
+}
+
+/** The section over a read that `Try again` asks again and that is refused again. */
+function SectionRefusedOnEveryRead(props: { readonly clock: ManualClock }): React.JSX.Element {
+  const [state, setState] = useState(refusedRead);
+  return (
+    <RunAttentionSection
+      state={state}
+      onOpenRun={() => undefined}
+      nowMs={NOW_MS}
+      clock={props.clock}
+      readAgain={() => {
+        setState(refusedRead());
+      }}
+      answeredCount={0}
+    />
+  );
+}

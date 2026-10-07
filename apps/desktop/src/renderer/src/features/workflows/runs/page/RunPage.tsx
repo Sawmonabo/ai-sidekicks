@@ -84,6 +84,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
         title="Could not load this run"
         detail={runState.refusal.detail}
         action={<TryAgainButton onPress={page.readRunAgain} />}
+        attempt={runState.refusal}
       />
     );
   }
@@ -147,6 +148,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
               title="Could not load this workflow"
               detail={documentRead.refusal.detail}
               action={<TryAgainButton onPress={page.document.readAgain} />}
+              attempt={documentRead.refusal}
             />
           ) : (
             <RunGraph

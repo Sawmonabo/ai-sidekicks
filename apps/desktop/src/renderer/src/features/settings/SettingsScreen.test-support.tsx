@@ -11,6 +11,7 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { type LiveAnnouncer } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { WindowStore } from "#renderer/store/window/store.js";
@@ -119,13 +120,14 @@ export function windowAt(
  *
  * The bridge and the announcer are part of the mount because a page lands through the window's
  * clock and settings pages announce; both hooks throw outside their providers. Omitting `pages`
- * renders the shipped composition through the registrar. Settles afterward because the shipped
- * arm is loader-backed: the first commit shows the reserved frame and the pages arrive a
- * macrotask later.
+ * renders the shipped composition through the registrar; `announcer` is one a case reads what was
+ * said from. Settles afterward because the shipped arm is loader-backed: the first commit shows
+ * the reserved frame and the pages arrive a macrotask later.
  */
 export async function renderSettingsScreen(
   context: ScreenContext,
   pages?: SettingsPageRegistry,
+  announcer?: LiveAnnouncer,
 ): Promise<ReturnType<typeof render>> {
   const screenElement =
     pages === undefined ? (
@@ -135,7 +137,7 @@ export async function renderSettingsScreen(
     );
   const rendered = render(
     <PlatformBridgeProvider bridge={context.bridge}>
-      <LiveAnnouncerProvider>{screenElement}</LiveAnnouncerProvider>
+      <LiveAnnouncerProvider announcer={announcer}>{screenElement}</LiveAnnouncerProvider>
     </PlatformBridgeProvider>,
   );
   // The lazy component suspends on its first render, so the body lands one boundary later.

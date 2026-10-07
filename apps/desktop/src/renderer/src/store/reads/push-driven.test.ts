@@ -103,6 +103,37 @@ describe("push-driven read — no swallowed failure", () => {
     });
   });
 
+  it("keeps the standing refusal when a refresh on its own fails the same way", async () => {
+    const clock = new ManualClock();
+    const harness = buildRead({
+      clock,
+      read: () =>
+        Promise.reject(
+          new RefusalError(refuse("daemon", "session.not_found", "That session is gone.")),
+        ),
+    });
+    async function refreshFor(reason: "window-focus" | "user-request"): Promise<unknown> {
+      harness.model.refresh(reason);
+      clock.advance(200);
+      await settle();
+      return harness.model.state.kind === "failed" ? harness.model.state.refusal : undefined;
+    }
+    harness.model.start();
+    clock.advance(200);
+    await settle();
+
+    const first = harness.model.state.kind === "failed" ? harness.model.state.refusal : undefined;
+    const afterFocus = await refreshFor("window-focus");
+    const afterTryAgain = await refreshFor("user-request");
+
+    expect(first).toBeDefined();
+    // Nothing new failed: the same object stands, so its line is not said again.
+    expect(afterFocus).toBe(first);
+    // A person asked again: a new attempt, said again in the same words.
+    expect(afterTryAgain).not.toBe(first);
+    expect(afterTryAgain).toStrictEqual(first);
+  });
+
   it("settles failed in the thrower's own words when subscribe throws synchronously", async () => {
     const clock = new ManualClock();
     const read = vi.fn(async () => "value");

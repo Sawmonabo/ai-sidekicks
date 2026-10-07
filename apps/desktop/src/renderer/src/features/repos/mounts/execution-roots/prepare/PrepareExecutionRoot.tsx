@@ -4,7 +4,7 @@
 
 import "./PrepareExecutionRoot.css";
 
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -20,6 +20,7 @@ import {
 } from "../../bind-control-availability.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./controller.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * The line that holds the control while no branch is named. The branch is required here though
@@ -61,6 +62,17 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   const isBranchNamed = branchName.trim().length > 0;
   const { onPrepared } = props;
   const unavailableBecause = controlHoldSentence(props.availability);
+  // The held and branch lines are standing guidance, read with the controls they describe rather
+  // than spoken: the form is collapsed, so a spoken line would be heard for text nobody sees.
+  const heldLineId = useId();
+  const branchLineId = useId();
+  const prepareDescribedBy =
+    [
+      unavailableBecause === undefined ? undefined : heldLineId,
+      isBranchNamed ? undefined : branchLineId,
+    ]
+      .filter((lineId) => lineId !== undefined)
+      .join(" ") || undefined;
 
   const nameBranch = useCallback(
     (nextBranchName: string) => {
@@ -94,6 +106,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           spellCheck={false}
           autoComplete="off"
           disabled={unavailableBecause !== undefined}
+          aria-describedby={isBranchNamed ? undefined : branchLineId}
           onChange={(event) => {
             nameBranch(event.target.value);
           }}
@@ -108,18 +121,19 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         disabled={
           unavailableBecause !== undefined || !isBranchNamed || reading.status === "sending"
         }
+        aria-describedby={prepareDescribedBy}
         onClick={submit}
       >
         Prepare
       </button>
       {unavailableBecause === undefined ? null : (
         // The mount's own sentence; never a second wording.
-        <p className="meridian-prepare-root__held" role="status">
+        <p className="meridian-prepare-root__held" id={heldLineId}>
           {unavailableBecause}
         </p>
       )}
       {isBranchNamed ? null : (
-        <p className="meridian-form__blocked" role="status">
+        <p className="meridian-form__blocked" id={branchLineId}>
           {BRANCH_REQUIRED_COPY}
         </p>
       )}
@@ -155,7 +169,13 @@ function renderSettlement(
       return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "prepared":
       return (
-        <div className="meridian-form__settlement meridian-form__settlement--inline" role="status">
+        // The state is read out; the root path and the re-read control beside it are not.
+        <AnnouncedLine
+          element="div"
+          className="meridian-form__settlement meridian-form__settlement--inline"
+          words={codeWords(reading.state)}
+          politeness="polite"
+        >
           <WireFigure value={reading.executionRoot} title={reading.executionRoot} />
           <span>{codeWords(reading.state)}</span>
           {/* The re-read is a control, not an effect: it stays after the first press because the
@@ -163,7 +183,7 @@ function renderSettlement(
           <button type="button" className={BUTTON_CLASS_NAME} onClick={onPrepared}>
             Show it in the roots list
           </button>
-        </div>
+        </AnnouncedLine>
       );
   }
 }

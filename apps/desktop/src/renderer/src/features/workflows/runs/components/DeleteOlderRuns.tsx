@@ -10,6 +10,7 @@ import {
 import { useInlineConfirm } from "../hooks/useInlineConfirm.js";
 import { runCountWords } from "../../words.js";
 import { ActionButton } from "../../components/ActionButton.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * `Delete runs older than…` above the runs table: it opens in place on `30 days`, names how many
@@ -28,9 +29,11 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
       return (
         <span className="meridian-workflows-delete-older">
           <ActionButton onClick={act.open}>Delete runs older than…</ActionButton>
-          <span role="status">
-            {`${runCountWords(state.deletedCount)} deleted · runs marked Keep stayed`}
-          </span>
+          <AnnouncedLine
+            element="span"
+            words={`${runCountWords(state.deletedCount)} deleted · runs marked Keep stayed`}
+            politeness="polite"
+          />
         </span>
       );
     case "open": {

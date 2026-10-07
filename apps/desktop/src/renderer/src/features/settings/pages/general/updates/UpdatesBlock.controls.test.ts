@@ -7,6 +7,9 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { liveRegionText } from "#test/helpers/live-region.js";
 import {
   machineSettingsRefusing,
   machineSettingsUnreadable,
@@ -208,5 +211,27 @@ describe("the updates block — the switch waits for the settings file", () => {
     expect(machineSettings.opens).toBe(2);
     expect(block.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
     expect(block.querySelector("[data-refusal-code]")).toBeNull();
+  });
+
+  it("says the failed read again when Try again fails at once the same way", async () => {
+    // The reopen throws inside the press, so the refusal is cleared and set again in one act and
+    // the same line stays drawn; only the press tells the announcer it is a new failure.
+    const clock = new ManualClock(0);
+    const { block, container } = await renderOnMachineSettings(
+      updaterReporting({ status: "idle" }),
+      machineSettingsUnreadable(2),
+      clock,
+    );
+    const said = [liveRegionText(container, "assertive")];
+    act(() => {
+      clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
+    });
+    said.push(liveRegionText(container, "assertive"));
+
+    await pressControl(block, "Try again");
+    said.push(liveRegionText(container, "assertive"));
+
+    const failure = "The settings could not be read.";
+    expect(said).toStrictEqual([failure, "", failure]);
   });
 });

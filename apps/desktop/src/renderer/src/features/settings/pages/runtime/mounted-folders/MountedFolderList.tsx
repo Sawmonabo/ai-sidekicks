@@ -8,7 +8,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import type { SettingsPageContext } from "#renderer/features/settings/types.js";
 import { MountedFolderRow } from "./MountedFolderRow.js";
@@ -80,10 +80,10 @@ export function MountedFolderList(props: {
   );
 
   const state = usePushDrivenRead(inventoryRead);
-  // Said once when the inventory lands, and again only if a later refresh settles
+  // The inventory the first read lands on stands; it is said only if a later refresh settles
   // differently. The focus refresh re-reads on every return, so the sentence names counts
   // and nothing that moves on its own.
-  useSettlementAnnouncement(mountSettlementSentence(state));
+  useAnnounceWhenChanged(mountSettlementSentence(state), "polite", { isReadSettlement: true });
 
   if (state.kind === "not-loaded") {
     return <LoadingNotice clock={clock} placement="block" title="Reading this session’s mounts…" />;
@@ -128,19 +128,21 @@ export function MountedFolderList(props: {
 }
 
 /**
- * The one sentence this list announces, or `undefined` while the read is in flight.
+ * The one sentence this list announces, `undefined` while the read is in flight, or `null` where it
+ * failed, whose refusal line speaks for itself.
  *
  * The counts are what speech lacks: on screen the rows are the count. The unread tail is
  * named in the same sentence, since a bounded read that said only what it opened would
- * report a smaller session. A refused read speaks the refusal's own detail, the words the
- * card shows.
+ * report a smaller session.
  */
-function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
+function mountSettlementSentence(
+  state: PushDrivenReadState<MountInventory>,
+): string | null | undefined {
   if (state.kind === "not-loaded") {
     return undefined;
   }
   if (state.kind === "failed") {
-    return state.refusal.detail;
+    return null;
   }
   const { readings, unreadMountCount } = state.value;
   if (readings.length === 0) {

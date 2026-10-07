@@ -5,7 +5,8 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
-import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
+import { OUTSIDE_LIVE_REGIONS, liveRegionText } from "#test/helpers/live-region.js";
 import { scriptedRepoOperations } from "../../operations.test-support.js";
 
 import { readBindControlAvailability } from "../bind-control-availability.js";
@@ -30,7 +31,7 @@ function renderRow(
       onRequestRead={() => undefined}
       {...overrides}
     />,
-    { wrapper: bridgeWrapper(bridge, clock) },
+    { wrapper: withAnnouncer(bridgeWrapper(bridge, clock)) },
   );
 }
 
@@ -44,7 +45,9 @@ describe("WorkspaceCard — the stale row", () => {
   it("quotes `lastError` inline, verbatim", () => {
     const detail = "fatal: could not read from remote repository (exit 128)";
     const { getByText, container } = renderRow(workspace({ state: "stale", lastError: detail }));
-    expect(getByText(detail)).toBeDefined();
+    expect(getByText(detail, { ignore: OUTSIDE_LIVE_REGIONS })).toBeDefined();
+    // Drawn outside a list's first read, the error arrived live, and is said as a failure is.
+    expect(liveRegionText(container, "assertive")).toBe(detail);
     expect(container.querySelector(".meridian-workspace-card__last-error")).not.toBeNull();
   });
 });

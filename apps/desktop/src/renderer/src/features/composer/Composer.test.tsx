@@ -14,6 +14,7 @@ import { WORKFLOW_COMMAND_ROOT } from "./command-list/workflow/grammar.js";
 import { MessageComposer } from "./Composer.js";
 import { inertBridge } from "./Composer.test-support.js";
 import { openSessionStore } from "./draft-line/components/DraftLine.test-support.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 afterEach(() => {
   commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
@@ -30,6 +31,7 @@ function mountComposerWithLine(text: string): HTMLTextAreaElement {
       route={DEFAULT_ROUTE}
       focusedPane={undefined}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
   const line = container.querySelector("textarea");
   if (!(line instanceof HTMLTextAreaElement)) {
