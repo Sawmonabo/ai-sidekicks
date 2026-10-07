@@ -867,6 +867,6 @@ The remainder widens the namespace-handler-registration scope; the validation su
 - [CreateNamedPipeW](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createnamedpipew) and [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew) — the first-instance flag, remote-client refusal, and the identification-level flags
 - [JOBOBJECT_BASIC_LIMIT_INFORMATION](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information) — kill-on-close and silent breakaway
 - [SetThreadExecutionState](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate) — the keep-awake hold, and that it cannot stop a sleep the person asks for
-- [Node.js `http2.performServerHandshake`](https://nodejs.org/api/http2.html) and the [`h2` crate](https://crates.io/crates/h2) — the channel's two ends
+- [Node.js `http2.performServerHandshake`](https://nodejs.org/docs/latest-v24.x/api/http2.html) and the [`h2` crate](https://crates.io/crates/h2) — the channel's two ends
 - [Node.js unofficial builds](https://unofficial-builds.nodejs.org/download/release/index.json) — the musl binaries the Linux runtime's musl archives are built on
 - [git-worktree](https://git-scm.com/docs/git-worktree) — locking a worktree that is not always mounted, and `repair` after worktrees have moved

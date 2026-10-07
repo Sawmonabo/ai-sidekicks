@@ -36,7 +36,7 @@ A quit flushes the service (`daemon.flush`) and leaves the service, every run an
 
 Sources:
 
-- [Node.js `child_process` — `options.detached`](https://nodejs.org/api/child_process.html#optionsdetached)
+- [Node.js `child_process` — `options.detached`](https://nodejs.org/docs/latest-v24.x/api/child_process.html#optionsdetached)
 - [Electron utilityProcess API](https://www.electronjs.org/docs/latest/api/utility-process) — the child-process API the service is not started with
 
 ## Native Keystore

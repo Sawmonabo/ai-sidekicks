@@ -195,7 +195,7 @@ None.
   - RFC 8555 §8.3 (ACME HTTP-01 challenge served on port 80): <https://datatracker.ietf.org/doc/html/rfc8555#section-8.3>
   - RFC 9773 (ACME Renewal Information): <https://datatracker.ietf.org/doc/html/rfc9773>
   - RFC 7469 (SPKI pin format): <https://datatracker.ietf.org/doc/html/rfc7469>
-  - Node.js `tls` module: <https://nodejs.org/api/tls.html>
+  - Node.js `tls` module: <https://nodejs.org/docs/latest-v24.x/api/tls.html>
   - Caddy automatic HTTPS: <https://caddyserver.com/docs/automatic-https>
   - Caddy 2.8.0 release notes (ACME Renewal Information support): <https://github.com/caddyserver/caddy/releases/tag/v2.8.0>
   - Caddy `tls` directive: <https://caddyserver.com/docs/caddyfile/directives/tls>
