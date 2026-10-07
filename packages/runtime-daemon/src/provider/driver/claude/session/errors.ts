@@ -109,6 +109,18 @@ export class ClaudeAuthenticationRequiredError extends Error {
   }
 }
 
+/** A request to the Claude Code process that its deadline expired on. Rides `driver.timeout`. */
+export class ClaudeRequestTimeoutError extends Error {
+  readonly code = "driver.timeout" as const;
+  readonly fields: { readonly driverId: string; readonly timeoutMs: string };
+
+  constructor(message: string, timeoutMs: number) {
+    super(message);
+    this.name = "ClaudeRequestTimeoutError";
+    this.fields = { driverId: CLAUDE_DRIVER_NAME, timeoutMs: String(timeoutMs) };
+  }
+}
+
 // `name` and `message` may be accessors and a throwing getter would throw inside the caller's
 // catch; a non-string falls through, since stringifying could put a credential-bearing `toString`
 // in a durable row.

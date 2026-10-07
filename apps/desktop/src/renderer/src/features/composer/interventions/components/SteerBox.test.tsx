@@ -3,7 +3,7 @@
 // reaches the wire as typed.
 
 import { useLayoutEffect, useState } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SteerBox } from "./SteerBox.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
@@ -287,6 +287,39 @@ describe("the composer outlives its dispatch", () => {
     expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
       "The background service did not apply this.",
     );
+  });
+});
+
+describe("a steer the background service could not deliver", () => {
+  it("reads Not delivered · Retry, and Retry sends the same text again", async () => {
+    let answers = 0;
+    const failedThenApplied: ScriptedAnswer = () => {
+      answers += 1;
+      return answers === 1
+        ? {
+            interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
+            interventionType: "steer",
+            state: "failed",
+            failureReason: "driver.transport_closed",
+            runVersion: 9,
+          }
+        : APPLIED_STEER();
+    };
+    const { container, calls, dismissCount } = renderSteerBox(failedThenApplied);
+    typeInto(steerField(container), "stop editing that file");
+    await submit(container);
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("stop editing that file");
+    const line = container.querySelector(".meridian-composer__not-delivered");
+    expect(line?.textContent).toBe("Not delivered · Retry");
+
+    const retry = within(container).getByRole("button", { name: "Retry" });
+    await act(async () => {
+      retry.click();
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.params).toMatchObject({ type: "steer", content: "stop editing that file" });
+    expect(dismissCount()).toBe(1);
   });
 });
 

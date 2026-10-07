@@ -120,14 +120,15 @@ The following table lists every allowed run state transition. It includes primar
 | --- | --- | --- | --- |
 | `queued` | `starting` | Run admitted to execution | The memory gate admits it |
 | `starting` | `running` | Initialization complete | Provider and workspace ready |
-| `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
-| `starting` | `interrupted` | Interrupt intervention | User-initiated stop while run setup is in progress or parked (e.g. blocked-in-setup per [Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior)) |
+| `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete; a setup gate's failure carries `failureCategory: 'setup failure'` and `failureCause: {cause: 'setup-failed'}` with the gate's own error |
+| `starting` | `interrupted` | Interrupt intervention | User-initiated stop while run setup is in progress ([Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior)) |
 | `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
 | `running` | `waiting_for_input` | Input requested | Run requires user input or structured answers, or Claude Code's retry-or-edit choice on a refused turn waits on the person (`run.refusal_choice_requested`), or its switch-or-credits choice when a Fable turn needs usage credits does (`run.usage_credits_choice_requested`) |
 | `running` | `pausing` | Pause toggle pressed | The step already in flight is still finishing and nothing new starts ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `pausing` | `paused` | The step in flight landed | Nothing is running; the run continues later from exactly where it stopped, with nothing repeated |
 | `pausing` | `running` | The pause toggle pressed again, or a send | Pressed before the step in flight landed; the run goes on from where it is, with nothing repeated ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `pausing` | `interrupted` | Interrupt intervention | User-initiated stop while the step in flight is finishing — an interrupt stays available throughout a pause — or an undo ending the turn (§Rollback Transitions) |
+| `pausing` | `failed` | Unrecovered error | Provider, transport, or internal error while the step in flight is finishing |
 | `running` | `interrupted` | Interrupt intervention | User-initiated stop, or an undo ending the running turn (§Rollback Transitions) |
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
@@ -164,8 +165,10 @@ The following table lists every allowed run state transition. It includes primar
 | `waiting_for_input` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
 | `waiting_for_input` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `paused` | `failed` | Startup reconciliation | Resume impossible and no prior user-initiated stop |
-| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
 | `paused` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the local log is authoritative and the run halts for human action carrying `recovery-needed` ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
+| `pausing` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `pausing` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
 
 ## Derived Failure And Recovery Signals
 
@@ -180,6 +183,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 | `local persistence failure` | Canonical local storage was unavailable or inconsistent enough that recovery or safe mutation could not continue. | Failure category, not `RunState` |
 | `projection failure` | A projection rebuild could not produce trustworthy read state. | Failure category, not `RunState` |
 | `refused` | The provider's safety check refused a turn and no other model could take it; the payload names the refusing model and carries the provider's words ([Spec-005 §Run Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)). | Failure category, not `RunState` |
+| `setup failure` | A setup gate threw before the provider started the run; the payload carries the gate's error code and its own words ([Spec-005 §Run Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)). | Failure category, not `RunState` |
 
 - Recovery is handled by startup reconciliation: on boot the daemon detects stale runs and dispatches corrective commands. There is no visible `recovering` state.
 - If recovery cannot proceed safely, the run transitions to `failed`; failure detail may then carry one or more failure categories plus `recovery-needed` when intervention is still required. A resume that succeeds but reports a diverged session position instead halts for human action in `waiting_for_input` carrying `recovery-needed` — the divergence rows above; a run already recorded `waiting_for_input` stays in that state with the same condition attached, with no self-transition row — and its stale pre-crash input request is replaced by the `recovery-needed` reconciliation block, never left masking the divergence, the replaced ask canceled as moot through its existing terminal, as an undo cancels the question a waiting run held (§Rollback Transitions) ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)).

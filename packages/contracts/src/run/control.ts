@@ -97,28 +97,40 @@ export type InterventionId = string & { readonly __brand: "InterventionId" };
 export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
-/** Where an intervention stands, from request to outcome. */
-export type InterventionState =
-  | "requested"
-  | "accepted"
-  | "applied"
-  | "rejected"
-  | "degraded"
-  | "expired";
+/** Every state an intervention passes through, `requested` first; each has its own event. */
+export const INTERVENTION_STATES = [
+  "requested",
+  "accepted",
+  "applied",
+  "rejected",
+  "degraded",
+  "expired",
+  "failed",
+] as const;
+/**
+ * Where an intervention stands, from request to outcome. `failed` is a dispatch that threw, so
+ * the request never stays `accepted` for good.
+ */
+export type InterventionState = (typeof INTERVENTION_STATES)[number];
 
-/** Why a run failed. The values carry spaces because they are wire literals, not identifiers. */
-export type RunFailureCategory =
-  | "provider failure"
-  | "transport failure"
-  | "local persistence failure"
-  | "projection failure";
-/** Parses a {@link RunFailureCategory}. */
-export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureCategory> = z.enum([
+const RUN_FAILURE_CATEGORIES = [
   "provider failure",
   "transport failure",
   "local persistence failure",
   "projection failure",
-]);
+  "refused",
+  "setup failure",
+] as const;
+
+/**
+ * Why a run failed: `refused` is a turn the provider's safety check refused with no other model
+ * to take it, and `setup failure` a setup gate that threw before the provider started the run.
+ * The values carry spaces because they are wire literals, not identifiers.
+ */
+export type RunFailureCategory = (typeof RUN_FAILURE_CATEGORIES)[number];
+/** Parses a {@link RunFailureCategory}. */
+export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureCategory> =
+  z.enum(RUN_FAILURE_CATEGORIES);
 
 // A `writableRoots` entry. Not `wireFreeFormString`: a directory named with a single space is
 // legal, while NUL is in no filesystem's paths.
@@ -239,15 +251,26 @@ export interface InterventionResponseBase {
 
 /**
  * The daemon's answer to an intervention request. A refused intervention is a normal answer in
- * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; no other state
- * carries a reason.
+ * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; one whose
+ * dispatch threw answers `failed` with its `failureReason`, the error's code or message, and a
+ * retry under the same key answers the same. No other state carries a reason.
  */
 export type InterventionRequestResponse = InterventionResponseBase &
   (
-    | { state: Extract<InterventionState, "rejected">; rejectionReason: string }
     | {
-        state: Exclude<InterventionState, "rejected">;
+        state: Extract<InterventionState, "rejected">;
+        rejectionReason: string;
+        failureReason?: never;
+      }
+    | {
+        state: Extract<InterventionState, "failed">;
+        failureReason: string;
         rejectionReason?: never;
+      }
+    | {
+        state: Exclude<InterventionState, "rejected" | "failed">;
+        rejectionReason?: never;
+        failureReason?: never;
       }
   );
 
@@ -277,12 +300,23 @@ export const InterventionRequestResponseSchema: z.ZodType<
   z
     .object({
       ...interventionResponseBaseShape,
-      state: z.enum(["requested", "accepted", "applied", "degraded", "expired"]),
+      state: z.literal("failed"),
+      failureReason: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "InterventionRequestResponse.failureReason",
+      ),
+    })
+    .strict(),
+  z
+    .object({
+      ...interventionResponseBaseShape,
+      state: z.enum(INTERVENTION_STATES).exclude(["rejected", "failed"]),
     })
     .strict(),
 ]);
 
-const executionPostureSchema: z.ZodType<ExecutionPosture> = z
+/** Parses an {@link ExecutionPosture}. */
+export const ExecutionPostureSchema: z.ZodType<ExecutionPosture> = z
   .object({
     mode: PermissionLevelSchema,
     writableRoots: z.array(filesystemPathSchema),
@@ -328,15 +362,36 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
   .strict();
 
 /**
+ * A setup gate's throw before the provider started the run, which ends it `starting -> failed`:
+ * the error's code when the gate threw a coded daemon error, and its own words.
+ */
+export interface RunSetupFailedCause {
+  cause: "setup-failed";
+  origin: "daemon";
+  code?: string | undefined;
+  message: string;
+}
+const RunSetupFailedCauseSchema: z.ZodType<RunSetupFailedCause> = z
+  .object({
+    cause: z.literal("setup-failed"),
+    origin: z.literal("daemon"),
+    code: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RunSetupFailedCause.code").optional(),
+    message: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "RunSetupFailedCause.message"),
+  })
+  .strict();
+
+/**
  * Why a run failed, on `run.failed`: the refusal, the provider's usage limit with the reset
- * boundary its driver held when the turn failed, or the provider's spent retries. A reload redraws
- * the run's last row from this cause alone.
+ * boundary its driver held when the turn failed, the provider's spent retries, or a setup gate's
+ * failure. A reload redraws the run's last row from this cause alone.
  */
 export type RunFailureCause =
   | RunRefusedCause
   | (ProviderUsageLimitSignal & { origin: "provider" })
-  | (ProviderSpentRetriesSignal & { origin: "provider" });
-const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
+  | (ProviderSpentRetriesSignal & { origin: "provider" })
+  | RunSetupFailedCause;
+/** Parses a {@link RunFailureCause}. */
+export const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
   RunRefusedCauseSchema,
   z
     .object({
@@ -346,6 +401,7 @@ const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
     })
     .strict(),
   z.object({ cause: z.literal("retries-exhausted"), origin: z.literal("provider") }).strict(),
+  RunSetupFailedCauseSchema,
 ]);
 
 /**
@@ -373,6 +429,14 @@ export const ProcessExitSchema: z.ZodType<ProcessExit> = z.union([
     .strict(),
 ]);
 
+/** How a completed run ended: its turn finished (`turn`) or its whole task did (`task`). */
+export type RunCompletionKind = "turn" | "task";
+/** Parses a {@link RunCompletionKind}. */
+export const RunCompletionKindSchema: z.ZodType<RunCompletionKind, RunCompletionKind> = z.enum([
+  "turn",
+  "task",
+]);
+
 /**
  * One run state transition as `run.subscribeState` delivers it, with its new run version.
  * `sessionId` is carried by the subscription's scope, not repeated per event.
@@ -391,7 +455,7 @@ export interface RunStateChangeEvent {
   // the cause as the substring before the first space; the whole value is not always prose.
   providerFailureDetail?: string | undefined;
   processExit?: ProcessExit | undefined;
-  completionKind?: "turn" | "task" | undefined;
+  completionKind?: RunCompletionKind | undefined;
   // Present only on a terminal the daemon itself closed; such a terminal is never a crash.
   intendedClose?: true | undefined;
   // Stamped only on `run.running`, where the workspace root and effective posture are final.
@@ -416,9 +480,9 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
       "RunStateChangeEvent.providerFailureDetail",
     ).optional(),
     processExit: ProcessExitSchema.optional(),
-    completionKind: z.enum(["turn", "task"]).optional(),
+    completionKind: RunCompletionKindSchema.optional(),
     intendedClose: z.literal(true).optional(),
-    executionPosture: executionPostureSchema.optional(),
+    executionPosture: ExecutionPostureSchema.optional(),
     trigger: InterruptReasonSchema.optional(),
     timestamp: isoDateTimeSchema,
   })

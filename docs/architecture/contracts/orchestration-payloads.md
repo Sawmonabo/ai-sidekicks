@@ -11,7 +11,12 @@ interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
 type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step"; // D-013-12: how a child was reached — the provider's own subagent, a bridge `run` call, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `provider_subagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
-type InterruptReason = "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled"; // the reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`
+type InterruptReason =
+  | "step_limit"
+  | "spend_limit"
+  | "token_limit"
+  | "workflow_phase_canceled"
+  | "daemon_restart"; // the reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`
 
 // OrchestrationRunCreate — wire: orchestration.runCreate (admission pipeline D-013-9:
 // agent resolution -> Plan-002 queue admission; zero-residue typed refusal + durable

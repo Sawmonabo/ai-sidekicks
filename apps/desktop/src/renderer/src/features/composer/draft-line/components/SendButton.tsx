@@ -15,6 +15,8 @@ import { useWorkflowStartHandlers } from "../../command-list/workflow/hooks/useW
 import { type WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import { useSendController } from "../send/hooks/useSendController.js";
+import { isUndeliveredMessage } from "../send/refusals.js";
+import { NotDeliveredLine } from "../../components/NotDeliveredLine.js";
 
 /** What Send is handed beyond the composer's own props. */
 export type SendButtonProps = ComposerProps & {
@@ -63,7 +65,14 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
           {isSending ? "Sending" : "Send"}
         </button>
       </div>
-      {controller.refusal === undefined ? null : (
+      {controller.refusal === undefined ? null : isUndeliveredMessage(controller.refusal) ? (
+        <NotDeliveredLine
+          failureReason={controller.refusal.code}
+          onRetry={() => {
+            void controller.send();
+          }}
+        />
+      ) : (
         // Through the remedy join: `intervention.idempotency_conflict`, `run.version_conflict`
         // and `session.not_found` each have a next move the daemon's sentence lacks.
         <RefusalWithRemedy refusal={controller.refusal} />

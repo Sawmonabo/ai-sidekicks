@@ -200,11 +200,11 @@ export class WorkspaceBranchMismatchError extends DaemonDomainError {
 }
 
 /**
- * `workspace.execution_root_unresolved`: root preparation failed at the setup gate and the run
- * parks in `starting`. Carries the cause's dotted code, not the cause object, whose message would
- * reopen the prose channel.
+ * `workspace.execution_root_unresolved`: root preparation failed at the setup gate, which ends
+ * the run `failed` with this error as its cause. Carries the cause's dotted code, not the cause
+ * object, whose message would reopen the prose channel.
  *
- * @consumedBy the run setup gate, which parks a run whose execution root cannot be made
+ * @consumedBy the run setup gate, which fails a run whose execution root cannot be made
  */
 export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
   readonly workspaceId: string;
@@ -215,9 +215,9 @@ export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
     super(
       causeCode === null
         ? `workspace ${workspaceId} has no resolved execution root: root preparation failed ` +
-            `and the run stays parked in setup`
+            `and the run ended failed`
         : `workspace ${workspaceId} has no resolved execution root: root preparation failed ` +
-            `with ${causeCode} and the run stays parked in setup`,
+            `with ${causeCode} and the run ended failed`,
       {
         code: "workspace.execution_root_unresolved" satisfies WorkspaceErrorCode,
         detail: causeCode === null ? { workspaceId } : { workspaceId, causeCode },

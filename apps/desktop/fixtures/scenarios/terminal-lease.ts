@@ -259,6 +259,7 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 4,
     previousState: "running",
     newState: "completed",
+    completionKind: "turn",
   }),
   // The release hands the shell back to the owner, and the script ends held.
   leaseTransitionEntry({

@@ -207,13 +207,17 @@ interface InterventionResponseBase {
   interventionType: InterventionType;
   runVersion: number; // post-application run counter (D-002-1) — the caller threads this into the next intervention's `expectedRunVersion`. Carried on the response because an applied native steer advances the run version WITHOUT a `run.*` state change (Spec-003 §Driver-Level Steer Mechanics), so for that path the response is the only place the caller can read the fresh comparand.
 }
-// A `rejected` answer always carries its `rejectionReason`, and no other state carries one. No
-// state carries a result: what an intervention did reaches the screen as the run's own events.
+// A `rejected` answer always carries its `rejectionReason` and a `failed` one its `failureReason`;
+// no other state carries a reason. No state carries a result: what an intervention did reaches the screen as the run's own events.
 type InterventionRequestResponse = InterventionResponseBase &
   (
     | {
         state: "rejected";
         rejectionReason: string; // machine-readable cause on a `rejected` OUTCOME, which is a normal `run.intervene` response and not a JSON-RPC transport error, so the CLI renders WHY (e.g. `driver.capability_unsupported`). A request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Durable across a retry: the cause persists in the intervention row's own `rejection_reason` column (Plan-002 T1.4 DDL), so a retry that returns the saved result reconstructs the SAME machine-readable reason from that column, never fabricating one.
+      }
+    | {
+        state: "failed";
+        failureReason: string; // what the dispatch threw: a daemon error's code, else its message, persisted in the row's `failure_reason` column so a retry under the same key answers the same reason
       }
     | { state: "requested" | "accepted" | "applied" | "degraded" | "expired" }
   );
@@ -236,8 +240,9 @@ interface RunStateChangeEvent {
   // carries the refusing model and the provider's words; the usage limit carries the driver's
   // usage-limit signal (provider-driver-payloads.md §Plan-003) as it stood when the turn failed, so `Limit reached · resets
   // at <time>` is redrawn after a reload from this record alone; the spent retries draw
-  // `<Provider> did not answer`. `origin` is `provider` where the driver normalized the provider's own
-  // cause and `daemon` where the app's own refusal or failure ended the run.
+  // `<Provider> did not answer`; a setup gate's failure carries the gate's own error. `origin` is
+  // `provider` where the driver normalized the provider's own cause and `daemon` where the app's own
+  // refusal or failure ended the run.
   failureCause?:
     | {
         cause: "refused";
@@ -257,6 +262,14 @@ interface RunStateChangeEvent {
         // `api_retry`, Codex's after its last reconnect attempt (`willRetry: false`).
         cause: "retries-exhausted";
         origin: "provider";
+      }
+    | {
+        // A setup gate threw before the provider started the run, which ends it starting -> failed
+        // with failureCategory "setup failure".
+        cause: "setup-failed";
+        origin: "daemon";
+        code?: string; // the gate's error code, such as "workspace.execution_root_unresolved"
+        message: string; // the gate's own words
       };
   // The provider's own failure prose on a `run.failed` with failureCategory "provider failure",
   // shown as given; a typed cause is `failureCause`, never this text.
@@ -270,7 +283,12 @@ interface RunStateChangeEvent {
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task; every `run.completed` emitter sets it (Spec-005 §Run Lifecycle run-state payload)
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
   executionPosture?: ExecutionPosture; // named type in provider-driver-capability-payloads.md (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-002 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
-  trigger?: "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled"; // stop-condition provenance (ADR-017): rides run.interrupted when the service stops a run itself, at the step limit, the spend limit or the token limit the person set (D-013-6), or because its workflow phase was canceled. Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
+  trigger?:
+    | "step_limit"
+    | "spend_limit"
+    | "token_limit"
+    | "workflow_phase_canceled"
+    | "daemon_restart"; // stop-condition provenance (ADR-017): rides run.interrupted when the service stops a run itself, at the step limit, the spend limit or the token limit the person set (D-013-6), because its workflow phase was canceled, or because a restart ended a child held in a pause. Absent on natural completion and user-initiated paths, including the person's interrupt a restart settles. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
   // A run's linkage and its admission stamps ride the run.queued row alone (RunQueuedPayload, orchestration-payloads.md §Plan-013),
   // never this stream.
   timestamp: string;

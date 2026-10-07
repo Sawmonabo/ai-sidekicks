@@ -38,7 +38,7 @@ CREATE TABLE session_events (
   monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-013 §Clock Handling)
   category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
   type                   TEXT NOT NULL,              -- specific event type within category
-  actor                  TEXT,                       -- the device a connection sent the event from, or the agent_id, or NULL for system
+  actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
   content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer_denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with raw deflate at level 6, and the encoding is recorded in the payload; a smaller body is stored as it is. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
@@ -204,6 +204,31 @@ The number is carried onto a spawn through `runtime_bindings.spawn_config` and r
 
 ---
 
+## Runs (Plan-002)
+
+The run's state is event-sourced: each `run.*` state change, and each applied or degraded intervention, writes this row in the same write as its event, so the row always equals a rebuild from the log. It is the read `getRun` answers from, and the row a state change's guarded swap moves.
+
+```sql
+-- Owner: Plan-002
+CREATE TABLE runs (
+  run_id         TEXT NOT NULL PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  parent_run_id  TEXT,                          -- NULL on a lead run
+  reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
+                 CHECK(reached_by IS NULL
+                   OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+  state          TEXT NOT NULL
+    CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
+                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
+  run_version    INTEGER NOT NULL CHECK(run_version >= 0)  -- counts every progression (Plan-002 D-002-1)
+) STRICT;
+
+CREATE INDEX idx_runs_session ON runs(session_id);
+CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+CREATE INDEX idx_runs_live ON runs(state)               -- the runs a restart settles
+  WHERE state NOT IN ('completed', 'interrupted', 'stopped', 'failed');
+```
+
 ## Queue and Intervention Tables (Plan-002)
 
 ```sql
@@ -242,12 +267,14 @@ CREATE TABLE interventions (
   type                   TEXT NOT NULL
                          CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
-                         CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
+                         CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired', 'failed')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's text among them as plain text (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
+  fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
+  failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)

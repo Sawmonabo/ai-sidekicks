@@ -28,10 +28,10 @@ import type {
 
 import type { EventLogAppendReceipt } from "../../events/log-service.js";
 import {
-  LifecycleEventAppender,
-  type LifecycleEventEmitterDeps,
-  type LifecycleEventLinkage,
-} from "../../workspace/lifecycle-event-appender.js";
+  SessionEventAppender,
+  type SessionEventAppenderDeps,
+  type SessionEventLinkage,
+} from "../../events/session/appender.js";
 
 // Event names come from indexed access on the contracts variants (contracts exports no union), so
 // a rename there fails this compile.
@@ -70,7 +70,7 @@ const WORKTREE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.
  * Input shared by the five worktree events. Discrete fields let `sessionId` and `actor` be written
  * into envelope and payload from one value, so the two cannot disagree.
  */
-export interface EmitWorktreeEventInput extends LifecycleEventLinkage {
+export interface EmitWorktreeEventInput extends SessionEventLinkage {
   /** The append path's sequence partition key. */
   readonly sessionId: string;
   // Required at runtime by `WorktreeIdSchema.parse` in `#appendWorktreeEvent`; the lifecycle
@@ -88,10 +88,10 @@ export interface EmitWorktreeEventInput extends LifecycleEventLinkage {
  * resolves to the receipt carrying the `sequence` the append path assigned.
  */
 export class WorktreeEventEmitter {
-  readonly #appender: LifecycleEventAppender;
+  readonly #appender: SessionEventAppender;
 
-  constructor(deps: LifecycleEventEmitterDeps) {
-    this.#appender = new LifecycleEventAppender(deps, WORKTREE_EVENT_VERSION);
+  constructor(deps: SessionEventAppenderDeps) {
+    this.#appender = new SessionEventAppender(deps, WORKTREE_EVENT_VERSION);
   }
 
   /** Emit `worktree.created`: a `worktrees` row was written in state `creating`. */

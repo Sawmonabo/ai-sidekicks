@@ -399,12 +399,14 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 4,
     previousState: "running",
     newState: "completed",
+    completionKind: "turn",
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 2_980,
     runVersion: 7,
     previousState: "running",
     newState: "completed",
+    completionKind: "turn",
   }),
   lane.output(RUN_ARCHITECT, {
     atMs: 3_060,

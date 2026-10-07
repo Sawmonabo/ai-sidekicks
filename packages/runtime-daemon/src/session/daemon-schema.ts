@@ -25,7 +25,7 @@ CREATE TABLE session_events (
   monotonic_ns      INTEGER NOT NULL,
   category          TEXT NOT NULL,
   type              TEXT NOT NULL,
-  actor             TEXT,                         -- user or agent id; NULL for the system
+  actor             TEXT,                         -- the payload's actor; NULL when it names none
   payload           TEXT NOT NULL DEFAULT '{}',   -- JSON
   -- machine-authored prose, kept beside the payload so a read fetches it on demand
   content_payload   TEXT,
@@ -359,7 +359,8 @@ CREATE TABLE interventions (
   type                    TEXT NOT NULL
                           CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
-    CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
+    CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired',
+                    'failed')),
   payload                 TEXT NOT NULL DEFAULT '{}', -- JSON
   expected_run_version    INTEGER NOT NULL,           -- the fail-closed comparand
   client_idempotency_key  TEXT NOT NULL,              -- requester-generated UUID
@@ -367,6 +368,10 @@ CREATE TABLE interventions (
   device_id               TEXT,
   -- Why a request was rejected, so a retry's saved reply carries the same reason.
   rejection_reason        TEXT,
+  -- The fallback a degraded intervention took; NULL in every other state.
+  fallback_action         TEXT,
+  -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
+  failure_reason          TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
   -- An identical retry returns the saved result; a reused key with a
@@ -395,6 +400,32 @@ CREATE TABLE command_receipts (
 ) STRICT;
 
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Run state: one row per run, the read every run write guards against.
+-- ---------------------------------------------------------------------------
+-- Each row is written in the same write as the run event that moves it, so it
+-- always equals a rebuild from the log. run_version counts every progression of
+-- the run, a state change or an applied intervention.
+CREATE TABLE runs (
+  run_id         TEXT NOT NULL PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  parent_run_id  TEXT,                          -- NULL on a lead run
+  -- How a child run was reached; NULL on a lead run.
+  reached_by     TEXT
+                 CHECK(reached_by IS NULL
+                   OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+  state          TEXT NOT NULL
+    CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
+                    'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
+  run_version    INTEGER NOT NULL CHECK(run_version >= 0)
+) STRICT;
+
+CREATE INDEX idx_runs_session ON runs(session_id);
+CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+-- The runs not yet ended, which the restart settle scans.
+CREATE INDEX idx_runs_live ON runs(state)
+  WHERE state NOT IN ('completed', 'interrupted', 'stopped', 'failed');
 
 -- ---------------------------------------------------------------------------
 -- Provider accounts and their quota readings.

@@ -5,7 +5,7 @@
 // form reads only the settlement recorded under its own dispatch token, and closes only on one
 // that landed: the dispatch record keeps a refusal, but nothing else keeps the text.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -17,6 +17,7 @@ import {
   readInterventionFormSettlement,
 } from "../form-settlement.js";
 import type { InterventionFormSettlement } from "../form-settlement.js";
+import { NotDeliveredLine } from "../../components/NotDeliveredLine.js";
 import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type {
   RunControlDispatcher,
@@ -83,6 +84,8 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     () => EMPTY_FORM,
   );
   const { body, localRefusal, pendingDispatch } = form;
+  // `Retry` submits the form, so a retry takes the same path, latch and checks as Send.
+  const formRef = useRef<HTMLFormElement>(null);
 
   const publishBody = useCallback(
     (next: string) => {
@@ -164,7 +167,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   );
 
   return (
-    <form className="meridian-run-composer" onSubmit={onSubmit}>
+    <form ref={formRef} className="meridian-run-composer" onSubmit={onSubmit}>
       <textarea
         className="meridian-run-composer__body meridian-form__input"
         aria-label={`Steer ${agentName}`}
@@ -182,7 +185,15 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           attempt={localRefusal}
         />
       )}
-      {settlement === undefined || settlement.kind === "landed" ? null : (
+      {settlement === undefined || settlement.kind === "landed" ? null : settlement.kind ===
+        "undelivered" ? (
+        <NotDeliveredLine
+          failureReason={settlement.failureReason}
+          onRetry={() => {
+            formRef.current?.requestSubmit();
+          }}
+        />
+      ) : (
         <InlineRefusal code={settlement.notice.code} detail={settlement.notice.detail} />
       )}
       <div className="meridian-run-composer__actions">

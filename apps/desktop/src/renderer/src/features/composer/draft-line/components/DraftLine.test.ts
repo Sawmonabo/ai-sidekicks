@@ -113,6 +113,43 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
     expect(refusal?.textContent).toContain("still in the line");
   });
 
+  it("reads Not delivered · Retry, and Retry sends the message again and clears the line", async () => {
+    let answers = 0;
+    const bar = mountAddressable(
+      sendCallsAnswering(async (call) => {
+        if (call.method !== "run.intervene") {
+          return undefined;
+        }
+        answers += 1;
+        return answers === 1
+          ? {
+              interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
+              interventionType: "steer",
+              state: "failed",
+              runVersion: 4,
+              failureReason: "driver.transport_closed",
+            }
+          : answerSteer(call);
+      }),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      pressSend(bar.result.container);
+    });
+
+    expect(bar.line().value).toBe("keep going on the parser");
+    const line = bar.result.container.querySelector(".meridian-composer__not-delivered");
+    expect(line?.textContent).toBe("Not delivered · Retry");
+    const retry = line?.querySelector(".meridian-try-again");
+    await act(async () => {
+      (retry as HTMLButtonElement).click();
+    });
+    expect(answers).toBe(2);
+    expect(bar.line().value).toBe("");
+    expect(bar.result.container.querySelector(".meridian-composer__not-delivered")).toBeNull();
+  });
+
   it("negative control: the same send against an applied answer clears the line", async () => {
     // Without this, the case above would pass a bar that never clears the draft at all.
     const bar = mountAddressable(sendCallsAnswering(answerSteer));

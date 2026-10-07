@@ -12,6 +12,8 @@ import { type IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/t
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
+import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
@@ -50,6 +52,27 @@ const INTERVENTION_STATES: Record<InterventionState, true> = {
   rejected: true,
   degraded: true,
   expired: true,
+  failed: true,
+};
+
+const RUN_STATES: Record<RunState, true> = {
+  queued: true,
+  starting: true,
+  running: true,
+  waiting_for_approval: true,
+  waiting_for_input: true,
+  pausing: true,
+  paused: true,
+  completed: true,
+  interrupted: true,
+  stopped: true,
+  failed: true,
+};
+
+const CHILD_RUN_PROVENANCES: Record<ChildRunProvenance, true> = {
+  provider_subagent: true,
+  bridge_run: true,
+  workflow_step: true,
 };
 
 const IDEMPOTENCY_CLASSES: Record<IdempotencyClass, true> = {
@@ -140,6 +163,13 @@ describe("contract enums against the daemon schema", () => {
     ).run(newId("intervention"), type, state, newId("key"), TIMESTAMP);
   }
 
+  function insertRun(state: string, reachedBy: string | null): void {
+    db.prepare(
+      `INSERT INTO runs (run_id, session_id, reached_by, state, run_version)
+       VALUES (?, 'session-1', ?, ?, 0)`,
+    ).run(newId("run"), reachedBy, state);
+  }
+
   it("admits every worktree state and refuses any other", () => {
     for (const state of membersOf(WORKTREE_STATES)) {
       expect(() => insertWorktree(newId("worktree"), state)).not.toThrow();
@@ -183,6 +213,17 @@ describe("contract enums against the daemon schema", () => {
     }
     expect(() => insertIntervention(NON_MEMBER, "requested")).toThrow(CHECK_FAILURE);
     expect(() => insertIntervention("steer", NON_MEMBER)).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every run state and child run provenance and refuses any other", () => {
+    for (const state of membersOf(RUN_STATES)) {
+      expect(() => insertRun(state, null)).not.toThrow();
+    }
+    for (const reachedBy of membersOf(CHILD_RUN_PROVENANCES)) {
+      expect(() => insertRun("queued", reachedBy)).not.toThrow();
+    }
+    expect(() => insertRun(NON_MEMBER, null)).toThrow(CHECK_FAILURE);
+    expect(() => insertRun("queued", NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
   it("admits every driver capability flag and refuses any other", () => {

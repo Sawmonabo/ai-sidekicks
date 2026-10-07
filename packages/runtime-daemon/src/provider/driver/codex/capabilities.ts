@@ -27,6 +27,7 @@ import type {
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../spawned-version.js";
 
+import { CODEX_STANDARD_OUTPUT_SPEED } from "./descriptor.js";
 import { getCodexToolMetadata } from "./tools.js";
 import {
   type DriverCliVersionReport,
@@ -177,12 +178,6 @@ export async function refreshCodexCapabilities(
     result: getCodexCapabilities(input.reading, detection),
   });
 }
-
-/**
- * The provider's own word for standard speed: listed first on every model that publishes a tier,
- * and requested by clearing the thread's tier.
- */
-export const CODEX_STANDARD_OUTPUT_SPEED = "default";
 
 // The name the catalog gives the tier that speeds output up; its id is free-form.
 const CODEX_FAST_TIER_NAME = "Fast";

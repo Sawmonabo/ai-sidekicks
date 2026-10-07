@@ -51,12 +51,6 @@ describe("InterventionRequestPayload", () => {
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
   });
 
-  it("refuses a cancel, which is no intervention", () => {
-    expect(InterventionRequestPayloadSchema.safeParse({ ...guards, type: "cancel" }).success).toBe(
-      false,
-    );
-  });
-
   it.each(arms)("refuses the %s arm without its mandatory comparand", (_type, payload) => {
     // An optional comparand would let a caller bypass the stale-request guard, so absence must
     // refuse on every arm.
@@ -136,7 +130,7 @@ describe("InterventionRequestResponse", () => {
     interventionType: "interrupt",
     runVersion: 5,
   } as const;
-  it("refuses a rejection that does not say why", () => {
+  it("refuses a rejection or a failure that does not say why", () => {
     // The reason is how a caller learns why a refusal rode the response rather than an error.
     const rejected = {
       ...response,
@@ -158,6 +152,20 @@ describe("InterventionRequestResponse", () => {
     expect(
       InterventionRequestResponseSchema.safeParse({ ...response, state: "applied" }).success,
     ).toBe(true);
+    // A failure's reason is the one place a retry under the same key learns what the throw was.
+    const failed = { ...response, state: "failed", failureReason: "driver.transport_closed" };
+    expect(InterventionRequestResponseSchema.parse(failed)).toEqual(failed);
+    expect(
+      InterventionRequestResponseSchema.safeParse({ ...response, state: "failed" }).success,
+    ).toBe(false);
+    expect(
+      InterventionRequestResponseSchema.safeParse({
+        ...response,
+        state: "rejected",
+        rejectionReason: "run.invalid_transition",
+        failureReason: "driver.transport_closed",
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -172,7 +180,13 @@ const minimalRunStateChange = {
 describe("RunStateChangeEvent", () => {
   it("names why the daemon itself interrupted a run, from the closed set only", () => {
     const interrupted = { ...minimalRunStateChange, newState: "interrupted" } as const;
-    for (const trigger of ["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"]) {
+    for (const trigger of [
+      "step_limit",
+      "spend_limit",
+      "token_limit",
+      "workflow_phase_canceled",
+      "daemon_restart",
+    ]) {
       expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger }).success).toBe(true);
     }
     expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger: "person" }).success).toBe(
@@ -215,7 +229,12 @@ describe("RunStateChangeEvent", () => {
     };
 
     it("rides only the transition into failed, and only with the refusing model", () => {
-      const failed = { ...minimalRunStateChange, newState: "failed", failureCause: refusal };
+      const failed = {
+        ...minimalRunStateChange,
+        newState: "failed",
+        failureCategory: "refused",
+        failureCause: refusal,
+      };
       expect(RunStateChangeEventSchema.parse(failed)).toEqual(failed);
       expect(
         RunStateChangeEventSchema.safeParse({ ...minimalRunStateChange, failureCause: refusal })

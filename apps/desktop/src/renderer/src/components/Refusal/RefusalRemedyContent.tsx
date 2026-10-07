@@ -1,7 +1,5 @@
 // The next move under a refusal, in the region the `action` prop fills; one component for every
-// table's `RefusalRemedy`. It renders nothing for a code with no move, so the daemon's own sentence
-// stands alone. Children sit inside the region, not beside it, so a sentence that points
-// at data the refusal carried cannot be composed apart from it.
+// table's `RefusalRemedy`. A code with no move has no remedy and so draws none of this.
 
 import "./Refusal.css";
 
@@ -9,21 +7,17 @@ import type { RefusalRemedy } from "#renderer/lib/refusal/remedies.js";
 
 /** Props for `RefusalRemedyContent`. */
 export interface RefusalRemedyContentProps {
-  /** What is known to do about the code, or nothing where nothing is. */
-  readonly remedy?: RefusalRemedy | undefined;
-  /** What the refusal itself carried, rendered inside the same region as the move. */
-  readonly children?: React.ReactNode;
+  /** What is known to do about the code. */
+  readonly remedy: RefusalRemedy;
 }
 
 /** The remedy under a refusal: its next move and any exclusive cases. */
 export function RefusalRemedyContent(props: RefusalRemedyContentProps): React.JSX.Element {
-  const { remedy, children } = props;
-  const distinctions = remedy !== undefined && "distinctions" in remedy ? remedy.distinctions : [];
+  const { remedy } = props;
+  const distinctions = "distinctions" in remedy ? remedy.distinctions : [];
   return (
     <div className="meridian-refusal-remedy">
-      {remedy === undefined ? null : (
-        <p className="meridian-refusal-remedy__move">{remedy.nextMove}</p>
-      )}
+      <p className="meridian-refusal-remedy__move">{remedy.nextMove}</p>
       {distinctions.length === 0 ? null : (
         // A list because the cases are exclusive alternatives, not steps in order.
         <ul className="meridian-refusal-remedy__cases">
@@ -32,7 +26,6 @@ export function RefusalRemedyContent(props: RefusalRemedyContentProps): React.JS
           ))}
         </ul>
       )}
-      {children}
     </div>
   );
 }

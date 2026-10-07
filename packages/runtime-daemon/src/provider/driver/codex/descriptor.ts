@@ -253,6 +253,12 @@ function readCodexReportedVersion(payload: unknown, clientName: string): Reporte
     : { unreadableReply: userAgent };
 }
 
+/**
+ * The provider's own word for standard speed: listed first on every model that publishes a tier,
+ * and requested by clearing the thread's tier.
+ */
+export const CODEX_STANDARD_OUTPUT_SPEED = "default";
+
 /** Codex's static facts. */
 export const CODEX_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
   capabilityDetectionTable: CODEX_CAPABILITY_DETECTION_TABLE,
@@ -265,5 +271,6 @@ export const CODEX_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
   autoUpdateOptOutEnvironment: Object.freeze({}),
   // No static `outputSpeedLevels`: the provider publishes its service tiers on each model of the
   // catalog read, so the levels are `ProviderModel.outputSpeedLevels` and never a driver constant.
+  standardOutputSpeed: CODEX_STANDARD_OUTPUT_SPEED,
   builtInTools: CODEX_BUILT_IN_TOOLS,
 });

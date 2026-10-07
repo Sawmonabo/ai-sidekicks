@@ -51,11 +51,13 @@ const INTERRUPT_REASONS = [
   "spend_limit",
   "token_limit",
   "workflow_phase_canceled",
+  "daemon_restart",
 ] as const;
 
 /**
  * Why the daemon itself interrupted a run: a step, spend or token limit the person set was
- * reached, or the run's workflow phase was canceled. The person's own interrupt has none.
+ * reached, the run's workflow phase was canceled, or the daemon restarted while the run was a
+ * child held in a pause. The person's own interrupt has none.
  */
 export type InterruptReason = (typeof INTERRUPT_REASONS)[number];
 /** Parses an {@link InterruptReason}. */

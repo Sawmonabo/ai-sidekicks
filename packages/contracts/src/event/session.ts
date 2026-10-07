@@ -74,6 +74,12 @@ import {
 import { UserMessagePayloadSchema } from "../run/queue.js";
 import { RunQueuedPayloadSchema } from "../run/queued.js";
 import {
+  INTERVENTION_EVENT_PAYLOAD_SCHEMAS,
+  RUN_STATE_CHANGE_PAYLOAD_SCHEMAS,
+  type RunStateChangeState,
+} from "../run/events.js";
+import type { InterventionState } from "../run/control.js";
+import {
   ModerationReviewFlaggedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
@@ -167,6 +173,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "intervention.rejected": "interactive_request",
   "intervention.degraded": "interactive_request",
   "intervention.expired": "interactive_request",
+  "intervention.failed": "interactive_request",
   "user.message": "interactive_request",
   "question.asked": "interactive_request",
   // artifact_publication
@@ -695,6 +702,20 @@ const backupRestoredVariantSchema = buildSessionEventVariantSchema(
   BackupRestoredPayloadSchema,
 );
 
+// A run state change and an intervention event each take their payload from their own state.
+const buildRunStateChangeVariantSchema = <TState extends RunStateChangeState>(state: TState) =>
+  buildSessionEventVariantSchema(
+    `run.${state}`,
+    "run_lifecycle",
+    RUN_STATE_CHANGE_PAYLOAD_SCHEMAS[state],
+  );
+const buildInterventionVariantSchema = <TState extends InterventionState>(state: TState) =>
+  buildSessionEventVariantSchema(
+    `intervention.${state}`,
+    "interactive_request",
+    INTERVENTION_EVENT_PAYLOAD_SCHEMAS[state],
+  );
+
 // One arm per registered payload variant. The parser and the type list below both read it, so
 // the two cannot disagree.
 const SESSION_EVENT_VARIANT_SCHEMAS = [
@@ -834,6 +855,23 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   backupCompletedVariantSchema,
   backupFailedVariantSchema,
   backupRestoredVariantSchema,
+  buildRunStateChangeVariantSchema("starting"),
+  buildRunStateChangeVariantSchema("running"),
+  buildRunStateChangeVariantSchema("waiting_for_approval"),
+  buildRunStateChangeVariantSchema("waiting_for_input"),
+  buildRunStateChangeVariantSchema("pausing"),
+  buildRunStateChangeVariantSchema("paused"),
+  buildRunStateChangeVariantSchema("completed"),
+  buildRunStateChangeVariantSchema("interrupted"),
+  buildRunStateChangeVariantSchema("stopped"),
+  buildRunStateChangeVariantSchema("failed"),
+  buildInterventionVariantSchema("requested"),
+  buildInterventionVariantSchema("accepted"),
+  buildInterventionVariantSchema("applied"),
+  buildInterventionVariantSchema("rejected"),
+  buildInterventionVariantSchema("degraded"),
+  buildInterventionVariantSchema("expired"),
+  buildInterventionVariantSchema("failed"),
 ] as const;
 
 /**

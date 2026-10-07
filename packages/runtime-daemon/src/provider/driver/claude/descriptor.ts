@@ -219,5 +219,6 @@ export const CLAUDE_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze(
   // The pinned build declares its state from a three-value vocabulary; only these two are
   // requestable, the third is entered by the provider after a rate limit.
   outputSpeedLevels: Object.freeze([CLAUDE_STANDARD_OUTPUT_SPEED, CLAUDE_FAST_OUTPUT_SPEED]),
+  standardOutputSpeed: CLAUDE_STANDARD_OUTPUT_SPEED,
   builtInTools: CLAUDE_BUILT_IN_TOOLS,
 });

@@ -61,6 +61,7 @@ import type {
 } from "../run/provider-choice.js";
 import type { UserMessagePayload } from "../run/queue.js";
 import type { RunQueuedPayload } from "../run/queued.js";
+import type { InterventionEventPayload, RunStateChangePayload } from "../run/events.js";
 import type {
   ModerationReviewFlaggedPayload,
   RunStepLimitReachedPayload,
@@ -557,6 +558,109 @@ export type BackupRestoredEvent = SessionEventVariant<
   BackupRestoredPayload
 >;
 
+/** Emitted when the daemon starts preparing a run's provider, workspace or execution state. */
+export type RunStartingEvent = SessionEventVariant<
+  "run.starting",
+  "run_lifecycle",
+  RunStateChangePayload<"starting">
+>;
+/** Emitted when a run is executing, stamped with the posture it runs under. */
+export type RunRunningEvent = SessionEventVariant<
+  "run.running",
+  "run_lifecycle",
+  RunStateChangePayload<"running">
+>;
+/** Emitted when a run blocks on an approval request. */
+export type RunWaitingForApprovalEvent = SessionEventVariant<
+  "run.waiting_for_approval",
+  "run_lifecycle",
+  RunStateChangePayload<"waiting_for_approval">
+>;
+/** Emitted when a run blocks on the person's input or answers. */
+export type RunWaitingForInputEvent = SessionEventVariant<
+  "run.waiting_for_input",
+  "run_lifecycle",
+  RunStateChangePayload<"waiting_for_input">
+>;
+/** Emitted when a pause is asked for while the step in flight finishes. */
+export type RunPausingEvent = SessionEventVariant<
+  "run.pausing",
+  "run_lifecycle",
+  RunStateChangePayload<"pausing">
+>;
+/** Emitted when a run is paused. */
+export type RunPausedEvent = SessionEventVariant<
+  "run.paused",
+  "run_lifecycle",
+  RunStateChangePayload<"paused">
+>;
+/** Emitted when a run finishes, as a turn or as its whole task. */
+export type RunCompletedEvent = SessionEventVariant<
+  "run.completed",
+  "run_lifecycle",
+  RunStateChangePayload<"completed">
+>;
+/** Emitted when a run ends on an interrupt, with the daemon's trigger when it interrupted. */
+export type RunInterruptedEvent = SessionEventVariant<
+  "run.interrupted",
+  "run_lifecycle",
+  RunStateChangePayload<"interrupted">
+>;
+/** Emitted when a child run ends on a stop that reached several agents. */
+export type RunStoppedEvent = SessionEventVariant<
+  "run.stopped",
+  "run_lifecycle",
+  RunStateChangePayload<"stopped">
+>;
+/** Emitted when a run ends on an unrecovered error, with its category and cause. */
+export type RunFailedEvent = SessionEventVariant<
+  "run.failed",
+  "run_lifecycle",
+  RunStateChangePayload<"failed">
+>;
+/** Emitted when an intervention on a run is requested. */
+export type InterventionRequestedEvent = SessionEventVariant<
+  "intervention.requested",
+  "interactive_request",
+  InterventionEventPayload<"requested">
+>;
+/** Emitted when an intervention is accepted for application. */
+export type InterventionAcceptedEvent = SessionEventVariant<
+  "intervention.accepted",
+  "interactive_request",
+  InterventionEventPayload<"accepted">
+>;
+/** Emitted when an intervention is applied to its run. */
+export type InterventionAppliedEvent = SessionEventVariant<
+  "intervention.applied",
+  "interactive_request",
+  InterventionEventPayload<"applied">
+>;
+/** Emitted when an intervention is rejected. */
+export type InterventionRejectedEvent = SessionEventVariant<
+  "intervention.rejected",
+  "interactive_request",
+  InterventionEventPayload<"rejected">
+>;
+/** Emitted when an intervention is applied with a degraded effect. */
+export type InterventionDegradedEvent = SessionEventVariant<
+  "intervention.degraded",
+  "interactive_request",
+  InterventionEventPayload<"degraded">
+>;
+/** Emitted when an intervention expires without being applied. */
+export type InterventionExpiredEvent = SessionEventVariant<
+  "intervention.expired",
+  "interactive_request",
+  InterventionEventPayload<"expired">
+>;
+/** Emitted when an intervention's dispatch throws, so it ends without a driver verdict. */
+export type InterventionFailedEvent = SessionEventVariant<
+  "intervention.failed",
+  "interactive_request",
+  InterventionEventPayload<"failed">
+>;
+
 /** Every session event with a registered payload variant, discriminated on `type`. */
 export type SessionEvent =
   | SessionCreatedEvent
@@ -642,4 +746,21 @@ export type SessionEvent =
   | WorkflowGateResolvedEvent
   | BackupCompletedEvent
   | BackupFailedEvent
-  | BackupRestoredEvent;
+  | BackupRestoredEvent
+  | RunStartingEvent
+  | RunRunningEvent
+  | RunWaitingForApprovalEvent
+  | RunWaitingForInputEvent
+  | RunPausingEvent
+  | RunPausedEvent
+  | RunCompletedEvent
+  | RunInterruptedEvent
+  | RunStoppedEvent
+  | RunFailedEvent
+  | InterventionRequestedEvent
+  | InterventionAcceptedEvent
+  | InterventionAppliedEvent
+  | InterventionRejectedEvent
+  | InterventionDegradedEvent
+  | InterventionExpiredEvent
+  | InterventionFailedEvent;

@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/control";
+
 import { WaitingOnPersonRegister, type WaitingOnPersonRecords } from "./register.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { SessionStore } from "../store.js";
@@ -86,6 +88,18 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
     register.admit([rowOf(4, "approval.requested", { approvalRequestId: "req-1" })]);
 
     expect(openCountOf(register.records)).toBe(0);
+  });
+
+  it("closes an intervention's ask on every outcome the contract registers", () => {
+    for (const state of INTERVENTION_STATES.filter((state) => state !== "requested")) {
+      const outcome = `intervention.${state}`;
+      const register = new WaitingOnPersonRegister();
+      register.admit([
+        rowOf(1, "intervention.requested", { interventionId: "int-1" }),
+        rowOf(2, outcome, { interventionId: "int-1" }),
+      ]);
+      expect(openCountOf(register.records), outcome).toBe(0);
+    }
   });
 
   it("keeps the newest run state whichever end of the log it arrived from", () => {

@@ -11,6 +11,7 @@ import {
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "@ai-sidekicks/contracts/event/declared-variants";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
@@ -18,6 +19,7 @@ import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js
 import { EventLogService, type UnsequencedEventEnvelope } from "../log-service.js";
 import { sessionAppendLock } from "../session/append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
+import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
@@ -417,11 +419,38 @@ const TERMINAL_RUN_TYPES = [
   "run.stopped",
 ] as const satisfies ReadonlyArray<UnsequencedEventEnvelope["type"]>;
 
-function terminalEnvelope(
-  payload: Record<string, unknown>,
-  type: (typeof TERMINAL_RUN_TYPES)[number] = "run.completed",
+const RUN_1: RunId = RunIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20");
+const RUN_2: RunId = RunIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f21");
+
+type RunChangeType = (typeof TERMINAL_RUN_TYPES)[number] | "run.running";
+
+/** A stored `run.<state>` payload its registered variant accepts, keyed by `runId` and version. */
+function runChangePayload(
+  type: RunChangeType,
+  runId: RunId,
+  runVersion: number,
+): Record<string, unknown> {
+  const newState = type.slice("run.".length);
+  return {
+    sessionId: SESSION,
+    runId,
+    runVersion,
+    previousState: newState === "running" ? "starting" : "running",
+    newState,
+    ...(newState === "completed" ? { completionKind: "turn" } : {}),
+  };
+}
+
+function runChangeEnvelope(
+  runId: RunId,
+  runVersion: number,
+  type: RunChangeType = "run.completed",
 ): UnsequencedEventEnvelope {
-  return makeEnvelope({ category: "run_lifecycle", type, payload });
+  return makeEnvelope({
+    category: "run_lifecycle",
+    type,
+    payload: runChangePayload(type, runId, runVersion),
+  });
 }
 
 describe("EventLogService — terminal-key backstop", () => {
@@ -430,11 +459,11 @@ describe("EventLogService — terminal-key backstop", () => {
     async (firstType) => {
       const { service } = buildService();
 
-      await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }, firstType));
+      await service.append(runChangeEnvelope(RUN_1, 1, firstType));
 
       for (const secondType of TERMINAL_RUN_TYPES) {
         await expect(
-          service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }, secondType)),
+          service.append(runChangeEnvelope(RUN_1, 1, secondType)),
           `${secondType} after ${firstType} must be refused`,
         ).rejects.toThrow(/UNIQUE/i);
       }
@@ -450,48 +479,58 @@ describe("EventLogService — terminal-key backstop", () => {
     // its own terminal event.
     const { service } = buildService();
 
-    await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
-    await expect(
-      service.append(terminalEnvelope({ runId: "run-2", runVersion: 1 })),
-    ).resolves.toMatchObject({ sequence: 1 });
-    await expect(
-      service.append(terminalEnvelope({ runId: "run-1", runVersion: 2 })),
-    ).resolves.toMatchObject({ sequence: 2 });
+    await service.append(runChangeEnvelope(RUN_1, 1));
+    await expect(service.append(runChangeEnvelope(RUN_2, 1))).resolves.toMatchObject({
+      sequence: 1,
+    });
+    await expect(service.append(runChangeEnvelope(RUN_1, 2))).resolves.toMatchObject({
+      sequence: 2,
+    });
   });
 
   it("lets a NON-terminal run_lifecycle duplicate through (index is terminal-only)", async () => {
     // `run_lifecycle` also carries non-terminal types; an index guarding the whole category would
     // refuse the ordinary progression events.
     const { service } = buildService();
-    const runKey = { runId: "run-1", runVersion: 1 };
 
-    await service.append(
-      makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
+    await service.append(runChangeEnvelope(RUN_1, 1, "run.running"));
+    await expect(service.append(runChangeEnvelope(RUN_1, 1, "run.running"))).resolves.toMatchObject(
+      { sequence: 1 },
     );
-    await expect(
-      service.append(
-        makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
-      ),
-    ).resolves.toMatchObject({ sequence: 1 });
   });
 
   it("refuses a terminal event whose run key is missing or the wrong storage class", async () => {
     // SQLite treats NULLs as distinct in a UNIQUE index, so a terminal row with no `$.runId`
     // conflicts with nothing, and `json_extract` returns SQLite values, so a stringified
-    // `runVersion` is a different key from the integer. The trigger closes both.
-    const { service } = buildService();
+    // `runVersion` is a different key from the integer. The trigger closes both. The append path's
+    // variant parse refuses these payloads first, so the rows go in beneath it.
+    const valid = runChangePayload("run.completed", RUN_1, 1);
+    const { runId: _runId, runVersion: _runVersion, ...keyless } = valid;
     const refusedPayloads: ReadonlyArray<Record<string, unknown>> = [
-      { runVersion: 1 },
-      { runId: "run-1" },
-      { runId: 7, runVersion: 1 },
-      { runId: "run-1", runVersion: "1" },
-      { runId: "run-1", runVersion: 1.5 },
-      { runId: null, runVersion: 1 },
+      { ...keyless, runVersion: 1 },
+      { ...keyless, runId: RUN_1 },
+      { ...keyless, runId: 7, runVersion: 1 },
+      { ...keyless, runId: RUN_1, runVersion: "1" },
+      { ...keyless, runId: RUN_1, runVersion: 1.5 },
+      { ...keyless, runId: null, runVersion: 1 },
     ];
 
-    for (const payload of refusedPayloads) {
+    for (const [index, payload] of refusedPayloads.entries()) {
       await expect(
-        service.append(terminalEnvelope(payload)),
+        insertStoredEvent(scratch.writer, {
+          id: `evt-keyless-${String(index)}`,
+          sessionId: SESSION,
+          sequence: index,
+          occurredAt: "2026-08-04T12:00:00.000Z",
+          monotonicNs: 1n,
+          category: "run_lifecycle",
+          type: "run.completed",
+          actor: null,
+          payload,
+          correlationId: null,
+          causationId: null,
+          version: "1.0",
+        }),
         `payload ${JSON.stringify(payload)} must be refused`,
       ).rejects.toThrow(/terminal run_lifecycle requires/);
     }
@@ -503,13 +542,7 @@ describe("EventLogService — terminal-key backstop", () => {
     // The INSERT trigger cannot see this: a row outside the partial index's predicate is UPDATEd
     // into it. Terminal rows are INSERT-only.
     const { service } = buildService();
-    const receipt = await service.append(
-      makeEnvelope({
-        category: "run_lifecycle",
-        type: "run.running",
-        payload: { runId: "run-1", runVersion: 1 },
-      }),
-    );
+    const receipt = await service.append(runChangeEnvelope(RUN_1, 1, "run.running"));
 
     expect(() =>
       tamper
@@ -520,7 +553,7 @@ describe("EventLogService — terminal-key backstop", () => {
 
   it("refuses an UPDATE that moves or drops a committed terminal row's run key", async () => {
     const { service } = buildService();
-    const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
+    const receipt = await service.append(runChangeEnvelope(RUN_1, 1));
 
     // The index constrains which keys are live, not their stability: rewriting a key moves it, so
     // the index stays satisfied while the record attributes the terminal event to another run.
@@ -528,12 +561,12 @@ describe("EventLogService — terminal-key backstop", () => {
     expect(() =>
       tamper
         .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
-        .run(JSON.stringify({ runId: "run-2", runVersion: 1 }), receipt.id),
+        .run(JSON.stringify(runChangePayload("run.completed", RUN_2, 1)), receipt.id),
     ).toThrow(/must preserve runId/);
     expect(() =>
       tamper
         .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
-        .run(JSON.stringify({ runId: "run-1", runVersion: 2 }), receipt.id),
+        .run(JSON.stringify(runChangePayload("run.completed", RUN_1, 2)), receipt.id),
     ).toThrow(/must preserve runId/);
 
     // Moving a row out of the partial index's predicate frees its key for reuse. `category` and
@@ -552,7 +585,7 @@ describe("EventLogService — terminal-key backstop", () => {
     // Dropping the key makes both `json_extract` values NULL, which the value-equality check
     // cannot see and the NULL-distinct index allows, so a rewrite that forgets the run key would
     // silently reopen the duplicate-terminal bypass.
-    for (const droppedPayload of [{ runVersion: 1 }, { runId: "run-1" }, { note: "rewritten" }]) {
+    for (const droppedPayload of [{ runVersion: 1 }, { runId: RUN_1 }, { note: "rewritten" }]) {
       expect(
         () =>
           tamper
@@ -563,8 +596,6 @@ describe("EventLogService — terminal-key backstop", () => {
     }
 
     // The row is untouched, so the backstop still holds against a real duplicate.
-    await expect(
-      service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 })),
-    ).rejects.toThrow(/UNIQUE/i);
+    await expect(service.append(runChangeEnvelope(RUN_1, 1))).rejects.toThrow(/UNIQUE/i);
   });
 });

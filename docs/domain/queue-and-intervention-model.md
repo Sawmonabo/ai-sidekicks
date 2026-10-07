@@ -29,7 +29,7 @@ This model defines how the system stores follow-up work, prioritizes it, and rec
 - Queue items are persisted by the runtime, not only by the client.
 - Every queue item belongs to exactly one session and targets a defined execution context.
 - Every intervention has a target, a timestamp, and an outcome.
-- Every intervention records the device it came from — the machine's own screen or a linked device's channel, as the daemon finds it from the connection at acceptance — and an empty device means the daemon's own stop. No request names a person, and the device is never an authorization input ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A queued message records its device the same way, and an orchestration-authored queue item records none. A daemon stop carries no device, so it can never be mistaken for a person's act.
+- Every intervention records the device it came from — the machine's own screen or a linked device's channel, as the daemon finds it from the connection at acceptance — and an empty device means the daemon's own stop. No request names a person, and the device is never an authorization input ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A queued message records its device the same way, and an orchestration-authored queue item records none. A daemon stop carries no device, and its `intervention.*` events carry `'daemon'` as their actor where a device's carry the device, so it can never be mistaken for a person's act.
 - Queue admission and intervention effects must be visible in the session transcript.
 - A failed or downgraded intervention must still be recorded as an outcome.
 
@@ -60,7 +60,8 @@ Intervention states:
 | `applied` | Successfully changed runtime or scheduling state. |
 | `rejected` | Determined to be invalid or unauthorized. Authorization failure produces `rejected`. |
 | `degraded` | The intervention took partial or fallback effect, with the outcome detail naming what degraded: the driver could not deliver the type at all — neither through a provider verb of its own nor through the orchestration leg above it — and the orchestration layer fell back; neither V1 provider reaches it. |
-| `expired` | No longer meaningful because the target state changed first. Version guard mismatch produces `expired`. |
+| `expired` | No longer meaningful because the run moved before dispatch: a version guard mismatch at acceptance, or the run's start failing while an interrupt waited for it, produces `expired`, and the driver is never called. |
+| `failed` | The dispatch threw, so the request never stays `accepted`; the row records what was thrown as its `failureReason`. |
 
 ### Intervention State Transition Table
 
@@ -69,9 +70,16 @@ Intervention states:
 | `requested` | `accepted` | Valid target, authorized | Target run is in a state that accepts this intervention type |
 | `requested` | `rejected` | Invalid target, unauthorized, or static capability refusal | Target run state incompatible, the policy refuses it, or the type has no documented fallback under a driver capability exclusion (`driver.capability_unsupported` — §Driver Result To Lifecycle Mapping) |
 | `requested` | `expired` | Version guard mismatch | `expectedRunVersion` does not match current run version |
+| `requested` | `applied` | A restart found the stop pending | The daemon went down before accepting the stop, and the restart ends the run `interrupted` |
 | `accepted` | `applied` | Driver successfully executed | Provider confirmed the intervention took effect |
+| `accepted` | `applied` | The daemon ended a run no driver has | An interrupt of a run in its setup gates, or of a run whose failed start could not write its end, ends the run `interrupted` without calling a driver |
 | `accepted` | `degraded` | Driver fallback used | Driver can deliver this type neither natively nor through the orchestration leg above it, and the orchestration layer fell back — a path neither V1 provider reaches |
-| `accepted` | `expired` | Target state changed | Run transitioned between accept and apply (e.g., run completed before steer could be applied) |
+| `accepted` | `expired` | The run ended before dispatch | An interrupt waited for the run's start to settle, and a failed setup gate or a failed driver start ended the run meanwhile |
+| `accepted` | `rejected` | The daemon's own leg refused | The faster-model retry the daemon carries out itself refused after acceptance |
+| `accepted` | `applied` | A restart found the stop pending | The daemon went down before the stop's outcome, and the restart ends the run `interrupted` |
+| `accepted` | `failed` | Dispatch threw | The driver or the leg above it threw instead of returning a verdict |
+
+An interrupt's `applied` or `degraded` record and the run's `interrupted` end commit in one write, so no restart finds one without the other; a run that ended first keeps its end, and the record lands alone. A restart's own end of a run with a pending stop moves that stop's record to `applied` in the same write.
 
 ## Intervention Entity Relationship
 
@@ -79,7 +87,7 @@ Intervention states:
 - `InterventionResult`: the outcome record produced after evaluation and execution.
 - `Intervention`: the lifecycle entity encompassing both the request and the result.
 
-Lifecycle: an `InterventionRequest` is created by a user or the orchestration layer, validated against the target run state and version guard, and then produces an `Intervention` entity that progresses through the state transitions defined above. When the intervention reaches a terminal state (`applied`, `rejected`, `degraded`, or `expired`), the system records an `InterventionResult` capturing the final outcome and any fallback action taken.
+Lifecycle: an `InterventionRequest` is created by a user or the orchestration layer, validated against the target run state and version guard, and then produces an `Intervention` entity that progresses through the state transitions defined above. When the intervention reaches a terminal state (`applied`, `rejected`, `degraded`, `expired`, or `failed`), the system records an `InterventionResult` capturing the final outcome and any fallback action taken.
 
 One `InterventionRequest` produces exactly one `Intervention`, which produces exactly one `InterventionResult`. This is a strict 1:1:1 cardinality.
 
@@ -124,28 +132,31 @@ Element type: both `attachments` columns above are `ArtifactId[]` — ids into [
 | `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional) |
 
-Note: The `ApplyInterventionParams` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle per the normative table below.
+Note: The `ApplyInterventionParams` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full seven-state lifecycle per the normative table below.
 
 ## Driver Result To Lifecycle Mapping
 
-The driver-result and intervention-lifecycle vocabularies are distinct and map normatively ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). The driver-level result vocabulary is exactly `applied | degraded`; a driver never produces `rejected` or `expired`, and the daemon never reclassifies a driver verdict.
+The driver-result and intervention-lifecycle vocabularies are distinct and map normatively ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). The driver-level result vocabulary is exactly `applied | degraded`; a driver never produces `rejected` or `expired`, and the daemon never reclassifies a driver verdict. The line falls at dispatch: a run whose version moved before acceptance expires the request undispatched, so does an interrupt that waited for a run's start while the run ended, and once dispatched the driver's verdict is recorded whatever the run did meanwhile, advancing a live run's version from wherever it stands. A verdict that lands after the run's end is recorded on its intervention row and leaves the run's version as it is: nothing moves a run past its end event.
 
 | Lifecycle state | Producer | Trigger |
 | --- | --- | --- |
 | `requested` / `accepted` | daemon (pre-dispatch) | Recording and validation states before any driver involvement |
-| `rejected` | daemon (pre-dispatch) | Authorization failure or invalid target — the driver is never invoked |
-| `expired` | daemon | `expectedRunVersion` guard mismatch (pre-dispatch), or target state changed between accept and apply |
-| `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it |
+| `rejected` | daemon | Authorization failure or invalid target before dispatch — the driver is never invoked — or a refusal from the faster-model retry the daemon carries out itself |
+| `expired` | daemon (pre-dispatch) | `expectedRunVersion` guard mismatch at acceptance, or an interrupt that waited for a run's start to settle while a failed setup gate or a failed driver start ended the run — the driver is never invoked |
+| `failed` | daemon (dispatch) | The dispatch threw instead of returning a verdict; the row records the error's code, or its message when it has none |
+| `applied` | driver → daemon; or daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it — or the daemon applied an interrupt of a run no driver has been handed: one still in its setup gates, or one whose failed start could not write its end |
 | `degraded` | driver → daemon; or daemon (post-driver) | Driver returned `status: 'degraded'` — the type could be delivered neither by a provider verb of the driver's own nor by the orchestration leg above it, so the orchestration layer fell back (`fallbackAction`), which neither V1 provider reaches |
 
 Static capability refusal is a separate, earlier path with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — one a driver can neither perform natively nor have performed for it above the driver ([Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior-1)) — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); **neither V1 provider reaches that path**. Static refusal never substitutes for a documented degraded path ([Plan-003](../plans/003-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
+
+An interrupt never waits behind a pending steer. A run's steers and faster-model retries dispatch one at a time in arrival order, and its interrupts likewise among themselves, but an interrupt dispatches at once even while a steer is in flight; a steer still queued on that run when the interrupt applies meets the advanced version at its acceptance and expires. An interrupt of a run still in its setup gates calls no driver, since none has been handed the run: it applies at once, the run is never started, and it ends `interrupted`. An interrupt that arrives once the gates are done and before the driver has the run waits for that start to settle: once the driver has the run it dispatches as any interrupt does; when a failed gate or a failed driver start has ended the run `failed` it expires undispatched, as a stop that races a run's own end changes nothing; and when the start failed and the run's end could not be written it applies and ends the run `interrupted`. The wait is bounded by the driver's start, which fails at its request deadline — every Claude Code control request and every Codex JSON-RPC request carries one — and by the end a failed start writes.
 
 ## Boundary: Interventions vs Interactive Requests
 
 - `respondToRequest` (from Spec-004 `ProviderDriver` interface) is the driver's mechanism for handling PROVIDER-initiated interactive requests (tool confirmations, clarification questions). It is REACTIVE — the provider asked for input.
 - `applyIntervention(type: "steer")` delivers a message the user sent mid-turn (a queue send, `run.queueCreate`) into the active run. It is PROACTIVE — the user wants to redirect.
 - The two never overlap: a steer targets a `running` state, a response targets a `waiting_for_input` state.
-- `interrupt` intervention is the single abort: it targets any non-terminal state after admission and ends the run `interrupted`, whether it is `starting`, `running`, `pausing`, `paused`, or waiting. A stop the daemon makes itself — at the step limit, the spend limit or the token limit, or because a workflow phase was canceled — is the same interrupt, carrying its `trigger` ([Run State Machine](run-state-machine.md)).
+- `interrupt` intervention is the single abort: it targets any non-terminal state after admission and ends the run `interrupted`, whether it is `starting`, `running`, `pausing`, `paused`, or waiting — except a `starting` run whose start fails while the interrupt waits for it, which ends `failed` on its own and expires the interrupt ([§Driver Result To Lifecycle Mapping](#driver-result-to-lifecycle-mapping)). A stop the daemon makes itself — at the step limit, the spend limit or the token limit, because a workflow phase was canceled, or because a restart ended a child held in a pause — is the same interrupt, carrying its `trigger` ([Run State Machine](run-state-machine.md)).
 - Undo is not an intervention. `Undo to here` on the person's own message, a snapshot's `Restore` and the rewind menu's rows are one operation, `session.restore({ target, scope })`: `target` is a stable message or snapshot identity, never a numeric or provider position, and `scope` is `"conversation-and-files"`, `"conversation"` or `"files"`. `session.restorePreview` takes the same and changes nothing. The result carries `requested` (the same values), `restored` (`"conversation-and-files"`, `"conversation"`, `"files"` or `"nothing"`) and, for each requested part that did not apply, `failures.conversation` / `failures.files` with a `reason`; edit and resend is the same call carrying the edited message, one intent with one result. Every outcome is stored as one event, `session.restore_finished`, and `run.rolled_back` records the conversation cut alone ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). The conversation half is the driver's `rewindConversation`; the driver's `forkConversation` serves `session.fork` and is never an undo. An undo is never refused because the run is `running`: it stops the later work and ends the turn itself ([Run State Machine §Rollback Transitions](run-state-machine.md#rollback-transitions)).
 - Queue-item cancellation (`QueueItemCancel`) is separate from the `interrupt` intervention — `QueueItemCancel` targets queue items the agent has not yet taken (`Remove`, `run.queueCancel`), while an interrupt targets runs that already exist in the run state machine.
 

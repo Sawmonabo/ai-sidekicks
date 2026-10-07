@@ -50,7 +50,7 @@ export async function dispatchIntervention(
   if (!isInterventionAdmitted(response.state)) {
     return {
       status: "refused",
-      refusal: interventionNotApplied(response.state, response.rejectionReason),
+      refusal: interventionNotApplied(response),
     };
   }
   return { status: "sent", path: "provider-bound" };
@@ -59,7 +59,7 @@ export async function dispatchIntervention(
 /**
  * Whether an intervention state means the composed text reached the run. Total over the
  * union, so a new state must be classified. `requested`, `accepted`, `applied` and `degraded`
- * all delivered the message; `rejected` and `expired` did not, and keep the draft.
+ * all delivered the message; `rejected`, `expired` and `failed` did not, and keep the draft.
  */
 function isInterventionAdmitted(state: InterventionState): boolean {
   switch (state) {
@@ -70,6 +70,7 @@ function isInterventionAdmitted(state: InterventionState): boolean {
       return true;
     case "rejected":
     case "expired":
+    case "failed":
       return false;
   }
 }

@@ -104,7 +104,13 @@ export type DriverDiagnosticKind =
   | "mcp_task_handle_write_refused"
   // The database refused a storable handle: a local fault, kept apart from the remote-caused
   // refusal. `dispositionReason` carries the SQLite result code; the message interpolates SQL.
-  | "mcp_task_handle_write_failed";
+  | "mcp_task_handle_write_failed"
+  // A provider delivery the run engine absorbed instead of appending: a lifecycle event or ask from
+  // the execution before an undo's cut, or a lifecycle event for a run that had already ended.
+  | "late_event_absorbed"
+  // A binding's capped set of operation associations evicted its oldest entry, so a late delivery
+  // of that operation is attributed to the execution before the last cut, never to the current one.
+  | "epoch_association_evicted";
 
 /**
  * One daemon diagnostic the person sees; `details` is flat JSON-safe primitives. `rawWireType` is
@@ -119,7 +125,10 @@ export interface DriverDiagnosticRecord {
   readonly details: Readonly<Record<string, string | number | boolean | null>>;
 }
 
-/** The OpenTelemetry instrument name per kind, shaped `driver.<band>.<condition>`. */
+/**
+ * The OpenTelemetry instrument name per kind, shaped `driver.<band>.<condition>`, or
+ * `run.<band>.<condition>` for a kind the run engine records.
+ */
 export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKind, string>> =
   Object.freeze({
     unmapped_wire_kind: "driver.normalize.unmapped_wire_kind",
@@ -158,6 +167,8 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     interactive_request_option_set_dropped: "driver.interactive_request.option_set_dropped",
     mcp_task_handle_write_refused: "driver.mcp_task_handle.write_refused",
     mcp_task_handle_write_failed: "driver.mcp_task_handle.write_failed",
+    late_event_absorbed: "run.late_event.absorbed",
+    epoch_association_evicted: "run.epoch.association_evicted",
   });
 
 /** Lands one record on the structured daemon log stream. */
