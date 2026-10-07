@@ -13,7 +13,8 @@ import {
   type SessionId,
 } from "../session/id.js";
 
-import { TRANSCRIPT_READ_LIMIT_MAX, requirePageToRideOneFrame } from "./operations.js";
+import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "./operations.js";
 import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./row.js";
 import { countSchema } from "../internal/wire-scalars.js";
 

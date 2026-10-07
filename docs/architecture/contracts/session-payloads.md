@@ -11,10 +11,10 @@ interface SessionCreateRequest {
   // Where the new session works, bound in this same call, so no session exists unbound and its shape is
   // known from its first record.
   binding: SessionBinding;
-  // The lead's binding spelled out: its driver, model, account and effort, as the app chose them for a
-  // new session. A create names this, `leadDefinitionId`, or both; beside a definition, it is the binding
-  // the definition runs on. `providerAccountId` null follows the provider's current account.
-  lead?: AgentProviderBinding;
+  // The lead spelled out: its driver, model and effort, and its output speed where one was picked, as the
+  // app chose them for a new session. A create names this, `leadDefinitionId`, or both; beside a
+  // definition, it is the binding the definition runs on. It names no account: the daemon resolves it.
+  lead?: SessionLead;
   // The saved definition this session's LEAD runs under: a request that spells its axes out in full
   // names none, and one naming a definition need not respell the axes the definition supplies. It is how
   // Try it starts a scratch session led by the definition under test, and it is the same daemon path a
@@ -40,10 +40,14 @@ interface SessionCreateRequest {
 type SessionBinding =
   | { kind: "chat" }
   | { kind: "project"; repoMountId: RepoMountId; executionMode: ExecutionMode };
+type SessionLead = Omit<AgentProviderBinding, "providerAccountId">;
 interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
+  // The binding the daemon resolved for the lead, the account among it: the same values the session's
+  // `session.created` records.
+  lead: AgentProviderBinding;
   // Present iff the request carried `leadDefinitionId`: the echo lets a caller render what it actually
   // got instead of re-reading the registry and assuming it has not moved (agent-definition-payloads.md §Plan-024).
   resolvedConfiguration?: AgentResolvedConfiguration;
@@ -383,15 +387,20 @@ interface SessionAdvisorChangedPayload {
 
 // SessionSearch — session.search. One search over session titles, message text, tool calls, session
 // group names and tags across every session the list holds, archived ones included, answering the
-// palette's search box, with no cap. Results come grouped by session, each session by its score, in
-// the index's ranked order. The project, then session group, then session tree is the agents'
-// `session_search` tool's alone.
+// palette's search box, with no cap on how many hits a person can reach: the answer comes a page at a
+// time, every hit on some page. Results come grouped by session, each session by its best hit, in the
+// index's ranked order. A session's hits stay on one page unless they alone overflow it; then that
+// session fills the page and the next continues it under the same `sessionId`. The project, then
+// session group, then session tree is the agents' `session_search` tool's alone.
 interface SessionSearchRequest {
   query: string;
+  afterCursor?: SessionSearchCursor; // opaque, the daemon's own; refused `session.search_cursor_unresolvable` when it names no page
+  limit?: number; // hits per page, at most SESSION_SEARCH_PAGE_LIMIT_MAX (256), which is also the default
 }
-interface SessionSearchResponse {
-  groups: SessionSearchGroup[];
-}
+// A page's groups also fit one frame (PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
+type SessionSearchResponse =
+  | { groups: SessionSearchGroup[]; hasMore: true; nextCursor: SessionSearchCursor } // at least one group
+  | { groups: SessionSearchGroup[]; hasMore: false };
 interface SessionSearchGroup {
   sessionId: SessionId;
   name?: string; // absent for an untitled session, as on the session record
@@ -422,7 +431,7 @@ interface TranscriptSearchRequest {
   limit?: number; // at most TRANSCRIPT_READ_LIMIT_MAX (transcript-payloads.md §Plan-010)
 }
 // A continuing page carries at least one hit and the cursor to continue from. A page's hits also fit one
-// frame (TRANSCRIPT_PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
+// frame (PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
 type TranscriptSearchResponse =
   | { matchCount: number; hits: TranscriptSearchHit[]; hasMore: true; nextCursor: EventCursor }
   | { matchCount: number; hits: TranscriptSearchHit[]; hasMore: false };

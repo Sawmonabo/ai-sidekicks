@@ -11,6 +11,7 @@ import {
   AgentDefinitionIdSchema,
   AgentProviderBindingSchema,
   AgentResolvedConfigurationSchema,
+  providerTokenSchema,
   type AgentDefinitionId,
   type AgentProviderBinding,
   type AgentResolvedConfiguration,
@@ -19,6 +20,7 @@ import { SessionEventSchema } from "../event/session.js";
 import type { SessionEvent } from "../event/variant-types.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
 import { SubscriptionIdSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
@@ -116,6 +118,18 @@ const SessionExchangeSchema: z.ZodType<SessionExchange> = z
   })
   .strict();
 
+/** The group of its project a session sits in, named as the list draws it. */
+export interface SessionListGroup {
+  groupId: SessionGroupId;
+  name: string;
+}
+const SessionListGroupSchema: z.ZodType<SessionListGroup> = z
+  .object({
+    groupId: SessionGroupIdSchema,
+    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionListGroup.name"),
+  })
+  .strict();
+
 /**
  * What a list entry carries for its shape: a project's key, branch and group, or a chat's
  * documents. A chat sits in no group.
@@ -125,7 +139,7 @@ export type SessionListEntryPlace =
       shape: "project";
       repoMountId: RepoMountId;
       branch?: string | undefined;
-      groupId?: SessionGroupId | undefined;
+      group?: SessionListGroup | undefined;
     }
   | { shape: "chat"; documentCount: number };
 
@@ -180,7 +194,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
       shape: z.literal("project"),
       repoMountId: RepoMountIdSchema,
       branch: wireUncappedFreeFormString("SessionListEntry.branch").optional(),
-      groupId: SessionGroupIdSchema.optional(),
+      group: SessionListGroupSchema.optional(),
     })
     .strict(),
   z
@@ -200,13 +214,16 @@ export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionList
   .strict();
 
 /**
- * `session.list`'s acknowledgment: the subscription, every session as it stands, and
- * `chatCount`, the chats in the live list (chat sessions not archived, closed or awaiting purge)
- * as the daemon counts them for the Chats header, so no reader counts.
+ * `session.list`'s acknowledgment: the subscription, the first page of every session as it
+ * stands, and `chatCount`, the chats in the live list (chat sessions not archived, closed or
+ * awaiting purge) as the daemon counts them for the Chats header, so no reader counts. While
+ * `isComplete` is false the rest of the list follows as `page` changes, each fitting one message,
+ * before any other change; the list is whole once a page arrives with `isComplete` true.
  */
 export interface SessionListAck extends SubscribeAckResponse {
   readonly sessions: SessionListEntry[];
   readonly chatCount: number;
+  readonly isComplete: boolean;
 }
 /** Parses a {@link SessionListAck}. */
 export const SessionListAckSchema: z.ZodType<SessionListAck> = z
@@ -214,19 +231,35 @@ export const SessionListAckSchema: z.ZodType<SessionListAck> = z
     subscriptionId: SubscriptionIdSchema,
     sessions: z.array(SessionListEntrySchema),
     chatCount: countSchema,
+    isComplete: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((ack, issueContext) => {
+    requirePageToRideOneFrame(ack.sessions, "sessions", issueContext);
+  });
 
 /**
- * One change to the list after the acknowledgment: an entry as it now stands, or a session
- * that has left the list, which only a purge does. Each carries `chatCount` as it stands after
- * the change.
+ * One change to the list after the acknowledgment: a further page of the opening list, an entry
+ * as it now stands, or a session that has left the list, which only a purge does. Each carries
+ * `chatCount` as it stands after the change.
  */
 export type SessionListChange =
+  | { kind: "page"; sessions: SessionListEntry[]; chatCount: number; isComplete: boolean }
   | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
   | { kind: "remove"; sessionId: SessionId; chatCount: number };
 /** Parses a {@link SessionListChange}. */
 export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("page"),
+      sessions: z.array(SessionListEntrySchema).min(1),
+      chatCount: countSchema,
+      isComplete: z.boolean(),
+    })
+    .strict()
+    .superRefine((page, issueContext) => {
+      requirePageToRideOneFrame(page.sessions, "sessions", issueContext);
+    }),
   z
     .object({ kind: z.literal("upsert"), entry: SessionListEntrySchema, chatCount: countSchema })
     .strict(),
@@ -259,9 +292,24 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
 );
 
 /**
+ * The lead as the app chose it: its provider, model and effort, and its output speed where one
+ * was picked. It names no account: the daemon resolves that.
+ */
+export type SessionLead = Omit<AgentProviderBinding, "providerAccountId">;
+const SessionLeadSchema: z.ZodType<SessionLead, SessionLead> = z
+  .object({
+    driverName: ProviderNameSchema,
+    modelId: providerTokenSchema("SessionLead.modelId"),
+    effort: providerTokenSchema("SessionLead.effort").nullable(),
+    outputSpeed: providerTokenSchema("SessionLead.outputSpeed").optional(),
+  })
+  .strict();
+
+/**
  * What `session.create` takes: where the session works and who leads it.
  *
- * - `lead` is the lead's provider, model, account and effort, as the app chose them.
+ * - `lead` is the lead's provider, model and effort, as the app chose them; the daemon resolves
+ *   the account.
  * - `leadDefinitionId` names a saved definition the lead runs under; with `lead` beside it,
  *   `lead` is the binding the definition runs on.
  * - At least one of the two is present: a session is born with its lead.
@@ -273,7 +321,7 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
 export interface SessionCreateRequest {
   clientIdempotencyKey: string;
   binding: SessionBinding;
-  lead?: AgentProviderBinding | undefined;
+  lead?: SessionLead | undefined;
   leadDefinitionId?: AgentDefinitionId | undefined;
   scratch?: true | undefined;
   groupId?: SessionGroupId | undefined;
@@ -283,7 +331,7 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
   .object({
     clientIdempotencyKey: z.uuid(),
     binding: SessionBindingSchema,
-    lead: AgentProviderBindingSchema.optional(),
+    lead: SessionLeadSchema.optional(),
     leadDefinitionId: AgentDefinitionIdSchema.optional(),
     scratch: z.literal(true).optional(),
     groupId: SessionGroupIdSchema.optional(),
@@ -323,14 +371,16 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
   });
 
 /**
- * What `session.create` answers. `resolvedConfiguration` is present exactly when the request
- * named a definition: what the lead was started with, so the caller shows what it got rather
- * than re-reading the definition.
+ * What `session.create` answers. `lead` is the binding the daemon resolved for the lead, the
+ * account among it. `resolvedConfiguration` is present exactly when the request named a
+ * definition: what the lead was started with, so the caller shows what it got rather than
+ * re-reading the definition.
  */
 export interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
+  lead: AgentProviderBinding;
   resolvedConfiguration?: AgentResolvedConfiguration | undefined;
 }
 /** Parses a {@link SessionCreateResponse}. */
@@ -339,6 +389,7 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
     sessionId: SessionIdSchema,
     shape: SessionShapeSchema,
     state: SessionStateSchema,
+    lead: AgentProviderBindingSchema,
     resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
   })
   .strict();

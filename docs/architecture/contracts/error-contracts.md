@@ -124,6 +124,8 @@ Every namespace below follows the same rules:
 | `session.group_name_taken` | `session.groupCreate` or `session.groupRename` named a group another group of the session's project already holds, ignoring case; nothing is written | 409 |
 | `session.group_refused` | `session.groupCreate`, `session.groupMove` or `session.create`'s `groupId` asked to put a chat in a group, or a session in a group of another project; nothing is written | 422 |
 | `session.link_not_removable` | `session.linkRemove` named a link the daemon wrote from an event (`started`, `copied_from`, `messaged`, `asked`, `mentioned`), which records what happened; only a `related` link is removed | 409 |
+| `session.convert_refused` | `session.convert` named a session that is not a chat; nothing is attached or copied | 409 |
+| `session.search_cursor_unresolvable` | A `session.search` `afterCursor` the daemon did not write, or one written for another query; nothing is answered | 400 |
 | `session.tag_refused` | `session.tagAdd` named a tag that holds a space or is empty; nothing is written | 422 |
 
 ### Auth

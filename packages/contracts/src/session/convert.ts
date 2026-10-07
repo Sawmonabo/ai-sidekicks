@@ -8,6 +8,9 @@ import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
+/** `session.convert` named a session that is not a chat; nothing is attached or copied. */
+export const SESSION_CONVERT_REFUSED_CODE = "session.convert_refused" as const;
+
 /**
  * Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
  * daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a

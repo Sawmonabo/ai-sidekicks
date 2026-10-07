@@ -23,6 +23,7 @@ describe("session.search", () => {
         { sessionId: SESSION_ID, name: "Login work", hits: [hit] },
         { sessionId: SESSION_ID, hits: [hit] },
       ],
+      hasMore: false,
     });
     expect(result.success).toBe(true);
   });
@@ -30,6 +31,7 @@ describe("session.search", () => {
   it("refuses a match range that does not end after it starts", () => {
     const result = SessionSearchResponseSchema.safeParse({
       groups: [{ sessionId: SESSION_ID, hits: [{ ...hit, matchRanges: [{ start: 8, end: 8 }] }] }],
+      hasMore: false,
     });
     expect(result.success).toBe(false);
   });

@@ -97,7 +97,7 @@ export const SessionRelatedListUpdateSchema: z.ZodType<SessionRelatedListUpdate>
 
 /**
  * Adds a `related` link between two sessions, naming both by id so a rename changes nothing;
- * removing one takes the same pair.
+ * removing one takes the same pair. The two are different sessions: none links to itself.
  */
 export interface SessionLinkRequest {
   sessionId: SessionId;
@@ -106,7 +106,10 @@ export interface SessionLinkRequest {
 /** Parses a {@link SessionLinkRequest}. */
 export const SessionLinkRequestSchema: z.ZodType<SessionLinkRequest, SessionLinkRequest> = z
   .object({ sessionId: SessionIdSchema, targetSessionId: SessionIdSchema })
-  .strict();
+  .strict()
+  .refine((pair) => pair.sessionId !== pair.targetSessionId, {
+    message: "A session cannot be linked to itself.",
+  });
 
 /** The session link methods, keyed by method name. */
 export interface SessionLinkMethodDescriptors {

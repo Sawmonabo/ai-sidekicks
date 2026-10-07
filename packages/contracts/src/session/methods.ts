@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { requirePageToRideOneFrame } from "../jsonrpc/page.js";
 import {
   StreamFrameSchema,
   SubscribeAckResponseSchema,
@@ -214,17 +215,48 @@ export const SessionRenameResponseSchema: z.ZodType<SessionRenameResponse> = z
 /** The longest query `session.search` and `session.fileSearch` accept. */
 export const SESSION_SEARCH_QUERY_MAX_LEN = 256;
 
+/** The most hits one `session.search` page carries, across all its sessions. */
+export const SESSION_SEARCH_PAGE_LIMIT_MAX = 256;
+
+/** The longest `session.search` cursor accepted; a guard against pathological lengths. */
+export const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
+
 /**
- * The `session.search` input: the text typed in the search box. The daemon matches it against
- * every session's title and message text, archived sessions included, and returns every hit in
- * the index's own ranked order with no cap, so the request carries no limit.
+ * Where the next `session.search` page starts. The daemon writes it and owns its format; a client
+ * passes it back unchanged with the same query. It continues the ranking as the index stood, so a
+ * write between pages can move a session across the page boundary.
+ */
+export type SessionSearchCursor = string & { readonly __brand: "SessionSearchCursor" };
+/** Parses a {@link SessionSearchCursor}; any bounded non-empty string, which the daemon reads. */
+export const SessionSearchCursorSchema: z.ZodType<SessionSearchCursor, SessionSearchCursor> = z
+  .string()
+  .min(1)
+  .max(SESSION_SEARCH_CURSOR_MAX_LEN)
+  .brand<"SessionSearchCursor">() as unknown as z.ZodType<SessionSearchCursor, SessionSearchCursor>;
+
+/** A `session.search` cursor the daemon did not write, or one written for another kind of query. */
+export const SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE =
+  "session.search_cursor_unresolvable" as const;
+
+/**
+ * The `session.search` input: the text typed in the search box and, past the first page, the
+ * previous page's `nextCursor`. The daemon matches the text against every session's title,
+ * message text, tool calls, group name and tags, archived sessions included, and every hit is
+ * reachable page by page. `limit` caps the hits on one page, at most
+ * {@link SESSION_SEARCH_PAGE_LIMIT_MAX}, which is also the default.
  */
 export interface SessionSearchRequest {
   query: string;
+  afterCursor?: SessionSearchCursor | undefined;
+  limit?: number | undefined;
 }
 /** Parses a {@link SessionSearchRequest}. */
 export const SessionSearchRequestSchema: z.ZodType<SessionSearchRequest, SessionSearchRequest> = z
-  .object({ query: wireFreeFormString(SESSION_SEARCH_QUERY_MAX_LEN, "SessionSearchRequest.query") })
+  .object({
+    query: wireFreeFormString(SESSION_SEARCH_QUERY_MAX_LEN, "SessionSearchRequest.query"),
+    afterCursor: SessionSearchCursorSchema.optional(),
+    limit: z.number().int().positive().max(SESSION_SEARCH_PAGE_LIMIT_MAX).optional(),
+  })
   .strict();
 
 /**
@@ -274,14 +306,44 @@ const SessionSearchGroupSchema: z.ZodType<SessionSearchGroup> = z
   })
   .strict();
 
-/** The `session.search` result: hits grouped by session, in the index's ranked order. */
-export interface SessionSearchResponse {
-  groups: SessionSearchGroup[];
-}
-/** Parses a {@link SessionSearchResponse}. */
+/**
+ * One `session.search` page: hits grouped by session, the sessions in the order of their best
+ * hit and each session's hits best first. A session's hits stay on one page unless they alone
+ * overflow a page; then that session fills the page and the next page continues it under the same
+ * `sessionId`. A continuing page carries at least one group and the cursor to continue from.
+ */
+export type SessionSearchResponse =
+  | { groups: SessionSearchGroup[]; hasMore: true; nextCursor: SessionSearchCursor }
+  | { groups: SessionSearchGroup[]; hasMore: false };
+
+const sessionSearchGroupsSchema = z.array(SessionSearchGroupSchema);
+
+/**
+ * Parses a {@link SessionSearchResponse}: a page carries at most
+ * {@link SESSION_SEARCH_PAGE_LIMIT_MAX} hits and fits the shared page budget.
+ */
 export const SessionSearchResponseSchema: z.ZodType<SessionSearchResponse> = z
-  .object({ groups: z.array(SessionSearchGroupSchema) })
-  .strict();
+  .discriminatedUnion("hasMore", [
+    z
+      .object({
+        groups: sessionSearchGroupsSchema.min(1),
+        hasMore: z.literal(true),
+        nextCursor: SessionSearchCursorSchema,
+      })
+      .strict(),
+    z.object({ groups: sessionSearchGroupsSchema, hasMore: z.literal(false) }).strict(),
+  ])
+  .superRefine((page, issueContext) => {
+    const hitCount = page.groups.reduce((total, group) => total + group.hits.length, 0);
+    if (hitCount > SESSION_SEARCH_PAGE_LIMIT_MAX) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["groups"],
+        message: `a page carries at most ${String(SESSION_SEARCH_PAGE_LIMIT_MAX)} hits, not ${String(hitCount)}`,
+      });
+    }
+    requirePageToRideOneFrame(page.groups, "groups", issueContext);
+  });
 
 /**
  * The `session.fileSearch` input: the text typed after `@` in a session's draft. An empty query
