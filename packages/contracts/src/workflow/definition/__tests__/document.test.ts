@@ -1,9 +1,9 @@
 // The workflow document is written by the builder, by an agent through its tools and by an
 // imported file. These cases hold what its readers rely on: a failure disposition from the closed
-// three, node ids that each name one node, a schema small enough to send to a model, a content
-// hash blind to layout, pinned data and tags, trigger inputs with distinct names that start on a
-// value their type allows, a tool binding that carries no policy, and a step's failure whose
-// details never travel without its code.
+// three, node ids that each name one node and a named refusal when not, a schema small enough to
+// send to a model, a content hash blind to layout, pinned data and tags, trigger inputs with
+// distinct names that start on a value their type allows, a tool binding that carries no policy,
+// and a step's failure whose details never travel without its code.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -86,8 +86,9 @@ describe("WorkflowDocumentSchema", () => {
     );
   });
 
-  // Edges, expressions and step records address a node by id, so one id must name one node.
-  it("refuses a node id used twice, the trigger's included, naming the id", () => {
+  // Edges, expressions and step records address a node by id, so one id must name one node. The
+  // refusal's issue carries the named finding a refused call's error hands the builder.
+  it("refuses a node id used twice, the trigger's included, with its named finding", () => {
     const { trigger: _trigger, ...draft } = FULL_DOCUMENT;
     const cases = [
       { schema: WorkflowDocumentSchema, document: FULL_DOCUMENT, repeat: "suite", index: 4 },
@@ -108,18 +109,11 @@ describe("WorkflowDocumentSchema", () => {
         expect.objectContaining({
           path: ["nodes", index, "id"],
           message: expect.stringContaining(repeat),
+          params: { rule: "node_id_duplicate", nodeIds: [repeat] },
         }),
       ]);
     }
     expect(WorkflowDraftDocumentSchema.safeParse(draft).success).toBe(true);
-  });
-
-  it("keeps tags to a bounded string with no NUL byte, leaving spaces and empty to the daemon", () => {
-    const withTags = (tags: string[]) =>
-      WorkflowDocumentSchema.safeParse({ ...FULL_DOCUMENT, tags });
-    expect(withTags(["", "two words"]).success).toBe(true);
-    expect(withTags(["bad\0tag"]).success).toBe(false);
-    expect(withTags(["t".repeat(257)]).success).toBe(false);
   });
 
   // The agent tools send these schemas to a model, whose context holds a schema's whole text once

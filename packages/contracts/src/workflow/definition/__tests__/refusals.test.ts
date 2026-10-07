@@ -45,6 +45,11 @@ const CATALOG: Record<string, (node: WorkflowNode) => WorkflowNodeHandles> = {
   }),
   "developer.mcp-tool": () => ({ category: "developer", inputs: [], outputs: [toolOutput] }),
   "output.stop": () => ({ category: "output", inputs: [mainInput], outputs: [] }),
+  "output.reply": () => ({
+    category: "output",
+    inputs: [{ ...mainInput, maxConnections: 1 }],
+    outputs: [],
+  }),
   "flow.loop-items": () => ({
     category: "flow",
     inputs: [mainInput],
@@ -112,6 +117,7 @@ function finding(
 const EXTRA = node("extra", "files.read");
 const LOOP = node("loop", "flow.loop-items");
 const BODY = node("body", "files.read");
+const REPLY = node("reply", "output.reply");
 
 describe("checkWorkflowGraph", () => {
   it("accepts the base document, with a tool node reached only as an agent's tool", () => {
@@ -154,6 +160,62 @@ describe("checkWorkflowGraph", () => {
         edge("agent", "stop"),
       ]),
       [finding("tool_edge_without_tool_input", "tool", "read")],
+    ],
+    [
+      "a main edge into a tool input on a node with no tool input, as an undeclared handle alone",
+      documentOf(BASE_NODES, [
+        ...BASE_EDGES,
+        edge("read", "stop", "outputs/main/0", "inputs/tool/0"),
+      ]),
+      [finding("handle_type_unknown", "read", "stop")],
+    ],
+    [
+      "a tool output joined to a main input, with no orphan beside it",
+      documentOf(BASE_NODES, [
+        edge("start", "read"),
+        edge("read", "agent"),
+        edge("tool", "agent", "outputs/tool/0", "inputs/main/0"),
+        edge("agent", "stop"),
+      ]),
+      [finding("handle_type_mismatch", "tool", "agent")],
+    ],
+    [
+      "a main output joined to a tool input, with no orphan beside it",
+      documentOf(
+        [...BASE_NODES, EXTRA],
+        [...BASE_EDGES, edge("extra", "agent", "outputs/main/0", "inputs/tool/0")],
+      ),
+      [finding("handle_type_mismatch", "extra", "agent")],
+    ],
+    [
+      "more edges into an input than it takes, marking the node and the extra edges' sources",
+      documentOf(
+        [READ, EXTRA, REPLY],
+        [
+          edge("start", "read"),
+          edge("start", "extra"),
+          edge("read", "reply"),
+          edge("extra", "reply"),
+        ],
+      ),
+      [finding("input_connections_exceeded", "reply", "extra")],
+    ],
+    [
+      "an edge into a capped input refused for its own fault, without counting it",
+      documentOf(
+        [READ, REPLY],
+        [edge("start", "read"), edge("read", "reply"), edge("read", "reply", "outputs/error/0")],
+      ),
+      [finding("handle_type_unknown", "read", "reply")],
+    ],
+    [
+      "an edge naming a node the document does not hold, marking only the end it holds",
+      documentOf(BASE_NODES, [
+        ...BASE_EDGES,
+        edge("read", "ghost", "outputs/main/0", "inputs/error/0"),
+        edge("ghost", "stop", "outputs/error/0"),
+      ]),
+      [finding("node_missing", "read"), finding("node_missing", "stop")],
     ],
     [
       "a handle naming a type other than main or tool",

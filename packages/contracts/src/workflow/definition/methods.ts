@@ -15,6 +15,7 @@ import {
 } from "../../method-descriptor.js";
 import { PermissionLevelSchema, type PermissionLevel } from "../../session/controls/methods.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../free-form-string.js";
+import { TagListSchema } from "../../tag.js";
 import { WorkflowRunStatusSchema, type WorkflowRunStatus } from "../run/status.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../run/id.js";
 import {
@@ -24,7 +25,6 @@ import {
   WorkflowEdgeSchema,
   WorkflowNodeKindIdSchema,
   WorkflowNodeSchema,
-  WorkflowTagSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
   type WorkflowDocument,
@@ -318,7 +318,7 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
     // Whether the workflow's triggers are armed: the toggle's own truth, so the row
     // reverts visibly when the daemon refuses rather than holding an optimistic value.
     enabled: z.boolean(),
-    tags: z.array(WorkflowTagSchema),
+    tags: TagListSchema,
     runCount: countSchema,
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,

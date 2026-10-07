@@ -7,13 +7,13 @@ import { z } from "zod";
 
 import { countSchema, isoDateTimeSchema, portSchema } from "../../internal/wire-scalars.js";
 import { PermissionLevelSchema, type PermissionLevel } from "../../session/controls/methods.js";
+import { TagListSchema } from "../../tag.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowDraftDocumentSchema,
   WorkflowLayoutSchema,
   WorkflowNodeIdSchema,
   WorkflowPinnedItemSchema,
-  WorkflowTagSchema,
   type WorkflowDefinitionId,
   type WorkflowDraftDocument,
   type WorkflowLayout,
@@ -37,13 +37,6 @@ export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as c
  * @consumedBy the handler that returns the `workflow.webhook_token_mismatch` error
  */
 export const WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE = "workflow.webhook_token_mismatch" as const;
-
-/**
- * A tags write naming a tag that holds a space or is empty; nothing is written.
- *
- * @consumedBy the handler that returns the `workflow.tag_refused` error
- */
-export const WORKFLOW_TAG_REFUSED_CODE = "workflow.tag_refused" as const;
 
 // Settings kept beside a version: enabled, layout, tags, permission level, pinned data
 
@@ -103,8 +96,7 @@ export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefiniti
 /**
  * The `workflow.tagsSet` input: the workflow's whole tag set, which replaces the one held, so a
  * remove and an add are one write. Tags sit outside the hashed body, so a change mints no
- * version. The daemon refuses a tag that holds a space or is empty with
- * {@link WORKFLOW_TAG_REFUSED_CODE}.
+ * version. A tag that breaks the tag rule, or a repeat ignoring case, fails the parse.
  */
 export interface WorkflowTagsSetRequest {
   definitionId: WorkflowDefinitionId;
@@ -114,9 +106,7 @@ export interface WorkflowTagsSetRequest {
 export const WorkflowTagsSetRequestSchema: z.ZodType<
   WorkflowTagsSetRequest,
   WorkflowTagsSetRequest
-> = z
-  .object({ definitionId: WorkflowDefinitionIdSchema, tags: z.array(WorkflowTagSchema) })
-  .strict();
+> = z.object({ definitionId: WorkflowDefinitionIdSchema, tags: TagListSchema }).strict();
 
 /**
  * The `workflow.permissionLevelUpdate` input: the level every run of the workflow uses, a live

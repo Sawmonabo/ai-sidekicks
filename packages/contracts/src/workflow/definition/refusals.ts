@@ -22,13 +22,17 @@ import { parseWorkflowHandle, type WorkflowHandle, type WorkflowHandleMode } fro
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
 
 /**
- * The rules a refused document can break. Each finding names one, with the nodes it
- * marks; the validation strip lists every finding and the canvas marks each node.
+ * The rules a refused document can break. Each finding names one, with the nodes it marks; the
+ * validation strip lists every finding and the canvas marks each node. `node_id_duplicate` is
+ * raised by the document's read, as the `params` of its refusal issue, since a document that
+ * cannot be read never reaches the check.
  */
 export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "cycle",
   "orphan",
   "empty_document",
+  "node_id_duplicate",
+  "node_missing",
   "trigger_missing",
   "trigger_duplicate",
   "edge_into_trigger",
@@ -39,6 +43,8 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "expression_regex_unsupported",
   "tool_edge_without_tool_input",
   "handle_type_unknown",
+  "handle_type_mismatch",
+  "input_connections_exceeded",
   "name_taken",
   "repository_required",
   "unknown_key",
@@ -112,11 +118,14 @@ export type WorkflowNodeHandles = Pick<WorkflowNodeKindSpec, "category" | "input
 export type WorkflowNodeHandlesResolver = (node: WorkflowNode) => WorkflowNodeHandles | undefined;
 
 /**
- * The findings for the rules that need only the document and the kinds' handles: the trigger,
- * an empty document, each edge's ends, cycles, then orphans, each in document order. The rules
- * that need the library, the params, expressions or the code packages are checked elsewhere.
- * A node of a kind the catalog does not list has no known category, so it is never refused as a
- * trigger in the trigger's place nor as a second trigger among the nodes.
+ * The findings for the rules that need only the document and the kinds' handles: the trigger, an
+ * empty document, each edge's nodes and ends, the inputs over their connection limit, cycles, then
+ * orphans, each in document order. An edge naming a node the document does not hold is
+ * `node_missing` and is checked no further at that end. An edge whose ends' types differ joins its
+ * two nodes both ways for reach, so a mismatch is reported once, on the edge, and never again as
+ * an orphan. The rules that need the library, the params, expressions or the code packages are
+ * checked elsewhere. A node of a kind the catalog does not list has no known category, so it is
+ * never refused as a trigger in the trigger's place nor as a second trigger among the nodes.
  */
 export function checkWorkflowGraph(
   document: WorkflowDraftDocument,
@@ -150,11 +159,19 @@ export function checkWorkflowGraph(
   if (duplicateTriggerIds.length > 0) {
     findings.push({ rule: "trigger_duplicate", nodeIds: duplicateTriggerIds });
   }
+  const refusedEdges = new Set<ParsedEdge>();
   for (const parsedEdge of graph.edges) {
-    for (const rule of edgeRules(graph, parsedEdge)) {
-      findings.push({ rule, nodeIds: [parsedEdge.edge.source, parsedEdge.edge.target] });
+    const { source, target } = parsedEdge.edge;
+    const heldEndIds = [source, target].filter((nodeId) => graph.nodeById.has(nodeId));
+    const rules = edgeRules(graph, parsedEdge);
+    if (rules.size > 0) {
+      refusedEdges.add(parsedEdge);
+    }
+    for (const rule of rules) {
+      findings.push({ rule, nodeIds: heldEndIds });
     }
   }
+  findings.push(...connectionLimitFindings(graph, refusedEdges));
   for (const cycleNodeIds of cycles(graph)) {
     findings.push({ rule: "cycle", nodeIds: cycleNodeIds });
   }
@@ -175,10 +192,12 @@ function isListedAsNonTrigger(graph: GraphFacts, nodeId: WorkflowNodeId): boolea
 
 type EdgeRule = Extract<
   WorkflowDefinitionFindingRule,
+  | "node_missing"
   | "edge_into_trigger"
   | "edge_out_of_terminal"
   | "tool_edge_without_tool_input"
   | "handle_type_unknown"
+  | "handle_type_mismatch"
 >;
 
 interface ParsedEdge {
@@ -195,30 +214,56 @@ interface GraphFacts {
   edges: ParsedEdge[];
 }
 
-// One rule at most for each end of the edge; a rule that names the end's problem outright
-// stands in for the undeclared-handle finding it would also raise.
-function edgeRules(graph: GraphFacts, { edge, source, target }: ParsedEdge): Set<EdgeRule> {
-  const sourceHandles = graph.handlesById.get(edge.source);
-  const targetHandles = graph.handlesById.get(edge.target);
+// One rule at most for each end the document holds; a rule that names the end's problem outright
+// stands in for the undeclared-handle finding it would also raise. Only when both ends name a
+// handle their nodes declare is a join of two types a mismatch.
+function edgeRules(graph: GraphFacts, parsedEdge: ParsedEdge): Set<EdgeRule> {
+  const { edge } = parsedEdge;
   const rules = new Set<EdgeRule>();
-  if (sourceHandles !== undefined && sourceHandles.outputs.length === 0) {
-    rules.add("edge_out_of_terminal");
-  } else if (!isDeclaredHandle(edge.sourceHandle, source, "outputs", sourceHandles)) {
-    rules.add("handle_type_unknown");
+  const hasSource = graph.nodeById.has(edge.source);
+  const hasTarget = graph.nodeById.has(edge.target);
+  if (!hasSource || !hasTarget) {
+    rules.add("node_missing");
   }
+  const sourceRule = hasSource ? sourceEndRule(graph, parsedEdge) : undefined;
+  const targetRule = hasTarget ? targetEndRule(graph, parsedEdge) : undefined;
+  for (const rule of [sourceRule, targetRule]) {
+    if (rule !== undefined) {
+      rules.add(rule);
+    }
+  }
+  if (rules.size === 0 && isTypeMismatch(parsedEdge)) {
+    rules.add("handle_type_mismatch");
+  }
+  return rules;
+}
+
+function sourceEndRule(graph: GraphFacts, { edge, source }: ParsedEdge): EdgeRule | undefined {
+  const sourceHandles = graph.handlesById.get(edge.source);
+  if (sourceHandles !== undefined && sourceHandles.outputs.length === 0) {
+    return "edge_out_of_terminal";
+  }
+  return isDeclaredHandle(edge.sourceHandle, source, "outputs", sourceHandles)
+    ? undefined
+    : "handle_type_unknown";
+}
+
+function targetEndRule(graph: GraphFacts, parsedEdge: ParsedEdge): EdgeRule | undefined {
+  const { edge, target } = parsedEdge;
+  const targetHandles = graph.handlesById.get(edge.target);
   if (edge.target === graph.trigger?.id) {
-    rules.add("edge_into_trigger");
-  } else if (
-    target.isTypeKnown &&
-    target.type === "tool" &&
+    return "edge_into_trigger";
+  }
+  if (
+    isToolEdge(parsedEdge) &&
     targetHandles !== undefined &&
     !targetHandles.inputs.some((spec) => spec.type === "tool")
   ) {
-    rules.add("tool_edge_without_tool_input");
-  } else if (!isDeclaredHandle(edge.targetHandle, target, "inputs", targetHandles)) {
-    rules.add("handle_type_unknown");
+    return "tool_edge_without_tool_input";
   }
-  return rules;
+  return isDeclaredHandle(edge.targetHandle, target, "inputs", targetHandles)
+    ? undefined
+    : "handle_type_unknown";
 }
 
 // A handle is declared when it names a known type on the right side and, where the node's kind
@@ -242,6 +287,43 @@ function isMainEdge({ source, target }: ParsedEdge): boolean {
 
 function isToolEdge({ source, target }: ParsedEdge): boolean {
   return source.type === "tool" && target.type === "tool";
+}
+
+// A `main` end joined to a `tool` end, each naming a type the grammar knows.
+function isTypeMismatch({ source, target }: ParsedEdge): boolean {
+  return source.isTypeKnown && target.isTypeKnown && source.type !== target.type;
+}
+
+/**
+ * One finding for each input handle holding more edges than its `maxConnections`, marking the
+ * node and the sources of the edges past the limit in document order. An edge already refused
+ * for its own fault is not counted, so one bad edge never raises two findings.
+ */
+function connectionLimitFindings(
+  graph: GraphFacts,
+  refusedEdges: ReadonlySet<ParsedEdge>,
+): WorkflowDefinitionFinding[] {
+  const findings: WorkflowDefinitionFinding[] = [];
+  for (const { id: nodeId } of graph.nodes) {
+    for (const input of graph.handlesById.get(nodeId)?.inputs ?? []) {
+      if (input.maxConnections === undefined) {
+        continue;
+      }
+      const sourceIds = graph.edges
+        .filter(
+          (parsedEdge) =>
+            !refusedEdges.has(parsedEdge) &&
+            parsedEdge.edge.target === nodeId &&
+            parsedEdge.edge.targetHandle === input.id,
+        )
+        .map((parsedEdge) => parsedEdge.edge.source);
+      if (sourceIds.length > input.maxConnections) {
+        const marked = new Set([nodeId, ...sourceIds.slice(input.maxConnections)]);
+        findings.push({ rule: "input_connections_exceeded", nodeIds: [...marked] });
+      }
+    }
+  }
+  return findings;
 }
 
 /**
@@ -349,7 +431,8 @@ function stronglyConnectedComponents(
 /**
  * The nodes the trigger does not reach, in document order. A node is reached along a `main`
  * edge from a reached node, or as the tool of a reached node it is wired into by a `tool` edge,
- * because a tool node has no `main` path and runs only when the agent it serves calls it.
+ * because a tool node has no `main` path and runs only when the agent it serves calls it. An edge
+ * joining a `main` end to a `tool` end reaches both ways, since its mismatch is already refused.
  */
 function orphans(graph: GraphFacts, triggerId: WorkflowNodeId): WorkflowNodeId[] {
   const nextById = new Map<WorkflowNodeId, WorkflowNodeId[]>();
@@ -358,6 +441,9 @@ function orphans(graph: GraphFacts, triggerId: WorkflowNodeId): WorkflowNodeId[]
     if (isMainEdge(parsedEdge)) {
       appendTo(nextById, source, target);
     } else if (isToolEdge(parsedEdge)) {
+      appendTo(nextById, target, source);
+    } else {
+      appendTo(nextById, source, target);
       appendTo(nextById, target, source);
     }
   }

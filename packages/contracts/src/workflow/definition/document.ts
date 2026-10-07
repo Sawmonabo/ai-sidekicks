@@ -20,9 +20,11 @@ import { z } from "zod";
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/server.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../artifacts/id.js";
 import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
+import { findRepeats } from "../../internal/repeats.js";
 import { countSchema } from "../../internal/wire-scalars.js";
-import { SESSION_NAME_MAX_LEN } from "../../session/methods.js";
+import { TagListSchema } from "../../tag.js";
 import type { WorkflowParamType } from "../kind.js";
+import type { WorkflowDefinitionFinding } from "./refusals.js";
 
 /** A workflow definition's id. The daemon mints it; a client passes it through unparsed. */
 export type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -165,22 +167,6 @@ export const WorkflowNodeSchema: z.ZodType<WorkflowNode, WorkflowNode> = z
   .object(workflowNodeShape)
   .strict();
 
-// Adds one issue for each value that an earlier one already holds, at the place `pathOf` names.
-function reportRepeats(
-  values: readonly string[],
-  pathOf: (index: number) => (string | number)[],
-  messageOf: (value: string) => string,
-  context: z.RefinementCtx,
-): void {
-  const seen = new Set<string>();
-  values.forEach((value, index) => {
-    if (seen.has(value)) {
-      context.addIssue({ code: "custom", path: pathOf(index), message: messageOf(value) });
-    }
-    seen.add(value);
-  });
-}
-
 // What every declared input carries, whatever its type.
 interface WorkflowTriggerInputArm<Type extends WorkflowParamType, Value> {
   name: string;
@@ -246,12 +232,13 @@ const WorkflowTriggerNodeSchema: z.ZodType<WorkflowTriggerNode, WorkflowTriggerN
     inputs: z
       .array(WorkflowTriggerInputSchema)
       .superRefine((inputs, context) => {
-        reportRepeats(
-          inputs.map((input) => input.name),
-          (index) => [index, "name"],
-          (name) => `Input name ${name} is used more than once.`,
-          context,
-        );
+        for (const { index, value } of findRepeats(inputs.map((input) => input.name))) {
+          context.addIssue({
+            code: "custom",
+            path: [index, "name"],
+            message: `Input name ${value} is used more than once.`,
+          });
+        }
       })
       .optional()
       .describe(
@@ -441,17 +428,6 @@ export type WorkflowPinnedItem = Omit<WorkflowItem, "binary">;
 export const WorkflowPinnedItemSchema: z.ZodType<WorkflowPinnedItem, WorkflowPinnedItem> =
   workflowItemObject.omit({ binary: true });
 
-/**
- * One tag: matched ignoring case and nested with `/`, as session tags are. The schema bounds
- * its length and refuses a NUL byte; the daemon refuses an empty tag or one holding a space
- * with `workflow.tag_refused`.
- */
-export const WorkflowTagSchema: z.ZodType<string, string> = z
-  .string()
-  .max(SESSION_NAME_MAX_LEN)
-  .refine((tag) => !tag.includes("\0"), { message: "A tag MUST NOT contain a NUL byte." })
-  .describe("A tag, matched ignoring case and nested with /; no spaces, never empty.");
-
 const documentBodyShape = {
   schemaVersion: z
     .literal(WORKFLOW_DOCUMENT_SCHEMA_VERSION)
@@ -477,13 +453,10 @@ const documentBodyShape = {
     .record(z.string(), z.array(WorkflowPinnedItemSchema))
     .optional()
     .describe("Test data pinned onto nodes by node id; outside the content hash."),
-  tags: z
-    .array(WorkflowTagSchema)
-    .optional()
-    .describe(
-      "The workflow's tags, matched ignoring case and nested with /, each with no spaces " +
-        "and never empty; outside the content hash.",
-    ),
+  tags: TagListSchema.optional().describe(
+    "The workflow's tags, nested with / and held once ignoring case, each never empty, with no " +
+      "whitespace and no empty level around a /; outside the content hash.",
+  ),
 };
 
 const triggerDescription =
@@ -506,22 +479,34 @@ export interface WorkflowDocument {
   pinData?: Record<string, WorkflowPinnedItem[]> | undefined;
   tags?: string[] | undefined;
 }
-// A node id names one node, so the trigger's id and every other node's are all distinct.
+// A node id names one node, so the trigger's id and every other node's are all distinct. Each
+// repeat's issue carries a `node_id_duplicate` finding as its `params`, which a refused call's
+// error carries to the reader, so the refusal is named like every other finding.
 function refuseRepeatedNodeIds(
-  document: { trigger?: { id: string } | undefined; nodes: readonly { id: string }[] },
+  document: {
+    trigger?: { id: WorkflowNodeId } | undefined;
+    nodes: readonly { id: WorkflowNodeId }[];
+  },
   context: z.RefinementCtx,
 ): void {
   const ids = document.nodes.map((node) => node.id);
-  const triggerOffset = document.trigger === undefined ? 0 : 1;
-  reportRepeats(
-    document.trigger === undefined ? ids : [document.trigger.id, ...ids],
-    (index) => ["nodes", index - triggerOffset, "id"],
-    (id) => `Node id ${id} is used more than once.`,
-    context,
-  );
+  const allIds = document.trigger === undefined ? ids : [document.trigger.id, ...ids];
+  const triggerOffset = allIds.length - ids.length;
+  for (const { index, value: id } of findRepeats(allIds)) {
+    const finding: WorkflowDefinitionFinding = { rule: "node_id_duplicate", nodeIds: [id] };
+    context.addIssue({
+      code: "custom",
+      path: ["nodes", index - triggerOffset, "id"],
+      message: `Node id ${id} is used more than once.`,
+      params: finding,
+    });
+  }
 }
 
-/** Wire schema for {@link WorkflowDocument}; it refuses a node id used twice. */
+/**
+ * Wire schema for {@link WorkflowDocument}. It refuses a node id used twice with a custom issue
+ * whose `params` is that id's `node_id_duplicate` finding.
+ */
 export const WorkflowDocumentSchema: z.ZodType<WorkflowDocument, WorkflowDocument> = z
   .object({ ...documentBodyShape, trigger: WorkflowTriggerNodeSchema.describe(triggerDescription) })
   .strict()
@@ -572,7 +557,10 @@ export function pickWorkflowDocumentHashedBody(
 export type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & {
   trigger?: WorkflowTriggerNode | undefined;
 };
-/** Wire schema for {@link WorkflowDraftDocument}; it refuses a node id used twice. */
+/**
+ * Wire schema for {@link WorkflowDraftDocument}. It refuses a node id used twice the way
+ * {@link WorkflowDocumentSchema} does.
+ */
 export const WorkflowDraftDocumentSchema: z.ZodType<WorkflowDraftDocument, WorkflowDraftDocument> =
   z
     .object({
