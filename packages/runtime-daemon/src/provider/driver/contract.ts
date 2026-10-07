@@ -452,11 +452,11 @@ export type DriverGoalResult =
 /**
  * Params of `setSessionGoal` (gated on `session_goals`). `goalText` is the daemon-rendered text of
  * the session's structured goal, so the driver never sees the structure and cannot diverge from it.
- * Durable truth is the `session.goal_updated` and `session.goal_cleared` events and the daemon
- * re-pushes the goal on resume, so driver-held state is never the recovery source and neither
- * operation returns the goal it applied. `bindingId` is the leg key, as on
- * `ForkConversationParams`: goal delivery fans out per live binding. `runId` rides along for
- * context and telemetry.
+ * Durable truth is the `session.goal_updated` and `session.goal_cleared` events, so driver-held
+ * state is never the recovery source and neither operation returns the goal it applied. A resume
+ * never sets the goal again, because Codex keeps a thread's goal across one. `bindingId` is the leg
+ * key, as on `ForkConversationParams`: goal delivery fans out per live binding. `runId` rides along
+ * for context and telemetry.
  */
 export interface SetSessionGoalParams {
   sessionId: SessionId;
