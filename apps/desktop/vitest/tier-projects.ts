@@ -101,7 +101,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // process. Each file is named for the defect it reproduces, not the module it touches.
     //
     // Playwright's auto-retrying `expect` is not used: it ships only with Playwright's runner
-    // (`playwright/test`), which these tiers never load. Waiting is explicit (`locator.waitFor`,
+    // (`playwright/test`), which this tier never loads. Waiting is explicit (`locator.waitFor`,
     // `expect.poll`), asserting is Vitest's, and every wait is handed
     // `bodyAllowance.boundedMs(<its own bound>)` so the first wait that cannot fit names its step.
     //

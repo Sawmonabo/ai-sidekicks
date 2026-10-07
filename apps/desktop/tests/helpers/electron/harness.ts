@@ -6,11 +6,11 @@
 // fixture bridge serves, or plays none and runs main's supervisor against a background service of
 // the test's own.
 //
-// Playwright's `_electron` runs under Vitest rather than the `@playwright/test` runner: `_electron`
-// is the only part these tiers need (attaching to a real Electron process and driving its window),
-// and a second runner would mean a second config, reporter and CI invocation. It comes from the
-// `playwright` library, which never loads the runner: the runner sets itself up on import, and
-// under a DOM shim that setup fetches source files over the network.
+// Playwright's `_electron` runs under Vitest rather than Playwright's runner (`playwright/test`):
+// `_electron` is the only part these tiers need (attaching to a real Electron process and driving
+// its window), and a second runner would mean a second config, reporter and CI invocation. It comes
+// from the `playwright` library, which never loads the runner: the runner sets itself up on import,
+// and under a DOM shim that setup fetches source files over the network.
 //
 // Profile isolation is load-bearing. Electron's default profile carries a machine-wide
 // `SingletonLock`: a second Electron on it (another checkout, an unrelated app, an orphan from a
