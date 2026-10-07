@@ -1,0 +1,13 @@
+{
+  "name": "@ai-sidekicks/search-index",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The daemon's session search index: Tantivy in a Node-API addon written in Rust.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.8"
+  }
+}

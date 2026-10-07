@@ -1,6 +1,7 @@
-// Bundles the daemon: its modules and the workspace packages it imports, with what those import,
-// are inlined into a few files, since loading them one file at a time was most of its start; the
-// npm packages it lists, the native ones among them, load from its node_modules. Each worker
+// Bundles the daemon: its modules and the TypeScript workspace packages it imports, with what those
+// import, are inlined into a few files, since loading them one file at a time was most of its
+// start; every other package it lists, the native ones among them, loads from its node_modules.
+// Each worker
 // thread is an entry written where its source sits, and a module that finds a file from its own
 // URL keeps its source path in a chunk of its own, so the worker beside the module that starts it,
 // the match count's library and the package's manifest are found from the build as from the
@@ -18,9 +19,26 @@ const manifest = JSON.parse(
   dependencies: Record<string, string>;
 };
 
-const INSTALLED_PACKAGES = Object.keys(manifest.dependencies).filter(
-  (name) => !name.startsWith("@ai-sidekicks/"),
-);
+// The condition a TypeScript workspace package's exports carry, pointing at its source.
+const SOURCE_CONDITION = "@ai-sidekicks/source";
+
+// Whether an exports map names the source condition anywhere in it.
+function namesSourceCondition(exportsMap: unknown): boolean {
+  return (
+    typeof exportsMap === "object" &&
+    exportsMap !== null &&
+    Object.entries(exportsMap).some(
+      ([condition, target]) => condition === SOURCE_CONDITION || namesSourceCondition(target),
+    )
+  );
+}
+
+const INSTALLED_PACKAGES = Object.keys(manifest.dependencies).filter((name) => {
+  const dependencyManifest = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, "node_modules", name, "package.json"), "utf8"),
+  ) as { exports?: unknown };
+  return !namesSourceCondition(dependencyManifest.exports);
+});
 
 // A worker thread's module is `worker.ts` beside the module that starts it.
 const WORKER_ENTRIES = globSync("**/worker.ts", {

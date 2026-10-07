@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@ai-sidekicks/search-index": "workspace:*",
     "@ai-sidekicks/search-ranking": "workspace:*",
     "@anthropic-ai/sandbox-runtime": "0.0.78",
     "@cedar-policy/cedar-wasm": "4.13.0",

@@ -144,11 +144,11 @@ An enum is allowed only where an external, generated or platform contract requir
 
 ## Project structure
 
-A pnpm workspace built with Turbo, plus one Rust crate.
+A pnpm workspace built with Turbo, plus two Rust crates.
 
 - `apps/desktop/` — the Electron app (main, preload, React renderer).
 - `apps/cli/` — the `sidekicks` command line, bundled into one file; it reaches the daemon only through `client-sdk`.
-- `packages/`: `runtime-daemon` (the local daemon and its execution services), `control-plane` (the gated Cloudflare Worker and its Postgres schema runner), `contracts` (protocol contracts, schemas, cross-container types), `client-sdk` (the typed daemon client for the desktop main process and the CLI), `crypto-paseto` (PASETO v4 primitives for auth), `search-ranking` (the one fuzzy matcher), `sidecar-rust-pty` (the stdio PTY multiplexer the daemon drives on Windows).
+- `packages/`: `runtime-daemon` (the local daemon and its execution services), `control-plane` (the gated Cloudflare Worker and its Postgres schema runner), `contracts` (protocol contracts, schemas, cross-container types), `client-sdk` (the typed daemon client for the desktop main process and the CLI), `crypto-paseto` (PASETO v4 primitives for auth), `search-index` (the session search index: Tantivy in a Rust Node-API addon only the daemon loads), `search-ranking` (the one fuzzy matcher), `sidecar-rust-pty` (the stdio PTY multiplexer the daemon drives on Windows).
 - `tools/` — repository scripts (test runner wrapper, coverage table, mutation shards, pre-commit worktree lock), tested in `tools/__tests__/`.
 - `docs/` — see [Docs](#docs), plus `vision.md` and `reference/` (provider wire references).
 - `.claude/`, `.codex/` — tool config. `.github/workflows/` — CI, docs checks, secret scan. `patches/` — pnpm patches.
