@@ -1,0 +1,87 @@
+// Bundles the daemon: its modules and the workspace packages it imports, with what those import,
+// are inlined into a few files, since loading them one file at a time was most of its start; the
+// npm packages it lists, the native ones among them, load from its node_modules. Each worker
+// thread is an entry written where its source sits, and a module that finds a file from its own
+// URL keeps its source path in a chunk of its own, so the worker beside the module that starts it,
+// the match count's library and the package's manifest are found from the build as from the
+// source. `tsc` writes only the declarations.
+import { globSync, readFileSync } from "node:fs";
+import path from "node:path";
+
+import type { RolldownOptions } from "rolldown";
+
+const SOURCE_FOLDER = path.join(import.meta.dirname, "src");
+
+const manifest = JSON.parse(
+  readFileSync(path.join(import.meta.dirname, "package.json"), "utf8"),
+) as {
+  dependencies: Record<string, string>;
+};
+
+const INSTALLED_PACKAGES = Object.keys(manifest.dependencies).filter(
+  (name) => !name.startsWith("@ai-sidekicks/"),
+);
+
+// A worker thread's module is `worker.ts` beside the module that starts it.
+const WORKER_ENTRIES = globSync("**/worker.ts", {
+  cwd: SOURCE_FOLDER,
+  exclude: ["**/__tests__/**"],
+});
+
+// A source module's path inside the source folder, without its extension: its name in the build.
+function buildNameOf(sourcePath: string): string {
+  return path.relative(SOURCE_FOLDER, sourcePath).replace(/\.ts$/, "").split(path.sep).join("/");
+}
+
+const ENTRY_PATHS = [
+  path.join(SOURCE_FOLDER, "main.ts"),
+  ...WORKER_ENTRIES.map((entry) => path.join(SOURCE_FOLDER, entry)),
+];
+
+// A line of code, not of a comment, that reads the module's own URL.
+const OWN_URL_IN_CODE = /^(?!\s*(?:\/\/|\/?\*)).*\bimport\.meta\.url\b/m;
+
+// The modules that find a file from their own URL, entries aside, which keep their path already.
+function readsItsOwnUrl(modulePath: string): boolean {
+  return (
+    modulePath.startsWith(SOURCE_FOLDER + path.sep) &&
+    modulePath.endsWith(".ts") &&
+    !ENTRY_PATHS.includes(modulePath) &&
+    OWN_URL_IN_CODE.test(readFileSync(modulePath, "utf8"))
+  );
+}
+
+const keptPathNames = new Set<string>();
+
+const config: RolldownOptions = {
+  input: Object.fromEntries(ENTRY_PATHS.map((entry) => [buildNameOf(entry), entry])),
+  platform: "node",
+  external: (id) => INSTALLED_PACKAGES.some((name) => id === name || id.startsWith(`${name}/`)),
+  output: {
+    dir: path.join(import.meta.dirname, "dist"),
+    format: "esm",
+    sourcemap: true,
+    entryFileNames: "[name].js",
+    chunkFileNames: (chunk) =>
+      keptPathNames.has(chunk.name) ? "[name].js" : "chunks/[name]-[hash].js",
+    codeSplitting: {
+      groups: [
+        {
+          debugName: "modules that read their own URL",
+          name: (moduleId) => {
+            // An id is the module's absolute path, written with the platform's separators or not.
+            const modulePath = path.resolve(moduleId);
+            if (!readsItsOwnUrl(modulePath)) {
+              return null;
+            }
+            const name = buildNameOf(modulePath);
+            keptPathNames.add(name);
+            return name;
+          },
+        },
+      ],
+    },
+  },
+};
+
+export default config;

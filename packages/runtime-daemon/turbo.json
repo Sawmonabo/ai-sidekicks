@@ -4,13 +4,17 @@
   "tasks": {
     // The build also compiles the search's match count from C into a library for this platform.
     "build": {
-      "inputs": ["$TURBO_EXTENDS$", "scripts/**"],
+      "inputs": ["$TURBO_EXTENDS$", "scripts/**", "rolldown.config.ts"],
       // A task's hash leaves out the operating system and processor the library is built for; CI's
       // runners name theirs, so its shared cache never hands one platform's library to another.
       "env": ["RUNNER_OS", "RUNNER_ARCH"],
       // Windows' compiler finds its headers and libraries through these, which Turborepo's strict
       // environment mode would otherwise withhold.
       "passThroughEnv": ["INCLUDE", "LIB"]
+    },
+    // The bundle's config is type-checked with the tests.
+    "typecheck": {
+      "inputs": ["$TURBO_EXTENDS$", "rolldown.config.ts"]
     },
     // The unit tests load the library the build compiles.
     "test": {

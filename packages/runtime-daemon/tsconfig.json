@@ -1,7 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.node.json",
+  // Writes the declarations only: rolldown writes the daemon's JavaScript, bundled.
   "compilerOptions": {
+    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "tsBuildInfoFile": "./.tsbuildinfo"
