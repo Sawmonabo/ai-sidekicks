@@ -7,13 +7,15 @@
  * from this tuple. The banner states one fact, so the worst standing cause wins, and only a
  * completed re-pull clears any of them.
  *
- * `stream-diverged`: the store could not follow the stream. `sequence-gap`: named rows are
- * missing. `projection-failed`: a row landed but its entity contribution did not. The last two
- * are raised for a wire that stopped.
+ * `stream-diverged`: the store lost its stream and a read is asked for. `sequence-gap`: named
+ * rows are missing and a read is asked for. `sequence-diverged`: a row's sequence could not be
+ * reconciled with the store's run. `projection-failed`: a row landed but its entity contribution
+ * did not. The last two are raised for a wire that stopped.
  */
 export const SESSION_DEGRADED_CAUSES = [
   "stream-diverged",
   "sequence-gap",
+  "sequence-diverged",
   "projection-failed",
   "subscription-closed",
   "read-failed",
@@ -21,6 +23,15 @@ export const SESSION_DEGRADED_CAUSES = [
 
 /** One degraded cause, derived from the ordered enumeration above. */
 export type SessionDegradedCause = (typeof SESSION_DEGRADED_CAUSES)[number];
+
+/**
+ * Whether a replay of the same log raises this cause again: the row that raised it comes again
+ * and fails the same way. No read is asked for such a cause until a person asks for one, and the
+ * line says it could not catch up rather than that it is catching up.
+ */
+export function isRaisedAgainOnReplay(cause: SessionDegradedCause): boolean {
+  return cause === "sequence-diverged" || cause === "projection-failed";
+}
 
 /**
  * The worst of the causes supplied, or `undefined` when none is standing.

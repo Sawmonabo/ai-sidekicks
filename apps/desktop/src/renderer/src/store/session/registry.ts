@@ -19,7 +19,7 @@ import {
   type SessionStreamPosition,
 } from "./open/entry.js";
 import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
-import type { SessionDegradedCause } from "./degradation.js";
+import { isRaisedAgainOnReplay, type SessionDegradedCause } from "./degradation.js";
 import type { SessionStore } from "./store.js";
 
 /** The origin every refusal this module raises names. */
@@ -213,9 +213,18 @@ export class SessionStoreRegistry {
     return undefined;
   }
 
-  /** Ask for a re-read of every open session — the window-focus and reconnect path. */
+  /**
+   * Ask for a re-read of every open session a read can help — the window-focus and reconnect
+   * path. A session whose replay is under way is left to it, since a read would start the replay
+   * over. A session behind for a cause its replay raises again is left until a person asks, or
+   * every focus would replay its log to fail on the same row.
+   */
   public requestRefreshOfEverySession(reason: RefreshReason): void {
     for (const entry of this.#entriesBySessionId.values()) {
+      const { degradedCause, isReplaying } = entry.store.snapshot();
+      if (isReplaying || (degradedCause !== undefined && isRaisedAgainOnReplay(degradedCause))) {
+        continue;
+      }
       entry.refreshScheduler.request(reason);
     }
   }

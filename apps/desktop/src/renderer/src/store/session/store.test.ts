@@ -1,9 +1,9 @@
-// The per-session store's apply chokepoint and its repair, each mode asserted on the refusal or
-// the recorded loss rather than the absence of a crash, since not throwing is not behaving
-// correctly: an event that came early, one addressed elsewhere, one that skipped or repeated a
-// sequence, a subscriber writing back during notification, a sequence cursor arithmetic cannot
-// carry, a read landing on a store that already holds one, a buffer whose read never came, and a
-// projector that throws.
+// The per-session store's apply chokepoint, each mode asserted on the refusal or the recorded
+// loss rather than the absence of a crash, since not throwing is not behaving correctly: an event
+// that came early, one addressed elsewhere, one that skipped or repeated a sequence, a subscriber
+// writing back during notification, a sequence cursor arithmetic cannot carry, a buffer whose read
+// never came, and a projector that throws. A read landing on a store that already holds a window
+// is `store.repair.test.ts`.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -126,7 +126,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
     // The cursor stays where a read can answer at or ahead of it; a billion would make repairs
     // rewinds.
     expect(store.snapshot().cursor).toBe(0);
-    expect(store.snapshot().degradedCause).toBe("stream-diverged");
+    expect(store.snapshot().degradedCause).toBe("sequence-diverged");
   }, 2000);
 
   it("refuses a sequence too large to increment reliably rather than poisoning the cursor", () => {
@@ -145,7 +145,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
     expect(outcome.admitted).toBe(0);
     // The cursor is still a number a later comparison can act on; `NaN` would break every guard.
     expect(store.snapshot().cursor).toBe(0);
-    expect(store.snapshot().degradedCause).toBe("stream-diverged");
+    expect(store.snapshot().degradedCause).toBe("sequence-diverged");
   });
 
   it("orders the rest of a batch normally even with an unusable sequence in it", () => {
@@ -161,51 +161,6 @@ describe("a delivered sequence the store cannot reconcile", () => {
     // Ordered, with the hole named once (a subtracting comparator would sort `[3, NaN, 1]`).
     expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([1, 3]);
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 2, toSequence: 2 }]);
-  });
-});
-
-describe("a read lands on a store that already holds a base state", () => {
-  it("resets a degraded store, whose stream then sends every row after the read again", () => {
-    const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 5, entities: [] });
-    store.applyBatch([eventAt(7), eventAt(9)]);
-    expect(store.snapshot().degradedCause).toBe("sequence-gap");
-
-    // A daemon read names its position by cursor only, here one behind the rows held.
-    store.initialize({ entities: [] });
-    // The stream opened after that position starts at its next row, which opens no gap.
-    store.applyBatch([eventAt(3), eventAt(4), eventAt(5), eventAt(6), eventAt(7)]);
-
-    // Refusing the read behind the cursor would leave 6 and 8 missing and the store stuck.
-    expect(store.snapshot().degradedCause).toBeUndefined();
-    expect(store.snapshot().gaps).toStrictEqual([]);
-    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
-      3, 4, 5, 6, 7,
-    ]);
-  });
-
-  it("leaves a WHOLE store untouched by any base state, whatever it names", () => {
-    // Guards against admitting every read, which would rebuild the projection on each focus
-    // refresh and empty the transcript for a base state carrying none.
-    const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
-    store.apply(eventAt(1));
-    const before = store.snapshot();
-
-    expect(store.initialize({ entities: [] })).toBe(false);
-    expect(store.initialize({ cursor: 9, entities: [] })).toBe(false);
-
-    expect(store.snapshot()).toBe(before);
-    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([1]);
-  });
-
-  it("marks a healthy store degraded with the cause it is handed", () => {
-    const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
-
-    store.markDegraded("subscription-closed");
-
-    expect(store.snapshot().degradedCause).toBe("subscription-closed");
   });
 });
 

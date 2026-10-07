@@ -1,9 +1,9 @@
 // A frame carrying the daemon's drop mark, and the repair it takes, on its two arms. A hole within
 // the repairable bound is filled by opening the stream again after the last change delivered. A
-// wider one is repaired by a read: the store stays degraded until that read resets it, and the
-// stream after it sends every row again. Either way the store ends with the rows a reader that was
-// never dropped holds. No scenario drops, so the cases set frames aside and stamp the mark through
-// the fixture bridge's subscribe arm.
+// wider one is repaired by a read: the stream after it sends every row again, and the window keeps
+// its rows and stays degraded until that replay passes them. Either way the store ends with the
+// rows a reader that was never dropped holds. No scenario drops, so the cases set frames aside
+// and stamp the mark through the fixture bridge's subscribe arm.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -211,11 +211,12 @@ describe("SessionEventSubscriber — the drop mark", () => {
       expect(reader.state()?.degradedCause).toBeUndefined();
     } else {
       // The stream opens again after the read's position, not after the last change, and the
-      // reset store waits for it to send the rows again.
+      // window keeps its row, still behind, until the stream sends the rows again.
       expect(opens).toEqual([{ sessionId: SESSION_ID }, { sessionId: SESSION_ID }]);
       expect(reader.reasonsSeen).toEqual(["gap-repull"]);
-      expect(reader.state()?.transcript).toEqual([]);
-      expect(reader.state()?.degradedCause).toBeUndefined();
+      expect(reader.state()?.transcript.map((event) => event.sequence)).toEqual([1]);
+      expect(reader.state()?.degradedCause).toBe("stream-diverged");
+      expect(reader.state()?.isReplaying).toBe(true);
     }
 
     reader.subscriber.dispose();
@@ -223,8 +224,8 @@ describe("SessionEventSubscriber — the drop mark", () => {
 
   it("re-reads past a hole too wide to fill, ending with a whole reader's rows", async () => {
     // The log holds sequences 0 to 1,105. The dropped reader receives 0 to 2, then a frame whose
-    // drop mark opens a hole of 1,100; its repair read resets it at the floor, and the stream after
-    // that sends every row again. The whole reader receives everything once.
+    // drop mark opens a hole of 1,100; its repair read reopens the stream at the floor, which
+    // sends every row again. The whole reader receives everything once.
     const lastBeforeDrop = 2;
     const firstAfterDrop = lastBeforeDrop + MAX_REPAIRABLE_SEQUENCE_GAP + 77;
     const newestRow = firstAfterDrop + 2;

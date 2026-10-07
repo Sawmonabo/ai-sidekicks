@@ -39,8 +39,8 @@
 // `MAX_REPAIRABLE_SEQUENCE_GAP` the frame is set aside and the stream opened again after the last
 // change delivered, so the daemon fills the hole in order and the store never sees it; a
 // caught-up frame names no sequence, so it is filled the same way. Past the bound the hole is not
-// filled: the stream is closed and the store marked degraded, and its one repair read resets it
-// at the resume position; the stream then opens after that position and sends every row again.
+// filled: the stream is closed and the store marked degraded, and its one repair read reopens the
+// stream after the last row the store folded whole, which then sends what the old one dropped.
 // Reading a frame is `services/daemon/session/event/payload.ts`. The four reads the endurance
 // tier makes (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
@@ -481,7 +481,7 @@ export class SessionEventSubscriber {
    * frame is set aside either way, which is why the position is read before this frame moves it.
    * Within the bound the hole is filled from the last change delivered. Past it the stream is
    * closed and the store marked degraded (which the catching-up line reads) until the read that
-   * resets it lands.
+   * repairs it lands.
    *
    * The refusal arm of `enqueue` covers a close race: emission iterates a snapshot of subscribers,
    * so a session closed mid-delivery still reaches this handler, and a throw here would break the
@@ -529,7 +529,7 @@ export class SessionEventSubscriber {
 
   /**
    * Repairs a hole too wide to fill by a read: the stream is closed and its position forgotten,
-   * and the session told it lost the stream, so its read resets it and opens the stream again.
+   * and the session told it lost the stream, so its read repairs it and opens the stream again.
    * Retained meanwhile, so a returning edge asks again when that read could not reach the daemon.
    */
   #rereadPastDroppedChanges(sessionId: string, binding: StreamBinding): void {

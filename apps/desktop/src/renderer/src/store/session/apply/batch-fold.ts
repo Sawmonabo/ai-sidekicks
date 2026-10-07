@@ -18,8 +18,14 @@ import {
   isReconcilableSequence,
   orderBatchBySequence,
 } from "../sequence-reconciler.js";
-import { capTranscript, type TranscriptRetainedEnd } from "../state.js";
+import {
+  HEAD_RESUME_POINT,
+  capTranscript,
+  type RepairResumePoint,
+  type TranscriptRetainedEnd,
+} from "../state.js";
 import type { SessionStoreState } from "../state.js";
+import type { SessionPartitions } from "../entities/partitions.js";
 import type { ApplyOutcome } from "./outcome.js";
 
 /** Everything one fold advances beside the state it answers with. */
@@ -65,6 +71,15 @@ export function foldAppliedBatch(
 
   let partitions = current.partitions;
   let appended: ProjectedSessionEvent[] | undefined;
+  let repairResumePoint = current.repairResumePoint;
+  // Where a repair resumes once a row fault lands on the row in hand, the run standing at
+  // `cursorBefore` before it: read off the fold so far, which holds every row before this one.
+  const resumePointBefore = (cursorBefore: number): RepairResumePoint =>
+    resumePointBeforeFault(repairResumePoint, {
+      partitions,
+      cursor: cursorBefore,
+      newestRow: (appended ?? current.transcript).at(-1),
+    });
 
   for (const event of orderBatchBySequence(events)) {
     if (event.sessionId !== dependencies.sessionId) {
@@ -74,6 +89,9 @@ export function foldAppliedBatch(
     if (!isReconcilableSequence(event.sequence)) {
       // Refused before the buffer: no base state makes it applicable, so buffering only defers.
       refusedDivergedSequence += 1;
+      if (current.initialized) {
+        repairResumePoint = resumePointBefore(dependencies.reconciler.cursor);
+      }
       continue;
     }
     if (!current.initialized) {
@@ -84,6 +102,8 @@ export function foldAppliedBatch(
       continue;
     }
 
+    // Read before the reconciler admits the row, since a checkpoint stands at the row before it.
+    const cursorBefore = dependencies.reconciler.cursor;
     const admission = dependencies.reconciler.reconcile(event.sequence);
     if (admission.outcome === "duplicate") {
       duplicates += 1;
@@ -91,15 +111,18 @@ export function foldAppliedBatch(
     }
     if (admission.outcome === "diverged") {
       refusedDivergedSequence += 1;
+      repairResumePoint = resumePointBefore(cursorBefore);
       continue;
     }
     if (admission.openedGap !== undefined) {
       gapDetected = true;
+      repairResumePoint = resumePointBefore(cursorBefore);
     }
 
     const projected = dependencies.projectionRunner.run(partitions, event);
     if (projected === undefined) {
       projectionFailures += 1;
+      repairResumePoint = resumePointBefore(cursorBefore);
     } else {
       partitions = projected;
     }
@@ -152,12 +175,43 @@ export function foldAppliedBatch(
       // sequences are not recorded here; the drain re-derives them as an ordinary range.
       degradedCause: worstDegradedCause(
         current.degradedCause,
-        refusedDivergedSequence > 0 ? "stream-diverged" : undefined,
+        refusedDivergedSequence > 0 ? "sequence-diverged" : undefined,
         gapDetected || droppedBeforeInitialization > 0 ? "sequence-gap" : undefined,
         projectionFailures > 0 ? "projection-failed" : undefined,
       ),
       gaps: dependencies.reconciler.gaps(),
+      repairResumePoint,
       revision: current.revision + 1,
     },
   };
+}
+
+/** The state folded so far when a row fault lands: the partitions and the newest row before it. */
+interface FoldBeforeFault {
+  readonly partitions: SessionPartitions;
+  readonly cursor: number;
+  readonly newestRow: ProjectedSessionEvent | undefined;
+}
+
+/**
+ * Where a repair resumes once a row fault lands: unchanged when a fault already moved it, a
+ * checkpoint at the newest row folded whole before this one, or the head when no row precedes the
+ * fault (or a cap cut it), since nothing then names where the stream could reopen.
+ */
+function resumePointBeforeFault(
+  point: RepairResumePoint,
+  before: FoldBeforeFault,
+): RepairResumePoint {
+  if (point.kind !== "whole") {
+    return point;
+  }
+  const { newestRow } = before;
+  return newestRow?.sequence === before.cursor
+    ? {
+        kind: "checkpoint",
+        partitions: before.partitions,
+        cursor: before.cursor,
+        rowCursor: newestRow.cursor,
+      }
+    : HEAD_RESUME_POINT;
 }

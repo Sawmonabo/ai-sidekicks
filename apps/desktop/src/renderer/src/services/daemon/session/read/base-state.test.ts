@@ -1,5 +1,5 @@
 // The base state a store opens on: the daemon's `session.read`, answered at the position the
-// resume rule picks, passing over a refused one, or refused.
+// opening picks, passing over a refused one, or refused.
 
 import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
@@ -36,11 +36,12 @@ async function readAt(
 
 const FLOOR = encodeEventCursor(START_OF_LOG_POSITION);
 
+/** A window opening with no refused position. */
+const RESUME: SessionWindowOpening = { opensAt: "resume", refusedCursor: undefined };
+
 describe("sessionReadThroughDaemon — the base state a store opens on", () => {
   it("opens at the acknowledged position, which heads the window, and the stream after it", async () => {
-    const { baseState, cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, {
-      refusedCursor: undefined,
-    });
+    const { baseState, cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, RESUME);
 
     // The position is relayed as issued and never read for a sequence, which the stream says.
     expect(cursors.acknowledged).toBeDefined();
@@ -52,16 +53,66 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
   });
 
   it("passes a refused position over for the floor, and a refused floor for the log's start", async () => {
-    const { cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, { refusedCursor: undefined });
+    const { cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, RESUME);
     const pastAcknowledged = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "resume",
       refusedCursor: cursors.acknowledged,
     });
-    const pastFloor = await readAt(CONCURRENT_STREAMING_SCENARIO, { refusedCursor: FLOOR });
+    const pastFloor = await readAt(CONCURRENT_STREAMING_SCENARIO, {
+      opensAt: "resume",
+      refusedCursor: FLOOR,
+    });
 
     expect(pastAcknowledged.cursors.earliest).toBe(FLOOR);
     expect(pastAcknowledged.baseState).toStrictEqual({ entities: [], streamAfterCursor: FLOOR });
     // No position at all: the stream opens with none, from the log's start.
     expect(pastFloor.baseState).toStrictEqual({ entities: [] });
+  });
+
+  it("reopens a repair after the held row it names, else at the window's head", async () => {
+    const head = encodeEventCursor(3);
+    const lastWholeRow = encodeEventCursor(5);
+    const afterRow = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "repair",
+      resumeAfterRowCursor: lastWholeRow,
+      headCursor: head,
+      refusedCursor: undefined,
+    });
+    const pastRefusedRow = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "repair",
+      resumeAfterRowCursor: lastWholeRow,
+      headCursor: head,
+      refusedCursor: lastWholeRow,
+    });
+    const atHead = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "repair",
+      resumeAfterRowCursor: undefined,
+      headCursor: head,
+      refusedCursor: undefined,
+    });
+    const openedAtFloor = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "repair",
+      resumeAfterRowCursor: undefined,
+      headCursor: undefined,
+      refusedCursor: undefined,
+    });
+    const pastRefusedHead = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "repair",
+      resumeAfterRowCursor: undefined,
+      headCursor: head,
+      refusedCursor: head,
+    });
+
+    // The store holds the window's state at that row, so the stream sends only what follows it.
+    expect(afterRow.baseState).toStrictEqual({ entities: [], streamAfterCursor: lastWholeRow });
+    // The acknowledged position can sit at or past the newest row the window holds, where the
+    // stream would send nothing for the replay to pass.
+    expect(atHead.cursors.acknowledged).not.toBe(head);
+    const headBase = { entities: [], streamAfterCursor: head, readFromCursor: head };
+    expect(atHead.baseState).toStrictEqual(headBase);
+    expect(pastRefusedRow.baseState).toStrictEqual(headBase);
+    expect(openedAtFloor.baseState).toStrictEqual({ entities: [], streamAfterCursor: FLOOR });
+    expect(pastRefusedHead.baseState).toStrictEqual({ entities: [], streamAfterCursor: FLOOR });
   });
 
   it("raises the refusal instead of reading nothing", async () => {
@@ -70,9 +121,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     );
 
     await expect(
-      sessionReadThroughDaemon(bridge)(CONCURRENT_STREAMING_SCENARIO.sessionId, [], {
-        refusedCursor: undefined,
-      }),
+      sessionReadThroughDaemon(bridge)(CONCURRENT_STREAMING_SCENARIO.sessionId, [], RESUME),
     ).rejects.toBeInstanceOf(RefusalError);
   });
 });

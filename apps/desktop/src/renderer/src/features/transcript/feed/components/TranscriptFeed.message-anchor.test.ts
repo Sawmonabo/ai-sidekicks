@@ -66,7 +66,7 @@ const PAGE_ROWS = 50;
 /** On the second page back, so the first page alone does not reach it. */
 const BEFORE_FIRST_PAGE_INDEX = 10;
 /** The position the window was read from: everything before it is behind its head. */
-const WINDOW_HEAD_CURSOR = "position-before-100";
+const WINDOW_HEAD_CURSOR = "position-before-100" as EventCursor;
 
 /** A message row at one log position, as `transcript.read` serves it, with its cursor. */
 function messageRowAt(index: number): TranscriptEventRow {
@@ -125,7 +125,7 @@ function scriptedEarlierRead(): { readonly read: EarlierPageRead; readonly calls
 }
 
 /** A window read from `readFromCursor`, holding only the newest page of messages. */
-function openWindowAfterTwoPages(readFromCursor: string = WINDOW_HEAD_CURSOR): SessionStore {
+function openWindowAfterTwoPages(readFromCursor: EventCursor = WINDOW_HEAD_CURSOR): SessionStore {
   const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
   sessionStore.initialize({
     cursor: 149,
@@ -233,7 +233,7 @@ describe("the transcript feed — opened at a message older than the window", ()
     withLaidOutViewport();
     const earlierRead = scriptedEarlierRead();
     const feed = renderFeed(
-      openWindowAfterTwoPages("position-no-page-answers"),
+      openWindowAfterTwoPages("position-no-page-answers" as EventCursor),
       undefined,
       RowIdBody,
       {
