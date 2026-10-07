@@ -15,7 +15,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "#renderer/lib/wire/figures.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
 import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
-import { readBindControlAvailability } from "../health.js";
+import { readBindControlAvailability } from "../bind-control-availability.js";
 import { ReattachControl } from "../attach/ReattachControl.js";
 import type { RepoOperations } from "../../operations.js";
 import type { RepoWorkspaceRow } from "../reading.js";

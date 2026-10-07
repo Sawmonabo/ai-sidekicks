@@ -13,7 +13,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { type BindControlAvailability } from "../health.js";
+import { type BindControlAvailability } from "../bind-control-availability.js";
 import { PrepareExecutionRoot } from "../execution-roots/prepare/PrepareExecutionRoot.js";
 import type { PrepareOperations } from "../execution-roots/prepare/controller.js";
 import type { RepoWorkspaceRow } from "../reading.js";

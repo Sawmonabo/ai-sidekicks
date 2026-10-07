@@ -10,7 +10,7 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
-import { type BindControlAvailability } from "../../health.js";
+import { type BindControlAvailability } from "../../bind-control-availability.js";
 import { preparingDaemon } from "../../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 
