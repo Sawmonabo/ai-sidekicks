@@ -53,11 +53,7 @@ export function AccountPlaneRefusal(props: {
       <InlineRefusal
         code={props.refusal.code}
         detail={props.refusal.detail}
-        announcement={
-          remedySentence === undefined
-            ? props.refusal.detail
-            : `${props.refusal.detail} ${remedySentence}`
-        }
+        remedyWords={remedySentence}
       />
       {handoff === undefined ? null : (
         <p className="meridian-account-handoff">

@@ -40,12 +40,16 @@ export interface SessionStoreState {
   /** Sticky while the projection is known-incomplete; cleared only by a re-pull. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
-   * How many reads of this session have failed since the newest one that landed; `0` while the
-   * newest read landed. Kept beside the worst cause because the ladder keeps a worse cause
-   * standing over `read-failed`, yet the person must still be told the repair read failed, and
-   * a count so a retry that fails again is a new failure. Reset by the next read that lands.
+   * Whether the newest read of this session failed. Set beside the worst cause because the
+   * ladder keeps a worse cause standing over `read-failed`, yet the person must still be told
+   * the repair read failed. Cleared by the next read that lands.
    */
-  readonly failedReadCount: number;
+  readonly lastReadFailed: boolean;
+  /**
+   * How many reads of this session have failed in this store's life, so a retry that fails again
+   * is a new failure. Never reset: a read landing in between is not a failure.
+   */
+  readonly readFailureCount: number;
   /**
    * Runs of sequences observed as missing, oldest first, rendered by the degraded banner. The
    * accumulated width they describe is bounded by `MAX_REPAIRABLE_SEQUENCE_GAP`.
@@ -127,7 +131,8 @@ export function uninitializedState(input: {
     cursor: UNINITIALIZED_CURSOR,
     windowHeadCursor: undefined,
     degradedCause: input.degradedCause,
-    failedReadCount: 0,
+    lastReadFailed: false,
+    readFailureCount: 0,
     gaps: [],
     revision: input.revision,
   };
@@ -144,6 +149,8 @@ export function establishedState(input: {
   readonly orderedTranscript: readonly ProjectedSessionEvent[];
   readonly transcriptCap: number | undefined;
   readonly revision: number;
+  /** The failures counted before this read, carried across it. */
+  readonly readFailureCount: number;
 }): SessionStoreState {
   let partitions: SessionPartitions = emptyPartitions();
   for (const entity of input.baseState.entities) {
@@ -157,7 +164,8 @@ export function establishedState(input: {
     cursor: input.baseState.cursor,
     windowHeadCursor: input.baseState.readFromCursor,
     degradedCause: undefined,
-    failedReadCount: 0,
+    lastReadFailed: false,
+    readFailureCount: input.readFailureCount,
     gaps: [],
     revision: input.revision,
   };

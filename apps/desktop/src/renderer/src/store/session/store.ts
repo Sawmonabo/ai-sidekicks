@@ -192,6 +192,7 @@ export class SessionStore {
         orderedTranscript: transcript,
         transcriptCap: this.#transcriptCap,
         revision: current.revision + 1,
+        readFailureCount: current.readFailureCount,
       }),
     );
 
@@ -217,16 +218,17 @@ export class SessionStore {
 
   /**
    * Record that a read of this session failed: `read-failed` merged through the ladder, and the
-   * failure counted beside it so a store already behind for a worse cause still says its repair
-   * read failed. Every failure counts, so a retry that fails again is a new one. The next read
-   * that lands clears both.
+   * failure kept beside it so a store already behind for a worse cause still says its repair
+   * read failed. Every failure is counted, so a retry that fails again is a new one. The next read
+   * that lands clears the cause and the flag; the count stays.
    */
   public markReadFailed(): void {
     const current = this.#store.getState();
     this.#store.setState({
       ...current,
       degradedCause: worstDegradedCause(current.degradedCause, "read-failed"),
-      failedReadCount: current.failedReadCount + 1,
+      lastReadFailed: true,
+      readFailureCount: current.readFailureCount + 1,
       revision: current.revision + 1,
     });
   }

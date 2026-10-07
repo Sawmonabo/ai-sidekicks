@@ -253,7 +253,7 @@ export function KeyboardPage(): ReactNode {
           <AnnouncedLine
             element="p"
             className="meridian-settings-page__state"
-            words={KEYBOARD_MAP_REPAIRED}
+            words={KEYBOARD_MAP_REPAIRED_SENTENCE}
             politeness="assertive"
           />
         )}
@@ -321,6 +321,6 @@ function describeBinding(
 }
 
 /** What the page says where the keyboard map could not be read and was written out again. */
-const KEYBOARD_MAP_REPAIRED =
+const KEYBOARD_MAP_REPAIRED_SENTENCE =
   "The keyboard map could not be read, so the chords the app ships with were used and the file " +
   "was written out again. Any chord changed before now is back at the one the app ships with.";

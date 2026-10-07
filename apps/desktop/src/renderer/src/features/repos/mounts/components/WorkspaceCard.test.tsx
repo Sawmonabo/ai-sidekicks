@@ -46,7 +46,8 @@ describe("WorkspaceCard — the stale row", () => {
     const detail = "fatal: could not read from remote repository (exit 128)";
     const { getByText, container } = renderRow(workspace({ state: "stale", lastError: detail }));
     expect(getByText(detail, { ignore: OUTSIDE_LIVE_REGIONS })).toBeDefined();
-    expect(liveRegionText(container, "polite")).toBe(detail);
+    // Drawn outside a list's first read, the error arrived live, and is said as a failure is.
+    expect(liveRegionText(container, "assertive")).toBe(detail);
     expect(container.querySelector(".meridian-workspace-card__last-error")).not.toBeNull();
   });
 });

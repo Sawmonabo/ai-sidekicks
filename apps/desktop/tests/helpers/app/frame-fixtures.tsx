@@ -79,17 +79,17 @@ export function bridgeWrapper(
 }
 
 /**
- * A wrapper's tree with the window's announcer inside it, where the frame mounts it, so a
- * component that speaks can render under a bridge host.
+ * A render wrapper with the window's announcer inside it, where the frame mounts it, so a
+ * component that speaks can render under a bridge wrapper.
  */
 export function withAnnouncer(
-  Host: (props: { readonly children: ReactNode }) => React.JSX.Element,
+  Wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element,
 ): (props: { readonly children: ReactNode }) => React.JSX.Element {
-  return function AnnouncedHost(props: { readonly children: ReactNode }): React.JSX.Element {
+  return function WrapperWithAnnouncer(props: { readonly children: ReactNode }): React.JSX.Element {
     return (
-      <Host>
+      <Wrapper>
         <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
-      </Host>
+      </Wrapper>
     );
   };
 }

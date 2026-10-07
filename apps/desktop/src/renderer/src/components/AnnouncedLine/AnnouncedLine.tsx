@@ -1,6 +1,6 @@
-// A line drawn when something happens (an act settled, a check closed a control, a failure), which
-// mounts already holding its words. Most screen readers never announce a live region inserted with
-// its text, so the line carries no live role and says its words once through the app's announcer.
+// A line drawn when something happens (an act settled, a check closed a control, a failure). It
+// carries no live role and says its words through the app's announcer when they report a change
+// (`hooks/announce/useAnnounceWhenShown.ts` says why); drawn as its view opens, it stands.
 
 import type { ReactNode } from "react";
 
@@ -14,7 +14,7 @@ export interface AnnouncedLineProps {
   readonly className?: string;
   /** For a field the line describes (`aria-describedby`). */
   readonly id?: string;
-  /** The words the line shows, said when it is drawn and again when they change. */
+  /** The words the line shows, said when they appear or change after its view first drew. */
   readonly words: string;
   /** `assertive` for a refusal or a failure, `polite` for everything else. */
   readonly politeness: AnnouncementPoliteness;
@@ -34,7 +34,7 @@ export interface AnnouncedLineProps {
 
 /** A drawn line that speaks its words through the app's announcer. */
 export function AnnouncedLine(props: AnnouncedLineProps): React.JSX.Element {
-  useAnnounceWhenShown(props.words, props.politeness, props.attempt);
+  useAnnounceWhenShown(props.words, props.politeness, { attempt: props.attempt });
   const Element = props.element;
   return (
     <Element className={props.className} id={props.id} aria-busy={props.isBusy}>

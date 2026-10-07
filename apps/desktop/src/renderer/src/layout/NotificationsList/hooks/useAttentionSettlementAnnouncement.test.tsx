@@ -5,13 +5,12 @@
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
-import { ManualClock } from "#renderer/lib/clock.js";
 import { refuse } from "#renderer/lib/refusal/contract.js";
-import { LiveAnnouncer } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { AttentionSummary, type AttentionReading } from "#renderer/store/attention/summary.js";
 import { useAttentionSettlementAnnouncement } from "./useAttentionSettlementAnnouncement.js";
 
@@ -66,23 +65,20 @@ function AnnouncementProbe(props: { readonly reading: AttentionReading }): null 
 }
 
 /**
- * Mounts the probe under the real announcer with `announce` spied, not replaced. The spy records
- * what was said and how often, which the live region cannot: a sentence said twice leaves the same
- * text. A `ManualClock` freezes the hold window.
+ * Mounts the probe under the real announcer with `announce` spied, not replaced, on a frozen clock.
  */
 function mountProbe(reading: AttentionReading): {
   readonly spoken: () => readonly string[];
   readonly rerender: (next: AttentionReading) => Promise<void>;
 } {
-  const announcer = new LiveAnnouncer({ clock: new ManualClock() });
-  const announce = vi.spyOn(announcer, "announce");
+  const { announcer, spoken } = spiedAnnouncer();
   const mounted = render(
     <LiveAnnouncerProvider announcer={announcer}>
       <AnnouncementProbe reading={reading} />
     </LiveAnnouncerProvider>,
   );
   return {
-    spoken: () => announce.mock.calls.map(([message]) => message),
+    spoken,
     rerender: async (next) => {
       await act(async () => {
         mounted.rerender(

@@ -19,7 +19,12 @@
 // children are handed the roving `tabIndex` and target marker to spread onto the one control they
 // render, and the row then writes neither. Delegation keeps Enter, Space and click on the button
 // of a row of controls, where a row-level stop would need a second activation path.
+//
+// A window remounts a row each time it scrolls back into sight, so what the row draws as it mounts
+// stands (`StandingContent`): a line in it is said only when it appears or changes while the row
+// is up, never again on a remount.
 
+import { StandingContent } from "../LiveAnnouncer/StandingContent.js";
 import {
   WINDOWED_ROW_INDEX_ATTRIBUTE,
   WINDOWED_ROW_TARGET_ATTRIBUTE,
@@ -94,9 +99,13 @@ export function WindowedListRow(props: WindowedListRowProps): React.JSX.Element 
     "aria-posinset": isPosition ? props.rowIndex + 1 : undefined,
   };
 
-  const body = delegatesTheTabStop
-    ? children({ tabIndex: rowTabIndex, [WINDOWED_ROW_TARGET_ATTRIBUTE]: "" })
-    : children;
+  const body = (
+    <StandingContent>
+      {delegatesTheTabStop
+        ? children({ tabIndex: rowTabIndex, [WINDOWED_ROW_TARGET_ATTRIBUTE]: "" })
+        : children}
+    </StandingContent>
+  );
 
   if (props.as === "li") {
     return (

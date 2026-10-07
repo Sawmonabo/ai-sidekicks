@@ -148,6 +148,49 @@ describe("SessionCatchUpLine", () => {
     expect(mountsReads).toBe(2);
   });
 
+  it("says nothing more when a session read lands beside a dependent read still failed", async () => {
+    const clock = new ManualClock(0);
+    let readRejects = true;
+    const entry = new OpenSessionEntry("session-read-lands", {
+      read: () =>
+        readRejects
+          ? Promise.reject(new Error("the daemon refused the read"))
+          : Promise.resolve({ cursor: 0, entities: [] }),
+      clock,
+      applyCoalesceMs: 0,
+      refreshDebounceMs: 20,
+    });
+    const mountsReader = failingRepoMountsReader(entry.store, clock);
+    const container = renderLine(entry.store, clock);
+    async function landReads(): Promise<void> {
+      await act(async () => {
+        clock.advance(REFRESH_DEBOUNCE_MS);
+        for (let turn = 0; turn < 10; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+    }
+
+    entry.refreshScheduler.request("subscribe");
+    mountsReader.start();
+    await landReads();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const saidOnTheFailures = liveRegionText(container, "assertive");
+    advance(clock, LIVE_ANNOUNCEMENT_HOLD_MS);
+    readRejects = false;
+    entry.refreshScheduler.request("user-request");
+    await landReads();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterTheSessionReadLanded = drawnText(container);
+    const saidOnTheLanding = liveRegionText(container, "assertive");
+    mountsReader.dispose();
+    entry.dispose();
+
+    expect(saidOnTheFailures).toBe("Couldn't catch up");
+    expect(afterTheSessionReadLanded).toBe("Couldn't catch up · Try again");
+    expect(saidOnTheLanding).toBe("");
+  });
+
   it("asks for exactly one re-read of this session when Try again is pressed", () => {
     const clock = new ManualClock(0);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });

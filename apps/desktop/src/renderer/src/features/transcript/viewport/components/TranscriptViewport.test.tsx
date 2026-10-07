@@ -18,8 +18,13 @@ import {
 import type { ViewportRow } from "../snapshot.js";
 import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 const LONG_LOG_ROW_COUNT = 500;
+
+/** A log long enough to scroll its first row out of sight, short enough for the window to hold. */
+const HELD_LOG_ROW_COUNT = 200;
 
 interface BindingHolder {
   binding: TranscriptViewportBinding | undefined;
@@ -149,5 +154,53 @@ describe("the transcript viewport — the feed", () => {
     });
     // The caller's binding reaches the element because the viewport takes it as a prop.
     expect(scrollContainer?.scrollTop).toBeGreaterThan(0);
+  });
+});
+
+describe("the transcript viewport — what a row's lines say", () => {
+  /** Every row draws its key, and the first row draws a refusal under it. */
+  function renderRowWithRefusal(refusalWords: string): (row: ViewportRow) => React.ReactNode {
+    return (row) =>
+      row.key === "row-0" ? (
+        <Nothing kind="error" placement="block" title={refusalWords} />
+      ) : (
+        <p>{row.key}</p>
+      );
+  }
+
+  it("says nothing for a row's refusal as it mounts or remounts, and says a change once", () => {
+    withLaidOutViewport();
+    const holder: BindingHolder = { binding: undefined };
+    const said = spiedAnnouncer();
+    const viewportWith = (refusalWords: string): React.JSX.Element => (
+      <LiveAnnouncerProvider announcer={said.announcer}>
+        <ComposedTranscriptViewport
+          clock={new ManualClock()}
+          // Fewer than the window holds, so the first row stays in it while it is out of sight.
+          rows={syntheticRows(HELD_LOG_ROW_COUNT)}
+          renderRow={renderRowWithRefusal(refusalWords)}
+          feedLabel="Transcript"
+          holder={holder}
+        />
+      </LiveAnnouncerProvider>
+    );
+    const { rerender } = render(viewportWith("The daemon refused this turn."));
+    expect(screen.getByText("The daemon refused this turn.")).toBeDefined();
+
+    // Scrolled out of sight and back: the window unmounts the row and mounts it again.
+    act(() => {
+      holder.binding?.jumpToTail();
+    });
+    expect(screen.queryByText("The daemon refused this turn.")).toBeNull();
+    act(() => {
+      holder.binding?.jumpToRow("row-0");
+    });
+    expect(screen.getByText("The daemon refused this turn.")).toBeDefined();
+    expect(said.spoken()).toStrictEqual([]);
+
+    // The same row's words changing while it is in sight is news.
+    rerender(viewportWith("The daemon refused this turn again."));
+    expect(said.spoken()).toStrictEqual(["The daemon refused this turn again."]);
+    expect(said.spokenOn("assertive")).toStrictEqual(["The daemon refused this turn again."]);
   });
 });

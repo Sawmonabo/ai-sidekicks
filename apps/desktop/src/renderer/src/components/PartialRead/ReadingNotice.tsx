@@ -2,8 +2,9 @@
 // reaches the screen through (the not-loaded absence, or the refusal); `PartialRead` decides that
 // a view owes one notice per reading.
 //
-// It branches on the shape once and never re-reads the state. It creates no live region: `Nothing`
-// and `InlineRefusal` own theirs, and a view speaks the sentence with `useAnnounceOncePerSentence`.
+// It branches on the shape once and never re-reads the state. It creates no live region:
+// `InlineRefusal` says its own words, and a view speaks the sentence with
+// `useAnnounceOncePerSentence`.
 
 import "./PartialRead.css";
 

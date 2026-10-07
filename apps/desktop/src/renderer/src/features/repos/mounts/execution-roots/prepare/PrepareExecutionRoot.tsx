@@ -4,7 +4,7 @@
 
 import "./PrepareExecutionRoot.css";
 
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -62,6 +62,17 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   const isBranchNamed = branchName.trim().length > 0;
   const { onPrepared } = props;
   const unavailableBecause = controlHoldSentence(props.availability);
+  // The held and branch lines are standing guidance, read with the controls they describe rather
+  // than spoken: the form is collapsed, so a spoken line would be heard for text nobody sees.
+  const heldLineId = useId();
+  const branchLineId = useId();
+  const prepareDescribedBy =
+    [
+      unavailableBecause === undefined ? undefined : heldLineId,
+      isBranchNamed ? undefined : branchLineId,
+    ]
+      .filter((lineId) => lineId !== undefined)
+      .join(" ") || undefined;
 
   const nameBranch = useCallback(
     (nextBranchName: string) => {
@@ -95,6 +106,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           spellCheck={false}
           autoComplete="off"
           disabled={unavailableBecause !== undefined}
+          aria-describedby={isBranchNamed ? undefined : branchLineId}
           onChange={(event) => {
             nameBranch(event.target.value);
           }}
@@ -109,26 +121,21 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         disabled={
           unavailableBecause !== undefined || !isBranchNamed || reading.status === "sending"
         }
+        aria-describedby={prepareDescribedBy}
         onClick={submit}
       >
         Prepare
       </button>
       {unavailableBecause === undefined ? null : (
         // The mount's own sentence; never a second wording.
-        <AnnouncedLine
-          element="p"
-          className="meridian-prepare-root__held"
-          words={unavailableBecause}
-          politeness="polite"
-        />
+        <p className="meridian-prepare-root__held" id={heldLineId}>
+          {unavailableBecause}
+        </p>
       )}
       {isBranchNamed ? null : (
-        <AnnouncedLine
-          element="p"
-          className="meridian-form__blocked"
-          words={BRANCH_REQUIRED_COPY}
-          politeness="polite"
-        />
+        <p className="meridian-form__blocked" id={branchLineId}>
+          {BRANCH_REQUIRED_COPY}
+        </p>
       )}
     </details>
   );

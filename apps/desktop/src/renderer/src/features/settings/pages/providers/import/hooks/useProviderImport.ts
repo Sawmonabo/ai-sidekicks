@@ -62,6 +62,11 @@ export interface ProviderImportModel {
   readonly isUnderway: boolean;
   /** A stop is out. */
   readonly isStopping: boolean;
+  /**
+   * The row shows what the stream replayed as it opened and nothing this screen did since: what
+   * was already true when the person arrived.
+   */
+  readonly isShowingReplay: boolean;
   /** Start an import. A rejected start settles as {@link startRefusal}. */
   readonly start: () => void;
   /** Stop the running import; its stopped outcome arrives on the stream. */
@@ -114,6 +119,11 @@ export function useProviderImport(
     isReading: runningImportId !== undefined,
     isUnderway: started.status === "running" || runningImportId !== undefined,
     isStopping: stopped.status === "running",
+    isShowingReplay:
+      progress.status !== "failed" &&
+      progress.newest !== undefined &&
+      progress.newest === progress.replayed &&
+      started.status === "unattempted",
     start: () => {
       void startCall.run({ provider });
     },

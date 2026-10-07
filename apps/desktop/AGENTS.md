@@ -86,6 +86,7 @@ Held in review; a checker would get both wrong.
 
 - **Two hues carry attention, never a third:** amber, a person is needed; red, something failed. Every attention color is an `ATTENTION_ROLES` role in `src/shared/theme/palette.ts`, filled by each theme's table; the brand accent is one desaturated cyan, for interactive affordances and a running state. No stylesheet paints an attention treatment from its own hex, named color or raw `oklch()`; a raw `oklch(0% 0 0 / …)` in a `box-shadow` is an opacity, not a hue.
 - **Copy is sentence case, never exclaims or celebrates.** A receipt states what happened: no exclamation mark, no congratulation, no Title Case run of three or more words.
+- **A line is said only when what it reports changed after its view's first read settled.** The person's act, a state change pushed after the first read, the view's own first read failing (assertive) and the delayed loading line speak through the window's one announcer; what the first read or a replay draws, and what a remounted row redraws, is plain text reached by browsing. A line speaks through `AnnouncedLine` or `useAnnounceWhenShown`, never a live role of its own, and a view marks what it opens with in `StandingContent`.
 
 ## Naming
 

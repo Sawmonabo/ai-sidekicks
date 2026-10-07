@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type ReasoningReading } from "./reasoning-reading.js";
 import { ThinkingRow } from "./ThinkingRow.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { drawnText } from "#test/helpers/live-region.js";
 
 const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
 
@@ -93,7 +94,7 @@ describe("the states around the read", () => {
         refusal: { code: "transcript.run_not_found", detail: "No such run.", origin: "daemon" },
       },
     });
-    expect(container.textContent).toContain("No such run.");
-    expect(container.textContent).not.toContain("transcript.run_not_found");
+    expect(drawnText(container)).toContain("No such run.");
+    expect(drawnText(container)).not.toContain("transcript.run_not_found");
   });
 });

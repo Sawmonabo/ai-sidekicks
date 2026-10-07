@@ -53,8 +53,8 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
           detail={composition.sendResult.refusal.detail}
         />
       )}
-      {/* Plain paragraphs: the composition announces the settlement these two lines spell out
-          when it lands, so announcing them here would say it twice. */}
+      {/* A plain paragraph: the composition says the unsent-edits sentence as the create lands, so
+          saying it here would say it twice. */}
       {composition.unsentEditsSentence === undefined ? null : (
         <p className="meridian-new-session__unsent">{composition.unsentEditsSentence}</p>
       )}

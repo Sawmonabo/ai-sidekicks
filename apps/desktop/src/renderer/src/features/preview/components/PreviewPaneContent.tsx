@@ -24,6 +24,7 @@ import { PageTabStrip } from "./PageTab/PageTabStrip.js";
 import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { useAnnounceBannerRefusal } from "#renderer/hooks/announce/useAnnounceBannerRefusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
@@ -72,6 +73,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
   const paneActs = usePreviewPaneActs(bridge, paneId);
   const { refusal: actRefusal, run: runAct, refuseLocally, dismiss: dismissActRefusal } = paneActs;
+  useAnnounceBannerRefusal(actRefusal);
   const addressFieldId = useId();
   // Only a served reading reports a page; any other arm leaves the history controls disabled
   // and the address field with nothing to follow.

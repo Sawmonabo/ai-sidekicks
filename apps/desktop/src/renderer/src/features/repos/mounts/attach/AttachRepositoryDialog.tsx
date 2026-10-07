@@ -17,6 +17,7 @@ import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./form.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */
 export interface AttachRepositoryDialogProps {
@@ -112,15 +113,18 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
             Attach
           </button>
         </div>
-        {/* The reason the control is closed is always said; a grayed button reports nothing. */}
-        {verdict.status === "incomplete" ? (
-          <AnnouncedLine
-            element="p"
-            className="meridian-form__blocked"
-            words={verdict.because}
-            politeness="polite"
-          />
-        ) : null}
+        {/* The reason the control is closed is drawn, since a grayed button reports nothing. The
+            reason the dialog opens with stands; one that typing brings is said. */}
+        <StandingContent>
+          {verdict.status === "incomplete" ? (
+            <AnnouncedLine
+              element="p"
+              className="meridian-form__blocked"
+              words={verdict.because}
+              politeness="polite"
+            />
+          ) : null}
+        </StandingContent>
       </OverlayDialogPopup>
     </Dialog.Root>
   );

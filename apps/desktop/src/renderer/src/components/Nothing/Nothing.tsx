@@ -54,7 +54,7 @@ export interface NothingProps {
 interface NothingKindTraits {
   /** The placement used when the caller names none; a caller may override it. */
   readonly defaultPlacement: NothingPlacement;
-  /** Whether the kind has words; `not-loaded` shows a shape and only announces its title. */
+  /** Whether the kind has words; `not-loaded` shows a shape and holds its title for browsing. */
   readonly copy: "prose" | "skeleton";
   /** The kind's glyph, in both shapes. Kinds that carry meaning in copy alone have none. */
   readonly glyph?: GlyphName;
@@ -64,11 +64,10 @@ interface NothingKindTraits {
    */
   readonly detailClassName: string;
   /**
-   * The announcer lane the state's words are said on when it is drawn, in both shapes: it mounts
-   * holding them, which most screen readers never announce from a live role. Absent where the
-   * state is quiet.
+   * The announcer lane the state's words are said on when it appears, in both shapes. Absent
+   * where the state is quiet: a skeleton drawn at once, an empty answer, a question not put.
    */
-  readonly announcement?: AnnouncementPoliteness;
+  readonly politeness?: AnnouncementPoliteness;
   /** Whether the kind is a read still in flight. */
   readonly busy?: boolean;
 }
@@ -79,7 +78,6 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
     defaultPlacement: "block",
     copy: "skeleton",
     detailClassName: "meridian-nothing__detail",
-    announcement: "polite",
     busy: true,
   },
   empty: {
@@ -92,7 +90,7 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
     copy: "prose",
     glyph: "alert",
     detailClassName: "meridian-nothing__message",
-    announcement: "assertive",
+    politeness: "assertive",
   },
   "not-checked": {
     defaultPlacement: "inline",
@@ -104,7 +102,7 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
     copy: "prose",
     glyph: "clock",
     detailClassName: "meridian-nothing__detail",
-    announcement: "polite",
+    politeness: "polite",
   },
 };
 
@@ -128,9 +126,9 @@ export function Nothing(props: NothingProps): React.JSX.Element {
     `meridian-nothing ${SHAPE_MODIFIER_BY_PLACEMENT[placement]} ` +
     `meridian-nothing--${props.kind}`;
   useAnnounceWhenShown(
-    traits.announcement === undefined ? undefined : shownWords(props, traits, placement),
-    traits.announcement ?? "polite",
-    props.attempt,
+    traits.politeness === undefined ? undefined : shownWords(props, placement),
+    traits.politeness ?? "polite",
+    { attempt: props.attempt },
   );
   return placement === "inline"
     ? renderBadge(props, traits, className)
@@ -203,15 +201,11 @@ function renderBlock(
 }
 
 /**
- * The words the state shows: its title, and in a block of prose its second line too. A badge
- * carries that line only as a tooltip, and a skeleton shows none.
+ * The words a spoken state shows: its title, and in a block its second line too. A badge carries
+ * that line only as a tooltip.
  */
-function shownWords(
-  props: NothingProps,
-  traits: NothingKindTraits,
-  placement: NothingPlacement,
-): string {
-  if (placement === "inline" || traits.copy === "skeleton" || props.detail === undefined) {
+function shownWords(props: NothingProps, placement: NothingPlacement): string {
+  if (placement === "inline" || props.detail === undefined) {
     return props.title;
   }
   return /[.?!…]$/u.test(props.title)

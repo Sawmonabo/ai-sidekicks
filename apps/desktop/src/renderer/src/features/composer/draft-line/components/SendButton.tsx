@@ -66,7 +66,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
       {controller.refusal === undefined ? null : (
         // Through the remedy join: `intervention.idempotency_conflict`, `run.version_conflict`
         // and `session.not_found` each have a next move the daemon's sentence lacks.
-        <RefusalWithRemedy refusal={controller.refusal} attempt={controller.refusal} />
+        <RefusalWithRemedy refusal={controller.refusal} />
       )}
     </>
   );

@@ -29,10 +29,10 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
   return (
     <div
       className="meridian-refusal meridian-refusal--banner"
-      // Not a live region: the banner mounts already carrying its text, which most screen readers
-      // never announce, and the frame announces every raise through the one `LiveAnnouncer`
-      // (`layout/AppShell/hooks/useRefusalBannerAnnouncements.ts`). A `role="status"` would read
-      // the sentence twice.
+      // Not a live region: the frame announces each of its banners as it is raised
+      // (`layout/AppShell/hooks/useRefusalBannerAnnouncements.ts`), and a view drawing its own
+      // says it through `hooks/announce/useAnnounceBannerRefusal.ts`. A `role="status"` would
+      // read the sentence twice.
       role="group"
       data-refusal-code={props.code}
     >

@@ -1,8 +1,8 @@
 // What this session's daemon-hosted tool registry holds, and whether it is exposed. The caller
 // supplies the read (the registry travels on the spawn parameter, not a client read), and a
-// rejection surfaces unhandled. While the daemon's approval service is not running, or the
-// provider cannot register the tools, the registry is withheld: entries are still listed, and a
-// stray invocation is denied by the daemon.
+// rejection surfaces unhandled. While the daemon's approval service is not running, or its tool
+// route does not serve the tools to the provider, the registry is withheld: entries are still
+// listed, and a stray invocation is denied by the daemon.
 
 import { useEffect, useState } from "react";
 

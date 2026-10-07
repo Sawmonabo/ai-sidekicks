@@ -36,7 +36,6 @@ import { registerPaneHarnessScreen } from "./pane-harness/register-screen.js";
 import { AppRouter } from "./AppRouter.js";
 import { screenRegistry } from "#renderer/registries/screens/registry.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
-import { OUTSIDE_LIVE_REGIONS, liveRegionText } from "#test/helpers/live-region.js";
 
 afterEach(cleanup);
 
@@ -191,11 +190,8 @@ describe("AppRouter — the workflows screen across a run's page", () => {
     });
 
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(
-        screen.getByText("That run is not here.", { ignore: OUTSIDE_LIVE_REGIONS }),
-      ).toBeTruthy();
+      expect(screen.getByText("That run is not here.")).toBeTruthy();
     });
-    expect(liveRegionText(document.body, "polite")).toBe("That run is not here.");
     expect(openRunId(mounted)).toBeUndefined();
   });
 

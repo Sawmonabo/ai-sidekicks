@@ -8,6 +8,7 @@ import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/st
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { keepStandingRefusal } from "#renderer/lib/reads/refresh/standing-refusal.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type ReadRound } from "#renderer/lib/reads/scope.js";
 import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
@@ -50,8 +51,8 @@ export class DaemonStatusRead implements ReadTriggerTarget {
     this.#readStatus = readStatus;
     this.#scheduler = new RefreshScheduler({
       clock,
-      perform: async (_reasons, round) => {
-        await this.#read(round);
+      perform: async (reasons, round) => {
+        await this.#read(reasons, round);
       },
     });
   }
@@ -82,12 +83,18 @@ export class DaemonStatusRead implements ReadTriggerTarget {
     this.#scheduler.dispose();
   }
 
-  async #read(round: ReadRound): Promise<void> {
+  async #read(reasons: readonly RefreshReason[], round: ReadRound): Promise<void> {
     let settled: DaemonStatusReading;
     try {
       settled = { phase: "read", status: await this.#readStatus() };
     } catch (error: unknown) {
-      settled = { phase: "failed", refusal: coerceToRefusal(error, DAEMON_STATUS_ORIGIN) };
+      const standing = this.#reading.phase === "failed" ? this.#reading.refusal : undefined;
+      const refusal = keepStandingRefusal(
+        standing,
+        coerceToRefusal(error, DAEMON_STATUS_ORIGIN),
+        reasons,
+      );
+      settled = refusal === standing ? this.#reading : { phase: "failed", refusal };
     }
     round.settle(() => {
       this.#reading = settled;

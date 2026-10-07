@@ -1,6 +1,6 @@
 // The card shape: a block in place of what could not be shown, with the code's words over the
-// message. Not a live region: the card mounts already holding its words, so it speaks them once
-// through the app's announcer, on the assertive lane kept for refusals; the action is not read out.
+// message. Not a live region: the card speaks through the app's announcer, on the assertive lane
+// kept for refusals; the action is not read out.
 
 import "./Refusal.css";
 
@@ -14,6 +14,8 @@ import { RefusalWords } from "./RefusalWords.js";
 
 /** Props for `RefusalCard`. */
 export interface RefusalCardProps extends RefusalProps {
+  /** Words the caller draws in the action region (a remedy sentence), read out after the card's. */
+  readonly remedyWords?: string | undefined;
   /**
    * The attempt this refusal answers, for a retry that can end in the same words: a new value says
    * them again. Keep its identity across renders (the refusal the retry replaces).
@@ -24,10 +26,11 @@ export interface RefusalCardProps extends RefusalProps {
 /** A refusal as a block: a registered code's words, then the message. */
 export function RefusalCard(props: RefusalCardProps): React.JSX.Element {
   const detail = formatWireString(props.detail);
+  const sentence = refusalSentence(props.code, props.reason, detail);
   useAnnounceWhenShown(
-    refusalSentence(props.code, props.reason, detail),
+    props.remedyWords === undefined ? sentence : `${sentence} ${props.remedyWords}`,
     "assertive",
-    props.attempt,
+    { attempt: props.attempt },
   );
   return (
     <div className="meridian-refusal meridian-refusal--card" data-refusal-code={props.code}>

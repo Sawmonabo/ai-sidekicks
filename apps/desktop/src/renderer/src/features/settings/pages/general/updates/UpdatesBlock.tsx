@@ -11,7 +11,6 @@
 // the refusal's message, or the screen's fixed sentence for it, in the strip, with `Try again`
 // sending the same change again.
 
-import type { UpdateState } from "#shared/preload-api.js";
 import { useEffect, useState, type ReactNode } from "react";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 
@@ -27,28 +26,10 @@ import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import { type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
+import { UPDATE_STATE_WORDS, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
-
-/**
- * What each settled arm of the updater's read says, for the person who cannot see it; the
- * `error` arm's line speaks for itself.
- *
- * Total over the other arms of `UpdateState`, so a new upstream arm is a compile error. It
- * carries no percent: `downloading` re-settles on every push and a sentence with the figure would
- * be announced once per percentage point.
- */
-const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<Exclude<UpdateState["status"], "error">, string>> =
-  {
-    idle: "Update state read. No update is waiting.",
-    checking: "Update state read. A check is running.",
-    available: "Update state read. An update is available to download.",
-    downloading: "Update state read. An update is downloading.",
-    verifying: "Update state read. The update's signature is being checked.",
-    ready: "Update state read. An update has downloaded and installs on the next restart.",
-  };
 
 /** The subsystem a refused updater control names as its author. */
 const UPDATER_CONTROL_ORIGIN = "updater-control";
@@ -214,12 +195,14 @@ function renderAutomaticCheck(
 }
 
 /**
- * The one sentence this block announces, or `undefined` while no state has settled; a refused
- * read and the updater's failure are drawn as lines that speak for themselves.
+ * The one sentence this block announces, the settled state's drawn words, or `undefined` while no
+ * state has settled; a refused read and the updater's failure are drawn as lines that speak for
+ * themselves. It carries no figure: `downloading` re-settles on every push, and a sentence with
+ * the percent would be announced once per percentage point.
  */
 function updateSettlementSentence(reading: UpdateReading): string | undefined {
   if (reading.kind !== "state" || reading.state.status === "error") {
     return undefined;
   }
-  return UPDATE_STATUS_SETTLEMENTS[reading.state.status];
+  return UPDATE_STATE_WORDS[reading.state.status];
 }

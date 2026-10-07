@@ -37,6 +37,7 @@ import type { RunListAnswer, RunListAsk } from "./list-pages.js";
 import { runCountWords } from "../words.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 
 /** What the Runs tab's list is drawn from, and where it leads. */
 export interface RunsTabProps {
@@ -81,13 +82,9 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
   });
   return (
     <div className="meridian-workflows-runs">
+      {/* Drawn as the address opens, so it is read by browsing rather than said. */}
       {props.isRunMissing ? (
-        <AnnouncedLine
-          element="p"
-          className="meridian-workflows-runs__missing"
-          words="That run is not here."
-          politeness="polite"
-        />
+        <p className="meridian-workflows-runs__missing">That run is not here.</p>
       ) : null}
       <RunAttentionSection
         state={attentionState}
@@ -138,7 +135,7 @@ const NO_ATTENTION_ENTRIES: readonly WorkflowRunAttentionEntry[] = [];
 function RunsList(
   props: RunsTabProps & { readonly nowMs: number; readonly clock: Clock },
 ): React.JSX.Element {
-  const { listState, listAsk, filters } = props;
+  const { listState } = props;
   if (listState.kind === "not-loaded") {
     return <LoadingNotice clock={props.clock} placement="block" title="Loading the runs…" />;
   }
@@ -154,9 +151,19 @@ function RunsList(
       />
     );
   }
+  // What the first answer draws stands; a line a later answer brings, such as a filter matching
+  // nothing, is said.
+  return <StandingContent>{renderAnsweredRuns(props, listState.value)}</StandingContent>;
+}
+
+function renderAnsweredRuns(
+  props: RunsTabProps & { readonly nowMs: number; readonly clock: Clock },
+  answer: RunListAnswer,
+): React.JSX.Element {
+  const { listAsk, filters } = props;
   // The answer drawn is for the ask it names; until the read for a newer ask lands, its rows and
   // its own filters' words stay on screen rather than giving way to a loading line.
-  const { ask, response } = listState.value;
+  const { ask, response } = answer;
   const isReplacing = ask !== listAsk;
   if (response.runs.length > 0) {
     const isLoadingEarlier =
@@ -171,7 +178,7 @@ function RunsList(
           onRunDeleted={props.readListAgain}
           nowMs={props.nowMs}
         />
-        {listState.value.earlierRefusal === undefined ? (
+        {answer.earlierRefusal === undefined ? (
           response.nextCursor === undefined ? null : (
             <ActionButton disabled={isLoadingEarlier} onClick={props.onLoadEarlier}>
               Load older runs
@@ -182,9 +189,9 @@ function RunsList(
             kind="error"
             placement="block"
             title="Could not load older runs"
-            detail={listState.value.earlierRefusal.detail}
+            detail={answer.earlierRefusal.detail}
             action={<TryAgainButton onPress={props.readListAgain} />}
-            attempt={listState.value.earlierRefusal}
+            attempt={answer.earlierRefusal}
           />
         )}
       </div>

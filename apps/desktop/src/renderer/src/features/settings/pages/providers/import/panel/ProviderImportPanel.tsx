@@ -9,6 +9,7 @@
 import "./ProviderImportPanel.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
@@ -53,7 +54,10 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
           onTryAgain={model.start}
         />
       )}
-      <ImportProgressLine model={model} />
+      {/* The panel may open behind a disclosure: what its row says as it opens stands. */}
+      <StandingContent>
+        <ImportProgressLine model={model} />
+      </StandingContent>
     </section>
   );
 }

@@ -1,6 +1,7 @@
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { drawnText } from "#test/helpers/live-region.js";
 import { LiveAnnouncerProvider } from "../LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MathBlock } from "./MathBlock.js";
 
@@ -13,7 +14,7 @@ describe("a formula that does not typeset", () => {
     });
 
     await waitFor(() => {
-      expect(container.textContent).toContain("could not be typeset");
+      expect(drawnText(container)).toContain("could not be typeset");
     });
     expect(container.querySelector(".meridian-math--source")).not.toBeNull();
     expect(container.querySelector("code")?.textContent).toBe(String.raw`\frac{1`);

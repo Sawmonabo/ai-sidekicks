@@ -76,9 +76,6 @@ const CONTROL_COPY: Readonly<
   },
 };
 
-/** What a sent control's line says after the control's name. */
-const SUPERVISOR_STATE_NOTE = "The supervisor's state above is what says what happened to it.";
-
 /** What the blocks that call the daemon are handed. */
 export interface DaemonOperationsBlocksProps {
   readonly context: SettingsPageContext;
@@ -315,3 +312,6 @@ function renderControlSettlement(settlement: DaemonControlSettlement | undefined
     </AnnouncedLine>
   );
 }
+
+/** What a sent control's line says after the control's name. */
+const SUPERVISOR_STATE_NOTE = "The supervisor's state above is what says what happened to it.";

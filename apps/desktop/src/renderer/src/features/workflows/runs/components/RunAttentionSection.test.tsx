@@ -3,7 +3,8 @@
 // regrouping of its own. Until the read has answered, or
 // once it has failed, it says so and never `Nothing waiting`.
 
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,8 +18,8 @@ import { refuse } from "#renderer/lib/refusal/contract.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { RunAttentionSection } from "./RunAttentionSection.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
-import { OUTSIDE_LIVE_REGIONS, liveRegionText } from "#test/helpers/live-region.js";
+import { OUTSIDE_LIVE_REGIONS } from "#test/helpers/live-region.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 
 // Local calendar instants, so every figure below falls on the same day as now.
 const NOW_MS = new Date(2026, 0, 1, 14, 20).getTime();
@@ -128,35 +129,40 @@ describe("the attention list", () => {
     // The read stays failed across the retry and settles a new refusal in the same words, so
     // only the new refusal can tell the announcer it is a second failure.
     const clock = new ManualClock(NOW_MS);
-    const failedRead = (): React.ComponentProps<typeof RunAttentionSection>["state"] => ({
-      kind: "failed",
-      refusal: refuse("daemon", "daemon.unavailable", "Not running."),
-    });
-    const section = (state: React.ComponentProps<typeof RunAttentionSection>["state"]) => (
-      <LiveAnnouncerProvider clock={clock}>
-        <RunAttentionSection
-          state={state}
-          onOpenRun={() => undefined}
-          nowMs={NOW_MS}
-          clock={clock}
-          readAgain={() => undefined}
-          answeredCount={0}
-        />
+    const said = spiedAnnouncer(clock);
+    const section = (
+      <LiveAnnouncerProvider announcer={said.announcer}>
+        <SectionRefusedOnEveryRead clock={clock} />
       </LiveAnnouncerProvider>
     );
-    const firstFailure = failedRead();
-    const { container, rerender } = render(section(firstFailure));
-    const said = [liveRegionText(container, "assertive")];
-    act(() => {
-      clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
-    });
+    const { rerender } = render(section);
     // A re-render of the same failure is not a new one.
-    rerender(section(firstFailure));
-    said.push(liveRegionText(container, "assertive"));
-    rerender(section(failedRead()));
-    said.push(liveRegionText(container, "assertive"));
+    rerender(section);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     const failure = "Could not load what is waiting. Not running.";
-    expect(said).toStrictEqual([failure, "", failure]);
+    expect(said.spokenOn("assertive")).toStrictEqual([failure, failure]);
   });
 });
+
+/** A read of what is waiting, refused in the same words every time it is asked. */
+function refusedRead(): React.ComponentProps<typeof RunAttentionSection>["state"] {
+  return { kind: "failed", refusal: refuse("daemon", "daemon.unavailable", "Not running.") };
+}
+
+/** The section over a read that `Try again` asks again and that is refused again. */
+function SectionRefusedOnEveryRead(props: { readonly clock: ManualClock }): React.JSX.Element {
+  const [state, setState] = useState(refusedRead);
+  return (
+    <RunAttentionSection
+      state={state}
+      onOpenRun={() => undefined}
+      nowMs={NOW_MS}
+      clock={props.clock}
+      readAgain={() => {
+        setState(refusedRead());
+      }}
+      answeredCount={0}
+    />
+  );
+}

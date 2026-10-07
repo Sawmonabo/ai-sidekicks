@@ -1,8 +1,8 @@
 // A read in flight shows nothing at first and its loading line only once it has run past a short
-// delay, so a quick read never flashes one. The line mounts holding its words, so it says them once
-// through the app's announcer rather than from a live role, which most screen readers never
-// announce for a node inserted with its text. The delay runs on the clock the caller hands in, the
-// window's own, so a fixture or a test moves it.
+// delay, so a quick read never flashes one. The line says its words once through the app's
+// announcer. It appears while a person waits, so it is news even inside content still opening for
+// the first time. The delay runs on the clock the caller hands in, the window's own, so a fixture
+// or a test moves it.
 
 import "./LoadingNotice.css";
 
@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 
 import type { Clock } from "#renderer/lib/clock.js";
 import { AnnouncedLine } from "../AnnouncedLine/AnnouncedLine.js";
+import { StandingContentContext } from "../LiveAnnouncer/context.js";
 import type { NothingPlacement } from "../Nothing/Nothing.js";
 
 /** How long a read in flight shows nothing before its loading line: a first row's launch budget. */
@@ -41,12 +42,14 @@ export function LoadingNotice(props: LoadingNoticeProps): React.JSX.Element | nu
     return null;
   }
   return (
-    <AnnouncedLine
-      element={props.placement === "inline" ? "span" : "p"}
-      className="meridian-loading-notice"
-      words={props.title}
-      politeness="polite"
-      isBusy
-    />
+    <StandingContentContext.Provider value={undefined}>
+      <AnnouncedLine
+        element={props.placement === "inline" ? "span" : "p"}
+        className="meridian-loading-notice"
+        words={props.title}
+        politeness="polite"
+        isBusy
+      />
+    </StandingContentContext.Provider>
   );
 }

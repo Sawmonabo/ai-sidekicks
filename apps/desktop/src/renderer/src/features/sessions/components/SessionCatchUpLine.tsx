@@ -27,11 +27,12 @@ export interface SessionCatchUpLineProps {
 export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.Element | null {
   const clock = useClock();
   const isBehind = useSessionDegraded(props.sessionStore);
-  const failedReadCount = useSessionStore(props.sessionStore, readFailedReadCount);
+  const lastReadFailed = useSessionStore(props.sessionStore, readLastReadFailed);
+  const readFailureCount = useSessionStore(props.sessionStore, readReadFailureCount);
   const dependentReadFailed = useDependentReadFailed(props.sessionStore);
   const dependentFailedPassCount = useDependentReadFailedPassCount(props.sessionStore);
   const words = useCatchUpLineWords(
-    standingWords(isBehind, failedReadCount > 0, dependentReadFailed),
+    standingWords(isBehind, lastReadFailed, dependentReadFailed),
     clock,
   );
   if (words === undefined) {
@@ -45,9 +46,10 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
       className="meridian-session-screen__catch-up"
       words={isFailed ? "Couldn't catch up" : "Catching up…"}
       politeness={isFailed ? "assertive" : "polite"}
-      // A `Try again` that fails again leaves these words standing; each failure is said.
+      // A `Try again` that fails again leaves these words standing; each failure is said. Both
+      // counts only grow, so a read landing beside a standing failure says nothing.
       attempt={
-        isFailed ? `${String(failedReadCount)}:${String(dependentFailedPassCount)}` : undefined
+        isFailed ? `${String(readFailureCount)}:${String(dependentFailedPassCount)}` : undefined
       }
     >
       {isFailed ? (
@@ -82,7 +84,10 @@ function standingWords(
   return isBehind ? "catching-up" : undefined;
 }
 
-/** How many reads of this session failed since the newest one landed. */
-function readFailedReadCount(state: SessionStoreState): number {
-  return state.failedReadCount;
+function readLastReadFailed(state: SessionStoreState): boolean {
+  return state.lastReadFailed;
+}
+
+function readReadFailureCount(state: SessionStoreState): number {
+  return state.readFailureCount;
 }

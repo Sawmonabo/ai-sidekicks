@@ -7,7 +7,6 @@ import "./TranscriptWindowSkeleton.css";
 import { useSessionDegraded } from "#renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { useTranscriptFirstReadSettled } from "../hooks/useTranscriptFirstReadSettled.js";
-import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** A screenful at transcript density, so the first read replaces the rows in one repaint. */
 const SKELETON_ROW_COUNT = 12;
@@ -15,9 +14,6 @@ const SKELETON_ROW_COUNT = 12;
 const SKELETON_ROW_KEYS: readonly string[] = Object.freeze(
   Array.from({ length: SKELETON_ROW_COUNT }, (_unused, index) => `skeleton-row-${String(index)}`),
 );
-
-/** What the skeleton says while the first read is in flight. */
-const SKELETON_WORDS = "Loading…";
 
 /** The session whose first read the skeleton follows. */
 export interface TranscriptWindowSkeletonProps {
@@ -38,18 +34,15 @@ export function TranscriptWindowSkeleton(
     return null;
   }
   return (
-    // The rows are a shape with no words, so the line's words are hidden text a reader can reach.
-    <AnnouncedLine
-      element="div"
-      className="meridian-transcript-window-skeleton"
-      words={SKELETON_WORDS}
-      politeness="polite"
-      isBusy
-    >
+    // Drawn at once, so it is not read out; its words are hidden text a reader reaches by browsing.
+    <div className="meridian-transcript-window-skeleton" aria-busy="true">
       <span className="meridian-visually-hidden">{SKELETON_WORDS}</span>
       {SKELETON_ROW_KEYS.map((key) => (
         <span key={key} className="meridian-transcript-window-skeleton__row" aria-hidden="true" />
       ))}
-    </AnnouncedLine>
+    </div>
   );
 }
+
+/** What the skeleton holds for a reader while the first read is in flight. */
+const SKELETON_WORDS = "Loading…";

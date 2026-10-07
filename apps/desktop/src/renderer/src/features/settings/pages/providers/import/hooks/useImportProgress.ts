@@ -25,7 +25,11 @@ export interface ImportProgress {
   readonly reopen: () => void;
 }
 
-const NOTHING_SAID: ImportProgressReading = { status: "open", newest: undefined };
+const NOTHING_SAID: ImportProgressReading = {
+  status: "open",
+  newest: undefined,
+  replayed: undefined,
+};
 
 /** The subsystem a failed import stream names as its author. */
 const IMPORT_PROGRESS_ORIGIN = "provider-import-progress";
@@ -51,15 +55,17 @@ export function useImportProgress(
       }
       openStream = stream;
       let newest: ProviderImportProgress | undefined;
+      let replayed: ProviderImportProgress | undefined;
       for await (const message of stream.events) {
         if (isDisposed) {
           return;
         }
         newest = message;
-        setReading({ status: "open", newest: message });
+        replayed ??= message;
+        setReading({ status: "open", newest: message, replayed });
       }
       if (!isDisposed) {
-        setReading({ status: "closed", newest });
+        setReading({ status: "closed", newest, replayed });
       }
     };
     drain().catch((error: unknown) => {

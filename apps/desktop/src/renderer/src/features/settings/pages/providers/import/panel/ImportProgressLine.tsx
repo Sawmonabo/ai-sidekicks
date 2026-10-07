@@ -27,22 +27,19 @@ const IMPORT_REFUSED_CODE = "import-refused";
 /** The class every state of the row wears. */
 const PROGRESS_CLASS = "meridian-provider-import__progress";
 
-/** What a stopped import's row says. */
-const IMPORT_STOPPED_SENTENCE =
-  "Import stopped. The sessions already read are in the sessions list.";
-
 /** One provider's import row, or nothing where the service has reported none. */
 export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.Element | null {
   const { model } = props;
   const { progress } = model;
   const providerLabel = PROVIDER_LABELS[model.provider];
-  // The row mounts holding its words, so it speaks them through the app's announcer; a refused
-  // row's refusal speaks for itself. A running import is said once, without the count it
-  // redraws on every frame, which would otherwise be read out frame by frame.
+  // The row speaks through the app's announcer; a refused row's refusal speaks for itself. A
+  // running import is said once, without the count it redraws on every frame, which would
+  // otherwise be read out frame by frame. What the stream replayed as it opened is not news.
   const sentence = rowSentence(model, providerLabel);
   useAnnounceWhenShown(
     model.isUnderway && progress.status !== "failed" ? importingWords(providerLabel) : sentence,
     "polite",
+    { isStanding: model.isShowingReplay },
   );
   if (progress.status === "failed") {
     return (
@@ -93,6 +90,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
         code={IMPORT_REFUSED_CODE}
         detail={settlement.reason}
         onTryAgain={model.start}
+        isStanding={model.isShowingReplay}
       />
     );
   }
@@ -101,6 +99,10 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   }
   return <SettledLine settlement={settlement} providerLabel={providerLabel} />;
 }
+
+/** What a stopped import's row says. */
+const IMPORT_STOPPED_SENTENCE =
+  "Import stopped. The sessions already read are in the sessions list.";
 
 function importingWords(providerLabel: string): string {
   return `Importing from ${providerLabel}…`;

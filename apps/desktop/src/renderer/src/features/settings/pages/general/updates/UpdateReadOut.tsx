@@ -6,7 +6,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { formatDate, formatPercent } from "#renderer/lib/wire/figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
-import { UPDATE_FAILED_DETAIL, type UpdateReading } from "./updater-reading.js";
+import { UPDATE_FAILED_DETAIL, UPDATE_STATE_WORDS, type UpdateReading } from "./updater-reading.js";
 
 /** The code the updater's reported failure rides on, for diagnostics. */
 const UPDATE_FAILED_CODE = "update-failed";
@@ -34,13 +34,13 @@ export function UpdateReadOut(props: {
     case "idle":
       return (
         <p className="meridian-settings-page__state">
-          No update is waiting. <LastCheckedLine lastCheckedAt={state.lastCheckedAt} />
+          {UPDATE_STATE_WORDS.idle} <LastCheckedLine lastCheckedAt={state.lastCheckedAt} />
         </p>
       );
     case "checking":
       return (
         <p className="meridian-settings-page__state" aria-busy="true">
-          Checking for an update…
+          {UPDATE_STATE_WORDS.checking}
         </p>
       );
     case "available":
@@ -54,7 +54,7 @@ export function UpdateReadOut(props: {
       return (
         <div className="meridian-settings-page__state">
           <label className="meridian-settings-page__progress-label" htmlFor={progressId}>
-            Downloading
+            {UPDATE_STATE_WORDS.downloading}
           </label>
           <progress
             className="meridian-settings-page__progress"
@@ -68,15 +68,11 @@ export function UpdateReadOut(props: {
     case "verifying":
       return (
         <p className="meridian-settings-page__state" aria-busy="true">
-          Checking the signature…
+          {UPDATE_STATE_WORDS.verifying}
         </p>
       );
     case "ready":
-      return (
-        <p className="meridian-settings-page__state">
-          An update has finished downloading and installs on the next restart.
-        </p>
-      );
+      return <p className="meridian-settings-page__state">{UPDATE_STATE_WORDS.ready}</p>;
     case "error":
       // The fixed sentence and `Try again`; the updater's own message goes to the diagnostic log.
       return (
@@ -84,8 +80,6 @@ export function UpdateReadOut(props: {
           code={UPDATE_FAILED_CODE}
           detail={UPDATE_FAILED_DETAIL}
           onTryAgain={props.onTryAgain}
-          // A check that fails again reports a new failure in the same words; it is said again.
-          attempt={state}
         />
       );
   }

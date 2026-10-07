@@ -18,7 +18,8 @@ export function SessionBannerRow(props: {
       element="div"
       className="meridian-session-screen__banner"
       words={props.banner.words.join(", ")}
-      politeness="polite"
+      // A banner reports a failure, such as a save of the pane layout that did not land.
+      politeness="assertive"
     >
       {props.banner.words.map((part, index) => (
         <Fragment key={part}>

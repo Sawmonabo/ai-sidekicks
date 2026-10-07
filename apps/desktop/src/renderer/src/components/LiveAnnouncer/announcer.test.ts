@@ -53,3 +53,23 @@ describe("LiveAnnouncer — announcements are serialized, never overwritten", ()
     expect(announcer.state.polite).toBe("second");
   });
 });
+
+describe("LiveAnnouncer — a line's newer words replace its older words still waiting", () => {
+  it("drops the waiting words a message replaces, and keeps every other line's", () => {
+    const { announcer, clock } = announcerOnManualClock();
+
+    announcer.announce("standing");
+    announcer.announce("another line");
+    announcer.announce("No setting matches “a”.");
+    announcer.announce("No setting matches “ab”.", "polite", {
+      replacing: "No setting matches “a”.",
+    });
+
+    clock.advance(HOLD_MS);
+    expect(announcer.state.polite).toBe("another line");
+    clock.advance(HOLD_MS);
+    expect(announcer.state.polite).toBe("No setting matches “ab”.");
+    clock.advance(HOLD_MS);
+    expect(announcer.state.polite).toBe("");
+  });
+});

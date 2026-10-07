@@ -2,7 +2,9 @@
 //
 // The panel and the model above it are the real modules; the three calls are stubs. Asserts the
 // stream opens on the section's provider before anything is pressed, what the action and `Stop`
-// send, and that the one progress row says how the import stands in the service's own counts.
+// send, that the one progress row says how the import stands in the service's own counts, and
+// that only what changed while the panel was open is said: the outcome the stream replays as it
+// opens is drawn and left to browsing.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -17,7 +19,7 @@ import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportCalls } from "../hooks/useProviderImport.js";
 import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
-import { liveRegionText } from "#test/helpers/live-region.js";
+import { spiedAnnouncer, type SpiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The id the stubbed start answers with. */
@@ -63,14 +65,21 @@ function ImportHarness(props: {
 }
 
 /** Mount one provider's panel and let its stream open. */
-async function renderPanel(
-  provider: ProviderName,
-): Promise<{ readonly stream: DrivenProgressStream; readonly sent: SentRequests }> {
+async function renderPanel(provider: ProviderName): Promise<{
+  readonly stream: DrivenProgressStream;
+  readonly sent: SentRequests;
+  readonly said: SpiedAnnouncer;
+}> {
   const stream = new DrivenProgressStream();
   const { calls, sent } = recordingCalls(stream);
-  render(<ImportHarness provider={provider} calls={calls} />, { wrapper: LiveAnnouncerProvider });
+  const said = spiedAnnouncer();
+  render(
+    <LiveAnnouncerProvider announcer={said.announcer}>
+      <ImportHarness provider={provider} calls={calls} />
+    </LiveAnnouncerProvider>,
+  );
   await settle();
-  return { stream, sent };
+  return { stream, sent, said };
 }
 
 async function emit(stream: DrivenProgressStream, message: ProviderImportProgress): Promise<void> {
@@ -98,14 +107,9 @@ function rowText(): string {
   return row.textContent;
 }
 
-/** What one lane of the window's announcer is saying. */
-function announced(politeness: "polite" | "assertive"): string {
-  return liveRegionText(document.body, politeness);
-}
-
 describe("one provider's import", () => {
-  it("opens the provider's stream before anything is pressed, and draws its last outcome", async () => {
-    const { stream, sent } = await renderPanel("codex");
+  it("opens the provider's stream before anything is pressed, and draws its last outcome unsaid", async () => {
+    const { stream, sent, said } = await renderPanel("codex");
     expect(sent.subscribe).toStrictEqual([{ provider: "codex" }]);
     expect(sent.begin).toStrictEqual([]);
 
@@ -114,13 +118,14 @@ describe("one provider's import", () => {
       settledMessage("codex", { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] }),
     );
     expect(rowText()).toBe("Nothing new to import from Codex · 4 already here.");
-    expect(announced("polite")).toBe("Nothing new to import from Codex · 4 already here.");
+    // The outcome was already true when the person arrived: it is browsed, not said.
+    expect(said.spoken()).toStrictEqual([]);
     // History is not a running import: the action stays offered.
     expect(importAction("Import sessions from Codex").disabled).toBe(false);
   });
 
   it("starts on the press, counts what it reads, and stops on Stop with the running import", async () => {
-    const { stream, sent } = await renderPanel("claude");
+    const { stream, sent, said } = await renderPanel("claude");
     // Negative control: nothing is running, so there is nothing to stop.
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
 
@@ -132,7 +137,8 @@ describe("one provider's import", () => {
     expect(importAction("Import sessions from Claude Code").disabled).toBe(true);
 
     await emit(stream, { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 128 });
-    expect(rowText()).toContain("Importing from Claude Code… 128 read.");
+    await emit(stream, { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 256 });
+    expect(rowText()).toContain("Importing from Claude Code… 256 read.");
     // The bar measures nothing: the stream sent no total to measure against.
     expect(screen.getByRole("progressbar").hasAttribute("value")).toBe(false);
 
@@ -145,6 +151,11 @@ describe("one provider's import", () => {
     await emit(stream, settledMessage("claude", { outcome: "stopped" }));
     expect(rowText()).toBe("Import stopped. The sessions already read are in the sessions list.");
     expect(screen.queryByRole("progressbar")).toBeNull();
+    // The running import is said once, never its counts, and the outcome it reached once.
+    expect(said.spoken()).toStrictEqual([
+      "Importing from Claude Code…",
+      "Import stopped. The sessions already read are in the sessions list.",
+    ]);
     // The import can be started again.
     expect(importAction("Import sessions from Claude Code").disabled).toBe(false);
   });
@@ -210,17 +221,21 @@ describe("one provider's import", () => {
   });
 
   it("draws a refused import in the service's own words, and Try again starts it again", async () => {
-    const { stream, sent } = await renderPanel("codex");
-    await emit(
-      stream,
-      settledMessage("codex", { outcome: "refused", reason: "The Codex folder is missing." }),
-    );
+    const { stream, sent, said } = await renderPanel("codex");
+    const refused = settledMessage("codex", {
+      outcome: "refused",
+      reason: "The Codex folder is missing.",
+    });
+    await emit(stream, refused);
     expect(rowText()).toContain("The Codex folder is missing.");
-    expect(announced("assertive")).toBe("The Codex folder is missing.");
+    // Replayed as the stream opened, so it stands; the same refusal answering a press is news.
+    expect(said.spokenOn("assertive")).toStrictEqual([]);
     act(() => {
       screen.getByRole("button", { name: "Try again" }).click();
     });
     await settle();
     expect(sent.begin).toStrictEqual([{ provider: "codex" }]);
+    await emit(stream, refused);
+    expect(said.spokenOn("assertive")).toStrictEqual(["The Codex folder is missing."]);
   });
 });

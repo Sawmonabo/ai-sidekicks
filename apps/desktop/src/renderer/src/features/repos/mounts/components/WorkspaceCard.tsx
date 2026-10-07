@@ -77,7 +77,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
           element="p"
           className="meridian-workspace-card__last-error"
           words={workspace.lastError}
-          politeness="polite"
+          politeness="assertive"
         />
       ) : null}
 

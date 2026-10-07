@@ -1,8 +1,8 @@
 // Which daemon-hosted tools an agent can reach. Three states never merge: capability undeclared
-// (section absent), registry withheld (the daemon's approval service is not running or the
-// provider cannot register the tools, so a stray invocation is denied), and exposed. The flag
-// and the registry come from separate reads, so each has its own arm, and the registry is never
-// synthesized from observed tool rows.
+// (section absent), registry withheld (the daemon's approval service is not running, or its tool
+// route does not serve the tools to the provider, so a stray invocation is denied), and exposed.
+// The flag and the registry come from separate reads, so each has its own arm, and the registry
+// is never synthesized from observed tool rows.
 
 import "./CallbackTools.css";
 

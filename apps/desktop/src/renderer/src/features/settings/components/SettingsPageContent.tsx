@@ -2,10 +2,12 @@
 //
 // A search hit moves focus to the heading, so the reader is on the page the hit opened; a hit or
 // a link naming a control then lands on it, which moves focus on to the control and glides it
-// into view through the scroll chokepoint.
+// into view through the scroll chokepoint. What the page draws as it opens stands: its lines are
+// read by browsing, and only a line that appears or changes after is said.
 
 import { useLayoutEffect, useRef, useState } from "react";
 
+import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import type { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
 import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
@@ -62,7 +64,9 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
           <p className="meridian-settings__page-note">{descriptor.note}</p>
         )}
       </header>
-      <div ref={setPageBody}>{descriptor?.render(context)}</div>
+      <div ref={setPageBody}>
+        <StandingContent key={pageId}>{descriptor?.render(context)}</StandingContent>
+      </div>
     </article>
   );
 }

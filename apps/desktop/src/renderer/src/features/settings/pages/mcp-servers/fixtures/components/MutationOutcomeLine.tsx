@@ -10,10 +10,8 @@ import {
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mutation.js";
-import { SessionName } from "./SessionName.js";
+import { SessionName, sessionNameWords } from "./SessionName.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
-import { formatWireString } from "#renderer/lib/wire/figures.js";
-import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 
 /**
  * What the last change to one control did, in place: `Sending…` while it is on its way, once past
@@ -51,31 +49,32 @@ export function MutationOutcomeLine(props: {
         : undefined;
     return entry === undefined ? [] : [{ liveResult, entry }];
   });
-  // Read out as drawn: each session named as the list names it.
-  const words = [
-    ...settlement.grades.map((grade) => settleLineFor(grade, binding.provider)),
-    ...failedSessions.map(({ entry }) => {
-      const name = formatWireString(sessionDisplayTitleOf(entry).text);
-      return `${name} is still running with the old setting.`;
-    }),
-  ].join(" ");
+  // Each line is said on its own, so a session the list names later adds only its own line.
   return (
-    <AnnouncedLine
-      element="div"
-      className="meridian-mcp__outcome"
-      words={words}
-      politeness="polite"
-    >
+    <div className="meridian-mcp__outcome">
       {settlement.grades.map((grade) => (
-        <p key={grade} className="meridian-settings-page__state">
-          {settleLineFor(grade, binding.provider)}
-        </p>
+        <AnnouncedLine
+          key={grade}
+          element="p"
+          className="meridian-settings-page__state"
+          words={settleLineFor(grade, binding.provider)}
+          politeness="polite"
+        />
       ))}
       {failedSessions.map(({ liveResult, entry }) => (
-        <p key={mcpLiveLegKeyOf(liveResult)} className="meridian-settings-page__state">
-          <SessionName entry={entry} /> is still running with the old setting.
-        </p>
+        <AnnouncedLine
+          key={mcpLiveLegKeyOf(liveResult)}
+          element="p"
+          className="meridian-settings-page__state"
+          words={`${sessionNameWords(entry)} ${OLD_SETTING_WORDS}`}
+          politeness="polite"
+        >
+          <SessionName entry={entry} /> {OLD_SETTING_WORDS}
+        </AnnouncedLine>
       ))}
-    </AnnouncedLine>
+    </div>
   );
 }
+
+/** What a running session the change could not reach reads after its name. */
+const OLD_SETTING_WORDS = "is still running with the old setting.";

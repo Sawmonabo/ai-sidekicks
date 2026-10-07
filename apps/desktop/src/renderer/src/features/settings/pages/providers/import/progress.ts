@@ -29,12 +29,22 @@ export type ImportProgressSubscribeCall = (
 export type ImportStopCall = (request: ProviderImportStopRequest) => Promise<void>;
 
 /**
- * Where one provider's import stream has got to. `failed` is a subscription or a stream that
- * rejected, carrying the service's own words.
+ * Where one provider's import stream has got to. `replayed` is the first message this opening of
+ * the stream delivered: the provider's last outcome, or the import already running, which was true
+ * before the screen looked. `failed` is a subscription or a stream that rejected, carrying the
+ * service's own words.
  */
 export type ImportProgressReading =
-  | { readonly status: "open"; readonly newest: ProviderImportProgress | undefined }
-  | { readonly status: "closed"; readonly newest: ProviderImportProgress | undefined }
+  | {
+      readonly status: "open";
+      readonly newest: ProviderImportProgress | undefined;
+      readonly replayed: ProviderImportProgress | undefined;
+    }
+  | {
+      readonly status: "closed";
+      readonly newest: ProviderImportProgress | undefined;
+      readonly replayed: ProviderImportProgress | undefined;
+    }
   | { readonly status: "failed"; readonly refusal: Refusal };
 
 /**

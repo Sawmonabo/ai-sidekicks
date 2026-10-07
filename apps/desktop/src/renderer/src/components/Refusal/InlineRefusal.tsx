@@ -3,8 +3,7 @@
 // screen's fixed sentence for it, and the faint `Try again` word at the right end of the line.
 // `props.ts` declares the grammar and the props every shape shares.
 //
-// Not a live region: the line mounts already holding its words, which most screen readers never
-// announce, so it speaks them once through the app's announcer, on the assertive lane kept for
+// Not a live region: the line speaks through the app's announcer, on the assertive lane kept for
 // refusals. A wrapper must not add a live role, or the sentence is read twice.
 
 import "./Refusal.css";
@@ -21,16 +20,20 @@ export interface InlineRefusalProps extends RefusalProps {
   /** Asks again for what failed; given, the line draws as the strip ending in `Try again`. */
   readonly onTryAgain?: (() => void) | undefined;
   /**
-   * What a screen reader is told, where the caller draws more words beside the line (a remedy
-   * sentence). Defaults to the refusal's own sentence; the action and `Try again` are never read
-   * out.
+   * Words the caller draws beside the line (a remedy sentence), read out after the refusal's own.
+   * The action and `Try again` are never read out.
    */
-  readonly announcement?: string;
+  readonly remedyWords?: string | undefined;
   /**
    * The attempt this refusal answers, for a retry that can end in the same words: a new value says
    * them again. Keep its identity across renders (the refusal the retry replaces).
    */
   readonly attempt?: unknown;
+  /**
+   * The refusal was already standing when the person arrived (an outcome a stream replayed): it is
+   * drawn but not said until it changes.
+   */
+  readonly isStanding?: boolean | undefined;
 }
 
 /**
@@ -39,7 +42,11 @@ export interface InlineRefusalProps extends RefusalProps {
  */
 export function InlineRefusal(props: InlineRefusalProps): React.JSX.Element {
   const detail = formatWireString(props.detail);
-  useAnnounceWhenShown(props.announcement ?? detail, "assertive", props.attempt);
+  useAnnounceWhenShown(
+    props.remedyWords === undefined ? detail : `${detail} ${props.remedyWords}`,
+    "assertive",
+    { attempt: props.attempt, isStanding: props.isStanding },
+  );
   const isStrip = props.onTryAgain !== undefined;
   const shapeClassName = isStrip ? "meridian-refusal--strip" : "meridian-refusal--inline";
   return (
