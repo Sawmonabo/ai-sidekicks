@@ -351,7 +351,7 @@ describe("the windows a person sees, counted", () => {
     expect(app.quit).not.toHaveBeenCalled();
     // A Dock click or a second launch during the quit's flush opens nothing.
     electronMock.emitAppEvent("activate");
-    electronMock.emitAppEvent("second-instance");
+    openWindows.showWindowUsedLast();
     expect(hiddenWindows()).toHaveLength(1);
 
     // A hidden window already closed, as a probe closing every window does, is left as it is.
@@ -366,12 +366,12 @@ describe("the windows a person sees, counted", () => {
   });
 });
 
-describe("a second launch", () => {
+describe("a second launch carrying no link", () => {
   it("builds nothing before start, then brings the window used last forward", async () => {
     const { openWindows } = await startedRegistry("darwin");
 
     // Heard while the app is still starting: start is about to build the window itself.
-    electronMock.emitAppEvent("second-instance");
+    openWindows.showWindowUsedLast();
     electronMock.emitAppEvent("activate");
     expect(electronMock.constructed).toHaveLength(0);
 
@@ -379,14 +379,14 @@ describe("a second launch", () => {
     const usedLastId = await lastUsedWindowIdOf(0);
     const usedLast = openChildWindow(usedLastId);
     const focusesBefore = usedLast.focusCount;
-    electronMock.emitAppEvent("second-instance");
+    openWindows.showWindowUsedLast();
 
     expect(hiddenWindows()).toHaveLength(1);
     expect(usedLast.focusCount).toBe(focusesBefore + 1);
 
     // With no window a person sees, it asks the console document to reopen it, as a Dock click.
     usedLast.close();
-    electronMock.emitAppEvent("second-instance");
+    openWindows.showWindowUsedLast();
     expect(hiddenWindows()).toHaveLength(1);
     expect(sentToConsoleDocument()).toEqual([
       { channel: REOPEN_WINDOW_CHANNEL, value: usedLastId },

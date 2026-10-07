@@ -15,11 +15,20 @@ export type AppLinkTarget =
   | { kind: "session"; sessionId: SessionId }
   | { kind: "workflowRun"; workflowRunId: WorkflowRunId };
 
+/**
+ * The link's URI scheme, which the desktop registers with the operating system as the app's own
+ * and finds a link by on a command line.
+ */
+export const APP_LINK_SCHEME = "sidekicks";
+
 // The id segment holds only the characters a URI leaves unescaped (RFC 3986
 // unreserved), so a composed link needs no percent-encoding and the parser never
 // decodes one. Daemon-minted ids are UUIDs, which always fit.
 const LINK_ID_SEGMENT = /^[A-Za-z0-9._~-]+$/u;
-const APP_LINK_FORM = /^sidekicks:\/\/(session|workflow-run)\/([A-Za-z0-9._~-]+)$/u;
+const APP_LINK_FORM = new RegExp(
+  `^${APP_LINK_SCHEME}://(session|workflow-run)/([A-Za-z0-9._~-]+)$`,
+  "u",
+);
 
 /**
  * Writes the link for a target: `sidekicks://session/<id>` or
@@ -35,7 +44,7 @@ export function composeAppLink(target: AppLinkTarget): string {
   if (!LINK_ID_SEGMENT.test(id)) {
     throw new RangeError(`A ${target.kind} id with this character set has no sidekicks:// link.`);
   }
-  return `sidekicks://${host}/${id}`;
+  return `${APP_LINK_SCHEME}://${host}/${id}`;
 }
 
 /**

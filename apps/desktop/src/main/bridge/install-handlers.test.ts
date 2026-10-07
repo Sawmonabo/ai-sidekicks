@@ -66,6 +66,7 @@ beforeEach(async () => {
         windowUsedLast: vi.fn(),
         setDefaultSizes: vi.fn(),
         endSafeStart: vi.fn(),
+        readNavigationRequest: vi.fn(),
       },
     },
   });

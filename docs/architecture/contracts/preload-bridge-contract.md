@@ -9,6 +9,11 @@ The preload script exposes a single typed object on `window.desktopBridge` via `
 **One interface, three hosts.** The same front end runs in the desktop app, the web client and the phone apps, and the bridge is one typed interface, `PlatformBridge`, the front end's host-agnostic capability boundary, declared in the renderer's `services/platform/` with `PlatformBridgeProvider`, through which the renderer receives it. The provider hands down, beside the bridge, the clock the window runs on — real time for a window that reads the preload, and a fixture composition's own clock for a window that composition builds — so neither the clock nor a fixture's scenario engine is a member of any bridge. No bridge carries an attention member either: the rail's count and the notification surface read the attention projection through `daemon`, as `attention.projectionRead`, the whole projection and then every change. It has three implementations: the desktop's, which alone reads the Electron preload's `window.desktopBridge`; the browser's in the web client; and Capacitor's in the phone apps. The other hosts expose nothing on `window`. The preload's object is the desktop's implementation detail, typed by the desktop's preload API type, `PreloadApi` (`apps/desktop/src/shared/preload-api.ts`), and the daemon method map both types import (`DaemonMethod`, `DaemonParams`, `DaemonResult`, `DaemonEvent`) is in `packages/contracts`. A member a host cannot serve is absent from that host's bridge, so its control is absent from the screen, never drawn and refused; the web client and the phone apps reach a machine over the relay ([Spec-027](../../specs/027-remote-control.md)).
 
 ```ts
+// what main asks the console to bring forward, from a `sidekicks://` link, `sidekicks open` or a notification click: the parsed link's target, its id and nothing else
+type NavigationRequest =
+  | { kind: "session"; sessionId: SessionId }
+  | { kind: "workflowRun"; workflowRunId: WorkflowRunId };
+
 // a Preview pane, named by its session; main maps it to that session's open page
 type PaneRef = { sessionId: SessionId };
 
@@ -128,7 +133,7 @@ interface PlatformBridge {
     setDefaultSizes(sizes: { paneWidths: Record<string, number> }): Promise<void>;
     // ends a safe start once `Restore windows` reopened the kept windows, so main keeps each window's place again
     endSafeStart(): Promise<void>;
-    // main's ask, by window id, to open the window used last again when no window a person sees is open: a Dock click or a second launch
+    // main's ask, by window id, to open the window used last again when no window a person sees is open: a Dock click or a second launch carrying no link
     subscribeToReopenRequest(handler: (windowId: string) => void): Unsubscribe;
     // a session view dragged by its title past its window's edge: the id of the app's window under a point on the screen, hit-tested by main against its registry's window bounds, never the hidden console window; null over the desktop or another app
     findWindowAt(point: { x: number; y: number }): Promise<string | null>;
@@ -140,7 +145,7 @@ interface PlatformBridge {
     endTearOff(): Promise<void>;
     // released over another of the app's windows: main stops moving any torn-off window and brings that window forward, while the renderer moves the view into its row and closes the window the view left if it holds no view
     dockView(targetWindowId: string): Promise<void>;
-    // a `sidekicks://` address or a notification click, which main hands over for the renderer to route
+    // a `sidekicks://` address or a notification click, which main hands over for the renderer to route; main holds the latest one until the console document first subscribes, which receives it first, once
     subscribeToNavigationRequest(handler: (request: NavigationRequest) => void): Unsubscribe;
   };
 

@@ -1,16 +1,17 @@
 // The bridge's `window` members main answers: the appearance the renderer chose, the current
 // appearance record a subscription starts from, a window's minimum size, held within the work area
 // of the display the window is on, a window brought forward, the widths a window with no kept
-// place opens at, and the end of a safe start. Only the console document asks, and it names the window by the id its frame name
-// carries. The pushes that follow a subscription's first delivery, and main's ask to reopen a
-// window, come from main's registry of windows (`../windows/registry.ts`), which owns every
-// window and the console document.
+// place opens at, the end of a safe start, and the navigation request main held. Only the console
+// document asks, and it names the window by the id its frame name carries. The pushes that follow
+// a subscription's first delivery, and main's ask to reopen a window, come from main's registry of
+// windows (`../windows/registry.ts`), which owns every window and the console document.
 
 import { screen, type IpcMainInvokeEvent } from "electron";
 import * as z from "zod/mini";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
+import type { NavigationRequest } from "#shared/preload-api.js";
 import type { WindowDefaultSizes, WindowSize } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
@@ -23,7 +24,12 @@ export interface WindowHandlerContext {
   readonly appearance: Pick<KeptAppearance, "choose" | "record">;
   readonly openWindows: Pick<
     OpenWindows,
-    "windowWithId" | "isConsoleDocument" | "windowUsedLast" | "setDefaultSizes" | "endSafeStart"
+    | "windowWithId"
+    | "isConsoleDocument"
+    | "windowUsedLast"
+    | "setDefaultSizes"
+    | "endSafeStart"
+    | "readNavigationRequest"
   >;
 }
 
@@ -34,6 +40,7 @@ export type ChannelAnswer = (event: IpcMainInvokeEvent, request: unknown) => unk
 type WindowChannel =
   | typeof BRIDGE_CHANNELS.setAppearance
   | typeof BRIDGE_CHANNELS.readAppearance
+  | typeof BRIDGE_CHANNELS.readNavigationRequest
   | typeof BRIDGE_CHANNELS.setMinimumSize
   | typeof BRIDGE_CHANNELS.bringWindowForward
   | typeof BRIDGE_CHANNELS.setDefaultSizes
@@ -85,6 +92,10 @@ export function windowAnswers(
     [BRIDGE_CHANNELS.readAppearance]: (event): AppearanceRecord => {
       requireConsoleDocument(event);
       return context.appearance.record;
+    },
+    [BRIDGE_CHANNELS.readNavigationRequest]: (event): NavigationRequest | null => {
+      requireConsoleDocument(event);
+      return context.openWindows.readNavigationRequest();
     },
     [BRIDGE_CHANNELS.setMinimumSize]: (event, request) => {
       requireConsoleDocument(event);

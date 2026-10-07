@@ -73,6 +73,8 @@ export interface LaunchArgsOptions {
   readonly platform: LaunchPlatform;
   /** The fixture scenario the app plays, or `undefined` for a normal launch. */
   readonly fixtureScenarioId?: string;
+  /** A `sidekicks://` link the app is launched with, as the system launches it for one. */
+  readonly appLink?: string;
 }
 
 /**
@@ -93,5 +95,6 @@ export function composeLaunchArgs(options: LaunchArgsOptions): string[] {
     options.mainEntryPath,
     // The application's own arguments follow the entry path, where the main process reads them.
     ...(options.fixtureScenarioId === undefined ? [] : ["--fixture", options.fixtureScenarioId]),
+    ...(options.appLink === undefined ? [] : [options.appLink]),
   ];
 }

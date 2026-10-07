@@ -33,6 +33,7 @@ import type {
   MachineSettingsReading,
   SettingsFileRepair,
 } from "@ai-sidekicks/contracts/machine-settings";
+import type { AppLinkTarget } from "@ai-sidekicks/contracts/app-link";
 import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
@@ -49,6 +50,12 @@ import type { WindowDefaultSizes, WindowSize } from "./window/size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
+
+/**
+ * What main asks the console to bring forward: a session or a workflow run's page, named by its id
+ * alone, from a `sidekicks://` link, `sidekicks open` or a notification click.
+ */
+export type NavigationRequest = AppLinkTarget;
 
 /** Opaque reference to a file path; the renderer never sees the raw path, main dereferences it. */
 export type FilePathRef = string & { readonly __brand: "FilePathRef" };
@@ -489,6 +496,11 @@ export interface PreloadApi {
      * in force stays.
      */
     subscribeToUnkeptScheme(handler: () => void): Unsubscribe;
+    /**
+     * Main's ask to bring a session or a workflow run forward. A request that came before the
+     * subscription, a link that launched the app among them, is the first delivery.
+     */
+    subscribeToNavigationRequest(handler: (request: NavigationRequest) => void): Unsubscribe;
   };
 
   readonly app: AppFacts;
@@ -558,6 +570,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       endSafeStart: () => stubThrow("window.endSafeStart"),
       subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),
       subscribeToUnkeptScheme: () => stubThrow("window.subscribeToUnkeptScheme"),
+      subscribeToNavigationRequest: () => stubThrow("window.subscribeToNavigationRequest"),
     },
     app,
   };
