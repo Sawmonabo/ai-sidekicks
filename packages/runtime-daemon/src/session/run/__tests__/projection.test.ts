@@ -58,9 +58,7 @@ describe("run state projection", () => {
         runVersion: 1,
       }),
     ]);
-    await database.writer.write([
-      advanceRunVersionStatement({ sessionId, runId, expectedRunVersion: 1 }),
-    ]);
+    await database.writer.write([advanceRunVersionStatement({ sessionId, runId })]);
 
     // From the right state, decided from the read at version 1 the advance has since moved past.
     await expectRefusedAtFirstStatement(
@@ -93,7 +91,7 @@ describe("run state projection", () => {
       }),
     );
     await expectRefusedAtFirstStatement(
-      advanceRunVersionStatement({ sessionId: otherSessionId, runId, expectedRunVersion: 2 }),
+      advanceRunVersionStatement({ sessionId: otherSessionId, runId }),
     );
     expect(runs.getRun(runId)).toEqual({ version: 2, sessionId, state: "running" });
   });

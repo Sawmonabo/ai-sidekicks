@@ -23,13 +23,15 @@ export interface RequestedIntervention {
 }
 
 /**
- * One move of an intervention's row. Each leaves exactly the state its `from` names, and only a
- * `rejected` row carries a reason and only a `degraded` one a fallback.
+ * One move of an intervention's row. Each leaves exactly the state its `from` names; only a
+ * `rejected` or `failed` row carries a reason and only a `degraded` one a fallback. Only a request
+ * expires: once dispatched, the driver's verdict stands.
  */
 export type InterventionTransition =
   | { readonly from: "requested"; readonly to: "accepted" }
-  | { readonly from: "requested" | "accepted"; readonly to: "expired" }
+  | { readonly from: "requested"; readonly to: "expired" }
   | { readonly from: "requested" | "accepted"; readonly to: "rejected"; readonly reason: string }
+  | { readonly from: "accepted"; readonly to: "failed"; readonly reason: string }
   | { readonly from: "accepted"; readonly to: "applied" }
   | {
       readonly from: "accepted";
@@ -44,6 +46,7 @@ export interface SavedIntervention {
   readonly state: InterventionState;
   readonly payload: string;
   readonly rejectionReason: string | null;
+  readonly failureReason: string | null;
 }
 
 // The row's times are the database clock's, in the same ISO 8601 form as every other column.
@@ -58,10 +61,16 @@ const INSERT_REQUESTED_SQL = `INSERT INTO interventions
           @client_idempotency_key, @device_id, ${NOW_SQL})
   ON CONFLICT (target_run_id, client_idempotency_key) DO NOTHING`;
 
+// An applied or degraded move runs after its write's version advance, so the run version it reads
+// is the one that advance reached.
 const MOVE_SQL = `UPDATE interventions
     SET state = @to,
         rejection_reason = @rejection_reason,
+        failure_reason = @failure_reason,
         fallback_action = @fallback_action,
+        outcome_run_version = CASE WHEN @to IN ('applied', 'degraded')
+          THEN (SELECT run_version FROM runs WHERE run_id = interventions.target_run_id)
+          ELSE NULL END,
         resolved_at = CASE WHEN @to = 'accepted' THEN NULL ELSE ${NOW_SQL} END
   WHERE id = @id
     AND state = @from`;
@@ -95,7 +104,8 @@ export function insertRequestedInterventionStatement(
 
 /**
  * The statement that moves an intervention's row, refused unless the row is still in `from`.
- * Every move but the one to `accepted` is an outcome and stamps when it was reached.
+ * Every move but the one to `accepted` is an outcome and stamps when it was reached; an applied
+ * or degraded one also records the run version it reads, so it follows its version advance.
  */
 export function moveInterventionStatement(
   interventionId: InterventionId,
@@ -108,6 +118,7 @@ export function moveInterventionStatement(
       from: transition.from,
       to: transition.to,
       rejection_reason: transition.to === "rejected" ? transition.reason : null,
+      failure_reason: transition.to === "failed" ? transition.reason : null,
       fallback_action: transition.to === "degraded" ? (transition.fallbackAction ?? null) : null,
     },
     expectedRowCount: 1,
@@ -138,6 +149,7 @@ interface SavedInterventionRow {
   readonly state: InterventionState;
   readonly payload: string;
   readonly rejection_reason: string | null;
+  readonly failure_reason: string | null;
 }
 
 /** Reads saved interventions on the daemon's read-only connection. */
@@ -146,7 +158,7 @@ export class InterventionReader {
 
   constructor(reader: Database) {
     this.#selectByIdempotencyKey = reader.prepare(
-      `SELECT id, type, state, payload, rejection_reason FROM interventions
+      `SELECT id, type, state, payload, rejection_reason, failure_reason FROM interventions
         WHERE target_run_id = ? AND client_idempotency_key = ?`,
     );
   }
@@ -166,6 +178,7 @@ export class InterventionReader {
       state: row.state,
       payload: row.payload,
       rejectionReason: row.rejection_reason,
+      failureReason: row.failure_reason,
     };
   }
 }

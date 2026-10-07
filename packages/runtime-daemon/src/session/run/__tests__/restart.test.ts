@@ -5,8 +5,10 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { InterventionIdSchema } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
+import { moveInterventionStatement } from "../../../interventions/store.js";
 import { advanceRunVersionStatement } from "../projection.js";
 import {
   TEST_EXECUTION_POSTURE,
@@ -53,28 +55,42 @@ describe("run settle after a restart", () => {
     ]);
   }
 
-  // The interrupt's outcome as the intervention service writes it: the row applied, and the run
-  // advanced past the version the person saw, with the run's end still to be written.
-  async function writeAppliedInterrupt(runId: RunId, expectedRunVersion: number): Promise<void> {
+  // An interrupt accepted at the running version 2, whose outcome lands as the intervention
+  // service writes it after another verdict moved the run to 3: the row applied, the run advanced
+  // to 4, and the run's end still to be written.
+  async function writeAppliedInterrupt(runId: RunId): Promise<void> {
+    const interventionId = InterventionIdSchema.parse(randomUUID());
+    const advance = advanceRunVersionStatement({ sessionId: fixture.sessionId, runId });
     await fixture.database.writer.write([
       {
         sql: `INSERT INTO interventions
                 (id, target_run_id, type, state, expected_run_version, client_idempotency_key,
                  created_at)
-              VALUES (?, ?, 'interrupt', 'applied', ?, ?, ?)`,
-        bindings: [randomUUID(), runId, expectedRunVersion, randomUUID(), new Date().toISOString()],
+              VALUES (?, ?, 'interrupt', 'accepted', 2, ?, ?)`,
+        bindings: [interventionId, runId, randomUUID(), new Date().toISOString()],
       },
-      advanceRunVersionStatement({ sessionId: fixture.sessionId, runId, expectedRunVersion }),
+      advance,
+    ]);
+    await fixture.database.writer.write([
+      advance,
+      moveInterventionStatement(interventionId, { from: "accepted", to: "applied" }),
     ]);
   }
 
   it("settles interrupted a run whose interrupt was applied but whose end never landed, and failed once it moved on", async () => {
     const unsettled = await fixture.queueRun();
     await startRun(unsettled);
-    await writeAppliedInterrupt(unsettled, 2);
+    await writeAppliedInterrupt(unsettled);
+    // A stuck steer's verdict lands after the interrupt's outcome, before the run's end.
+    const laterVerdict = await fixture.queueRun();
+    await startRun(laterVerdict);
+    await writeAppliedInterrupt(laterVerdict);
+    await fixture.database.writer.write([
+      advanceRunVersionStatement({ sessionId: fixture.sessionId, runId: laterVerdict }),
+    ]);
     const movedOn = await fixture.queueRun();
     await startRun(movedOn);
-    await writeAppliedInterrupt(movedOn, 2);
+    await writeAppliedInterrupt(movedOn);
     await fixture.engine.transition({ runId: movedOn, newState: "waiting_for_approval" });
 
     const restarted = fixture.restartEngine();
@@ -82,9 +98,10 @@ describe("run settle after a restart", () => {
       await restarted.settleRunAfterRestart(live, "The conversation file was not found");
     }
 
-    expect(fixture.runs.getRun(unsettled)).toMatchObject({ state: "interrupted", version: 4 });
+    expect(fixture.runs.getRun(unsettled)).toMatchObject({ state: "interrupted", version: 5 });
     expect(fixture.readRunEvents(unsettled).some((row) => row.type === "run.failed")).toBe(false);
-    expect(fixture.runs.getRun(movedOn)).toMatchObject({ state: "failed", version: 5 });
+    expect(fixture.runs.getRun(laterVerdict)).toMatchObject({ state: "interrupted", version: 6 });
+    expect(fixture.runs.getRun(movedOn)).toMatchObject({ state: "failed", version: 6 });
   });
 
   it("settles a crashed run failed, a stopped one interrupted and a held child interrupted, starting none again", async () => {

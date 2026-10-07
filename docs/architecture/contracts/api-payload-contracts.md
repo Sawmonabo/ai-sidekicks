@@ -173,7 +173,14 @@ type RunFailureCategory =
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
 type InterventionType = "steer" | "interrupt" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the first two, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
-type InterventionState = "requested" | "accepted" | "applied" | "rejected" | "degraded" | "expired";
+type InterventionState =
+  | "requested"
+  | "accepted"
+  | "applied"
+  | "rejected"
+  | "degraded"
+  | "expired"
+  | "failed";
 
 type ApprovalCategory =
   | "tool_execution"
@@ -675,7 +682,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.memoryRead` | Inspector `Memory` section: the memory paths and the account's own store | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.30; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-5-4 |
 | `session.modeUpdate {sessionId, mode: build \| plan}` | The Build or Plan mode chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.27 |
 | `session.mute {sessionId}` and `session.unmute {sessionId}` → `{}`, events `session.muted {sessionId, at}` and `session.unmuted {sessionId, at}`; `muted` on `session.list` and `session.read` entries | Mute and unmute a session's notifications; held by the daemon, seen by every device | [Spec-017](../../specs/017-notifications-and-attention-model.md), [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-016](../../plans/016-notifications-and-attention-model.md) |
-| event `session.notice` of kind `fast_output_unavailable` {sessionId, kind, reason?} | One flow row: fast output is not on for a turn that asked for it; the speed control reads `Standard` | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.21 |
+| event `session.notice` of kind `fast_output_unavailable` {sessionId, kind, runId, reason?} | One flow row: fast output is not on for a turn that asked for it; the speed control reads `Standard` | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.21 |
 | event `session.notice` of kind `level_unavailable` {sessionId, kind, level} | One flow row, `Reviewed isn't available on this Claude Code account`, on a session an account switch moved to `Ask` | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) T3.3 |
 | event `session.notice` of kind `provider_crash_loop` {sessionId, kind, provider, exitCode?, signal?} | The banner under the header, `<Provider> ended unexpectedly · exit code <code> · Restart ×`, once the fifth crash within three minutes ends the daemon's restarts; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-018](../../specs/018-observability-and-failure-recovery.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.41 |
 | event `session.notice` of kind `provider_missing` {sessionId, kind, provider, placeHasNeitherProvider} | One flow row naming the missing provider, opening Settings › Providers on its section, or `Choose where Claude Code and Codex are installed` opening the place row | [Spec-001 §Fallback Behavior](../../specs/001-session-core.md#fallback-behavior) | [Plan-001](../../plans/001-session-core.md) T6.17 |

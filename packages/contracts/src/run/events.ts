@@ -9,7 +9,8 @@ import { type ExecutionPosture } from "../provider/driver/capabilities.js";
 import { InterventionTypeSchema, type InterventionType } from "../provider/driver/intervention.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RecoveryConditionSchema, type RecoveryCondition } from "../provider/driver/recovery.js";
-import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "../session/id.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
 import {
   ExecutionPostureSchema,
   InterventionIdSchema,
@@ -122,9 +123,23 @@ export const RUN_STATE_CHANGE_PAYLOAD_SCHEMAS: {
   }),
 };
 
+/** The actor of an intervention the daemon made itself, such as a stop at a spend limit. */
+export const DAEMON_INTERVENTION_ACTOR = "daemon";
+
 /**
- * The stored payload of `intervention.<state>`, whose `state` is its own type's state. `actor` is
- * the person who asked, absent when the daemon acted; the device is on the intervention's record.
+ * Who an intervention is from: the device whose connection carried it, or
+ * {@link DAEMON_INTERVENTION_ACTOR} for the daemon's own. Never a person.
+ */
+export type InterventionActor = DeviceId | typeof DAEMON_INTERVENTION_ACTOR;
+
+const InterventionActorSchema: z.ZodType<InterventionActor, InterventionActor> = z.union([
+  z.literal(DAEMON_INTERVENTION_ACTOR),
+  DeviceIdSchema,
+]);
+
+/**
+ * The stored payload of `intervention.<state>`, whose `state` is its own type's state, and whose
+ * `actor` the envelope repeats.
  */
 export interface InterventionEventPayload<TState extends InterventionState> {
   sessionId: SessionId;
@@ -132,7 +147,7 @@ export interface InterventionEventPayload<TState extends InterventionState> {
   targetRunId: RunId;
   type: InterventionType;
   state: TState;
-  actor?: UserId | undefined;
+  actor: InterventionActor;
 }
 
 const buildInterventionEventPayloadSchema = <TState extends InterventionState>(state: TState) =>
@@ -143,7 +158,7 @@ const buildInterventionEventPayloadSchema = <TState extends InterventionState>(s
       targetRunId: RunIdSchema,
       type: InterventionTypeSchema,
       state: z.literal(state),
-      actor: UserIdSchema.optional(),
+      actor: InterventionActorSchema,
     })
     .strict();
 
@@ -160,4 +175,5 @@ export const INTERVENTION_EVENT_PAYLOAD_SCHEMAS: {
   rejected: buildInterventionEventPayloadSchema("rejected"),
   degraded: buildInterventionEventPayloadSchema("degraded"),
   expired: buildInterventionEventPayloadSchema("expired"),
+  failed: buildInterventionEventPayloadSchema("failed"),
 };

@@ -173,6 +173,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "intervention.rejected": "interactive_request",
   "intervention.degraded": "interactive_request",
   "intervention.expired": "interactive_request",
+  "intervention.failed": "interactive_request",
   "user.message": "interactive_request",
   "question.asked": "interactive_request",
   // artifact_publication
@@ -870,6 +871,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   buildInterventionVariantSchema("rejected"),
   buildInterventionVariantSchema("degraded"),
   buildInterventionVariantSchema("expired"),
+  buildInterventionVariantSchema("failed"),
 ] as const;
 
 /**

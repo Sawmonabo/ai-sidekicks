@@ -104,8 +104,12 @@ const INTERVENTION_STATES = [
   "rejected",
   "degraded",
   "expired",
+  "failed",
 ] as const;
-/** Where an intervention stands, from request to outcome. */
+/**
+ * Where an intervention stands, from request to outcome. `failed` is a dispatch that threw, so
+ * the request never stays `accepted` for good.
+ */
 export type InterventionState = (typeof INTERVENTION_STATES)[number];
 
 /** Why a run failed. The values carry spaces because they are wire literals, not identifiers. */
@@ -241,15 +245,26 @@ export interface InterventionResponseBase {
 
 /**
  * The daemon's answer to an intervention request. A refused intervention is a normal answer in
- * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; no other state
- * carries a reason.
+ * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; one whose
+ * dispatch threw answers `failed` with its `failureReason`, the error's code or message, to the
+ * caller retrying under the same key. No other state carries a reason.
  */
 export type InterventionRequestResponse = InterventionResponseBase &
   (
-    | { state: Extract<InterventionState, "rejected">; rejectionReason: string }
     | {
-        state: Exclude<InterventionState, "rejected">;
+        state: Extract<InterventionState, "rejected">;
+        rejectionReason: string;
+        failureReason?: never;
+      }
+    | {
+        state: Extract<InterventionState, "failed">;
+        failureReason: string;
         rejectionReason?: never;
+      }
+    | {
+        state: Exclude<InterventionState, "rejected" | "failed">;
+        rejectionReason?: never;
+        failureReason?: never;
       }
   );
 
@@ -279,7 +294,17 @@ export const InterventionRequestResponseSchema: z.ZodType<
   z
     .object({
       ...interventionResponseBaseShape,
-      state: z.enum(INTERVENTION_STATES).exclude(["rejected"]),
+      state: z.literal("failed"),
+      failureReason: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "InterventionRequestResponse.failureReason",
+      ),
+    })
+    .strict(),
+  z
+    .object({
+      ...interventionResponseBaseShape,
+      state: z.enum(INTERVENTION_STATES).exclude(["rejected", "failed"]),
     })
     .strict(),
 ]);
@@ -331,14 +356,34 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
   .strict();
 
 /**
+ * A setup gate's throw before the provider started the run, which ends it `starting -> failed`:
+ * the error's code when the gate threw a coded daemon error, and its own words.
+ */
+export interface RunSetupFailedCause {
+  cause: "setup-failed";
+  origin: "daemon";
+  code?: string | undefined;
+  message: string;
+}
+const RunSetupFailedCauseSchema: z.ZodType<RunSetupFailedCause> = z
+  .object({
+    cause: z.literal("setup-failed"),
+    origin: z.literal("daemon"),
+    code: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RunSetupFailedCause.code").optional(),
+    message: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "RunSetupFailedCause.message"),
+  })
+  .strict();
+
+/**
  * Why a run failed, on `run.failed`: the refusal, the provider's usage limit with the reset
- * boundary its driver held when the turn failed, or the provider's spent retries. A reload redraws
- * the run's last row from this cause alone.
+ * boundary its driver held when the turn failed, the provider's spent retries, or a setup gate's
+ * failure. A reload redraws the run's last row from this cause alone.
  */
 export type RunFailureCause =
   | RunRefusedCause
   | (ProviderUsageLimitSignal & { origin: "provider" })
-  | (ProviderSpentRetriesSignal & { origin: "provider" });
+  | (ProviderSpentRetriesSignal & { origin: "provider" })
+  | RunSetupFailedCause;
 /** Parses a {@link RunFailureCause}. */
 export const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
   RunRefusedCauseSchema,
@@ -350,6 +395,7 @@ export const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
     })
     .strict(),
   z.object({ cause: z.literal("retries-exhausted"), origin: z.literal("provider") }).strict(),
+  RunSetupFailedCauseSchema,
 ]);
 
 /**

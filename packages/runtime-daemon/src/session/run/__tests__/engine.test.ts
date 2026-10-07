@@ -1,6 +1,9 @@
 // The run engine over a real database: the setup gates around a run's start, the terminal hooks,
-// a provider process that ends on its own, a run that waits and comes back on its own id, and the
-// notice a run gets when its provider does not run it at the fast output level it carried.
+// a provider process that ends on its own, a run that waits and comes back on its own id, the
+// notice a run gets when its provider does not run it at the fast output level it carried, and
+// the interrupt a restart's settle writes for a held child or for the person's pending one.
+
+import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -9,11 +12,8 @@ import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { RunAlreadyEndedError, RunInvalidTransitionError } from "../refusals.js";
-import {
-  RunParkedInSetupError,
-  type RunSetupGate,
-  type RunTerminalContext,
-} from "../setup-gates.js";
+import { DaemonDomainError } from "../../../ipc/domain-error.js";
+import type { RunSetupGate, RunTerminalContext } from "../setup-gates.js";
 import {
   TEST_EXECUTION_POSTURE,
   makeQueueItem,
@@ -96,8 +96,10 @@ describe("run engine", () => {
       expect(driver.startedRuns[0]?.executionPosture).toBe(TEST_EXECUTION_POSTURE);
     });
 
-    it("parks a run in starting on a gate's throw, and an interrupt then ends it", async () => {
-      const gateError = new Error("The session's workspace is not ready");
+    it("ends a run failed with a gate's error as its cause, starting no later gate or driver", async () => {
+      const gateError = new DaemonDomainError("The session's workspace is not ready", {
+        code: "workspace.execution_root_unresolved",
+      });
       const log: string[] = [];
       fixture.engine.registerSetupGate({
         assertRunReady: () => Promise.reject(gateError),
@@ -106,7 +108,7 @@ describe("run engine", () => {
       const driver = makeRecordingDriver();
       const runId = await fixture.queueRun();
 
-      const refusal: unknown = await fixture.engine
+      const thrown: unknown = await fixture.engine
         .startRun({
           runId,
           queueItem: makeQueueItem(),
@@ -117,19 +119,59 @@ describe("run engine", () => {
         })
         .catch((error: unknown) => error);
 
-      expect(refusal).toBeInstanceOf(RunParkedInSetupError);
-      expect((refusal as RunParkedInSetupError).cause).toBe(gateError);
-      expect(fixture.runs.getRun(runId)?.state).toBe("starting");
-      expect(driver.startedRuns).toEqual([]);
-      expect(log).toEqual([]);
-
-      await fixture.engine.settleInterventionOutcome({
-        runId,
-        interventionType: "interrupt",
-        state: "applied",
+      expect(thrown).toBe(gateError);
+      expect(fixture.readRunEvents(runId).at(-1)).toEqual({
+        type: "run.failed",
+        payload: {
+          sessionId: fixture.sessionId,
+          runId,
+          runVersion: 2,
+          previousState: "starting",
+          newState: "failed",
+          failureCause: {
+            cause: "setup-failed",
+            origin: "daemon",
+            code: "workspace.execution_root_unresolved",
+            message: "The session's workspace is not ready",
+          },
+        },
       });
-      expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
+      expect(driver.startedRuns).toEqual([]);
       expect(log).toEqual(["after terminal"]);
+    });
+
+    it("keeps the interrupt's end when a gate throws after an interrupt landed", async () => {
+      const runId = await fixture.queueRun();
+      const gateError = new Error("git worktree add failed");
+      const terminals: RunTerminalContext[] = [];
+      fixture.engine.registerSetupGate({
+        assertRunReady: async () => {
+          await fixture.engine.settleInterventionOutcome({
+            runId,
+            interventionType: "interrupt",
+            state: "applied",
+          });
+          throw gateError;
+        },
+        onRunTerminal: (context) => {
+          terminals.push(context);
+          return Promise.resolve();
+        },
+      });
+
+      await expect(
+        fixture.engine.startRun({
+          runId,
+          queueItem: makeQueueItem(),
+          provider: "claude",
+          driver: makeRecordingDriver(),
+          driverParams: { agentConfig: {} },
+          executionPosture: TEST_EXECUTION_POSTURE,
+        }),
+      ).rejects.toBe(gateError);
+      expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
+      expect(fixture.readRunEvents(runId).some((row) => row.type === "run.failed")).toBe(false);
+      expect(terminals.map((context) => context.terminalState)).toEqual(["interrupted"]);
     });
 
     it("does not hand the driver a run interrupted while a gate checked it", async () => {
@@ -410,6 +452,7 @@ describe("run engine", () => {
         {
           sessionId: fixture.sessionId,
           kind: "fast_output_unavailable",
+          runId,
           reason: "Fast mode is cooling down after a rate limit",
         },
       ]);
@@ -442,8 +485,83 @@ describe("run engine", () => {
       }
 
       expect(readNotices()).toEqual([
-        { sessionId: fixture.sessionId, kind: "fast_output_unavailable" },
+        { sessionId: fixture.sessionId, kind: "fast_output_unavailable", runId: deniedRunId },
       ]);
+    });
+  });
+
+  describe("interrupt after a restart", () => {
+    // The person's interrupt of `runId`, accepted and waiting for its outcome.
+    async function requestInterrupt(runId: RunId, expectedRunVersion: number): Promise<void> {
+      await fixture.database.writer.write([
+        {
+          sql: `INSERT INTO interventions
+                  (id, target_run_id, type, state, expected_run_version, client_idempotency_key,
+                   created_at)
+                VALUES (?, ?, 'interrupt', 'accepted', ?, ?, ?)`,
+          bindings: [
+            randomUUID(),
+            runId,
+            expectedRunVersion,
+            randomUUID(),
+            new Date().toISOString(),
+          ],
+        },
+      ]);
+    }
+
+    async function settleEveryLiveRun(): Promise<void> {
+      const restarted = fixture.restartEngine();
+      for (const live of fixture.runs.listLiveRuns()) {
+        await restarted.settleRunAfterRestart(live, "The conversation file was not found");
+      }
+    }
+
+    function readInterrupted(runId: RunId): Record<string, unknown>[] {
+      return fixture
+        .readRunEvents(runId)
+        .filter((row) => row.type === "run.interrupted")
+        .map((row) => row.payload);
+    }
+
+    it("ends a child the restart left held as the daemon's own interrupt", async () => {
+      const parent = await fixture.runThrough(["starting", "running"]);
+      const heldChild = await fixture.runThrough(["starting", "running", "pausing", "paused"], {
+        parentRunId: parent,
+        reachedBy: "provider_subagent",
+      });
+
+      await settleEveryLiveRun();
+
+      expect(readInterrupted(heldChild)).toEqual([
+        {
+          sessionId: fixture.sessionId,
+          runId: heldChild,
+          runVersion: 5,
+          previousState: "paused",
+          newState: "interrupted",
+          trigger: "daemon_restart",
+        },
+      ]);
+    });
+
+    it("keeps the person's pending interrupt theirs, held child or not", async () => {
+      const stopped = await fixture.runThrough(["starting", "running"]);
+      await requestInterrupt(stopped, 2);
+      const heldChild = await fixture.runThrough(["starting", "running", "pausing", "paused"], {
+        parentRunId: stopped,
+        reachedBy: "provider_subagent",
+      });
+      await requestInterrupt(heldChild, 4);
+
+      await settleEveryLiveRun();
+
+      for (const runId of [stopped, heldChild]) {
+        const interrupted = readInterrupted(runId);
+        expect(interrupted).toHaveLength(1);
+        expect(interrupted[0]).toMatchObject({ runId, newState: "interrupted" });
+        expect(interrupted[0]).not.toHaveProperty("trigger");
+      }
     });
   });
 });

@@ -722,6 +722,7 @@ interface SessionNoticeProviderMissing {
 interface SessionNoticeFastOutputUnavailable {
   sessionId: SessionId;
   kind: "fast_output_unavailable";
+  runId: RunId; // the run whose turn asked for fast output
   reason?: string; // the provider's own words, absent when it sent none
 }
 ```

@@ -21,7 +21,7 @@ export type InterventionFormSettlement =
 /**
  * Reads one settled dispatch as the form must act on it. The daemon's `state` decides, never
  * the presence of a result: `applied` and `degraded` landed; every other arm keeps the body
- * and shows the daemon's own code (`rejectionReason`, else the state).
+ * and shows the daemon's own code (`rejectionReason` or `failureReason`, else the state).
  */
 export function readInterventionFormSettlement(
   outcome: RunControlOutcome,
@@ -43,6 +43,16 @@ export function readInterventionFormSettlement(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
           response.rejectionReason ?? settledState,
           REJECTED_DETAIL,
+        ),
+      };
+    case "failed":
+      return {
+        kind: "refused",
+        notice: refuse(
+          RUN_INTERVENTION_REFUSAL_ORIGIN,
+          response.failureReason ?? settledState,
+          "The background service could not deliver this. What you typed is " +
+            "still here — confirm again to try once more, or cancel to close.",
         ),
       };
     case "expired":

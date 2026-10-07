@@ -17,11 +17,10 @@ export type RunStateSwap = Pick<
   "runId" | "runVersion" | "previousState" | "newState"
 > & { sessionId: SessionId };
 
-/** A progression that changes no state, advanced from the run version its caller read. */
+/** A progression that changes no state, advanced from whatever version the run is at. */
 export interface RunVersionAdvance {
   readonly sessionId: SessionId;
   readonly runId: RunId;
-  readonly expectedRunVersion: number;
 }
 
 const INSERT_QUEUED_RUN_SQL = `INSERT INTO runs
@@ -40,8 +39,7 @@ const SWAP_RUN_STATE_SQL = `UPDATE runs
 const ADVANCE_RUN_VERSION_SQL = `UPDATE runs
     SET run_version = run_version + 1
   WHERE run_id = @run_id
-    AND session_id = @session_id
-    AND run_version = @expected_run_version`;
+    AND session_id = @session_id`;
 
 /** The statement that creates a run's row from its `run.queued` payload. */
 export function insertQueuedRunStatement(payload: RunQueuedPayload): WriteStatement {
@@ -78,17 +76,14 @@ export function swapRunStateStatement(swap: RunStateSwap): WriteStatement {
 }
 
 /**
- * The statement that advances a run's version by one with no state change, as an applied
- * intervention does. It refuses the write unless the row is still at `expectedRunVersion`.
+ * The statement that advances a run's version by one from its current value with no state
+ * change, as a dispatched intervention's verdict does. It holds no stale comparand, because no
+ * earlier read decides it; it refuses the write only when the run is not under `sessionId`.
  */
 export function advanceRunVersionStatement(advance: RunVersionAdvance): WriteStatement {
   return {
     sql: ADVANCE_RUN_VERSION_SQL,
-    bindings: {
-      run_id: advance.runId,
-      session_id: advance.sessionId,
-      expected_run_version: advance.expectedRunVersion,
-    },
+    bindings: { run_id: advance.runId, session_id: advance.sessionId },
     expectedRowCount: 1,
   };
 }

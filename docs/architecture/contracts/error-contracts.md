@@ -155,7 +155,7 @@ Daemon-local run-queue control codes (Plan-002). Run-control authority is daemon
 
 ### Intervention
 
-Intervention request-admission codes ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). Intervention **outcomes** deliberately resolve via the six-state lifecycle (`rejected` / `expired` / `degraded` are states, not error codes — [queue-and-intervention-model.md §Driver Result To Lifecycle Mapping](../../domain/queue-and-intervention-model.md#driver-result-to-lifecycle-mapping)); this namespace covers only request-level refusals that never produce an intervention row. The token deliberately collides with no `intervention.*` durable event name (`requested`/`accepted`/`applied`/`rejected`/`degraded`/`expired` — the never-collide rule, D-009-4 convention).
+Intervention request-admission codes ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). Intervention **outcomes** deliberately resolve via the seven-state lifecycle (`rejected` / `expired` / `degraded` / `failed` are states, not error codes — [queue-and-intervention-model.md §Driver Result To Lifecycle Mapping](../../domain/queue-and-intervention-model.md#driver-result-to-lifecycle-mapping)); this namespace covers only request-level refusals that never produce an intervention row. The token deliberately collides with no `intervention.*` durable event name (`requested`/`accepted`/`applied`/`rejected`/`degraded`/`expired` — the never-collide rule, D-009-4 convention).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -229,7 +229,7 @@ Opening a shell on a session that is a chat is refused `pty.chat_unsupported`: a
 | `workspace.preparation_failed` | Preparing the workspace failed due to an internal error | 500 |
 | `workspace.mode_unsupported` | A worktree was requested for a chat's managed workspace, which offers only its own root (Plan-006 D-006-5) | 400 |
 | `workspace.stale` | Workspace execution root is unavailable; new write runs are blocked until repair ([Spec-007 §Fallback Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#fallback-behavior); thrown by the Plan-006 `assertWritable` write gate, CP-006-3) | 409 |
-| `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run parks in `starting` ([Spec-008 §Fallback Behavior](../../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior); Plan-007 D-007-16) | 409 |
+| `workspace.execution_root_unresolved` | A repo-bound run reached the setup gate with no resolved execution root for the workspace's selected mode and root preparation failed; the run ends `failed` with this error as its cause ([Spec-008 §Fallback Behavior](../../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior); Plan-007 D-007-16) | 409 |
 | `workspace.branch_name_required` | A wire-initiated (pre-run) `repo.executionRootPrepare` for a `provisioned-worktree` omitted `branchName`: the Spec-008 slug rule's derivation inputs (queue-item summary / run id) exist only on the run-setup gate path, so wire prepares must carry the branch. A `bound-root` prepare names no branch: the daemon follows whatever branch the checkout is on (Plan-007 D-007-18) | 400 |
 
 ### Repo

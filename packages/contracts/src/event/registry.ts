@@ -55,6 +55,7 @@ export type SessionEventType =
   | "intervention.rejected"
   | "intervention.degraded"
   | "intervention.expired"
+  | "intervention.failed"
   | "user.message"
   | "question.asked"
   // artifact_publication

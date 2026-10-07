@@ -654,6 +654,12 @@ export type InterventionExpiredEvent = SessionEventVariant<
   "interactive_request",
   InterventionEventPayload<"expired">
 >;
+/** Emitted when an intervention's dispatch throws, so it ends without a driver verdict. */
+export type InterventionFailedEvent = SessionEventVariant<
+  "intervention.failed",
+  "interactive_request",
+  InterventionEventPayload<"failed">
+>;
 
 /** Every session event with a registered payload variant, discriminated on `type`. */
 export type SessionEvent =
@@ -756,4 +762,5 @@ export type SessionEvent =
   | InterventionAppliedEvent
   | InterventionRejectedEvent
   | InterventionDegradedEvent
-  | InterventionExpiredEvent;
+  | InterventionExpiredEvent
+  | InterventionFailedEvent;

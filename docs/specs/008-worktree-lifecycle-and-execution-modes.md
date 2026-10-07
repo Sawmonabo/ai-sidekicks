@@ -78,8 +78,8 @@ This spec covers the two places a project session works in — a worktree of its
 ## Fallback Behavior
 
 - If a worktree cannot be made in a repository, the session stays where it was and the failure is said where it is; the person may pick the project's checkout, which the daemon never picks for them.
-- If worktree creation fails, the run must remain blocked in setup rather than mutating the main checkout.
-- "Blocked in setup" is a concrete run disposition: the run parks in the `starting` state with the typed preparation error surfaced; no `running` transition fires, the failure never silently mutates any checkout, and the parked run remains interruptible (cancel applies to `starting` runs, transitioning them to `interrupted`).
+- If worktree creation fails, the run ends `failed` with the typed preparation error as its cause rather than mutating the main checkout.
+- A run stays in `starting` while its setup runs and remains interruptible there (an interrupt moves it to `interrupted`). A setup that fails ends the run `failed`, carrying the typed preparation error as its cause; no `running` transition fires and the failure never silently mutates any checkout.
 - Moving into an existing worktree is the person's own pick of that tree's row in the switcher, which shows its uncommitted count and the sessions using it before the press; the pick is the explicit choice, and every worktree git lists for the repository is offered.
 - Preparing an execution root against a `stale` workspace must be refused with the typed stale error until the workspace is repaired (write-gate posture per Spec-007).
 - When a repo mount detaches or an owning workspace archives, dependent non-terminal worktrees are retired by the daemon's asynchronous cleanup sweep — retirement is recorded and evented with metadata preserved, and nothing on disk is touched: a worktree's folder is removed from disk only when `repo.worktreeRetire` retired it. The sweep skips a chat's managed workspace, which goes only with its session's purge.

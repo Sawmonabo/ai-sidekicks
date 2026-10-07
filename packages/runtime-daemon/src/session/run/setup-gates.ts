@@ -24,23 +24,12 @@ export interface RunTerminalContext {
 
 /**
  * A check a run must pass in `starting` before its provider starts it. A throw from
- * `assertRunReady` parks the run in `starting`; `onRunTerminal` runs once for each run version
- * that ends, whatever ended it.
+ * `assertRunReady` ends the run `failed` with the thrown error as its cause; `onRunTerminal` runs
+ * once for each run version that ends, whatever ended it.
  */
 export interface RunSetupGate {
   assertRunReady(context: RunSetupContext): Promise<void>;
   onRunTerminal?(context: RunTerminalContext): Promise<void>;
-}
-
-/** A run left in `starting` because a setup gate threw; `cause` is what the gate threw. */
-export class RunParkedInSetupError extends Error {
-  readonly runId: RunId;
-
-  constructor(runId: RunId, cause: unknown) {
-    super("A setup gate refused the run, so it waits in starting", { cause });
-    this.name = "RunParkedInSetupError";
-    this.runId = runId;
-  }
 }
 
 /** The registered gates, in registration order; one entry per gate a feature registers at boot. */
@@ -51,14 +40,10 @@ export class RunSetupGates {
     this.#gates.push(gate);
   }
 
-  /** Runs every gate in registration order; throws {@link RunParkedInSetupError} at the first throw. */
+  /** Runs every gate in registration order; the first gate's throw stops the rest and is rethrown. */
   async assertRunReady(context: RunSetupContext): Promise<void> {
     for (const gate of this.#gates) {
-      try {
-        await gate.assertRunReady(context);
-      } catch (error) {
-        throw new RunParkedInSetupError(context.runId, error);
-      }
+      await gate.assertRunReady(context);
     }
   }
 

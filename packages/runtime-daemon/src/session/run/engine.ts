@@ -8,7 +8,8 @@ import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
-import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
+import type { ProcessExit, RunSetupFailedCause } from "@ai-sidekicks/contracts/run/control";
+import type { InterruptReason } from "@ai-sidekicks/contracts/orchestration";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
@@ -20,6 +21,7 @@ import type { SessionNoticePayload } from "@ai-sidekicks/contracts/session/contr
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { DaemonDomainError } from "../../ipc/domain-error.js";
 import {
   SessionEventAppender,
   type SessionEventAppenderDeps,
@@ -46,6 +48,8 @@ const RUN_ENGINE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchem
 
 const DRIVER_START_FAILURE_FALLBACK = "The provider could not start the run";
 const RESTART_FAILURE_FALLBACK = "The run could not be resumed after the service restarted";
+const SETUP_FAILURE_FALLBACK = "The run's setup failed";
+const RESTART_INTERRUPT_TRIGGER: InterruptReason = "daemon_restart";
 
 /**
  * A state change a caller asks for. `run.running` carries the run's posture only from
@@ -107,13 +111,19 @@ export class RunEngine {
 
   /**
    * Starts a queued run: `starting`, every setup gate in order, the driver's start, then `running`
-   * stamped with the posture the driver was handed. A gate's throw leaves the run in `starting`
-   * and throws `RunParkedInSetupError`; a driver's throw ends the run `failed` and is rethrown.
+   * stamped with the posture the driver was handed. A gate's throw ends the run `failed` with the
+   * gate's error as its cause, unless an interrupt ended it first, and is rethrown; a driver's
+   * throw ends the run `failed` and is rethrown.
    */
   async startRun(request: RunStartRequest): Promise<RunRead> {
     const { runId, queueItem, provider, driver, driverParams, executionPosture } = request;
     const starting = await this.#change({ runId, expectedState: "queued", newState: "starting" });
-    await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
+    try {
+      await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
+    } catch (gateError) {
+      await this.#failSetup(runId, gateError);
+      throw gateError;
+    }
 
     // An interrupt may have landed while a gate ran; a run no longer starting is not started.
     const afterGates = this.#runs.getRun(runId);
@@ -159,8 +169,9 @@ export class RunEngine {
 
   /**
    * Compares a run's settled output speed with the fast level it carried and, where the provider
-   * runs it at another state, appends one `fast_output_unavailable` notice with the provider's
-   * reason. Only the first report for a started run is compared; a later one finds nothing.
+   * runs it at another state, appends one `fast_output_unavailable` notice naming the run, with the
+   * provider's reason. Only the first report for a started run is compared; a later one finds
+   * nothing.
    */
   async recordSettledOutputSpeed(
     sessionId: SessionId,
@@ -178,6 +189,7 @@ export class RunEngine {
     const notice: SessionNoticePayload = {
       sessionId,
       kind: "fast_output_unavailable",
+      runId,
       ...(state.reason === undefined ? {} : { reason: state.reason }),
     };
     await this.#appender.append("session.notice", notice, {});
@@ -236,9 +248,9 @@ export class RunEngine {
 
   /**
    * Settles one run a restart left live that recovery could not resume, without calling any
-   * driver: `interrupted` when the person's interrupt was pending or it is a child held in a pause,
-   * otherwise `failed` as a provider failure that needs recovery, carrying `failureDetail`. A
-   * queued run is left as it is.
+   * driver: `interrupted` when the person's interrupt was pending, or with the restart's trigger
+   * when it is a child held in a pause, otherwise `failed` as a provider failure that needs
+   * recovery, carrying `failureDetail`. A queued run is left as it is.
    */
   async settleRunAfterRestart(run: LiveRun, failureDetail: string): Promise<RunRead> {
     const hasPendingInterrupt = this.#pendingInterrupts.hasPendingInterrupt(run);
@@ -248,7 +260,15 @@ export class RunEngine {
     }
     const guard = [pendingInterruptStatement(run, hasPendingInterrupt)];
     if (settlement === "interrupted") {
-      return this.#change({ runId: run.runId, newState: "interrupted" }, guard);
+      // The person's pending interrupt stays theirs; only a held child's end is the daemon's.
+      return this.#change(
+        {
+          runId: run.runId,
+          newState: "interrupted",
+          ...(hasPendingInterrupt ? {} : { trigger: RESTART_INTERRUPT_TRIGGER }),
+        },
+        guard,
+      );
     }
     return this.#change(
       {
@@ -276,6 +296,28 @@ export class RunEngine {
     return run;
   }
 
+  // Ends a run whose setup gate threw `failed`, its cause the gate's error. A run an interrupt
+  // moved out of `starting` while the gate ran keeps that end.
+  async #failSetup(runId: RunId, gateError: unknown): Promise<void> {
+    try {
+      await this.#change({
+        runId,
+        expectedState: "starting",
+        newState: "failed",
+        failureCause: setupFailedCause(gateError),
+      });
+    } catch (failError) {
+      if (failError instanceof RunInvalidTransitionError && failError.fromState !== "starting") {
+        return;
+      }
+      throw new AggregateError(
+        [gateError, failError],
+        `A setup gate refused run ${runId}, and ending the run failed too`,
+        { cause: failError },
+      );
+    }
+  }
+
   async #failStart(runId: RunId, driverError: unknown): Promise<void> {
     const detail = driverError instanceof Error ? driverError.message : String(driverError);
     try {
@@ -294,6 +336,17 @@ export class RunEngine {
       );
     }
   }
+}
+
+// The cause a gate's throw records: a coded daemon error's code, and the error's own words.
+function setupFailedCause(gateError: unknown): RunSetupFailedCause {
+  const message = boundFailureDetail(
+    gateError instanceof Error ? gateError.message : String(gateError),
+    SETUP_FAILURE_FALLBACK,
+  );
+  return gateError instanceof DaemonDomainError
+    ? { cause: "setup-failed", origin: "daemon", code: gateError.code, message }
+    : { cause: "setup-failed", origin: "daemon", message };
 }
 
 // The refusal of a provider's change to a run that has ended in `endedState`.

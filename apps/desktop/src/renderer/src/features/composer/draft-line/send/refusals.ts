@@ -3,7 +3,7 @@
 // so nothing here reads one, and the only daemon refusal built here is an intervention answered
 // with a declining lifecycle state.
 
-import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
+import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -38,16 +38,13 @@ export function unparseableIdentifier(): Refusal {
 
 /**
  * The refusal for an intervention the daemon answered and did not admit. Daemon-origin; the
- * code is the response's `rejectionReason` when sent, else the lifecycle state. The sentence
- * speaks of the user's text, which the line still holds.
+ * code is the response's `rejectionReason` or `failureReason` when sent, else the lifecycle
+ * state. The sentence speaks of the user's text, which the line still holds.
  */
-export function interventionNotApplied(
-  state: InterventionState,
-  rejectionReason: string | undefined,
-): Refusal {
+export function interventionNotApplied(response: InterventionRequestResponse): Refusal {
   return refuse(
     DAEMON_REFUSAL_ORIGIN,
-    rejectionReason ?? state,
+    response.rejectionReason ?? response.failureReason ?? response.state,
     "The run did not take this steer, so nothing was sent. The " +
       "message is still in the line — the console has read the run's " +
       "current version, so sending again guards it against where the " +

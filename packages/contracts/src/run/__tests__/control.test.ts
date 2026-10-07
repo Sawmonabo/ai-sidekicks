@@ -2,6 +2,7 @@
 // the wire, before the daemon acts on it.
 import { describe, expect, it } from "vitest";
 
+import { INTERRUPT_REASONS } from "../../orchestration.js";
 import type { InterventionType } from "../../provider/driver/intervention.js";
 import { RECOVERY_CONDITIONS } from "../../provider/driver/recovery.js";
 import {
@@ -130,7 +131,7 @@ describe("InterventionRequestResponse", () => {
     interventionType: "interrupt",
     runVersion: 5,
   } as const;
-  it("refuses a rejection that does not say why", () => {
+  it("refuses a rejection or a failure that does not say why", () => {
     // The reason is how a caller learns why a refusal rode the response rather than an error.
     const rejected = {
       ...response,
@@ -152,6 +153,20 @@ describe("InterventionRequestResponse", () => {
     expect(
       InterventionRequestResponseSchema.safeParse({ ...response, state: "applied" }).success,
     ).toBe(true);
+    // A failure's reason is the one place a retry under the same key learns what the throw was.
+    const failed = { ...response, state: "failed", failureReason: "driver.transport_closed" };
+    expect(InterventionRequestResponseSchema.parse(failed)).toEqual(failed);
+    expect(
+      InterventionRequestResponseSchema.safeParse({ ...response, state: "failed" }).success,
+    ).toBe(false);
+    expect(
+      InterventionRequestResponseSchema.safeParse({
+        ...response,
+        state: "rejected",
+        rejectionReason: "run.invalid_transition",
+        failureReason: "driver.transport_closed",
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -166,7 +181,7 @@ const minimalRunStateChange = {
 describe("RunStateChangeEvent", () => {
   it("names why the daemon itself interrupted a run, from the closed set only", () => {
     const interrupted = { ...minimalRunStateChange, newState: "interrupted" } as const;
-    for (const trigger of ["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"]) {
+    for (const trigger of INTERRUPT_REASONS) {
       expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger }).success).toBe(true);
     }
     expect(RunStateChangeEventSchema.safeParse({ ...interrupted, trigger: "person" }).success).toBe(

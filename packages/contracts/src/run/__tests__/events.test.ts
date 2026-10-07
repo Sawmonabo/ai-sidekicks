@@ -67,6 +67,7 @@ describe("stored run and intervention events", () => {
         targetRunId: RUN_ID,
         type: "steer",
         state: "applied",
+        actor: "daemon",
       }),
     ],
   ])("refuses %s, another type's state", (_case, event) => {

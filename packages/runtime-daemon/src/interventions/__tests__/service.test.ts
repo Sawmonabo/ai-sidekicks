@@ -15,6 +15,7 @@ import type {
   InterventionId,
   InterventionRequestPayload,
 } from "@ai-sidekicks/contracts/run/control";
+import { DAEMON_INTERVENTION_ACTOR } from "@ai-sidekicks/contracts/run/events";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -36,14 +37,16 @@ import {
 } from "../service.js";
 import { InterventionReader } from "../store.js";
 
-const DAEMON_ORIGIN: InterventionOrigin = { deviceId: null };
+const DAEMON_ORIGIN: InterventionOrigin = { actor: DAEMON_INTERVENTION_ACTOR };
 
 interface InterventionRow {
   readonly state: string;
   readonly payload: string;
   readonly device_id: string | null;
   readonly rejection_reason: string | null;
+  readonly failure_reason: string | null;
   readonly fallback_action: string | null;
+  readonly outcome_run_version: number | null;
   readonly resolved_at: string | null;
 }
 
@@ -142,7 +145,8 @@ describe("InterventionService", () => {
   function readRow(interventionId: InterventionId): InterventionRow | undefined {
     return database.reader
       .prepare<[InterventionId], InterventionRow>(
-        `SELECT state, payload, device_id, rejection_reason, fallback_action, resolved_at
+        `SELECT state, payload, device_id, rejection_reason, failure_reason, fallback_action,
+                outcome_run_version, resolved_at
            FROM interventions WHERE id = ?`,
       )
       .get(interventionId);
@@ -156,6 +160,17 @@ describe("InterventionService", () => {
       )
       .all(interventionId)
       .map((row) => row.type);
+  }
+
+  // The actor each of an intervention's events names, on its envelope and in its payload.
+  function eventActorsOf(interventionId: InterventionId): (string | null)[][] {
+    return database.reader
+      .prepare<[string], { actor: string | null; payload_actor: string | null }>(
+        `SELECT actor, json_extract(payload, '$.actor') AS payload_actor FROM session_events
+          WHERE json_extract(payload, '$.interventionId') = ? ORDER BY sequence`,
+      )
+      .all(interventionId)
+      .map((row) => [row.actor, row.payload_actor]);
   }
 
   it("expires a request whose expected version is older or newer than the run's", async () => {
@@ -215,7 +230,7 @@ describe("InterventionService", () => {
     await moveRun("queued", "running");
     const deviceId = DeviceIdSchema.parse(randomUUID());
 
-    const applied = await service.applyIntervention(steer(1), { deviceId });
+    const applied = await service.applyIntervention(steer(1), { actor: deviceId });
     driverResult = { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
     const degraded = await service.applyIntervention(steer(2), DAEMON_ORIGIN);
 
@@ -225,12 +240,19 @@ describe("InterventionService", () => {
       state: "applied",
       device_id: deviceId,
       fallback_action: null,
+      outcome_run_version: 2,
     });
     expect(readRow(degraded.interventionId)).toMatchObject({
       state: "degraded",
       device_id: null,
       fallback_action: STEER_FALLBACK_ACTION,
+      outcome_run_version: 3,
     });
+    // Every event names who asked, the calling device or the daemon, on its envelope too.
+    expect(eventActorsOf(applied.interventionId)).toEqual(Array(3).fill([deviceId, deviceId]));
+    expect(eventActorsOf(degraded.interventionId)).toEqual(
+      Array(3).fill([DAEMON_INTERVENTION_ACTOR, DAEMON_INTERVENTION_ACTOR]),
+    );
     expect(eventTypesOf(applied.interventionId)).toEqual([
       "intervention.requested",
       "intervention.accepted",
@@ -257,21 +279,67 @@ describe("InterventionService", () => {
     ]);
   });
 
-  it("expires an accepted intervention when the run moved before its outcome landed", async () => {
+  it("records the driver's verdict when the run moved after dispatch, advancing from where it is", async () => {
     await moveRun("queued", "running");
     duringDispatch = () => moveRun("running", "waiting_for_input");
 
     const response = await service.applyIntervention(steer(1), DAEMON_ORIGIN);
 
-    expect(response).toMatchObject({ state: "expired", runVersion: 2 });
+    expect(response).toMatchObject({ state: "applied", runVersion: 3 });
+    expect(readRow(response.interventionId)).toMatchObject({
+      state: "applied",
+      outcome_run_version: 3,
+    });
     expect(eventTypesOf(response.interventionId)).toEqual([
       "intervention.requested",
       "intervention.accepted",
-      "intervention.expired",
+      "intervention.applied",
     ]);
+    expect(runs.getRun(runId)).toMatchObject({ state: "waiting_for_input", version: 3 });
     expect(driverCalls).toHaveLength(1);
-    expect(settleCalls).toHaveLength(0);
+    expect(settleCalls).toEqual([{ runId, interventionType: "steer", state: "applied" }]);
   });
+
+  it.each([
+    {
+      thrown: new DaemonDomainError("The provider's transport closed", {
+        code: "driver.transport_closed",
+      }),
+      failureReason: "driver.transport_closed",
+    },
+    { thrown: new Error("  socket hang up\0  "), failureReason: "socket hang up" },
+  ])(
+    "ends a request failed with $failureReason when its dispatch throws, and answers a retry with it",
+    async ({ thrown, failureReason }) => {
+      await moveRun("queued", "running");
+      duringDispatch = () => Promise.reject(thrown);
+      const request = steer(1);
+
+      await expect(service.applyIntervention(request, DAEMON_ORIGIN)).rejects.toBe(thrown);
+      const retried = await service.applyIntervention(request, DAEMON_ORIGIN);
+
+      expect(retried).toEqual({
+        interventionId: retried.interventionId,
+        interventionType: "steer",
+        state: "failed",
+        failureReason,
+        runVersion: 1,
+      });
+      expect(readRow(retried.interventionId)).toMatchObject({
+        state: "failed",
+        failure_reason: failureReason,
+        outcome_run_version: null,
+        resolved_at: expect.any(String),
+      });
+      expect(eventTypesOf(retried.interventionId)).toEqual([
+        "intervention.requested",
+        "intervention.accepted",
+        "intervention.failed",
+      ]);
+      expect(driverCalls).toHaveLength(1);
+      expect(settleCalls).toHaveLength(0);
+    },
+  );
 
   it("applies concurrent requests on one run in turn, so one version reaches the driver once", async () => {
     await moveRun("queued", "running");

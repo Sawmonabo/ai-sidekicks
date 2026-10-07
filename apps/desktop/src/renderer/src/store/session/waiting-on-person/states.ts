@@ -69,6 +69,7 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
       "intervention.rejected",
       "intervention.degraded",
       "intervention.expired",
+      "intervention.failed",
     ],
     correlationMember: "interventionId",
   },

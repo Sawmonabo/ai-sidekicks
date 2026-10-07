@@ -120,8 +120,8 @@ The following table lists every allowed run state transition. It includes primar
 | --- | --- | --- | --- |
 | `queued` | `starting` | Run admitted to execution | The memory gate admits it |
 | `starting` | `running` | Initialization complete | Provider and workspace ready |
-| `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
-| `starting` | `interrupted` | Interrupt intervention | User-initiated stop while run setup is in progress or parked (e.g. blocked-in-setup per [Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior)) |
+| `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete; a setup gate's failure carries `failureCause: {cause: 'setup-failed'}` with the gate's own error |
+| `starting` | `interrupted` | Interrupt intervention | User-initiated stop while run setup is in progress ([Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior)) |
 | `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
 | `running` | `waiting_for_input` | Input requested | Run requires user input or structured answers, or Claude Code's retry-or-edit choice on a refused turn waits on the person (`run.refusal_choice_requested`), or its switch-or-credits choice when a Fable turn needs usage credits does (`run.usage_credits_choice_requested`) |
 | `running` | `pausing` | Pause toggle pressed | The step already in flight is still finishing and nothing new starts ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
@@ -165,10 +165,10 @@ The following table lists every allowed run state transition. It includes primar
 | `waiting_for_input` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
 | `waiting_for_input` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `paused` | `failed` | Startup reconciliation | Resume impossible and no prior user-initiated stop |
-| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
 | `paused` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the local log is authoritative and the run halts for human action carrying `recovery-needed` ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
 | `pausing` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
-| `pausing` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
+| `pausing` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash, or a child held in the pause, which carries `trigger: 'daemon_restart'` |
 
 ## Derived Failure And Recovery Signals
 

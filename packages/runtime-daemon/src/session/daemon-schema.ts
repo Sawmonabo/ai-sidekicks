@@ -25,7 +25,7 @@ CREATE TABLE session_events (
   monotonic_ns      INTEGER NOT NULL,
   category          TEXT NOT NULL,
   type              TEXT NOT NULL,
-  actor             TEXT,                         -- user or agent id; NULL for the system
+  actor             TEXT,                         -- the payload's actor; NULL when it names none
   payload           TEXT NOT NULL DEFAULT '{}',   -- JSON
   -- machine-authored prose, kept beside the payload so a read fetches it on demand
   content_payload   TEXT,
@@ -359,7 +359,8 @@ CREATE TABLE interventions (
   type                    TEXT NOT NULL
                           CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
-    CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
+    CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired',
+                    'failed')),
   payload                 TEXT NOT NULL DEFAULT '{}', -- JSON
   expected_run_version    INTEGER NOT NULL,           -- the fail-closed comparand
   client_idempotency_key  TEXT NOT NULL,              -- requester-generated UUID
@@ -369,6 +370,11 @@ CREATE TABLE interventions (
   rejection_reason        TEXT,
   -- The fallback a degraded intervention took; NULL in every other state.
   fallback_action         TEXT,
+  -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
+  failure_reason          TEXT,
+  -- The run version an applied or degraded outcome advanced the run to; NULL in every other
+  -- state. A restart matches a stop whose run end never landed by it.
+  outcome_run_version     INTEGER,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
   -- An identical retry returns the saved result; a reused key with a

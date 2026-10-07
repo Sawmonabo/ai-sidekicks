@@ -136,8 +136,8 @@ export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferin
  *   level it left, so it runs at `ask`; `level` is the level it left.
  * - `provider_updated`: the provider's installed build changed under the running session, both
  *   versions as the provider reports them; drawn as a banner, never a row.
- * - `fast_output_unavailable`: the provider says fast output is not on for a run that asked for
- *   it, with its own reason when it sent one.
+ * - `fast_output_unavailable`: the provider says fast output is not on for the run `runId`, which
+ *   asked for it, with its own reason when it sent one.
  * - `provider_missing`: the session's provider is not installed where the background service
  *   runs, so no provider process started; `placeHasNeitherProvider` is true where that place has
  *   neither provider.
@@ -177,7 +177,12 @@ export type SessionNoticePayload =
       fromVersion: string;
       toVersion: string;
     }
-  | { sessionId: SessionId; kind: "fast_output_unavailable"; reason?: string | undefined }
+  | {
+      sessionId: SessionId;
+      kind: "fast_output_unavailable";
+      runId: RunId;
+      reason?: string | undefined;
+    }
   | {
       sessionId: SessionId;
       kind: "provider_missing";
@@ -279,6 +284,7 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z.dis
       .object({
         sessionId: SessionIdSchema,
         kind: z.literal("fast_output_unavailable"),
+        runId: RunIdSchema,
         reason: wireFreeFormString(
           DRIVER_FAILURE_DETAIL_MAX_LEN,
           "SessionNoticePayload.reason",

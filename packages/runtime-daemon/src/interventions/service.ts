@@ -2,8 +2,13 @@
 // and record its outcome. Each step is one write carrying its row change, its guards and its
 // `intervention.*` event, so a crash leaves the row at the last step that committed, and every
 // decision read from the run is checked again by a guarded statement inside the write it decides.
-// Calls on one run take turns under a per-run lock, so two requests at one version never both
-// reach the driver.
+//
+// The accept is the version gate: a request whose run moved before it expires undispatched, and
+// once dispatched the driver's verdict is recorded whatever the run did meanwhile. A dispatch that
+// throws ends the request `failed`. Steers and retries on one run take turns under a per-run lock,
+// so two at one version never both reach the driver; an interrupt takes a lock of its own, so a
+// stop never waits behind a steer, and a steer still queued when it lands meets the advanced
+// version at its accept and expires.
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
@@ -18,11 +23,14 @@ import {
   type InterventionRequestResponse,
   type InterventionState,
 } from "@ai-sidekicks/contracts/run/control";
-import type { InterventionEventPayload } from "@ai-sidekicks/contracts/run/events";
+import {
+  DAEMON_INTERVENTION_ACTOR,
+  type InterventionActor,
+  type InterventionEventPayload,
+} from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { WriteStatement } from "../database/statement.js";
@@ -30,7 +38,7 @@ import { WriteRefusedError } from "../database/writer.js";
 import { SessionEventAppender, type SessionEventLog } from "../events/session/appender.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
-import type { ProviderDriver } from "../provider/driver/contract.js";
+import { boundFailureDetail, type ProviderDriver } from "../provider/driver/contract.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
@@ -47,11 +55,11 @@ import {
 } from "./store.js";
 
 /**
- * Where a request came from: the device of the connection it arrived on, or `null` for a stop
- * the daemon makes itself.
+ * Where a request came from: the device of the connection it arrived on, or the daemon's actor
+ * for a stop the daemon makes itself.
  */
 export interface InterventionOrigin {
-  readonly deviceId: DeviceId | null;
+  readonly actor: InterventionActor;
 }
 
 /** The `faster_model_retry` arm of a request, which the daemon carries out above the driver. */
@@ -108,8 +116,9 @@ const INTERVENTION_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 // The positions of the accepting write's two guards among its statements.
 const ACCEPT_VERSION_GUARD_INDEX = 0;
 const ACCEPT_STATE_GUARD_INDEX = 1;
-// The position of the version advance among the outcome write's statements.
-const OUTCOME_VERSION_ADVANCE_INDEX = 0;
+
+// The reason a failed row records for a throw that carried no text.
+const UNDESCRIBED_DISPATCH_FAILURE = "The intervention's dispatch failed without a message";
 
 // What one intervention's writes and events name.
 interface InterventionTarget {
@@ -117,6 +126,7 @@ interface InterventionTarget {
   readonly interventionId: InterventionId;
   readonly targetRunId: RunId;
   readonly type: InterventionType;
+  readonly actor: InterventionActor;
 }
 
 // What dispatch produced, as the row's next move from `accepted`.
@@ -136,8 +146,10 @@ type DispatchOutcome =
 export class InterventionService {
   readonly #deps: InterventionServiceDeps;
   readonly #appender: SessionEventAppender;
-  // Orders each run's requests; a run id spelled in either hex case takes one lock.
+  // Orders each run's steers and retries; a run id spelled in either hex case takes one lock.
   readonly #runLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
+  // Orders each run's interrupts among themselves, apart from its steers and retries.
+  readonly #interruptLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
 
   constructor(deps: InterventionServiceDeps) {
     this.#deps = deps;
@@ -149,20 +161,22 @@ export class InterventionService {
 
   /**
    * Records `request`, accepts it if the run is still at `expectedRunVersion` and in a state its
-   * type acts on, dispatches it once and answers with the state it reached. Requests on one run
-   * apply one at a time in arrival order. A reused idempotency key answers with the saved result
-   * and dispatches nothing. Throws `run.not_found` for a run the daemon has no row for,
-   * `intervention.idempotency_conflict` for a reused key whose request differs, and whatever the
-   * dispatch throws, leaving the row `accepted`.
+   * type acts on, dispatches it once and answers with the state it reached. Steers and retries on
+   * one run apply one at a time in arrival order, and so do interrupts, which never wait behind a
+   * steer. A reused idempotency key answers with the saved result and dispatches nothing. Throws
+   * `run.not_found` for a run the daemon has no row for, `intervention.idempotency_conflict` for
+   * a reused key whose request differs, and whatever the dispatch throws, once the row is
+   * `failed`.
    */
   async applyIntervention(
     request: InterventionRequestPayload,
     origin: InterventionOrigin,
   ): Promise<InterventionRequestResponse> {
-    return this.#runLock.run(request.targetRunId, () => this.#applyHoldingRun(request, origin));
+    const lock = request.type === "interrupt" ? this.#interruptLock : this.#runLock;
+    return lock.run(request.targetRunId, () => this.#applyInTurn(request, origin));
   }
 
-  async #applyHoldingRun(
+  async #applyInTurn(
     request: InterventionRequestPayload,
     origin: InterventionOrigin,
   ): Promise<InterventionRequestResponse> {
@@ -175,6 +189,7 @@ export class InterventionService {
       interventionId: InterventionIdSchema.parse(mintUuidV7()),
       targetRunId: request.targetRunId,
       type: request.type,
+      actor: origin.actor,
     };
     const payload = interventionPayloadOf(request);
 
@@ -185,7 +200,7 @@ export class InterventionService {
           payload,
           expectedRunVersion: request.expectedRunVersion,
           clientIdempotencyKey: request.clientIdempotencyKey,
-          deviceId: origin.deviceId,
+          deviceId: origin.actor === DAEMON_INTERVENTION_ACTOR ? null : origin.actor,
         }),
       ]);
     } catch (error) {
@@ -218,29 +233,20 @@ export class InterventionService {
       throw error;
     }
 
-    const outcome = await this.#dispatch(request);
+    let outcome: DispatchOutcome;
+    try {
+      outcome = await this.#dispatch(request);
+    } catch (error) {
+      return this.#fail(target, error);
+    }
     if (outcome.to === "rejected") {
       return this.#resolve(target, outcome);
     }
-    try {
-      await this.#appendIntervention(target, outcome.to, [
-        advanceRunVersionStatement({
-          sessionId: target.sessionId,
-          runId: target.targetRunId,
-          expectedRunVersion: request.expectedRunVersion,
-        }),
-        moveInterventionStatement(target.interventionId, outcome),
-      ]);
-    } catch (error) {
-      // The run moved between the accept and the outcome, so the intervention no longer applies.
-      if (
-        error instanceof WriteRefusedError &&
-        error.statementIndex === OUTCOME_VERSION_ADVANCE_INDEX
-      ) {
-        return this.#resolve(target, { from: "accepted", to: "expired" });
-      }
-      throw error;
-    }
+    // The verdict stands whatever the run did since the accept, so the advance holds no comparand.
+    await this.#appendIntervention(target, outcome.to, [
+      advanceRunVersionStatement({ sessionId: target.sessionId, runId: target.targetRunId }),
+      moveInterventionStatement(target.interventionId, outcome),
+    ]);
     await this.#deps.runEngine.settleInterventionOutcome({
       runId: target.targetRunId,
       interventionType: target.type,
@@ -280,6 +286,27 @@ export class InterventionService {
     );
   }
 
+  // Ends the intervention `failed` with what its dispatch threw, then throws it on.
+  async #fail(target: InterventionTarget, dispatchError: unknown): Promise<never> {
+    const reason = boundFailureDetail(failureTextOf(dispatchError), UNDESCRIBED_DISPATCH_FAILURE);
+    try {
+      await this.#appendIntervention(target, "failed", [
+        moveInterventionStatement(target.interventionId, {
+          from: "accepted",
+          to: "failed",
+          reason,
+        }),
+      ]);
+    } catch (recordError) {
+      throw new AggregateError(
+        [dispatchError, recordError],
+        `Intervention ${target.interventionId} failed in dispatch, and recording it failed too`,
+        { cause: recordError },
+      );
+    }
+    throw dispatchError;
+  }
+
   // A reused key returns what the first request saved when the two ask for the same thing.
   #answerReusedKey(
     request: InterventionRequestPayload,
@@ -308,15 +335,16 @@ export class InterventionService {
     return this.#answer(
       { interventionId: saved.interventionId, targetRunId: request.targetRunId, type: saved.type },
       saved.state,
-      saved.rejectionReason ?? undefined,
+      saved.rejectionReason ?? saved.failureReason ?? undefined,
     );
   }
 
-  // The answer for the state reached, with the run's version as it is now.
+  // The answer for the state reached, with the run's version as it is now; `reason` is a rejected
+  // or failed row's reason.
   #answer(
     target: Pick<InterventionTarget, "interventionId" | "targetRunId" | "type">,
     state: InterventionState,
-    rejectionReason: string | undefined,
+    reason: string | undefined,
   ): InterventionRequestResponse {
     const run = this.#deps.runs.getRun(target.targetRunId);
     if (run === undefined) {
@@ -327,13 +355,15 @@ export class InterventionService {
       interventionType: target.type,
       runVersion: run.version,
     };
-    if (state !== "rejected") {
+    if (state !== "rejected" && state !== "failed") {
       return { ...base, state };
     }
-    if (rejectionReason === undefined) {
-      throw new Error(`Rejected intervention ${target.interventionId} has no rejection reason`);
+    if (reason === undefined) {
+      throw new Error(`Intervention ${target.interventionId} ended ${state} with no reason`);
     }
-    return { ...base, state, rejectionReason };
+    return state === "rejected"
+      ? { ...base, state, rejectionReason: reason }
+      : { ...base, state, failureReason: reason };
   }
 
   async #appendIntervention<TState extends InterventionState>(
@@ -344,6 +374,14 @@ export class InterventionService {
     const payload: InterventionEventPayload<TState> = { ...target, state };
     await this.#appender.append(`intervention.${state}`, payload, { transactionalPrelude });
   }
+}
+
+// What a dispatch throw records: a domain error's code, else its message.
+function failureTextOf(error: unknown): string {
+  if (error instanceof DaemonDomainError) {
+    return error.code;
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 // The type's own fields, in one fixed order, so a retry under the same key compares equal as

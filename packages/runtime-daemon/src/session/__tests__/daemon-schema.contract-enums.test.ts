@@ -52,6 +52,7 @@ const INTERVENTION_STATES: Record<InterventionState, true> = {
   rejected: true,
   degraded: true,
   expired: true,
+  failed: true,
 };
 
 const RUN_STATES: Record<RunState, true> = {
