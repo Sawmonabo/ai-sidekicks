@@ -1,6 +1,7 @@
 // The session directory: how a reader ages a row's activity, the rules `session.create` holds a
-// new session to (born with its lead; a scratch session is a definition's, in a chat), and its
-// reply, which echoes the configuration resolved from a definition.
+// new session to (born with its lead; a scratch session is a definition's, in a chat; only a
+// project session is filed in a group), and its reply, which echoes the configuration resolved
+// from a definition.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,6 +13,7 @@ import {
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002";
 const DEFINITION_ID = "990e8400-e29b-41d4-a716-446655440004";
+const GROUP_ID = "aa0e8400-e29b-41d4-a716-446655440005";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
 const AT = "2026-09-24T02:00:00.000Z";
 
@@ -90,6 +92,25 @@ describe("session.create", () => {
         binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "provisioned-worktree" },
         leadDefinitionId: DEFINITION_ID,
         scratch: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("files a project session in a group, and refuses a chat in one", () => {
+    expect(
+      SessionCreateRequestSchema.safeParse({
+        clientIdempotencyKey: IDEMPOTENCY_KEY,
+        binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "bound-root" },
+        lead,
+        groupId: GROUP_ID,
+      }).success,
+    ).toBe(true);
+    expect(
+      SessionCreateRequestSchema.safeParse({
+        clientIdempotencyKey: IDEMPOTENCY_KEY,
+        binding: { kind: "chat" },
+        lead,
+        groupId: GROUP_ID,
       }).success,
     ).toBe(false);
   });

@@ -492,6 +492,9 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "active",
+          shape: "project",
+          muted: false,
+          pendingWorkingFolder: null,
           createdAt: STARTED_AT_ISO,
           updatedAt: newestBeatInstant(TRANSCRIPT_STATES_BEATS),
           draft: "",

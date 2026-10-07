@@ -58,8 +58,9 @@ export const SessionCreatedPayloadSchema: z.ZodType<SessionCreatedPayload> = z
   .strict();
 
 /**
- * The payload of a lifecycle move — `session.archived`, `session.reactivated`,
- * `session.closed` — naming the state the session left and the one it is in. `actor` is the
+ * The payload of a lifecycle move — `session.activated`, `session.archived`,
+ * `session.reactivated`, `session.closed` — naming the state the session left and the one it is
+ * in. `actor` is the
  * person who acted, absent when the daemon moved it.
  */
 export interface SessionLifecycleChangePayload {

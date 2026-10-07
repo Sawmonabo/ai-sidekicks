@@ -49,9 +49,12 @@ import type { SessionControlMethodDescriptors } from "../session/controls/method
 import type { SessionDirectoryMethodDescriptors } from "../session/directory.js";
 import type { SessionDraftMethodDescriptors } from "../session/draft.js";
 import type { SessionGoalMethodDescriptors } from "../session/goal.js";
+import type { SessionGroupMethodDescriptors } from "../session/groups.js";
 import type { SessionInspectorMethodDescriptors } from "../session/inspector.js";
+import type { SessionLinkMethodDescriptors } from "../session/links.js";
 import type { SessionRestoreMethodDescriptors } from "../session/restore.js";
 import type { SessionMethodDescriptors } from "../session/methods.js";
+import type { SessionTagMethodDescriptors } from "../session/tags.js";
 import type { SkillMethodDescriptors } from "../skill.js";
 import type { TranscriptMethodDescriptorRegistry } from "../transcript/methods.js";
 import type { TurnMethodDescriptors } from "../turn.js";
@@ -109,9 +112,12 @@ export type DaemonMethodDescriptors = AgentMethodDescriptors &
   SessionDirectoryMethodDescriptors &
   SessionDraftMethodDescriptors &
   SessionGoalMethodDescriptors &
+  SessionGroupMethodDescriptors &
   SessionInspectorMethodDescriptors &
+  SessionLinkMethodDescriptors &
   SessionRestoreMethodDescriptors &
   SessionMethodDescriptors &
+  SessionTagMethodDescriptors &
   SkillMethodDescriptors &
   TranscriptMethodDescriptorRegistry &
   TurnMethodDescriptors &

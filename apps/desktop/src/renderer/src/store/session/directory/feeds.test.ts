@@ -1,5 +1,5 @@
 // The window's session list: one feed however many views read it, the list it delivers folded with
-// each change after it, and a list read again on request. The feed is a scripted function the
+// each change after it, the chat count each delivery carries, and a list read again on request. The feed is a scripted function the
 // test hands the store, so the store's own logic is measured.
 
 import { describe, expect, it } from "vitest";
@@ -50,7 +50,13 @@ function listOf(...names: readonly string[]): SessionDirectoryFrame {
   return {
     kind: "list",
     sessions: names.map((name) => sessionListEntry({ sessionId: `session-${name}`, name })),
+    chatCount: 0,
   };
+}
+
+/** The chat count a served list holds, or the status it holds instead. */
+function chatCountIn(state: SessionDirectoryState): number | string {
+  return state.status === "served" ? state.chatCount : state.status;
 }
 
 /** The names a served list holds, in order, or the status it holds instead. */
@@ -59,7 +65,7 @@ function namesIn(state: SessionDirectoryState): readonly (string | undefined)[] 
 }
 
 describe("the window's session list", () => {
-  it("reads until the list arrives, then moves one entry per change", () => {
+  it("reads until the list arrives, then moves one entry and the chat count per change", () => {
     const feeds = new SessionDirectoryFeeds();
     const scripted = scriptedFeed();
     feeds.watch(scripted.feed, () => undefined);
@@ -68,7 +74,11 @@ describe("the window's session list", () => {
     // Negative control: a change before the list moves nothing, since the list restates it.
     scripted.deliver({
       kind: "change",
-      change: { kind: "upsert", entry: sessionListEntry({ sessionId: "session-early" }) },
+      change: {
+        kind: "upsert",
+        entry: sessionListEntry({ sessionId: "session-early" }),
+        chatCount: 0,
+      },
     });
     expect(namesIn(feeds.stateOf(scripted.feed))).toBe("reading");
 
@@ -80,18 +90,21 @@ describe("the window's session list", () => {
       change: {
         kind: "upsert",
         entry: sessionListEntry({ sessionId: "session-web", name: "site" }),
+        chatCount: 0,
       },
     });
     scripted.deliver({
       kind: "change",
       change: {
         kind: "upsert",
-        entry: sessionListEntry({ sessionId: "session-docs", name: "docs" }),
+        entry: sessionListEntry({ sessionId: "session-docs", name: "docs", shape: "chat" }),
+        chatCount: 1,
       },
     });
+    expect(chatCountIn(feeds.stateOf(scripted.feed))).toBe(1);
     scripted.deliver({
       kind: "change",
-      change: { kind: "remove", sessionId: "session-api" as SessionId },
+      change: { kind: "remove", sessionId: "session-api" as SessionId, chatCount: 1 },
     });
     expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["site", "docs"]);
 

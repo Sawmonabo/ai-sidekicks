@@ -13,6 +13,7 @@ function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
   return {
     status: "served",
     sessions: sessionIds.map((sessionId) => sessionListEntry({ sessionId })),
+    chatCount: 0,
   };
 }
 

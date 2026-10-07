@@ -425,6 +425,11 @@ const commandEndedVariantSchema = buildSessionEventVariantSchema(
   "tool_activity",
   commandEndedVariantPayloadSchema,
 );
+const sessionActivatedVariantSchema = buildSessionEventVariantSchema(
+  "session.activated",
+  "session_lifecycle",
+  SessionLifecycleChangePayloadSchema,
+);
 const sessionArchivedVariantSchema = buildSessionEventVariantSchema(
   "session.archived",
   "session_lifecycle",
@@ -797,6 +802,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   relayPinRefusedVariantSchema,
   commandEndedVariantSchema,
   usageModelReroutedVariantSchema,
+  sessionActivatedVariantSchema,
   sessionArchivedVariantSchema,
   sessionReactivatedVariantSchema,
   sessionClosedVariantSchema,

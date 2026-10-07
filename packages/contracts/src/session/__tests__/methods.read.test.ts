@@ -13,6 +13,9 @@ const buildValidResponse = () => ({
   session: {
     id: SESSION_ID,
     state: "active" as const,
+    shape: "chat" as const,
+    muted: false,
+    pendingWorkingFolder: null,
     createdAt: "2026-08-10T12:00:00.000Z",
     updatedAt: "2026-08-10T12:05:00.000Z",
     draft: "Half a thought about the retry loop",

@@ -52,7 +52,11 @@ function sessionListFeedOver(bridge: PlatformBridge): SessionDirectoryFeed {
       onFrame: (payload) => {
         const listed = SessionListAckSchema.safeParse(payload);
         if (listed.success) {
-          onFrame({ kind: "list", sessions: listed.data.sessions });
+          onFrame({
+            kind: "list",
+            sessions: listed.data.sessions,
+            chatCount: listed.data.chatCount,
+          });
           return;
         }
         const changed = SessionListChangeSchema.safeParse(payload);

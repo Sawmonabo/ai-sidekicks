@@ -9,9 +9,8 @@ import type { SessionState } from "@ai-sidekicks/contracts/session/methods";
 const DELETING_SESSION_STATE: SessionState = "purge_requested";
 
 /**
- * One row. `state` is the wire's own string, rendered verbatim. There is no `title`:
- * `SessionRecord` carries no name, so a row renders by its identifier and users and never by an
- * invented name.
+ * One row. `state` is the wire's own string, rendered verbatim. There is no `title`: a row
+ * renders by its identifier and users and never by an invented name.
  */
 export interface SessionListRow {
   readonly sessionId: string;

@@ -40,6 +40,7 @@ import {
   type SessionConvertRequest,
   type SessionConvertResponse,
 } from "./convert.js";
+import { SessionGroupIdSchema, type SessionGroupId } from "./groups.js";
 import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
 import {
   SESSION_NAME_MAX_LEN,
@@ -118,9 +119,17 @@ const SessionExchangeSchema: z.ZodType<SessionExchange> = z
   })
   .strict();
 
-/** What a list entry carries for its shape: a project's key and branch, or a chat's documents. */
+/**
+ * What a list entry carries for its shape: a project's key, branch and group, or a chat's
+ * documents. A chat sits in no group.
+ */
 export type SessionListEntryPlace =
-  | { shape: "project"; repoMountId: RepoMountId; branch?: string | undefined }
+  | {
+      shape: "project";
+      repoMountId: RepoMountId;
+      branch?: string | undefined;
+      groupId?: SessionGroupId | undefined;
+    }
   | { shape: "chat"; documentCount: number };
 
 /**
@@ -129,8 +138,9 @@ export type SessionListEntryPlace =
  *
  * - `name` is absent while the session is untitled; the row then shows `firstMessagePreview`,
  *   itself absent before the first message.
- * - A project entry names its project and, once known, the branch the daemon holds for the
- *   session, so the row costs no git read; a chat entry counts its documents.
+ * - A project entry names its project, once known the branch the daemon holds for the session,
+ *   so the row costs no git read, and its group while it is in one; a chat entry counts its
+ *   documents.
  * - `pinnedAt` is present exactly while the session is pinned; pinned rows sit in the order
  *   they were pinned.
  * - `state` puts archived and closed sessions in the `Archived` group; `activity` is the row's
@@ -173,6 +183,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
       shape: z.literal("project"),
       repoMountId: RepoMountIdSchema,
       branch: wireUncappedFreeFormString("SessionListEntry.branch").optional(),
+      groupId: SessionGroupIdSchema.optional(),
     })
     .strict(),
   z
@@ -191,26 +202,40 @@ export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionList
   .object({})
   .strict();
 
-/** `session.list`'s acknowledgment: the subscription and every session as it stands. */
+/**
+ * `session.list`'s acknowledgment: the subscription, every session as it stands, and
+ * `chatCount`, the chats in the live list (chat sessions not archived, closed or awaiting purge)
+ * as the daemon counts them for the Chats header, so no reader counts.
+ */
 export interface SessionListAck extends SubscribeAckResponse {
   readonly sessions: SessionListEntry[];
+  readonly chatCount: number;
 }
 /** Parses a {@link SessionListAck}. */
 export const SessionListAckSchema: z.ZodType<SessionListAck> = z
-  .object({ subscriptionId: SubscriptionIdSchema, sessions: z.array(SessionListEntrySchema) })
+  .object({
+    subscriptionId: SubscriptionIdSchema,
+    sessions: z.array(SessionListEntrySchema),
+    chatCount: countSchema,
+  })
   .strict();
 
 /**
  * One change to the list after the acknowledgment: an entry as it now stands, or a session
- * that has left the list, which only a purge does.
+ * that has left the list, which only a purge does. Each carries `chatCount` as it stands after
+ * the change.
  */
 export type SessionListChange =
-  | { kind: "upsert"; entry: SessionListEntry }
-  | { kind: "remove"; sessionId: SessionId };
+  | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
+  | { kind: "remove"; sessionId: SessionId; chatCount: number };
 /** Parses a {@link SessionListChange}. */
 export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("upsert"), entry: SessionListEntrySchema }).strict(),
-  z.object({ kind: z.literal("remove"), sessionId: SessionIdSchema }).strict(),
+  z
+    .object({ kind: z.literal("upsert"), entry: SessionListEntrySchema, chatCount: countSchema })
+    .strict(),
+  z
+    .object({ kind: z.literal("remove"), sessionId: SessionIdSchema, chatCount: countSchema })
+    .strict(),
 ]);
 
 /**
@@ -245,6 +270,8 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
  * - At least one of the two is present: a session is born with its lead.
  * - `scratch` asks for the definition's scratch session, which the daemon reuses while one is
  *   open, so it needs `leadDefinitionId` and a chat binding: a scratch session has no repo.
+ * - `groupId` files the new session in that group of its project, so it needs a project
+ *   binding: a chat sits in no group.
  */
 export interface SessionCreateRequest {
   clientIdempotencyKey: string;
@@ -252,6 +279,7 @@ export interface SessionCreateRequest {
   lead?: AgentProviderBinding | undefined;
   leadDefinitionId?: AgentDefinitionId | undefined;
   scratch?: true | undefined;
+  groupId?: SessionGroupId | undefined;
 }
 /** Parses a {@link SessionCreateRequest}; a session must name a lead binding or a definition. */
 export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
@@ -261,6 +289,7 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
     lead: AgentProviderBindingSchema.optional(),
     leadDefinitionId: AgentDefinitionIdSchema.optional(),
     scratch: z.literal(true).optional(),
+    groupId: SessionGroupIdSchema.optional(),
   })
   .strict()
   .superRefine((request, context) => {
@@ -286,6 +315,13 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
           message: "A scratch session has no repo.",
         });
       }
+    }
+    if (request.groupId !== undefined && request.binding.kind !== "project") {
+      context.addIssue({
+        code: "custom",
+        path: ["groupId"],
+        message: "A chat sits in no group.",
+      });
     }
   });
 

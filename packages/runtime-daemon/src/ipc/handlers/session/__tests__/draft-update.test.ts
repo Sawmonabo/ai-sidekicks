@@ -26,6 +26,9 @@ const LOG_READ = {
   session: {
     id: SESSION_ID,
     state: "active",
+    shape: "chat",
+    muted: false,
+    pendingWorkingFolder: null,
     createdAt: "2026-09-29T17:00:00.000Z",
     updatedAt: "2026-09-29T17:00:00.000Z",
   },

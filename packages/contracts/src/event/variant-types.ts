@@ -249,6 +249,12 @@ export type CommandEndedEvent = SessionEventVariant<
   }
 >;
 
+/** Emitted when a new session's storage is ready and it moves from provisioning to active. */
+export type SessionActivatedEvent = SessionEventVariant<
+  "session.activated",
+  "session_lifecycle",
+  SessionLifecycleChangePayload
+>;
 /** Emitted when a session is archived. */
 export type SessionArchivedEvent = SessionEventVariant<
   "session.archived",
@@ -700,6 +706,7 @@ export type SessionEvent =
   | RelayPinRefusedEvent
   | CommandEndedEvent
   | UsageModelReroutedEvent
+  | SessionActivatedEvent
   | SessionArchivedEvent
   | SessionReactivatedEvent
   | SessionClosedEvent

@@ -12,6 +12,7 @@ import {
   type SubscribeAckResponse,
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
+import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
 
 /** Where a session is in its lifecycle. */
@@ -26,13 +27,38 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
 ]);
 
 /**
- * One session as `session.read` answers it. `draft` is the unsent composer draft the daemon
- * holds for the session, the whole text, and the empty string when none is held: Send clears
- * it, and a half-typed message reaches the person's other devices through this read.
+ * What a session is bound to, kept as a stored fact rather than a mode flag: a `chat` works in
+ * a managed workspace the daemon owns, a `project` in a repository the person attached.
+ * Converting a chat changes it in place, so it is read from the session, never fixed at creation.
+ */
+export type SessionShape = "chat" | "project";
+/** Parses a {@link SessionShape}. */
+export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum([
+  "chat",
+  "project",
+]);
+
+/** The longest session name the daemon stores. */
+export const SESSION_NAME_MAX_LEN = 256;
+
+/**
+ * One session as `session.read` answers it.
+ *
+ * - `name` is absent while the session is untitled; a surface then shows its first message.
+ * - `muted` is whether the person muted the session's notifications.
+ * - `pendingWorkingFolder` is the working-folder move the session's next run boundary applies,
+ *   or `null` when none waits; `worktreeId: null` moves it to the project's checkout.
+ * - `draft` is the unsent composer draft the daemon holds, the whole text, and the empty string
+ *   when none is held: Send clears it, and a half-typed message reaches the person's other
+ *   devices through this read.
  */
 export interface SessionRecord {
   id: SessionId;
   state: SessionState;
+  shape: SessionShape;
+  name?: string | undefined;
+  muted: boolean;
+  pendingWorkingFolder: { worktreeId: WorktreeId | null } | null;
   createdAt: string;
   updatedAt: string;
   draft: string;
@@ -42,6 +68,10 @@ export const SessionRecordSchema: z.ZodType<SessionRecord> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
+    shape: SessionShapeSchema,
+    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRecord.name").optional(),
+    muted: z.boolean(),
+    pendingWorkingFolder: z.object({ worktreeId: WorktreeIdSchema.nullable() }).strict().nullable(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
     draft: z.string(),
@@ -130,21 +160,6 @@ export function SessionStreamFrameSchema<Event>(
   const changeSchema = z.object({ cursor: EventCursorSchema, event: eventSchema }).strict();
   return StreamFrameSchema(changeSchema, EventCursorSchema);
 }
-
-/**
- * What a session is bound to, kept as a stored fact rather than a mode flag: a `chat` works in
- * a managed workspace the daemon owns, a `project` in a repository the person attached.
- * Converting a chat changes it in place, so it is read from the session, never fixed at creation.
- */
-export type SessionShape = "chat" | "project";
-/** Parses a {@link SessionShape}. */
-export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum([
-  "chat",
-  "project",
-]);
-
-/** The longest session name the daemon stores. */
-export const SESSION_NAME_MAX_LEN = 256;
 
 /**
  * The request of every verb that acts on one session and takes nothing else: archive,

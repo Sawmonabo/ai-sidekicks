@@ -128,7 +128,7 @@ function foldFrame(
 ): SessionDirectoryState {
   switch (frame.kind) {
     case "list":
-      return { status: "served", sessions: frame.sessions };
+      return { status: "served", sessions: frame.sessions, chatCount: frame.chatCount };
     case "lost":
       return { status: "failed" };
     case "change": {
@@ -142,6 +142,7 @@ function foldFrame(
           change.kind === "upsert"
             ? upsertInPlace(state.sessions, change.entry)
             : state.sessions.filter((session) => session.sessionId !== change.sessionId),
+        chatCount: change.chatCount,
       };
     }
   }

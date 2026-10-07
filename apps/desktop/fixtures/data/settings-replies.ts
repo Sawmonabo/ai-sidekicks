@@ -318,7 +318,7 @@ export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
 
 /**
  * The frame `session.list` opens with: the list as it stands, naming the two running sessions the
- * inventory's legs belong to.
+ * inventory's legs belong to, both chats, so the daemon counts two.
  */
 export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
   {
@@ -329,6 +329,7 @@ export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
         runningChat(SESSION_A, "Fix login"),
         runningChat(SESSION_B, "Refresh-token expiry"),
       ],
+      chatCount: 2,
     }),
   },
 ];

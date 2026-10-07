@@ -46,8 +46,11 @@ export const AgentIdSchema: z.ZodType<AgentId, AgentId> = brandedUuidIdSchema<Ag
 
 // The provider binding
 
-/** A provider's own vocabulary token: a model id, an effort or a speed. */
-const providerTokenSchema = (label: string): z.ZodString =>
+/**
+ * A provider's own vocabulary token: a model id, an effort or a speed, bounded and free-form
+ * because the vocabulary is the provider's. `label` names the field in the refusal message.
+ */
+export const providerTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
 /**
