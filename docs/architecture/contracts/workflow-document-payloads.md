@@ -15,7 +15,8 @@ type WorkflowNodeId = string & { readonly __brand: "WorkflowNodeId" };
 // its own spec and executor — a union here would have to be widened for every kind that lands.
 type WorkflowNodeKindId = string;
 
-// ONE JSON document, whose canonical bytes are its hashed field list canonicalized and hashed.
+// ONE JSON document, whose canonical bytes are its hashed field list (`name`, `description`,
+// `trigger`, `nodes`, `edges`) canonicalized and hashed.
 // Three members sit OUTSIDE the hashed body and therefore change no content hash: `layout`, which
 // is canvas geometry, `pinData`, which is sample data an author pinned onto a node, and `tags`, the
 // labels the Workflows tab shows and filters on. That is why moving a node on
@@ -26,7 +27,7 @@ interface WorkflowDocument {
   description?: string;
   // Exactly one, and it is a node of the trigger family. A workflow with no trigger that can arm cannot
   // be enabled, which `workflow.enabledSet` in workflow-builder-and-runs-payloads.md refuses rather than accepting silently.
-  trigger: WorkflowNode;
+  trigger: WorkflowTriggerNode;
   nodes: WorkflowNode[]; // every node except the trigger; node ids are unique across the document
   edges: WorkflowEdge[];
   layout?: WorkflowLayout;
@@ -39,7 +40,21 @@ interface WorkflowDocument {
 
 // The builder's unsaved document. It may not have its trigger yet: the builder opens on the trigger
 // picker, and a draft saved before one is placed still survives a reload.
-type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & { trigger?: WorkflowNode };
+type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & { trigger?: WorkflowTriggerNode };
+
+// The trigger node, which alone declares the inputs a run starts with: each named and typed, carrying
+// the value it starts on, and marked required where a start must fill it. The Run now panel draws one
+// field per input (a checkbox for a boolean, a list for a select, a folder picker for a path, a box
+// otherwise), and `workflow.runStart`'s `input` carries what was filled in.
+interface WorkflowTriggerNode extends WorkflowNode {
+  inputs?: WorkflowTriggerInput[];
+}
+type WorkflowTriggerInput = { name: string; required?: boolean } & (
+  | { type: "boolean"; default: boolean }
+  | { type: "string"; default: string }
+  | { type: "path"; default: string }
+  | { type: "select"; default: string; options: string[] } // default is one of the options
+);
 
 interface WorkflowNode {
   id: WorkflowNodeId;
