@@ -47,9 +47,9 @@ export const STEP_STATUS_WORDS: Readonly<Record<WorkflowStepStatus, string>> = {
 
 /** What a waiting run or step waits on, as the header, the live line and a node's ring read it. */
 export const WAIT_CAUSE_WORDS: Readonly<Record<WorkflowWaitCause, string>> = {
-  approval: "your approval",
-  form: "your answer",
-  reply: "your reply",
+  approval: "an approval",
+  form: "an answer",
+  reply: "a reply",
   account: "the account that is spent",
   chain: "you",
 };

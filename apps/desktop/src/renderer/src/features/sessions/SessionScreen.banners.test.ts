@@ -102,7 +102,7 @@ function renderRoutableSession(store: UiStateStore): {
   };
 }
 
-const BANNER_TEXT = "Pane layout not saved·it will save again on your next change";
+const BANNER_TEXT = "Pane layout not saved·it will save again on the next change";
 
 let detachForwarder: (() => void) | undefined;
 

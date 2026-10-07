@@ -20,7 +20,7 @@ export interface SessionBanner {
  * and is saved again on the next change.
  */
 export const PANE_LAYOUT_NOT_SAVED_BANNER: SessionBanner = Object.freeze({
-  words: Object.freeze(["Pane layout not saved", "it will save again on your next change"]),
+  words: Object.freeze(["Pane layout not saved", "it will save again on the next change"]),
 });
 
 /** An empty column as one shared value, so a subscriber comparing by reference sees no change. */

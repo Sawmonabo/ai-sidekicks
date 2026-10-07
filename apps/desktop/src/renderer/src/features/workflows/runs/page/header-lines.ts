@@ -141,7 +141,7 @@ function waitingLines(
       const feeder = step.source.find((source) => source !== null);
       const asker = feeder === undefined ? runName : names.nodeName(feeder.nodeId);
       return {
-        happened: `${asker} finished and asked for your approval.`,
+        happened: `${asker} finished and asked for an approval.`,
         needs: "Approve it or reject it in the step that is waiting.",
       };
     }
@@ -190,7 +190,7 @@ function failedLines(
       happened: `${subject} timed out.`,
       needs:
         kind !== undefined && isPersonWaitKind(kind)
-          ? "Press Retry from this step to wait for your answer again."
+          ? "Press Retry from this step to wait for an answer again."
           : FIX_AND_RESUME,
     };
   }

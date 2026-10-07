@@ -134,7 +134,7 @@ describe("a run's header", () => {
     }
     renderHeader(approval, [], [], undefined, new ManualClock(dayBeforeMs));
     expect(
-      screen.getByText(`waiting on your approval until ${formatDayClock(deadline, dayBeforeMs)}`),
+      screen.getByText(`waiting on an approval until ${formatDayClock(deadline, dayBeforeMs)}`),
     ).toBeDefined();
   });
 
@@ -165,7 +165,7 @@ describe("a run's header", () => {
     );
     // A person's wait that ran out is waited on again, not fixed.
     expect(
-      screen.getByText("Press Retry from this step to wait for your answer again."),
+      screen.getByText("Press Retry from this step to wait for an answer again."),
     ).toBeDefined();
     cleanup();
 
