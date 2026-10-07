@@ -14,8 +14,8 @@ export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
 /**
  * The fence info strings whose rendering waits for the block to settle: math and diagrams, both
  * wrong when fed a prefix. `mdast-util-gfm` gives neither its own node type, so the set is keyed
- * by the info string. A mermaid fence always renders as its source, since the app ships no
- * control that asks for a diagram, so no mermaid dependency exists.
+ * by the info string. A mermaid fence shows its source while it streams and is drawn as a picture
+ * once settled, so mermaid never parses a half-written diagram.
  */
 export const DEFERRED_FENCE_LANGUAGES = ["math", "latex", "tex", "mermaid"] as const;
 
