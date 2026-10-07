@@ -431,22 +431,42 @@ export const SkillScanRequestSchema: z.ZodType<SkillScanRequest, SkillScanReques
   .object({ skillId: SkillIdSchema, provider: ProviderNameSchema })
   .strict();
 
+/** The longest account of what a tool does instead on the provider a skill is widened onto. */
+const SKILL_SCAN_TOOL_INSTEAD_MAX_LEN = 1024;
+
 /**
- * One file that names the other provider's tools or its call sigil. The tools are
- * words in sentence case, never their wire spelling, and the file is named, never
- * the line, because a line offset goes stale when the file is edited outside the
- * app.
+ * One other provider's tool a file names: its name as words in sentence case, never its wire
+ * spelling, and what will happen instead on the provider the skill is widened onto, in words.
+ */
+export interface SkillScanTool {
+  name: string;
+  whatHappensInstead: string;
+}
+/** Parses a {@link SkillScanTool}. */
+export const SkillScanToolSchema: z.ZodType<SkillScanTool, SkillScanTool> = z
+  .object({
+    name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "SkillScanTool.name"),
+    whatHappensInstead: wireFreeFormString(
+      SKILL_SCAN_TOOL_INSTEAD_MAX_LEN,
+      "SkillScanTool.whatHappensInstead",
+    ),
+  })
+  .strict();
+
+/**
+ * One file that names the other provider's tools or its call sigil. The file is named, never
+ * the line, because a line offset goes stale when the file is edited outside the app.
  */
 export interface SkillScanFinding {
   path: string;
-  tools: string[];
+  tools: SkillScanTool[];
   callSigil: boolean;
 }
 /** Parses a {@link SkillScanFinding}. */
 export const SkillScanFindingSchema: z.ZodType<SkillScanFinding> = z
   .object({
     path: relativeFilePathSchema("SkillScanFinding.path"),
-    tools: z.array(wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "SkillScanFinding.tools")),
+    tools: z.array(SkillScanToolSchema),
     callSigil: z.boolean(),
   })
   .strict();

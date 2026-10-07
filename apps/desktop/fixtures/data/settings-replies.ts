@@ -171,9 +171,10 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
 export const WORK_ACCOUNT: ProviderAccount = {
   accountId: WORK_ACCOUNT_ID,
   provider: "claude",
-  displayLabel: "Claude — work",
   credentialGeneration: 3,
   billingMode: "subscription",
+  observedAccountEmail: "sam@example.com",
+  observedAccountPlan: "max",
   isDefault: false,
   healthState: "authenticated",
   healthObservedAt: OBSERVED_AT,
@@ -191,9 +192,11 @@ export const WORK_ACCOUNT: ProviderAccount = {
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
   provider: "codex",
-  displayLabel: "Codex — personal",
   credentialGeneration: 1,
   billingMode: "metered",
+  observedAccountEmail: "sam@example.org",
+  observedAccountPlan: "team",
+  observedAccountOrgName: "Example Inc",
   isDefault: true,
   healthState: "home_missing",
   healthObservedAt: OBSERVED_AT,
@@ -211,7 +214,7 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
 const TOKEN_ACCOUNT: ProviderAccount = {
   accountId: TOKEN_ACCOUNT_ID,
   provider: "claude",
-  displayLabel: "Claude — token",
+  displayLabel: "Personal",
   credentialGeneration: 1,
   billingMode: "metered",
   isDefault: true,
@@ -799,11 +802,13 @@ function answerAccountRegistration(
   }
   return {
     account: {
-      ...PERSONAL_ACCOUNT,
+      ...TOKEN_ACCOUNT,
       accountId: `pa-registered-${String(computedReplyOrdinal)}` as ProviderAccountId,
       provider,
       displayLabel,
       billingMode,
+      // The pasted credential's kind, which the registration's own status check observed.
+      observedAuthMode: provider === "codex" ? "api_key" : "oauth_token",
       isDefault: false,
       // Nothing has observed an account registered a moment ago.
       healthState: "indeterminate",

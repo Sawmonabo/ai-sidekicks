@@ -256,9 +256,11 @@ interface ProviderAccountRegisterRequest {
   provider: "claude" | "codex";
   billingMode: BillingMode;
   makeDefault?: boolean;
-  // The name the person gives an account the provider names nowhere: REQUIRED with `nonInteractiveToken`
-  // on a new registration and on an API-key registration, absent on a sign-in one, and refused when it
-  // matches another of that provider's account names.
+  // The name the person gives an account the provider names nowhere: REQUIRED with
+  // `nonInteractiveToken` on a new registration and on an API-key registration, absent on a sign-in
+  // one, OPTIONAL on a token re-supply (`accountId` with `nonInteractiveToken`), whose account
+  // already carries its name. Trimmed, and refused when it matches another of that provider's
+  // account names under the one fold, `foldName`.
   displayLabel?: string;
   // RE-SUPPLY, not a second credential-accepting verb. Supplied, this means "replace the sealed
   // token on THIS account" and `provider` must match the stored row; omitted, this is an ordinary
@@ -293,9 +295,11 @@ interface ProviderAccountRegisterRequest {
   //
   // Kept as its own item in the operating system's credential store, verified by
   // write-probe-read-delete, and nowhere else. Every entry opens its store explicitly — the Secret
-  // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service answers,
-  // and on a Mac whose service runs while the person is logged out, the daemon keeps its items in
-  // one file in its own data folder, readable by this account alone (mode `0600`).
+  // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service
+  // answers, and on a Mac from the approved logged-out service's takeover until `sidekicks daemon
+  // uninstall` moves them back, including after that service is turned off in Login Items &
+  // Extensions, and never while it waits for approval, the daemon keeps its items in one file in
+  // its own data folder, readable by this account alone (mode `0600`).
   // Where the store cannot take it, registration refuses with `provideraccount.credential_seal_refused`
   // carrying `cause: "locked" | "unavailable"` and nothing is stored anywhere. Where the registration-time
   // status observation reports no signed-in mode for it, registration refuses with
@@ -325,8 +329,10 @@ interface ProviderAccountRegisterResponse {
 interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
   billingMode?: BillingMode; // omitted = unchanged; this is how `unknown` is resolved to a declared mode
-  // Rename. Accepted only on an account that carries a `displayLabel`, and refused when it matches
-  // another of that provider's account names. Omitted = unchanged.
+  // Rename. Accepted only on an account that carries a `displayLabel`, refused
+  // `provideraccount.rename_refused` on any other, and refused
+  // `provideraccount.display_label_taken` when it matches another of that provider's account names
+  // under `foldName`. Trimmed. Omitted = unchanged.
   displayLabel?: string;
   // The durable per-account opt-out AC-19 requires. Carried on the update verb rather than as a
   // dedicated verb: it is an ordinary mutable account preference, and a verb of its own would add

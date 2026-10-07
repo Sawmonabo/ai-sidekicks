@@ -32,11 +32,11 @@ export function TokenResupplyForm(props: {
     event.preventDefault();
     const nonInteractiveToken = takeWriteOnlyToken(tokenInput.current);
     setOutcome({ kind: "submitting" });
-    // The account's own provider, name and billing mode, which the request carries beside the
-    // selector; `accountId` makes it a replacement and never a second account.
+    // The account's own provider and billing mode, which the request carries beside the
+    // selector; `accountId` makes it a replacement and never a second account, so the account
+    // keeps its name.
     void submitTokenRegistration(register, {
       provider: account.provider,
-      displayLabel: account.displayLabel,
       billingMode: account.billingMode,
       accountId: account.accountId,
       nonInteractiveToken,

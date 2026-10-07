@@ -19,7 +19,7 @@ function resolvedChoice(
 ): AccountChoice {
   return {
     accountId: ACCOUNT_ID,
-    displayLabel: "Team",
+    label: "sam@example.com · Team",
     isProviderDefault: true,
     healthState: "indeterminate",
     healthObservedAt: OBSERVED_AT,

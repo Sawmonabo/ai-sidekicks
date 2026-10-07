@@ -22,11 +22,13 @@ import type {
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 
+import { listedAccount, type ListedProviderAccount } from "./listing.js";
+
 /** One provider account's quota in one limit window, as a view renders it. */
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
-  /** The label the person chose for the account. */
+  /** What the account is named by. */
   readonly accountLabel: string;
   /**
    * The window's own label where the provider publishes one, and its `limitId` verbatim where
@@ -116,13 +118,21 @@ const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
  * hands out ordinals itself.
  */
 export class ProviderAccountFold {
-  readonly #accountsById = new Map<string, ProviderAccount>();
+  readonly #accountsById = new Map<string, ListedProviderAccount>();
   readonly #windowsByKey = new Map<string, HeldQuotaWindow>();
   #nextArrivalOrdinal = 0;
 
-  /** Record an account whole. The registry sends state, not deltas. */
+  /**
+   * Record an account whole. The registry sends state, not deltas. An account its provider has
+   * not named, still signing in or put again without its name, is not held, since it has no row.
+   */
   public putAccount(account: ProviderAccount): void {
-    this.#accountsById.set(account.accountId, account);
+    const listed = listedAccount(account);
+    if (listed === undefined) {
+      this.#accountsById.delete(account.accountId);
+    } else {
+      this.#accountsById.set(account.accountId, listed);
+    }
   }
 
   /**
@@ -182,7 +192,7 @@ export class ProviderAccountFold {
    * sort: an account put again keeps its position and a new one appends, so a row does not move
    * under a person's cursor.
    */
-  public accounts(): readonly ProviderAccount[] {
+  public accounts(): readonly ListedProviderAccount[] {
     return [...this.#accountsById.values()];
   }
 
@@ -199,14 +209,14 @@ export class ProviderAccountFold {
    * Every account the registry carries, by the id the daemon minted for it.
    *
    * Off the same held accounts as the readings, so a view naming a paying account joins
-   * `accountId` to `displayLabel` here instead of taking its own `providerAccount.list`, which
+   * `accountId` to its label here instead of taking its own `providerAccount.list`, which
    * would be a second reading of one registry. Separate from {@link readings} because an
    * account with no observed window still has a label to render.
    */
   public accountLabels(): ReadonlyMap<string, string> {
     const labels = new Map<string, string>();
     for (const account of this.#accountsById.values()) {
-      labels.set(account.accountId, account.displayLabel);
+      labels.set(account.accountId, account.label);
     }
     return labels;
   }
@@ -215,12 +225,12 @@ export class ProviderAccountFold {
 /** One window and its account, as a view renders the pair. */
 function readingFor(
   usageWindow: ProviderAccountUsageWindow,
-  account: ProviderAccount,
+  account: ListedProviderAccount,
 ): ProviderQuotaReading {
   return {
     accountId: usageWindow.accountId,
     limitId: usageWindow.limitId,
-    accountLabel: account.displayLabel,
+    accountLabel: account.label,
     limitLabel: usageWindow.label ?? usageWindow.limitId,
     usedPercent: usageWindow.usedPercent,
     resetsAt: usageWindow.resetsAt,

@@ -1,16 +1,14 @@
 // The provider-account axis: a picker over the node's registry, with what it stored about the
-// chosen account beside it. Not a widening of `AxisCombobox`: choices carry a label beside the
-// opaque id, advisories are per account, and "nothing to choose" must say why. The caller
-// owns the registry reading; readiness is advisory and never a gate or a command.
+// chosen account beside it. Not a widening of `AxisCombobox`: a choice is held by its opaque id
+// and shown by its label, advisories are per account, and "nothing to choose" must say why. The
+// caller owns the registry reading; readiness is advisory and never a gate or a command.
 
 import { useId } from "react";
 
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "../advisories.js";
 import {
   advisoryChoiceIn,
   accountAxisReadingFor,
-  chosenAccountIn,
   registryCarriesAccount,
   type AccountRegistryReading,
 } from "../axis.js";
@@ -45,7 +43,6 @@ export interface AccountAxisFieldProps {
 export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Element {
   const { registry, value } = props;
   const reading = accountAxisReadingFor(registry, props.driverName);
-  const chosen = chosenAccountIn(reading, value);
   const provenance = accountAxisProvenanceOf(props);
   const isPinned = provenance !== "unpinned";
   // The pin as the provenance read it, not the raw member: the form clears an axis with the
@@ -81,14 +78,6 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
         <AccountChoiceEmptyState reading={reading} onReopen={props.onReopenRegistry} />
       )}
 
-      {/* A definition can supply an account under a driver whose registry is unread; showing
-          it as a wire figure keeps the member the request will carry visible. */}
-      {isPinned && chosen === undefined ? (
-        <span className="meridian-axis-field__advisory">
-          This form is carrying <WireFigure value={value ?? ""} />.
-        </span>
-      ) : null}
-
       {isPinned && !registryCarriesAccount(reading, value ?? "") ? (
         <span className="meridian-axis-field__advisory">
           This provider&rsquo;s registry does not carry that account.
@@ -101,9 +90,9 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
         <>
           <span className="meridian-axis-field__advisory">
             {isPinned
-              ? `What follows is about ${advisoryChoice.displayLabel}, the account this form pins.`
+              ? `What follows is about ${advisoryChoice.label}, the account this form pins.`
               : "Nothing is pinned, so this run resolves to " +
-                `${advisoryChoice.displayLabel}. What follows is that account’s ` +
+                `${advisoryChoice.label}. What follows is that account’s ` +
                 "reading, and the request still names no account."}
           </span>
           <ul className="meridian-axis-field__advisories">

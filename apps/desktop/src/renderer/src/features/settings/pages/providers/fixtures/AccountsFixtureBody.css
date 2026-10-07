@@ -44,13 +44,6 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-accounts__row-identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
-}
-
 .meridian-accounts__row-label {
   font-size: var(--meridian-text-md);
   color: var(--meridian-text);

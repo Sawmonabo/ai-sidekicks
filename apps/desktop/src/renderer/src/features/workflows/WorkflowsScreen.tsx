@@ -63,7 +63,7 @@ export function WorkflowsScreen(props: {
                 definitions={screen.definitions}
                 namingRefusal={screen.namingRefusal}
                 filters={screen.filters}
-                accountLabel={screen.accountLabel}
+                payerOf={screen.payerOf}
                 bridge={screen.sources.bridge}
                 onOpenRun={screen.openRun}
                 answeredCount={screen.answeredCount}
@@ -76,7 +76,7 @@ export function WorkflowsScreen(props: {
                 sources={screen.sources}
                 workflowRunId={openRunId}
                 definitionNameFor={screen.definitionNameFor}
-                accountLabel={screen.accountLabel}
+                payerOf={screen.payerOf}
                 onOpenRun={screen.openRun}
                 onBackToList={screen.backToList}
                 onOpenSession={screen.openSession}

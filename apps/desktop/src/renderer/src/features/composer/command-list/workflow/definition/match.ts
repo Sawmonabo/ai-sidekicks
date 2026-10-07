@@ -4,7 +4,7 @@
 // because the library holds a name once under it. Candidates are a prefix reading, since an
 // unfinished word is a prefix.
 
-import { foldWorkflowName } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
 /** What resolving a typed name against the enumeration answered. */
@@ -20,8 +20,8 @@ export function matchWorkflowDefinition(
   definitions: readonly WorkflowDefinitionSummary[],
   typedName: string,
 ): WorkflowDefinitionMatch {
-  const wanted = foldWorkflowName(typedName);
-  const definition = definitions.find((candidate) => foldWorkflowName(candidate.name) === wanted);
+  const wanted = foldName(typedName);
+  const definition = definitions.find((candidate) => foldName(candidate.name) === wanted);
   return definition === undefined ? { status: "none" } : { status: "matched", definition };
 }
 
@@ -34,6 +34,6 @@ export function workflowDefinitionCandidates(
   definitions: readonly WorkflowDefinitionSummary[],
   typedPrefix: string | undefined,
 ): readonly WorkflowDefinitionSummary[] {
-  const wanted = typedPrefix === undefined ? "" : foldWorkflowName(typedPrefix);
-  return definitions.filter((definition) => foldWorkflowName(definition.name).startsWith(wanted));
+  const wanted = typedPrefix === undefined ? "" : foldName(typedPrefix);
+  return definitions.filter((definition) => foldName(definition.name).startsWith(wanted));
 }

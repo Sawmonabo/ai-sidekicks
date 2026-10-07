@@ -13,8 +13,8 @@ import { jsonUtf8ByteLength } from "../../../jsonrpc/message.js";
 import { QuestionIdSchema, type QuestionId } from "../../../question.js";
 import { ProcessExitSchema, type ProcessExit } from "../../../run/control.js";
 import { UsdMicrosSchema } from "../../../session/cost.js";
+import { PROVIDER_ACCOUNT_LABEL_MAX_LEN } from "../../../provider/account/label.js";
 import {
-  PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
   ProviderAccountIdSchema,
   type ProviderAccountId,
 } from "../../../provider/account/record.js";
@@ -97,8 +97,8 @@ export const WorkflowCostSchema: z.ZodType<WorkflowCost> = z
   .strict();
 
 /**
- * A spent provider account as a wait names it: its id, its provider and the one label every
- * surface names an account by, so no account id reaches the screen.
+ * A spent provider account as a wait names it: its id, its provider and the label `accountLabel`
+ * gives it, the one every surface names an account by, so no account id reaches the screen.
  */
 export interface WorkflowSpentAccount {
   providerAccountId: ProviderAccountId;
@@ -110,7 +110,7 @@ export const WorkflowSpentAccountSchema: z.ZodType<WorkflowSpentAccount> = z
   .object({
     providerAccountId: ProviderAccountIdSchema,
     provider: ProviderNameSchema,
-    label: wireFreeFormString(PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN, "WorkflowSpentAccount.label"),
+    label: wireFreeFormString(PROVIDER_ACCOUNT_LABEL_MAX_LEN, "WorkflowSpentAccount.label"),
   })
   .strict();
 

@@ -5,11 +5,11 @@
 // pure: composition opens no tail, takes no read, and calls nothing back.
 
 import type {
-  ProviderAccount,
   ProviderAccountUsageWindow,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import type { UnreadableDeliveryReading } from "#renderer/services/wire-reads/unreadable-deliveries.js";
 import type { WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
 import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
@@ -25,7 +25,7 @@ export const NO_READINESS: readonly ProviderReadiness[] = Object.freeze([]);
 /** What the account plane answered, and why it did not where it did not. */
 export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireReadState {
   /**
-   * Every account the registry carries, `accountId` to `displayLabel`.
+   * Every account the registry lists, `accountId` to its label.
    *
    * Folded from the same read and tail as the quota rows, so a view naming a paying account
    * needs no second fetch. Empty until the read has served: a missing entry means "not
@@ -34,14 +34,15 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    */
   readonly accountLabels: ReadonlyMap<string, string>;
   /**
-   * Every account the registry carries, whole, in the order the daemon sent them.
+   * Every account the registry lists, whole, in the order the daemon sent them, with its label;
+   * an account its provider has not named yet has no row.
    *
    * This window has one reader of the registry. `providerAccount.list` answers with the
    * accounts, the readiness projection and the quota rows in one snapshot, so a page taking
    * its own read would be a second reading of one registry with a second arrival order.
    * Empty until the read has served, so an absent row means "not read".
    */
-  readonly accounts: readonly ProviderAccount[];
+  readonly accounts: readonly ListedProviderAccount[];
   /**
    * Each provider's readiness entry and its one remedy, as the last read computed it.
    *

@@ -1,16 +1,14 @@
-import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/record";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import {
   BILLING_MODE_WORDS,
-  CREDENTIAL_KIND_WORDS,
   PROVIDER_READINESS_STATE_WORDS,
 } from "#renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { observationAgeInDays } from "../../quota-rows.js";
 
 /**
@@ -22,20 +20,20 @@ import { observationAgeInDays } from "../../quota-rows.js";
 const STALE_OBSERVATION_DAYS = 14;
 
 /**
- * One registry row: the label, the provider, how it is charged, whether it is the default, and
- * the health reading with the moment it was taken. Pressing it selects the account, and the
- * caller makes a press on an account the mark is not on do what `Set as default` does.
+ * One registry row: what the account is named by, the provider, how it is charged, whether it
+ * is the default, and the health reading with the moment it was taken. Pressing it selects the
+ * account, and the caller makes a press on an account the mark is not on do what `Set as default`
+ * does.
  *
  * The health reading is a stored observation, not a claim of authentication, so the row says
  * what the last look found. An account never observed has `healthObservedAt: null`, which
- * renders as its own sentence. The provider-reported identity renders only where observed,
- * since each member is independently optional on the wire.
+ * renders as its own sentence.
  */
 export function AccountRow(props: {
-  readonly account: ProviderAccount;
+  readonly account: ListedProviderAccount;
   readonly selected: boolean;
   readonly nowMilliseconds: number;
-  readonly onSelect: (account: ProviderAccount) => void;
+  readonly onSelect: (account: ListedProviderAccount) => void;
 }): ReactNode {
   const { account, selected, nowMilliseconds, onSelect } = props;
   const ageInDays =
@@ -43,9 +41,6 @@ export function AccountRow(props: {
       ? undefined
       : observationAgeInDays(account.healthObservedAt, nowMilliseconds);
   const isStale = ageInDays !== undefined && ageInDays >= STALE_OBSERVATION_DAYS;
-  // A token or API-key account reads the name the person gave it beside its credential's kind.
-  const credentialKind =
-    account.observedAuthMode === null ? null : CREDENTIAL_KIND_WORDS[account.observedAuthMode];
   return (
     <li>
       <button
@@ -56,11 +51,7 @@ export function AccountRow(props: {
           onSelect(account);
         }}
       >
-        <span className="meridian-accounts__row-label">
-          {credentialKind === null
-            ? account.displayLabel
-            : `${account.displayLabel} · ${credentialKind(account.provider)}`}
-        </span>
+        <span className="meridian-accounts__row-label">{account.label}</span>
         <span className="meridian-accounts__row-chips">
           <Chip label={PROVIDER_LABELS[account.provider]} />
           {/* The billing-mode label beside every money figure, so plan-included usage is never
@@ -83,17 +74,6 @@ export function AccountRow(props: {
             </>
           )}
         </span>
-        {account.observedAccountEmail === undefined &&
-        account.observedAccountOrgName === undefined ? null : (
-          <span className="meridian-accounts__row-identity">
-            {account.observedAccountEmail === undefined ? null : (
-              <WireFigure value={account.observedAccountEmail} />
-            )}
-            {account.observedAccountOrgName === undefined ? null : (
-              <WireFigure value={account.observedAccountOrgName} />
-            )}
-          </span>
-        )}
       </button>
     </li>
   );

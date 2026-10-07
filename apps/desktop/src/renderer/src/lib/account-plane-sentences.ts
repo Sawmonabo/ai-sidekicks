@@ -1,4 +1,5 @@
-// What an account's state and its one remedy read as on screen, in the Providers page's words.
+// What an account's state, its one remedy and the account list's read read as on screen, in the
+// Providers page's words.
 //
 // One entry per readiness state and per remedy and no other: the vocabularies are the
 // contract's, so a new upstream arm is a compile error here. Each is a fixed string, never
@@ -6,13 +7,10 @@
 
 import type {
   BillingMode,
-  ProviderAuthMode,
   ProviderReadinessState,
   ProviderRemedy,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
-
-import { PROVIDER_LABELS } from "./provider-labels.js";
+import { PROVIDER_LABELS, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 /**
  * What each readiness state reads as, given the provider it is about. An account's stored health
@@ -31,27 +29,20 @@ export const PROVIDER_READINESS_STATE_WORDS: Readonly<
   no_default: (provider) => noDefaultSentence(provider),
 };
 
+/**
+ * What the account list reads before its read lands and after one is refused, on the Providers
+ * page and on every account picker, which lists accounts as that page does.
+ */
+export const ACCOUNT_LIST_READ_WORDS = {
+  reading: "Reading the account list…",
+  refused: "The account list could not be read.",
+} as const;
+
 /** What each billing mode reads as on an account's billing chip. */
 export const BILLING_MODE_WORDS: Readonly<Record<BillingMode, string>> = {
   subscription: "Subscription",
   metered: "Metered",
   unknown: "Billing not set",
-};
-
-/**
- * The kind of credential a token or API-key account holds, drawn beside the name the person gave
- * it, since the provider reports no identity for it. Every other sign-in mode draws no kind: the
- * account reads the identity the provider reports instead.
- */
-export const CREDENTIAL_KIND_WORDS: Readonly<
-  Record<ProviderAuthMode, ((provider: ProviderName) => string) | null>
-> = {
-  oauth_token: (provider) => `${PROVIDER_LABELS[provider]} token`,
-  api_key: (provider) => `${PROVIDER_LABELS[provider]} API key`,
-  oauth_subscription: null,
-  external: null,
-  none: null,
-  unknown: null,
 };
 
 /**

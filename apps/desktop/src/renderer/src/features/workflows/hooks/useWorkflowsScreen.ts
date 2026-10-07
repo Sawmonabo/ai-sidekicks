@@ -15,6 +15,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
 import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
+import { readPayer, type PayerReading } from "../runs/cost.js";
 import type { WorkflowNoticeFeedState } from "../notice-feed.js";
 import type { WorkflowRunComparison } from "../runs/comparison.js";
 import {
@@ -59,11 +60,12 @@ export interface WorkflowsScreenHold {
   readonly definitions: readonly WorkflowDefinitionSummary[];
   /**
    * Why the saved workflows or the accounts could not be read, where one could not: the filter
-   * then offers no workflow and a cost names its account by id.
+   * then offers no workflow and a cost names no account.
    */
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  /** What the account registry says about the account a cost was paid from. */
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
   readonly nextWaiting: NextWaiting;
@@ -183,12 +185,12 @@ export function useWorkflowsScreen(
     [feed, countAnswered],
   );
 
-  const accountLabel = useCallback(
-    (providerAccountId: string) =>
-      accountsState.kind === "loaded"
-        ? accountsState.value.accounts.find((account) => account.accountId === providerAccountId)
-            ?.displayLabel
-        : undefined,
+  const payerOf = useCallback(
+    (providerAccountId: string): PayerReading =>
+      readPayer(
+        accountsState.kind === "loaded" ? accountsState.value.accounts : undefined,
+        providerAccountId,
+      ),
     [accountsState],
   );
   const definitions = useMemo(
@@ -299,7 +301,7 @@ export function useWorkflowsScreen(
           ? accountsState.refusal
           : undefined,
     filters,
-    accountLabel,
+    payerOf,
     definitionNameFor,
     nextWaiting,
     pauseAct: pause.state,

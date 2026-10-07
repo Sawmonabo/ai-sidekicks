@@ -3,7 +3,11 @@
 // chain held behind its question among them. `writes.ts` applies the writes the playback has
 // answered over them and `../replies.ts` answers the calls from that state.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
+import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
+import type {
+  ProviderAccount,
+  ProviderAccountId,
+} from "@ai-sidekicks/contracts/provider/account/record";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -73,7 +77,7 @@ export const WORKFLOW_PAYING_ACCOUNT: ProviderAccountId = WORK_ACCOUNT.accountId
 export const WORKFLOW_SPENT_ACCOUNT: WorkflowSpentAccount = {
   providerAccountId: WORK_ACCOUNT.accountId,
   provider: WORK_ACCOUNT.provider,
-  label: WORK_ACCOUNT.displayLabel,
+  label: labelOf(WORK_ACCOUNT),
 };
 
 /** One run as the fixture daemon holds it: its read and its definition's name. */
@@ -721,4 +725,13 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
       : {}),
     keep: read.keep,
   };
+}
+
+// The fixture's paying account carries its provider-reported identity, so it always has a label.
+function labelOf(account: ProviderAccount): string {
+  const label = accountLabel(account);
+  if (label === undefined) {
+    throw new Error("a paying account fixture must carry the identity its provider reported");
+  }
+  return label;
 }

@@ -2,7 +2,6 @@ import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/r
 import type { ReactNode } from "react";
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount, formatDateTime, formatDayDuration } from "#renderer/lib/wire/figures.js";
 import {
   DefinitionGrid,
@@ -11,9 +10,9 @@ import {
 import { estimatedReloginDaysAfterSignIn } from "../../quota-rows.js";
 
 /**
- * The selected row's identity axes: the opaque account handle, its generation, when it was
- * signed in, whether the background observer runs for it, and roughly how long a credential of
- * its kind lasts.
+ * The selected account's details: its credential generation, when it was signed in, whether the
+ * background observer runs for it, and roughly how long a credential of its kind lasts. Its
+ * daemon-minted id is never shown; the heading above names it.
  *
  * The re-login horizon is omitted where the registry carries none: an estimate with no anchor
  * is a fabrication, and an "unknown" row would invite treating the present ones as known. Where
@@ -22,13 +21,6 @@ import { estimatedReloginDaysAfterSignIn } from "../../quota-rows.js";
 export function AccountDetail(props: { readonly account: ProviderAccount }): ReactNode {
   const { account } = props;
   const entries: DefinitionGridEntry[] = [
-    {
-      key: "accountId",
-      term: <span>Account</span>,
-      // The daemon-minted handle, verbatim and in mono; opaque and immutable, and what every
-      // other view names this account by.
-      definition: <WireFigure value={account.accountId} />,
-    },
     {
       key: "credentialGeneration",
       term: <span>Credential generation</span>,

@@ -1,10 +1,14 @@
 // Why there is no account picker, in the words of whichever answer produced it. Five
 // empty states, only one of which is "the registry holds none"; an empty picker would report an
-// unanswered registry as an answer of nothing. A refusal renders verbatim with a way to retry.
+// unanswered registry as an answer of nothing. The account list's own states read as the
+// Providers page words them, since the picker lists accounts exactly as that page does.
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import {
+  ACCOUNT_LIST_READ_WORDS,
+  ACCOUNT_PLANE_REMEDY_SENTENCES,
+} from "#renderer/lib/account-plane-sentences.js";
 import type { AccountAxisReading } from "../axis.js";
 
 /** What the empty state shows, and how it asks for a fresh read. */
@@ -30,13 +34,13 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
     );
   }
   if (reading.kind === "reading") {
-    return <Nothing kind="not-loaded" title="Reading this node's provider accounts" />;
+    return <Nothing kind="not-loaded" title={ACCOUNT_LIST_READ_WORDS.reading} />;
   }
   if (reading.kind === "refused") {
     return (
-      <InlineRefusal
-        code={reading.refusal.code}
-        detail={reading.refusal.detail}
+      <Nothing
+        kind="error"
+        title={ACCOUNT_LIST_READ_WORDS.refused}
         action={<TryAgainButton onPress={onReopen} />}
       />
     );
@@ -53,5 +57,5 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
       />
     );
   }
-  return <Nothing kind="empty" title="No account is registered for this provider on this node." />;
+  return <Nothing kind="empty" title={ACCOUNT_PLANE_REMEDY_SENTENCES.register(reading.provider)} />;
 }

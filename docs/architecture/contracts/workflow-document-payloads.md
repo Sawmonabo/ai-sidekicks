@@ -173,11 +173,15 @@ type WorkflowStartedBy =
   | { kind: "fileEvent" }
   | { kind: "parentWorkflow"; parentWorkflowRunId: WorkflowRunId };
 
-// A spent provider account as a wait names it: its id, its provider and the one label every
-// surface names an account by, so no account id reaches the screen.
+// A spent provider account as a wait names it: its id, its provider and the label `accountLabel`
+// gives it, the one every surface names an account by, so no account id reaches the screen: a
+// pasted-token or API-key account's typed name beside its credential's kind, else the identity its
+// provider reports.
 interface WorkflowSpentAccount {
   providerAccountId: ProviderAccountId;
   provider: "claude" | "codex";
+  // Sized for the longest full reported identity — the email, plan and organization caps with the
+  // two ` · ` separators (`PROVIDER_ACCOUNT_LABEL_MAX_LEN`) — not for a typed name alone.
   label: string;
 }
 

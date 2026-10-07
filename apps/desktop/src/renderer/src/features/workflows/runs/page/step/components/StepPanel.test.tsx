@@ -93,7 +93,7 @@ function renderPanel(
         nodeId="summary"
         nodeKind={() => undefined}
         nodeName={(nodeId) => nodeId}
-        accountLabel={() => undefined}
+        payerOf={() => ({ kind: "unread" })}
         bridge={bridge}
         nowMs={WORKFLOW_FIXTURE_NOW_MS}
         receipts={new Map()}

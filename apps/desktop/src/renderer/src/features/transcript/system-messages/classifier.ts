@@ -1,14 +1,16 @@
 // Which rows are system messages, and what one row's system message says. The closed vocabulary
-// it classifies into (kinds, wire types, labels, glyphs, the one caution) is in
+// it classifies into (kinds, wire types, labels, the one caution) is in
 // `kinds.ts`. Superseded turns are ranked separately in `superseded-turns.ts`.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { SYSTEM_MESSAGE_KINDS, SYSTEM_MESSAGE_BINDINGS, type SystemMessageKind } from "./kinds.js";
 
-/** One system message: the act it names, and the row and moment it stands at. */
+/** One system message: the act it names, its words, and the row and moment it stands at. */
 export interface SystemMessageReading {
   readonly kind: SystemMessageKind;
+  /** The act's name as the one-line row reads it. */
+  readonly label: string;
   readonly rowId: string;
   readonly timestamp: string;
 }
@@ -30,13 +32,19 @@ export class SystemMessageClassifier {
     this.#kindByWireType = kindByWireType;
   }
 
-  /** One row's system message, or `undefined` when the row is not one. */
+  /**
+   * One row's system message, or `undefined` when the row is not one or its payload is off
+   * contract, in which case the row is drawn as any other event row.
+   */
   public classify(row: TranscriptEventRow): SystemMessageReading | undefined {
     const kind = row.kind === "rollback_boundary" ? "rollback" : this.#kindByWireType.get(row.type);
     if (kind === undefined) {
       return undefined;
     }
-    return { kind, rowId: row.id, timestamp: row.timestamp };
+    const label = SYSTEM_MESSAGE_BINDINGS[kind].labelOf(row);
+    return label === undefined
+      ? undefined
+      : { kind, label, rowId: row.id, timestamp: row.timestamp };
   }
 
   /** Every system message in one loaded window, in log order. */

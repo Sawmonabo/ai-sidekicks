@@ -15,7 +15,7 @@ import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { readRollbackBoundaryPayload } from "#renderer/services/daemon/rollback-boundary-payload.js";
+import { readRollbackBoundaryPayload } from "#renderer/services/daemon/payload/rollback-boundary.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";

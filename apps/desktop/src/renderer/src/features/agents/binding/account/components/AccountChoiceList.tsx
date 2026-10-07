@@ -1,12 +1,11 @@
 // The account picker over the accounts this driver's provider carries. The combobox holds the
-// daemon-minted `accountId` and resolves the label through the library's label seam, so a
-// relabeled account never changes the wire identity. The caller mints the label id because
-// `role="combobox"` takes no name from its own content.
+// daemon-minted `accountId` and shows the account's label through the library's label seam, so a
+// renamed account or a newly reported identity never changes the wire identity. The caller mints
+// the label id because `role="combobox"` takes no name from its own content.
 
 import { Combobox } from "@base-ui/react/combobox";
 
 import { OverlayComboboxPopup } from "#renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { AccountAxisReading } from "../axis.js";
 
 /** What the account picker reads, and the id of the label that names its trigger. */
@@ -23,10 +22,9 @@ export interface AccountChoiceListProps {
 export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Element {
   const { reading, value } = props;
   const accountIds = reading.choices.map((choice) => choice.accountId);
-  // An id the registry does not carry falls back to itself, so a held value never renders as
-  // a blank trigger, which would read as "no account pinned".
+  // Never the id: the registry was read, so an account it does not carry was removed.
   const labelFor = (accountId: string): string =>
-    reading.choices.find((choice) => choice.accountId === accountId)?.displayLabel ?? accountId;
+    reading.choices.find((choice) => choice.accountId === accountId)?.label ?? "Removed account";
   return (
     <Combobox.Root
       items={accountIds}
@@ -61,10 +59,9 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
               className="meridian-axis-field__option"
             >
               <span className="meridian-axis-field__option-label">
-                {choice.displayLabel}
+                {choice.label}
                 {choice.isProviderDefault ? " · default" : ""}
               </span>
-              <WireFigure value={choice.accountId} />
             </Combobox.Item>
           ))}
         </Combobox.List>

@@ -9,8 +9,8 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { findReadRefusal, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
  * The narrow slice of the window's account registry reading this axis reads; the full readout
@@ -18,7 +18,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
  */
 export interface AccountRegistryReading extends WireReadState {
   /** Every account the registry carries, in the order the daemon sent them. */
-  readonly accounts: readonly ProviderAccount[];
+  readonly accounts: readonly ListedProviderAccount[];
   /** Each provider's readiness entry and its one remedy, as the last read computed it. */
   readonly readiness: readonly ProviderReadiness[];
 }
@@ -26,8 +26,8 @@ export interface AccountRegistryReading extends WireReadState {
 /** One account the axis may take, with the stored reading that renders beside it. */
 export interface AccountChoice {
   readonly accountId: string;
-  /** Chosen by the person. What a person recognizes the account by. */
-  readonly displayLabel: string;
+  /** What the account is named by. */
+  readonly label: string;
   readonly isProviderDefault: boolean;
   readonly healthState: ProviderAccount["healthState"];
   /** `null` where no observation has ever been recorded for this account. */
@@ -46,7 +46,7 @@ export interface AccountChoice {
 export type AccountAxisReading =
   | { readonly kind: "driver-unchosen" }
   | { readonly kind: "reading" }
-  | { readonly kind: "refused"; readonly refusal: Refusal }
+  | { readonly kind: "refused" }
   | { readonly kind: "unknown-provider"; readonly driverName: string }
   | {
       readonly kind: "served";
@@ -78,9 +78,8 @@ export function accountAxisReadingFor(
   }
   // Through the phase-aware accessor: a reading whose newest read served carries no
   // refusal, though an earlier one failed.
-  const refusal = findReadRefusal(registry);
-  if (refusal !== undefined) {
-    return { kind: "refused", refusal };
+  if (findReadRefusal(registry) !== undefined) {
+    return { kind: "refused" };
   }
   if (registry.phase === "reading") {
     return { kind: "reading" };
@@ -147,12 +146,12 @@ function providerForDriver(driverName: string | undefined): ProviderName | undef
  * row, so a provider's verdict is never attached to a row it was not computed for.
  */
 function accountChoiceFor(
-  account: ProviderAccount,
+  account: ListedProviderAccount,
   providerReadiness: ProviderReadiness | undefined,
 ): AccountChoice {
   return {
     accountId: account.accountId,
-    displayLabel: account.displayLabel,
+    label: account.label,
     isProviderDefault: account.isDefault,
     healthState: account.healthState,
     healthObservedAt: account.healthObservedAt,

@@ -15,7 +15,7 @@ import { readWorkflowPayloadItems } from "#renderer/services/artifacts/workflow-
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
-import { costWithPayer } from "#renderer/features/workflows/runs/cost.js";
+import { costWithPayer, type PayerReading } from "#renderer/features/workflows/runs/cost.js";
 import { STEP_STATUS_WORDS } from "#renderer/features/workflows/words.js";
 import {
   retryAvailability,
@@ -63,7 +63,7 @@ export interface StepPanelProps {
   /** A step's node kind in the pinned version, `undefined` until the version is read. */
   readonly nodeKind: (nodeId: string) => string | undefined;
   readonly nodeName: (nodeId: string) => string;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly bridge: PlatformBridge;
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
@@ -205,7 +205,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
           {tab === "cost" ? (
             <StepRecordTab stored={step.cost} view={view} label={label}>
               <p className="meridian-workflow-step__note">
-                {costWithPayer(step.cost, props.accountLabel)}
+                {costWithPayer(step.cost, props.payerOf)}
               </p>
             </StepRecordTab>
           ) : null}

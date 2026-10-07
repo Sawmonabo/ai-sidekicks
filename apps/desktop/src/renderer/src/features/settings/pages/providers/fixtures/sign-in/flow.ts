@@ -5,12 +5,13 @@
 // is a state of the flow and the page learns the account's fate by re-reading the registry.
 // A token exists here only for the length of one registration call, never in a state.
 
+import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import type {
   BillingMode,
   ProviderAccount,
   ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import { PROVIDER_LABELS, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
   ProviderAccountProbeResponse,
   ProviderAccountSetCurrentResponse,
@@ -24,7 +25,6 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -198,9 +198,9 @@ export type RegistrationFieldReading =
  * Read the form's ordinary fields, before anything is sent and before the token is read.
  *
  * Runs before the token exists in the submit handler, so a refused name cannot discard a typed
- * credential. The name is required and differs from that provider's other account names,
- * compared without case or surrounding spaces; a name of only spaces passes the browser's
- * `required` check and is refused here. The refusal never echoes the name, which is user content.
+ * credential. The name is trimmed and required, and differs from that provider's other account
+ * names compared by `foldName`, as the service compares them; a name of only spaces passes the
+ * browser's `required` check and is refused here. The refusal never echoes the name, which is user content.
  * The form asks nothing about billing, so an admitted account's billing is `unknown`.
  */
 export function readRegistrationFields(
@@ -218,11 +218,12 @@ export function readRegistrationFields(
       ),
     };
   }
-  const comparedName = displayLabel.toLowerCase();
+  const comparedName = foldName(displayLabel);
   const isTaken = accounts.some(
     (account) =>
       account.provider === typed.provider &&
-      account.displayLabel.trim().toLowerCase() === comparedName,
+      account.displayLabel !== undefined &&
+      foldName(account.displayLabel) === comparedName,
   );
   if (isTaken) {
     return {

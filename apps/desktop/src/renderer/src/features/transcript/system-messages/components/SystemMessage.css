@@ -2,14 +2,8 @@
  * rollback.
  */
 
-/* One line: a glyph and the act's name. */
 .meridian-system-message {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
   margin: 0;
-  color: var(--meridian-text-muted);
 }
 
 .meridian-system-message__label {

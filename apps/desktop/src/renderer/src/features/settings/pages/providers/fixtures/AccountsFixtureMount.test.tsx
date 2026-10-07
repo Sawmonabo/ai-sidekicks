@@ -1,6 +1,7 @@
 // The Providers page as a fixture launch mounts it: the fixture body registered into the page,
 // its registry read and its sign-in start reaching the scenario's scripted replies through
-// `callDaemon`, and the registry's tail reaching the body.
+// `callDaemon`, and the registry's tail reaching the body; and the account list's own words while
+// it is read and after a refused read.
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,13 +23,9 @@ afterEach(() => {
   cleanup();
 });
 
-/** The Providers page over the concurrent-streaming fixture, its first registry read landed. */
-async function mountProvidersPage(): Promise<{
-  readonly container: HTMLElement;
-  readonly fixture: FixtureBridge;
-}> {
+/** The Providers page over `fixture`, before its first registry read lands. */
+function renderProvidersPage(fixture: FixtureBridge): HTMLElement {
   registerAccountsFixtureBody();
-  const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
@@ -36,18 +33,67 @@ async function mountProvidersPage(): Promise<{
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
+  return container;
+}
+
+/** The Providers page over the concurrent-streaming fixture, its first registry read landed. */
+async function mountProvidersPage(): Promise<{
+  readonly container: HTMLElement;
+  readonly fixture: FixtureBridge;
+}> {
+  const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+  const container = renderProvidersPage(fixture);
   await settleScheduledRead(fixture.scenarioEngine.clock);
   return { container, fixture };
 }
 
+/** The fixture, with its first `providerAccount.list` call rejected as a closed connection. */
+function fixtureRefusingFirstRegistryRead(): FixtureBridge {
+  const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+  const { daemon } = fixture.bridge;
+  let hasRefused = false;
+  return {
+    ...fixture,
+    bridge: {
+      ...fixture.bridge,
+      daemon: {
+        ...daemon,
+        call: (method, params) => {
+          if (method === "providerAccount.list" && !hasRefused) {
+            hasRefused = true;
+            return Promise.reject(new Error("the connection closed"));
+          }
+          return daemon.call(method, params);
+        },
+      },
+    },
+  };
+}
+
 describe("AccountsFixtureMount", () => {
+  it("reads the account list's own words while it is read, and after a refused read", async () => {
+    const fixture = fixtureRefusingFirstRegistryRead();
+    const container = renderProvidersPage(fixture);
+    expect(container.textContent).toContain("Reading the account list…");
+
+    await settleScheduledRead(fixture.scenarioEngine.clock);
+    expect(container.textContent).toContain("The account list could not be read.");
+    // The words are the page's, never the refusal's code or detail.
+    expect(container.textContent).not.toContain("call-rejected");
+    expect(container.textContent).not.toContain("not answering");
+
+    fireEvent.click(screenButton(container, "Try again"));
+    await settleScheduledRead(fixture.scenarioEngine.clock);
+    expect(container.textContent).toContain("sam@example.com · Max");
+  });
+
   it("draws the scenario's scripted registry and starts a sign-in through it", async () => {
     const { container, fixture } = await mountProvidersPage();
     const accountRows = container.querySelectorAll(".meridian-accounts__rows > li");
     expect([...accountRows].map((row) => row.textContent)).toStrictEqual([
-      expect.stringContaining("Claude — work"),
-      expect.stringContaining("Claude — token"),
-      expect.stringContaining("Codex — personal"),
+      expect.stringContaining("sam@example.com · Max"),
+      expect.stringContaining("Personal · Claude Code token"),
+      expect.stringContaining("sam@example.org · Business · Example Inc"),
     ]);
 
     pressFirstStartControl(container);
@@ -157,15 +203,15 @@ describe("AccountsFixtureMount", () => {
     };
 
     // The signed-in account takes the mark, which the re-read registry shows.
-    await pressAccountRow("Claude — work");
+    await pressAccountRow("sam@example.com · Max");
     const workRow = [...container.querySelectorAll(".meridian-accounts__rows > li")].find((row) =>
-      row.textContent.includes("Claude — work"),
+      row.textContent.includes("sam@example.com · Max"),
     );
     expect(workRow?.textContent).toContain("Default");
 
     // The token account's login is gone, so the move is refused with its own way back, the
     // remedy the refusal carried rather than one guessed from the code.
-    await pressAccountRow("Claude — token");
+    await pressAccountRow("Personal · Claude Code token");
     const handoff = container.querySelector(".meridian-account-handoff__sentence");
     expect(handoff?.textContent).toBe(
       "This account cannot refresh itself. When the token stops working, mint a new one and " +
@@ -173,3 +219,14 @@ describe("AccountsFixtureMount", () => {
     );
   });
 });
+
+/** The page's button reading `name`. */
+function screenButton(container: HTMLElement, name: string): HTMLButtonElement {
+  const button = [...container.querySelectorAll("button")].find(
+    (candidate) => candidate.textContent === name,
+  );
+  if (button === undefined) {
+    throw new Error(`no button reads ${name}`);
+  }
+  return button;
+}

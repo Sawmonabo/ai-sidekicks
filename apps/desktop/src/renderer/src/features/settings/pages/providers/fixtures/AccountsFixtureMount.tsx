@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode }
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/account-plane-sentences.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/streams.js";
@@ -72,8 +73,7 @@ export function AccountsFixtureMount(): ReactNode {
       <Nothing
         kind="error"
         placement="block"
-        title={state.refusal.code}
-        detail={state.refusal.detail}
+        title={ACCOUNT_LIST_READ_WORDS.refused}
         action={
           <TryAgainButton
             onPress={() => {

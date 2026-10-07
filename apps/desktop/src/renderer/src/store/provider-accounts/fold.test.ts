@@ -1,6 +1,7 @@
 // The quota fold, driven directly rather than through a bridge. Consumption does not fall inside
 // one window, so a lower same-window reading is held rather than hiding imminent exhaustion; a
-// moved reset horizon is a new window; and a reading is keyed by account and limit, not length.
+// moved reset horizon is a new window; a reading is keyed by account and limit, not length; and
+// an account is listed only while its provider names it.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -23,7 +24,8 @@ function account(overrides: Partial<ProviderAccount> = {}): ProviderAccount {
   return {
     accountId: ACCOUNT_ID,
     provider: "claude",
-    displayLabel: "Team",
+    observedAccountEmail: "sam@example.com",
+    observedAccountPlan: "team",
     credentialGeneration: 1,
     billingMode: "subscription",
     isDefault: true,
@@ -107,5 +109,25 @@ describe("ProviderAccountFold — the readings a view renders", () => {
 
     expect(usedPercentFor(fold, "weekly-all")).toBe(90);
     expect(usedPercentFor(fold, "weekly-opus")).toBe(30);
+  });
+});
+
+describe("ProviderAccountFold — the accounts a view lists", () => {
+  it("lists an account only while its provider has named it", () => {
+    // Before its provider reports an identity the account has no name, so it has no row.
+    const fold = new ProviderAccountFold();
+    const signingIn = account({ observedAccountEmail: undefined, observedAccountPlan: undefined });
+    fold.putAccount(signingIn);
+    fold.mergeUsageWindow(usageWindow());
+    expect(fold.accounts()).toEqual([]);
+    expect(fold.accountLabels().size).toBe(0);
+    expect(fold.readings()).toEqual([]);
+
+    fold.putAccount(account());
+    expect(fold.accounts().map((listed) => listed.label)).toEqual(["sam@example.com · Team"]);
+
+    // Put again without its name, the account leaves the list instead of keeping its old row.
+    fold.putAccount(signingIn);
+    expect(fold.accounts()).toEqual([]);
   });
 });

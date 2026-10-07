@@ -1,6 +1,6 @@
 // `providerAccount.register`: the request's `accountId` is only the token re-supply selector,
-// never an identity assertion, so it is refused without a token to supply; and a keychain that
-// refuses to seal the token names its cause.
+// never an identity assertion, so it is refused without a token to supply; only a pasted-token
+// account carries a name; and a keychain that refuses to seal the token names its cause.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -31,7 +31,6 @@ describe("the register request's re-supply selector", () => {
     expect(
       ProviderAccountRegisterRequestSchema.safeParse({
         provider: "claude",
-        displayLabel: "Personal",
         billingMode: "subscription",
         accountId: "",
       }).success,
@@ -42,7 +41,6 @@ describe("the register request's re-supply selector", () => {
     expect(
       ProviderAccountRegisterRequestSchema.safeParse({
         provider: "claude",
-        displayLabel: "Personal",
         billingMode: "subscription",
       }).success,
     ).toBe(true);
@@ -59,7 +57,6 @@ describe("the register request's re-supply selector", () => {
     // guessing, and the cheap guess is a silent no-op reported as a registration.
     const selectorAlone = ProviderAccountRegisterRequestSchema.safeParse({
       provider: "claude",
-      displayLabel: "Personal",
       billingMode: "subscription",
       accountId: ACCOUNT_ID,
     });
@@ -76,6 +73,40 @@ describe("the register request's re-supply selector", () => {
         issue.message.includes("must also carry nonInteractiveToken"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("the register request's name", () => {
+  // Only an account added from a pasted token or API key carries a name the person typed; every
+  // other account is named by the identity its provider reports.
+  function displayLabelIssuePaths(request: Record<string, unknown>): string[] {
+    const parsed = ProviderAccountRegisterRequestSchema.safeParse({
+      provider: "codex",
+      billingMode: "metered",
+      ...request,
+    });
+    return parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join("."));
+  }
+
+  it("refuses a name on a sign-in registration and admits one without it", () => {
+    expect(displayLabelIssuePaths({ displayLabel: "Work" })).toEqual(["displayLabel"]);
+    expect(displayLabelIssuePaths({})).toEqual([]);
+  });
+
+  it("refuses a new token registration without a name and admits one with it", () => {
+    expect(displayLabelIssuePaths({ nonInteractiveToken: TOKEN_FIXTURE })).toEqual([
+      "displayLabel",
+    ]);
+    expect(
+      displayLabelIssuePaths({ nonInteractiveToken: TOKEN_FIXTURE, displayLabel: "Work" }),
+    ).toEqual([]);
+  });
+
+  it("admits a token re-supply whether or not it repeats the account's name", () => {
+    // The re-supplied account already carries its name, so the request need not repeat it.
+    expect(
+      displayLabelIssuePaths({ accountId: ACCOUNT_ID, nonInteractiveToken: TOKEN_FIXTURE }),
+    ).toEqual([]);
   });
 });
 

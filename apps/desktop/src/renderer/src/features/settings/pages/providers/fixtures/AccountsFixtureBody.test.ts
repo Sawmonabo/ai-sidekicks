@@ -136,7 +136,6 @@ describe("AccountsFixtureBody — a fresh token for an expired token account", (
       [
         {
           provider: "claude",
-          displayLabel: "Claude — work",
           billingMode: "subscription",
           accountId: "pa-0001",
           nonInteractiveToken: "fresh-token",

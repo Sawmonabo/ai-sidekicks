@@ -35,7 +35,7 @@ describe("the runs table's `Delete run`", () => {
     render(
       <RunsTable
         runs={[waiting, finished]}
-        accountLabel={() => undefined}
+        payerOf={() => ({ kind: "unread" })}
         bridge={bridge}
         onOpenRun={() => undefined}
         onRunDeleted={onRunDeleted}

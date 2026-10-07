@@ -410,7 +410,14 @@ CREATE TABLE provider_accounts (
   account_id                TEXT NOT NULL PRIMARY KEY,
   provider                  TEXT NOT NULL
                             CHECK(provider IN ('claude', 'codex')),
-  display_label             TEXT NOT NULL,      -- the user's label; treated as personal data
+  -- The name the person typed for an account added from a pasted token or API
+  -- key, which its provider names nowhere; NULL on every other account, which its
+  -- provider-reported identity names. Personal data.
+  display_label             TEXT,
+  -- The full-Unicode case fold of display_label (contracts' foldName), written
+  -- by the store on every insert and rename so the unique index compares names
+  -- the way the screen does; NULL exactly where display_label is.
+  display_label_folded      TEXT,
   -- The daemon builds each spawn environment from this path and never inherits
   -- ambient provider credentials.
   credential_home_path      TEXT NOT NULL,
@@ -485,7 +492,10 @@ CREATE TABLE provider_accounts (
   -- An import that copied something has its count and time; no other outcome has either.
   CHECK((memory_import_outcome IS 'imported')
     = (memory_import_count IS NOT NULL AND memory_imported_at IS NOT NULL)),
-  CHECK((memory_import_count IS NULL) = (memory_imported_at IS NULL))
+  CHECK((memory_import_count IS NULL) = (memory_imported_at IS NULL)),
+  -- A typed name and its fold are written together, so the unique index never
+  -- misses a name.
+  CHECK((display_label IS NULL) = (display_label_folded IS NULL))
 ) STRICT;
 
 -- One default per provider. Two concurrent set-default calls would each see no
@@ -498,6 +508,71 @@ CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
 -- share credentials and spend.
 CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
+
+-- One typed name per provider, compared by its fold, where a name is present: a
+-- second account of one provider with the same name is refused.
+CREATE UNIQUE INDEX provider_accounts_unique_display_label
+  ON provider_accounts(provider, display_label_folded)
+  WHERE display_label_folded IS NOT NULL;
+
+-- A typed name is renamed only on an account that carries one: an account its
+-- provider names never gains one, and a pasted-token account never loses its.
+CREATE TRIGGER trg_provider_accounts_display_label_kept
+  BEFORE UPDATE OF display_label ON provider_accounts
+  WHEN (OLD.display_label IS NULL) != (NEW.display_label IS NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'display_label is renamed only on an account that carries one');
+END;
+
+-- The table's rules against INSERT OR REPLACE, which deletes every row it
+-- collides with instead of refusing, fires no UPDATE trigger and cascades the
+-- delete to the account's quota readings (sqlite.org/lang_conflict.html).
+-- Refused before the insert: one that names an account already held, which is
+-- changed by UPDATE so the rules above see it, and one that collides with
+-- another account on a unique index (its default mark, its credential home or
+-- its typed name), which REPLACE would answer by deleting that account. A plain
+-- INSERT meets the same refusal; an UPDATE still meets the indexes.
+CREATE TRIGGER trg_provider_accounts_never_written_over
+  BEFORE INSERT ON provider_accounts
+  WHEN EXISTS (SELECT 1 FROM provider_accounts AS held WHERE held.account_id = NEW.account_id)
+BEGIN
+  SELECT RAISE(ABORT, 'an account is changed by UPDATE, never written over');
+END;
+
+CREATE TRIGGER trg_provider_accounts_display_label_unique_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN NEW.display_label_folded IS NOT NULL AND EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.provider = NEW.provider
+      AND held.display_label_folded = NEW.display_label_folded
+      AND held.account_id != NEW.account_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'another account of this provider holds that display_label');
+END;
+
+CREATE TRIGGER trg_provider_accounts_one_default_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN NEW.is_default = 1 AND EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.provider = NEW.provider
+      AND held.is_default = 1
+      AND held.account_id != NEW.account_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'another account of this provider is the default');
+END;
+
+CREATE TRIGGER trg_provider_accounts_credential_home_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.credential_home_path = NEW.credential_home_path
+      AND held.account_id != NEW.account_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'another account holds that credential_home_path');
+END;
 
 -- The newest quota reading per account and limit. Keyed by limit, not window
 -- length: one provider publishes several limits that share a window length.

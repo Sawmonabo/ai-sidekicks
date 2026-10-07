@@ -19,6 +19,7 @@ import {
   type AccountListReading,
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
+import { listedAccount } from "#renderer/store/provider-accounts/listing.js";
 
 /** Provider-published limit identifiers, which the page must never draw. */
 export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;
@@ -31,8 +32,9 @@ const BATCH_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
 const WORK_ACCOUNT: ProviderAccount = {
   accountId: WORK_ACCOUNT_ID,
   provider: "claude",
-  displayLabel: "Claude — work",
   credentialGeneration: 3,
+  observedAccountEmail: "sam@example.com",
+  observedAccountPlan: "max",
   billingMode: "subscription",
   isDefault: true,
   healthState: "authenticated",
@@ -51,8 +53,9 @@ const WORK_ACCOUNT: ProviderAccount = {
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
   provider: "codex",
-  displayLabel: "Codex — personal",
   credentialGeneration: 1,
+  observedAccountEmail: "sam@example.org",
+  observedAccountPlan: "plus",
   billingMode: "metered",
   isDefault: true,
   healthState: "home_missing",
@@ -71,7 +74,7 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
 const BATCH_ACCOUNT: ProviderAccount = {
   ...WORK_ACCOUNT,
   accountId: BATCH_ACCOUNT_ID,
-  displayLabel: "Claude — batch runs",
+  observedAccountEmail: "batch@example.com",
   credentialGeneration: 5,
   billingMode: "metered",
   isDefault: false,
@@ -115,7 +118,9 @@ const READINESS: readonly ProviderReadiness[] = [
 /** A registry that has answered: three accounts, two providers, four stored readings. */
 export const ACCOUNT_REGISTRY: AccountListReading = {
   phase: "read",
-  accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT],
+  accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT].flatMap(
+    (account) => listedAccount(account) ?? [],
+  ),
   readiness: READINESS,
   usageWindows: [
     usageWindow({ limitId: "weekly_all", label: "Weekly, all models", usedPercent: 88 }),
