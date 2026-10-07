@@ -29,7 +29,7 @@ Diagnose runs that appear active but are no longer making observable progress.
 2. To end one command only, press `Stop` on that command's row; it ends that command and nothing else.
 3. To end the turn, press `Interrupt` at the end of the working line, or Escape. The agent in view stops its turn, the command it was running is ended, the agents it dispatched keep going, and it waits for a steer. To stop everything the session started, press `Interrupt everything`, or Ctrl+C with nothing selected and focus outside a terminal.
 4. Continue by sending a steer or a new message, or use `Try again` on a failed row.
-5. If the session shows that its provider ended, with `Restart`, press `Restart`. When a Codex service dies, the daemon restarts it at once and resumes its conversations; after three deaths within five minutes it leaves the service down, and each of its sessions shows that the provider ended, with `Restart`.
+5. If the session shows that its provider ended, with `Restart`, press `Restart`. When a Claude Code process or a Codex service dies, the daemon restarts it at once and then on waits that double from 1 second, resuming a service's conversations; after five crashes within three minutes it leaves it down, and each of its sessions shows that the provider ended, with `Restart`.
 6. If nothing answers an interrupt, treat it as a provider or daemon failure and follow the [Provider Failure Runbook](./provider-failure-runbook.md) or the [Local Daemon Runbook](./local-daemon-runbook.md).
 
 ## Validation
@@ -55,7 +55,7 @@ A run is read and interrupted from its session; the command line has no `run` co
 | Threshold | Value |
 | --- | --- |
 | Claude Code silent retry | Up to about three minutes, while the working line reads `Retrying…` |
-| Codex service restart | At once; after three deaths within five minutes it stays down until `Restart` |
+| Provider process restart (a Claude Code process or a Codex service) | At once, then waits that double from 1 second; after five crashes within three minutes it stays down until `Restart` |
 
 ## Who Runs It And Where To Report
 

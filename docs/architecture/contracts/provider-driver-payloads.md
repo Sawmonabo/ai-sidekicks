@@ -683,14 +683,25 @@ interface SessionNoticeProviderUpdated {
   toVersion: string;
 }
 
-// session.notice of kind `provider_restarted`: the person's `Restart` brought back a provider
-// process that ended under the session. One flow row, `Restarted · Claude Code is back`
-// (`Restarted · Codex is back` on Codex); the daemon's own restart of a shared Codex service
-// writes none.
+// session.notice of kind `provider_restarted`: a provider process that ended on its own under the
+// session is running again, restarted by the daemon or by the person's `Restart`. One flow row,
+// `Restarted · Claude Code is back` (`Restarted · Codex is back` on Codex). A restart after a
+// provider update writes none, nor does the daemon's automatic restart of a shared Codex service.
 interface SessionNoticeProviderRestarted {
   sessionId: SessionId;
   kind: "provider_restarted";
   provider: ProviderName;
+}
+
+// session.notice of kind `provider_crash_loop`: the provider process crashed for the fifth time
+// within three minutes and the daemon stopped restarting it. It draws the banner
+// `Claude Code ended unexpectedly · exit code 137 · Restart ×` and no flow row.
+interface SessionNoticeProviderCrashLoop {
+  sessionId: SessionId;
+  kind: "provider_crash_loop";
+  provider: ProviderName;
+  exitCode?: number; // as the daemon observed it
+  signal?: string;
 }
 
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
