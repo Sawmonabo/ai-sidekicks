@@ -202,7 +202,9 @@ const THEMES_BESIDE_DEFAULT: readonly AppearanceTheme[] = APPEARANCE_THEMES.filt
   (theme) => theme !== DEFAULT_THEME,
 );
 
-/** The root selector for one theme under a scheme condition; the default theme needs no attribute. */
+/**
+ * The root selector for one theme under a scheme condition; the default theme needs no attribute.
+ */
 function themeSelector(theme: AppearanceTheme, schemeCondition: string): string {
   const themeCondition = theme === DEFAULT_THEME ? "" : `[${THEME_ATTRIBUTE}="${theme}"]`;
   return `:root${themeCondition}${schemeCondition}`;

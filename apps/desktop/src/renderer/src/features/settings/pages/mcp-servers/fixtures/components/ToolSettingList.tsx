@@ -156,7 +156,9 @@ export function ToolSettingList(props: {
   );
 }
 
-/** The value clearing a facet returns to: the one in force, or the server's own under an override. */
+/**
+ * The value clearing a facet returns to: the one in force, or the server's own under an override.
+ */
 function serverValueOf<OverrideValue, ServerValue>(
   setting: McpToolSetting<OverrideValue, ServerValue>,
 ): ServerValue {
