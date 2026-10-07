@@ -1,6 +1,6 @@
 // The session's self-naming over a real database: after its first completed exchange an unnamed
-// session takes the first words of its first message, and a name the person writes while the
-// title is on its way is the one the session keeps.
+// session takes the first words of its first message, a name the person writes while the title is
+// on its way is the one the session keeps, and a stop waits for a title on its way.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,7 +19,7 @@ const FIRST_MESSAGE = "  Fix the login redirect after a session expires on the s
 const PERSON_NAME = "Login redirect";
 
 let harness: SessionChangesHarness;
-let stopTitling: (() => void) | undefined;
+let stopTitling: (() => Promise<void>) | undefined;
 
 beforeEach(async () => {
   harness = await openSessionChangesHarness();
@@ -27,7 +27,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  stopTitling?.();
+  await stopTitling?.();
   await harness.log.scratch.close();
 });
 
@@ -118,5 +118,23 @@ describe("SessionAutoTitle", () => {
     expect(
       harness.eventTypes(SESSION_ID).filter((type) => type === "session.renamed"),
     ).toHaveLength(1);
+  });
+
+  it("stops only once the title on its way has been written", async () => {
+    const write = Promise.withResolvers<boolean>();
+    const titleWrites = startTitling({ nameUnnamed: () => write.promise });
+    await completeFirstExchange();
+    await vi.waitFor(() => expect(titleWrites).toHaveLength(1));
+
+    let isStopped = false;
+    const stopped = stopTitling?.().then(() => {
+      isStopped = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(isStopped).toBe(false);
+
+    write.resolve(true);
+    await stopped;
+    expect(isStopped).toBe(true);
   });
 });

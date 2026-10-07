@@ -80,8 +80,9 @@ export interface SessionMethodsDeps {
 /**
  * Builds the session services and registers their verbs on `registry`. Returns the stop that ends
  * the background work they started: the sessions list, the self-naming, the related lists' rename
- * follow, the index merge and the pass finishing sessions left provisioning. It settles once the
- * related-list round under way and that pass have finished.
+ * follow, the index merge and the pass finishing sessions left provisioning. It settles once each
+ * of them has finished what it had under way: the titles on their way, the merge step at the
+ * writer, the related-list round and that pass.
  */
 export function registerSessionMethods(
   registry: MethodRegistry,
@@ -208,9 +209,9 @@ export function registerSessionMethods(
   // Finishes, in the background, each session a create left provisioning when the daemon stopped.
   const finishingProvisioning = creation.finishProvisioningSessions();
   return async () => {
-    indexMerge.stop();
-    stopAutoTitle();
+    const mergeStopped = indexMerge.stop();
+    const titlesStopped = stopAutoTitle();
     listFeed.close();
-    await Promise.all([stopRelatedRanking(), finishingProvisioning]);
+    await Promise.all([mergeStopped, titlesStopped, stopRelatedRanking(), finishingProvisioning]);
   };
 }

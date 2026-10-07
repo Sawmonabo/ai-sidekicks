@@ -36,6 +36,8 @@ export class SessionAutoTitle {
     [string],
     { readonly name: string | null; readonly firstMessagePreview: string | null }
   >;
+  // Each title still on its way to the rename path.
+  readonly #namesInFlight = new Set<Promise<void>>();
 
   constructor(deps: SessionAutoTitleDeps) {
     this.#events = deps.events;
@@ -51,11 +53,18 @@ export class SessionAutoTitle {
     );
   }
 
-  /** Follows every session's committed events; the returned function stops it. */
-  start(): () => void {
-    return this.#events.followAll((event) => {
+  /**
+   * Follows every session's committed events. The returned stop ends the follow and settles once
+   * every title on its way has been written or reported.
+   */
+  start(): () => Promise<void> {
+    const detach = this.#events.followAll((event) => {
       this.#titleAfter(event);
     });
+    return async () => {
+      detach();
+      await Promise.all(this.#namesInFlight);
+    };
   }
 
   #titleAfter(event: EventEnvelope): void {
@@ -73,7 +82,9 @@ export class SessionAutoTitle {
     if (title.length === 0) {
       return;
     }
-    void this.#name(event.sessionId, title);
+    const naming = this.#name(event.sessionId, title);
+    this.#namesInFlight.add(naming);
+    void naming.finally(() => this.#namesInFlight.delete(naming));
   }
 
   async #name(sessionId: SessionId, title: string): Promise<void> {

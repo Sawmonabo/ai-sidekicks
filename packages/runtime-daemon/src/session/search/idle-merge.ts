@@ -41,6 +41,8 @@ export class SearchIndexIdleMerge {
   #activity = 0;
   #isMergeStarted = false;
   #isStepRunning = false;
+  // The pass under way, which a stop waits for.
+  #pass: Promise<void> | undefined;
 
   constructor(deps: SearchIndexIdleMergeDeps) {
     this.#deps = deps;
@@ -56,27 +58,31 @@ export class SearchIndexIdleMerge {
     this.#armIdleTimer();
   }
 
-  /** Stops watching and merging; a step already at the writer finishes there. */
-  stop(): void {
+  /**
+   * Stops watching and merging. A step already at the writer finishes there; the returned promise
+   * settles once it has.
+   */
+  stop(): Promise<void> {
     this.#detach?.();
     this.#detach = undefined;
     clearTimeout(this.#idleTimer);
     this.#idleTimer = undefined;
+    return this.#pass ?? Promise.resolve();
   }
 
   #armIdleTimer(): void {
     clearTimeout(this.#idleTimer);
     this.#idleTimer = setTimeout(() => {
       this.#idleTimer = undefined;
-      void this.#runPass();
+      // A pass already under way goes on, and stays the one a stop waits for.
+      if (!this.#isStepRunning) {
+        this.#pass = this.#runPass();
+      }
     }, this.#idleAfterMs);
     this.#idleTimer.unref();
   }
 
   async #runPass(): Promise<void> {
-    if (this.#isStepRunning) {
-      return;
-    }
     this.#isStepRunning = true;
     try {
       const activityAtStart = this.#activity;
