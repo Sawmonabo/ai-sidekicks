@@ -3,15 +3,18 @@
 // passing value so only the gate under test can refuse. A refusal log names the key, or a
 // misconfigured dev instance gives a bare 503 with no hint of the missing variable.
 
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import type { RateLimitIdentityEnv } from "../../rate-limit/cloudflare-limiter.js";
 import type { DevEnvironmentEnv } from "../dev-environment-gate.js";
 import type { FeatureFlagEnv } from "../feature-flag-gate.js";
 import { buildControlPlaneFetchHandler } from "../host.js";
 
-// What the two gates read; each run adds the Worker's own counter binding.
+// What the two gates read; each run adds a counter binding.
 type GateEnv = FeatureFlagEnv & DevEnvironmentEnv;
+
+// No gate case reaches a counted procedure, so nothing calls the binding; a call would throw here.
+const uncalledCounterBinding = {} as RateLimitIdentityEnv["RATE_LIMIT_IDENTITY"];
 
 interface HarnessResult {
   readonly status: number;
@@ -27,7 +30,7 @@ async function runGate(gateEnv: GateEnv): Promise<HarnessResult> {
   });
   const response = await handler(new Request("https://control-plane.test/trpc/unknown.procedure"), {
     ...gateEnv,
-    RATE_LIMIT_IDENTITY: env.RATE_LIMIT_IDENTITY,
+    RATE_LIMIT_IDENTITY: uncalledCounterBinding,
   });
   return {
     status: response.status,

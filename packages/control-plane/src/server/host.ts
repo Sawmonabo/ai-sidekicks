@@ -1,7 +1,7 @@
-// The control plane's Worker entry, served through tRPC's fetch adapter.
-// Two gates run at request entry, before any router dispatch: CONTROL_PLANE_BOOTSTRAP_ENABLED must
-// be '1' and ENVIRONMENT must be 'development'. A refusal returns 503 and logs its reason, so a
-// misconfigured dev instance names the variable it lacks. The router mounts no procedures.
+// The control plane's fetch handler, served through tRPC's fetch adapter; `src/worker.ts` deploys
+// it. Two gates run at request entry, before any router dispatch: CONTROL_PLANE_BOOTSTRAP_ENABLED
+// must be '1' and ENVIRONMENT must be 'development'. A refusal returns 503 and logs its reason, so
+// a misconfigured dev instance names the variable it lacks. The router mounts no procedures.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { RateLimitIdentityEnv } from "../rate-limit/cloudflare-limiter.js";
@@ -10,9 +10,6 @@ import { createRateLimiterFactory } from "../rate-limit/factory.js";
 import { t, type ControlPlaneContext } from "./trpc.js";
 import { checkDevEnvironment, type DevEnvironmentEnv } from "./dev-environment-gate.js";
 import { checkFeatureFlag, type FeatureFlagEnv } from "./feature-flag-gate.js";
-
-// Cloudflare requires a Durable Object class exported from the Worker's main module.
-export { RateLimitIdentityDO } from "../rate-limit/identity-durable-object.js";
 
 /** The Worker environment: what both gates read, and the sign-in routes' counter binding. */
 export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv & RateLimitIdentityEnv;
@@ -107,12 +104,3 @@ export function buildControlPlaneFetchHandler(
     });
   };
 }
-
-const productionFetchHandler = buildControlPlaneFetchHandler();
-
-/** The deployable Worker module. */
-export default {
-  async fetch(request: Request, env: ControlPlaneEnv): Promise<Response> {
-    return productionFetchHandler(request, env);
-  },
-};

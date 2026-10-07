@@ -55,6 +55,9 @@ export class ControlPlaneRefusal extends TRPCError {
 
 type ControlPlaneErrorShape = TRPCErrorShape<TRPCDefaultErrorData | RefusalBody>;
 
+// What a caller reads for a failure inside the relay; the fetch handler logs the error itself.
+const INTERNAL_ERROR_MESSAGE = "Unexpected internal error";
+
 /** The shared tRPC builder every control-plane router is built on. */
 export const t: TRPCRootObject<
   ControlPlaneContext,
@@ -63,6 +66,9 @@ export const t: TRPCRootObject<
 > = initTRPC.context<ControlPlaneContext>().create({
   // tRPC otherwise reads `NODE_ENV`, which workerd lacks, and would send every caller the stack.
   isDev: false,
-  errorFormatter: ({ error, shape }): ControlPlaneErrorShape =>
-    error instanceof ControlPlaneRefusal ? { ...shape, data: error.body } : shape,
+  errorFormatter: ({ error, shape }): ControlPlaneErrorShape => {
+    if (error instanceof ControlPlaneRefusal) return { ...shape, data: error.body };
+    if (error.code !== "INTERNAL_SERVER_ERROR") return shape;
+    return { ...shape, message: INTERNAL_ERROR_MESSAGE };
+  },
 });

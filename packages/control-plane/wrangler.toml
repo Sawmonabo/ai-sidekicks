@@ -11,7 +11,7 @@
 # run after deploy.
 
 name = "ai-sidekicks-control-plane"
-main = "src/server/host.ts"
+main = "src/worker.ts"
 compatibility_date = "2026-04-30"
 
 [env.production.vars]
@@ -21,13 +21,13 @@ ENVIRONMENT = "production"
 # count whichever edge location serves it. Its class is exported from `main`.
 [[durable_objects.bindings]]
 name = "RATE_LIMIT_IDENTITY"
-class_name = "RateLimitIdentityDO"
+class_name = "RateLimitIdentityDurableObject"
 
 # An environment inherits no Durable Object binding, so production declares its own.
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMIT_IDENTITY"
-class_name = "RateLimitIdentityDO"
+class_name = "RateLimitIdentityDurableObject"
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["RateLimitIdentityDO"]
+new_sqlite_classes = ["RateLimitIdentityDurableObject"]

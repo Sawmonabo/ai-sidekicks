@@ -23,11 +23,9 @@ export default defineConfig({
     // only the workers project runs are left out rather than read as untested.
     coverage: sharedCoverageOptions({
       exclude: [
+        "src/worker.ts",
         "src/rate-limit/identity-durable-object.ts",
         "src/rate-limit/cloudflare-limiter.ts",
-        "src/server/host.ts",
-        "src/server/dev-environment-gate.ts",
-        "src/server/feature-flag-gate.ts",
       ],
     }),
     projects: [

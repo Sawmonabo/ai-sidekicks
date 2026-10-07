@@ -7,7 +7,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RATE_LIMIT_ENDPOINT_GROUPS } from "../endpoint-groups.js";
-import type { RateLimitIdentityDO } from "../identity-durable-object.js";
+import type { RateLimitIdentityDurableObject } from "../identity-durable-object.js";
 
 const { limit, periodSeconds } = RATE_LIMIT_ENDPOINT_GROUPS["auth.endpoint"];
 const windowMilliseconds = periodSeconds * 1000;
@@ -15,11 +15,13 @@ const consume = { group: "auth.endpoint", limit, windowSeconds: periodSeconds } 
 
 const namespace = env.RATE_LIMIT_IDENTITY;
 
-function counterFor(address: string): DurableObjectStub<RateLimitIdentityDO> {
+function counterFor(address: string): DurableObjectStub<RateLimitIdentityDurableObject> {
   return namespace.get(namespace.idFromName(address));
 }
 
-function readAlarm(stub: DurableObjectStub<RateLimitIdentityDO>): Promise<number | null> {
+function readAlarm(
+  stub: DurableObjectStub<RateLimitIdentityDurableObject>,
+): Promise<number | null> {
   return runInDurableObject(stub, (_instance, state) => state.storage.getAlarm());
 }
 
@@ -42,7 +44,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("RateLimitIdentityDO", () => {
+describe("RateLimitIdentityDurableObject", () => {
   it("refuses the request past the limit atomically, whichever stub sent it", async () => {
     const address = "203.0.113.1";
     // Two separately resolved stubs stand for two locations reaching the one object.

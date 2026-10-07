@@ -49,7 +49,7 @@ This is a greenfield product with no released version and no external users. Tha
     - a file kept for an unbuilt consumer: one `ignoreFiles` entry, its exact path (never a directory or glob), with a plain-word comment naming the consumer; it clears only that file, so a chain of unwired files takes one entry each;
     - an export a document claims: a `@consumedBy <plain words>` tag naming no document or task, on each specifier the report flags (a barrelled export flagged at barrel and declaration carries two);
     - a library the design names, installed before any code imports it: one `ignoreDependencies` entry naming in plain words the feature that will import it;
-    - an operating-system program code or a test runs, which no package installs (`scutil`, `xdpyinfo`): one `ignoreBinaries` entry with a comment naming what runs it and why the system supplies it.
+    - an operating-system program code or a test runs, or a runtime's built-in module code imports, which no package installs (`scutil`, `xdpyinfo`, `cloudflare:workers`): one `ignoreBinaries` entry for a program or one `ignoreDependencies` entry for a module, with a comment naming what runs or imports it and why the system or runtime supplies it.
 
     A screen's tests for an unbuilt wire are deleted in the change that builds the wire. Nothing is wired to quiet the report, and nothing the design requires is deleted to quiet it.
 

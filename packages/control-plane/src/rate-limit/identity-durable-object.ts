@@ -59,7 +59,7 @@ function resetAtOf(hits: readonly number[], windowMilliseconds: number): string 
  * and deletes everything once every window has passed. Stored state that does not parse fails
  * `checkAndConsume`, and the alarm drops it.
  */
-export class RateLimitIdentityDO extends DurableObject {
+export class RateLimitIdentityDurableObject extends DurableObject {
   /**
    * Counts one request against the group's window and answers with the window's state. Over the
    * limit it refuses with `remaining: 0` and records nothing, so a refused request never extends

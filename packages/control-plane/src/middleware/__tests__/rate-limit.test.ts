@@ -165,8 +165,10 @@ describe("rateLimitProcedure", () => {
     expect(failed.status).toBe(500);
     const failure = readErrorData(failed.body);
     expect(failure).toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
-    // A caller with no credential never reads the relay's stack.
+    // A caller with no credential reads a fixed message, never the relay's own text or stack.
     expect(failure).not.toHaveProperty("stack");
+    expect(failed.body).toMatchObject({ error: { message: "Unexpected internal error" } });
+    expect(JSON.stringify(failed.body)).not.toContain("rate-limit counter unreachable");
     expect(failed.retryAfterHeader).toBeNull();
 
     const next = await sendSignInFrom(ADDRESS, checkAdmission);

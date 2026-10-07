@@ -3,19 +3,19 @@
 // not resolve.
 
 import { RATE_LIMIT_ENDPOINT_GROUPS } from "./endpoint-groups.js";
-import type { RateLimitIdentityDO } from "./identity-durable-object.js";
+import type { RateLimitIdentityDurableObject } from "./identity-durable-object.js";
 import type { RateLimitCheckRequest, RateLimitCheckResponse, RateLimiter } from "./limiter.js";
 
 /** The Worker binding the limiter counts through: one Durable Object per source address. */
 export interface RateLimitIdentityEnv {
-  readonly RATE_LIMIT_IDENTITY: DurableObjectNamespace<RateLimitIdentityDO>;
+  readonly RATE_LIMIT_IDENTITY: DurableObjectNamespace<RateLimitIdentityDurableObject>;
 }
 
 // `idFromName` maps one address to one object worldwide, so every location meets the same count.
 function getIdentityCounter(
-  namespace: DurableObjectNamespace<RateLimitIdentityDO>,
+  namespace: DurableObjectNamespace<RateLimitIdentityDurableObject>,
   identity: string,
-): DurableObjectStub<RateLimitIdentityDO> {
+): DurableObjectStub<RateLimitIdentityDurableObject> {
   return namespace.get(namespace.idFromName(identity));
 }
 
