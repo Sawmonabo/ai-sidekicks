@@ -1,4 +1,4 @@
-// EventLogService: the only append path for `session_events`. Three obligations meet here:
+// EventLogService: the only append path for `session_events`. Four obligations meet here:
 // - Order: the database writer reads the session's head and writes the row in one step on its own
 //   connection, so two appends never share a sequence. An append takes the session's append lock
 //   only while its row joins the writer's queue, so a caller holding the session sees its rows
@@ -11,7 +11,8 @@
 //   row, then the projection statements the service was built with. A guarded statement carries the
 //   row count it expects, so a moved state refuses the write and consumes no sequence.
 // - Reads and follow: the log is read on the read-only connection after a cursor or over a window,
-//   and each committed event is published to the session's followers in sequence order.
+//   and each committed event is published to the session's followers in sequence order, after the
+//   append's outcome is settled, so no follower's fault reaches the append or the process.
 
 import type { Database } from "better-sqlite3";
 
@@ -35,7 +36,7 @@ import {
 } from "./content/append.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { sessionAppendLock } from "./session/append-lock.js";
-import { SessionEventFollowers, type SessionEventChange } from "./session/followers.js";
+import { SessionEventFollowers, type SessionEventListener } from "./session/followers.js";
 import type { SessionEventRow } from "./session/insert.js";
 import { prepareSessionEventReads, type SessionEventReads } from "./session/read.js";
 
@@ -45,7 +46,9 @@ import { prepareSessionEventReads, type SessionEventReads } from "./session/read
  */
 export type UnsequencedEventEnvelope = Omit<EventEnvelope, "sequence">;
 
-/** What {@link EventLogService.append} returns once the event has committed; `id` is the input's. */
+/**
+ * What {@link EventLogService.append} returns once the event has committed; `id` is the input's.
+ */
 export interface EventLogAppendReceipt {
   readonly id: string;
   readonly sequence: number;
@@ -107,7 +110,7 @@ export interface EventLogServiceDeps {
    * thinking update takes none.
    */
   readonly projectionStatements?: (envelope: UnsequencedEventEnvelope) => readonly WriteStatement[];
-  /** The most events one catch-up page reads before yielding. Defaults to 100. */
+  /** The most events one catch-up page reads before it waits for the next turn. Defaults to 100. */
   readonly catchUpPageSize?: number;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
@@ -198,19 +201,22 @@ export class EventLogService {
       ...(options?.transactionalPrelude ?? []),
       ...written.flatMap((event) => this.#projectionStatements(event.storedEnvelope)),
     ];
-    const sequences = await this.#queueInSessionOrder(envelope.sessionId, () =>
+    const queued = await this.#queueInSessionOrder(envelope.sessionId, () =>
       this.#writer.appendEvents(
         written.map((event) => event.row),
         statements,
       ),
     );
-    const sequence = sequences.at(-1);
-    if (sequence === undefined || sequences.length !== written.length) {
+    const committed = written.flatMap((event, index) => {
+      const sequence = queued.outcome[index];
+      return sequence === undefined ? [] : [{ ...event.storedEnvelope, sequence }];
+    });
+    const sequence = committed.at(-1)?.sequence;
+    if (sequence === undefined || committed.length !== written.length) {
+      queued.settle();
       throw new Error("The database writer committed the events without their sequences");
     }
-    written.forEach((event, index) => {
-      this.#publishCommitted(event.storedEnvelope, sequences[index] ?? sequence);
-    });
+    this.#publishCommitted(committed, queued.settle);
     return { id: composed.row.id, sequence };
   }
 
@@ -224,13 +230,14 @@ export class EventLogService {
     options?: ThinkingUpdateAppendOptions,
   ): Promise<ThinkingUpdateReceipt> {
     const composed = this.#composeRow(envelope, options);
-    const outcome = await this.#queueInSessionOrder(envelope.sessionId, () =>
+    const { outcome, settle } = await this.#queueInSessionOrder(envelope.sessionId, () =>
       this.#writer.appendThinkingUpdate(composed.row),
     );
     if (!outcome.isStored) {
+      settle();
       return { isStored: false, id: composed.row.id };
     }
-    this.#publishCommitted(composed.storedEnvelope, outcome.sequence);
+    this.#publishCommitted([{ ...composed.storedEnvelope, sequence: outcome.sequence }], settle);
     return { isStored: true, id: composed.row.id, sequence: outcome.sequence };
   }
 
@@ -268,21 +275,22 @@ export class EventLogService {
 
   /**
    * Delivers the session's events after `afterCursor` (all of them when absent), then each one
-   * committed afterward, in sequence order with none skipped or repeated. Throws
-   * `SessionNotFoundError` for a session with no events and `EventCursorUnresolvableError` for a
-   * cursor it cannot read, before any change. The first page may be delivered before this returns;
-   * the detach it returns stops delivery at once, from inside `onChange` too.
+   * committed afterward, in sequence order with none skipped or repeated, catching up only while
+   * the listener has room. Throws `SessionNotFoundError` for a session with no events and
+   * `EventCursorUnresolvableError` for a cursor it cannot read, before any change. The first page
+   * is delivered before this returns and a failure on it is thrown; a later failure ends the follow
+   * through `onFailure`. The detach it returns stops delivery at once, from inside `onChange` too.
    */
   follow(
     sessionId: SessionId,
     afterCursor: EventCursor | undefined,
-    onChange: (change: SessionEventChange) => void,
+    listener: SessionEventListener,
   ): () => void {
     const head = this.#reads.readHead(sessionId);
     if (head === undefined) {
       throw new SessionNotFoundError("The session has no events to follow.", { sessionId });
     }
-    return this.#followers.follow(sessionId, this.#resolveCursor(afterCursor, head), onChange);
+    return this.#followers.follow(sessionId, this.#resolveCursor(afterCursor, head), listener);
   }
 
   /**
@@ -306,11 +314,14 @@ export class EventLogService {
     return position;
   }
 
-  // Published in a microtask, so the append's outcome reports only the write: a follower's fault
-  // surfaces on its own instead of failing an append that committed.
-  #publishCommitted(storedEnvelope: UnsequencedEventEnvelope, sequence: number): void {
+  // Published in a microtask, in sequence order, so the append's outcome reports only the write;
+  // the followers contain their own faults. The settle runs once the receipt is out.
+  #publishCommitted(committed: readonly EventEnvelope[], settle: () => void): void {
     queueMicrotask(() => {
-      this.#followers.publish({ ...storedEnvelope, sequence });
+      for (const event of committed) {
+        this.#followers.publish(event);
+      }
+      settle();
     });
   }
 
@@ -358,13 +369,21 @@ export class EventLogService {
   }
 
   // Hands the write to the writer under the session's append lock and waits for it outside the
-  // lock. The result is boxed so the lock's own promise settles before the commit does.
-  async #queueInSessionOrder<T>(sessionId: SessionId, queue: () => Promise<T>): Promise<T> {
-    const queued = await sessionAppendLock.run(sessionId, () => {
-      this.#followers.trackAppend(sessionId);
-      return Promise.resolve({ result: queue() });
-    });
-    return queued.result;
+  // lock. The result is boxed so the lock's own promise settles before the commit does. A failed
+  // write settles its tracking here; a committed one hands the settle on with its outcome.
+  async #queueInSessionOrder<T>(
+    sessionId: SessionId,
+    queue: () => Promise<T>,
+  ): Promise<{ readonly outcome: T; readonly settle: () => void }> {
+    const queued = await sessionAppendLock.run(sessionId, () =>
+      Promise.resolve({ settle: this.#followers.trackAppend(sessionId), result: queue() }),
+    );
+    try {
+      return { outcome: await queued.result, settle: queued.settle };
+    } catch (error) {
+      queued.settle();
+      throw error;
+    }
   }
 }
 

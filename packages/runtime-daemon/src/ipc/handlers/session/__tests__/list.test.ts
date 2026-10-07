@@ -1,6 +1,8 @@
 // `session.list` over the real feed, log and database: a list too big for one message arrives
 // whole across the acknowledgment and its pages, each inside the message cap and paced by the
-// connection's queue, with a change that lands meanwhile held behind the last page; a change racing
+// connection's queue, with a change that lands meanwhile held behind the last page; a change that
+// finds the queue full waits for it to drain, the newest per session, and none is sent into a full
+// queue; a change racing
 // a new subscription reaches it after its acknowledgment and is never lost between the snapshot
 // and the first change; and a feed that can no longer read ends the subscription instead of
 // throwing on its own turn.
@@ -30,7 +32,7 @@ import {
   crossEventLoopTurn,
   openSessionLog,
   type SessionLog,
-} from "../../../../session/directory/__fixtures__/session-log.js";
+} from "../../../../session/directory/__fixtures__/event-log.js";
 import { SessionListFeed } from "../../../../session/directory/list-feed.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { StreamingPrimitive } from "../../../streaming-primitive.js";
@@ -53,7 +55,8 @@ afterEach(async () => {
 
 /**
  * The registry with `session.list` on it, what reached the wire in order, and the connections'
- * outbound queue, which reads full after each frame while `isQueueFilling` is true.
+ * outbound queue, which reads full after each frame while `isQueueFilling` is true. A frame sent
+ * while the queue reads full fails the test.
  */
 function serveList(feed: SessionListFeed): {
   readonly registry: MethodRegistryImpl;
@@ -72,6 +75,7 @@ function serveList(feed: SessionListFeed): {
   let isFull = false;
   const drainListeners: (() => void)[] = [];
   const send = vi.fn<SendFrame>((transportId, frame) => {
+    expect(isFull, "a frame went into a full outbound queue").toBe(false);
     written.push({ transportId, frame });
     isFull = isQueueFilling;
   });
@@ -164,7 +168,8 @@ describe("session.list sends a list too big for one message across its ack and p
     const pages = delivered.changes.slice(0, -1);
     expect(delivered.ack.isComplete).toBe(false);
     expect(pages.length).toBeGreaterThan(1);
-    expect(drainCount).toBe(pages.length - 1);
+    // One drain before each page after the first, and one before the held change.
+    expect(drainCount).toBe(pages.length);
     expect(
       pages.map((change) => [change.kind, "isComplete" in change && change.isComplete]),
     ).toEqual(pages.map((_page, index) => ["page", index === pages.length - 1]));
@@ -193,6 +198,43 @@ describe("session.list sends a list too big for one message across its ack and p
     expect(served.written).toStrictEqual([
       { transportId: 1, ack: expect.objectContaining({ sessions: [], isComplete: true }) },
     ]);
+    feed.close();
+  });
+});
+
+describe("session.list waits for room before a change", () => {
+  it("waits out a full queue, keeping each session's newest change, then sends them", async () => {
+    const feed = new SessionListFeed({ reader: log.scratch.reader, eventLog: log.eventLog });
+    const served = serveList(feed);
+    const other = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11" as SessionId;
+    await log.createSession(CHAT, "chat");
+    await log.createSession(other, "chat");
+    served.fillQueueOnEachFrame();
+    await served.subscribe(1);
+    await crossEventLoopTurn();
+    const rename = async (sessionId: SessionId, name: string): Promise<void> => {
+      await log.append(sessionId, "session.renamed", "session_lifecycle", {
+        sessionId,
+        name,
+        origin: "user",
+      });
+      await crossEventLoopTurn();
+    };
+
+    // The first change fills the queue, so the next three wait.
+    await rename(CHAT, "First");
+    await rename(other, "Other");
+    await rename(CHAT, "Second");
+    await rename(CHAT, "Third");
+    let drainCount = 0;
+    while (served.drain()) drainCount += 1;
+
+    expect(deliveredOn(served.written, 1).changes).toMatchObject([
+      { kind: "upsert", entry: { sessionId: CHAT, name: "First" } },
+      { kind: "upsert", entry: { sessionId: other, name: "Other" } },
+      { kind: "upsert", entry: { sessionId: CHAT, name: "Third" } },
+    ]);
+    expect(drainCount).toBe(2);
     feed.close();
   });
 });

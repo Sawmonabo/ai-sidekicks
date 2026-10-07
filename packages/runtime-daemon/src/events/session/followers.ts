@@ -3,10 +3,16 @@
 // preceded by the missing events read back from the log, and a receipt at or below what was
 // already published is dropped.
 //
-// A new follower catches up from the log before it goes live. It registers first, so every event
-// published from then on lands in its buffer while it reads pages; once a page reports nothing
-// more, the buffer drains, dropping every sequence it already delivered from the log. Pages are
-// bounded and the follower yields to the event loop between them.
+// - A new follower catches up from the log before it goes live, one bounded page at a time, and
+//   reads its next page only on a later turn of the event loop and once its receiver has room, so
+//   a receiver that reads nothing never makes the daemon read the whole log for it. An event
+//   committed while it catches up is in the log before its receipt is published, so the follower
+//   passes the receipt by and reads the event on its next page, holding nothing in memory; it goes
+//   live in the same turn as the page that reports nothing more.
+// - Followers never cost each other an event. A session follower that throws, or whose catch-up
+//   page or missing events cannot be read, ends alone and hears why through `onFailure`; a follower
+//   of every session that throws stays attached, and the failure goes to the daemon's log.
+// - A session is tracked while it has followers or an append whose receipt is not yet published.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamChange } from "@ai-sidekicks/contracts/session/methods";
@@ -15,31 +21,53 @@ import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { SessionEventReads } from "./read.js";
 
-/** One change a session follower receives: the committed event and the cursor that resumes after it. */
-export type SessionEventChange = SessionStreamChange<EventEnvelope>;
+// One change a session follower receives: the committed event and the cursor that resumes after it.
+type SessionEventChange = SessionStreamChange<EventEnvelope>;
+
+/**
+ * The receiving side of one session's follow. `isFull` and `onceDrained` pace its catch-up by the
+ * receiver's room. Only `onChange` may throw: its throw ends the follow, through `onFailure` after
+ * the first page.
+ */
+export interface SessionEventListener {
+  /** One committed event and its cursor, in sequence order with none skipped or repeated. */
+  onChange(change: SessionStreamChange<EventEnvelope>): void;
+  /**
+   * The follow ended on `error`: a catch-up page or the events before a receipt could not be read,
+   * or `onChange` threw. Nothing more arrives.
+   */
+  onFailure(error: unknown): void;
+  /** Whether the receiver has no room now; the catch-up reads its next page only once it has. */
+  isFull(): boolean;
+  /** Calls `listener` once the receiver has room again. Returns a detach. */
+  onceDrained(listener: () => void): () => void;
+}
 
 interface SessionFollower {
-  readonly onChange: (change: SessionEventChange) => void;
+  readonly listener: SessionEventListener;
   /** The sequence of the last event delivered, or the position the follower started after. */
   lastDelivered: number;
-  /** Changes published while the follower is catching up; `undefined` once it is live. */
-  buffer: SessionEventChange[] | undefined;
+  /** Whether it still reads the log; published receipts pass it by until it goes live. */
+  isCatchingUp: boolean;
   isDetached: boolean;
-  pendingPage: ReturnType<typeof setImmediate> | undefined;
+  /** Cancels the wait for the next catch-up page: the turn's yield or the receiver's drain. */
+  cancelNextPage: (() => void) | undefined;
 }
 
 interface SessionPublication {
+  readonly key: SessionId;
   /** The highest sequence published for the session. */
   lastPublished: number;
   readonly followers: Set<SessionFollower>;
+  /** Appends tracked whose receipt is not yet published and whose write has not failed. */
+  appendsInFlight: number;
 }
 
 /** Publishes committed events to the followers of one session and to the followers of all. */
 export class SessionEventFollowers {
   readonly #reads: SessionEventReads;
   readonly #pageSize: number;
-  // Keyed by the canonical session id. A session has an entry while it has followers, and, while
-  // any all-sessions follower is attached, from its first append onward.
+  // Keyed by the canonical session id.
   readonly #sessions = new Map<SessionId, SessionPublication>();
   readonly #allSessionsFollowers = new Set<(event: EventEnvelope) => void>();
 
@@ -51,12 +79,19 @@ export class SessionEventFollowers {
 
   /**
    * Starts tracking `sessionId` before an append is queued, when anyone follows, so the first
-   * receipt is ordered against the head the log had before it.
+   * receipt is ordered against the head the log had before it. Returns the settle, which the
+   * append runs once its receipt is published or its write has failed.
    */
-  trackAppend(sessionId: SessionId): void {
-    if (this.#allSessionsFollowers.size > 0) {
-      this.#publicationOf(sessionId);
+  trackAppend(sessionId: SessionId): () => void {
+    if (this.#allSessionsFollowers.size === 0 && !this.#sessions.has(canonicalizeUuid(sessionId))) {
+      return settleUntracked;
     }
+    const publication = this.#publicationOf(sessionId);
+    publication.appendsInFlight += 1;
+    return () => {
+      publication.appendsInFlight -= 1;
+      this.#releaseIfIdle(publication);
+    };
   }
 
   /** Publishes one committed event, filling any gap before it from the log first. */
@@ -66,57 +101,36 @@ export class SessionEventFollowers {
       return;
     }
     if (event.sequence > publication.lastPublished + 1) {
-      const missing = this.#reads.readWindow(
-        event.sessionId,
-        publication.lastPublished + 1,
-        event.sequence - 1,
-      );
-      for (const missingEvent of missing) {
-        this.#publishInOrder(publication, missingEvent);
-      }
+      this.#publishMissing(publication, event);
     }
     this.#publishInOrder(publication, event);
   }
 
   /**
    * Delivers the session's events after `afterPosition`, which the caller has checked against the
-   * log, then follows new ones. The first page is delivered before this returns; a read error on it
-   * is thrown here. Returns the detach, which stops delivery at once, from inside `onChange` too.
+   * log, then follows new ones. The first page is delivered before this returns, and a read error
+   * or an `onChange` throw on it is thrown here; a later one reaches `onFailure`. Returns the
+   * detach, which stops delivery at once, from inside `onChange` too.
    */
-  follow(
-    sessionId: SessionId,
-    afterPosition: number,
-    onChange: (change: SessionEventChange) => void,
-  ): () => void {
+  follow(sessionId: SessionId, afterPosition: number, listener: SessionEventListener): () => void {
     const publication = this.#publicationOf(sessionId);
     const follower: SessionFollower = {
-      onChange,
+      listener,
       lastDelivered: afterPosition,
-      buffer: [],
+      isCatchingUp: true,
       isDetached: false,
-      pendingPage: undefined,
+      cancelNextPage: undefined,
     };
     publication.followers.add(follower);
-    const detach = (): void => {
-      if (follower.isDetached) {
-        return;
-      }
-      follower.isDetached = true;
-      follower.buffer = undefined;
-      if (follower.pendingPage !== undefined) {
-        clearImmediate(follower.pendingPage);
-        follower.pendingPage = undefined;
-      }
-      publication.followers.delete(follower);
-      this.#releaseIfUnfollowed(sessionId, publication);
-    };
     try {
-      this.#catchUp(sessionId, follower);
+      this.#catchUp(sessionId, publication, follower);
     } catch (error) {
-      detach();
+      this.#detach(publication, follower);
       throw error;
     }
-    return detach;
+    return () => {
+      this.#detach(publication, follower);
+    };
   }
 
   /** Delivers every session's committed events from now on, each session in sequence order. */
@@ -127,14 +141,7 @@ export class SessionEventFollowers {
     };
     this.#allSessionsFollowers.add(follower);
     return () => {
-      if (!this.#allSessionsFollowers.delete(follower) || this.#allSessionsFollowers.size > 0) {
-        return;
-      }
-      for (const [sessionId, publication] of this.#sessions) {
-        if (publication.followers.size === 0) {
-          this.#sessions.delete(sessionId);
-        }
-      }
+      this.#allSessionsFollowers.delete(follower);
     };
   }
 
@@ -145,22 +152,70 @@ export class SessionEventFollowers {
     let publication = this.#sessions.get(key);
     if (publication === undefined) {
       publication = {
+        key,
         lastPublished: this.#reads.readHead(sessionId) ?? -1,
         followers: new Set(),
+        appendsInFlight: 0,
       };
       this.#sessions.set(key, publication);
     }
     return publication;
   }
 
-  #releaseIfUnfollowed(sessionId: SessionId, publication: SessionPublication): void {
-    const key = canonicalizeUuid(sessionId);
+  #releaseIfIdle(publication: SessionPublication): void {
     if (
       publication.followers.size === 0 &&
-      this.#allSessionsFollowers.size === 0 &&
-      this.#sessions.get(key) === publication
+      publication.appendsInFlight === 0 &&
+      this.#sessions.get(publication.key) === publication
     ) {
-      this.#sessions.delete(key);
+      this.#sessions.delete(publication.key);
+    }
+  }
+
+  #detach(publication: SessionPublication, follower: SessionFollower): void {
+    if (follower.isDetached) {
+      return;
+    }
+    follower.isDetached = true;
+    follower.cancelNextPage?.();
+    follower.cancelNextPage = undefined;
+    publication.followers.delete(follower);
+    this.#releaseIfIdle(publication);
+  }
+
+  #fail(publication: SessionPublication, follower: SessionFollower, error: unknown): void {
+    if (follower.isDetached) {
+      return;
+    }
+    this.#detach(publication, follower);
+    follower.listener.onFailure(error);
+  }
+
+  // A live follower would miss the events the log cannot give back, so it ends; one catching up
+  // reads them on its own page, and a follower of every session can only be told in the log.
+  #publishMissing(publication: SessionPublication, event: EventEnvelope): void {
+    let missing: EventEnvelope[];
+    try {
+      missing = this.#reads.readWindow(
+        event.sessionId,
+        publication.lastPublished + 1,
+        event.sequence - 1,
+      );
+    } catch (error) {
+      for (const follower of publication.followers) {
+        if (!follower.isCatchingUp) {
+          this.#fail(publication, follower, error);
+        }
+      }
+      console.error(
+        `[event log] reading session ${event.sessionId}'s events before sequence ` +
+          `${String(event.sequence)} failed; the followers of every session miss them`,
+        error,
+      );
+      return;
+    }
+    for (const missingEvent of missing) {
+      this.#publishInOrder(publication, missingEvent);
     }
   }
 
@@ -168,20 +223,30 @@ export class SessionEventFollowers {
     publication.lastPublished = event.sequence;
     const change = changeOf(event);
     for (const follower of publication.followers) {
-      if (follower.buffer === undefined) {
+      if (follower.isCatchingUp) {
+        continue;
+      }
+      try {
         deliver(follower, change);
-      } else {
-        follower.buffer.push(change);
+      } catch (error) {
+        this.#fail(publication, follower, error);
       }
     }
     for (const allSessionsFollower of this.#allSessionsFollowers) {
-      allSessionsFollower(event);
+      try {
+        allSessionsFollower(event);
+      } catch (error) {
+        console.error(
+          `[event log] a follower of every session failed on sequence ${String(event.sequence)} ` +
+            `of session ${event.sessionId}; it stays attached`,
+          error,
+        );
+      }
     }
   }
 
-  // Reads one page, delivers it, then either schedules the next page or drains the buffer and
-  // goes live.
-  #catchUp(sessionId: SessionId, follower: SessionFollower): void {
+  // Reads one page and delivers it, then waits for the next page or goes live.
+  #catchUp(sessionId: SessionId, publication: SessionPublication, follower: SessionFollower): void {
     // One row past the page shows whether more remain.
     const page = this.#reads.readAfter(sessionId, follower.lastDelivered, this.#pageSize + 1);
     const hasMore = page.length > this.#pageSize;
@@ -191,20 +256,30 @@ export class SessionEventFollowers {
     if (follower.isDetached) {
       return;
     }
-    if (hasMore) {
-      follower.pendingPage = setImmediate(() => {
-        follower.pendingPage = undefined;
-        this.#catchUp(sessionId, follower);
-      });
+    if (!hasMore) {
+      follower.isCatchingUp = false;
       return;
     }
-    // Delivering can detach the follower, which clears the buffer, so it is read on each turn.
-    for (let index = 0; follower.buffer !== undefined && index < follower.buffer.length; index++) {
-      deliver(follower, follower.buffer[index]!);
+    const readNextPage = (): void => {
+      follower.cancelNextPage = undefined;
+      try {
+        this.#catchUp(sessionId, publication, follower);
+      } catch (error) {
+        this.#fail(publication, follower, error);
+      }
+    };
+    if (follower.listener.isFull()) {
+      follower.cancelNextPage = follower.listener.onceDrained(readNextPage);
+    } else {
+      const nextTurn = setImmediate(readNextPage);
+      follower.cancelNextPage = () => {
+        clearImmediate(nextTurn);
+      };
     }
-    follower.buffer = undefined;
   }
 }
+
+function settleUntracked(): void {}
 
 function changeOf(event: EventEnvelope): SessionEventChange {
   return { cursor: encodeEventCursor(event.sequence), event };
@@ -217,5 +292,5 @@ function deliver(follower: SessionFollower, change: SessionEventChange): void {
     return;
   }
   follower.lastDelivered = change.event.sequence;
-  follower.onChange(change);
+  follower.listener.onChange(change);
 }

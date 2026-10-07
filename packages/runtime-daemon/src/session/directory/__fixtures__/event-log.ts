@@ -1,5 +1,5 @@
 // A scratch daemon database whose event log keeps the `sessions` rows in step, the way the daemon
-// composes it, with the appends the sessions list tests drive.
+// composes it, with the appends the session tests drive.
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import {

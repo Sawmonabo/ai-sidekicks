@@ -28,7 +28,7 @@ import {
 import {
   openSessionLog,
   type SessionLog,
-} from "../../../../session/directory/__fixtures__/session-log.js";
+} from "../../../../session/directory/__fixtures__/event-log.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { StreamingPrimitive } from "../../../streaming-primitive.js";
 
@@ -176,9 +176,11 @@ async function subscribeWith(
   registerSessionSubscribe(registry, {
     streamingPrimitive: primitive,
     outboundQueue,
-    subscribeToSession: (_sessionId, _afterCursor, onChange) => {
-      onChangeHolder.current = onChange;
-      for (const change of catchUp) onChange(change);
+    subscribeToSession: (_sessionId, _afterCursor, listener) => {
+      onChangeHolder.current = (change) => {
+        listener.onChange(change);
+      };
+      for (const change of catchUp) listener.onChange(change);
       return () => undefined;
     },
   });
@@ -226,7 +228,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
     expect(subscribeToSession).toHaveBeenCalledWith(
       TEST_SESSION_ID,
       afterCursor,
-      expect.any(Function),
+      expect.any(Object),
     );
     expect(registry.isMutating("session.subscribe")).toBe(false);
   });
@@ -288,8 +290,8 @@ describe("session.subscribe batches a session's changes into frames", () => {
     registerSessionSubscribe(registry, {
       streamingPrimitive: primitive,
       outboundQueue: ALWAYS_ROOM,
-      subscribeToSession: (_sessionId, _afterCursor, onChange) => {
-        for (const change of catchUp) onChange(change);
+      subscribeToSession: (_sessionId, _afterCursor, listener) => {
+        for (const change of catchUp) listener.onChange(change);
         return () => undefined;
       },
     });
@@ -459,8 +461,8 @@ describe("session.subscribe ends a stream whose frame the wire refuses", () => {
     registerSessionSubscribe(registry, {
       streamingPrimitive: primitive,
       outboundQueue: ALWAYS_ROOM,
-      subscribeToSession: (sessionId, afterCursor, onChange) =>
-        log.eventLog.follow(sessionId, afterCursor, onChange),
+      subscribeToSession: (sessionId, afterCursor, listener) =>
+        log.eventLog.follow(sessionId, afterCursor, listener),
     });
     const { subscriptionId } = (await registry.dispatch(
       "session.subscribe",
@@ -577,6 +579,39 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
     ).rejects.toThrow("no such session");
     await crossAckBarrier();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("an upstream that fails after the ack ends the subscription with its error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<SendFrame>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    let failUpstream: (error: unknown) => void = () => undefined;
+    registerSessionSubscribe(registry, {
+      streamingPrimitive: primitive,
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: (_sessionId, _afterCursor, listener) => {
+        failUpstream = (error) => {
+          listener.onFailure(error);
+        };
+        return () => undefined;
+      },
+    });
+    const { subscriptionId } = (await registry.dispatch(
+      "session.subscribe",
+      { sessionId: TEST_SESSION_ID },
+      { transportId: 7 },
+    )) as SessionSubscribeResponse;
+    await crossAckBarrier();
+
+    failUpstream(new Error("the log could not be read"));
+
+    expect(send.mock.calls).toMatchObject([
+      [7, { method: SUBSCRIPTION_END_METHOD, params: { subscriptionId, reason: "refused" } }],
+    ]);
+    expect(primitive.cancelSubscription(subscriptionId)).toBe(false);
+    expect(consoleError).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
   });
 
   it("a `$/subscription/cancel` from the same connection detaches the upstream", async () => {

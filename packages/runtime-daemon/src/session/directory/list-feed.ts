@@ -18,10 +18,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type {
-  EventCompactedEvent,
-  EventCompactedPayload,
-} from "@ai-sidekicks/contracts/event/declared-variants";
+import type { EventCompactedPayload } from "@ai-sidekicks/contracts/event/declared-variants";
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   type EventEnvelope,
@@ -37,6 +34,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 
 import type { EventLogService } from "../../events/log-service.js";
+import { PURGE_RECEIPT_TYPE } from "../../events/session/purge.js";
 import type { LiveRunActivity, SessionRunOutcome } from "../records.js";
 import { sessionProjectSql } from "./lookups.js";
 import { sessionActivityOf } from "./run-activity.js";
@@ -70,9 +68,6 @@ export interface SessionListOpening {
   readonly detach: () => void;
 }
 
-// The purge's receipt, which names every session whose rows it deleted.
-const PURGE_RECEIPT_TYPE = "event.compacted" satisfies EventCompactedEvent["type"];
-
 // States that put a chat outside the live list, so the Chats header does not count it.
 const UNCOUNTED_CHAT_STATES: ReadonlySet<SessionState> = new Set([
   "archived",
@@ -83,7 +78,7 @@ const UNCOUNTED_CHAT_STATES: ReadonlySet<SessionState> = new Set([
 // One session's list facts as one query returns them, its group's name among them.
 const SESSION_LIST_ROW_SQL = `SELECT s.id, s.shape, s.state, s.name, s.first_message_preview,
        s.branch, s.pinned_at, s.muted_at, s.last_run_outcome, s.last_activity_at,
-       s.document_count, g.id AS group_id, g.name AS group_name,
+       g.id AS group_id, g.name AS group_name,
        ${sessionProjectSql("s.id")} AS repo_mount_id,
        (SELECT json_group_object(r.run_id, r.activity)
           FROM session_run_activity r
@@ -102,7 +97,6 @@ type SessionListRow = {
   readonly muted_at: string | null;
   readonly last_run_outcome: SessionRunOutcome;
   readonly last_activity_at: string;
-  readonly document_count: number;
   readonly repo_mount_id: string | null;
   /** A JSON object of the session's live runs, run id to activity. */
   readonly live_runs: string;
@@ -186,8 +180,10 @@ export class SessionListFeed {
     }
   }
 
+  // Nothing is kept until the whole list is read, so a read that fails leaves the feed closed.
   #build(): Map<string, SessionListEntry> {
     const entries = new Map<string, SessionListEntry>();
+    const renewedSessionIds: string[] = [];
     const renewedAt = new Date().toISOString();
     let chatCount = 0;
     for (const row of this.#readAll.all()) {
@@ -195,10 +191,11 @@ export class SessionListFeed {
       if (entry === undefined) continue;
       entries.set(entry.sessionId, entry);
       chatCount += countsAsChat(entry);
-      if (isRenewed(entry)) this.#renewedSessionIds.add(entry.sessionId);
+      if (isRenewed(entry)) renewedSessionIds.push(entry.sessionId);
     }
     this.#entries = entries;
     this.#chatCount = chatCount;
+    for (const sessionId of renewedSessionIds) this.#renewedSessionIds.add(sessionId);
     return entries;
   }
 
@@ -361,7 +358,7 @@ function entryOf(row: SessionListRow, renewedAt: string): SessionListEntry | und
     lastActivityAt: row.last_activity_at,
   };
   if (row.shape === "chat") {
-    return { ...common, shape: "chat", documentCount: row.document_count };
+    return { ...common, shape: "chat" };
   }
   if (row.repo_mount_id === null) return undefined;
   return {

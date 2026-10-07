@@ -1,8 +1,11 @@
 // Each session's related list, its linked sessions scored ahead and stored under its id so a read
 // is one indexed lookup. A link change re-scores, in the background after its write commits, the
 // two sessions it joins and their neighbors: no other session's two-step walk crosses a changed
-// share. A rename re-sends the lists that show the renamed session, since an entry reads its name
-// from the session's row.
+// share. Scoring yields to the event loop whenever it has held the thread for a slice, so a round
+// never stalls the daemon's other work. A rename re-sends the lists that show the renamed session,
+// since an entry reads its name from the session's row.
+
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
 import type { Statement } from "better-sqlite3";
 
@@ -29,6 +32,9 @@ import {
 // The most sessions one stored write replaces, so a burst of link changes never makes one huge
 // write; the rest wait for the next round.
 const RESCORE_ROUND_LIMIT = 64;
+
+// How long a round holds the main thread before it yields a turn of the event loop.
+const SCORING_SLICE_MS = 2;
 
 const LINKS_OF_SESSION_SQL = `
   SELECT target_session_id AS otherSessionId, kind, 1 AS isSource,
@@ -69,7 +75,10 @@ export interface SessionRelatedRankingOptions {
   readonly writer: Pick<DatabaseWriter, "write">;
   /** The log whose committed renames re-send the lists showing the renamed session. */
   readonly events: Pick<EventLogService, "followAll">;
-  /** Where a re-score that failed is reported; the next link change re-scores again. */
+  /**
+   * Where a re-score that failed, or a follower that threw, is reported; the next link change
+   * re-scores again.
+   */
   readonly writeServiceLog: ServiceLogWriter;
   readonly now?: () => Date;
 }
@@ -77,7 +86,8 @@ export interface SessionRelatedRankingOptions {
 /**
  * Scores, stores and serves each session's related list. Re-scoring runs one round at a time in
  * the background, so a link verb never waits on it, and a session asked for twice before its
- * round is scored once. Renames reach followers from `start` until stopped.
+ * round is scored once. Renames reach followers from `start` until its stop, which also ends the
+ * re-scoring.
  */
 export class SessionRelatedRanking {
   readonly #writer: Pick<DatabaseWriter, "write">;
@@ -93,6 +103,7 @@ export class SessionRelatedRanking {
   readonly #changedSessions = new Set<SessionId>();
   readonly #sessionsToScore = new Set<SessionId>();
   #isScoring = false;
+  #isStopped = false;
   #idle: Promise<void> = Promise.resolve();
 
   constructor(options: SessionRelatedRankingOptions) {
@@ -107,11 +118,19 @@ export class SessionRelatedRanking {
     );
   }
 
-  /** Follows every committed rename; the returned function stops it. */
-  start(): () => void {
-    return this.#events.followAll((event) => {
+  /**
+   * Follows every committed rename until the returned stop runs. The stop also ends re-scoring
+   * after the round under way, and resolves once that round's write and sends are done.
+   */
+  start(): () => Promise<void> {
+    const unfollow = this.#events.followAll((event) => {
       this.#sendAfterRename(event);
     });
+    return () => {
+      unfollow();
+      this.#isStopped = true;
+      return this.#idle;
+    };
   }
 
   /**
@@ -122,13 +141,16 @@ export class SessionRelatedRanking {
     for (const sessionId of sessionIds) {
       this.#changedSessions.add(sessionId);
     }
-    if (!this.#isScoring) {
+    if (!this.#isScoring && !this.#isStopped) {
       this.#isScoring = true;
       this.#idle = this.#scoreRounds();
     }
   }
 
-  /** Resolves once every queued re-score has been stored and sent to its followers. */
+  /**
+   * Resolves once the re-scoring under way has ended: every queued session stored and sent, or a
+   * failed round reported, or the stop reached.
+   */
   whenIdle(): Promise<void> {
     return this.#idle;
   }
@@ -189,34 +211,48 @@ export class SessionRelatedRanking {
     };
   }
 
-  // No caller waits on a round, so a failed one goes to the service log and the next round runs;
-  // its sessions are scored again at their next link change.
+  // No caller waits on a round, so a failed one goes to the service log and ends the re-scoring;
+  // its sessions stay queued and are scored with the next link change's.
   async #scoreRounds(): Promise<void> {
-    while (this.#changedSessions.size > 0 || this.#sessionsToScore.size > 0) {
-      try {
-        const round = this.#takeRound();
-        await this.#writer.write(this.#replaceStatements(round));
+    try {
+      while (
+        !this.#isStopped &&
+        (this.#changedSessions.size > 0 || this.#sessionsToScore.size > 0)
+      ) {
+        const slice = new ScoringSlice();
+        const round = await this.#takeRound(slice);
+        try {
+          await this.#writer.write(await this.#replaceStatements(round, slice));
+        } catch (error) {
+          for (const sessionId of round) {
+            this.#sessionsToScore.add(sessionId);
+          }
+          throw error;
+        }
         this.#sendToFollowers(round);
-      } catch (error) {
-        this.#writeServiceLog(
-          "related sessions: a re-score round failed: " +
-            (error instanceof Error ? error.message : String(error)),
-        );
       }
+    } catch (error) {
+      this.#writeServiceLog(
+        "related sessions: a re-score round failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    } finally {
+      this.#isScoring = false;
     }
-    this.#isScoring = false;
   }
 
   // At most one round's worth of the queued sessions, after queuing the changed ones' neighbors;
-  // the neighbors are read now, so a link removed since the change is no longer one.
-  #takeRound(): SessionId[] {
+  // the neighbors are read now, so a link removed since the change is no longer one. A changed
+  // session leaves its set only once its neighbors are queued.
+  async #takeRound(slice: ScoringSlice): Promise<SessionId[]> {
     for (const sessionId of this.#changedSessions) {
+      await slice.yieldWhenSpent();
       this.#sessionsToScore.add(sessionId);
       for (const link of this.#selectLinks.all({ sessionId })) {
         this.#sessionsToScore.add(link.otherSessionId);
       }
+      this.#changedSessions.delete(sessionId);
     }
-    this.#changedSessions.clear();
     const round: SessionId[] = [];
     for (const sessionId of this.#sessionsToScore) {
       if (round.length === RESCORE_ROUND_LIMIT) {
@@ -228,7 +264,10 @@ export class SessionRelatedRanking {
     return round;
   }
 
-  #replaceStatements(sessionIds: readonly SessionId[]): WriteStatement[] {
+  async #replaceStatements(
+    sessionIds: readonly SessionId[],
+    slice: ScoringSlice,
+  ): Promise<WriteStatement[]> {
     const nowMs = this.#now().getTime();
     const linksBySession = new Map<SessionId, readonly SessionLinkEnd[]>();
     const linksOf = (sessionId: SessionId): readonly SessionLinkEnd[] => {
@@ -239,16 +278,21 @@ export class SessionRelatedRanking {
       }
       return links;
     };
-    return sessionIds.flatMap((sessionId) => [
-      { sql: "DELETE FROM session_related WHERE session_id = ?", bindings: [sessionId] },
-      {
-        sql: REPLACE_RELATED_SQL,
-        bindings: {
-          sessionId,
-          scores: JSON.stringify([...scoreRelatedSessions(sessionId, linksOf, nowMs)]),
+    const statements: WriteStatement[] = [];
+    for (const sessionId of sessionIds) {
+      await slice.yieldWhenSpent();
+      statements.push(
+        { sql: "DELETE FROM session_related WHERE session_id = ?", bindings: [sessionId] },
+        {
+          sql: REPLACE_RELATED_SQL,
+          bindings: {
+            sessionId,
+            scores: JSON.stringify([...scoreRelatedSessions(sessionId, linksOf, nowMs)]),
+          },
         },
-      },
-    ]);
+      );
+    }
+    return statements;
   }
 
   // Each followed list that shows the renamed session is the list of a session linked to it.
@@ -262,17 +306,35 @@ export class SessionRelatedRanking {
     this.#sendToFollowers([...linkedSessionIds]);
   }
 
+  // Each list is read and sent on its own, so one that fails, or a follower that throws, costs no
+  // other list or follower its update.
   #sendToFollowers(sessionIds: readonly SessionId[]): void {
     for (const sessionId of sessionIds) {
       const followers = this.#followers.get(sessionId);
       if (followers === undefined) {
         continue;
       }
-      const update = this.#readStored(sessionId);
+      let update: SessionRelatedListUpdate;
+      try {
+        update = this.#readStored(sessionId);
+      } catch (error) {
+        this.#reportSendFailure(`reading session ${sessionId}'s list`, error);
+        continue;
+      }
       for (const onUpdate of [...followers]) {
-        onUpdate(update);
+        try {
+          onUpdate(update);
+        } catch (error) {
+          this.#reportSendFailure(`sending session ${sessionId}'s list to a follower`, error);
+        }
       }
     }
+  }
+
+  #reportSendFailure(what: string, error: unknown): void {
+    this.#writeServiceLog(
+      `related sessions: ${what} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   #linkEndsOf(sessionId: SessionId): SessionLinkEnd[] {
@@ -301,6 +363,19 @@ export class SessionRelatedRanking {
       }
     }
     return byPair;
+  }
+}
+
+// The main thread time a round has held since it last yielded.
+class ScoringSlice {
+  #startedAt = performance.now();
+
+  /** Yields a turn of the event loop once the round has held the thread for a whole slice. */
+  async yieldWhenSpent(): Promise<void> {
+    if (performance.now() - this.#startedAt >= SCORING_SLICE_MS) {
+      await yieldToEventLoop();
+      this.#startedAt = performance.now();
+    }
   }
 }
 

@@ -160,6 +160,14 @@ describe("the session directory row against a rebuild from the log", () => {
           { sessionId: SESSION_ID, previousState: "provisioning", newState: "active" },
           at(1),
         ),
+      // A message of only whitespace gives no preview, so the next message's opening does.
+      () =>
+        append(
+          "user.message",
+          "interactive_request",
+          { sessionId: SESSION_ID, actor: "user-1", message: " \n\t " },
+          at(2),
+        ),
       // The bound falls inside the emoji's surrogate pair, so the cut stops before it.
       () =>
         append(
@@ -248,7 +256,12 @@ describe("the session directory row against a rebuild from the log", () => {
         append(
           "session.converted",
           "session_lifecycle",
-          { sessionId: SESSION_ID, repoMountId: REPO_MOUNT_ID, copiedCount: 2, skippedPaths: [] },
+          {
+            sessionId: SESSION_ID,
+            repoMountId: REPO_MOUNT_ID,
+            copiedCount: 2,
+            skippedCount: 0,
+          },
           at(16),
         ),
       () =>

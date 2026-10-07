@@ -136,10 +136,12 @@ function markTimeOf(payload: Readonly<Record<string, unknown>>): string {
 
 /**
  * The row's preview of a message: its opening, leading whitespace dropped, cut to the session
- * name's bound in UTF-16 units without splitting a surrogate pair.
+ * name's bound in UTF-16 units without splitting a surrogate pair. A message of only whitespace
+ * has none, so the next message's opening becomes the preview.
  */
-function firstMessagePreviewOf(message: string): string {
+function firstMessagePreviewOf(message: string): string | null {
   const opening = message.trimStart();
+  if (opening.length === 0) return null;
   if (opening.length <= SESSION_NAME_MAX_LEN) return opening;
   const lastUnit = opening.charCodeAt(SESSION_NAME_MAX_LEN - 1);
   const splitsPair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;

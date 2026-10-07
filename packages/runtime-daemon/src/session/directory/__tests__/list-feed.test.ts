@@ -15,11 +15,7 @@ import {
 } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import {
-  crossEventLoopTurn,
-  openSessionLog,
-  type SessionLog,
-} from "../__fixtures__/session-log.js";
+import { crossEventLoopTurn, openSessionLog, type SessionLog } from "../__fixtures__/event-log.js";
 import { SessionGroupService } from "../../groups/service.js";
 import { SessionListFeed, type SessionListListener } from "../list-feed.js";
 
@@ -139,7 +135,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
     await crossEventLoopTurn();
     expect(listener.changes.at(-1)).toMatchObject({
       kind: "upsert",
-      entry: { sessionId: CHAT, shape: "chat", documentCount: 0, state: "active" },
+      entry: { sessionId: CHAT, shape: "chat", state: "active" },
       chatCount: 1,
     });
 
@@ -148,7 +144,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
       sessionId: CHAT,
       repoMountId,
       copiedCount: 2,
-      skippedPaths: [],
+      skippedCount: 0,
     });
     await crossEventLoopTurn();
 

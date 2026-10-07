@@ -13,9 +13,12 @@
 //     screen repairs from the daemon's record by cursor. If nothing new happens after a drop,
 //     one frame with no changes, the drop mark and the newest cursor goes out as soon as the
 //     queue has room, so a session that went quiet still tells the screen it is behind.
+//   * Catching up at the connection's pace. The upstream reads the log a page at a time and reads
+//     the next page only once the outbound queue has room, so a client that reads nothing never
+//     makes the daemon read the whole log for it.
 //   * Ordered after the ack. The upstream may catch up synchronously inside this handler, so
 //     every frame goes through the subscribe-init barrier, which holds it until the response
-//     has been written.
+//     has been written. An upstream that fails after that ends the subscription with its error.
 //
 // The registration is not `mutating`, so a connection with an incompatible protocol version
 // can still read.
@@ -37,8 +40,9 @@ import {
 } from "@ai-sidekicks/contracts/session/methods";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
+import type { SessionEventListener } from "../../../events/session/followers.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
-import type { StreamingPrimitive } from "../../streaming-primitive.js";
+import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../../streaming-primitive.js";
 
 /** How long the first change of a batch waits for others before its frame goes out. */
 export const SESSION_STREAM_WINDOW_MS = 16;
@@ -69,16 +73,17 @@ export interface SessionSubscribeDeps {
   readonly outboundQueue: OutboundQueue;
   /**
    * Follows a session's stored events (`EventLogService.follow`): catches up with those after
-   * `afterCursor` (all of them when absent), then follows new ones, calling `onChange` with each
-   * event and its cursor. Returns the detach the handler runs when the subscription ends.
-   * `onChange` may run synchronously during this call, and the detach may run from inside
-   * `onChange`, so the source must tolerate being detached mid-emit. A session that does not
-   * exist, or a cursor it cannot read, throws.
+   * `afterCursor` (all of them when absent) while the listener has room, then follows new ones,
+   * calling `onChange` with each event and its cursor, and `onFailure` once if the follow ends on
+   * an error. Returns the detach the handler runs when the subscription ends. `onChange` may run
+   * synchronously during this call, and the detach may run from inside `onChange`, so the source
+   * must tolerate being detached mid-emit. A session that does not exist, or a cursor it cannot
+   * read, throws.
    */
   readonly subscribeToSession: (
     sessionId: SessionId,
     afterCursor: EventCursor | undefined,
-    onChange: (change: SessionChange) => void,
+    listener: SessionEventListener,
   ) => () => void;
 }
 
@@ -169,7 +174,8 @@ function createFrameBatcher(outlet: FrameOutlet): FrameBatcher {
  *
  * A call with no transport identity is a daemon wiring fault, not a client error, so it throws
  * a plain `Error` the registry maps to an internal error. A session the upstream cannot follow
- * throws from `subscribeToSession`; the subscription is canceled so nothing is left behind.
+ * throws from `subscribeToSession`; the subscription is canceled so nothing is left behind. An
+ * upstream that fails later ends the subscription with that failure.
  */
 export function registerSessionSubscribe(
   registry: MethodRegistry,
@@ -204,13 +210,24 @@ export function registerSessionSubscribe(
     });
 
     try {
-      const unsubscribe = deps.subscribeToSession(
-        params.sessionId,
-        params.afterCursor,
-        (change) => {
+      const unsubscribe = deps.subscribeToSession(params.sessionId, params.afterCursor, {
+        onChange: (change) => {
           batcher.add(change);
         },
-      );
+        onFailure: (error) => {
+          // Ordered behind the acknowledgment, so the end frame never names an unknown id.
+          barrier.deferUntilAck(() => {
+            cancelAfterDetachedFailure(
+              sub,
+              `[session.subscribe] the session's events stopped arriving for subscriptionId=` +
+                `${sub.subscriptionId}; subscription canceled`,
+              error,
+            );
+          });
+        },
+        isFull: () => deps.outboundQueue.isFull(transportId),
+        onceDrained: (listener) => deps.outboundQueue.onceDrained(transportId, listener),
+      });
       sub.onCancel(unsubscribe);
     } catch (err) {
       // The client never received this id, so the subscription goes without an end frame.

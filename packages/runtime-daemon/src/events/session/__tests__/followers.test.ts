@@ -1,7 +1,8 @@
 // Following a session's log: a follower that catches up while appends land gets every event once
-// and in order, a resume from a delivered cursor gets exactly the rest, a session or cursor the log
-// cannot serve is refused before any change, and receipts that arrive out of order still publish
-// in sequence order.
+// and in order, reads its next page only once its receiver has room, and a resume from a delivered
+// cursor gets exactly the rest; a session or cursor the log cannot serve is refused before any
+// change; a page that cannot be read or a follower that throws ends that follower alone; and
+// receipts that arrive out of order still publish in sequence order.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,7 +27,7 @@ import {
   type EventLogServiceDeps,
   type UnsequencedEventEnvelope,
 } from "../../log-service.js";
-import type { SessionEventChange } from "../followers.js";
+import type { SessionEventListener } from "../followers.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
@@ -81,28 +82,75 @@ function storedSequences(): number[] {
   ).map((row) => row.sequence);
 }
 
-// Records each delivered sequence and checks the change's cursor resumes right after it.
-function recordChanges(): { sequences: number[]; onChange: (change: SessionEventChange) => void } {
+interface RecordedFollow {
+  readonly sequences: number[];
+  readonly failures: unknown[];
+  readonly listener: SessionEventListener;
+  /** Makes the receiver full, so the catch-up waits for a drain. */
+  fill(): void;
+  /** Gives the receiver room and calls the drain listeners. */
+  drain(): void;
+}
+
+// Records each delivered sequence, checking the change's cursor resumes right after it, and each
+// failure; the receiver has room until filled.
+function recordChanges(): RecordedFollow {
   const sequences: number[] = [];
+  const failures: unknown[] = [];
+  let isFull = false;
+  const drainListeners = new Set<() => void>();
   return {
     sequences,
-    onChange: (change) => {
-      expect(change.cursor).toBe(encodeEventCursor(change.event.sequence));
-      sequences.push(change.event.sequence);
+    failures,
+    listener: {
+      onChange: (change) => {
+        expect(change.cursor).toBe(encodeEventCursor(change.event.sequence));
+        sequences.push(change.event.sequence);
+      },
+      onFailure: (error) => {
+        failures.push(error);
+      },
+      isFull: () => isFull,
+      onceDrained: (listener) => {
+        drainListeners.add(listener);
+        return () => {
+          drainListeners.delete(listener);
+        };
+      },
+    },
+    fill: () => {
+      isFull = true;
+    },
+    drain: () => {
+      isFull = false;
+      const listeners = [...drainListeners];
+      drainListeners.clear();
+      for (const listener of listeners) listener();
     },
   };
 }
 
+// Rewrites one stored row's payload as a write outside the append path would, so reading it fails.
+async function corruptStoredEvent(sequence: number): Promise<void> {
+  await scratch.writer.write([
+    {
+      sql: "UPDATE session_events SET payload = 'not json' WHERE session_id = ? AND sequence = ?",
+      bindings: [SESSION, sequence],
+      expectedRowCount: 1,
+    },
+  ]);
+}
+
 describe("EventLogService.follow — catch-up to follow", () => {
   it("delivers the log exactly once, in order, while appends land across catch-up pages", async () => {
-    // Only the yield between pages is held, so each append commits mid-catch-up and reaches the
-    // follower both from the log and as a published receipt.
+    // Only the yield between pages is held, so each append commits mid-catch-up: its receipt passes
+    // the follower by, and the next page reads it from the log.
     vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
     const service = buildService();
     await appendEvents(service, 5);
     const follower = recordChanges();
 
-    service.follow(SESSION, undefined, follower.onChange);
+    service.follow(SESSION, undefined, follower.listener);
     expect(follower.sequences).toEqual([0, 1]);
 
     await appendEvents(service, 1);
@@ -125,12 +173,15 @@ describe("EventLogService.follow — catch-up to follow", () => {
     await appendEvents(service, 6);
     const first = recordChanges();
     let lastCursor = encodeEventCursor(-1);
-    const detachFirst = service.follow(SESSION, undefined, (change) => {
-      first.onChange(change);
-      lastCursor = change.cursor;
-      if (change.event.sequence === 2) {
-        detachFirst();
-      }
+    const detachFirst = service.follow(SESSION, undefined, {
+      ...first.listener,
+      onChange: (change) => {
+        first.listener.onChange(change);
+        lastCursor = change.cursor;
+        if (change.event.sequence === 2) {
+          detachFirst();
+        }
+      },
     });
     await vi.waitFor(() => {
       expect(first.sequences).toHaveLength(3);
@@ -140,7 +191,7 @@ describe("EventLogService.follow — catch-up to follow", () => {
     expect(first.sequences).toEqual([0, 1, 2]);
 
     const resumed = recordChanges();
-    service.follow(SESSION, lastCursor, resumed.onChange);
+    service.follow(SESSION, lastCursor, resumed.listener);
     await vi.waitFor(() => {
       expect(resumed.sequences).toHaveLength(5);
     });
@@ -149,43 +200,131 @@ describe("EventLogService.follow — catch-up to follow", () => {
 
   it("refuses an unknown session and a cursor it cannot read before any change", async () => {
     const service = buildService();
-    const onChange = vi.fn();
-    expect(() => service.follow(SESSION, undefined, onChange)).toThrow(SessionNotFoundError);
+    const follower = recordChanges();
+    expect(() => service.follow(SESSION, undefined, follower.listener)).toThrow(
+      SessionNotFoundError,
+    );
 
     await appendEvents(service, 3);
     for (const cursor of ["007", "-2", "abc", "3"]) {
-      expect(() => service.follow(SESSION, EventCursorSchema.parse(cursor), onChange)).toThrow(
-        EventCursorUnresolvableError,
-      );
+      expect(() =>
+        service.follow(SESSION, EventCursorSchema.parse(cursor), follower.listener),
+      ).toThrow(EventCursorUnresolvableError);
     }
-    expect(onChange).not.toHaveBeenCalled();
+    expect(follower.sequences).toEqual([]);
+  });
+
+  it("reads no further page while the receiver is full, and the rest once it drains", async () => {
+    vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
+    const service = buildService();
+    await appendEvents(service, 6);
+    const follower = recordChanges();
+
+    follower.fill();
+    service.follow(SESSION, undefined, follower.listener);
+    vi.runAllTimers();
+    expect(follower.sequences).toEqual([0, 1]);
+
+    follower.drain();
+    expect(follower.sequences).toEqual([0, 1, 2, 3]);
+    vi.runAllTimers();
+    expect(follower.sequences).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+});
+
+describe("EventLogService.follow — one follower's failure is its own", () => {
+  it("ends only the follower whose later catch-up page cannot be read", async () => {
+    vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
+    const service = buildService();
+    await appendEvents(service, 4);
+    await corruptStoredEvent(3);
+    const live = recordChanges();
+    service.follow(SESSION, encodeEventCursor(3), live.listener);
+    const catchingUp = recordChanges();
+
+    service.follow(SESSION, undefined, catchingUp.listener);
+    vi.runAllTimers();
+    await appendEvents(service, 1);
+    await drainMicrotasks();
+
+    expect(catchingUp.sequences).toEqual([0, 1]);
+    expect(catchingUp.failures).toHaveLength(1);
+    expect(String(catchingUp.failures[0])).toContain("is not JSON");
+    expect(live.failures).toEqual([]);
+    expect(live.sequences).toEqual([4]);
+  });
+
+  it("delivers each event to every other follower when one of them throws", async () => {
+    const service = buildService();
+    await appendEvents(service, 1);
+    const thrown = new Error("the receiver broke");
+    const throwing = recordChanges();
+    service.follow(SESSION, encodeEventCursor(0), {
+      ...throwing.listener,
+      onChange: () => {
+        throw thrown;
+      },
+    });
+    const next = recordChanges();
+    service.follow(SESSION, encodeEventCursor(0), next.listener);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    service.followAll(() => {
+      throw thrown;
+    });
+    const allSessions: number[] = [];
+    service.followAll((event) => {
+      allSessions.push(event.sequence);
+    });
+
+    await appendEvents(service, 2);
+    await drainMicrotasks();
+
+    expect(throwing.failures).toEqual([thrown]);
+    expect(next.sequences).toEqual([1, 2]);
+    expect(allSessions).toEqual([1, 2]);
+    // The follower of every session stays attached, so it fails on each event.
+    expect(consoleError).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
   });
 });
 
 describe("EventLogService.follow — publication order", () => {
-  it("publishes in sequence order when a later receipt arrives before an earlier one", async () => {
-    // The second append's receipt is held after its commit, so the third's arrives first.
+  // A writer that holds the second append's receipt after its commit until released, so the
+  // third's arrives first.
+  function holdSecondReceipt(): {
+    readonly writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
+    readonly release: () => void;
+  } {
     let releaseHeldReceipt: () => void = () => {};
     let appendCount = 0;
-    const holdingWriter: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate"> = {
-      appendEvents: async (events, statements) => {
-        appendCount += 1;
-        const isHeld = appendCount === 2;
-        const sequences = await scratch.writer.appendEvents(events, statements);
-        if (isHeld) {
-          await new Promise<void>((resolve) => {
-            releaseHeldReceipt = resolve;
-          });
-        }
-        return sequences;
+    return {
+      writer: {
+        appendEvents: async (events, statements) => {
+          appendCount += 1;
+          const isHeld = appendCount === 2;
+          const sequences = await scratch.writer.appendEvents(events, statements);
+          if (isHeld) {
+            await new Promise<void>((resolve) => {
+              releaseHeldReceipt = resolve;
+            });
+          }
+          return sequences;
+        },
+        appendThinkingUpdate: (event) => scratch.writer.appendThinkingUpdate(event),
       },
-      appendThinkingUpdate: (event) => scratch.writer.appendThinkingUpdate(event),
+      release: () => {
+        releaseHeldReceipt();
+      },
     };
-    const service = buildService({ writer: holdingWriter });
+  }
+
+  it("publishes in sequence order when a later receipt arrives before an earlier one", async () => {
+    const holding = holdSecondReceipt();
+    const service = buildService({ writer: holding.writer });
     await appendEvents(service, 1);
     const follower = recordChanges();
     const allSessions: number[] = [];
-    service.follow(SESSION, undefined, follower.onChange);
+    service.follow(SESSION, undefined, follower.listener);
     service.followAll((event) => {
       allSessions.push(event.sequence);
     });
@@ -196,10 +335,61 @@ describe("EventLogService.follow — publication order", () => {
     expect(follower.sequences).toEqual([0, 1, 2]);
     expect(allSessions).toEqual([1, 2]);
 
-    releaseHeldReceipt();
+    holding.release();
     await expect(heldAppend).resolves.toMatchObject({ sequence: 1 });
     await drainMicrotasks();
     expect(follower.sequences).toEqual([0, 1, 2]);
     expect(allSessions).toEqual([1, 2]);
+  });
+
+  it("ends a live follower whose missing events cannot be read, and only that", async () => {
+    const holding = holdSecondReceipt();
+    const service = buildService({ writer: holding.writer });
+    await appendEvents(service, 1);
+    const live = recordChanges();
+    service.follow(SESSION, encodeEventCursor(0), live.listener);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const allSessions: number[] = [];
+    service.followAll((event) => {
+      allSessions.push(event.sequence);
+    });
+
+    const heldAppend = service.append(makeEnvelope());
+    await vi.waitFor(() => {
+      expect(storedSequences()).toEqual([0, 1]);
+    });
+    await corruptStoredEvent(1);
+    await service.append(makeEnvelope());
+    await drainMicrotasks();
+    holding.release();
+    await heldAppend;
+    await drainMicrotasks();
+
+    expect(live.sequences).toEqual([]);
+    expect(live.failures).toHaveLength(1);
+    expect(allSessions).toEqual([2]);
+    expect(consoleError).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
+  });
+
+  it("keeps a session no one follows in order for the followers of every session", async () => {
+    // Nothing follows the session itself, so only the appends in flight keep its order.
+    const holding = holdSecondReceipt();
+    const service = buildService({ writer: holding.writer });
+    const allSessions: number[] = [];
+    service.followAll((event) => {
+      allSessions.push(event.sequence);
+    });
+
+    await appendEvents(service, 1);
+    const heldAppend = service.append(makeEnvelope());
+    await service.append(makeEnvelope());
+    await drainMicrotasks();
+    holding.release();
+    await heldAppend;
+    await appendEvents(service, 1);
+    await drainMicrotasks();
+
+    expect(allSessions).toEqual([0, 1, 2, 3]);
   });
 });

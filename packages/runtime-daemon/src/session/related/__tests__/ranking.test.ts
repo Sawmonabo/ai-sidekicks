@@ -2,7 +2,9 @@
 // the links: a linked session a second path also reaches outranks one reached by its link alone,
 // a session reached only in two steps is left out, and an old link outranks a fresh one of its
 // kind no longer. The scores are stored through the real writer and read back from the stored
-// rows, and a rename reaches the lists that show the renamed session.
+// rows, and a rename reaches the lists that show the renamed session. A round that fails ends the
+// re-scoring and its sessions are scored with the next link change's; the stop ends it after the
+// round under way and waits for that round; a follower that throws costs no other its update.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -13,7 +15,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
-import { openSessionLog } from "../../directory/__fixtures__/session-log.js";
+import { openSessionLog } from "../../directory/__fixtures__/event-log.js";
 import { mintSessionId, seedSessionRow } from "../../groups/__fixtures__/directory-rows.js";
 import { recordedSessionLinkStatement } from "../../links/recorded.js";
 import { SessionRelatedRanking, type SessionRelatedRankingOptions } from "../ranking.js";
@@ -32,14 +34,15 @@ beforeEach(async () => {
 function rankingOn(
   database: ScratchDatabase,
   events: SessionRelatedRankingOptions["events"] = { followAll: () => () => {} },
+  writeServiceLog: SessionRelatedRankingOptions["writeServiceLog"] = (line) => {
+    throw new Error(`unexpected service log line: ${line}`);
+  },
 ): SessionRelatedRanking {
   return new SessionRelatedRanking({
     reader: database.reader,
     writer: database.writer,
     events,
-    writeServiceLog: (line) => {
-      throw new Error(`unexpected service log line: ${line}`);
-    },
+    writeServiceLog,
     now: () => NOW,
   });
 }
@@ -57,12 +60,12 @@ async function seedSessions(count: number): Promise<SessionId[]> {
   return sessionIds;
 }
 
-async function link(
+// Records the link without re-scoring.
+async function recordLink(
   sourceSessionId: SessionId,
   targetSessionId: SessionId,
   daysAgo = 0,
   database: ScratchDatabase = scratch,
-  linkedRanking: SessionRelatedRanking = ranking,
 ): Promise<void> {
   await database.writer.write([
     recordedSessionLinkStatement({
@@ -72,8 +75,26 @@ async function link(
       occurredAt: new Date(NOW.getTime() - daysAgo * DAY_MS).toISOString(),
     }),
   ]);
+}
+
+async function link(
+  sourceSessionId: SessionId,
+  targetSessionId: SessionId,
+  daysAgo = 0,
+  database: ScratchDatabase = scratch,
+  linkedRanking: SessionRelatedRanking = ranking,
+): Promise<void> {
+  await recordLink(sourceSessionId, targetSessionId, daysAgo, database);
   linkedRanking.rescoreAround([sourceSessionId, targetSessionId]);
   await linkedRanking.whenIdle();
+}
+
+function scoredSessionCount(): number {
+  return (
+    scratch.reader
+      .prepare("SELECT count(DISTINCT session_id) AS count FROM session_related")
+      .get() as { count: number }
+  ).count;
 }
 
 function storedScores(sessionId: SessionId): Map<string, number> {
@@ -138,6 +159,91 @@ describe("a session's related ranking", () => {
   });
 });
 
+describe("re-scoring in the background", () => {
+  // Moving the links away fails the round as it is taken; moving the stored lists away fails its
+  // write.
+  it.each(["session_links", "session_related"])(
+    "ends at a round that fails without %s, and scores its sessions with the next change's",
+    async (table) => {
+      const lines: string[] = [];
+      ranking = rankingOn(scratch, undefined, (line) => {
+        lines.push(line);
+      });
+      const [planner, builder, reviewer, tester] = await seedSessions(4);
+      await recordLink(planner!, builder!);
+      await recordLink(reviewer!, tester!);
+      await scratch.writer.write([{ sql: `ALTER TABLE ${table} RENAME TO moved_away` }]);
+
+      ranking.rescoreAround([planner!, builder!]);
+      await ranking.whenIdle();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("a re-score round failed");
+
+      await scratch.writer.write([{ sql: `ALTER TABLE moved_away RENAME TO ${table}` }]);
+      expect(scoredSessionCount()).toBe(0);
+      ranking.rescoreAround([reviewer!, tester!]);
+      await ranking.whenIdle();
+      expect([...storedScores(planner!).keys()]).toEqual([builder]);
+      expect([...storedScores(tester!).keys()]).toEqual([reviewer]);
+      expect(lines).toHaveLength(1);
+    },
+  );
+
+  it("stops after the round under way, and its stop waits for that round", async () => {
+    const sessionIds = await seedSessions(70);
+    for (let index = 0; index < sessionIds.length; index += 2) {
+      await recordLink(sessionIds[index]!, sessionIds[index + 1]!);
+    }
+    const stop = ranking.start();
+
+    ranking.rescoreAround(sessionIds);
+    await stop();
+
+    // One round holds 64 sessions; the six after it are never scored.
+    expect(scoredSessionCount()).toBe(64);
+    ranking.rescoreAround(sessionIds);
+    await ranking.whenIdle();
+    expect(scoredSessionCount()).toBe(64);
+  });
+
+  it("sends every other follower its list when one follower throws", async () => {
+    const lines: string[] = [];
+    ranking = rankingOn(scratch, undefined, (line) => {
+      lines.push(line);
+    });
+    const [planner, builder, reviewer] = await seedSessions(3);
+    await link(planner!, builder!);
+    let isThrowing = false;
+    ranking.follow(planner!, () => {
+      if (isThrowing) throw new Error("the follower broke");
+    });
+    ranking.follow(builder!, () => {
+      if (isThrowing) throw new Error("the follower broke");
+    });
+    const plannerUpdates: SessionRelatedListUpdate[] = [];
+    ranking.follow(planner!, (update) => {
+      plannerUpdates.push(update);
+    });
+    const builderUpdates: SessionRelatedListUpdate[] = [];
+    ranking.follow(builder!, (update) => {
+      builderUpdates.push(update);
+    });
+
+    isThrowing = true;
+    await link(planner!, reviewer!);
+
+    expect(
+      plannerUpdates
+        .at(-1)
+        ?.related.map((entry) => entry.sessionId)
+        .sort(),
+    ).toEqual([builder, reviewer].sort());
+    expect(builderUpdates).toHaveLength(2);
+    expect(lines).toHaveLength(2);
+    expect(lines.every((line) => line.includes("to a follower failed"))).toBe(true);
+  });
+});
+
 describe("a related list after a rename", () => {
   it("sends the new name to a follower of a session linked to the renamed one", async () => {
     const log = await openSessionLog();
@@ -162,8 +268,7 @@ describe("a related list after a rename", () => {
 
       expect(names).toEqual([undefined, "Builder"]);
     } finally {
-      stop();
-      await loggedRanking.whenIdle();
+      await stop();
       await log.scratch.close();
     }
   });

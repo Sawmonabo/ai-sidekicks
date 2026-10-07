@@ -10,6 +10,10 @@
 //   * Ahead of every other change. The snapshot is taken and the listener added in one synchronous
 //     step, so no change falls between them; a change that lands while pages remain waits, the
 //     newest per session, and goes out after the last page.
+//   * Never past a full queue. A change that finds the queue full, or others still waiting, waits
+//     with them, the newest per session, so what waits is bounded by the list itself; they go out
+//     oldest first as the queue drains. The list carries no drop mark, and an entry's newest state
+//     is all a reader needs, so nothing is dropped.
 //   * After the acknowledgment. Every frame goes through the subscribe-init barrier, which holds it
 //     until the response naming its subscription has been written.
 //
@@ -64,7 +68,7 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
     );
     const barrier = createSubscriptionAckBarrier(subscription, descriptor.method);
     const transportId = context.transportId;
-    const pager = new OpeningListPager({
+    const pacer = new SessionListPacer({
       emit: (change) => {
         barrier.emit(change);
       },
@@ -72,13 +76,13 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
       onceDrained: (listener) => deps.outboundQueue.onceDrained(transportId, listener),
     });
     subscription.onCancel(() => {
-      pager.stop();
+      pacer.stop();
     });
     let opening: SessionListOpening;
     try {
       opening = deps.listFeed.open({
         onChange: (change) => {
-          pager.route(change);
+          pacer.route(change);
         },
         onFailure: (error) => {
           // Ordered behind the acknowledgment, so the end frame never names an unknown id.
@@ -98,11 +102,11 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
       deps.streamingPrimitive.cancelSubscription(subscription.subscriptionId);
       throw error;
     }
-    const firstPage = pager.takeOpeningList(opening.sessions, opening.chatCount);
+    const firstPage = pacer.takeOpeningList(opening.sessions, opening.chatCount);
     const isComplete = firstPage.length === opening.sessions.length;
     if (!isComplete) {
       barrier.deferUntilAck(() => {
-        pager.sendPages();
+        pacer.sendPages();
       });
     }
     barrier.release();
@@ -122,15 +126,18 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
   );
 }
 
-/** Where a pager sends changes and how it reads its connection's queue. */
+/** Where a pacer sends changes and how it reads its connection's queue. */
 interface ChangeOutlet {
   emit(change: SessionListChange): void;
   isFull(): boolean;
   onceDrained(listener: () => void): () => void;
 }
 
-/** One subscription's opening list sent page by page, with the changes that wait behind it. */
-class OpeningListPager {
+/**
+ * One subscription's list sent at its connection's pace: the opening list page by page, then each
+ * change as the queue has room, with the changes that wait behind either.
+ */
+class SessionListPacer {
   readonly #outlet: ChangeOutlet;
   // Changes wait while the opening list's pages remain, the newest per session last.
   readonly #heldChanges = new Map<SessionId, SessionListEntryChange>();
@@ -146,15 +153,21 @@ class OpeningListPager {
     this.#outlet = outlet;
   }
 
-  /** Sends `change`, or holds it while pages remain, keeping only its session's newest. */
+  /**
+   * Sends `change`, or holds it while pages remain, other changes wait or the queue is full,
+   * keeping only its session's newest.
+   */
   route(change: SessionListEntryChange): void {
-    if (!this.#isHolding) {
+    if (!this.#isHolding && this.#heldChanges.size === 0 && !this.#outlet.isFull()) {
       this.#outlet.emit(change);
       return;
     }
     const sessionId = change.kind === "upsert" ? change.entry.sessionId : change.sessionId;
     this.#heldChanges.delete(sessionId);
     this.#heldChanges.set(sessionId, change);
+    if (!this.#isHolding) {
+      this.#waitForRoom();
+    }
   }
 
   /** Takes the opening list and answers the entries the acknowledgment carries. */
@@ -173,11 +186,16 @@ class OpeningListPager {
     if (this.#isStopped) return;
     const remaining = this.#sessions.slice(this.#sentCount);
     const count = countEntriesFittingOneFrame(remaining, remaining.length);
+    const [firstEntry, ...laterEntries] = remaining.slice(0, count);
+    // Pages go out only while entries remain, and a count over any entries is at least one.
+    if (firstEntry === undefined) {
+      throw new Error("A further page of the sessions list had no entries to send.");
+    }
     this.#sentCount += count;
     const isComplete = this.#sentCount === this.#sessions.length;
     this.#outlet.emit({
       kind: "page",
-      sessions: remaining.slice(0, count),
+      sessions: [firstEntry, ...laterEntries],
       chatCount: this.#chatCount,
       isComplete,
     });
@@ -185,10 +203,7 @@ class OpeningListPager {
     if (this.#isStopped) return;
     if (isComplete) {
       this.#isHolding = false;
-      for (const change of this.#heldChanges.values()) {
-        this.#outlet.emit(change);
-      }
-      this.#heldChanges.clear();
+      this.#sendHeld();
       return;
     }
     const sendNext = (): void => {
@@ -199,6 +214,26 @@ class OpeningListPager {
     } else {
       this.#pendingTurn = setImmediate(sendNext);
     }
+  }
+
+  // Sends the held changes, oldest first, while the queue has room; the rest wait for its drain.
+  #sendHeld(): void {
+    this.#detachDrained = undefined;
+    for (const [sessionId, change] of this.#heldChanges) {
+      if (this.#isStopped) return;
+      if (this.#outlet.isFull()) {
+        this.#waitForRoom();
+        return;
+      }
+      this.#heldChanges.delete(sessionId);
+      this.#outlet.emit(change);
+    }
+  }
+
+  #waitForRoom(): void {
+    this.#detachDrained ??= this.#outlet.onceDrained(() => {
+      this.#sendHeld();
+    });
   }
 
   /** Stops sending, for a subscription that ended. */
