@@ -152,7 +152,7 @@ All options were measured on one generated set: 10,000 sessions, 1,041,000 index
 
 ### Unknowns
 
-The build is accepted when each of these is measured or built on the daemon's own build, at 10,000 sessions and 1,000,000 indexed messages unless stated; they are the acceptance of the plan task that builds it ([Plan-001](../plans/001-session-core.md) T6.9):
+The build is accepted when each of these is measured or built on the daemon's own build, at 10,000 sessions and 1,000,000 indexed messages unless stated; they are the acceptance of the plan task that builds it ([Plan-001](../plans/001-session-core.md) T6.9), and a budget the build misses is reported as a gap, never shipped as a looser number:
 
 - Every probe query's first page under 50 ms at p95 at 100,000 sessions and 10,410,000 messages, through the add-on and the daemon's search path, `tag:billing nezi` included. The probe measured 54.43 ms for it, because every row matching the word is scored to find each tagged session's best; the fix starts from the tagged sessions' own rows when few sessions carry the tag, or stops once the two ranks the tag search merges settle the page.
 - `transcript.search`: a session's hits newest first, with a count of every match in the session, under 50 ms at p95.
@@ -164,10 +164,10 @@ The build is accepted when each of these is measured or built on the daemon's ow
 - The same score on every target: x64 builds without hardware fused multiply-add compute `mul_add` in software, at a cost not yet measured.
 - Each platform's read mode measured by that platform's own memory figure: macOS measured by footprint, Linux in `linux`, Windows in `windows`.
 - The add-on built and its tests passing on each target: macOS arm64 and x64 and the CI Linux runner in `session-directory`; Windows x64 and arm64 in `windows`; Linux x64 and arm64, glibc and musl, in `linux`.
-- The writer's memory arena, measured on the daemon's build against the probe's build, which used four threads of 128 MiB each and peaked at a footprint of 314.9 MiB at 1M and 739.6 MiB at 10M.
-- A full rebuild's time and peak memory, against the probe's 23.2 s at 1M and 299 s at 10M on four threads.
-- A merge's time and memory, against the probe's 2.0 s to merge four segments into one at 1M.
-- The wait from a settled message to its being searchable: the batch interval plus a durable commit, which the probe measured at 65.01 to 66.95 ms at p50 and 102.10 to 108.20 ms at p95.
+- The index writer in steady state: one indexing thread, its memory arena at most 64 MiB. The probe's build used four threads of 128 MiB each and peaked at a footprint of 314.9 MiB at 1M and 739.6 MiB at 10M.
+- A full rebuild at 1M messages in at most 60 s, with a peak footprint of at most 350 MiB, run off the daemon's main thread. The probe rebuilt 1M in 23.2 s and 10M in 299 s on four threads.
+- A merge at 1M messages in at most 3 s, never on the daemon's main thread, and only while the daemon is idle. The probe merged four segments into one at 1M in 2.0 s.
+- A settled message searchable within 1 s of settling: the batch interval plus a durable commit, which the probe measured at 65.01 to 66.95 ms at p50 and 102.10 to 108.20 ms at p95.
 
 Also not yet measured: a cold disk cache, and pages deep into the order of a broad word.
 
