@@ -152,6 +152,7 @@ class Ranker {
   readonly #worker: Worker;
   readonly #opened = Promise.withResolvers<void>();
   readonly #pendingReplies: PromiseWithResolvers<RankerReply>[] = [];
+  #isOpen = false;
   #failure: Error | undefined;
 
   constructor(worker: Worker) {
@@ -160,6 +161,7 @@ class Ranker {
     this.#opened.promise.catch(() => undefined);
     worker.on("message", (reply: RankerReply) => {
       if (reply.type === "opened") {
+        this.#isOpen = true;
         this.#opened.resolve();
         return;
       }
@@ -186,10 +188,17 @@ class Ranker {
     });
   }
 
-  async request(request: RankerRequest): Promise<RankerReply> {
-    await this.#opened.promise;
+  // Posted at once on an open ranker, not a turn later, so a read opened before the caller's own
+  // synchronous work starts while that work runs.
+  request(request: RankerRequest): Promise<RankerReply> {
+    return this.#isOpen
+      ? this.#post(request)
+      : this.#opened.promise.then(() => this.#post(request));
+  }
+
+  #post(request: RankerRequest): Promise<RankerReply> {
     if (this.#failure !== undefined) {
-      throw this.#failure;
+      return Promise.reject(this.#failure);
     }
     const reply = Promise.withResolvers<RankerReply>();
     this.#pendingReplies.push(reply);

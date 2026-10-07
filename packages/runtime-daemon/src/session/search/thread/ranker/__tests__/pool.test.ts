@@ -101,10 +101,13 @@ describe("the rankers", () => {
   });
 
   it("ranks within the reads it opened, whatever commits after", async () => {
+    // Once every ranker's connection is open.
+    await rankers.openRead().end();
     const plan = planOf(new SessionSearchService(reader), { query: "retr" });
     const rankerRead = rankers.openRead();
-    // Time for every ranker to open its read before the write commits.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // This thread held as a plan holds it, giving every ranker time to open its read meanwhile,
+    // before the write commits.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
     const writtenRowid = writeLogRow();
 
     const split = await rankerRead.rank(plan.matchExpression, false, plan.highestRowid);
