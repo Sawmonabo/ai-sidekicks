@@ -1,16 +1,19 @@
-// The refusal grammar: three shapes, one contract. Controls are offered; refusals are rendered,
+// The refusal grammar: four shapes, one contract. Controls are offered; refusals are rendered,
 // and never hide the control that produced them or re-derive the daemon's rule.
 //
 // The shape is a question of blast radius, not severity:
 //
 //   - inline: nothing changed. It sits beside the control, and the control stays.
+//   - strip: a page's write or read failed and the control is as it was; it ends in `Try again`.
 //   - card: the session's history now contains it, so it belongs in the transcript.
 //   - banner: what the whole room can do has changed, so it spans the frame.
 //
-// Every shape shows the daemon's message verbatim, never paraphrased or shortened. The code and
-// its reason reach the screen only as words (`RefusalWords`), never as their wire spelling; the
-// code also rides on the root as `data-refusal-code` for diagnostics. The next move is the
-// caller's `action`; the renderer computes no eligibility and so no remedy.
+// Every shape shows the refusing service's message verbatim, never paraphrased or shortened,
+// unless the screen gives that failure a fixed sentence of its own. The card and the banner add
+// the code and its reason as words (`RefusalWords`), never as their wire spelling; the inline line
+// and the strip show the message alone. The code also rides on the root as `data-refusal-code`
+// for diagnostics. The next move is the caller's `action`; the renderer computes no eligibility
+// and so no remedy.
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RefusalExtensions } from "#renderer/lib/refusal/extensions.js";

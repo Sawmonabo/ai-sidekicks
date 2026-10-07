@@ -1,18 +1,16 @@
-// The two axes a mount card reads on: lifecycle and health, one table each and total over its
-// wire union, never collapsed into one chip (a `detached` row is finished, an `unreachable` one
-// cannot be asked). Health is the daemon's status, read as words: the console never probes a path
-// or ranks failing verdicts. `identity_mismatch` means the root answers but holds another
-// repository.
+// The two axes a mount reads on, lifecycle and health: one table each, total over its wire union,
+// and never collapsed into one chip (a `detached` mount is finished, an `unreachable` one cannot
+// be asked). Health is the daemon's status read as words: the console never probes a path or
+// ranks failing verdicts. Only a failed health verdict is colored; a detached or archived mount
+// needs no one, so its lifecycle stays neutral.
 
-import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/mount";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { RepoMountState } from "@ai-sidekicks/contracts/repo/mount";
+import type { RepoMountHealth, RepoMountState } from "@ai-sidekicks/contracts/repo/mount";
 import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 
 /**
- * One axis reading as a card renders it. `label` is the wire word read as words; `sentence` is
- * the console's prose for the next move.
+ * One axis as a mount's card or row renders it. `label` is the wire word read as words;
+ * `sentence` is the console's prose for the next move.
  */
 export interface MountAxisReading {
   readonly tone: ChipTone;
@@ -70,48 +68,12 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisPresentation>
   },
 };
 
-/**
- * Whether a card offers its bind controls. The withheld arm carries the sentence saying why,
- * so a control is never disabled without a reason.
- */
-export type BindControlAvailability =
-  | { readonly available: true }
-  | { readonly available: false; readonly unavailableBecause: string };
-
-/** How this mount's health reads. */
+/** How a mount's health reads. */
 export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
   return { ...HEALTH_READINGS[health.status], label: codeWords(health.status) };
 }
 
-/** How this mount's lifecycle position reads. */
+/** How a mount's lifecycle position reads. */
 export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
   return { ...LIFECYCLE_READINGS[state], label: codeWords(state) };
-}
-
-const BIND_CONTROLS_AVAILABLE: BindControlAvailability = { available: true };
-
-/**
- * A fail-closed projection of daemon-reported state, not an eligibility rule: the daemon alone
- * decides whether a bind is admissible. Lifecycle is checked before health, so a detached row
- * never reads as unreachable.
- */
-export function readBindControlAvailability(mount: RepoMountReadResponse): BindControlAvailability {
-  if (mount.state !== "attached") {
-    return {
-      available: false,
-      unavailableBecause: LIFECYCLE_READINGS[mount.state].sentence,
-    };
-  }
-  if (mount.health.status !== "healthy") {
-    return {
-      available: false,
-      unavailableBecause: HEALTH_READINGS[mount.health.status].sentence,
-    };
-  }
-  return BIND_CONTROLS_AVAILABLE;
-}
-
-/** The sentence a workspace's binding controls are closed with, or `undefined` while open. */
-export function controlHoldSentence(availability: BindControlAvailability): string | undefined {
-  return availability.available ? undefined : availability.unavailableBecause;
 }

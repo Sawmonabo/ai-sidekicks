@@ -27,6 +27,9 @@
 //
 // A move that goes nowhere (`End` on the last row) arms nothing, since no run would spend the
 // claim. The key is still consumed and the row still revealed.
+//
+// A list whose rows are all mounted asks for no reveal, and a short closed list may wrap at its
+// ends and follow its cursor with a selection through `onRowMove`.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -65,8 +68,18 @@ export interface WindowedRovingIndexOptions {
   readonly anchorIndex: number;
   /** The element the moved-to row is looked up inside. */
   readonly containerRef: React.RefObject<HTMLElement | null>;
-  /** Ask the window to mount a row. Called on every move, before focus is attempted. */
-  readonly revealIndex: (rowIndex: number) => void;
+  /**
+   * Ask the window to mount a row. Called on every move, before focus is attempted; absent for a
+   * list that mounts every row.
+   */
+  readonly revealIndex?: (rowIndex: number) => void;
+  /**
+   * Whether a move past either end comes round to the other. Absent, a move stops at the end:
+   * in a long list a wrap would carry a reader across the whole enumeration for one step.
+   */
+  readonly wrapsAround?: boolean;
+  /** Told where each key press moved the keyboard, for a list whose selection follows it. */
+  readonly onRowMove?: (rowIndex: number) => void;
   /**
    * The identity of the drawn sequence, so a move belongs to the set it was made in.
    *
@@ -100,21 +113,26 @@ export interface WindowedRovingIndex {
 }
 
 /**
- * Where a move lands, clamped rather than wrapped.
- *
- * Wrapping would carry a reader across the whole enumeration for a press meant as one step.
- * Pure and exported so the rule is provable without a DOM.
+ * Where a move lands: past an end it stops there, or comes round to the other end when the list
+ * wraps. Pure and exported so the rule is provable without a DOM.
  */
 export function movedRowIndex(
   move: WindowedRowMove,
   activeIndex: number,
   rowCount: number,
+  wrapsAround: boolean,
 ): number {
   switch (move) {
     case "next":
-      return Math.min(activeIndex + 1, rowCount - 1);
+      if (activeIndex + 1 < rowCount) {
+        return activeIndex + 1;
+      }
+      return wrapsAround ? 0 : rowCount - 1;
     case "previous":
-      return Math.max(activeIndex - 1, 0);
+      if (activeIndex > 0) {
+        return activeIndex - 1;
+      }
+      return wrapsAround ? rowCount - 1 : 0;
     case "first":
       return 0;
     case "last":
@@ -148,17 +166,30 @@ const PENDING_FOCUS_RETRIES = 2;
  * One tab stop, arrow keys inside it, and the moved-to row focused once it mounts.
  */
 export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): WindowedRovingIndex {
-  const { rowCount, anchorIndex, containerRef, revealIndex, windowRevision, rowSetIdentity } =
-    options;
+  const {
+    rowCount,
+    anchorIndex,
+    containerRef,
+    revealIndex,
+    wrapsAround = false,
+    onRowMove,
+    windowRevision,
+    rowSetIdentity,
+  } = options;
   const [movedTo, setMovedTo] = useState<MovedRow | undefined>(undefined);
   const [mountedFallbackIndex, setMountedFallbackIndex] = useState<number | undefined>(undefined);
   const pendingFocus = useRef<PendingRowFocus | undefined>(undefined);
   const revealRequestedForIndex = useRef<number | undefined>(undefined);
 
-  // A move stands only inside the sequence it was made in. Derived here rather than cleared
-  // in state, so no render can read a stale move.
+  // A move stands only inside the sequence it was made in, and only until the caller anchors the
+  // list on another row: a press or a link choosing a row outranks where the keys left the
+  // cursor. Derived here rather than cleared in state, so no render can read a stale move.
   const movedToIndex =
-    movedTo !== undefined && movedTo.rowSetIdentity === rowSetIdentity ? movedTo.index : undefined;
+    movedTo !== undefined &&
+    movedTo.rowSetIdentity === rowSetIdentity &&
+    (movedTo.anchorIndex === anchorIndex || movedTo.index === anchorIndex)
+      ? movedTo.index
+      : undefined;
   // `rovingIndex` is where the keyboard is; `activeIndex`, the tab stop, differs from it only
   // while the window does not hold that row.
   const rovingIndex = clampedRowIndex(movedToIndex ?? anchorIndex, rowCount);
@@ -180,7 +211,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // Once per index, not per run: a virtualizer hands back a fresh window value every
       // render, so an unguarded call would re-ask on every render while waiting.
       revealRequestedForIndex.current = rovingIndex;
-      revealIndex(rovingIndex);
+      revealIndex?.(rovingIndex);
     }
     setMountedFallbackIndex(nearestMountedRowIndex(containerRef.current, rovingIndex));
   }, [rovingIndex, containerRef, revealIndex, rowCount, windowRevision]);
@@ -228,9 +259,9 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       keyEvent.preventDefault();
       // Measured from the tab stop, where focus actually is: a move out of a stand-in row
       // starts from the row the reader can see.
-      const moved = movedRowIndex(move, activeIndex, rowCount);
+      const moved = movedRowIndex(move, activeIndex, rowCount, wrapsAround);
       // The sequence is captured with the move, and the claim is armed with that same value.
-      const movedRow: MovedRow = { index: moved, rowSetIdentity };
+      const movedRow: MovedRow = { index: moved, rowSetIdentity, anchorIndex };
       if (moved !== activeIndex) {
         // A boundary key at its boundary lands on the row already focused, so no claim is
         // armed: arming and consuming it would call focus() on the focused row, which still
@@ -243,9 +274,13 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // one if the window has not produced the moved-to row.
       setMountedFallbackIndex(undefined);
       revealRequestedForIndex.current = moved;
-      revealIndex(moved);
+      revealIndex?.(moved);
+      // A boundary key at its boundary moved nothing, so there is nothing to tell.
+      if (moved !== activeIndex) {
+        onRowMove?.(moved);
+      }
     },
-    [activeIndex, revealIndex, rowCount, rowSetIdentity],
+    [activeIndex, anchorIndex, revealIndex, rowCount, rowSetIdentity, wrapsAround, onRowMove],
   );
 
   return { activeIndex, onKeyDown };
@@ -259,6 +294,8 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
 interface MovedRow {
   readonly index: number;
   readonly rowSetIdentity: unknown;
+  /** Where the caller anchored the list when the move was made. */
+  readonly anchorIndex: number;
 }
 
 /**

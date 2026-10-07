@@ -6,7 +6,9 @@
 import type { ReactNode } from "react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
+import { GENERAL_CONTROLS } from "./controls.js";
 
 /** The General page: the running version, platform, architecture and locale. */
 export function GeneralPage(props: { readonly context: SettingsPageContext }): ReactNode {
@@ -15,30 +17,18 @@ export function GeneralPage(props: { readonly context: SettingsPageContext }): R
   return (
     <div className="meridian-settings-page">
       <dl className="meridian-settings-page__facts">
-        <div className="meridian-settings-page__fact">
-          <dt>Version</dt>
-          <dd>
-            <WireFigure value={app.version} />
-          </dd>
-        </div>
-        <div className="meridian-settings-page__fact">
-          <dt>Platform</dt>
-          <dd>
-            <WireFigure value={app.platform} />
-          </dd>
-        </div>
-        <div className="meridian-settings-page__fact">
-          <dt>Architecture</dt>
-          <dd>
-            <WireFigure value={app.arch} />
-          </dd>
-        </div>
-        <div className="meridian-settings-page__fact">
-          <dt>Locale</dt>
-          <dd>
-            <WireFigure value={app.locale} />
-          </dd>
-        </div>
+        <SettingsFact control={GENERAL_CONTROLS.version}>
+          <WireFigure value={app.version} />
+        </SettingsFact>
+        <SettingsFact control={GENERAL_CONTROLS.platform}>
+          <WireFigure value={app.platform} />
+        </SettingsFact>
+        <SettingsFact control={GENERAL_CONTROLS.architecture}>
+          <WireFigure value={app.arch} />
+        </SettingsFact>
+        <SettingsFact control={GENERAL_CONTROLS.language}>
+          <WireFigure value={app.locale} />
+        </SettingsFact>
       </dl>
     </div>
   );

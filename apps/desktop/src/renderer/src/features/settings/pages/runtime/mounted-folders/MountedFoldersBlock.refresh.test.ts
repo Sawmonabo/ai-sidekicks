@@ -5,7 +5,7 @@
 // `MountedFoldersBlock.test-support.tsx`.
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { act } from "@testing-library/react";
+import { act, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { MOUNT_A } from "./MountedFolderList.test-support.js";
@@ -53,7 +53,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     expect(page.textContent ?? "").toContain("that folder is not attached");
 
     await act(async () => {
-      page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
+      within(page).getByRole("button", { name: "Try again" }).click();
       await crossMacrotaskBoundary();
     });
     await settle();
@@ -73,7 +73,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     );
 
     await act(async () => {
-      page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
+      within(page).getByRole("button", { name: "Try again" }).click();
       await crossMacrotaskBoundary();
     });
     await settle();

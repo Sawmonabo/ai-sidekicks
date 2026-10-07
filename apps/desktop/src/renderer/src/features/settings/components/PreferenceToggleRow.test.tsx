@@ -17,6 +17,7 @@ describe("preference toggle row", () => {
         label="Busy"
         description="d"
         checked={false}
+        checkedByDefault={false}
         isPending={true}
         onCheckedChange={onCheckedChange}
       />,

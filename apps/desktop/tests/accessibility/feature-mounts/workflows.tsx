@@ -40,6 +40,7 @@ import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneKind } from "#renderer/routing/panes/kinds.js";
 import { paneContext } from "../../helpers/pane-context.js";
+import { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./queries.js";
@@ -114,6 +115,7 @@ async function screenBodyComponent(): Promise<FunctionComponent<{ context: Scree
  * registry is real and empty because this window has opened nothing.
  */
 function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
+  const uiStateStore = openUiStateStore();
   return {
     route,
     bridge,
@@ -126,8 +128,9 @@ function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
     }),
     // The board the screen opens panes from; the pane helper above mounts bodies from the same one.
     paneRegistry: workflowPaneRegistry(),
-    uiStateStore: openUiStateStore(),
+    uiStateStore,
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+    lastSettingsPage: new LastSettingsPage(uiStateStore),
     chooseScheme: () => undefined,
   };
 }

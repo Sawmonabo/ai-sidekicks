@@ -20,6 +20,7 @@ import {
 } from "#renderer/store/window/main-process-state.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
+import { RUNTIME_CONTROLS } from "./controls.js";
 import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
 
 /** What the Runtime page is handed. */
@@ -29,15 +30,10 @@ export interface RuntimePageProps {
   readonly children?: ReactNode;
 }
 
-/** The page: the lede, what the supervisor reports about the service, and its folders. */
+/** The page: what the supervisor reports about the service, and its folders. */
 export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
-      <p className="meridian-settings-page__lede">
-        The background service that runs sidekicks, the folders it can reach, what it keeps, and the
-        port it listens on.
-      </p>
-
       <section className="meridian-settings-page__block">
         <dl className="meridian-settings-page__facts">
           {renderSupervisorFacts(props.context.mainProcessState)}
@@ -64,7 +60,7 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
   const { connection } = state;
   return (
     <>
-      <SettingsFact term="State">
+      <SettingsFact control={RUNTIME_CONTROLS.state}>
         {connection.kind === "unreported" ? (
           <Nothing kind="not-checked" placement="inline" title={UNREPORTED_DAEMON_NOTICE.title} />
         ) : (

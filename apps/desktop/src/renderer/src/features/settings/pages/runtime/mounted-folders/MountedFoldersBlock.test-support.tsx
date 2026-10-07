@@ -122,7 +122,9 @@ export async function renderSettledBlock(reading: {
 
 /** The block's own element, so a case never reads the announcer's regions by accident. */
 function mountedFoldersBlockOf(root: HTMLElement): HTMLElement {
-  const block = root.querySelector<HTMLElement>('section[aria-label="Mounted repositories"]');
+  const block = root.querySelector<HTMLElement>(
+    'section[aria-label="Folders this machine can reach"]',
+  );
   if (block === null) {
     throw new Error("the mounted-folders block did not render");
   }

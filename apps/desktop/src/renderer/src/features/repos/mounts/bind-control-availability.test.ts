@@ -3,10 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { readBindControlAvailability } from "./health.js";
+import { readBindControlAvailability } from "./bind-control-availability.js";
 import { buildMount } from "./repo-mounts.test-support.js";
 
-describe("mount-health — a drifted mount", () => {
+describe("bind-control availability — a drifted mount", () => {
   it("withholds the bind controls, saying the drift is permanent", () => {
     const availability = readBindControlAvailability(
       buildMount({
@@ -24,7 +24,7 @@ describe("mount-health — a drifted mount", () => {
   });
 });
 
-describe("mount-health — the bind-control availability", () => {
+describe("bind-control availability — the controls offered", () => {
   it("offers controls on an attached, healthy mount", () => {
     expect(readBindControlAvailability(buildMount())).toStrictEqual({ available: true });
   });

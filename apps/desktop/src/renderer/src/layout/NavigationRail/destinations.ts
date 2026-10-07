@@ -5,6 +5,7 @@
 
 import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
+import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 import {
   findScreenNameForRoute,
   type ScreenRegistry,
@@ -22,17 +23,20 @@ export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destina
 }));
 
 /**
- * Where a rail click goes. Total and argument-free; `railDestinationFor` is its inverse on every
- * arm.
+ * Where a rail click goes: Settings opens on `lastSettingsPageId`, the page last open, or on its
+ * list before any was. Total; `railDestinationFor` is its inverse on every arm.
  */
-export function routeForDestination(destination: RailDestination): AppRoute {
+export function routeForDestination(
+  destination: RailDestination,
+  lastSettingsPageId: SettingsPageId | undefined,
+): AppRoute {
   switch (destination) {
     case "sessions":
       return { kind: "sessions" };
     case "workflows":
       return { kind: "workflows" };
     case "settings":
-      return { kind: "settings", page: undefined };
+      return { kind: "settings", page: lastSettingsPageId };
   }
 }
 
@@ -48,7 +52,8 @@ export function warmDestination(
 ): void {
   // Fire-and-forget: a speculative fetch has nobody waiting, and a chunk that will not load is
   // reported at the mount, where the error boundary can say so.
-  void warmRouteScreen(screenRegistry, routeForDestination(destination));
+  // Any page of a destination mounts the same screen, so the warm names none.
+  void warmRouteScreen(screenRegistry, routeForDestination(destination, undefined));
 }
 
 /**

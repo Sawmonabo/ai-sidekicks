@@ -4,9 +4,9 @@
 
 import { createElement } from "react";
 
-import { BrowserSettingsSection } from "./BrowserSettingsSection.js";
+import { BrowserPage } from "./BrowserPage.js";
 
-/** The browser section of settings, as the settings board loads it. */
+/** The Browser page, as the settings page registry loads it. */
 export function Body(): React.ReactNode {
-  return createElement(BrowserSettingsSection);
+  return createElement(BrowserPage);
 }

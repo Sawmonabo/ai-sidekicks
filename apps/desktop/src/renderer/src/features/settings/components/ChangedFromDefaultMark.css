@@ -1,0 +1,9 @@
+/* A round accent mark after a control's name, sized on the space scale. */
+.meridian-settings-changed-mark {
+  display: inline-block;
+  flex: none;
+  inline-size: var(--meridian-space-2);
+  block-size: var(--meridian-space-2);
+  border-radius: 50%;
+  background: var(--meridian-accent);
+}

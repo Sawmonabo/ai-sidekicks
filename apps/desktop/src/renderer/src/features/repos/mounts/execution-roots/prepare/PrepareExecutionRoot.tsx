@@ -14,7 +14,10 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
-import { controlHoldSentence, type BindControlAvailability } from "../../health.js";
+import {
+  controlHoldSentence,
+  type BindControlAvailability,
+} from "../../bind-control-availability.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./controller.js";
 

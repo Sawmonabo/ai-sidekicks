@@ -54,7 +54,7 @@ afterEach(() => {
 describe("reflow — the console at 320 CSS px", () => {
   for (const destination of RAIL_DESTINATIONS) {
     it(`needs no horizontal scroll at the ${destination} destination`, async () => {
-      document.location.hash = formatRoute(routeForDestination(destination));
+      document.location.hash = formatRoute(routeForDestination(destination, undefined));
       const appWindow = await renderAppSettled(CONCURRENT_STREAMING_SCENARIO_ID);
 
       // Stated before it is read, so the measured width is in the record.
@@ -85,7 +85,7 @@ describe("reflow — the console at 320 CSS px", () => {
     // permits below 320 CSS px) instead of squeezing every view further. Without it the frame would
     // track the viewport and this case would read it at the narrower width.
     narrowTesterViewportTo(REFLOW_MIN_WIDTH_PX - 40);
-    document.location.hash = formatRoute(routeForDestination("settings"));
+    document.location.hash = formatRoute(routeForDestination("settings", undefined));
     const appWindow = await renderAppSettled(CONCURRENT_STREAMING_SCENARIO_ID);
 
     const frame = appWindow.document.querySelector(".meridian-frame");

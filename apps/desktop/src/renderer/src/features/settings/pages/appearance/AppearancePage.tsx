@@ -14,6 +14,10 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { ChangedFromDefaultMark } from "../../components/ChangedFromDefaultMark.js";
+import { settingsControlAnchor } from "../../control/anchor.js";
+import type { SettingsControl } from "../../types.js";
+import { APPEARANCE_CONTROLS, COLOR_SCHEME_HEADING, COLOR_SCHEME_HINT } from "./controls.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import {
@@ -22,31 +26,16 @@ import {
   type SchemePreference,
 } from "#renderer/styles/tokens.js";
 
-/** One option and what choosing it means. */
+/** One option: the preference it chooses, and the control that names it. */
 interface SchemeOption {
   readonly preference: SchemePreference;
-  readonly label: string;
-  readonly description: string;
+  readonly control: SettingsControl;
 }
 
 const SCHEME_OPTIONS: readonly SchemeOption[] = [
-  {
-    preference: SYSTEM_SCHEME_PREFERENCE,
-    label: "Follow this machine",
-    description:
-      "Paints whichever scheme the operating system is in, and keeps " +
-      "following it when that changes.",
-  },
-  {
-    preference: "light",
-    label: "Light",
-    description: "Holds the light scheme whatever the operating system is doing.",
-  },
-  {
-    preference: "dark",
-    label: "Dark",
-    description: "Holds the dark scheme whatever the operating system is doing.",
-  },
+  { preference: SYSTEM_SCHEME_PREFERENCE, control: APPEARANCE_CONTROLS.system },
+  { preference: "light", control: APPEARANCE_CONTROLS.light },
+  { preference: "dark", control: APPEARANCE_CONTROLS.dark },
 ];
 
 /** What the appearance page is handed. */
@@ -67,13 +56,18 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
 
   return (
     <div className="meridian-settings-page">
-      <p className="meridian-settings-page__lede">How the app looks.</p>
-
-      <section className="meridian-settings-page__block" aria-label="Color scheme">
-        <h3 className="meridian-settings-page__block-title">Color scheme</h3>
+      <section className="meridian-settings-page__block" aria-label={COLOR_SCHEME_HEADING}>
+        <div className="meridian-scheme-choice__head">
+          <h3 className="meridian-settings-page__section-head">{COLOR_SCHEME_HEADING}</h3>
+          {appliedScheme === undefined || appliedScheme === SYSTEM_SCHEME_PREFERENCE ? null : (
+            <ChangedFromDefaultMark
+              defaultDescription={`${APPEARANCE_CONTROLS.system.label} by default`}
+            />
+          )}
+        </div>
         <RadioGroup
           className="meridian-scheme-choice"
-          aria-label="Color scheme"
+          aria-label={COLOR_SCHEME_HEADING}
           value={appliedScheme ?? null}
           onValueChange={(value: unknown) => {
             if (isSchemePreference(value)) {
@@ -82,17 +76,19 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
           }}
         >
           {SCHEME_OPTIONS.map((option) => (
-            <label key={option.preference} className="meridian-scheme-choice__option">
+            <label
+              key={option.preference}
+              className="meridian-scheme-choice__option"
+              {...settingsControlAnchor(option.control)}
+            >
               <Radio.Root value={option.preference} className="meridian-scheme-choice__control">
                 <Radio.Indicator className="meridian-scheme-choice__indicator" />
               </Radio.Root>
-              <span className="meridian-scheme-choice__text">
-                <span className="meridian-scheme-choice__label">{option.label}</span>
-                <span className="meridian-scheme-choice__description">{option.description}</span>
-              </span>
+              <span className="meridian-scheme-choice__label">{option.control.label}</span>
             </label>
           ))}
         </RadioGroup>
+        <p className="meridian-settings-page__aside">{COLOR_SCHEME_HINT}</p>
         {appliedScheme === undefined ? (
           <Nothing
             kind="error"

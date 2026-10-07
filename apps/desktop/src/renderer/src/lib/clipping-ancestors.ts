@@ -24,6 +24,21 @@ export function clipsItsContents(overflowValue: string): boolean {
 }
 
 /**
+ * A computed style's `overflow` on each axis: the longhands where either is readable, else the
+ * `overflow` shorthand's `<x> [<y>]`, whose one value covers both axes.
+ */
+export function overflowAxesOf(style: CSSStyleDeclaration): {
+  readonly horizontal: string;
+  readonly vertical: string;
+} {
+  if (style.overflowX !== "" || style.overflowY !== "") {
+    return { horizontal: style.overflowX, vertical: style.overflowY };
+  }
+  const [horizontal = "", vertical = horizontal] = style.overflow.trim().split(/\s+/u);
+  return { horizontal, vertical };
+}
+
+/**
  * Every ancestor of `element` that clips what is inside it, innermost first.
  *
  * A generator so a caller that stops once its running clip is empty pays for only the
@@ -40,16 +55,7 @@ export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
   }
 }
 
-// The shorthand arm splits on whitespace because `overflow` takes `<x> [<y>]`.
-
 function styleClipsItsContents(style: CSSStyleDeclaration): boolean {
-  const horizontalAxis = style.overflowX;
-  const verticalAxis = style.overflowY;
-  if (horizontalAxis !== "" || verticalAxis !== "") {
-    return clipsItsContents(horizontalAxis) || clipsItsContents(verticalAxis);
-  }
-  return style.overflow
-    .trim()
-    .split(/\s+/u)
-    .some((axisValue) => clipsItsContents(axisValue));
+  const { horizontal, vertical } = overflowAxesOf(style);
+  return clipsItsContents(horizontal) || clipsItsContents(vertical);
 }

@@ -19,6 +19,14 @@
   max-width: 56ch;
 }
 
+/* The label and, while the value is not its default, the changed mark after it. */
+.meridian-settings-row__name {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
 /*
  * The two custom properties are this label's public API: a page whose label is a wire value
  * sets them for the provenance face, and every other page leaves them unset. A page's own

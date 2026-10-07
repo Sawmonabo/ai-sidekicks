@@ -1,4 +1,4 @@
-/* The three refusal shapes: inline, card and banner. Red means something failed. */
+/* The four refusal shapes: inline, strip, card and banner. Red means something failed. */
 
 .meridian-refusal__message {
   margin: 0;
@@ -26,6 +26,25 @@
 
 .meridian-refusal--inline .meridian-refusal__message {
   color: var(--meridian-text-muted);
+}
+
+/* strip: a page's failed write or read, the control as it was. No box and no mark, so the words
+   carry the failure in the red text ink, and the try-again word sits at the line's right end. */
+.meridian-refusal--strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-3);
+  margin-block-start: var(--meridian-refusal-inline-margin-block-start, var(--meridian-space-2));
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-refusal--strip .meridian-refusal__message {
+  color: var(--meridian-red-text);
+}
+
+.meridian-refusal__try-again {
+  margin-inline-start: auto;
 }
 
 /* card: the session's history now contains this refusal. */

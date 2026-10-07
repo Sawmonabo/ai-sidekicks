@@ -2,8 +2,9 @@
 //
 // The term is a node, not a string: one caller's terms are wire values rendered through
 // `WireFigure` (verbatim, in mono, never re-cased) and another's are the console's own words,
-// so this cannot be the `__facts` grid, whose `dt` upper-cases. It renders the list and not the
-// block around it; every settings page writes its own `section` and heading.
+// so this cannot be the `__facts` grid, which stacks a small muted label over each value. It
+// renders the list and not the block around it; every settings page writes its own `section` and
+// heading.
 
 import type { ReactNode } from "react";
 

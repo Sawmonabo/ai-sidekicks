@@ -27,6 +27,10 @@ export interface MachineSettingsBinding {
     member: Member,
     value: MachineSettings[Member],
   ) => void;
+  /** Sends a member's refused change again, as its `Try again` asks. */
+  readonly retry: (member: MachineSettingsMember) => void;
+  /** Opens the feed again, as a failed read's `Try again` asks. */
+  readonly readAgain: () => void;
 }
 
 /**
@@ -57,6 +61,12 @@ export function useMachineSettings(bridge: PlatformBridge): MachineSettingsBindi
       // the passive effect that acquired it. The write never rejects: a refusal lands in the
       // snapshot.
       void machineSettingsHolder.acquire(bridge).choose(member, value);
+    },
+    retry: (member) => {
+      void machineSettingsHolder.acquire(bridge).retry(member);
+    },
+    readAgain: () => {
+      machineSettingsHolder.acquire(bridge).readAgain();
     },
   };
 }

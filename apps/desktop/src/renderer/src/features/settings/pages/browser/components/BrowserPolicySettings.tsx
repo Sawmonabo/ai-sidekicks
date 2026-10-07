@@ -28,7 +28,7 @@ export interface BrowserPolicySettingsProps {
 export function BrowserPolicySettings(props: BrowserPolicySettingsProps): React.JSX.Element {
   return (
     <section className="meridian-browser-settings__section" aria-label="Browser policy">
-      <h3 className="meridian-browser-settings__section-title">Policy</h3>
+      <h3 className="meridian-settings-page__section-head">Policy</h3>
       <ul className="meridian-browser-policy">
         {BROWSER_POLICY_SWITCHES.map((switchId) => (
           <PolicyRow

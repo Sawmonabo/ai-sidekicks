@@ -6,17 +6,28 @@
 // download completed. The console never derives readiness from a percent, and only
 // `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
 // for that control under the controls, which stay drawn. Under the read-out sits the switch for
-// the machine setting `updatesAutomatic`, which draws a refused write the same way.
+// the machine setting `updatesAutomatic`, drawn only once the settings file has been read so it
+// never shows a value it does not hold: a refused write leaves the switch where it was and draws
+// the refusal's message, or the screen's fixed sentence for it, in the strip, with `Try again`
+// sending the same change again.
 
 import type { UpdateState } from "#shared/preload-api.js";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
+import { UPDATE_FAILED_DETAIL, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
@@ -35,7 +46,7 @@ const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>>
   downloading: "Update state read. An update is downloading.",
   verifying: "Update state read. The update's signature is being checked.",
   ready: "Update state read. An update has downloaded and installs on the next restart.",
-  error: "Update state read. The updater reported a failure.",
+  error: `Update state read. ${UPDATE_FAILED_DETAIL}`,
 };
 
 /** The subsystem a refused updater control names as its author. */
@@ -50,7 +61,7 @@ export interface UpdatesBlockProps {
   /** The machine settings the automatic-check switch reads and writes. */
   readonly preferences: Pick<
     MachineSettingsBinding,
-    "settings" | "isPending" | "refusalFor" | "choose"
+    "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
   >;
 }
 
@@ -58,9 +69,27 @@ export interface UpdatesBlockProps {
 export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const { updater, preferences } = props;
   const reading = useUpdateReading(updater);
+  const clock = useClock();
   // Said once, when the updater read lands.
   useSettlementAnnouncement(updateSettlementSentence(reading));
   const status = reading.kind === "state" ? reading.state.status : undefined;
+  const failureMessage =
+    reading.kind === "state" && reading.state.status === "error"
+      ? reading.state.message
+      : undefined;
+  // The updater's own words are for the log; the screen draws the fixed sentence.
+  useEffect(() => {
+    if (failureMessage === undefined) {
+      return;
+    }
+    windowDiagnosticCapture.record({
+      at: diagnosticStampAt(clock),
+      severity: "error",
+      source: "features/settings",
+      kind: "update-failed",
+      detail: failureMessage,
+    });
+  }, [failureMessage, clock]);
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
   const press = (request: () => Promise<void>, failedDetail: string): void => {
     setControlRefusal(undefined);
@@ -68,13 +97,18 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
       setControlRefusal(refuse(UPDATER_CONTROL_ORIGIN, UPDATER_CONTROL_FAILED, failedDetail));
     });
   };
-  const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">
-      <h3 className="meridian-settings-page__block-title">Updates</h3>
+      <h3 className="meridian-settings-page__section-head">Updates</h3>
 
-      <UpdateReadOut reading={reading} />
+      <UpdateReadOut
+        reading={reading}
+        clock={clock}
+        onTryAgain={() => {
+          press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
+        }}
+      />
 
       <div className="meridian-settings-page__actions">
         <button
@@ -114,32 +148,60 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         <InlineRefusal code={controlRefusal.code} detail={controlRefusal.detail} />
       )}
 
+      {renderAutomaticCheck(preferences, clock)}
+    </section>
+  );
+}
+
+/**
+ * The automatic-check switch once the settings file has been read; before that, the reading line
+ * after the short delay, or the failed read with `Try again`.
+ */
+function renderAutomaticCheck(
+  preferences: UpdatesBlockProps["preferences"],
+  clock: Clock,
+): ReactNode {
+  const { reading, readRefusal } = preferences.snapshot;
+  if (reading === undefined) {
+    return readRefusal === undefined ? (
+      <LoadingNotice clock={clock} placement="inline" title="Reading settings…" />
+    ) : (
+      <InlineRefusal
+        code={readRefusal.code}
+        detail="The settings could not be read."
+        onTryAgain={preferences.readAgain}
+      />
+    );
+  }
+  const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
+  return (
+    <>
       <PreferenceToggleRow
         label="Check for updates automatically"
         checked={preferences.settings.updatesAutomatic}
+        checkedByDefault={MACHINE_SETTINGS_DEFAULTS.updatesAutomatic}
         isPending={preferences.isPending("updatesAutomatic")}
         onCheckedChange={(checked) => {
           preferences.choose("updatesAutomatic", checked);
         }}
       />
       {preferenceRefusal === undefined ? null : (
-        <InlineRefusal code={preferenceRefusal.code} detail={preferenceRefusal.detail} />
+        <InlineRefusal
+          code={preferenceRefusal.code}
+          detail={preferenceRefusal.detail}
+          onTryAgain={() => {
+            preferences.retry("updatesAutomatic");
+          }}
+        />
       )}
-    </section>
+    </>
   );
 }
 
 /**
  * The one sentence this block announces, or `undefined` while no state has settled; a refused
  * read is drawn as a refusal, which speaks for itself.
- *
- * The `error` arm appends the updater's message so the announcement says what failed.
  */
 function updateSettlementSentence(reading: UpdateReading): string | undefined {
-  if (reading.kind !== "state") {
-    return undefined;
-  }
-  return reading.state.status === "error"
-    ? `${UPDATE_STATUS_SETTLEMENTS.error} ${reading.state.message}`
-    : UPDATE_STATUS_SETTLEMENTS[reading.state.status];
+  return reading.kind === "state" ? UPDATE_STATUS_SETTLEMENTS[reading.state.status] : undefined;
 }

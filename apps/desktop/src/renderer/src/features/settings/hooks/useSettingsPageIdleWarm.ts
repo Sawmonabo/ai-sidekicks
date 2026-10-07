@@ -1,10 +1,11 @@
 // When a settings window warms its deferred pages, and what stops it.
 //
 // The walk starts in `useEffect`, after the first frame commits, so it does not compete with the
-// frame that draws the rail. It belongs to the mount: the page board is composed per settings
-// mount, so the walk is canceled on unmount. `useLazyBodyIdleWarm` binds two window-scoped
-// boards under one cleanup, a different lifetime, and a feature may not import from the frame. A
-// board of only `render:` pages is still walked: it ends on its first step and fetches nothing.
+// frame that draws the page list. It belongs to the mount: the page board is composed per
+// settings mount, so the walk is canceled on unmount. `useLazyBodyIdleWarm` binds two
+// window-scoped boards under one cleanup, a different lifetime, and a feature may not import from
+// the frame. A board of only `render:` pages is still walked: it ends on its first step and
+// fetches nothing.
 
 import { useEffect, useState } from "react";
 

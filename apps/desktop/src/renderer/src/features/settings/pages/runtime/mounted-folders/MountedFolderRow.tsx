@@ -2,11 +2,15 @@ import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders
 import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { codeWords } from "#renderer/lib/code-words.js";
+import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 
 /** One row: the path, the two axes, and when the mount was last probed. */
 export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse }): ReactNode {
   const { mount } = props;
+  const lifecycle = mountLifecycleReading(mount.state);
+  const health = mountHealthReading(mount.health);
   return (
     <div className="meridian-mount-list__row">
       <span className="meridian-mount-list__path">
@@ -16,13 +20,9 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
         <WireFigure value={mount.canonicalRoot} />
       </span>
       <span className="meridian-mount-list__axes">
-        <Chip tone={attachmentTone(mount)} label={`Attachment: ${mount.state}`} glyph="dot" />
-        <Chip
-          tone={mountHealthTone(mount)}
-          label={`Health: ${mount.health.status}`}
-          glyph="clock"
-        />
-        <Chip tone="neutral" label={mount.vcsType} mono />
+        <Chip tone={lifecycle.tone} label={`Attachment: ${lifecycle.label}`} glyph="dot" />
+        <Chip tone={health.tone} label={`Health: ${health.label}`} glyph="clock" />
+        <Chip tone="neutral" label={codeWords(mount.vcsType)} />
       </span>
       <span className="meridian-mount-list__probe">
         Last probed at{" "}
@@ -30,24 +30,4 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
       </span>
     </div>
   );
-}
-
-/**
- * How the lifecycle axis is toned: a presentation of the daemon's value, never a verdict.
- * The value renders verbatim beside the tone, so a color never stands in for a state name.
- */
-function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
-  return mount.state === "attached" ? "neutral" : "attention";
-}
-
-/**
- * The same, for the health axis. The two are toned independently.
- *
- * The axis is health, not reachability: `RepoMountHealth` has three verdicts and only one
- * is about reachability. `identity_mismatch` names a root that was reached and is no longer
- * the repository it was attached as. Anything but `healthy` is a failure a person has to
- * act on.
- */
-function mountHealthTone(mount: RepoMountReadResponse): "neutral" | "failure" {
-  return mount.health.status === "healthy" ? "neutral" : "failure";
 }

@@ -44,7 +44,10 @@ export const TRANSCRIPT_OWNER = "transcript";
  * screen renders one session) and `chooseScheme`. The one thing it asks of the registry,
  * re-reading a session when a person presses `Try again`, is handed over as that act alone.
  */
-type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme"> & {
+type SessionScreenMountProps = Omit<
+  ScreenContext,
+  "sessionStoreRegistry" | "chooseScheme" | "lastSettingsPage"
+> & {
   /** Reads one session again through the registry, for a person's press. */
   readonly rereadSession: (sessionId: string) => Refusal | undefined;
 };

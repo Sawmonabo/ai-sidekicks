@@ -50,9 +50,9 @@ export type MachineSettingsService = Pick<PlatformBridge["machineSettings"], "wr
  *
  * The feed is the read: the bridge's subscription delivers the file as it stands and then
  * each written change, so a delivery always installs and no separate read is made. A feed that
- * could not open, or ended before delivering, opens again when the transport comes back; one that
- * ended after delivering opens again at once, and its first delivery is the file as it stands, so
- * nothing written meanwhile is missed.
+ * could not open publishes why and is tried again after a wait and when the transport comes back,
+ * as one that ended before delivering is; one that ended after delivering opens again at once,
+ * and its first delivery is the file as it stands, so nothing written meanwhile is missed.
  */
 export class MachineSettingsStore {
   readonly #machineSettings: MachineSettingsService;
@@ -68,6 +68,8 @@ export class MachineSettingsStore {
   readonly #answers = new GenerationLatch();
   /** Writes in flight per member; a count, so one of two settling does not clear the row. */
   readonly #writesInFlight = new Map<MachineSettingsMember, number>();
+  /** The change each refused member asked for, so a retry sends exactly what was refused. */
+  readonly #refusedChanges = new Map<MachineSettingsMember, MachineSettingsChange>();
 
   public constructor(
     machineSettings: MachineSettingsService,
@@ -98,8 +100,24 @@ export class MachineSettingsStore {
       onFrame: (reading: MachineSettingsReading) => {
         this.#install(reading);
       },
-      firstOpenFailure: "reopenOnReconnect",
+      onReopenRefusal: (refusal) => {
+        if (!this.#disposed) {
+          this.#publish({ ...this.#snapshot, readRefusal: refusal });
+        }
+      },
+      firstOpenFailure: "refuseAndRetry",
     });
+  }
+
+  /** Open the feed again at once, as a failed read's `Try again` asks, dropping its refusal. */
+  public readAgain(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
+    this.#publish({ ...this.#snapshot, readRefusal: undefined });
+    this.start();
   }
 
   /** Terminal. A reply landing after this writes nothing. */
@@ -114,20 +132,33 @@ export class MachineSettingsStore {
    *
    * The service's answer (the file as written) is installed unless newer news arrived first.
    * A rejected write records the service's refusal against the member, which stops pending
-   * and keeps the stored value.
+   * and keeps the stored value, so the control reads the value it had.
    */
   public async choose<Member extends MachineSettingsMember>(
     member: Member,
     value: MachineSettings[Member],
   ): Promise<void> {
+    const change: MachineSettingsChange = { [member]: value };
+    await this.#write(member, change);
+  }
+
+  /** Send a refused member's change again; a member with no refusal standing sends nothing. */
+  public async retry(member: MachineSettingsMember): Promise<void> {
+    const change = this.#refusedChanges.get(member);
+    if (change !== undefined) {
+      await this.#write(member, change);
+    }
+  }
+
+  async #write(member: MachineSettingsMember, change: MachineSettingsChange): Promise<void> {
     const answer = this.#answers.supersedeAndClaim(this, ANSWER_KEY);
     this.#writesInFlight.set(member, (this.#writesInFlight.get(member) ?? 0) + 1);
+    this.#refusedChanges.delete(member);
     this.#publish({
       ...this.#snapshot,
       pendingMembers: this.#pendingMembers(),
       refusalByMember: this.#refusalsWith(member, undefined),
     });
-    const change: MachineSettingsChange = { [member]: value };
     let written: MachineSettings | undefined;
     let refusal: Refusal | undefined;
     try {
@@ -146,6 +177,9 @@ export class MachineSettingsStore {
     const reading =
       written !== undefined && answer.isCurrent ? { settings: written } : this.#snapshot.reading;
     answer.release();
+    if (refusal !== undefined) {
+      this.#refusedChanges.set(member, change);
+    }
     this.#publish({
       ...this.#snapshot,
       reading,
@@ -159,7 +193,7 @@ export class MachineSettingsStore {
       return;
     }
     this.#answers.supersede(this, ANSWER_KEY);
-    this.#publish({ ...this.#snapshot, reading });
+    this.#publish({ ...this.#snapshot, reading, readRefusal: undefined });
   }
 
   #settleWrite(member: MachineSettingsMember): void {

@@ -51,7 +51,7 @@ export function AccountRow(props: {
           onSelect(account);
         }}
       >
-        <span className="meridian-accounts__row-label">{account.label}</span>
+        <span className="meridian-accounts__identity">{account.label}</span>
         <span className="meridian-accounts__row-chips">
           <Chip label={PROVIDER_LABELS[account.provider]} />
           {/* The billing-mode label beside every money figure, so plan-included usage is never

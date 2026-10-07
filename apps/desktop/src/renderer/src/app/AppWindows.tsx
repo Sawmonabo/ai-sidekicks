@@ -9,6 +9,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { RealClock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -23,6 +29,7 @@ import { useAppearance } from "./hooks/useAppearance.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
+import { useLastSettingsPage } from "./hooks/useLastSettingsPage.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowStores } from "./hooks/useWindowStores.js";
 import { AppWindow, type AppStores } from "./AppWindow.js";
@@ -50,6 +57,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   // Opening the database connection returns at once, so first paint waits on no storage.
   const uiStateStore = useUiStateStore();
+  const lastSettingsPage = useLastSettingsPage(uiStateStore);
 
   const [draftStore] = useState(
     () => new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
@@ -61,6 +69,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
     sessionStoreRegistry,
     uiStateStore,
     draftStore,
+    lastSettingsPage,
   };
 
   // Main keeps the appearance; every window applies what main kept and asks main for a change.
@@ -70,7 +79,15 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   useEffect(
     () =>
       openWindows.bringForwardThrough((windowId) => {
-        void bridge.window.bringForward(windowId);
+        bridge.window.bringForward(windowId).catch((failure: unknown) => {
+          windowDiagnosticCapture.record({
+            at: diagnosticStampAt(new RealClock()),
+            severity: "error",
+            source: "app/AppWindows",
+            kind: "bring-forward-failed",
+            detail: normalizeWireRejection("app/AppWindows", failure).detail,
+          });
+        });
       }),
     [openWindows, bridge],
   );
@@ -96,6 +113,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
     keyboardMap: bridge.keyboardMap,
     appearance,
     screenRegistry,
+    lastSettingsPage,
   });
 
   const { isRestoreOffered, restoreWindows } = useKeptWindowLayout({

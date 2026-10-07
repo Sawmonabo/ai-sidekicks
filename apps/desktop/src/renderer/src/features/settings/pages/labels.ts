@@ -9,9 +9,11 @@ export const SETTINGS_PAGE_LABELS: Readonly<Record<SettingsPageId, string>> = {
   general: "General",
   providers: "Providers",
   "mcp-servers": "MCP servers",
+  projects: "Projects",
   browser: "Browser",
   keyboard: "Keyboard",
   appearance: "Appearance",
   notifications: "Notifications",
   runtime: "Runtime",
+  devices: "Devices",
 };

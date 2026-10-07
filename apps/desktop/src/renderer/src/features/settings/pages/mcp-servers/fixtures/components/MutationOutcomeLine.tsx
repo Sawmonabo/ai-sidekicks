@@ -41,11 +41,13 @@ export function MutationOutcomeLine(props: {
     return <InlineRefusal code={outcome.refusal.code} detail={outcome.refusal.detail} />;
   }
   const { binding, settlement } = outcome;
-  const failedSessions = (settlement.liveResults ?? []).filter(
-    (liveResult) =>
-      liveResult.outcome === "failed" &&
-      listedSessionOf(sessionDirectory, liveResult.sessionId) !== undefined,
-  );
+  const failedSessions = (settlement.liveResults ?? []).flatMap((liveResult) => {
+    const entry =
+      liveResult.outcome === "failed"
+        ? listedSessionOf(sessionDirectory, liveResult.sessionId)
+        : undefined;
+    return entry === undefined ? [] : [{ liveResult, entry }];
+  });
   return (
     <div className="meridian-mcp__outcome" role="status">
       {settlement.grades.map((grade) => (
@@ -53,10 +55,9 @@ export function MutationOutcomeLine(props: {
           {settleLineFor(grade, binding.provider)}
         </p>
       ))}
-      {failedSessions.map((liveResult) => (
+      {failedSessions.map(({ liveResult, entry }) => (
         <p key={mcpLiveLegKeyOf(liveResult)} className="meridian-settings-page__state">
-          <SessionName sessionId={liveResult.sessionId} sessionDirectory={sessionDirectory} /> is
-          still running with the old setting.
+          <SessionName entry={entry} /> is still running with the old setting.
         </p>
       ))}
     </div>

@@ -1,11 +1,18 @@
-// The updater double and the settled render the updates-block suite drives.
+// The updater double, the machine-settings service double and the settled render the
+// updates-block suite drives.
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { UpdateState } from "#shared/preload-api.js";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
 
@@ -27,15 +34,77 @@ export function updaterReporting(
   };
 }
 
-/** Machine settings as a window reads them before anything was chosen; a press reaches `choose`. */
+/** Machine settings read as the defaults with nothing chosen; a press reaches `choose`. */
 export function preferencesAtDefaults(
   choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
 ): UpdatesBlockProps["preferences"] {
   return {
+    snapshot: {
+      reading: { settings: MACHINE_SETTINGS_DEFAULTS },
+      pendingMembers: new Set(),
+      refusalByMember: new Map(),
+      readRefusal: undefined,
+    },
     settings: MACHINE_SETTINGS_DEFAULTS,
     isPending: () => false,
     refusalFor: () => undefined,
     choose,
+    retry: () => undefined,
+    readAgain: () => undefined,
+  };
+}
+
+/**
+ * The service's `machineSettings`, whose feed refuses to open for the first `failedOpenCount`
+ * opens and then delivers the defaults; it takes no writes.
+ */
+export function machineSettingsUnreadable(
+  failedOpenCount: number,
+): PlatformBridge["machineSettings"] & { readonly opens: number } {
+  let opens = 0;
+  return {
+    get opens(): number {
+      return opens;
+    },
+    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_DEFAULTS }),
+    write: () => Promise.reject(new Error("no write is expected")),
+    subscribe: (deliver) => {
+      opens += 1;
+      if (opens <= failedOpenCount) {
+        throw new Error("The background service is not connected.");
+      }
+      deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
+      return () => undefined;
+    },
+  };
+}
+
+/**
+ * The service's `machineSettings`, whose feed delivers the defaults once and whose writes are
+ * rejected with the message `refusal` for the first `refusedWriteCount` and then answered with
+ * the auto-update member as written, the only member this block writes.
+ */
+export function machineSettingsRefusing(
+  refusedWriteCount: number,
+  refusal: string,
+): PlatformBridge["machineSettings"] & { readonly writes: unknown[] } {
+  const writes: unknown[] = [];
+  return {
+    writes,
+    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_DEFAULTS }),
+    write: (change) => {
+      writes.push(change);
+      return writes.length <= refusedWriteCount
+        ? Promise.reject(new Error(refusal))
+        : Promise.resolve({
+            ...MACHINE_SETTINGS_DEFAULTS,
+            updatesAutomatic: change.updatesAutomatic ?? MACHINE_SETTINGS_DEFAULTS.updatesAutomatic,
+          });
+    },
+    subscribe: (deliver) => {
+      deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
+      return () => undefined;
+    },
   };
 }
 
@@ -61,12 +130,52 @@ export async function renderSettled(
   updater: UpdaterCalls,
   preferences: UpdatesBlockProps["preferences"] = preferencesAtDefaults(),
 ): Promise<{ readonly block: HTMLElement }> {
+  return await mountSettled(
+    freshBridge(),
+    <UpdatesBlock updater={updater} preferences={preferences} />,
+  );
+}
+
+/**
+ * Mount the block on this window's real machine-settings binding over `machineSettings`, so a
+ * write's answer moves the switch exactly as the store folds it.
+ */
+export async function renderOnMachineSettings(
+  updater: UpdaterCalls,
+  machineSettings: PlatformBridge["machineSettings"],
+): Promise<{ readonly block: HTMLElement }> {
+  const bridge: PlatformBridge = { ...freshBridge(), machineSettings };
+  return await mountSettled(
+    bridge,
+    <UpdatesBlockOnMachineSettings updater={updater} bridge={bridge} />,
+  );
+}
+
+/** The block as a page mounts it: its preferences bound to the window's machine settings. */
+function UpdatesBlockOnMachineSettings(props: {
+  readonly updater: UpdaterCalls;
+  readonly bridge: PlatformBridge;
+}): React.JSX.Element {
+  const preferences = useMachineSettings(props.bridge);
+  return <UpdatesBlock updater={props.updater} preferences={preferences} />;
+}
+
+/** A fresh fixture bridge per mount, so one case's machine-settings store is never another's. */
+function freshBridge(): PlatformBridge {
+  return createFixtureBridge({ scenario: unscriptedScenario("updates-block") }).bridge;
+}
+
+/** Render under the bridge's provider, which the reading line takes its clock from. */
+async function mountSettled(
+  bridge: PlatformBridge,
+  block: ReactNode,
+): Promise<{ readonly block: HTMLElement }> {
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(
-      <LiveAnnouncerProvider>
-        <UpdatesBlock updater={updater} preferences={preferences} />
-      </LiveAnnouncerProvider>,
+      <PlatformBridgeProvider bridge={bridge}>
+        <LiveAnnouncerProvider>{block}</LiveAnnouncerProvider>
+      </PlatformBridgeProvider>,
     );
     await crossMacrotaskBoundary();
     await crossMacrotaskBoundary();

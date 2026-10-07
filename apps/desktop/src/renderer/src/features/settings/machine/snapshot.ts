@@ -22,6 +22,8 @@ export interface MachineSettingsSnapshot {
   readonly pendingMembers: ReadonlySet<MachineSettingsMember>;
   /** The refusal each member's last write was answered with, dropped when it is written again. */
   readonly refusalByMember: ReadonlyMap<MachineSettingsMember, Refusal>;
+  /** Why the feed could not be opened, until it opens again or delivers. */
+  readonly readRefusal: Refusal | undefined;
 }
 
 /**
@@ -32,6 +34,7 @@ export const NOTHING_CHOSEN: MachineSettingsSnapshot = {
   reading: undefined,
   pendingMembers: new Set(),
   refusalByMember: new Map(),
+  readRefusal: undefined,
 };
 
 /** The settings a row shows: the service's answer, or the defaults before it answered. */

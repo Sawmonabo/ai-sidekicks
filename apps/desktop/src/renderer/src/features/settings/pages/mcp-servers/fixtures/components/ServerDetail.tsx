@@ -88,7 +88,7 @@ export function ServerDetail(props: {
       <ConfigReadBack config={entry.config} />
 
       <div className="meridian-mcp__detail-block">
-        <h4 className="meridian-mcp__detail-block-title">Running sessions</h4>
+        <h4 className="meridian-settings-page__section-head">Running sessions</h4>
         <ServerLegs
           legs={entry.legs}
           sessionDirectory={sessionDirectory}

@@ -1,5 +1,6 @@
-/* The browser policy rows: a switch, a label, and the sentence that says what turning it on
- * stops enforcing. No literal color: every value comes from a Meridian custom property. */
+/* The browser policy rows: a switch, a label with its changed mark, and the sentence that says
+ * what turning it on stops enforcing. No literal color: every value comes from a Meridian custom
+ * property. */
 
 .meridian-browser-policy {
   display: flex;
@@ -32,6 +33,14 @@
   min-inline-size: 0;
 }
 
+/* The label and, while the switch is not in its shipped position, the changed mark after it. */
+.meridian-browser-policy__name {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
 .meridian-browser-policy__label {
   font-size: var(--meridian-text-md);
   font-weight: 500;
@@ -41,9 +50,4 @@
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
-}
-
-.meridian-browser-policy__default {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
 }

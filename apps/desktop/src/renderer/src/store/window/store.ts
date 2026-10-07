@@ -30,9 +30,17 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly reason?: RefusalExtensions["reason"];
 }
 
+/**
+ * How a route reaches the window's history: a new entry Back returns from, or a replacement of
+ * the current one, for a move that only follows a cursor.
+ */
+export type RouteHistoryWrite = "push" | "replace";
+
 /** The window store's state: route, modal-dialog flag, banners, focus, report. */
 export interface WindowStoreState {
   readonly route: AppRoute;
+  /** How the current route is written to the window's history. */
+  readonly routeHistoryWrite: RouteHistoryWrite;
   /**
    * The session this window most recently had in hand, kept after the route stops naming one.
    * The registry does not close a session when the route leaves it, so without this the rail
@@ -85,6 +93,7 @@ export class WindowStore {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
     this.#store = createStore<WindowStoreState>(() => ({
       route: initialRoute,
+      routeHistoryWrite: "push",
       // Seeded from the opening route so a window opened at a session has it in hand at once.
       lastOpenedSessionId: routeSessionId(initialRoute),
       isModalDialogOpen: false,
@@ -120,9 +129,14 @@ export class WindowStore {
     return this.#store.getState().lastOpenedSessionId;
   }
 
-  /** Move this window to a route. */
+  /** Move this window to a route, as a new history entry Back returns from. */
   public navigate(route: AppRoute): void {
-    this.#setRoute(route);
+    this.#setRoute(route, "push");
+  }
+
+  /** Move this window to a route in place of the current history entry. */
+  public replaceRoute(route: AppRoute): void {
+    this.#setRoute(route, "replace");
   }
 
   /** Adopt a route parsed from the location hash. Idempotent on an unchanged hash. */
@@ -132,7 +146,7 @@ export class WindowStore {
     if (routesAreEqual(current, route)) {
       return;
     }
-    this.#setRoute(route);
+    this.#setRoute(route, "push");
   }
 
   /**
@@ -220,10 +234,12 @@ export class WindowStore {
    * The one route writer, so the retained session cannot be left behind by `navigate` or
    * `adoptHash`. A route that names no session leaves it alone.
    */
-  #setRoute(route: AppRoute): void {
+  #setRoute(route: AppRoute, routeHistoryWrite: RouteHistoryWrite): void {
     const sessionId = routeSessionId(route);
     this.#store.setState(
-      sessionId === undefined ? { route } : { route, lastOpenedSessionId: sessionId },
+      sessionId === undefined
+        ? { route, routeHistoryWrite }
+        : { route, routeHistoryWrite, lastOpenedSessionId: sessionId },
     );
   }
 }

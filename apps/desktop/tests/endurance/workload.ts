@@ -12,7 +12,7 @@
 // because it never performed the mount and unmount it claims to measure. Each transition waits
 // on something only its destination renders; the route locators below are production markup.
 //
-// Each locator names a structure only its own route mounts: the settings frame's section rail,
+// Each locator names a structure only its own route mounts: the settings frame's page list pane,
 // and the transcript pane. An empty-state class would not do, because the transcript renders its
 // own `empty` when a session has no rows and the settings pages render `not-checked` empty
 // states.
@@ -76,12 +76,13 @@ export const CONCURRENT_STREAMING_SESSION_ROUTE: string = formatRoute({
 export const SETTINGS_ROUTE: string = "#/settings";
 
 /**
- * What the settings route renders and the session screen does not: the section rail, the one
+ * What the settings route renders and the session screen does not: the page list pane, the one
  * piece of markup that exists if and only if this screen mounted. It is anchored under the
  * frame's screen region so a same-class element in the rail, a banner or an overlay cannot
  * satisfy the wait.
  */
-export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-settings__rail";
+export const SETTINGS_SCREEN_SELECTOR: string =
+  ".meridian-frame__screen .meridian-settings__list-pane";
 
 /**
  * What the session screen renders and the settings route does not: the transcript pane, which

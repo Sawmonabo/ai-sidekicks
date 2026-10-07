@@ -1,15 +1,22 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
-// offered before the download finishes and needs no confirmation, a call main does not answer is
-// drawn in the block's own words, and the automatic-check switch. The doubles are in
-// `UpdatesBlock.test-support.tsx`.
+// offered before the download finishes and needs no confirmation, a call main does not answer and
+// a failure the updater reports are drawn in the block's own words, and the automatic-check
+// switch, which a refused write leaves where it was. The doubles are in `UpdatesBlock.test-support.tsx`.
 import { act } from "@testing-library/react";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import {
+  machineSettingsRefusing,
+  machineSettingsUnreadable,
   preferencesAtDefaults,
   pressControl,
+  renderOnMachineSettings,
   renderSettled,
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
+import { UPDATE_FAILED_DETAIL } from "./updater-reading.js";
 
 describe("the updates block — nothing downloads without a press", () => {
   it("offers the download on a found update, and downloads on a press", async () => {
@@ -87,6 +94,39 @@ describe("the updates block — a call main does not answer is drawn in the bloc
   });
 });
 
+describe("the updates block — the updater's failure is drawn in the block's words", () => {
+  it("draws the fixed sentence with Try again and sends the updater's words to the log", async () => {
+    const updaterWords = "ENOENT: /private/var/folders/xy/update.zip";
+    const batches: string[] = [];
+    const detach = windowDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    try {
+      const requestCheck = vi.fn(() => Promise.resolve());
+      const { block } = await renderSettled(
+        updaterReporting({ status: "error", message: updaterWords }, { requestCheck }),
+      );
+      windowDiagnosticCapture.flush();
+
+      expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
+        UPDATE_FAILED_DETAIL,
+      );
+      expect(document.body.textContent).not.toContain(updaterWords);
+      const logged = batches
+        .flatMap((batch) => batch.split("\n"))
+        .map((line) => JSON.parse(line) as { kind: string; detail: string })
+        .filter((record) => record.kind === "update-failed");
+      expect(logged.map((record) => record.detail)).toStrictEqual([updaterWords]);
+
+      await pressControl(block, "Try again");
+
+      expect(requestCheck).toHaveBeenCalledTimes(1);
+    } finally {
+      detach();
+    }
+  });
+});
+
 describe("the updates block — checking on its own", () => {
   it("draws the switch on by default, and a press turns it off", async () => {
     const choose = vi.fn();
@@ -105,5 +145,68 @@ describe("the updates block — checking on its own", () => {
     });
 
     expect(choose).toHaveBeenCalledWith("updatesAutomatic", false);
+  });
+});
+
+describe("the updates block — a refused write puts the switch back", () => {
+  it("keeps the value it had, says why with Try again, and sends the same change again", async () => {
+    // As Electron rejects a call main's answer threw on: the channel's name rides the message.
+    const machineSettings = machineSettingsRefusing(
+      1,
+      "Error invoking remote method 'machineSettings.write': Error: read-only",
+    );
+    const { block } = await renderOnMachineSettings(
+      updaterReporting({ status: "idle" }),
+      machineSettings,
+    );
+    const control = (): HTMLElement | null => block.querySelector('[role="switch"]');
+
+    await act(async () => {
+      control()?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(machineSettings.writes).toStrictEqual([{ updatesAutomatic: false }]);
+    expect(control()?.getAttribute("aria-checked")).toBe("true");
+    const strip = block.querySelector("[data-refusal-code]");
+    expect(strip?.querySelector(".meridian-refusal__message")?.textContent).toBe(
+      NOT_ANSWERING_MESSAGE,
+    );
+    expect(block.textContent).not.toContain("machineSettings.write");
+    // At its default the switch carries no changed mark.
+    expect(block.querySelector('[aria-label="Changed from the default"]')).toBeNull();
+
+    await pressControl(block, "Try again");
+
+    expect(machineSettings.writes).toStrictEqual([
+      { updatesAutomatic: false },
+      { updatesAutomatic: false },
+    ]);
+    expect(control()?.getAttribute("aria-checked")).toBe("false");
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
+    expect(
+      block.querySelector('[aria-label="Changed from the default"]')?.getAttribute("title"),
+    ).toBe("On by default");
+  });
+});
+
+describe("the updates block — the switch waits for the settings file", () => {
+  it("draws no switch while the file cannot be read, says so with Try again, and reads again", async () => {
+    const machineSettings = machineSettingsUnreadable(1);
+    const { block } = await renderOnMachineSettings(
+      updaterReporting({ status: "idle" }),
+      machineSettings,
+    );
+
+    expect(block.querySelector('[role="switch"]')).toBeNull();
+    expect(block.querySelector("[data-refusal-code] .meridian-refusal__message")?.textContent).toBe(
+      "The settings could not be read.",
+    );
+
+    await pressControl(block, "Try again");
+
+    expect(machineSettings.opens).toBe(2);
+    expect(block.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
   });
 });

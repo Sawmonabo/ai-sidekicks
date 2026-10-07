@@ -33,7 +33,8 @@ import type { SessionDirectoryState } from "#renderer/store/session/directory/st
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
@@ -214,22 +215,16 @@ export function McpFixtureBody(props: {
     ),
   );
   if (state.kind === "not-loaded") {
-    return <Nothing kind="not-loaded" placement="block" title="Reading the server list…" />;
+    return <LoadingNotice clock={clock} placement="block" title="Reading the server list…" />;
   }
   if (state.kind === "failed") {
     return (
-      <Nothing
-        kind="error"
-        placement="block"
-        title="The server list could not be read."
-        detail={state.refusal.detail}
-        action={
-          <TryAgainButton
-            onPress={() => {
-              setOpeningOrdinal((held) => held + 1);
-            }}
-          />
-        }
+      <InlineRefusal
+        code={state.refusal.code}
+        detail="The server list could not be read."
+        onTryAgain={() => {
+          setOpeningOrdinal((held) => held + 1);
+        }}
       />
     );
   }
