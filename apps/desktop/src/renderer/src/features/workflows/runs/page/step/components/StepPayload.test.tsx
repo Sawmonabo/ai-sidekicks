@@ -73,7 +73,7 @@ function renderPayload(view: StepPayloadView, items: WorkflowItem[] = ITEMS): HT
     </LiveAnnouncerProvider>,
     { wrapper: liveBridgeWrapper() },
   );
-  return screen.getByRole("region", { name: LABEL });
+  return screen.getByRole("group", { name: LABEL });
 }
 
 describe("a step payload in the Table view", () => {

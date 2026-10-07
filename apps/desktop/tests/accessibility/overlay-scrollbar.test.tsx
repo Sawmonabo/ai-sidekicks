@@ -1,11 +1,16 @@
 // The accessibility tier over scrollers with their overlay bars started and showing: the library
 // appends its bars inside the scroller, so a bar inside a list would be a child the list may not
 // hold. A pointer move over each scroller starts a bar that waits for one and shows it before axe
-// runs: Review's file list and a payload, then Review's diff and the command palette's list, each
-// keeping its table or listbox inside its scroller, and each scroller reachable from the keyboard.
-// The negative control is a list that is itself the scroller, which axe must report.
+// runs. Review's file list and a payload hold their lists inside their scrollers; the negative
+// control is a list that is itself the scroller, which axe must report.
+//
+// Every scroller that is a tab stop of its own is a group named for what it holds: a diff, two of
+// them with one name as two cards in a conversation show them, a run group's earlier entries, a
+// step's payload rows, a payload's text and the command palette's matches. None is a landmark,
+// which would fill the landmark list with one entry per card, and no bar sits inside the table or
+// listbox a scroller holds.
 
-import { act, cleanup } from "@testing-library/react";
+import { act, cleanup, render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
@@ -15,6 +20,8 @@ import { renderSettled } from "#test/helpers/app/harness.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
 import { DiffFileList } from "#renderer/features/repos/diff/components/DiffFileList.js";
+import { DiffRenderer } from "#renderer/features/repos/diff/components/DiffRenderer.js";
+import { diffRendererProps } from "#renderer/features/repos/diff/components/DiffRenderer.test-support.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "#renderer/features/repos/diff/caps.js";
 import {
   installOverlayScrollbarLibrary,
@@ -26,6 +33,12 @@ import { mountDiffPane } from "./feature-mounts/repos/views.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { CommandPalette } from "#renderer/layout/CommandPalette/CommandPalette.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
+import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
+import { RunGroupBody } from "#renderer/features/transcript/runs/components/RunGroupBody.js";
+import { groupRowsByRun } from "#renderer/features/transcript/runs/groups.js";
+import { findRunGroup } from "#renderer/features/transcript/runs/groups.test-support.js";
+import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/components/StepPayload/PayloadRowWindow.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 /** How long a bar may take to start and show: the library's load plus its window's idle time. */
@@ -37,6 +50,15 @@ const SHOWN_VERTICAL_BAR =
 
 /** More commands than the palette's list shows, so it scrolls. */
 const PALETTE_COMMAND_COUNT = 120;
+
+/** The one name two diff cards share when they show the same pair of refs. */
+const DIFF_LABEL = "Diff, main to feat/rate-limit-wiring";
+
+/** What a step's payload window is named for. */
+const PAYLOAD_ROWS_LABEL = "Output of Summarize";
+
+/** A role whose element holds only its own kind of child, so a bar may not sit inside it. */
+const CONTAINER_ROLES_HOLDING_NO_BAR = '[role="table"], [role="listbox"], table';
 
 afterEach(() => {
   cleanup();
@@ -59,6 +81,18 @@ async function showEveryBar(scrollers: readonly HTMLElement[]): Promise<void> {
       )
       .toStrictEqual(scrollers.map(() => true));
   });
+}
+
+/**
+ * Every bar under `root` that sits inside a table or a listbox, which may hold only their own
+ * kind of child; throws when `root` holds no bar at all, so an empty answer means something.
+ */
+function barsInsideTableOrListbox(root: ParentNode): Element[] {
+  const bars = Array.from(root.querySelectorAll(".os-scrollbar"));
+  if (bars.length === 0) {
+    throw new Error("no overlay bar was drawn here");
+  }
+  return bars.filter((bar) => bar.closest(CONTAINER_ROLES_HOLDING_NO_BAR) !== null);
 }
 
 describe("accessibility — the overlay scrollbar", () => {
@@ -124,10 +158,80 @@ describe("accessibility — the overlay scrollbar", () => {
     forced.destroy();
   });
 
-  it("has no axe violation with the bars of Review's diff and the command palette's list showing", async () => {
+  it("names every scroller that is a tab stop as a group, with no landmark and no bar in a table or listbox", async () => {
     installMeridianTokens(document);
     installOverlayScrollbarLibrary(document);
     const diffPane = await mountDiffPane();
+    const BridgeHost = liveBridgeWrapper();
+    const runRows = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP * 2 }, (_unused, index) =>
+      runRow({
+        id: `r${String(index + 1)}`,
+        sequence: index + 1,
+        type: "run.running",
+        summary: `entry ${String(index + 1)}`,
+        runId: "run-a",
+        position: index + 1,
+      }),
+    );
+    const { container: conversation } = render(
+      <BridgeHost>
+        {/* Two cards over the same refs, each holding its diff to a height so its rows overflow. */}
+        <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
+        <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
+        <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
+        <PayloadRowWindow
+          rowCount={200}
+          label={PAYLOAD_ROWS_LABEL}
+          className=""
+          renderRow={(rowIndex) => <span>row {rowIndex}</span>}
+        />
+        <ArtifactPayloadSection
+          payload={{
+            status: "text",
+            artifactId: "artifact-overlay-scrollbar" as ArtifactId,
+            encoding: "utf8",
+            text: "a payload line\n".repeat(200),
+          }}
+        />
+      </BridgeHost>,
+    );
+    const paneDiff = diffPane.element.querySelector<HTMLElement>(".meridian-diff");
+    if (paneDiff === null) {
+      throw new Error("the diff pane drew no diff");
+    }
+    // The pane holds the diff to a height, so its rows overflow it.
+    paneDiff.style.maxBlockSize = "8rem";
+    const [firstCard, secondCard, runEntries, payloadRows, payloadText, ...rest] =
+      conversation.querySelectorAll<HTMLElement>(
+        ".meridian-diff, .meridian-run-group-body__scroller, " +
+          ".meridian-workflow-payload__window, .meridian-artifact-payload__preview",
+      );
+    if (payloadText === undefined || rest.length > 0) {
+      throw new Error("the conversation drew other than five scrollers");
+    }
+    await showEveryBar([paneDiff, firstCard, secondCard, runEntries, payloadRows, payloadText]);
+    expect(barsInsideTableOrListbox(document)).toStrictEqual([]);
+    // Nothing here adds a landmark: two diff cards over the same refs would be two landmarks of
+    // one name, which `landmark-unique` reports.
+    for (const root of [diffPane.element, conversation]) {
+      expect(describeViolations(await runTierAxe(root, ["landmark-unique"]))).toStrictEqual([]);
+    }
+    // Each scroller is the group a reader finds by its name, both computed as assistive
+    // technology computes them. A table must carry a name, so each diff's keeps its scroller's; a
+    // list need not, so the run group's carries none of its own.
+    const groupsNamed = (name: string | RegExp, root: HTMLElement): HTMLElement[] =>
+      within(root).getAllByRole("group", { name });
+    expect(groupsNamed(/^Diff, \S+ to \S+$/u, diffPane.element)).toStrictEqual([paneDiff]);
+    expect(groupsNamed(DIFF_LABEL, conversation)).toStrictEqual([firstCard, secondCard]);
+    expect(within(conversation).getAllByRole("table", { name: DIFF_LABEL })).toHaveLength(2);
+    expect(groupsNamed("Earlier entries in this run", conversation)).toStrictEqual([runEntries]);
+    expect(
+      within(conversation).queryByRole("list", { name: "Earlier entries in this run" }),
+    ).toBeNull();
+    expect(groupsNamed(PAYLOAD_ROWS_LABEL, conversation)).toStrictEqual([payloadRows]);
+    expect(groupsNamed("Payload text", conversation)).toStrictEqual([payloadText]);
+
+    // The palette opens last: it is modal, so the rest of the page is hidden from a reader.
     const registry = new CommandRegistry();
     registry.registerAll(
       Array.from({ length: PALETTE_COMMAND_COUNT }, (_unused, ordinal) => ({
@@ -137,7 +241,6 @@ describe("accessibility — the overlay scrollbar", () => {
         run: () => undefined,
       })),
     );
-    const BridgeHost = liveBridgeWrapper();
     await renderSettled(
       <BridgeHost>
         <CommandPalette
@@ -155,22 +258,19 @@ describe("accessibility — the overlay scrollbar", () => {
         />
       </BridgeHost>,
     );
-    const diff = diffPane.element.querySelector<HTMLElement>(".meridian-diff");
     const paletteList = document.querySelector<HTMLElement>(".command-palette__list");
     const palettePopup = paletteList?.closest<HTMLElement>(".command-palette__popup");
-    if (
-      diff === null ||
-      paletteList === null ||
-      palettePopup === null ||
-      palettePopup === undefined
-    ) {
-      throw new Error("the diff or the palette drew no scroller");
+    if (paletteList === null || palettePopup === null || palettePopup === undefined) {
+      throw new Error("the palette drew no list");
     }
-    // The pane holds the diff to a height, so its rows overflow it.
-    diff.style.maxBlockSize = "8rem";
-    await showEveryBar([diff, paletteList]);
-
-    expect(describeViolations(await runTierAxe(diffPane.element))).toStrictEqual([]);
-    expect(describeViolations(await runTierAxe(palettePopup))).toStrictEqual([]);
+    await showEveryBar([paletteList]);
+    expect(barsInsideTableOrListbox(palettePopup)).toStrictEqual([]);
+    expect(describeViolations(await runTierAxe(palettePopup, ["landmark-unique"]))).toStrictEqual(
+      [],
+    );
+    expect(groupsNamed("Matching commands", palettePopup)).toStrictEqual([paletteList]);
+    expect(within(paletteList).getAllByRole("listbox", { name: "Matching commands" })).toHaveLength(
+      1,
+    );
   });
 });

@@ -61,11 +61,13 @@ function ArtifactPayloadPreview(props: { readonly text: string }): React.JSX.Ele
     start: "on-first-interaction",
   });
   return (
-    // A tab stop, so a keyboard alone can scroll text that holds nothing focusable.
+    // A named tab stop, so a keyboard alone can scroll text that holds nothing focusable.
     <pre
       className="meridian-artifact-payload__preview meridian-focus-inset"
       ref={previewScrollbarRef}
       tabIndex={0}
+      role="group"
+      aria-label="Payload text"
     >
       {/* An element, not bare text: React writes a lone text child through `textContent`, which
           would delete the scrollbar drawn inside the box. */}

@@ -50,9 +50,10 @@ export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Elemen
       <div
         ref={scrollerScrollbarRef}
         className={`meridian-workflow-payload__window meridian-focus-inset ${props.className}`}
-        // Focusable so a keyboard can scroll it.
+        // A named tab stop, so a keyboard can scroll it; a group rather than a region, so a step's
+        // payloads add no landmarks.
         tabIndex={0}
-        role="region"
+        role="group"
         aria-label={props.label}
       >
         {/* Holds the whole height so the scrollbar spans every row; the window sits at its

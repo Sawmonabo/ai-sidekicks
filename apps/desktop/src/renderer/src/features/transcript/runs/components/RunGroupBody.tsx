@@ -48,14 +48,16 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
     <div className="meridian-run-group-body">
       {/* Never the scroll anchor: an anchored overlay would hold the fade still. */}
       {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
-      {/* The bar is drawn inside the scroller, so the scroller is not the list: a list holds
-          only its items. A tab stop, so a keyboard alone can scroll rows that hold nothing
-          focusable. */}
+      {/* A named tab stop, so a keyboard alone can scroll rows that hold nothing focusable. The
+          bar is drawn inside the scroller, so the scroller is not the list, which holds only
+          its items. */}
       <div
         ref={scrollerScrollbarRef}
         className="meridian-run-group-body__scroller meridian-focus-inset"
         style={{ maxBlockSize }}
         tabIndex={0}
+        role="group"
+        aria-label="Earlier entries in this run"
         onScroll={(event) => {
           const clippedAbove = event.currentTarget.scrollTop > 0;
           if (clippedAbove !== isClippedAbove) {
@@ -63,7 +65,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
           }
         }}
       >
-        <ol className="meridian-run-group-body__rows" aria-label="Earlier entries in this run">
+        <ol className="meridian-run-group-body__rows">
           {contents.rows.map((row) => (
             <li key={row.id} className="meridian-run-group-body__row">
               <span className="meridian-run-group-body__time">{row.timestamp}</span>
