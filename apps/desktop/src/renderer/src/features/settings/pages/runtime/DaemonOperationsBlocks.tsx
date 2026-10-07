@@ -28,6 +28,8 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { codeWords } from "#renderer/lib/code-words.js";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { formatByteQuantity, formatClockTime, formatPercent } from "#renderer/lib/wire/figures.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
@@ -181,7 +183,7 @@ function renderStatusRegion(
         <>
           <dl className="meridian-settings-page__facts">
             <SettingsFact term="Reported state">
-              <WireFigure value={reading.status.processState} />
+              {codeWords(reading.status.processState)}
             </SettingsFact>
             <SettingsFact term="Version">
               <WireFigure value={reading.status.version} />
@@ -214,7 +216,7 @@ function renderStatusRegion(
       return (
         <InlineRefusal
           code={reading.refusal.code}
-          detail="The background service is not answering."
+          detail={NOT_ANSWERING_MESSAGE}
           onTryAgain={checkAgain}
         />
       );

@@ -81,8 +81,8 @@ export function machineSettingsUnreadable(
 
 /**
  * The service's `machineSettings`, whose feed delivers the defaults once and whose writes are
- * refused for the first `refusedWriteCount` and then answered with the auto-update member as
- * written, the only member this block writes.
+ * rejected with the message `refusal` for the first `refusedWriteCount` and then answered with
+ * the auto-update member as written, the only member this block writes.
  */
 export function machineSettingsRefusing(
   refusedWriteCount: number,

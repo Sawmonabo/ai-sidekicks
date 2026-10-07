@@ -5,6 +5,7 @@
 import { act } from "@testing-library/react";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
+import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import {
   machineSettingsRefusing,
   machineSettingsUnreadable,
@@ -114,7 +115,11 @@ describe("the updates block — checking on its own", () => {
 
 describe("the updates block — a refused write puts the switch back", () => {
   it("keeps the value it had, says why with Try again, and sends the same change again", async () => {
-    const machineSettings = machineSettingsRefusing(1, "The settings file is read-only.");
+    // As Electron rejects a call main's answer threw on: the channel's name rides the message.
+    const machineSettings = machineSettingsRefusing(
+      1,
+      "Error invoking remote method 'machineSettings.write': Error: read-only",
+    );
     const { block } = await renderOnMachineSettings(
       updaterReporting({ status: "idle" }),
       machineSettings,
@@ -130,8 +135,9 @@ describe("the updates block — a refused write puts the switch back", () => {
     expect(control()?.getAttribute("aria-checked")).toBe("true");
     const strip = block.querySelector("[data-refusal-code]");
     expect(strip?.querySelector(".meridian-refusal__message")?.textContent).toBe(
-      "The settings file is read-only.",
+      NOT_ANSWERING_MESSAGE,
     );
+    expect(block.textContent).not.toContain("machineSettings.write");
     // At its default the switch carries no changed mark.
     expect(block.querySelector('[aria-label="Changed from the default"]')).toBeNull();
 
