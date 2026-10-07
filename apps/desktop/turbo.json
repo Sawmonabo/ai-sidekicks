@@ -348,6 +348,7 @@
       "inputs": [
         ".size-limit.ts",
         "tests/budget/built-renderer-tree.ts",
+        "scripts/budget/**",
         "out/renderer/**",
         "package.json"
       ],

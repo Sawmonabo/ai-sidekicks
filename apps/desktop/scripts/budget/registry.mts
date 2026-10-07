@@ -22,17 +22,15 @@ const BUDGETS_FILE_PATH: string = path.join(
 
 /** The parsed `tests/budget/document.json`. Construct with `BudgetRegistry.load()`. */
 export class BudgetRegistry {
-  readonly #budgetsFilePath: string;
   readonly #budgets: readonly Budget[];
 
-  private constructor(budgetsFilePath: string, budgets: readonly Budget[]) {
-    this.#budgetsFilePath = budgetsFilePath;
+  private constructor(budgets: readonly Budget[]) {
     this.#budgets = budgets;
   }
 
   /** @throws {BudgetRegistryError} on a missing, unreadable, or malformed registry. */
   static load(): BudgetRegistry {
-    return new BudgetRegistry(BUDGETS_FILE_PATH, readBudgetDocument(BUDGETS_FILE_PATH).budgets);
+    return new BudgetRegistry(readBudgetDocument(BUDGETS_FILE_PATH).budgets);
   }
 
   /** @throws {BudgetRegistryError} rather than returning a vacuous pass. */
@@ -40,7 +38,7 @@ export class BudgetRegistry {
     const budget = this.#budgets.find((candidate) => candidate.id === budgetId);
     if (budget === undefined) {
       throw new BudgetRegistryError(
-        `No budget \`${budgetId}\` in ${this.#budgetsFilePath}. ` +
+        `No budget \`${budgetId}\` in ${BUDGETS_FILE_PATH}. ` +
           `Known ids: ${this.#budgets.map((candidate) => candidate.id).join(", ")}.`,
       );
     }
