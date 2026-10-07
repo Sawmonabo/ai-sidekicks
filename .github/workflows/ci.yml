@@ -387,9 +387,6 @@ jobs:
           cat "$wm_log" || true
           exit 1
 
-      - name: Build (excluding control-plane, which the desktop does not use)
-        run: pnpm turbo run build --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
-
       # The browser-mode tiers drive a real Chromium through Vitest browser mode, and `pnpm install`
       # downloads none. `--with-deps` because Playwright's Chromium is not Electron's, and the
       # supported way to satisfy its shared-library set on Ubuntu is the flag, which apt-installs
@@ -398,6 +395,10 @@ jobs:
         if: contains(matrix.tier, 'browser') || contains(matrix.tier, 'smoke') || contains(matrix.tier, 'e2e')
         run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
 
+      # No build step of its own: each tier's turbo edges build what it reads, the workspace
+      # packages and the one desktop build flavor it needs, so a leg builds each once. A separate
+      # `turbo run build` would build the uncached desktop release bundle a second time.
+      #
       # `--continue` so a leg naming two tasks reports both results; without it the first failure
       # hides the second. `--concurrency=1` only on legs the matrix marks `serial`.
       - name: Run tier
