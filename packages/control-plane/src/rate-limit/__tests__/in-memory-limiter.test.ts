@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RATE_LIMIT_ENDPOINT_GROUPS } from "../endpoint-groups.js";
 import { createRateLimiterFactory } from "../factory.js";
 import { InMemoryRateLimiter } from "../in-memory-limiter.js";
-import { describeRateLimiterContract } from "../limiter-contract-suite.js";
+import { describeRateLimiterContract } from "./limiter.test-support.js";
 
 const START = Date.parse("2026-01-01T00:00:00.000Z");
 const WINDOW_MILLISECONDS = RATE_LIMIT_ENDPOINT_GROUPS["auth.endpoint"].periodSeconds * 1000;

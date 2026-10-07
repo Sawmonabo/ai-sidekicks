@@ -6,7 +6,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import type { RateLimitIdentityEnv } from "../../rate-limit/cloudflare-limiter.js";
 import type { DevEnvironmentEnv } from "../dev-environment-gate.js";
 import type { FeatureFlagEnv } from "../feature-flag-gate.js";
 import { buildControlPlaneFetchHandler } from "../host.js";
@@ -28,7 +27,7 @@ async function runGate(gateEnv: GateEnv): Promise<HarnessResult> {
   });
   const response = await handler(new Request("https://control-plane.test/trpc/unknown.procedure"), {
     ...gateEnv,
-    RATE_LIMIT_IDENTITY: (env as RateLimitIdentityEnv).RATE_LIMIT_IDENTITY,
+    RATE_LIMIT_IDENTITY: env.RATE_LIMIT_IDENTITY,
   });
   return {
     status: response.status,

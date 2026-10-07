@@ -20,7 +20,8 @@ export const SOURCE_ADDRESS_UNRESOLVABLE_CODE: SourceAddressUnresolvableCode =
 
 /**
  * The body of a 429 from a sign-in route. `retryAfter` is whole seconds until a retry is allowed,
- * the same value as the `Retry-After` header; `resetAt` is the instant the window frees.
+ * the same value as the `Retry-After` header; `resetAt` is the instant the oldest counted request
+ * leaves the window, when the next request is admitted.
  */
 export interface RateLimitResponse {
   code: RateLimitedCode;

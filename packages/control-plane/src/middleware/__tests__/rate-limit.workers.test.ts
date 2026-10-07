@@ -1,11 +1,11 @@
 // The rate-limit middleware inside workerd, over the Worker's own context builder and Durable
-// Object binding: the address comes from `CF-Connecting-IP`, and the count is one per address
-// whichever edge location serves a request.
+// Object binding: the address comes from `CF-Connecting-IP`, and every request resolves the
+// address's one Durable Object by name, as each edge location does. Local workerd runs a single
+// location, so this proves the shared count by that name, not across real locations.
 
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RateLimitIdentityEnv } from "../../rate-limit/cloudflare-limiter.js";
 import { RATE_LIMIT_ENDPOINT_GROUPS } from "../../rate-limit/endpoint-groups.js";
 import { createControlPlaneContext } from "../../server/host.js";
 import {
@@ -16,21 +16,12 @@ import {
 } from "./rate-limit.test-support.js";
 
 const { limit, periodSeconds } = RATE_LIMIT_ENDPOINT_GROUPS["auth.endpoint"];
-const identityEnv = env as RateLimitIdentityEnv;
 
-// One edge location: its own handler, building each request's context as the Worker does.
-function openEdgeLocation(): (request: Request) => Promise<SignInAnswer> {
-  let requestCount = 0;
-  return (request) =>
-    sendSignIn(request, (responseHeaders) => {
-      requestCount += 1;
-      return createControlPlaneContext({
-        request,
-        responseHeaders,
-        env: identityEnv,
-        requestId: `request-${requestCount}`,
-      });
-    });
+// Serves one sign-in request through the context the Worker builds for it.
+function sendSignInThroughWorker(request: Request, requestId: string): Promise<SignInAnswer> {
+  return sendSignIn(request, (responseHeaders) =>
+    createControlPlaneContext({ request, responseHeaders, env, requestId }),
+  );
 }
 
 // A day ahead of the real clock: workerd fires a due alarm on its own.
@@ -47,15 +38,12 @@ afterEach(() => {
 });
 
 describe("rateLimitProcedure on the Workers relay", () => {
-  it("refuses the request past the limit from one address whichever location serves it", async () => {
+  it("refuses the 21st request from one address, each request reaching its counter by name", async () => {
     const address = "198.51.100.21";
-    const firstLocation = openEdgeLocation();
-    const secondLocation = openEdgeLocation();
     const answers: SignInAnswer[] = [];
-    // The last two land on different locations, so each location meets the shared count.
     for (let index = 0; index < limit + 2; index += 1) {
-      const location = index % 2 === 0 ? firstLocation : secondLocation;
-      answers.push(await location(createSignInRequest({ "CF-Connecting-IP": address })));
+      const request = createSignInRequest({ "CF-Connecting-IP": address });
+      answers.push(await sendSignInThroughWorker(request, `request-${index}`));
     }
 
     expect(answers.slice(0, limit).map((answer) => answer.status)).toEqual(

@@ -96,6 +96,14 @@ export function buildControlPlaneFetchHandler(
           env,
           requestId: generateRequestId(),
         }),
+      // An internal failure is the relay's to look into; any other error is the caller's answer.
+      onError: ({ error, path, ctx }) => {
+        if (error.code !== "INTERNAL_SERVER_ERROR") return;
+        console.error(
+          `control-plane request ${ctx?.requestId ?? "-"} failed on ${path ?? "-"}`,
+          error,
+        );
+      },
     });
   };
 }

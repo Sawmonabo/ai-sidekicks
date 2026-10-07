@@ -61,6 +61,8 @@ export const t: TRPCRootObject<
   object,
   { errorFormatter: TRPCErrorFormatter<ControlPlaneContext, ControlPlaneErrorShape> }
 > = initTRPC.context<ControlPlaneContext>().create({
+  // tRPC otherwise reads `NODE_ENV`, which workerd lacks, and would send every caller the stack.
+  isDev: false,
   errorFormatter: ({ error, shape }): ControlPlaneErrorShape =>
     error instanceof ControlPlaneRefusal ? { ...shape, data: error.body } : shape,
 });

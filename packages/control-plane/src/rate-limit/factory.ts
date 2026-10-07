@@ -19,8 +19,9 @@ export interface RateLimiterFactory {
 }
 
 /**
- * Builds the deployment's factory. It holds one counter for its lifetime and returns it for every
- * group, since each check names its own group; a self-hosted relay builds one factory at startup.
+ * Builds the deployment's factory, which returns one counter for every group, since each check
+ * names its own group. A self-hosted relay builds one at startup so its count lasts the process;
+ * the Workers relay's count lives in its binding, so it may build one per request.
  */
 export function createRateLimiterFactory(deployment: RateLimiterDeployment): RateLimiterFactory {
   const limiter =

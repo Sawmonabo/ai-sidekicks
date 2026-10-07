@@ -26,7 +26,7 @@
     "typecheck": "tsc -b && tsc -p tsconfig.test.json",
     "lint": "eslint src",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --project=node --coverage"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",

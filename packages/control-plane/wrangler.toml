@@ -23,6 +23,11 @@ ENVIRONMENT = "production"
 name = "RATE_LIMIT_IDENTITY"
 class_name = "RateLimitIdentityDO"
 
+# An environment inherits no Durable Object binding, so production declares its own.
+[[env.production.durable_objects.bindings]]
+name = "RATE_LIMIT_IDENTITY"
+class_name = "RateLimitIdentityDO"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RateLimitIdentityDO"]

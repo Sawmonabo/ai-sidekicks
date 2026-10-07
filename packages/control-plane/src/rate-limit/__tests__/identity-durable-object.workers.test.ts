@@ -6,7 +6,6 @@ import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "c
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RateLimitIdentityEnv } from "../cloudflare-limiter.js";
 import { RATE_LIMIT_ENDPOINT_GROUPS } from "../endpoint-groups.js";
 import type { RateLimitIdentityDO } from "../identity-durable-object.js";
 
@@ -14,7 +13,7 @@ const { limit, periodSeconds } = RATE_LIMIT_ENDPOINT_GROUPS["auth.endpoint"];
 const windowMilliseconds = periodSeconds * 1000;
 const consume = { group: "auth.endpoint", limit, windowSeconds: periodSeconds } as const;
 
-const namespace = (env as RateLimitIdentityEnv).RATE_LIMIT_IDENTITY;
+const namespace = env.RATE_LIMIT_IDENTITY;
 
 function counterFor(address: string): DurableObjectStub<RateLimitIdentityDO> {
   return namespace.get(namespace.idFromName(address));

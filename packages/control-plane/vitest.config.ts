@@ -19,7 +19,17 @@ export default defineConfig({
   test: {
     passWithNoTests: false,
     reporters: ["default"],
-    coverage: sharedCoverageOptions(),
+    // Only the node project is measured: v8 coverage cannot instrument workerd, so the modules
+    // only the workers project runs are left out rather than read as untested.
+    coverage: sharedCoverageOptions({
+      exclude: [
+        "src/rate-limit/identity-durable-object.ts",
+        "src/rate-limit/cloudflare-limiter.ts",
+        "src/server/host.ts",
+        "src/server/dev-environment-gate.ts",
+        "src/server/feature-flag-gate.ts",
+      ],
+    }),
     projects: [
       defineProject({
         test: {

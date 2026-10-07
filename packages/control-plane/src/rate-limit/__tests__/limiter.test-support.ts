@@ -4,8 +4,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RATE_LIMIT_ENDPOINT_GROUPS } from "./endpoint-groups.js";
-import type { RateLimitCheckResponse, RateLimiter } from "./limiter.js";
+import { RATE_LIMIT_ENDPOINT_GROUPS } from "../endpoint-groups.js";
+import type { RateLimitCheckResponse, RateLimiter } from "../limiter.js";
 
 const { limit, periodSeconds } = RATE_LIMIT_ENDPOINT_GROUPS["auth.endpoint"];
 const windowMilliseconds = periodSeconds * 1000;

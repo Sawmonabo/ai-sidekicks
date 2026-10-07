@@ -163,7 +163,10 @@ describe("rateLimitProcedure", () => {
 
     const failed = await sendSignInFrom(ADDRESS, checkAdmission);
     expect(failed.status).toBe(500);
-    expect(readErrorData(failed.body)).toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    const failure = readErrorData(failed.body);
+    expect(failure).toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    // A caller with no credential never reads the relay's stack.
+    expect(failure).not.toHaveProperty("stack");
     expect(failed.retryAfterHeader).toBeNull();
 
     const next = await sendSignInFrom(ADDRESS, checkAdmission);
