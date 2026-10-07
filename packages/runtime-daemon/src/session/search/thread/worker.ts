@@ -17,6 +17,7 @@ import type {
   SessionSearchResponse,
 } from "@ai-sidekicks/contracts/session/methods";
 
+import { SearchIndexVersion } from "../index/version.js";
 import { loadMatchCount } from "../match-count.js";
 import { SessionSearchService } from "../service.js";
 import { TranscriptSearchService } from "../transcript.js";
@@ -26,7 +27,7 @@ import {
   type SearchThreadRequest,
   type SearchThreadWorkerData,
 } from "./messages.js";
-import { RankerPool } from "./ranker/pool.js";
+import { RankerPool, type RankerRead } from "./ranker/pool.js";
 
 // How many rankers a ranking across the whole index is split across.
 const RANKER_COUNT = 4;
@@ -72,6 +73,7 @@ function openSearchConnection(path: string): DatabaseType {
 function serve(connection: DatabaseType): void {
   const sessionSearch = new SessionSearchService(connection);
   const transcriptSearch = new TranscriptSearchService(connection);
+  const indexVersion = new SearchIndexVersion(connection);
   let rankers: RankerPool | undefined;
   // Each request is answered once the one before it has been, though a session search waits on
   // its rankers in between.
@@ -114,42 +116,59 @@ function serve(connection: DatabaseType): void {
     return sessionSearch.search(request);
   }
 
-  // The page, its plan and the rankers' reads within one read of this connection, held open while
-  // the rankers read, so they read the index this page reads unless a write commits in the moment
-  // before theirs start; `undefined` then, as the version check refuses their ranking.
+  // The page, its plan and the rankers' reads within one read of this connection. The rankers open
+  // their reads the moment this one starts, before the plan reads anything, so they read the index
+  // this page reads unless a write commits in that moment; `undefined` then, as the version check
+  // refuses their ranking.
   async function searchWithinOneRead(
     request: SessionSearchRequest,
   ): Promise<SessionSearchResponse | undefined> {
     connection.exec("BEGIN");
     try {
-      const plan = sessionSearch.planWholeIndexRanking(request);
-      if (plan === undefined) {
+      if (!sessionSearch.mayRankWholeIndex(request)) {
         return sessionSearch.search(request);
       }
-      const split = await rankWithRankers(
-        plan.matchExpression,
-        plan.taggedSessions !== undefined,
-        plan.highestRowid,
-      );
-      return sessionSearch.searchWithReadAhead(request, { plan, ...split });
+      // A read's first statement fixes what it sees, so this one's is fixed before theirs.
+      indexVersion.read();
+      const pool = (rankers ??= RankerPool.start(databasePath, RANKER_COUNT));
+      let rankerRead: RankerRead | undefined = pool.openRead();
+      try {
+        const plan = sessionSearch.planWholeIndexRanking(request);
+        if (plan !== undefined) {
+          const openRead = rankerRead;
+          rankerRead = undefined;
+          const split = await settle(
+            pool,
+            openRead.rank(
+              plan.matchExpression,
+              plan.taggedSessions !== undefined,
+              plan.highestRowid,
+            ),
+          );
+          return sessionSearch.searchWithReadAhead(request, { plan, ...split });
+        }
+      } finally {
+        if (rankerRead !== undefined) {
+          await settle(pool, rankerRead.end());
+        }
+      }
+      return sessionSearch.search(request);
     } finally {
       connection.exec("COMMIT");
     }
   }
 
-  // The rankers' split ranking. A ranker that fails fails this search with what it threw, and the
+  // What the rankers answer. A ranker that fails fails this search with what it threw, and the
   // rankers are started again for the next one.
-  async function rankWithRankers(
-    ...rankArguments: Parameters<RankerPool["rank"]>
-  ): ReturnType<RankerPool["rank"]> {
-    rankers ??= RankerPool.start(databasePath, RANKER_COUNT);
+  async function settle<Answer>(pool: RankerPool, answer: Promise<Answer>): Promise<Answer> {
     try {
-      return await rankers.rank(...rankArguments);
+      return await answer;
     } catch (error) {
-      const failedRankers = rankers;
-      rankers = RankerPool.start(databasePath, RANKER_COUNT);
+      if (rankers === pool) {
+        rankers = RankerPool.start(databasePath, RANKER_COUNT);
+      }
       try {
-        await failedRankers.close();
+        await pool.close();
       } catch (closeError) {
         throw new AggregateError(
           [error, closeError],

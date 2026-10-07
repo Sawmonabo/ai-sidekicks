@@ -1,6 +1,7 @@
 // A ranking split across the rankers' rowid ranges pages as one read's ranking does, for words
-// alone and for a tag whose sessions are too many to rank through their keys; and a read-ahead
-// the index has moved past since its plan or its reads is refused.
+// alone and for a tag whose sessions are too many to rank through their keys; the rankers rank
+// within the reads they opened, whatever commits after; and a read-ahead the index has moved past
+// since its plan or its reads is refused.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,8 +25,9 @@ import {
   insertTag,
   sessionIdOf,
 } from "../../../__fixtures__/index-rows.js";
+import { indexRowidSql } from "../../../index/columns.js";
 import { SessionSearchService, type WholeIndexRankingPlan } from "../../../service.js";
-import { RankerPool } from "../pool.js";
+import { RankerPool, type SplitRanking } from "../pool.js";
 
 // More tagged sessions than a ranking narrows to through their keys, so the tag's ranking reads
 // every match with its session.
@@ -98,6 +100,22 @@ describe("the rankers", () => {
     }
   });
 
+  it("ranks within the reads it opened, whatever commits after", async () => {
+    const plan = planOf(new SessionSearchService(reader), { query: "retr" });
+    const rankerRead = rankers.openRead();
+    // Time for every ranker to open its read before the write commits.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const writtenRowid = writeLogRow();
+
+    const split = await rankerRead.rank(plan.matchExpression, false, plan.highestRowid);
+    expect(split.versions).toEqual([plan.version, plan.version, plan.version, plan.version]);
+    expect(split.ranges.some((range) => range.rowids.includes(writtenRowid))).toBe(false);
+    const afterTheWrite = await rankWith(
+      planOf(new SessionSearchService(reader), { query: "retr" }),
+    );
+    expect(afterTheWrite.ranges.some((range) => range.rowids.includes(writtenRowid))).toBe(true);
+  });
+
   it("refuses a read-ahead the index moved past since its plan or since its reads", async () => {
     const request: SessionSearchRequest = { query: "retr" };
     const sessionSearch = new SessionSearchService(reader);
@@ -122,12 +140,14 @@ describe("the rankers", () => {
     ).toEqual(expect.objectContaining({ hasMore: true }));
   });
 
-  function rankWith(plan: WholeIndexRankingPlan): ReturnType<RankerPool["rank"]> {
-    return rankers.rank(plan.matchExpression, plan.taggedSessions !== undefined, plan.highestRowid);
+  function rankWith(plan: WholeIndexRankingPlan): Promise<SplitRanking> {
+    return rankers
+      .openRead()
+      .rank(plan.matchExpression, plan.taggedSessions !== undefined, plan.highestRowid);
   }
 
-  // A log row matching the words, which moves the index's version.
-  function writeLogRow(): void {
+  // A log row matching the words, which moves the index's version; answers its index rowid.
+  function writeLogRow(): number {
     nextSequence += 1;
     insertEvent(writer, {
       sessionId: sessionIdOf(1),
@@ -135,6 +155,12 @@ describe("the rankers", () => {
       type: "assistant.message",
       content: "retry once more",
     });
+    return (
+      writer
+        .prepare<[], number>(`SELECT ${indexRowidSql("max(rowid)", "event")} FROM session_events`)
+        .pluck()
+        .get() ?? 0
+    );
   }
 });
 

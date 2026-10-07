@@ -23,6 +23,23 @@ export interface SplitRanking {
   readonly versions: readonly number[];
 }
 
+/** The rankers' reads, opened together: ranked within once, or ended. */
+export interface RankerRead {
+  /**
+   * The words' ranking, each ranker reading one rowid range within its read, with each row's
+   * session and position when `readsSessions`; each read ends with it. The ranges cover every
+   * rowid; `highestRowid`, the index's highest in the caller's read, places their bounds. Rejects
+   * with what a ranker threw.
+   */
+  rank(
+    matchExpression: string,
+    readsSessions: boolean,
+    highestRowid: number,
+  ): Promise<SplitRanking>;
+  /** Ends every ranker's read without a ranking. Rejects with what a ranker threw. */
+  end(): Promise<void>;
+}
+
 /**
  * Splits rankings across a fixed number of rankers. Start it with {@link RankerPool.start}; a
  * ranking waits for every ranker's connection to open. A ranker whose open or thread fails fails
@@ -53,38 +70,54 @@ export class RankerPool {
   }
 
   /**
-   * The words' ranking, each ranker reading one rowid range, with each row's session and position
-   * when `readsSessions`. The ranges cover every rowid; `highestRowid`, the index's highest when the
-   * search was planned, places their bounds. Rejects with what a ranker threw.
+   * Has every ranker open a read now, so the reads see the index as a read started at this moment
+   * does; the returned read then ranks within them or ends them.
    */
-  async rank(
-    matchExpression: string,
-    readsSessions: boolean,
-    highestRowid: number,
-  ): Promise<SplitRanking> {
-    const replies = await Promise.all(
-      this.#rankers.map((ranker, index) =>
-        ranker.request({
-          type: "rank",
-          matchExpression,
-          readsSessions,
-          range: rowidRange(highestRowid, index, this.#rankers.length),
-        }),
-      ),
+  openRead(): RankerRead {
+    const opened = Promise.all(
+      this.#rankers.map((ranker) => ranker.request({ type: "open-read" })),
     );
-    const ranked = replies.map((reply) => {
-      if (reply.type !== "ranked") {
-        throw new Error(`A ranker answered "${reply.type}" to a ranking`);
-      }
-      return reply;
-    });
+    // Read by the ranking or the end, which a caller always awaits.
+    opened.catch(() => undefined);
     return {
-      ranges: ranked.map(({ rowids, ranks, sessionRowids, sequences }) =>
-        sessionRowids === undefined || sequences === undefined
-          ? { rowids, ranks }
-          : { rowids, ranks, sessionRowids, sequences },
-      ),
-      versions: ranked.map((reply) => reply.version),
+      rank: async (matchExpression, readsSessions, highestRowid) => {
+        const [openReplies, rankReplies] = await Promise.all([
+          opened,
+          Promise.all(
+            this.#rankers.map((ranker, index) =>
+              ranker.request({
+                type: "rank",
+                matchExpression,
+                readsSessions,
+                range: rowidRange(highestRowid, index, this.#rankers.length),
+              }),
+            ),
+          ),
+        ]);
+        return {
+          ranges: rankReplies.map((reply) => {
+            if (reply.type !== "ranked") {
+              throw new Error(`A ranker answered "${reply.type}" to a ranking`);
+            }
+            const { rowids, ranks, sessionRowids, sequences } = reply;
+            return sessionRowids === undefined || sequences === undefined
+              ? { rowids, ranks }
+              : { rowids, ranks, sessionRowids, sequences };
+          }),
+          versions: openReplies.map(versionOf),
+        };
+      },
+      end: async () => {
+        const [, endReplies] = await Promise.all([
+          opened,
+          Promise.all(this.#rankers.map((ranker) => ranker.request({ type: "end-read" }))),
+        ]);
+        for (const reply of endReplies) {
+          if (reply.type !== "read-ended") {
+            throw new Error(`A ranker answered "${reply.type}" to the end of its read`);
+          }
+        }
+      },
     };
   }
 
@@ -92,6 +125,14 @@ export class RankerPool {
   async close(): Promise<void> {
     await Promise.all(this.#rankers.map((ranker) => ranker.close()));
   }
+}
+
+// The version a ranker's open read sees.
+function versionOf(reply: RankerReply): number {
+  if (reply.type !== "read-opened") {
+    throw new Error(`A ranker answered "${reply.type}" to the opening of its read`);
+  }
+  return reply.version;
 }
 
 // The `index`th of `count` rowid ranges a ranking splits into: equal stretches up to

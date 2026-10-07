@@ -1,7 +1,8 @@
 // A ranker: a worker thread with a read-only connection of its own, on which the search thread
 // has one rowid range of a broad search's ranking read, so the ranges are scored at once rather
-// than one after another. Each range is read in one read with the index version it saw, which
-// tells the search thread whether every range read the same index.
+// than one after another. The search thread has the read opened as soon as its own starts, and
+// learns the index version it sees, which tells whether every range read the index its page reads;
+// the range is then ranked within that read, which ends with the ranking.
 
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
@@ -37,21 +38,36 @@ if (connection !== undefined) {
 function serve(reader: DatabaseType): void {
   const ranking = new SessionTextRanking(reader);
   const indexVersion = new SearchIndexVersion(reader);
-  const rankRange = reader.transaction(
-    (request: Extract<RankerRequest, { type: "rank" }>): [number, RankedRange] => [
-      indexVersion.read(),
-      request.readsSessions
-        ? ranking.rankRangeWithSessions(request.matchExpression, request.range)
-        : ranking.rankRange(request.matchExpression, request.range),
-    ],
-  );
+  const endRead = (): void => {
+    if (reader.inTransaction) {
+      reader.exec("COMMIT");
+    }
+  };
   port.on("message", (request: RankerRequest) => {
     switch (request.type) {
-      case "rank": {
+      case "open-read": {
         let version: number;
+        try {
+          reader.exec("BEGIN");
+          // The read's first statement fixes what the read sees.
+          version = indexVersion.read();
+        } catch (error) {
+          post({ type: "rank-failed", error: carryError(error) });
+          return;
+        }
+        post({ type: "read-opened", version });
+        return;
+      }
+      case "rank": {
         let range: RankedRange;
         try {
-          [version, range] = rankRange(request);
+          try {
+            range = request.readsSessions
+              ? ranking.rankRangeWithSessions(request.matchExpression, request.range)
+              : ranking.rankRange(request.matchExpression, request.range);
+          } finally {
+            endRead();
+          }
         } catch (error) {
           post({ type: "rank-failed", error: carryError(error) });
           return;
@@ -59,7 +75,6 @@ function serve(reader: DatabaseType): void {
         post(
           {
             type: "ranked",
-            version,
             rowids: range.rowids,
             ranks: range.ranks,
             sessionRowids: range.sessionRowids,
@@ -71,6 +86,15 @@ function serve(reader: DatabaseType): void {
         );
         return;
       }
+      case "end-read":
+        try {
+          endRead();
+        } catch (error) {
+          post({ type: "rank-failed", error: carryError(error) });
+          return;
+        }
+        post({ type: "read-ended" });
+        return;
       case "close":
         reader.close();
         post({ type: "closed" });

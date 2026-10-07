@@ -183,16 +183,24 @@ export class SessionSearchService {
   }
 
   /**
+   * Whether {@link planWholeIndexRanking} may plan a ranking for `request`, known without a read:
+   * only a first page of a query with words can rank across the whole index.
+   */
+  mayRankWholeIndex(request: SessionSearchRequest): boolean {
+    return (
+      request.afterCursor === undefined &&
+      parseSessionSearchQuery(request.query).matchExpression !== undefined
+    );
+  }
+
+  /**
    * The ranking across the whole index a first page of `request` reads, planned for other
    * connections to read ahead of the page; `undefined` for a later page, a query with no words, and
    * a search by tag and words whose sessions are few enough to rank through their keys.
    */
   planWholeIndexRanking(request: SessionSearchRequest): WholeIndexRankingPlan | undefined {
-    if (request.afterCursor !== undefined) {
-      return undefined;
-    }
     const { matchExpression, tagFolds } = parseSessionSearchQuery(request.query);
-    if (matchExpression === undefined) {
+    if (request.afterCursor !== undefined || matchExpression === undefined) {
       return undefined;
     }
     return this.#reader.transaction(() => {
