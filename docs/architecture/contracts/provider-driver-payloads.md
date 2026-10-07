@@ -686,7 +686,8 @@ interface SessionNoticeProviderUpdated {
 // session.notice of kind `provider_restarted`: a provider process that ended on its own under the
 // session is running again, restarted by the daemon or by the person's `Restart`. One flow row,
 // `Restarted · Claude Code is back` (`Restarted · Codex is back` on Codex). A restart after a
-// provider update writes none, nor does the daemon's automatic restart of a shared Codex service.
+// provider update writes none; the daemon's automatic restart of a shared Codex service writes it
+// only to the sessions whose running turn the crash ended.
 interface SessionNoticeProviderRestarted {
   sessionId: SessionId;
   kind: "provider_restarted";
