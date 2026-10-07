@@ -5,18 +5,11 @@
 
 import "./DiagramBlock.css";
 
-import type { ClipboardContent } from "#shared/preload-api.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import type { BlockCopyOffer } from "../block-copy-offer.js";
 import type { DrawnDiagram } from "./drawing.js";
 import { encodeDiagramPng } from "./png.js";
 import { useDrawnDiagram } from "./useDrawnDiagram.js";
-
-/** One copy a diagram block offers: what its control reads and what it puts on the clipboard. */
-export interface DiagramCopy {
-  readonly label: string;
-  /** Built when the copy is pressed, so a picture is encoded only for a copy someone asked for. */
-  readonly content: () => ClipboardContent | Promise<ClipboardContent>;
-}
 
 /** What one diagram block is drawn from. */
 export interface DiagramBlockProps {
@@ -25,7 +18,7 @@ export interface DiagramBlockProps {
   /** Whether the block has settled; a fence still streaming shows its source and is never drawn. */
   readonly isSettled: boolean;
   /** Draws one of the block's copy controls, or `undefined` where the body offers none. */
-  readonly renderCopy: ((copy: DiagramCopy) => React.ReactNode) | undefined;
+  readonly renderCopy: ((offer: BlockCopyOffer) => React.ReactNode) | undefined;
 }
 
 /** A diagram fence: its picture, its source while the picture is made, or why it has none. */
@@ -75,7 +68,7 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
   );
 }
 
-function pictureCopy(picture: DrawnDiagram, ownerWindow: Window): DiagramCopy {
+function pictureCopy(picture: DrawnDiagram, ownerWindow: Window): BlockCopyOffer {
   return {
     label: "Copy as picture",
     content: async () => ({ png: await encodeDiagramPng(picture, ownerWindow) }),

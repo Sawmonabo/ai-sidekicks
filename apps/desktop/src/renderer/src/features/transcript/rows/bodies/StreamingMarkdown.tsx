@@ -37,7 +37,10 @@ export interface StreamingMarkdownProps {
    * character can change what it means.
    */
   readonly isComplete: boolean;
-  /** Whether each code block carries its own Copy: an agent's reply does, a person's does not. */
+  /**
+   * Whether code and diagram blocks carry their own copies: an agent's reply does, a person's does
+   * not.
+   */
   readonly offersCodeCopy: boolean;
 }
 

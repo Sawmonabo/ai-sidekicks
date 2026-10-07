@@ -1,7 +1,7 @@
 // Maps mdast nodes to React elements; own-built because the libraries considered render raw HTML
 // by default. `html` nodes render as literal text (nothing is parsed as markup, so no sanitizer
-// is on this path), links render as their text with no anchor, and math and diagrams wait for
-// `isSettled`.
+// is on this path), links render as their text with no anchor, and math and mermaid diagrams show
+// their source until `isSettled`, then draw as a formula or a picture.
 
 import "./MarkdownNodes.css";
 
@@ -9,6 +9,8 @@ import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } 
 import { Fragment } from "react";
 
 import { readDeferredFenceKind } from "./rules.js";
+import type { BlockCopyOffer } from "./block-copy-offer.js";
+import { DiagramBlock } from "./diagram/DiagramBlock.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
 import { FootnoteReference } from "./footnotes/FootnoteReference.js";
@@ -29,10 +31,11 @@ export interface MarkdownRenderContext {
   /** Where a settled code block's colors come from. */
   readonly codeSpanReader: CodeSpanReader;
   /**
-   * Draws a code block's own Copy for its source, or `undefined` for a body whose blocks offer
-   * none. Required, so a body that forgot it fails to compile rather than reading as a choice.
+   * Draws one of a code or diagram block's own copies, or `undefined` for a body whose blocks
+   * offer none. Required, so a body that forgot it fails to compile rather than reading as a
+   * choice.
    */
-  readonly renderCodeCopy: ((source: string) => React.ReactNode) | undefined;
+  readonly renderCopy: ((offer: BlockCopyOffer) => React.ReactNode) | undefined;
 }
 
 /** Render a document's top-level children. The entry point every card uses. */
@@ -261,27 +264,23 @@ function renderTableCell(
  * A fenced block: math, a diagram, or code, told apart by the info string, which
  * `rules.ts` reads so the deferral rule and this switch agree.
  *
- * A deferred math fence renders as a formula once settled and as its source before; a diagram
- * fence renders as its source always, because the app ships no control that asks for one.
+ * A math fence renders as a formula once settled and as its source before. A mermaid fence is a
+ * diagram block, which shows its source while the fence streams and draws the picture once it
+ * has settled.
  */
 function renderFence(
   source: string,
   language: string | null,
   context: MarkdownRenderContext,
 ): React.ReactNode {
-  const deferredFenceKind = readDeferredFenceKind(language);
-  if (deferredFenceKind !== undefined) {
-    return context.isSettled && deferredFenceKind === "math" ? (
-      <MathBlock source={source} isDisplayMode />
-    ) : (
-      <CodeBlock
-        source={source}
-        infoString={language}
-        isSettled={false}
-        codeSpanReader={context.codeSpanReader}
-        renderCopy={context.renderCodeCopy}
-      />
+  const deferredKind = readDeferredFenceKind(language);
+  if (deferredKind === "diagram") {
+    return (
+      <DiagramBlock source={source} isSettled={context.isSettled} renderCopy={context.renderCopy} />
     );
+  }
+  if (deferredKind === "math" && context.isSettled) {
+    return <MathBlock source={source} isDisplayMode />;
   }
   return (
     <CodeBlock
@@ -289,7 +288,7 @@ function renderFence(
       infoString={language}
       isSettled={context.isSettled}
       codeSpanReader={context.codeSpanReader}
-      renderCopy={context.renderCodeCopy}
+      renderCopy={context.renderCopy}
     />
   );
 }

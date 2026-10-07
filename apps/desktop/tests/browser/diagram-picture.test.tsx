@@ -7,10 +7,8 @@ import { afterEach, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
-import {
-  DiagramBlock,
-  type DiagramCopy,
-} from "#renderer/components/Markdown/diagram/DiagramBlock.js";
+import type { BlockCopyOffer } from "#renderer/components/Markdown/block-copy-offer.js";
+import { DiagramBlock } from "#renderer/components/Markdown/diagram/DiagramBlock.js";
 import { TYPEFACE_FACES } from "#renderer/styles/typeface.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import type { ClipboardContent } from "#shared/preload-api.js";
@@ -31,14 +29,14 @@ afterEach(() => {
 
 /** Each copy's label, as a button that hands what it built to `onCopied`. */
 function copyButtons(onCopied: (content: ClipboardContent) => void) {
-  return (copy: DiagramCopy): React.ReactNode => (
+  return (offer: BlockCopyOffer): React.ReactNode => (
     <button
       type="button"
       onClick={() => {
-        void Promise.resolve(copy.content()).then(onCopied);
+        void Promise.resolve(offer.content()).then(onCopied);
       }}
     >
-      {copy.label}
+      {offer.label}
     </button>
   );
 }
