@@ -1,7 +1,7 @@
-// How a keyboard chord is printed and spoken. It lives in `lib/` because `ChordHint` is a shared
-// component below the registries; `registries/keybindings/chord.ts` imports
-// `decodeChordKeyToken` so its conflict comparator and the printer agree that `k`, `K` and `KeyK`
-// are one keystroke.
+// How a keyboard chord is spelled, printed and spoken. It lives in `lib/` because `ChordHint` is a
+// shared component below the registries; the conflict comparator, the reserved-chord lookup and
+// the preview handback fold a key through `foldChordKeyToken`, so they and the printer agree that
+// `k`, `K` and `KeyK` are one keystroke.
 //
 // Each entry carries a glyph to show and words to speak in one table, since a screen reader
 // mispronounces glyphs such as ⌘. Every renderer takes `platform` as a parameter, and
@@ -23,9 +23,9 @@ export const COMMAND_PALETTE_OPEN_CHORD = "$mod+Shift+KeyP";
 export type ChordPlatform = (typeof CHORD_PLATFORMS)[number];
 
 /**
- * The platform the app is running on, read once at module load from the user agent (the
- * renderer has no `process`). A wrong guess costs a wrong glyph in a hint, never a wrong
- * binding, because `tinykeys` resolves `$mod` against the host itself.
+ * The platform the app is running on, read once at module load (the renderer has no `process`).
+ * macOS is told by the test tinykeys resolves `$mod` with, so `$mod` names the same key here as
+ * in its matcher; Windows is told from Linux by the user agent.
  */
 export const HOST_CHORD_PLATFORM: ChordPlatform = detectHostChordPlatform();
 
@@ -61,30 +61,40 @@ export function splitChordTokens(chord: string): { modifiers: readonly string[];
 }
 
 function detectHostChordPlatform(): ChordPlatform {
-  if (typeof navigator === "undefined") {
+  if (typeof navigator !== "object") {
     return "linux";
   }
-  const signature = `${navigator.platform} ${navigator.userAgent}`;
-  if (/mac|iphone|ipad|ipod/i.test(signature)) {
+  if (/Mac|iPod|iPhone|iPad/.test(navigator.platform)) {
     return "darwin";
   }
-  return /win/i.test(signature) ? "win32" : "linux";
+  return /win/i.test(`${navigator.platform} ${navigator.userAgent}`) ? "win32" : "linux";
 }
 
 /**
- * Every token an authored chord may name as a modifier. The two rendering tables below are
- * checked total over it, so a new token does not compile until both platforms print and speak it.
- * The preview handback also reads it to decide whether a chord holds a modifier.
+ * The modifier tokens a chord is held in, in the order the app spells them: `$mod`, then the
+ * names tinykeys hands to `getModifierState`. A chord naming any other modifier never fires.
  */
-export const CHORD_MODIFIER_TOKENS = [
+export const SPELLED_MODIFIER_TOKENS = [
   "$mod",
   "Meta",
   "Control",
-  "Ctrl",
   "Alt",
-  "Option",
+  "AltGraph",
   "Shift",
 ] as const;
+
+/** One modifier token of a chord in the one spelling. */
+export type SpelledModifierToken = (typeof SPELLED_MODIFIER_TOKENS)[number];
+
+/**
+ * Every token an authored chord may name as a modifier, in spelling order: the spelled tokens,
+ * then `Ctrl` and `Option`, which reading a stored chord turns into `Control` and `Alt`. The two
+ * rendering tables below are checked total over it, so a new token does not compile until both
+ * platforms print and speak it. The preview handback also reads it to decide whether a chord
+ * holds a modifier.
+ */
+export const CHORD_MODIFIER_TOKENS: readonly [...typeof SPELLED_MODIFIER_TOKENS, "Ctrl", "Option"] =
+  [...SPELLED_MODIFIER_TOKENS, "Ctrl", "Option"];
 
 /** One modifier token an authored chord names. */
 export type ChordModifierToken = (typeof CHORD_MODIFIER_TOKENS)[number];
@@ -104,6 +114,21 @@ export const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "C
 /** The token an authored chord uses for the platform's own application modifier. */
 export const PLATFORM_MODIFIER_CHORD_TOKEN = "$mod";
 
+/**
+ * A stored chord in the one spelling the app holds: each modifier named as tinykeys reads it
+ * (`Ctrl` is `Control`, `Option` is `Alt`, case ignored), the platform's own modifier as `$mod`,
+ * a modifier named twice kept once, the modifiers in spelling order and the key as written. An
+ * unknown modifier name is kept as written, for the chord parser to refuse.
+ */
+export function normalizeChord(chord: string, platform: ChordPlatform): string {
+  return chord
+    .trim()
+    .split(" ")
+    .filter((press) => press.length > 0)
+    .map((press) => normalizePress(press, platform))
+    .join(" ");
+}
+
 /** Every token but `$mod`, which is resolved into one of these before a lookup. */
 type ResolvedModifierToken = Exclude<ChordModifierToken, "$mod">;
 
@@ -114,6 +139,7 @@ const DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
   Control: { glyph: "⌃", spoken: "Control" },
   Ctrl: { glyph: "⌃", spoken: "Control" },
   Alt: { glyph: "⌥", spoken: "Option" },
+  AltGraph: { glyph: "⌥", spoken: "Option" },
   Option: { glyph: "⌥", spoken: "Option" },
   Shift: { glyph: "⇧", spoken: "Shift" },
 } satisfies Readonly<Record<ResolvedModifierToken, ChordKeyRendering>>;
@@ -123,6 +149,7 @@ const NON_DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
   Control: { glyph: "Ctrl", spoken: "Control" },
   Ctrl: { glyph: "Ctrl", spoken: "Control" },
   Alt: { glyph: "Alt", spoken: "Alt" },
+  AltGraph: { glyph: "AltGr", spoken: "Alt Graph" },
   Option: { glyph: "Alt", spoken: "Alt" },
   Shift: { glyph: "Shift", spoken: "Shift" },
 } satisfies Readonly<Record<Exclude<ResolvedModifierToken, "Meta">, ChordKeyRendering>>;
@@ -175,17 +202,10 @@ const PUNCTUATION_CODES: Readonly<Record<string, ChordKeyRendering>> = {
 };
 
 /**
- * Reduce a key token to the character or name it stands for.
- *
- * tinykeys accepts `KeyboardEvent.key` or `.code`, so `k`, `K` and `KeyK` are one keystroke; the
- * printer and the conflict comparator both decode through this. The exact-length tests keep a
- * name such as `Keyboard` from losing its `Key` prefix.
+ * A key token folded the way tinykeys compares a key, so `k`, `K` and `KeyK` are one keystroke.
  */
-export function decodeChordKeyToken(key: string): string {
-  const withoutKeyPrefix = key.startsWith("Key") && key.length === 4 ? key.slice(3) : key;
-  return withoutKeyPrefix.startsWith("Digit") && withoutKeyPrefix.length === 6
-    ? withoutKeyPrefix.slice(5)
-    : withoutKeyPrefix;
+export function foldChordKeyToken(key: string): string {
+  return decodeChordKeyToken(key).toUpperCase();
 }
 
 /**
@@ -217,6 +237,15 @@ export function formatChordForPlatform(chord: string, platform: ChordPlatform): 
         : [...modifiers, press.key.glyph].join("+");
     })
     .join(" ");
+}
+
+// A key token reduced to the character or name it stands for; the printer and the key fold both
+// read it. The exact-length tests keep a name such as `Keyboard` from losing its `Key` prefix.
+function decodeChordKeyToken(key: string): string {
+  const withoutKeyPrefix = key.startsWith("Key") && key.length === 4 ? key.slice(3) : key;
+  return withoutKeyPrefix.startsWith("Digit") && withoutKeyPrefix.length === 6
+    ? withoutKeyPrefix.slice(5)
+    : withoutKeyPrefix;
 }
 
 function modifierRendering(token: string, platform: ChordPlatform): ChordKeyRendering | undefined {
@@ -261,4 +290,41 @@ function renderSinglePress(press: string, platform: ChordPlatform): ChordPressRe
     renderedModifiers.push(modifierRendering(token, platform) ?? { glyph: token, spoken: token });
   }
   return { modifiers: renderedModifiers, key: keyRendering(key, platform) };
+}
+
+function normalizePress(press: string, platform: ChordPlatform): string {
+  const { modifiers, key } = splitChordTokens(press);
+  const spelled = [...new Set(modifiers.map((token) => spellModifierToken(token, platform)))];
+  return [...spelled.sort((left, right) => rankModifier(left) - rankModifier(right)), key].join(
+    "+",
+  );
+}
+
+// An optional modifier (`[Shift]`) keeps its brackets; an unknown name is kept as written.
+function spellModifierToken(token: string, platform: ChordPlatform): string {
+  const isOptional = token.startsWith("[") && token.endsWith("]");
+  const name = isOptional ? token.slice(1, -1) : token;
+  const known = CHORD_MODIFIER_TOKENS.find(
+    (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+  );
+  const resolved = known === undefined ? name : (MODIFIER_TOKEN_ALIASES[known] ?? known);
+  const spelled =
+    resolved === PLATFORM_MODIFIER_TOKEN[platform] ? PLATFORM_MODIFIER_CHORD_TOKEN : resolved;
+  return isOptional ? `[${spelled}]` : spelled;
+}
+
+/** The tokens tinykeys does not read, each with the modifier a stored chord means by it. */
+const MODIFIER_TOKEN_ALIASES: Readonly<Record<string, SpelledModifierToken>> = {
+  Ctrl: "Control",
+  Option: "Alt",
+} satisfies Readonly<
+  Record<Exclude<ChordModifierToken, SpelledModifierToken>, SpelledModifierToken>
+>;
+
+// Spelling order, an optional modifier just after its held form, unknown names last.
+function rankModifier(token: string): number {
+  const isOptional = token.startsWith("[");
+  const name = isOptional ? token.slice(1, -1) : token;
+  const index = SPELLED_MODIFIER_TOKENS.findIndex((spelled) => spelled === name);
+  return (index === -1 ? SPELLED_MODIFIER_TOKENS.length : index) * 2 + (isOptional ? 1 : 0);
 }

@@ -52,6 +52,10 @@ exclude = [
   # (regulatory-guidance pages cited from docs/specs/005); same failure shape
   # as the academic / publisher entries above.
   "^https://www\\.edpb\\.europa\\.eu/.*",
+  # Chromium's source browser (Gitiles) rate-limits lychee's probe bursts with 503,
+  # which lychee does not retry. The linked source files answer 200 when fetched
+  # one at a time; the failure is the probe, not the page, as with the entries above.
+  "^https://chromium\\.googlesource\\.com/.*",
 ]
 
 # GitHub-hosted-runner network has higher tail latency than typical dev
@@ -60,7 +64,8 @@ exclude = [
 # manual probe). 20s gives a wider safety margin without hurting wall
 # time, since `max_concurrency = 16` keeps fast URLs in flight in
 # parallel. `max_retries = 2` (2 retries on top of the initial attempt
-# = 3 total) covers transient timeouts and 5xx hiccups.
+# = 3 total) covers timeouts, dropped connections and 429; lychee retries no other
+# rejected status.
 max_retries = 2
 timeout = 20
 max_concurrency = 16

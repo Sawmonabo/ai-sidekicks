@@ -17,8 +17,11 @@ import type { KeyboardMap } from "#shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import {
   HOST_CHORD_PLATFORM,
+  PLATFORM_MODIFIER_TOKEN,
+  SPELLED_MODIFIER_TOKENS,
   formatChordForPlatform,
   type ChordPlatform,
+  type SpelledModifierToken,
 } from "#renderer/lib/chord-format.js";
 
 /** One row of the keyboard map. */
@@ -202,7 +205,7 @@ export function readChordFromEvent(
 }
 
 /**
- * The modifiers held, in the order the app writes them.
+ * The modifiers held, in the app's spelling order.
  *
  * `$mod` is the platform's command modifier (Cmd on macOS, Ctrl elsewhere), the token shipped
  * chords are authored in. The other control key is written literally because `⌃` and `⌘` are
@@ -214,19 +217,16 @@ export function readHeldModifiersFromEvent(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
   platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): readonly string[] {
-  const modifiers: string[] = [];
-  const commandModifierHeld = platform === "darwin" ? event.metaKey : event.ctrlKey;
-  if (commandModifierHeld) {
-    modifiers.push("$mod");
-  }
-  if (platform === "darwin" ? event.ctrlKey : event.metaKey) {
-    modifiers.push(platform === "darwin" ? "Control" : "Meta");
-  }
-  if (event.altKey) {
-    modifiers.push("Alt");
-  }
-  if (event.shiftKey) {
-    modifiers.push("Shift");
-  }
-  return modifiers;
+  const commandModifier = PLATFORM_MODIFIER_TOKEN[platform];
+  const keyFlags = { Meta: event.metaKey, Control: event.ctrlKey };
+  const held: Readonly<Record<SpelledModifierToken, boolean>> = {
+    $mod: keyFlags[commandModifier],
+    Meta: commandModifier !== "Meta" && keyFlags.Meta,
+    Control: commandModifier !== "Control" && keyFlags.Control,
+    Alt: event.altKey,
+    // The recorder reads Alt from `altKey`; AltGraph is never written for a press.
+    AltGraph: false,
+    Shift: event.shiftKey,
+  };
+  return SPELLED_MODIFIER_TOKENS.filter((token) => held[token]);
 }

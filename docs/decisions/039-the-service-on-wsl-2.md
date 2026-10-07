@@ -147,7 +147,7 @@ We will run one background service per Windows computer, on the side where Claud
 | SetThreadExecutionState | Documentation | `ES_CONTINUOUS` holds until the next call; it cannot stop a sleep the person asks for | https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate |
 | ToastNotificationHistory.Remove | Documentation | The remover must be part of the same app package as the poster | https://learn.microsoft.com/en-us/uwp/api/windows.ui.notifications.toastnotificationhistory.remove |
 | libuv | Source code | The Windows pipe server creates its pipe with a null descriptor and no remote-client refusal | github.com/libuv/libuv, 1.x branch, `src/win/pipe.c` |
-| Node.js `http2.performServerHandshake` | Documentation | Added in Node 20.12.0 and 21.7.0 | https://nodejs.org/api/http2.html |
+| Node.js `http2.performServerHandshake` | Documentation | Added in Node 20.12.0 and 21.7.0 | https://nodejs.org/docs/latest-v24.x/api/http2.html |
 | HTTP/2 over a child's standard streams | Primary research | 50 MB up in 148 ms; 20 concurrent 1 MB in 81 ms; a 50 MB echo fails at the default session memory and passes at 128 MB (Node 26.8.1, on a Mac) | measured in this project's design work |
 | `h2`, `windows`, `windows-native-keyring-store` | Package registry | 0.4.19, 0.62.2 and 1.1.0; the keyring store writes Enterprise persistence unless told `persistence=local` | https://crates.io |
 | `@napi-rs/keyring` 2.1.0 | Source code | Passes only the entry's target, so every entry is written at Enterprise persistence | github.com/Brooooooklyn/keyring-node at tag 2.1.0 |

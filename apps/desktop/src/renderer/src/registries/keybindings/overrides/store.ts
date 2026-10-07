@@ -11,6 +11,9 @@
 //     after construction; a movable base supplies `subscribeToDefaults` and the store re-composes.
 //   - An override applies to this window before the write settles, and a refused write is
 //     disclosed ("worked for this window, will not come back").
+//   - A stored override is read into the app's one spelling (`normalizeChord`), so a hand-edited
+//     `Ctrl+KeyK` fires and is written back in that spelling; the recorder and the shipped chords
+//     already write it.
 //   - A stored override passes the same check as a fresh one. A chord that no longer installs is
 //     declined and named, since handing it to `setBindings` would raise in the frame's effect; an
 //     override for a missing act is skipped and left out of the next write.
@@ -30,7 +33,11 @@ import {
 import { commandRegistry } from "../../commands/registry.js";
 import { type Keybinding } from "../../commands/keybinding.js";
 import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "#renderer/lib/chord-format.js";
+import {
+  HOST_CHORD_PLATFORM,
+  normalizeChord,
+  type ChordPlatform,
+} from "#renderer/lib/chord-format.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
@@ -226,9 +233,10 @@ export class KeybindingOverrideStore {
         admitted[commandId] = null;
         continue;
       }
-      const refusal = this.#refuse(commandId, override, admitted);
+      const chord = normalizeChord(override, this.#platform);
+      const refusal = this.#refuse(commandId, chord, admitted);
       if (refusal === undefined) {
-        admitted[commandId] = override;
+        admitted[commandId] = chord;
       } else {
         refusals.push({ commandId, chord: override, refusal });
       }

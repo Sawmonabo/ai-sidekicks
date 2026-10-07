@@ -6,7 +6,7 @@
 import {
   CHORD_MODIFIER_TOKENS,
   PLATFORM_MODIFIER_TOKEN,
-  decodeChordKeyToken,
+  foldChordKeyToken,
   splitChordTokens,
   type ChordModifierToken,
   type ChordPlatform,
@@ -97,17 +97,12 @@ export function isCloseTabChord(descriptor: ChordDescriptor, platform: ChordPlat
   if (!platformModifierHeld || otherModifierHeld) {
     return false;
   }
-  return closeTabKeyToken(descriptor) === CLOSE_TAB_KEY_TOKEN;
+  return foldChordKeyToken(descriptorKeyToken(descriptor)) === CLOSE_TAB_KEY_TOKEN;
 }
 
 /** The key token of a chord, `code` first because it is layout-independent. */
 function descriptorKeyToken(descriptor: ChordDescriptor): string {
   return descriptor.code === "" ? descriptor.key : descriptor.code;
-}
-
-/** The key normalized through the chord decoder, so `KeyW`, `w` and `W` are one keystroke. */
-function closeTabKeyToken(descriptor: ChordDescriptor): string {
-  return decodeChordKeyToken(descriptorKeyToken(descriptor)).toUpperCase();
 }
 
 /** The close-tab chord in the console's own authoring grammar, for a hint. */
