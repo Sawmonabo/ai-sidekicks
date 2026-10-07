@@ -23,7 +23,9 @@
 
 /*
  * Grows to the row cap in `bounds.ts` or a third of the session screen's height, whichever is
- * smaller, then scrolls inside its own box: a short window keeps the conversation its room.
+ * smaller, then scrolls inside its own box: a short window keeps the conversation its room. The
+ * third includes the screen's head, which sizes from its header, banners and catching-up line
+ * and has no height of its own to subtract.
  */
 .meridian-composer__line {
   --meridian-text-box-height-cap: calc(100cqh / 3);
