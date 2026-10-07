@@ -128,6 +128,9 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       lastSettingsPage={appStores.lastSettingsPage}
       palette={palette}
       notice={props.notice}
+      onWindowFloorChange={(floor) => {
+        void bridge.window.setMinimumSize(props.openWindow.windowId, floor);
+      }}
     >
       <AppRouter context={screenContext} />
     </AppShell>

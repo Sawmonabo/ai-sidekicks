@@ -1,9 +1,11 @@
-// The chrome: the rail, the banner stack, and one region for the routed screen.
+// The chrome: the rail, the sessions track, the banner stack, one region for the routed screen,
+// and the box that measures the window's floor.
 //
 // The screen arrives as `children` so the frame depends on no feature. The background wrapper
 // carries `inert` while a modal overlay is up: the dialog traps focus but leaves the rest of the
 // app in the accessibility tree, and the wrapper is `display: contents` so the frame's grid still
-// places the rail and the column. `overlays` stays outside it, so the dialog remains reachable.
+// places the rail, the track and the column. `overlays` stays outside it, so the dialog remains
+// reachable.
 //
 // This is separate from `AppFrame.tsx` because the announcement hook below must run under the
 // announcer provider that `AppFrame` mounts.
@@ -15,6 +17,8 @@ import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncem
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
 import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
 import { type RailDestination } from "#renderer/routing/readers.js";
+import type { WindowSize } from "#shared/window/size.js";
+import { WindowFloorProbe } from "./WindowFloorProbe.js";
 
 /** What a caller hands the frame chrome. */
 export interface FrameChromeProps {
@@ -32,6 +36,10 @@ export interface FrameChromeProps {
   readonly modalOverlayOpen?: boolean;
   /** One line about the window itself, drawn above the banners. */
   readonly notice?: React.ReactNode;
+  /** What the sessions track holds; with nothing, the track is closed and zero wide. */
+  readonly sessionsTrack?: React.ReactNode;
+  /** The window's smallest size, in CSS px, reported on first layout and on every change. */
+  readonly onWindowFloorChange: (floor: WindowSize) => void;
 }
 
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
@@ -45,6 +53,9 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           current={props.railDestination}
           onSelect={props.onSelectDestination}
         />
+        {props.sessionsTrack === undefined ? null : (
+          <div className="meridian-frame__sessions-track">{props.sessionsTrack}</div>
+        )}
         <div className="meridian-frame__column">
           {props.notice}
           {props.banners.length === 0 ? null : (
@@ -79,6 +90,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           </main>
         </div>
       </div>
+      <WindowFloorProbe onWindowFloorChange={props.onWindowFloorChange} />
       {props.overlays}
     </div>
   );

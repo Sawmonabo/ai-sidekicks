@@ -41,10 +41,12 @@ import {
   SESSIONS_TRACK_WIDTH_REM,
   INSPECTOR_WIDTH_REM,
   AGENTS_PANE_WIDTH_REM,
+  CONVERSATION_FLOOR_REM,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
   TOOL_HUE_ALIASES,
   TRANSCRIPT_ROW_GAP_REM,
+  WINDOW_HEIGHT_FLOOR_REM,
 } from "./palette.js";
 import {
   BODY_LINE_HEIGHT,
@@ -264,6 +266,8 @@ function invariantBlock(): string {
   lines.push(declaration("sessions-track-width", `${SESSIONS_TRACK_WIDTH_REM}rem`));
   lines.push(declaration("inspector-width", `${INSPECTOR_WIDTH_REM}rem`));
   lines.push(declaration("agents-pane-width", `${AGENTS_PANE_WIDTH_REM}rem`));
+  lines.push(declaration("conversation-floor", `${CONVERSATION_FLOOR_REM}rem`));
+  lines.push(declaration("window-height-floor", `${WINDOW_HEIGHT_FLOOR_REM}rem`));
   // The terminal opens on a third of its pane block's height; the percentage resolves against the
   // block that reads the token, which must have a definite height.
   lines.push(declaration("terminal-height", "calc(100% / 3)"));

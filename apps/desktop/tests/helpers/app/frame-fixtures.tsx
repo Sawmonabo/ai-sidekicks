@@ -44,6 +44,7 @@ export function frameProps(
   onSelectDestination: () => void;
   banners: readonly WindowBanner[];
   onDismissBanner: () => void;
+  onWindowFloorChange: () => void;
 } {
   return {
     route,
@@ -52,6 +53,7 @@ export function frameProps(
     onSelectDestination: () => undefined,
     banners,
     onDismissBanner: () => undefined,
+    onWindowFloorChange: () => undefined,
   };
 }
 
