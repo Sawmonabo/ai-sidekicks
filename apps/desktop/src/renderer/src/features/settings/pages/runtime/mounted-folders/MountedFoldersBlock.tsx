@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { settingsControlAnchor } from "#renderer/features/settings/control-anchor.js";
+import { settingsControlAnchor } from "#renderer/features/settings/control/anchor.js";
 import { RUNTIME_CONTROLS } from "../controls.js";
 
 /**
@@ -13,11 +13,11 @@ export function MountedFoldersBlock(props: { readonly children?: ReactNode }): R
   return (
     <section
       className="meridian-settings-page__block"
-      aria-label={RUNTIME_CONTROLS.mountedRepositories.label}
-      {...settingsControlAnchor(RUNTIME_CONTROLS.mountedRepositories)}
+      aria-label={RUNTIME_CONTROLS.foldersThisMachineCanReach.label}
+      {...settingsControlAnchor(RUNTIME_CONTROLS.foldersThisMachineCanReach)}
     >
       <h3 className="meridian-settings-page__section-head">
-        {RUNTIME_CONTROLS.mountedRepositories.label}
+        {RUNTIME_CONTROLS.foldersThisMachineCanReach.label}
       </h3>
       {props.children}
     </section>

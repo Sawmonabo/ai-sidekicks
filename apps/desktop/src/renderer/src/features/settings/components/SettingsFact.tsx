@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { settingsControlAnchor } from "../control-anchor.js";
+import { settingsControlAnchor } from "../control/anchor.js";
 import type { SettingsControl } from "../types.js";
 
 /**

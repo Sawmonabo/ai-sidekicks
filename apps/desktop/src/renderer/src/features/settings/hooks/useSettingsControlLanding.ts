@@ -1,11 +1,11 @@
 // Landing on the control an address names, each time the person arrives on it; the landing
-// itself is `../control-landing.ts`.
+// itself is `../control/landing.ts`.
 
 import { useLayoutEffect } from "react";
 
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
-import { SettingsControlLanding } from "../control-landing.js";
+import { SettingsControlLanding } from "../control/landing.js";
 
 /** What a landing is aimed at. */
 export interface SettingsControlLandingOptions {

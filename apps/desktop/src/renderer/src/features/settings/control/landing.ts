@@ -18,7 +18,7 @@ import { getWindow } from "@floating-ui/utils/dom";
 import { type Clock } from "#renderer/lib/clock.js";
 import { clippingAncestorsOf, overflowAxesOf } from "#renderer/lib/clipping-ancestors.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { SETTINGS_CONTROL_ATTRIBUTE } from "./control-anchor.js";
+import { SETTINGS_CONTROL_ATTRIBUTE } from "./anchor.js";
 
 /** One arrival on one control: found now, or watched for until it is drawn or abandoned. */
 export class SettingsControlLanding {

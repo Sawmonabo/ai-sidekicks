@@ -1,6 +1,6 @@
 // The anchor a page body puts on a control so a link or a search hit can land on it.
 
-import type { SettingsControl } from "./types.js";
+import type { SettingsControl } from "../types.js";
 
 /**
  * The attribute a page body sets on the element it draws for a findable control; its value is

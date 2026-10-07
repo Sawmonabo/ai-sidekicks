@@ -15,7 +15,7 @@ import { Radio } from "@base-ui/react/radio";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { ChangedFromDefaultMark } from "../../components/ChangedFromDefaultMark.js";
-import { settingsControlAnchor } from "../../control-anchor.js";
+import { settingsControlAnchor } from "../../control/anchor.js";
 import type { SettingsControl } from "../../types.js";
 import { APPEARANCE_CONTROLS, COLOR_SCHEME_HEADING, COLOR_SCHEME_HINT } from "./controls.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";

@@ -1,6 +1,6 @@
 // The inline shape: one line beside the control that was pressed, with the control still there.
-// Handed a try-again, it draws the strip shape instead: no mark, the refusing service's own words,
-// and the faint `Try again` word at the right end of the line. `props.ts` declares the grammar and
+// Handed a try-again, it draws the strip shape instead: no mark, the refusal's message, or the
+// screen's fixed sentence for it, and the faint `Try again` word at the right end of the line. `props.ts` declares the grammar and
 // the props every shape shares.
 
 import "./Refusal.css";

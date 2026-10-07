@@ -14,11 +14,8 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "#renderer/lib/wire/figures.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
-import {
-  readBindControlAvailability,
-  mountHealthReading,
-  mountLifecycleReading,
-} from "../health.js";
+import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
+import { readBindControlAvailability } from "../health.js";
 import { ReattachControl } from "../attach/ReattachControl.js";
 import type { RepoOperations } from "../../operations.js";
 import type { RepoWorkspaceRow } from "../reading.js";

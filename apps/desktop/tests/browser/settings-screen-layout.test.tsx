@@ -35,6 +35,23 @@ function pagesWithKnownWidth(): SettingsPageRegistry {
   return pages;
 }
 
+/**
+ * Make a change the screen weighs through its resize and style observers, inside `act`: the
+ * observers answer on the next frame, so two frames pass before the change is done.
+ */
+async function changeLayout(change: () => void): Promise<void> {
+  await act(async () => {
+    change();
+    for (let frame = 0; frame < 2; frame += 1) {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          resolve();
+        });
+      });
+    }
+  });
+}
+
 function elementIn(container: HTMLElement, selector: string): HTMLElement {
   const element = container.querySelector<HTMLElement>(selector);
   if (element === null) {
@@ -51,7 +68,9 @@ describe("browser — the settings screen shares the window's width", () => {
       settingsWindow,
       pagesWithKnownWidth(),
     );
-    container.style.inlineSize = "100rem";
+    await changeLayout(() => {
+      container.style.inlineSize = "100rem";
+    });
     const screen = elementIn(container, ".meridian-settings");
     const listPane = elementIn(container, ".meridian-settings__list-pane");
     const pagePane = elementIn(container, ".meridian-settings__pane");
@@ -74,11 +93,15 @@ describe("browser — the settings screen shares the window's width", () => {
       Number.parseFloat(getComputedStyle(pagePane).paddingInlineEnd);
     const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
     const neededWidth = listWidth + PAGE_CONTENT_WIDTH_REM * rootFontSize + pageGutters;
-    container.style.inlineSize = `${String(Math.ceil(neededWidth) + 1)}px`;
+    await changeLayout(() => {
+      container.style.inlineSize = `${String(Math.ceil(neededWidth) + 1)}px`;
+    });
     await waitFor(() => {
       expect(screen.dataset["arrangement"]).toBe("side-by-side");
     });
-    container.style.inlineSize = `${String(Math.floor(neededWidth) - rootFontSize)}px`;
+    await changeLayout(() => {
+      container.style.inlineSize = `${String(Math.floor(neededWidth) - rootFontSize)}px`;
+    });
     await waitFor(() => {
       expect(screen.dataset["arrangement"]).toBe("one-at-a-time");
     });
@@ -103,13 +126,17 @@ describe("browser — the settings screen shares the window's width", () => {
     expect(document.activeElement).toBe(getByRole("heading", { name: "Keyboard" }));
 
     // A smaller text size shrinks the page's content, so the two fit side by side again.
-    document.documentElement.style.fontSize = `${String(rootFontSize / 2)}px`;
     try {
+      await changeLayout(() => {
+        document.documentElement.style.fontSize = `${String(rootFontSize / 2)}px`;
+      });
       await waitFor(() => {
         expect(screen.dataset["arrangement"]).toBe("side-by-side");
       });
     } finally {
-      document.documentElement.style.removeProperty("font-size");
+      await changeLayout(() => {
+        document.documentElement.style.removeProperty("font-size");
+      });
     }
   });
 });

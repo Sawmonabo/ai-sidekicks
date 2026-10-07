@@ -28,7 +28,7 @@ import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
-import { settingsControlAnchor } from "../../control-anchor.js";
+import { settingsControlAnchor } from "../../control/anchor.js";
 import { CHORDS_HEADING, KEYBOARD_CONTROLS } from "./controls.js";
 import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
 import { ResetAllKeybindings } from "./components/ResetAllKeybindings.js";

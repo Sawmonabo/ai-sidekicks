@@ -11,7 +11,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { settingsRoute } from "#renderer/routing/readers.js";
-import { SETTINGS_CONTROL_ATTRIBUTE } from "./control-anchor.js";
+import { SETTINGS_CONTROL_ATTRIBUTE } from "./control/anchor.js";
 import type { SettingsControl } from "./types.js";
 import { APPEARANCE_CONTROLS } from "./pages/appearance/controls.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "./pages/registry.js";

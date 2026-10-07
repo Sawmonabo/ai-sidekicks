@@ -1,11 +1,12 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
-// offered before the download finishes and needs no confirmation, a call main does not answer is
-// drawn in the block's own words, and the automatic-check switch, which a refused write leaves
-// where it was. The doubles are in `UpdatesBlock.test-support.tsx`.
+// offered before the download finishes and needs no confirmation, a call main does not answer and
+// a failure the updater reports are drawn in the block's own words, and the automatic-check
+// switch, which a refused write leaves where it was. The doubles are in `UpdatesBlock.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import {
   machineSettingsRefusing,
   machineSettingsUnreadable,
@@ -15,6 +16,7 @@ import {
   renderSettled,
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
+import { UPDATE_FAILED_DETAIL } from "./updater-reading.js";
 
 describe("the updates block — nothing downloads without a press", () => {
   it("offers the download on a found update, and downloads on a press", async () => {
@@ -89,6 +91,39 @@ describe("the updates block — a call main does not answer is drawn in the bloc
       "Could not read the update status.",
     );
     expect(block.textContent).not.toContain("update.getState");
+  });
+});
+
+describe("the updates block — the updater's failure is drawn in the block's words", () => {
+  it("draws the fixed sentence with Try again and sends the updater's words to the log", async () => {
+    const updaterWords = "ENOENT: /private/var/folders/xy/update.zip";
+    const batches: string[] = [];
+    const detach = windowDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    try {
+      const requestCheck = vi.fn(() => Promise.resolve());
+      const { block } = await renderSettled(
+        updaterReporting({ status: "error", message: updaterWords }, { requestCheck }),
+      );
+      windowDiagnosticCapture.flush();
+
+      expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
+        UPDATE_FAILED_DETAIL,
+      );
+      expect(document.body.textContent).not.toContain(updaterWords);
+      const logged = batches
+        .flatMap((batch) => batch.split("\n"))
+        .map((line) => JSON.parse(line) as { kind: string; detail: string })
+        .filter((record) => record.kind === "update-failed");
+      expect(logged.map((record) => record.detail)).toStrictEqual([updaterWords]);
+
+      await pressControl(block, "Try again");
+
+      expect(requestCheck).toHaveBeenCalledTimes(1);
+    } finally {
+      detach();
+    }
   });
 });
 

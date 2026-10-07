@@ -29,6 +29,12 @@ export type UpdateReading =
   | { readonly kind: "state"; readonly state: UpdateState }
   | { readonly kind: "failed"; readonly refusal: Refusal };
 
+/**
+ * What the updater reporting a failure reads as on screen. Its own message is never drawn: it goes
+ * to the diagnostic log, since it is the updater's wording and may name a path or a stack.
+ */
+export const UPDATE_FAILED_DETAIL = "The update could not be verified and was not installed.";
+
 /** The held reading, rebuilt on every accepted observation and held by identity. */
 export interface UpdaterReadingSnapshot {
   readonly reading: UpdateReading;
