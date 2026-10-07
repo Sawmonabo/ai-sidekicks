@@ -34,12 +34,9 @@ export type RecordedChunk = Parameters<AttachmentIngestPort["writeChunk"]>[0];
 export class ScriptedIngestPort {
   readonly initCalls: RecordedInit[] = [];
   readonly chunkCalls: RecordedChunk[] = [];
-  readonly abortedIngestIds: string[] = [];
   /**
-   * The next stream identity this port hands out: `ingest-1` first.
-   *
-   * One id per opened stream, since a port answering every `begin` with one id could not say which
-   * spool an abort was for.
+   * The next stream identity this port hands out: `ingest-1` first, one id per opened stream, so a
+   * case can tell a restart's new stream from the one it replaced.
    */
   #nextIngestNumber = 1;
   #beginGate: Promise<void> | undefined;
@@ -103,13 +100,11 @@ export class ScriptedIngestPort {
       },
       complete: async () => ({
         artifactId: "artifact-9" as ArtifactId,
-        fileName: "notes-1.md",
-        mimeType: "text/markdown",
-        sizeBytes: 300,
+        contentHash: "sha256-9",
+        normalizedName: "notes-1.md",
+        derivedMediaType: "text/markdown",
+        derivedSizeBytes: 300,
       }),
-      abort: async (request: { readonly ingestId: string }) => {
-        this.abortedIngestIds.push(request.ingestId);
-      },
     };
   }
 
