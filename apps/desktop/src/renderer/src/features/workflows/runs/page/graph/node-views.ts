@@ -48,7 +48,7 @@ export interface RunGraphNodeView {
    * AM`, where one is armed.
    */
   readonly resumeLine: string | undefined;
-  /** What the ring says in words, such as `Failed` or `Waiting on your approval`. */
+  /** What the ring says in words, such as `Failed` or `Waiting on an approval`. */
   readonly stateWords: string;
   /** The node's accessible name: every line it draws, such as `Summarize · Failed · Attempt 2`. */
   readonly accessibleName: string;
