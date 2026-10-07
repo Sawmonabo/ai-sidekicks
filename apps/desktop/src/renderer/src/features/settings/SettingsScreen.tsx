@@ -81,9 +81,9 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   const arrangement = useSettingsPaneArrangement({
     screen,
     pagePane,
-    pageKey: requestedPage,
+    requestedPage,
   });
-  useCommitEditedFieldOnLeave(frameStore, screen);
+  useCommitEditedFieldOnLeave(frameStore, pagePane);
   const isOneAtATime = arrangement === "one-at-a-time";
   const isShowingPage = requestedPage !== undefined;
   useFocusShownPane({
@@ -132,7 +132,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
           query={search.query}
           onQueryChange={search.setQuery}
           onKeyDown={search.onFieldKeyDown}
-          hitsId={hitsId}
+          hitsId={search.isSearching && search.hits.length > 0 ? hitsId : undefined}
           highlightedHitId={
             search.isSearching && search.highlightedIndex !== undefined
               ? hitIdAt(search.highlightedIndex)
@@ -148,13 +148,13 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
             hitIdAt={hitIdAt}
             onOpenHit={openSearchHit}
           />
-        ) : (
-          <SettingsPageList
-            currentPageId={currentPageId}
-            onOpenPage={openPage}
-            opensOnMove={!isOneAtATime}
-          />
-        )}
+        ) : null}
+        <SettingsPageList
+          currentPageId={currentPageId}
+          onOpenPage={openPage}
+          opensOnMove={!isOneAtATime}
+          isCollapsed={search.isSearching}
+        />
       </div>
       <div
         ref={setPagePane}

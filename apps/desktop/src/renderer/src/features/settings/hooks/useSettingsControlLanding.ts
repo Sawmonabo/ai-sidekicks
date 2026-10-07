@@ -8,11 +8,11 @@
 // them; a control the page never draws leaves the person on the page. The light is a CSS
 // animation whose end clears it, so nothing schedules a timer.
 
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { getWindow } from "@floating-ui/utils/dom";
 
 import { type Clock } from "#renderer/lib/clock.js";
-import { clippingAncestorsOf } from "#renderer/lib/clipping-ancestors.js";
+import { clippingAncestorsOf, overflowAxesOf } from "#renderer/lib/clipping-ancestors.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
@@ -23,17 +23,20 @@ export interface SettingsControlLandingOptions {
   /** The element the open page's body is drawn in; `null` before it mounts. */
   readonly pageBody: HTMLElement | null;
   readonly pageId: SettingsPageId | undefined;
-  /** The control the address names, or `undefined` where it names none. */
+  /** The declared control the address names, or `undefined` where it names none. */
   readonly controlId: string | undefined;
   /** Moves on every search hit, so a second hit on the control already open lands again. */
-  readonly arrivalOrdinal: number;
+  readonly hitOrdinal: number;
 }
 
-/** Land on the named control each time the person arrives on it. */
+/**
+ * Land on the named control each time the person arrives on it: before the page paints when the
+ * control is already drawn, so no frame shows the page's top first.
+ */
 export function useSettingsControlLanding(options: SettingsControlLandingOptions): void {
-  const { pageBody, pageId, controlId, arrivalOrdinal } = options;
+  const { pageBody, pageId, controlId, hitOrdinal } = options;
   const clock = useClock();
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pageBody === null || pageId === undefined || controlId === undefined) {
       return undefined;
     }
@@ -42,7 +45,7 @@ export function useSettingsControlLanding(options: SettingsControlLandingOptions
     return () => {
       landing.stop();
     };
-  }, [pageBody, pageId, controlId, arrivalOrdinal, clock]);
+  }, [pageBody, pageId, controlId, hitOrdinal, clock]);
 }
 
 /** The attribute that lights a landed control until its animation ends. */
@@ -162,12 +165,18 @@ function glideToMiddle(control: HTMLElement, clock: Clock): void {
   controller.dispose();
 }
 
-/** The nearest ancestor the person scrolls, or `undefined` when the document itself scrolls. */
+/**
+ * The nearest ancestor that scrolls the control: one the person may scroll whose content is
+ * taller than it. `undefined` when none does and the document scrolls it.
+ */
 function scrollingAncestorOf(control: HTMLElement): HTMLElement | undefined {
   const ownerWindow = getWindow(control);
   for (const ancestor of clippingAncestorsOf(control)) {
-    const overflowY = ownerWindow.getComputedStyle(ancestor).overflowY;
-    if (SCROLLING_OVERFLOW_VALUES.some((value) => value === overflowY)) {
+    const { vertical } = overflowAxesOf(ownerWindow.getComputedStyle(ancestor));
+    if (
+      SCROLLING_OVERFLOW_VALUES.some((value) => value === vertical) &&
+      ancestor.scrollHeight > ancestor.clientHeight
+    ) {
       return ancestor;
     }
   }

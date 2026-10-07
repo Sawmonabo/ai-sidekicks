@@ -24,7 +24,7 @@
 }
 
 /* The one section head every page draws: the uppercase field label's size, one tracking step
-   wider, so a head and a label differ only by their spacing. */
+   wider and at weight 500. */
 .meridian-settings-page__section-head {
   margin: 0;
   color: var(--meridian-text-faint);

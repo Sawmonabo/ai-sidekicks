@@ -33,7 +33,7 @@
  * gutter to a page beside it. */
 .meridian-settings[data-arrangement="one-at-a-time"] .meridian-settings__list-pane {
   position: static;
-  padding-right: var(--meridian-space-6);
+  padding-inline-end: var(--meridian-space-6);
 }
 
 .meridian-settings__list-pane[hidden],
@@ -86,6 +86,14 @@
 .meridian-settings__hits,
 .meridian-settings__no-match {
   contain: inline-size;
+}
+
+/* Under search hits the page list keeps only its width, so the page names still size the
+ * list's track and the hits never narrow it. */
+.meridian-settings__page-nav[data-collapsed] {
+  block-size: 0;
+  overflow: hidden;
+  visibility: hidden;
 }
 
 .meridian-settings__page-entry,

@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from "vitest";
 import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
 import { SettingsPageRegistry, type SettingsPageRegistration } from "./registry.js";
 import type { SettingsPageContext } from "../types.js";
 import type { ReactNode } from "react";
@@ -10,7 +9,6 @@ import type { ReactNode } from "react";
 function pageFor(pageId: (typeof SETTINGS_PAGE_IDS)[number]): SettingsPageRegistration {
   return {
     pageId,
-    label: SETTINGS_PAGE_LABELS[pageId],
     keywords: [],
     note: "",
     render: () => null,
@@ -37,7 +35,6 @@ describe("settings page registry — what is left to warm", () => {
   function deferredPageFor(pageId: (typeof SETTINGS_PAGE_IDS)[number]): SettingsPageRegistration {
     return {
       pageId,
-      label: SETTINGS_PAGE_LABELS[pageId],
       keywords: [],
       note: "",
       body: () =>

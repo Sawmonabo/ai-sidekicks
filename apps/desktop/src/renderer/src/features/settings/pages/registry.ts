@@ -1,17 +1,17 @@
-// The settings page table: each page's heading, note, findable words and controls, and how its
-// body arrives.
+// The settings page table: each page's note, findable words and controls, and how its body
+// arrives. A page's name, on the list and over the page, is `SETTINGS_PAGE_LABELS`.
 //
 // The screen is a page list and a pane holding the open page. `SETTINGS_PAGES` is the table;
 // `SettingsPageRegistry` is what one mount of the screen composes from it, so no window inherits
 // another's pages. What search does with the words each page declares is `../search.ts`.
 
-import { createElement, type ReactNode } from "react";
+import { createElement } from "react";
 
 import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/loader.js";
 import { AppearancePage } from "./appearance/AppearancePage.js";
 import { APPEARANCE_CONTROLS } from "./appearance/controls.js";
-import { findSettingsPageBody } from "./body-registry.js";
+import { DevicesPage } from "./devices/DevicesPage.js";
 import { GENERAL_CONTROLS } from "./general/controls.js";
 import { GeneralPage } from "./general/GeneralPage.js";
 import { KEYBOARD_CONTROLS } from "./keyboard/controls.js";
@@ -27,13 +27,10 @@ import { SETTINGS_PAGE_IDS, type SettingsPageId } from "#renderer/routing/settin
 /** One registered page, as the page list, the pane and search read it. */
 export interface SettingsPageDescriptor {
   readonly pageId: SettingsPageId;
-  /** The page's own heading. The page list shows `SETTINGS_PAGE_LABELS`. */
-  readonly label: string;
   /**
    * Other words a person may type for this page.
    *
-   * Search finds the page on its heading, its list label or any of these, so "shortcut" finds
-   * the Keyboard page.
+   * Search finds the page on its name or any of these, so "shortcut" finds the Keyboard page.
    */
   readonly keywords: readonly string[];
   /** The one line under the heading saying what the page is and where its values are kept. */
@@ -99,7 +96,6 @@ export class SettingsPageRegistry {
   public register(registration: SettingsPageRegistration): void {
     const descriptorBase = {
       pageId: registration.pageId,
-      label: registration.label,
       keywords: registration.keywords,
       note: registration.note,
       controls: registration.controls ?? [],
@@ -189,7 +185,6 @@ export function composeSettingsPages(): SettingsPageRegistry {
 export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   {
     pageId: "general",
-    label: "General",
     keywords: ["version", "about", "build"],
     note: "What this install is, how it updates itself, and what a new session starts from.",
     controls: Object.values(GENERAL_CONTROLS),
@@ -197,7 +192,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "providers",
-    label: "Providers",
     keywords: [
       "provider",
       "credentials",
@@ -216,7 +210,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "mcp-servers",
-    label: "MCP servers",
     keywords: [
       "tools",
       "servers",
@@ -233,7 +226,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "projects",
-    label: "Projects",
     keywords: ["repositories", "clone", "worktree", "environment variables", "branch names"],
     note:
       "Where cloned repositories go, every project attached to this machine, what happens " +
@@ -242,11 +234,10 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     render: () => null,
   },
   {
-    // A loader, so the page and its sheet stay off the initial import graph: the label
-    // and keywords stay here because the page list and search read them before any
-    // page's chunk has loaded.
+    // A loader, so the page and its sheet stay off the initial import graph: the note and
+    // keywords stay here because the pane and search read them before the page's chunk has
+    // loaded.
     pageId: "browser",
-    label: "Browser",
     keywords: ["web", "site data", "cookies", "storage", "file boundary", "page tools", "clear"],
     note:
       "What the browser inside the app remembers, and whether sidekicks can drive it. One set " +
@@ -255,7 +246,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "keyboard",
-    label: "Keyboard",
     keywords: [
       "shortcut",
       "chord",
@@ -272,7 +262,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "appearance",
-    label: "Appearance",
     keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
     note: "How the app looks.",
     controls: Object.values(APPEARANCE_CONTROLS),
@@ -280,7 +269,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "notifications",
-    label: "Notifications",
     keywords: [
       "alerts",
       "toasts",
@@ -295,7 +283,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     pageId: "runtime",
-    label: "Runtime",
     keywords: ["background service", "runtime", "restart", "stop", "connection"],
     note:
       "The background service that runs sidekicks, the folders it can reach, what it keeps, " +
@@ -306,25 +293,17 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   {
     // The Remote Control feature fills this body through the page body registry.
     pageId: "devices",
-    label: "Devices",
     keywords: ["remote control", "phone", "link a device", "passkeys", "shared ports"],
     note: "Computers and devices linked to reach sessions remotely.",
-    render: () => renderRegisteredBody("devices"),
+    render: () => createElement(DevicesPage),
   },
 ];
 
 /** What every registration carries, whichever form it takes. */
 interface SettingsPageRegistrationBase {
   readonly pageId: SettingsPageId;
-  readonly label: string;
   readonly keywords: readonly string[];
   readonly note: string;
   /** Absent for a page that declares no findable controls. */
   readonly controls?: readonly SettingsControl[];
-}
-
-/** The body a composition registered for a page, or nothing while none is registered. */
-function renderRegisteredBody(pageId: SettingsPageId): ReactNode {
-  const RegisteredBody = findSettingsPageBody(pageId);
-  return RegisteredBody === undefined ? null : createElement(RegisteredBody);
 }

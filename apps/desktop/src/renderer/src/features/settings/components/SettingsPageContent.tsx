@@ -4,7 +4,7 @@
 // a link naming a control then lands on it, which moves focus on to the control and glides it
 // into view through the scroll chokepoint.
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import type { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
@@ -33,21 +33,22 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
   // State rather than a ref, so the landing starts again when the body element arrives.
   const [pageBody, setPageBody] = useState<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  const descriptor = props.pages.descriptorFor(pageId);
+  // Only a control the page declares is landed on; any other selection is the page's own.
+  const landedControlId = descriptor?.controls.some((control) => control.id === context.selection)
+    ? context.selection
+    : undefined;
+  const label = SETTINGS_PAGE_LABELS[pageId];
+
+  // Before the landing, which runs after it and moves focus on to the control it lands on.
+  useLayoutEffect(() => {
     // Ordinal zero is the pane opening, not a hit.
     if (hitOrdinal !== 0) {
       headingRef.current?.focus();
     }
   }, [hitOrdinal]);
-  useSettingsControlLanding({
-    pageBody,
-    pageId,
-    controlId: context.selection,
-    arrivalOrdinal: hitOrdinal,
-  });
+  useSettingsControlLanding({ pageBody, pageId, controlId: landedControlId, hitOrdinal });
 
-  const descriptor = props.pages.descriptorFor(pageId);
-  const label = descriptor?.label ?? SETTINGS_PAGE_LABELS[pageId];
   return (
     <article className="meridian-settings__page" aria-label={label}>
       <header className="meridian-settings__page-head">
@@ -58,9 +59,7 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
           <p className="meridian-settings__page-note">{descriptor.note}</p>
         )}
       </header>
-      <div className="meridian-settings__page-body" ref={setPageBody}>
-        {descriptor?.render(context)}
-      </div>
+      <div ref={setPageBody}>{descriptor?.render(context)}</div>
     </article>
   );
 }

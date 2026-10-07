@@ -11,12 +11,13 @@ export interface SettingsSearchResultsProps {
 }
 
 /**
- * The hits, each its label over the place it sits, or the one line a term nothing matches draws.
+ * The hits, each its label over the place a control sits, or the one line a term nothing matches
+ * draws.
  */
 export function SettingsSearchResults(props: SettingsSearchResultsProps): React.JSX.Element {
   if (props.hits.length === 0) {
     return (
-      <p id={props.hitsId} className="meridian-settings__no-match" role="status">
+      <p className="meridian-settings__no-match" role="status">
         No setting matches “{props.query.trim()}”.
       </p>
     );
@@ -39,8 +40,10 @@ export function SettingsSearchResults(props: SettingsSearchResultsProps): React.
             props.onOpenHit(hit);
           }}
         >
-          <span className="meridian-settings__hit-label">{hit.label}</span>
-          <span className="meridian-settings__hit-place">{hit.place}</span>
+          <span>{hit.label}</span>
+          {hit.place === undefined ? null : (
+            <span className="meridian-settings__hit-place">{hit.place}</span>
+          )}
         </li>
       ))}
     </ul>

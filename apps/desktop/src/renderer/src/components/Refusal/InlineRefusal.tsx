@@ -1,6 +1,6 @@
 // The inline shape: one line beside the control that was pressed, with the control still there.
-// Handed a try-again, it draws as a page's strip instead: no mark, the daemon's words, and the
-// faint `Try again` word at the right end of the line. `props.ts` declares the grammar and props
+// Handed a try-again, it draws as a page's strip instead: no mark, the refusing service's own
+// words, and the faint `Try again` word at the right end of the line. `props.ts` declares the grammar and props
 // all three shapes share.
 
 import "./Refusal.css";
@@ -17,7 +17,10 @@ export interface InlineRefusalProps extends RefusalProps {
   readonly onTryAgain?: (() => void) | undefined;
 }
 
-/** Beside the control that was pressed. Nothing changed; the control stays. */
+/**
+ * Beside the control that was pressed, with its mark; or, given `onTryAgain`, a page's strip for a
+ * failed write or read, with no mark and `Try again` ending the line. Nothing changed either way.
+ */
 export function InlineRefusal(props: InlineRefusalProps): React.JSX.Element {
   const isStrip = props.onTryAgain !== undefined;
   return (

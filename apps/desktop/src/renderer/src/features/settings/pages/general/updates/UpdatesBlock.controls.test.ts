@@ -7,6 +7,7 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   machineSettingsRefusing,
+  machineSettingsUnreadable,
   preferencesAtDefaults,
   pressControl,
   renderOnMachineSettings,
@@ -145,5 +146,26 @@ describe("the updates block — a refused write puts the switch back", () => {
     expect(
       block.querySelector('[aria-label="Changed from the default"]')?.getAttribute("title"),
     ).toBe("On by default");
+  });
+});
+
+describe("the updates block — the switch waits for the settings file", () => {
+  it("draws no switch while the file cannot be read, says so with Try again, and reads again", async () => {
+    const machineSettings = machineSettingsUnreadable(1);
+    const { block } = await renderOnMachineSettings(
+      updaterReporting({ status: "idle" }),
+      machineSettings,
+    );
+
+    expect(block.querySelector('[role="switch"]')).toBeNull();
+    expect(block.querySelector("[data-refusal-code] .meridian-refusal__message")?.textContent).toBe(
+      "The settings could not be read.",
+    );
+
+    await pressControl(block, "Try again");
+
+    expect(machineSettings.opens).toBe(2);
+    expect(block.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
   });
 });

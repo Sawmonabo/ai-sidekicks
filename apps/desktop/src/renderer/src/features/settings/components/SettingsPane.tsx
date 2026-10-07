@@ -45,8 +45,10 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
 
 function renderPaneBody(props: SettingsPaneProps): React.JSX.Element {
   if (props.pageId !== undefined) {
+    // Keyed by page, so two pages drawn from one component never share a field or its state.
     return (
       <SettingsPageContent
+        key={props.pageId}
         pageId={props.pageId}
         context={props.context}
         pages={props.pages}

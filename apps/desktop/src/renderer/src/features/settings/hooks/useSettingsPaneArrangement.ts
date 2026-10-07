@@ -21,15 +21,15 @@ export interface SettingsPaneArrangementOptions {
   readonly screen: HTMLElement | null;
   /** The page pane, the track that overflows when the two do not fit. */
   readonly pagePane: HTMLElement | null;
-  /** The open page, or `undefined` on the address that names none. */
-  readonly pageKey: string | undefined;
+  /** The page the address names, or `undefined` on the address that names none. */
+  readonly requestedPage: string | undefined;
 }
 
 /** The arrangement the screen's width and its two panes' content allow. */
 export function useSettingsPaneArrangement(
   options: SettingsPaneArrangementOptions,
 ): SettingsPaneArrangement {
-  const { screen, pagePane, pageKey } = options;
+  const { screen, pagePane, requestedPage } = options;
   const [arrangement, setArrangement] = useState<SettingsPaneArrangement>("side-by-side");
   const arrangementRef = useRef(arrangement);
   // The width side by side last needed and did not get: a try narrower than it would fail.
@@ -38,10 +38,10 @@ export function useSettingsPaneArrangement(
   // A page has its own floor, so opening one tries side by side again. The address that names
   // no page draws no floor to measure, so it keeps the arrangement the last page settled.
   useLayoutEffect(() => {
-    if (pageKey !== undefined) {
+    if (requestedPage !== undefined) {
       setArrangement("side-by-side");
     }
-  }, [pageKey]);
+  }, [requestedPage]);
 
   useLayoutEffect(() => {
     arrangementRef.current = arrangement;
@@ -53,7 +53,7 @@ export function useSettingsPaneArrangement(
       neededWidthRef.current = neededWidth;
       setArrangement("one-at-a-time");
     }
-  }, [arrangement, pageKey, screen, pagePane]);
+  }, [arrangement, requestedPage, screen, pagePane]);
 
   useEffect(() => {
     if (screen === null || pagePane === null) {

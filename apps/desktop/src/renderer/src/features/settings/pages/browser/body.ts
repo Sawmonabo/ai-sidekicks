@@ -4,9 +4,9 @@
 
 import { createElement } from "react";
 
-import { ComposedBrowserPage } from "./ComposedBrowserPage.js";
+import { BrowserPage } from "./BrowserPage.js";
 
 /** The Browser page, as the settings page registry loads it. */
 export function Body(): React.ReactNode {
-  return createElement(ComposedBrowserPage);
+  return createElement(BrowserPage);
 }

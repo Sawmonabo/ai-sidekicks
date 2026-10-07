@@ -59,8 +59,10 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
       <section className="meridian-settings-page__block" aria-label={COLOR_SCHEME_HEADING}>
         <div className="meridian-scheme-choice__head">
           <h3 className="meridian-settings-page__section-head">{COLOR_SCHEME_HEADING}</h3>
-          {appliedScheme === SYSTEM_SCHEME_PREFERENCE ? null : (
-            <ChangedFromDefaultMark defaultDescription="System by default" />
+          {appliedScheme === undefined || appliedScheme === SYSTEM_SCHEME_PREFERENCE ? null : (
+            <ChangedFromDefaultMark
+              defaultDescription={`${APPEARANCE_CONTROLS.followSystem.label} by default`}
+            />
           )}
         </div>
         <RadioGroup

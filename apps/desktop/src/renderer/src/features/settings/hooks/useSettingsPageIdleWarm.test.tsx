@@ -18,7 +18,6 @@ function composePages(loadedPageIds: string[]): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
     pageId: "notifications",
-    label: "Notifications",
     keywords: [],
     note: "",
     body: () => {
@@ -30,7 +29,6 @@ function composePages(loadedPageIds: string[]): SettingsPageRegistry {
   });
   pages.register({
     pageId: "keyboard",
-    label: "Keyboard",
     keywords: [],
     note: "",
     render: () => null,

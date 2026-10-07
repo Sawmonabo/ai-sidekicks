@@ -181,10 +181,15 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
   const pendingFocus = useRef<PendingRowFocus | undefined>(undefined);
   const revealRequestedForIndex = useRef<number | undefined>(undefined);
 
-  // A move stands only inside the sequence it was made in. Derived here rather than cleared
-  // in state, so no render can read a stale move.
+  // A move stands only inside the sequence it was made in, and only until the caller anchors the
+  // list on another row: a press or a link choosing a row outranks where the keys left the
+  // cursor. Derived here rather than cleared in state, so no render can read a stale move.
   const movedToIndex =
-    movedTo !== undefined && movedTo.rowSetIdentity === rowSetIdentity ? movedTo.index : undefined;
+    movedTo !== undefined &&
+    movedTo.rowSetIdentity === rowSetIdentity &&
+    (movedTo.anchorIndex === anchorIndex || movedTo.index === anchorIndex)
+      ? movedTo.index
+      : undefined;
   // `rovingIndex` is where the keyboard is; `activeIndex`, the tab stop, differs from it only
   // while the window does not hold that row.
   const rovingIndex = clampedRowIndex(movedToIndex ?? anchorIndex, rowCount);
@@ -256,7 +261,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       // starts from the row the reader can see.
       const moved = movedRowIndex(move, activeIndex, rowCount, wrapsAround);
       // The sequence is captured with the move, and the claim is armed with that same value.
-      const movedRow: MovedRow = { index: moved, rowSetIdentity };
+      const movedRow: MovedRow = { index: moved, rowSetIdentity, anchorIndex };
       if (moved !== activeIndex) {
         // A boundary key at its boundary lands on the row already focused, so no claim is
         // armed: arming and consuming it would call focus() on the focused row, which still
@@ -272,7 +277,7 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       revealIndex?.(moved);
       onRowMove?.(moved);
     },
-    [activeIndex, revealIndex, rowCount, rowSetIdentity, wrapsAround, onRowMove],
+    [activeIndex, anchorIndex, revealIndex, rowCount, rowSetIdentity, wrapsAround, onRowMove],
   );
 
   return { activeIndex, onKeyDown };
@@ -286,6 +291,8 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
 interface MovedRow {
   readonly index: number;
   readonly rowSetIdentity: unknown;
+  /** Where the caller anchored the list when the move was made. */
+  readonly anchorIndex: number;
 }
 
 /**

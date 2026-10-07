@@ -6,16 +6,20 @@
 // download completed. The console never derives readiness from a percent, and only
 // `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
 // for that control under the controls, which stay drawn. Under the read-out sits the switch for
-// the machine setting `updatesAutomatic`: a refused write leaves the switch where it was and draws
-// the service's words in the page's strip, with `Try again` sending the same change again.
+// the machine setting `updatesAutomatic`, drawn only once the settings file has been read so it never
+// shows a value it does not hold: a refused write leaves the switch where it was and draws the
+// service's words in the page's strip, with `Try again` sending the same change again.
 
 import type { UpdateState } from "#shared/preload-api.js";
 import { useState, type ReactNode } from "react";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
@@ -52,7 +56,7 @@ export interface UpdatesBlockProps {
   /** The machine settings the automatic-check switch reads and writes. */
   readonly preferences: Pick<
     MachineSettingsBinding,
-    "settings" | "isPending" | "refusalFor" | "choose" | "retry"
+    "snapshot" | "settings" | "isPending" | "refusalFor" | "choose" | "retry" | "readAgain"
   >;
 }
 
@@ -60,6 +64,7 @@ export interface UpdatesBlockProps {
 export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const { updater, preferences } = props;
   const reading = useUpdateReading(updater);
+  const clock = useClock();
   // Said once, when the updater read lands.
   useSettlementAnnouncement(updateSettlementSentence(reading));
   const status = reading.kind === "state" ? reading.state.status : undefined;
@@ -70,13 +75,12 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
       setControlRefusal(refuse(UPDATER_CONTROL_ORIGIN, UPDATER_CONTROL_FAILED, failedDetail));
     });
   };
-  const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">
       <h3 className="meridian-settings-page__section-head">Updates</h3>
 
-      <UpdateReadOut reading={reading} />
+      <UpdateReadOut reading={reading} clock={clock} />
 
       <div className="meridian-settings-page__actions">
         <button
@@ -116,6 +120,34 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         <InlineRefusal code={controlRefusal.code} detail={controlRefusal.detail} />
       )}
 
+      {renderAutomaticCheck(preferences, clock)}
+    </section>
+  );
+}
+
+/**
+ * The automatic-check switch once the settings file has been read; before that, the reading line
+ * after the short delay, or the failed read with `Try again`.
+ */
+function renderAutomaticCheck(
+  preferences: UpdatesBlockProps["preferences"],
+  clock: Clock,
+): ReactNode {
+  const { reading, readRefusal } = preferences.snapshot;
+  if (reading === undefined) {
+    return readRefusal === undefined ? (
+      <LoadingNotice clock={clock} placement="inline" title="Reading settings…" />
+    ) : (
+      <InlineRefusal
+        code={readRefusal.code}
+        detail="The settings could not be read."
+        onTryAgain={preferences.readAgain}
+      />
+    );
+  }
+  const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
+  return (
+    <>
       <PreferenceToggleRow
         label="Check for updates automatically"
         checked={preferences.settings.updatesAutomatic}
@@ -134,7 +166,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
           }}
         />
       )}
-    </section>
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
 // What the settings screen enforces: the page list is the closed set of pages its cursor opens,
-// an address naming a control lands on it, leaving Settings commits the field being edited, and
+// an address naming a control lands on it, leaving a page commits the field being edited, and
 // a page is handed the retained session, subscribed, and never the route's projection (which is
 // `undefined` on every settings address).
 
@@ -10,6 +10,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { settingsRoute } from "#renderer/routing/readers.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./control-anchor.js";
+import type { SettingsControl } from "./types.js";
 import { APPEARANCE_CONTROLS } from "./pages/appearance/controls.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "./pages/registry.js";
 import {
@@ -29,16 +30,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A registry holding one page, General, drawing `body`. */
-function generalPageDrawing(body: () => React.ReactNode): SettingsPageRegistry {
+/** A registry holding one page, General, drawing `body` and declaring `controls`. */
+function generalPageDrawing(
+  body: () => React.ReactNode,
+  controls: readonly SettingsControl[] = [],
+): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
-  pages.register({
-    pageId: "general",
-    label: "General",
-    keywords: [],
-    note: "",
-    render: body,
-  });
+  pages.register({ pageId: "general", keywords: [], note: "", controls, render: body });
   return pages;
 }
 
@@ -104,65 +102,27 @@ describe("the page list", () => {
     });
     expect(openPage()).toBe("keyboard");
     expect(currentEntry()).toBe("Keyboard");
-  });
-});
-
-describe("a window too narrow for both panes", () => {
-  it("shows one pane at a time and hands focus to the pane that takes the screen", async () => {
-    // The page pane reaches past the screen's right edge, so the two panes do not fit.
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function boxOf(
-      this: HTMLElement,
-    ): DOMRect {
-      if (this.classList.contains("meridian-settings")) {
-        return new DOMRect(0, 0, 400, 600);
-      }
-      if (this.classList.contains("meridian-settings__pane")) {
-        return new DOMRect(0, 0, 800, 600);
-      }
-      return new DOMRect();
-    });
-    const settingsWindow = windowAt(undefined);
-    const { container, getByRole } = await renderRoutedSettingsScreen(
-      settingsWindow,
-      generalPageDrawing(() => null),
-    );
-    const listPane = container.querySelector<HTMLElement>(".meridian-settings__list-pane");
-    const pagePane = container.querySelector<HTMLElement>(".meridian-settings__pane");
-    const generalEntry = getByRole("button", { name: "General" });
-    expect([listPane?.hidden, pagePane?.hidden]).toStrictEqual([false, true]);
-
-    act(() => {
-      generalEntry.focus();
-    });
-    act(() => {
-      generalEntry.click();
-    });
-
-    expect([listPane?.hidden, pagePane?.hidden]).toStrictEqual([true, false]);
-    expect(container.ownerDocument.activeElement).toBe(getByRole("heading", { name: "General" }));
-
-    act(() => {
-      getByRole("button", { name: "Settings" }).click();
-    });
-
-    expect([listPane?.hidden, pagePane?.hidden]).toStrictEqual([false, true]);
-    expect(container.ownerDocument.activeElement?.textContent).toBe("General");
+    // The press outranks where the keys left the cursor: the tab stop follows the open page.
+    expect(entries().filter((entry) => entry.tabIndex === 0)).toStrictEqual([entries()[5]]);
   });
 });
 
 describe("arriving on a control", () => {
   it("opens the fold holding a control a link names, glides it to the middle and lights it, and a search hit lands on a shipped page's control", async () => {
     const settingsWindow = windowAt("general");
-    const pages = generalPageDrawing(() => (
-      <div className="landing-test__scroller" style={{ overflowY: "auto" }}>
-        <details>
-          <summary>More</summary>
-          <div {...{ [SETTINGS_CONTROL_ATTRIBUTE]: "folded-control" }}>
-            <button type="button">Folded control</button>
-          </div>
-        </details>
-      </div>
-    ));
+    const pages = generalPageDrawing(
+      () => (
+        <div className="landing-test__scroller" style={{ overflowY: "auto" }}>
+          <details>
+            <summary>More</summary>
+            <div {...{ [SETTINGS_CONTROL_ATTRIBUTE]: "folded-control" }}>
+              <button type="button">Folded control</button>
+            </div>
+          </details>
+        </div>
+      ),
+      [{ id: "folded-control", label: "Folded control" }],
+    );
     const appearancePage = SETTINGS_PAGES.find((page) => page.pageId === "appearance");
     if (appearancePage === undefined) {
       throw new Error("the Appearance page is not registered");
@@ -177,6 +137,7 @@ describe("arriving on a control", () => {
     }
     // A 400 px view at the top of the window, and the control 1000 px down it, 40 px tall.
     vi.spyOn(scroller, "clientHeight", "get").mockReturnValue(400);
+    vi.spyOn(scroller, "scrollHeight", "get").mockReturnValue(2000);
     vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 0, 400));
     vi.spyOn(control, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 1000, 0, 40));
     const glide = vi.spyOn(ScrollController.prototype, "glideTo");
@@ -209,47 +170,48 @@ describe("arriving on a control", () => {
   });
 });
 
-describe("leaving Settings", () => {
-  it("commits the field being edited, and writes nothing a draft holds behind its own Save", async () => {
+describe("leaving a settings page", () => {
+  it("commits the field being edited, when another settings page opens and when Settings closes", async () => {
     const committed: string[] = [];
-    const saved: string[] = [];
+    const commit = (value: string): void => {
+      committed.push(value);
+    };
     const settingsWindow = windowAt("general");
     const pages = generalPageDrawing(() => (
-      <>
-        <FieldCommittingOnBlur
-          onCommit={(value) => {
-            committed.push(value);
-          }}
-        />
-        <DraftBehindSave
-          onSave={(value) => {
-            saved.push(value);
-          }}
-        />
-      </>
+      <FieldCommittingOnBlur label="General field" onCommit={commit} />
     ));
+    pages.register({
+      pageId: "runtime",
+      keywords: [],
+      note: "",
+      render: () => <FieldCommittingOnBlur label="Runtime field" onCommit={commit} />,
+    });
     const { getByLabelText } = await renderRoutedSettingsScreen(settingsWindow, pages);
-    const draft = getByLabelText("Draft");
-    const field = getByLabelText("Field");
 
+    const generalField = getByLabelText("General field");
     act(() => {
-      draft.focus();
+      generalField.focus();
     });
-    fireEvent.change(draft, { target: { value: "unsaved draft" } });
+    fireEvent.change(generalField, { target: { value: "general edit" } });
+    // Back, Forward or a link opening another page takes this one away like a close does.
     act(() => {
-      field.focus();
+      settingsWindow.frameStore.navigate(settingsRoute("runtime", undefined));
     });
-    fireEvent.change(field, { target: { value: "edited" } });
-    expect(committed).toStrictEqual([]);
+    expect(generalField.isConnected).toBe(false);
+    expect(committed).toStrictEqual(["general edit"]);
 
+    const runtimeField = getByLabelText("Runtime field");
+    act(() => {
+      runtimeField.focus();
+    });
+    fireEvent.change(runtimeField, { target: { value: "runtime edit" } });
     act(() => {
       settingsWindow.frameStore.navigate({ kind: "sessions" });
     });
 
     // The screen is gone, as it is when Settings closes, and the edit reached its commit first.
-    expect(field.isConnected).toBe(false);
-    expect(committed).toStrictEqual(["edited"]);
-    expect(saved).toStrictEqual([]);
+    expect(runtimeField.isConnected).toBe(false);
+    expect(committed).toStrictEqual(["general edit", "runtime edit"]);
   });
 });
 
@@ -259,7 +221,6 @@ describe("the session a settings page is handed", () => {
     const pages = new SettingsPageRegistry();
     pages.register({
       pageId: "runtime",
-      label: "Runtime",
       keywords: [],
       note: "",
       render: (pageContext) => (
@@ -303,12 +264,13 @@ const SESSION_ECHO_CLASS = "settings-screen-test__session";
 
 /** A field that commits what was typed when it loses focus, as a settings field does. */
 function FieldCommittingOnBlur(props: {
+  readonly label: string;
   readonly onCommit: (value: string) => void;
 }): React.JSX.Element {
   const [value, setValue] = useState("");
   return (
     <input
-      aria-label="Field"
+      aria-label={props.label}
       value={value}
       onChange={(changeEvent) => {
         setValue(changeEvent.target.value);
@@ -317,29 +279,5 @@ function FieldCommittingOnBlur(props: {
         props.onCommit(value);
       }}
     />
-  );
-}
-
-/** A draft that writes only when its own `Save` is pressed. */
-function DraftBehindSave(props: { readonly onSave: (value: string) => void }): React.JSX.Element {
-  const [draft, setDraft] = useState("");
-  return (
-    <>
-      <input
-        aria-label="Draft"
-        value={draft}
-        onChange={(changeEvent) => {
-          setDraft(changeEvent.target.value);
-        }}
-      />
-      <button
-        type="button"
-        onClick={() => {
-          props.onSave(draft);
-        }}
-      >
-        Save
-      </button>
-    </>
   );
 }

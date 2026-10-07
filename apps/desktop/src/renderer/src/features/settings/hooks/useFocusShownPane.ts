@@ -33,8 +33,11 @@ export function useFocusShownPane(options: FocusShownPaneOptions): void {
     }
     const preferredTargets = shownPane === "page" ? PAGE_FOCUS_SELECTORS : LIST_FOCUS_SELECTORS;
     for (const selector of preferredTargets) {
-      const target = shown.querySelector<HTMLElement>(selector);
-      if (target !== null) {
+      // The page list stays drawn but inert under search hits, where it cannot take focus.
+      const target = [...shown.querySelectorAll<HTMLElement>(selector)].find(
+        (candidate) => candidate.closest("[inert]") === null,
+      );
+      if (target !== undefined) {
         target.focus();
         return;
       }
@@ -45,5 +48,5 @@ export function useFocusShownPane(options: FocusShownPaneOptions): void {
 /** Where a page takes focus, in preference: its heading, else `‹ Settings` above no page. */
 const PAGE_FOCUS_SELECTORS = [".meridian-settings__page-heading", ".meridian-settings__back"];
 
-/** Where the list takes focus, in preference: its one tab stop, else the search box above hits. */
+/** Where the list takes focus, in preference: its one tab stop, else the search box over hits. */
 const LIST_FOCUS_SELECTORS = ['.meridian-settings__page-entry[tabindex="0"]', "input"];

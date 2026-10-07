@@ -34,16 +34,48 @@ export function updaterReporting(
   };
 }
 
-/** Machine settings as a window reads them before anything was chosen; a press reaches `choose`. */
+/** Machine settings read as the defaults with nothing chosen; a press reaches `choose`. */
 export function preferencesAtDefaults(
   choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
 ): UpdatesBlockProps["preferences"] {
   return {
+    snapshot: {
+      reading: { settings: MACHINE_SETTINGS_DEFAULTS },
+      pendingMembers: new Set(),
+      refusalByMember: new Map(),
+      readRefusal: undefined,
+    },
     settings: MACHINE_SETTINGS_DEFAULTS,
     isPending: () => false,
     refusalFor: () => undefined,
     choose,
     retry: () => undefined,
+    readAgain: () => undefined,
+  };
+}
+
+/**
+ * The service's `machineSettings`, whose feed refuses to open for the first `failedOpenCount`
+ * opens and then delivers the defaults; it takes no writes.
+ */
+export function machineSettingsUnreadable(
+  failedOpenCount: number,
+): PlatformBridge["machineSettings"] & { readonly opens: number } {
+  let opens = 0;
+  return {
+    get opens(): number {
+      return opens;
+    },
+    read: () => Promise.resolve({ settings: MACHINE_SETTINGS_DEFAULTS }),
+    write: () => Promise.reject(new Error("no write is expected")),
+    subscribe: (deliver) => {
+      opens += 1;
+      if (opens <= failedOpenCount) {
+        throw new Error("The background service is not connected.");
+      }
+      deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
+      return () => undefined;
+    },
   };
 }
 

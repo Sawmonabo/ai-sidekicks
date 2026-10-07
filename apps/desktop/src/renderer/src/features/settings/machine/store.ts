@@ -50,9 +50,9 @@ export type MachineSettingsService = Pick<PlatformBridge["machineSettings"], "wr
  *
  * The feed is the read: the bridge's subscription delivers the file as it stands and then
  * each written change, so a delivery always installs and no separate read is made. A feed that
- * could not open, or ended before delivering, opens again when the transport comes back; one that
- * ended after delivering opens again at once, and its first delivery is the file as it stands, so
- * nothing written meanwhile is missed.
+ * could not open publishes why and is tried again after a wait and when the transport comes back,
+ * as one that ended before delivering is; one that ended after delivering opens again at once,
+ * and its first delivery is the file as it stands, so nothing written meanwhile is missed.
  */
 export class MachineSettingsStore {
   readonly #machineSettings: MachineSettingsService;
@@ -100,8 +100,24 @@ export class MachineSettingsStore {
       onFrame: (reading: MachineSettingsReading) => {
         this.#install(reading);
       },
-      firstOpenFailure: "reopenOnReconnect",
+      onReopenRefusal: (refusal) => {
+        if (!this.#disposed) {
+          this.#publish({ ...this.#snapshot, readRefusal: refusal });
+        }
+      },
+      firstOpenFailure: "refuseAndRetry",
     });
+  }
+
+  /** Open the feed again at once, as a failed read's `Try again` asks, dropping its refusal. */
+  public readAgain(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
+    this.#publish({ ...this.#snapshot, readRefusal: undefined });
+    this.start();
   }
 
   /** Terminal. A reply landing after this writes nothing. */
@@ -177,7 +193,7 @@ export class MachineSettingsStore {
       return;
     }
     this.#answers.supersede(this, ANSWER_KEY);
-    this.#publish({ ...this.#snapshot, reading });
+    this.#publish({ ...this.#snapshot, reading, readRefusal: undefined });
   }
 
   #settleWrite(member: MachineSettingsMember): void {

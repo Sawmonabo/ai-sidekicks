@@ -1,11 +1,12 @@
 // What the one box above the page list finds, and in what order.
 //
-// Every typed word has to appear in a control's label, the heading it sits under or its hint, as
-// `scoreSubsequence` judges it, the matcher the command palette ranks with, so a word finds the
-// same text in both places. The score only decides whether a word appears: a hit ranks by the
-// weakest field any of its words needed (label, then heading, then hint), and equal ranks fall in
-// page order. A page is found by its heading, its list label and the words it declares, and sits
-// ahead of its own controls at an equal rank.
+// A control is found when every typed word appears, as a run of characters ignoring case, in its
+// label, the heading it sits under or its hint. A page is found when every word appears in its
+// name or the words it declares as `scoreSubsequence` judges it, the matcher the command palette
+// ranks with, so a term finds a page the same way in both places. A hit ranks by the weakest
+// field any of its words needed (label, then heading, then hint; a page's name counts as a label
+// and its words as a hint), equal ranks fall in page order, and a page sits ahead of its own
+// controls at an equal rank.
 
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 
@@ -19,8 +20,11 @@ export interface SettingsSearchHit {
   /** The control a press lands on; `undefined` for a hit on the page itself. */
   readonly controlId: string | undefined;
   readonly label: string;
-  /** Where the hit sits, read under its label: `Page › Heading`, or the page alone. */
-  readonly place: string;
+  /**
+   * Where a control sits, read under its label: `Page › Heading`, or the page alone under no
+   * heading. `undefined` for a page, whose label is its name.
+   */
+  readonly place: string | undefined;
 }
 
 /**
@@ -43,23 +47,27 @@ export function findSettings(
   const ranked: RankedHit[] = [];
   for (const page of pages) {
     const pageLabel = SETTINGS_PAGE_LABELS[page.pageId];
-    const pageRank = rankOf(words, {
-      label: [page.label, pageLabel],
-      heading: [],
-      hint: page.keywords,
-    });
+    const pageRank = rankOf(
+      words,
+      { label: [pageLabel], heading: [], hint: page.keywords },
+      subsequenceHolds,
+    );
     if (pageRank !== undefined) {
       ranked.push({
         rank: pageRank,
-        hit: { pageId: page.pageId, controlId: undefined, label: page.label, place: pageLabel },
+        hit: { pageId: page.pageId, controlId: undefined, label: pageLabel, place: undefined },
       });
     }
     for (const control of page.controls) {
-      const controlRank = rankOf(words, {
-        label: [control.label],
-        heading: control.heading === undefined ? [] : [control.heading],
-        hint: control.hint === undefined ? [] : [control.hint],
-      });
+      const controlRank = rankOf(
+        words,
+        {
+          label: [control.label],
+          heading: control.heading === undefined ? [] : [control.heading],
+          hint: control.hint === undefined ? [] : [control.hint],
+        },
+        runHolds,
+      );
       if (controlRank !== undefined) {
         ranked.push({
           rank: controlRank,
@@ -88,15 +96,29 @@ interface RankedHit {
   readonly hit: SettingsSearchHit;
 }
 
+/** Whether `text` holds `word`, judged one way for pages and another for controls. */
+type WordTest = (text: string, word: string) => boolean;
+
+/** A page's test: the word's characters appear in order, as the command palette judges it. */
+function subsequenceHolds(text: string, word: string): boolean {
+  return scoreSubsequence(text, word) !== undefined;
+}
+
+/** A control's test: the word appears as one run of characters, ignoring case. */
+function runHolds(text: string, word: string): boolean {
+  return text.toLowerCase().includes(word.toLowerCase());
+}
+
 /** The weakest field any word needed, or `undefined` when a word appears in none of them. */
 function rankOf(
   words: readonly string[],
   fieldTexts: Readonly<Record<SearchField, readonly string[]>>,
+  holds: WordTest,
 ): number | undefined {
   let rank = 0;
   for (const word of words) {
     const wordRank = SEARCH_FIELDS.findIndex((field) =>
-      fieldTexts[field].some((text) => scoreSubsequence(text, word) !== undefined),
+      fieldTexts[field].some((text) => holds(text, word)),
     );
     if (wordRank === -1) {
       return undefined;

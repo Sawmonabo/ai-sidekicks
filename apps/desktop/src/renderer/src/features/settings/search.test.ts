@@ -2,7 +2,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SETTINGS_PAGE_LABELS } from "./pages/labels.js";
 import type { SettingsPageDescriptor } from "./pages/registry.js";
 import { findSettings } from "./search.js";
 import type { SettingsControl } from "./types.js";
@@ -15,7 +14,6 @@ function pageFor(
 ): SettingsPageDescriptor {
   return {
     pageId,
-    label: SETTINGS_PAGE_LABELS[pageId],
     keywords,
     note: "",
     controls,
@@ -23,8 +21,7 @@ function pageFor(
   };
 }
 
-// In page order. Every word below was chosen so it appears, as a subsequence, only where the
-// case says it does.
+// In page order. Every word below was chosen so it appears only where the case says it does.
 const PAGES = [
   pageFor(
     "general",
@@ -44,10 +41,12 @@ const PAGES = [
   ),
 ];
 
-/** Each hit as the page and control it opens and the place it reads. */
+/** Each hit as the page and control it opens, its label and, for a control, its place. */
 function described(query: string): readonly string[] {
-  return findSettings(PAGES, query).map(
-    (hit) => `${hit.pageId}/${hit.controlId ?? "(page)"} · ${hit.label} · ${hit.place}`,
+  return findSettings(PAGES, query).map((hit) =>
+    [`${hit.pageId}/${hit.controlId ?? "(page)"}`, hit.label, hit.place]
+      .filter((part) => part !== undefined)
+      .join(" · "),
   );
 }
 
@@ -64,11 +63,15 @@ describe("settings search", () => {
     // "number" appears only under one control and "network" only under another: no control holds
     // both, so nothing is found.
     expect(described("number network")).toStrictEqual([]);
+    // A control's word appears as one run, ignoring case: "USED" is in a hint, but "usd", whose
+    // letters are there only scattered, is not.
+    expect(described("USED")).toStrictEqual(["general/proxy · Proxy · General"]);
+    expect(described("usd")).toStrictEqual([]);
     // A word nothing holds, and a blank box, find nothing.
     expect(described("zzzz")).toStrictEqual([]);
     expect(described("   ")).toStrictEqual([]);
-    // A page is found by a word it declares, and opens the page itself.
-    expect(described("about")).toStrictEqual(["general/(page) · General · General"]);
+    // A page is found by a word it declares, even scattered, and reads its name alone.
+    expect(described("abt")).toStrictEqual(["general/(page) · General"]);
   });
 
   it("ranks a label hit over a heading hit over a hint hit, and equal ranks in page order", () => {

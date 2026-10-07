@@ -6,8 +6,8 @@ export interface SettingsSearchFieldProps {
   readonly query: string;
   readonly onQueryChange: (query: string) => void;
   readonly onKeyDown: (keyEvent: React.KeyboardEvent) => void;
-  /** The id of the hits list this box controls. */
-  readonly hitsId: string;
+  /** The id of the hits list this box controls, or `undefined` while no list is drawn. */
+  readonly hitsId: string | undefined;
   /** The id of the lit hit, or `undefined` while none is drawn. */
   readonly highlightedHitId: string | undefined;
 }
