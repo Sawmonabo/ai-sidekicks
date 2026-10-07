@@ -22,6 +22,7 @@ import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-sta
 import { makeSilentDriverDiagnostics } from "../../provider/__fixtures__/silent-driver-diagnostics.js";
 import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
+import type { InterruptRoute } from "../../session/run/engine.js";
 import { ExecutionEpochs } from "../../session/run/epochs.js";
 import { RunInboundDispatch } from "../../session/run/inbound.js";
 import {
@@ -48,6 +49,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
   let driverResult: DriverInterventionResult;
   // Answers each driver call; the default answers at once with `driverResult`.
   let answerDriver: (params: ApplyInterventionParams) => Promise<DriverInterventionResult>;
+  // Routes each interrupt the service sends; the default is the engine's own route.
+  let routeInterrupt: (runId: RunId) => Promise<InterruptRoute>;
 
   beforeEach(async () => {
     fixture = await openRunEngineFixture();
@@ -55,6 +58,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     driverCalls = [];
     driverResult = { status: "applied" };
     answerDriver = () => Promise.resolve(driverResult);
+    routeInterrupt = (runId) => fixture.engine.routeInterrupt(runId);
     service = new InterventionService({
       runs: fixture.runs,
       interventions: new InterventionReader(fixture.database.reader),
@@ -66,7 +70,10 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         },
       }),
       retryOnFasterModel: () => Promise.reject(new Error("No faster-model retry is sent here")),
-      runEngine: fixture.engine,
+      runEngine: {
+        settleInterventionOutcome: (outcome) => fixture.engine.settleInterventionOutcome(outcome),
+        routeInterrupt: (runId) => routeInterrupt(runId),
+      },
     });
   });
 
@@ -340,8 +347,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
   });
 
   it("holds a stop that lands while the driver starts the run until the driver has it", async () => {
-    // A driver shaped like the real ones: it binds a run only once its start returns, and it
-    // refuses to stop a run it has not bound.
+    // A driver that binds a run as its start returns, as Codex's does once `turn/start` answers,
+    // and refuses to stop a run it has not bound.
     const boundRuns = new Set<RunId>();
     answerDriver = (params) =>
       boundRuns.has(params.targetRunId)
@@ -357,8 +364,6 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       },
     };
     const origin = { actor: DeviceIdSchema.parse(randomUUID()) };
-    const countAccepted = () =>
-      readSessionEventTypes().filter((type) => type === "intervention.accepted").length;
     const startAndStop = async (runId: RunId) => {
       startsCalled.set(runId, Promise.withResolvers<void>());
       startsReleased.set(runId, Promise.withResolvers<void>());
@@ -373,12 +378,15 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         })
         .catch((error: unknown) => error);
       await startsCalled.get(runId)?.promise;
-      const acceptedBefore = countAccepted();
+      const routed = Promise.withResolvers<void>();
+      routeInterrupt = (routedRunId) => {
+        const route = fixture.engine.routeInterrupt(routedRunId);
+        routed.resolve();
+        return route;
+      };
       const stop = service.applyIntervention(interrupt(runId, readVersion(runId)), origin);
-      // Released only once the stop is accepted and waiting, inside the start's window.
-      while (countAccepted() === acceptedBefore) {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
+      // Released only once the stop has been routed, inside the start's window.
+      await routed.promise;
       return { started, stop };
     };
 
@@ -389,7 +397,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       interventionType: "interrupt",
       state: "applied",
     });
-    await boundStart.started;
+    expect(await boundStart.started).toMatchObject({ state: "running" });
     expect(fixture.runs.getRun(bound)?.state).toBe("interrupted");
     expect(driverCalls.map((params) => params.targetRunId)).toEqual([bound]);
 
@@ -397,9 +405,58 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     const unstartedStart = await startAndStop(unstarted);
     startsReleased.get(unstarted)?.reject(new Error("spawn claude ENOENT"));
     expect(await unstartedStart.stop).toMatchObject({ state: "expired" });
-    await unstartedStart.started;
+    expect(await unstartedStart.started).toMatchObject({ message: "spawn claude ENOENT" });
     expect(fixture.runs.getRun(unstarted)?.state).toBe("failed");
     expect(driverCalls).toHaveLength(1);
+  });
+
+  it("expires a stop that lands while a failed setup gate's end is written, dispatching nothing", async () => {
+    const gateCalled = Promise.withResolvers<void>();
+    const gateReady = Promise.withResolvers<void>();
+    const terminalHookEntered = Promise.withResolvers<void>();
+    const terminalHookReleased = Promise.withResolvers<void>();
+    fixture.engine.registerSetupGate({
+      assertRunReady: () => {
+        gateCalled.resolve();
+        return gateReady.promise;
+      },
+      onRunTerminal: () => {
+        terminalHookEntered.resolve();
+        return terminalHookReleased.promise;
+      },
+    });
+    const runId = await fixture.queueRun();
+    const started = fixture.engine
+      .startRun({
+        runId,
+        queueItem: makeQueueItem(),
+        provider: "claude",
+        driver: makeRecordingDriver(),
+        driverParams: { agentConfig: {} },
+        executionPosture: TEST_EXECUTION_POSTURE,
+      })
+      .catch((error: unknown) => error);
+    await gateCalled.promise;
+    // As a real driver answers a stop for a run it was never handed.
+    answerDriver = () => Promise.reject(new Error("No live run to interrupt"));
+    const gateError = new Error("git worktree add failed");
+    // Routed once the gate has thrown and while the run's failed end is still being written.
+    routeInterrupt = async (routedRunId) => {
+      gateReady.reject(gateError);
+      await terminalHookEntered.promise;
+      const route = fixture.engine.routeInterrupt(routedRunId);
+      terminalHookReleased.resolve();
+      return route;
+    };
+
+    const stop = await service.applyIntervention(interrupt(runId, readVersion(runId)), {
+      actor: DeviceIdSchema.parse(randomUUID()),
+    });
+
+    expect(stop).toMatchObject({ interventionType: "interrupt", state: "expired" });
+    expect(await started).toBe(gateError);
+    expect(fixture.runs.getRun(runId)?.state).toBe("failed");
+    expect(driverCalls).toEqual([]);
   });
 
   it("dispatches a stop past a stuck steer, keeps the steer's verdict, and expires the steer behind it", async () => {

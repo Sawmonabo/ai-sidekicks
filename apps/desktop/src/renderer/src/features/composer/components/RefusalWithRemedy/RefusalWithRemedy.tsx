@@ -15,22 +15,14 @@ import { RefusalRemedyContent } from "#renderer/components/Refusal/RefusalRemedy
 export interface RefusalWithRemedyProps {
   /** The refusal to draw. A new refusal object is a new attempt, said again in the same words. */
   readonly refusal: ExtendedRefusal;
-  /**
-   * Rendered inside the remedy region after the console's own next move, for a caller that can say
-   * something the remedy table cannot, such as the position a rewind landed at.
-   */
-  readonly detailAction?: React.ReactNode;
 }
 
 /** The daemon's words, with the console's next move in the action row, read out after them. */
 export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Element {
-  const { refusal, detailAction } = props;
+  const { refusal } = props;
   const remedy = refusalRemedyFor(refusal.code);
   const remedyWords = remedy === undefined ? undefined : remedyWordsOf(remedy);
-  const action =
-    remedy === undefined && detailAction === undefined ? undefined : (
-      <RefusalRemedyContent remedy={remedy}>{detailAction}</RefusalRemedyContent>
-    );
+  const action = remedy === undefined ? undefined : <RefusalRemedyContent remedy={remedy} />;
   if (remedy?.rendering === "card" || remedy?.rendering === "banner") {
     return (
       <RefusalCard

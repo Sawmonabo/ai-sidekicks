@@ -100,7 +100,7 @@ describe("InterventionService", () => {
         settleInterventionOutcome: async (outcome) => {
           settleCalls.push(outcome);
         },
-        claimStartingInterrupt: () => ({ status: "driver" }),
+        routeInterrupt: () => Promise.resolve("driver"),
       },
     });
 

@@ -2,7 +2,6 @@
 // settled state become three form outcomes. No JSX, so each arm is testable directly.
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
-import { NOT_DELIVERED_DETAIL } from "../draft-line/send/refusals.js";
 import type { RunControlOutcome } from "../run/controls/services/dispatch.js";
 import type { RunControlAdmissionRefusal } from "../run/controls/hooks/useRunControlDispatch.js";
 
@@ -18,7 +17,7 @@ export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
 export type InterventionFormSettlement =
   | { readonly kind: "landed" }
   | { readonly kind: "refused"; readonly notice: Refusal }
-  | { readonly kind: "undelivered"; readonly notice: Refusal }
+  | { readonly kind: "undelivered"; readonly code: string }
   | { readonly kind: "recorded"; readonly notice: Refusal };
 
 /**
@@ -49,14 +48,7 @@ export function readInterventionFormSettlement(
         ),
       };
     case "failed":
-      return {
-        kind: "undelivered",
-        notice: refuse(
-          RUN_INTERVENTION_REFUSAL_ORIGIN,
-          response.failureReason,
-          NOT_DELIVERED_DETAIL,
-        ),
-      };
+      return { kind: "undelivered", code: response.failureReason };
     case "expired":
       return {
         kind: "refused",

@@ -53,25 +53,19 @@ const SETUP_FAILURE_FALLBACK = "The run's setup failed";
 const RESTART_INTERRUPT_TRIGGER: InterruptReason = "daemon_restart";
 
 /**
- * What an interrupt of a run finds about its start: `claimed` in its setup gates, so the run is
- * never started; `starting` while its driver starts it, with whether the driver then has the run;
- * `driver` for every other run, which the driver stops.
+ * Where an interrupt of a run goes: `claimed` by the engine, which never hands the run to a driver
+ * and leaves its end to the interrupt; to the `driver`, which has the run to stop; or nowhere, the
+ * run having `ended` without a driver.
  */
-export type StartingRunInterruptClaim =
-  | { readonly status: "claimed" }
-  | { readonly status: "starting"; readonly hasDriverRun: Promise<boolean> }
-  | { readonly status: "driver" };
+export type InterruptRoute = "claimed" | "driver" | "ended";
 
-// A run in its setup gates, marked once an interrupt claims it.
-interface StartingRunInGates {
-  readonly phase: "gates";
+// A run from `starting` until its driver has it or its start has settled without one. An interrupt
+// claims it while its setup gates run, and otherwise waits for `route`.
+interface StartingRun {
+  isInGates: boolean;
   isInterrupted: boolean;
+  readonly route: Promise<InterruptRoute>;
 }
-
-// A run between `starting` and the driver having it.
-type StartingRun =
-  | StartingRunInGates
-  | { readonly phase: "driver"; readonly hasDriverRun: Promise<boolean> };
 
 /**
  * A state change a caller asks for. `run.running` carries the run's posture only from
@@ -106,9 +100,7 @@ export class RunEngine {
   readonly #changes: RunStateChangeWriter;
   readonly #appender: SessionEventAppender;
   readonly #gates = new RunSetupGates();
-  // The runs between `starting` and the driver having them, each entry living only that long: in
-  // the gates, marked once an interrupt claims the run; in the driver's start, the promise of how
-  // that start ended.
+  // The runs between `starting` and their start settling, each entry living only that long.
   readonly #startingRuns = new Map<RunId, StartingRun>();
   // The fast output level each started run carried, until its settled state is reported or it
   // ends, so the map holds at most the runs started and not yet settled or ended.
@@ -122,21 +114,22 @@ export class RunEngine {
   }
 
   /**
-   * Claims the interrupt of a run no driver has yet, so the interrupt never reaches a driver that
-   * cannot stop it. A run in its setup gates is claimed and never started; a run whose driver is
-   * starting it answers when that start ends, `true` once the driver has the run to stop and
-   * `false` when the start failed and ended the run. Any other run is the driver's to stop.
+   * Routes an interrupt of `runId` so it never reaches a driver that does not have the run. A run
+   * in its setup gates is claimed at once and never started. A run past its gates and still
+   * starting answers once its start settles: `driver` once the driver has it, `ended` once its end
+   * is written, and `claimed` when the start failed and its end could not be written. Any other
+   * run is the driver's to stop.
    */
-  claimStartingInterrupt(runId: RunId): StartingRunInterruptClaim {
+  routeInterrupt(runId: RunId): Promise<InterruptRoute> {
     const startingRun = this.#startingRuns.get(runId);
     if (startingRun === undefined) {
-      return { status: "driver" };
+      return Promise.resolve("driver");
     }
-    if (startingRun.phase === "gates") {
+    if (startingRun.isInGates) {
       startingRun.isInterrupted = true;
-      return { status: "claimed" };
+      return Promise.resolve("claimed");
     }
-    return { status: "starting", hasDriverRun: startingRun.hasDriverRun };
+    return startingRun.route;
   }
 
   /** Adds a setup gate after those already registered; its terminal hook runs before theirs. */
@@ -158,60 +151,68 @@ export class RunEngine {
    * stamped with the posture the driver was handed. A gate's throw ends the run `failed` with the
    * gate's error as its cause, unless an interrupt claimed or ended it first, and is rethrown; a
    * run interrupted in its gates is never handed to the driver; a driver's throw ends the run
-   * `failed` and is rethrown. An interrupt that arrives while the driver starts the run waits for
-   * that start to end (see {@link claimStartingInterrupt}).
+   * `failed` and is rethrown. An interrupt that arrives after the gates is routed once the start
+   * settles (see {@link routeInterrupt}).
    */
   async startRun(request: RunStartRequest): Promise<RunRead> {
     const { runId, queueItem, provider, driver, driverParams, executionPosture } = request;
     const starting = await this.#change({ runId, expectedState: "queued", newState: "starting" });
-    const setup: StartingRunInGates = { phase: "gates", isInterrupted: false };
-    this.#startingRuns.set(runId, setup);
-    try {
-      await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
-    } catch (gateError) {
-      this.#startingRuns.delete(runId);
-      if (!setup.isInterrupted) {
-        await this.#failSetup(runId, gateError);
-      }
-      throw gateError;
-    }
-
-    // An interrupt may have landed while a gate ran; a run no longer starting is not started.
-    const afterGates = this.#runs.getRun(runId);
-    if (afterGates !== undefined && (setup.isInterrupted || afterGates.state !== "starting")) {
-      this.#startingRuns.delete(runId);
-      throw new RunInvalidTransitionError(runId, afterGates.state, "running");
-    }
-    // Swapped for the gates' entry with no await between, so an interrupt always finds one.
-    const driverStart = Promise.withResolvers<boolean>();
-    this.#startingRuns.set(runId, { phase: "driver", hasDriverRun: driverStart.promise });
-
-    // Held before the driver starts, since the driver may report the settled state at once.
-    const carriedOutputSpeed = driverParams.outputSpeed;
-    if (
-      carriedOutputSpeed !== undefined &&
-      carriedOutputSpeed !== PROVIDER_DRIVER_DESCRIPTORS[provider].standardOutputSpeed
-    ) {
-      this.#carriedOutputSpeedByRun.set(runId, carriedOutputSpeed);
-    }
+    const route = Promise.withResolvers<InterruptRoute>();
+    const startingRun: StartingRun = {
+      isInGates: true,
+      isInterrupted: false,
+      route: route.promise,
+    };
+    this.#startingRuns.set(runId, startingRun);
     let hasDriverRun = false;
     try {
-      await driver.startRun({ ...driverParams, runId, executionPosture });
+      try {
+        await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
+      } catch (gateError) {
+        startingRun.isInGates = false;
+        if (!startingRun.isInterrupted) {
+          await this.#failSetup(runId, gateError);
+        }
+        throw gateError;
+      }
+      startingRun.isInGates = false;
+
+      // An interrupt may have landed while a gate ran; a run no longer starting is not started.
+      const afterGates = this.#runs.getRun(runId);
+      if (
+        afterGates !== undefined &&
+        (startingRun.isInterrupted || afterGates.state !== "starting")
+      ) {
+        throw new RunInvalidTransitionError(runId, afterGates.state, "running");
+      }
+
+      // Held before the driver starts, since the driver may report the settled state at once.
+      const carriedOutputSpeed = driverParams.outputSpeed;
+      if (
+        carriedOutputSpeed !== undefined &&
+        carriedOutputSpeed !== PROVIDER_DRIVER_DESCRIPTORS[provider].standardOutputSpeed
+      ) {
+        this.#carriedOutputSpeedByRun.set(runId, carriedOutputSpeed);
+      }
+      try {
+        await driver.startRun({ ...driverParams, runId, executionPosture });
+      } catch (driverError) {
+        await this.#failStart(runId, driverError);
+        throw driverError;
+      }
       hasDriverRun = true;
-    } catch (driverError) {
-      await this.#failStart(runId, driverError);
-      throw driverError;
+      return await this.#change({
+        runId,
+        expectedState: "starting",
+        newState: "running",
+        executionPosture,
+      });
     } finally {
-      // After a failed start's end is written, so a waiting interrupt finds the run ended.
+      // Once a failed start's end is written or its write has failed, so a waiting interrupt reads
+      // whether the run still needs ending.
       this.#startingRuns.delete(runId);
-      driverStart.resolve(hasDriverRun);
+      route.resolve(hasDriverRun ? "driver" : this.#routeWithoutDriver(runId));
     }
-    return this.#change({
-      runId,
-      expectedState: "starting",
-      newState: "running",
-      executionPosture,
-    });
   }
 
   /**
@@ -341,6 +342,13 @@ export class RunEngine {
       },
       guard,
     );
+  }
+
+  // Where an interrupt goes for a run whose start settled with no driver: nowhere once the run has
+  // ended, and to the engine while it is still live.
+  #routeWithoutDriver(runId: RunId): InterruptRoute {
+    const run = this.#runs.getRun(runId);
+    return run === undefined || isTerminalState(run.state) ? "ended" : "claimed";
   }
 
   async #change(change: RunStateChange, extraGuards?: readonly WriteStatement[]): Promise<RunRead> {

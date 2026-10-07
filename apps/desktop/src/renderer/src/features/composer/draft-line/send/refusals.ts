@@ -6,6 +6,7 @@
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { NOT_DELIVERED_WORDS } from "../../components/NotDeliveredLine.js";
 
 /** Origin of every refusal the composer itself raises. */
 export const COMPOSER_REFUSAL_ORIGIN = "composer";
@@ -25,9 +26,6 @@ export const COMPOSER_REFUSAL_CODES = [
 
 /** One composer refusal code, derived from `COMPOSER_REFUSAL_CODES`. */
 export type ComposerRefusalCode = (typeof COMPOSER_REFUSAL_CODES)[number];
-
-/** The words under a message or steer the background service took and could not deliver. */
-export const NOT_DELIVERED_DETAIL = "Not delivered";
 
 /** A message the background service took and could not deliver, which `Retry` sends again. */
 export interface UndeliveredMessageRefusal extends Refusal {
@@ -53,7 +51,7 @@ export function unparseableIdentifier(): Refusal {
 export function interventionNotApplied(response: InterventionRequestResponse): Refusal {
   if (response.state === "failed") {
     const undelivered: UndeliveredMessageRefusal = {
-      ...refuse(DAEMON_REFUSAL_ORIGIN, response.failureReason, NOT_DELIVERED_DETAIL),
+      ...refuse(DAEMON_REFUSAL_ORIGIN, response.failureReason, NOT_DELIVERED_WORDS),
       isUndelivered: true,
     };
     return undelivered;

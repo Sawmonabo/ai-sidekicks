@@ -67,7 +67,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
       </div>
       {controller.refusal === undefined ? null : isUndeliveredMessage(controller.refusal) ? (
         <NotDeliveredLine
-          refusal={controller.refusal}
+          code={controller.refusal.code}
           onRetry={() => {
             void controller.send();
           }}

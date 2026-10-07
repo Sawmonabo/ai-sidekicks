@@ -39,7 +39,7 @@ import { SessionEventAppender, type SessionEventLog } from "../events/session/ap
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { boundFailureDetail, type ProviderDriver } from "../provider/driver/contract.js";
-import type { StartingRunInterruptClaim } from "../session/run/engine.js";
+import type { InterruptRoute } from "../session/run/engine.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
@@ -88,8 +88,8 @@ export interface SettledInterventionOutcome {
 interface InterventionRunEngine {
   /** Ends the run `interrupted` for an applied or degraded interrupt; changes nothing otherwise. */
   settleInterventionOutcome(outcome: SettledInterventionOutcome): Promise<void>;
-  /** Claims the interrupt of a run no driver has yet; see `RunEngine.claimStartingInterrupt`. */
-  claimStartingInterrupt(runId: RunId): StartingRunInterruptClaim;
+  /** Where an interrupt of the run goes; see `RunEngine.routeInterrupt`. */
+  routeInterrupt(runId: RunId): Promise<InterruptRoute>;
 }
 
 /** What the intervention service needs from the rest of the daemon. */
@@ -170,7 +170,8 @@ export class InterventionService {
    * steer. A reused idempotency key answers with the saved result and dispatches nothing. Throws
    * `run.not_found` for a run the daemon has no row for, and `intervention.idempotency_conflict`
    * for a reused key whose request differs; a dispatch that throws answers `failed` with what it
-   * threw as the `failureReason`.
+   * threw as the `failureReason`. An interrupt of a run whose driver is still starting it answers
+   * once that start settles, and `expired` when the start failed and ended the run.
    */
   async applyIntervention(
     request: InterventionRequestPayload,
@@ -268,14 +269,14 @@ export class InterventionService {
         : { from: "accepted", to: "rejected", reason: retried.rejectionReason };
     }
     if (request.type === "interrupt") {
-      const claim = this.#deps.runEngine.claimStartingInterrupt(request.targetRunId);
-      // A run still in its setup gates has no provider turn to stop; the engine never starts it.
-      if (claim.status === "claimed") {
+      // A stop never reaches a driver that does not have the run. One that lands while the driver
+      // starts the run waits for that start, which ends when the driver's own start requests do.
+      const route = await this.#deps.runEngine.routeInterrupt(request.targetRunId);
+      // A run the engine never hands to a driver is ended by the outcome's own write.
+      if (route === "claimed") {
         return { from: "accepted", to: "applied" };
       }
-      // A stop never reaches a driver still starting the run: it waits for the start, and expires
-      // undispatched when the start failed and ended the run.
-      if (claim.status === "starting" && !(await claim.hasDriverRun)) {
+      if (route === "ended") {
         return { from: "accepted", to: "expired" };
       }
     }
