@@ -1,10 +1,10 @@
-// The run page, the runs table, the runs-needing-you section and the live stream read run
-// records. These tests hold the rules those readers depend on: the run read's chain and capture
-// facts, Review only on a finished run, a live step only on a going one, a waiting run carrying
-// the step that waits, the chain's question only on its first run, the runs table's filters and a
-// version scope that names its workflow, a row whose duration, live step and wait agree with its
-// status, a page that never outnumbers its total, account lines standing above the runs that need
-// a person, counted apart from them, and a removal that names its runs.
+// The run page, the runs table and the runs-needing-you section read run records. These tests hold
+// the rules those readers depend on: the run read's chain and capture facts, Review only on a
+// finished run, a live step only on a going one, a waiting run carrying the step that waits, the
+// chain's question only on its first run, the runs table's filters and a version scope that names
+// its workflow, a row whose duration, live step and wait agree with its status, a page that never
+// outnumbers its total, and account lines standing above the runs that need a person, counted
+// apart from them.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,7 +13,6 @@ import {
   WorkflowRunListResponseSchema,
   WorkflowRunReadResponseSchema,
   WorkflowRunSummarySchema,
-  WorkflowSubscribeNotificationSchema,
 } from "../records.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -221,22 +220,5 @@ describe("workflow.runAttentionList", () => {
   it("refuses a person's line waiting on an account", () => {
     const reply = { entries: [{ ...approval, waitCause: "account" }], waitingOnPersonCount: 1 };
     expect(WorkflowRunAttentionListResponseSchema.safeParse(reply).success).toBe(false);
-  });
-});
-
-describe("workflow.subscribe", () => {
-  it("accepts the hold, a removal and a definition's removal", () => {
-    for (const notification of [
-      { kind: "runsPause", paused: true, waitingStartCount: 3 },
-      { kind: "runsRemoved", workflowRunIds: [PARENT_RUN_ID, RUN_ID] },
-      { kind: "definitionRemoved", definitionId: "wfd-1" },
-    ]) {
-      expect(WorkflowSubscribeNotificationSchema.safeParse(notification).success).toBe(true);
-    }
-  });
-
-  it("refuses a removal that names no run", () => {
-    const empty = { kind: "runsRemoved", workflowRunIds: [] };
-    expect(WorkflowSubscribeNotificationSchema.safeParse(empty).success).toBe(false);
   });
 });

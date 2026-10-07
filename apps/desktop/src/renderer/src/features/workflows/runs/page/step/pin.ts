@@ -30,7 +30,7 @@ export function pinAvailability(
     (document?.edges ?? [])
       .filter((edge) => edge.source === step.nodeId)
       .map((edge) => parseWorkflowHandle(edge.sourceHandle))
-      .filter((handle) => handle.mode === "outputs" && handle.type === "main")
+      .filter((handle) => handle.isTypeKnown && handle.mode === "outputs" && handle.type === "main")
       .map((handle) => handle.index),
   );
   if (mainOutputs.size > 1) {

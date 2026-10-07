@@ -1,7 +1,8 @@
 // The words the workflows screens put on wire values: a run's status, a step's state, what a
 // wait is on, how a run was started and who started it, and a node's kind. No wire spelling
-// reaches the screen; each closed set is keyed by its contract's own union, so a value the
-// contract adds fails to compile here until it has words.
+// reaches the screen. Each closed set is keyed by its contract's own union, so a value the
+// contract adds fails to compile here until it has words; a node's kind is an open set and reads
+// as its key's words.
 
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";

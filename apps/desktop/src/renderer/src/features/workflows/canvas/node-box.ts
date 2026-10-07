@@ -15,7 +15,7 @@ import { measureWireFigureWidth } from "./wire-figure-width.js";
 /** What one node's box must hold. */
 export interface NodeBoxContent {
   /** The kind's words as the box draws them on its kind row. */
-  readonly kindLabel: string;
+  readonly kindWords: string;
   /** The widest item count figure the box keeps room for beside its name. */
   readonly countFigure: string;
   /** How many handles stand down the node's busier side. */
@@ -41,7 +41,7 @@ export const NODE_EXTRA_LINE_HEIGHT: number =
 export function deriveNodeBoxSize(content: NodeBoxContent): NodeBoxSize {
   const ring = 2 * NODE_RING_WIDTH;
   const kindRow =
-    measureWireFigureWidth(content.kindLabel) +
+    measureWireFigureWidth(content.kindWords) +
     readCanvasUnits(SPACE_SCALE_REM, "space-2") +
     measureWireFigureWidth(content.countFigure);
   const width = ring + 2 * readCanvasUnits(SPACE_SCALE_REM, "space-3") + kindRow;

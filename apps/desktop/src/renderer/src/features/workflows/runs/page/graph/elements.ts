@@ -143,7 +143,7 @@ export function runGraphNodeBox(
   hasExtraLine: boolean,
 ): NodeBoxSize {
   return deriveNodeBoxSize({
-    kindLabel: nodeKindWords(node.kind),
+    kindWords: nodeKindWords(node.kind),
     countFigure,
     handleCount: Math.max(handles.inputs.length, handles.outputs.length),
     hasExtraLine,

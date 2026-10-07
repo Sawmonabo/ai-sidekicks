@@ -26,6 +26,7 @@ import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/
 import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/control";
 import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
 import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
+import { WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/subscription";
 import type { AnyMethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/method-map";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
@@ -136,6 +137,7 @@ const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS,
   ...WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS,
   ...WORKFLOW_STEP_METHOD_DESCRIPTORS,
+  ...WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS,
 };
 
 /**

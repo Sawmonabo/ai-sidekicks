@@ -296,7 +296,6 @@ function record(seed: RunSeed): WorkflowRunRecord {
       executionContextCaptured: isCaptured,
       keep: seed.keep ?? false,
       steps: runSteps,
-      ...(seed.error === undefined ? {} : { error: seed.error }),
       startedAt: minutesAgo(seed.startedMinutesAgo),
       ...(spent === 0 ? {} : { cost: cost(spent) }),
       ...(seed.liveStep === undefined || isFinished ? {} : { liveStep: seed.liveStep }),
@@ -307,29 +306,40 @@ function record(seed: RunSeed): WorkflowRunRecord {
   };
 }
 
-// A run's status with its end: an ended run carries it, while a going run and a failed run parked on
-// its failed step carry none.
+// A run's status with its end and its error: an ended run carries its end, while a going run and a
+// failed run parked on its failed step carry none, and only a failed, canceled or crashed run says
+// why.
 function endOfRun(seed: RunSeed, isFinished: boolean) {
   const finishedAt =
     seed.finishedMinutesAgo === undefined || !isFinished
       ? undefined
       : minutesAgo(seed.finishedMinutesAgo);
+  const error = seed.error === undefined ? {} : { error: seed.error };
   switch (seed.status) {
     case "new":
     case "running":
     case "waiting":
+    case "succeeded":
+      if (seed.error !== undefined) {
+        throw new RangeError(`run ${seed.id} did not fail, so it carries no error`);
+      }
+      if (seed.status === "succeeded") {
+        if (finishedAt === undefined) {
+          throw new RangeError(`run ${seed.id} has ended, so it names when`);
+        }
+        return { status: seed.status, finishedAt };
+      }
       return { status: seed.status };
     case "failed":
       return finishedAt === undefined
-        ? { status: seed.status }
-        : { status: seed.status, finishedAt };
-    case "succeeded":
+        ? { status: seed.status, ...error }
+        : { status: seed.status, finishedAt, ...error };
     case "canceled":
     case "crashed":
       if (finishedAt === undefined) {
         throw new RangeError(`run ${seed.id} has ended, so it names when`);
       }
-      return { status: seed.status, finishedAt };
+      return { status: seed.status, finishedAt, ...error };
   }
 }
 
@@ -597,11 +607,11 @@ export const WORKFLOW_RUN_RECORDS: readonly WorkflowRunRecord[] = [
     id: WORKFLOW_RUN_IDS.processExited,
     definitionId: RELEASE,
     versionNumber: 2,
-    state: "failed",
+    status: "failed",
     mode: "manual",
     startedBy: WORKFLOW_STARTED_BY_PERSON,
     startedMinutesAgo: 320,
-    endedMinutesAgo: 318,
+    finishedMinutesAgo: 318,
     steps: [
       { nodeId: "manual", status: "succeeded", startedMinutesAgo: 320, finishedMinutesAgo: 320 },
       {

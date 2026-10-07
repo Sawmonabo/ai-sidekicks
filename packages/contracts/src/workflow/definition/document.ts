@@ -357,11 +357,11 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
   .strict();
 
 /**
- * A failure carried on one item, so one item can fail while the rest of a batch
- * succeeds, and on the step it failed in. A coded failure carries the step failure's own
- * `workflow.<condition>` code (a timed-out step, a sandbox that did not start, a Code step
- * over its budget …) and may carry that code's `details`; a failure with no code of its own
- * carries the message alone, never `details`. `itemIndex` names the input item the step failed
+ * A failure carried on one item, so one item can fail while the rest of a batch succeeds, on the
+ * step it failed in, and on a run as why it failed or was canceled. A coded failure carries the
+ * step failure's own `workflow.<condition>` code (a timed-out step, a sandbox that did not start, a
+ * Code step over its budget …) and may carry that code's `details`; a failure with no code of its
+ * own carries the message alone, never `details`. `itemIndex` names the input item the step failed
  * on: the same zero-based index an expression reads as `$itemIndex`, drawn as it stands (`Item 1`
  * for 1).
  */

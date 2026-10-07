@@ -62,6 +62,7 @@ import type { WorkflowRunControlMethodDescriptors } from "../workflow/run/contro
 import type { WorkflowRunRecordMethodDescriptors } from "../workflow/run/records.js";
 import type { WorkflowStepMethodDescriptors } from "../workflow/run/step/methods.js";
 import type { WorkflowSecretMethodDescriptors } from "../workflow/secret.js";
+import type { WorkflowSubscriptionMethodDescriptors } from "../workflow/subscription.js";
 
 /** Every method the daemon answers, keyed by its name. */
 export type DaemonMethodDescriptors = AgentMethodDescriptors &
@@ -120,7 +121,8 @@ export type DaemonMethodDescriptors = AgentMethodDescriptors &
   WorkflowRunControlMethodDescriptors &
   WorkflowRunRecordMethodDescriptors &
   WorkflowStepMethodDescriptors &
-  WorkflowSecretMethodDescriptors;
+  WorkflowSecretMethodDescriptors &
+  WorkflowSubscriptionMethodDescriptors;
 
 type DaemonMethodName = keyof DaemonMethodDescriptors & string;
 

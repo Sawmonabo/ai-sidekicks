@@ -210,11 +210,10 @@ export const WorkflowRunCancelRequestSchema: z.ZodType<
 
 /**
  * The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
- * failed run parked on its failed step waiting to be resumed; every branch still going is
- * canceled with it. `status` has one value because a successful cancel has
- * one outcome. `alreadyCanceled` is true when the run was already canceled and this call returned
- * the first cancel's saved result: no second event is written, and `canceledEventId` names the
- * original.
+ * failed run parked on its failed step waiting to be resumed; every branch still going is canceled
+ * with it. `status` has one value because a successful cancel has one outcome. `alreadyCanceled` is
+ * true when the run was already canceled and this call returned the first cancel's saved result: no
+ * second event is written, and `canceledEventId` names the original.
  */
 export interface WorkflowRunCancelResponse {
   workflowRunId: WorkflowRunId;

@@ -229,16 +229,16 @@ type WorkflowRun = {
   startedBy: WorkflowStartedBy;
   // Whether the person marked the run Keep, which `workflow.runsDelete` leaves untouched.
   keep: boolean;
-  // Why the run failed, preserved on any bound breach (SA-1, SA-2), or why it was canceled when `status`
-  // is `canceled`: the message is the reason, and `code` and `details` the typed detail, stored as
-  // `workflow_runs.failure_reason` and `failure_detail`.
-  error?: WorkflowStepError;
   startedAt: string;
-} & (
-  | { status: "new" | "running" | "waiting" }
-  | { status: "failed"; finishedAt?: string }
-  | { status: "succeeded" | "canceled" | "crashed"; finishedAt: string }
-);
+} &
+  // `error` says why a run that failed, was canceled or crashed did so: kept when the run cap
+  // (`max_duration`, SA-2) or the retry bound (`max_retries`) fails the run, and carrying a person's
+  // cancellation reason as its message. A going or succeeded run carries none.
+  (| { status: "new" | "running" | "waiting" }
+    | { status: "failed"; finishedAt?: string; error?: WorkflowStepError }
+    | { status: "succeeded"; finishedAt: string }
+    | { status: "canceled" | "crashed"; finishedAt: string; error?: WorkflowStepError }
+  );
 type WorkflowRunReadResponse = WorkflowRun & {
   // The step array, one entry per execution of one node, each carrying its input, output and log
   // refs. It is the record a run page draws its graph and its step panel from: the graph is the
@@ -308,9 +308,8 @@ interface WorkflowRunCancelRequest {
 }
 interface WorkflowRunCancelResponse {
   workflowRunId: WorkflowRunId;
-  // A literal rather than the run-status union: a successful cancel has exactly
-  // one outcome, and narrowing here keeps callers from switching on statuses this
-  // operation cannot produce.
+  // A literal rather than the run-status union: a successful cancel has exactly one outcome, and
+  // narrowing here keeps callers from switching on statuses this operation cannot produce.
   status: "canceled";
   // The `session_events.id` of the workflow.canceled event this call appended, in
   // the same unit of work as the status write (I-014-21). Returned so a caller can

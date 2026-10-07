@@ -142,7 +142,7 @@ function settleWait(
       resolution: { kind: resolution, at: NOW },
     };
   });
-  const { finishedAt: _finished, ...read } = run.read;
+  const { finishedAt: _finished, error: _error, ...read } = run.read;
   return { ...run, read: { ...read, status: "running", steps } };
 }
 
@@ -170,7 +170,7 @@ function decideChain(run: WorkflowRunRecord, decision: ApprovalDecision): Workfl
   const steps = decided.read.steps.map(
     (step): WorkflowStep => (step.waitCause === "chain" ? withoutWait(step, "running") : step),
   );
-  const { finishedAt: _finished, ...read } = decided.read;
+  const { finishedAt: _finished, error: _error, ...read } = decided.read;
   return { ...decided, read: { ...read, status: "running", steps } };
 }
 
@@ -225,7 +225,7 @@ function resumed(run: WorkflowRunRecord): WorkflowRunRecord {
           },
         ]
       : [];
-  const { finishedAt: _finished, ...read } = run.read;
+  const { finishedAt: _finished, error: _error, ...read } = run.read;
   const { durationMs: _duration, ...rest } = run;
   return { ...rest, read: { ...read, status: "running", steps: [...steps, ...rerun] } };
 }

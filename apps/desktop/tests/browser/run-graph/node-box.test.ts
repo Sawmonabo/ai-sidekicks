@@ -1,6 +1,6 @@
 // A run graph node's box is derived from its kind's row in canvas units, so at the largest text
-// size every line still fits inside it, its kind's label whole, and every node of a kind is one
-// width, wider where its kind's label is longer. The gap between columns is derived from the
+// size every line still fits inside it, its kind's words whole, and every node of a kind is one
+// width, wider where its kind's words are longer. The gap between columns is derived from the
 // widest edge count, so a label never stands on a node. This needs real layout: a DOM shim
 // measures every box as zero.
 
@@ -28,7 +28,7 @@ async function mountAtLargestTextSize(
 
 describe("a run graph node at the largest text size", () => {
   // The failed run carries a node with its one extra line, the tallest box the graph draws; the
-  // waiting-for-a-reply run carries the longest kind label, `human.wait-for-chat-reply`.
+  // waiting-for-a-reply run carries the kind with the longest words, the wait for a chat reply.
   it.each([WORKFLOW_RUN_IDS.failed, WORKFLOW_RUN_IDS.waitingReply])(
     "holds every line whole, one width per kind (%s)",
     async (runId) => {

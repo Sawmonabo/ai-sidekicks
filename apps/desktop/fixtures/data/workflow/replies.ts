@@ -43,8 +43,8 @@ import {
   type WorkflowRunsDeletePreviewResponse,
   type WorkflowRunsDeleteResponse,
   type WorkflowRunsPauseState,
-  type WorkflowSubscribeNotification,
 } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowSubscribeNotification } from "@ai-sidekicks/contracts/workflow/subscription";
 import {
   WORKFLOW_REVISION_STALE_CODE,
   WORKFLOW_STEP_NOT_WAITING_CODE,
