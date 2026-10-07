@@ -1,0 +1,7 @@
+/* A read's loading line: its words in the muted ink, at the text size of the line around it. */
+.meridian-loading-notice {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}

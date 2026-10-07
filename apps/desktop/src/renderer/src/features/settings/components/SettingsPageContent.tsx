@@ -11,6 +11,7 @@ import type { SettingsPageContext } from "../types.js";
 import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "../pages/labels.js";
 import { useSettingsControlLanding } from "../hooks/useSettingsControlLanding.js";
+import type { PendingSearchHit } from "../pending-search-hit.js";
 
 /** Props for {@link SettingsPageContent}. */
 export interface SettingsPageContentProps {
@@ -19,6 +20,8 @@ export interface SettingsPageContentProps {
   readonly pages: SettingsPageRegistry;
   /** Moves on every search hit, including a second hit on what is already open. */
   readonly hitOrdinal: number;
+  /** The search hit waiting for the page it opened, which this page takes once. */
+  readonly pendingSearchHit: PendingSearchHit;
 }
 
 /**
@@ -28,7 +31,7 @@ export interface SettingsPageContentProps {
  * arms stay hook-free.
  */
 export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.Element {
-  const { pageId, context, hitOrdinal } = props;
+  const { pageId, context, hitOrdinal, pendingSearchHit } = props;
   const headingRef = useRef<HTMLHeadingElement>(null);
   // State rather than a ref, so the landing starts again when the body element arrives.
   const [pageBody, setPageBody] = useState<HTMLDivElement | null>(null);
@@ -42,11 +45,11 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
 
   // Before the landing, which runs after it and moves focus on to the control it lands on.
   useLayoutEffect(() => {
-    // Ordinal zero is the pane opening, not a hit.
-    if (hitOrdinal !== 0) {
+    // Only the arrival a search hit made: a later open by the list, a link or Back keeps focus.
+    if (pendingSearchHit.take(pageId)) {
       headingRef.current?.focus();
     }
-  }, [hitOrdinal]);
+  }, [hitOrdinal, pageId, pendingSearchHit]);
   useSettingsControlLanding({ pageBody, pageId, controlId: landedControlId, hitOrdinal });
 
   return (

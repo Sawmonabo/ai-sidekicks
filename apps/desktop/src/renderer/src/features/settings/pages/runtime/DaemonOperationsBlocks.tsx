@@ -22,7 +22,6 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -213,12 +212,10 @@ function renderStatusRegion(
       );
     case "failed":
       return (
-        <Nothing
-          kind="error"
-          placement="block"
-          title="The background service is not answering."
-          detail={reading.refusal.detail}
-          action={<TryAgainButton onPress={checkAgain} />}
+        <InlineRefusal
+          code={reading.refusal.code}
+          detail="The background service is not answering."
+          onTryAgain={checkAgain}
         />
       );
   }

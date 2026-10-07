@@ -28,7 +28,7 @@
 .meridian-settings-page__section-head {
   margin: 0;
   color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-2xs);
+  font-size: var(--meridian-text-10);
   font-weight: 500;
   letter-spacing: var(--meridian-tracking-heading);
   text-transform: uppercase;

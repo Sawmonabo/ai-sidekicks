@@ -14,7 +14,7 @@ import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { McpServersPage } from "../McpServersPage.js";
+import { RegisteredBodyPage } from "../../RegisteredBodyPage.js";
 import { registerMcpFixtureBody } from "./register-body.js";
 
 afterEach(() => {
@@ -28,7 +28,7 @@ describe("McpFixtureMount", () => {
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <McpServersPage />
+          <RegisteredBodyPage pageId="mcp-servers" />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );
@@ -57,7 +57,7 @@ describe("McpFixtureMount", () => {
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <McpServersPage />
+          <RegisteredBodyPage pageId="mcp-servers" />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );
@@ -76,7 +76,7 @@ describe("McpFixtureMount", () => {
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <McpServersPage />
+          <RegisteredBodyPage pageId="mcp-servers" />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );
@@ -109,7 +109,7 @@ describe("McpFixtureMount", () => {
     const { container } = render(
       <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
-          <McpServersPage />
+          <RegisteredBodyPage pageId="mcp-servers" />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,
     );

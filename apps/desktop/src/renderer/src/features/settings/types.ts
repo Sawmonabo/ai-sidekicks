@@ -76,5 +76,5 @@ export interface SettingsPageContext {
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
-/** What a page renders: a function, as a screen's and a pane's render are. */
-export type SettingsPageBody = (context: SettingsPageContext) => ReactNode;
+/** How the page table draws a page from its context, as a screen's and a pane's render do. */
+export type SettingsPageRender = (context: SettingsPageContext) => ReactNode;

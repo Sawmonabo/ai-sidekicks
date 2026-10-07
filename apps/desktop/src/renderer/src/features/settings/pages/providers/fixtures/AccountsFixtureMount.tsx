@@ -9,8 +9,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -70,17 +69,12 @@ export function AccountsFixtureMount(): ReactNode {
   const state = usePushDrivenRead(registryRead);
   if (state.kind === "failed") {
     return (
-      <Nothing
-        kind="error"
-        placement="block"
-        title={ACCOUNT_LIST_READ_WORDS.refused}
-        action={
-          <TryAgainButton
-            onPress={() => {
-              setOpeningOrdinal((held) => held + 1);
-            }}
-          />
-        }
+      <InlineRefusal
+        code={state.refusal.code}
+        detail={ACCOUNT_LIST_READ_WORDS.refused}
+        onTryAgain={() => {
+          setOpeningOrdinal((held) => held + 1);
+        }}
       />
     );
   }

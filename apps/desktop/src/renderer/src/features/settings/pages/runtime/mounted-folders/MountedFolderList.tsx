@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
@@ -94,18 +94,12 @@ export function MountedFolderList(props: {
     // read asks for no snapshot then rather than render an inventory behind a channel that
     // has stopped listening.
     return (
-      <Nothing
-        kind="error"
-        placement="block"
-        title={state.refusal.code}
+      <InlineRefusal
+        code={state.refusal.code}
         detail={state.refusal.detail}
-        action={
-          <TryAgainButton
-            onPress={() => {
-              setOpeningOrdinal((held) => held + 1);
-            }}
-          />
-        }
+        onTryAgain={() => {
+          setOpeningOrdinal((held) => held + 1);
+        }}
       />
     );
   }

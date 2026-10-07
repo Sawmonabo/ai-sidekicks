@@ -2,6 +2,7 @@
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type DraftStore } from "#renderer/store/drafts.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { type LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -30,6 +31,8 @@ export interface ScreenContext {
   readonly paneRegistry: PaneRegistry;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
+  /** The settings page last open on this device, which Settings records as its page changes. */
+  readonly lastSettingsPage: LastSettingsPage;
   /**
    * This window's one act for choosing a color scheme: it asks main, which keeps the appearance,
    * and says so on the window's banner when main refuses.

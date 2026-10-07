@@ -11,17 +11,14 @@ import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/loader.js";
 import { AppearancePage } from "./appearance/AppearancePage.js";
 import { APPEARANCE_CONTROLS } from "./appearance/controls.js";
-import { DevicesPage } from "./devices/DevicesPage.js";
 import { GENERAL_CONTROLS } from "./general/controls.js";
 import { GeneralPage } from "./general/GeneralPage.js";
 import { KEYBOARD_CONTROLS } from "./keyboard/controls.js";
 import { KeyboardPage } from "./keyboard/KeyboardPage.js";
-import { McpServersPage } from "./mcp-servers/McpServersPage.js";
-import { NotificationsPage } from "./notifications/NotificationsPage.js";
-import { ProvidersPage } from "./providers/ProvidersPage.js";
+import { RegisteredBodyPage } from "./RegisteredBodyPage.js";
 import { RUNTIME_CONTROLS } from "./runtime/controls.js";
 import { RuntimePage } from "./runtime/RuntimePage.js";
-import type { SettingsControl, SettingsPageBody, SettingsPageContext } from "../types.js";
+import type { SettingsControl, SettingsPageContext, SettingsPageRender } from "../types.js";
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 
 /** One registered page, as the page list, the pane and search read it. */
@@ -37,7 +34,7 @@ export interface SettingsPageDescriptor {
   readonly note: string;
   /** The controls search finds on this page, in the order the page draws them. */
   readonly controls: readonly SettingsControl[];
-  readonly render: SettingsPageBody;
+  readonly render: SettingsPageRender;
 }
 
 /**
@@ -55,7 +52,7 @@ export interface SettingsPageDescriptor {
  */
 export type SettingsPageRegistration =
   | (SettingsPageRegistrationBase & {
-      readonly render: SettingsPageBody;
+      readonly render: SettingsPageRender;
       readonly body?: never;
     })
   | (SettingsPageRegistrationBase & {
@@ -206,7 +203,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     note:
       "Sign in to Claude Code and Codex, choose which account new work runs on, and set what " +
       "each provider does on its own. Every sign-in and pasted token stays on this machine.",
-    render: () => createElement(ProvidersPage),
+    render: () => createElement(RegisteredBodyPage, { pageId: "providers" }),
   },
   {
     pageId: "mcp-servers",
@@ -222,7 +219,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     note:
       "The tool servers Claude Code and Codex connect to, and what each is allowed to do. " +
       "Read live from the background service.",
-    render: () => createElement(McpServersPage),
+    render: () => createElement(RegisteredBodyPage, { pageId: "mcp-servers" }),
   },
   {
     pageId: "projects",
@@ -230,8 +227,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     note:
       "Where cloned repositories go, every project attached to this machine, what happens " +
       "after a worktree is made, and the environment rows every process starts with.",
-    // The frame draws the heading and the note; this page draws nothing under them.
-    render: () => null,
+    render: () => createElement(RegisteredBodyPage, { pageId: "projects" }),
   },
   {
     // A loader, so the page and its sheet stay off the initial import graph: the note and
@@ -279,7 +275,7 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
       "do not disturb",
     ],
     note: "When the app tells you something is waiting.",
-    render: () => createElement(NotificationsPage),
+    render: () => createElement(RegisteredBodyPage, { pageId: "notifications" }),
   },
   {
     pageId: "runtime",
@@ -291,11 +287,10 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     render: (context) => createElement(RuntimePage, { context }),
   },
   {
-    // The Remote Control feature fills this body through the page body registry.
     pageId: "devices",
     keywords: ["remote control", "phone", "link a device", "passkeys", "shared ports"],
     note: "Computers and devices linked to reach sessions remotely.",
-    render: () => createElement(DevicesPage),
+    render: () => createElement(RegisteredBodyPage, { pageId: "devices" }),
   },
 ];
 

@@ -6,9 +6,12 @@
 // screen's edge, and that overflow is the signal. The width it needed is kept, and one at a time
 // the screen tries side by side again when it is at least that wide, or when another page opens
 // with a floor of its own; the measurement settles each try before anything paints. Resizes are
-// heard, never polled: the screen's width and, side by side, the page pane's width.
+// heard, never polled: the screen's width and, side by side, the page pane's width. A change of
+// the text size, which the window writes as the root's font size, moves every width the break is
+// made of, so it tries again too.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { getWindow } from "@floating-ui/utils/dom";
 
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 
@@ -83,9 +86,22 @@ export function useSettingsPaneArrangement(
         settleSideBySide();
       }
     });
+    // The root's inline style carries the text size; anything else written there costs one try.
+    const textSizeObserver = new (getWindow(screen).MutationObserver)(() => {
+      if (arrangementRef.current === "side-by-side") {
+        settleSideBySide();
+      } else {
+        setArrangement("side-by-side");
+      }
+    });
+    textSizeObserver.observe(screen.ownerDocument.documentElement, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
     return () => {
       stopWatchingScreen();
       stopWatchingPage();
+      textSizeObserver.disconnect();
     };
   }, [screen, pagePane]);
 

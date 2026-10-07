@@ -15,7 +15,7 @@ import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { ProvidersPage } from "../ProvidersPage.js";
+import { RegisteredBodyPage } from "../../RegisteredBodyPage.js";
 import { pressFirstStartControl, signInAddressOf } from "./AccountsFixtureBody.test-support.js";
 import { registerAccountsFixtureBody } from "./register-accounts-body.js";
 
@@ -29,7 +29,7 @@ function renderProvidersPage(fixture: FixtureBridge): HTMLElement {
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
-        <ProvidersPage />
+        <RegisteredBodyPage pageId="providers" />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
@@ -74,7 +74,7 @@ describe("AccountsFixtureMount", () => {
   it("draws no reading line for a read inside the short delay, and its own words after a refusal", async () => {
     const fixture = fixtureRefusingFirstRegistryRead();
     const container = renderProvidersPage(fixture);
-    // The read is in flight, but its line waits out the short delay, and the refusal lands inside it.
+    // The read is in flight, but its line waits out the short delay; the refusal lands inside it.
     expect(container.textContent).not.toContain("Reading the account list…");
 
     await settleScheduledRead(fixture.scenarioEngine.clock);

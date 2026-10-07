@@ -63,10 +63,6 @@ describe("settings search", () => {
     // "number" appears only under one control and "network" only under another: no control holds
     // both, so nothing is found.
     expect(described("number network")).toStrictEqual([]);
-    // A control's word appears as one run, ignoring case: "USED" is in a hint, but "usd", whose
-    // letters are there only scattered, is not.
-    expect(described("USED")).toStrictEqual(["general/proxy · Proxy · General"]);
-    expect(described("usd")).toStrictEqual([]);
     // A word nothing holds, and a blank box, find nothing.
     expect(described("zzzz")).toStrictEqual([]);
     expect(described("   ")).toStrictEqual([]);

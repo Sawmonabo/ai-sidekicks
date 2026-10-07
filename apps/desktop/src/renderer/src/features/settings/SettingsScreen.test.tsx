@@ -3,10 +3,12 @@
 // a page is handed the retained session, subscribed, and never the route's projection (which is
 // `undefined` on every settings address).
 
+import { Collapsible } from "@base-ui/react/collapsible";
 import { act, fireEvent } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { settingsRoute } from "#renderer/routing/readers.js";
 import { SETTINGS_CONTROL_ATTRIBUTE } from "./control-anchor.js";
@@ -113,12 +115,14 @@ describe("arriving on a control", () => {
     const pages = generalPageDrawing(
       () => (
         <div className="landing-test__scroller" style={{ overflowY: "auto" }}>
-          <details>
-            <summary>More</summary>
-            <div {...{ [SETTINGS_CONTROL_ATTRIBUTE]: "folded-control" }}>
-              <button type="button">Folded control</button>
-            </div>
-          </details>
+          <Collapsible.Root>
+            <Collapsible.Trigger>More</Collapsible.Trigger>
+            <Collapsible.Panel hiddenUntilFound>
+              <div {...{ [SETTINGS_CONTROL_ATTRIBUTE]: "folded-control" }}>
+                <button type="button">Folded control</button>
+              </div>
+            </Collapsible.Panel>
+          </Collapsible.Root>
         </div>
       ),
       [{ id: "folded-control", label: "Folded control" }],
@@ -131,8 +135,8 @@ describe("arriving on a control", () => {
     const { container, getByRole } = await renderRoutedSettingsScreen(settingsWindow, pages);
     const scroller = container.querySelector<HTMLElement>(".landing-test__scroller");
     const control = container.querySelector<HTMLElement>(`[${SETTINGS_CONTROL_ATTRIBUTE}]`);
-    const fold = container.querySelector("details");
-    if (scroller === null || control === null || fold === null) {
+    const foldTrigger = scroller?.querySelector("button") ?? null;
+    if (scroller === null || control === null || foldTrigger === null) {
       throw new Error("the test page did not draw");
     }
     // A 400 px view at the top of the window, and the control 1000 px down it, 40 px tall.
@@ -141,13 +145,14 @@ describe("arriving on a control", () => {
     vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 0, 400));
     vi.spyOn(control, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 1000, 0, 40));
     const glide = vi.spyOn(ScrollController.prototype, "glideTo");
-    expect(fold.open).toBe(false);
+    expect(foldTrigger.getAttribute("aria-expanded")).toBe("false");
 
-    act(() => {
+    await act(async () => {
       settingsWindow.frameStore.navigate(settingsRoute("general", "folded-control"));
+      await crossMacrotaskBoundary();
     });
 
-    expect(fold.open).toBe(true);
+    expect(foldTrigger.getAttribute("aria-expanded")).toBe("true");
     // The control's middle, 1020 px down, at the view's middle, 200 px into it.
     expect(glide.mock.calls).toStrictEqual([["settings-control-landing", 820]]);
     expect(control.hasAttribute("data-settings-landed")).toBe(true);
@@ -166,6 +171,71 @@ describe("arriving on a control", () => {
     expect(lightOption?.hasAttribute("data-settings-landed")).toBe(true);
     expect(container.ownerDocument.activeElement).toBe(
       lightOption?.querySelector('[role="radio"]'),
+    );
+  });
+});
+
+describe("a control the page draws late", () => {
+  it("is landed on once drawn, and the wait ends at the person's first key or press", async () => {
+    const lateControl = [{ id: "late-control", label: "Late control" }];
+    const pages = generalPageDrawing(() => <ControlDrawnOnRead />, lateControl);
+    pages.register({
+      pageId: "runtime",
+      keywords: [],
+      note: "",
+      controls: lateControl,
+      render: () => <ControlDrawnOnRead />,
+    });
+    const settingsWindow = windowAt("general");
+    const { container, getByRole } = await renderRoutedSettingsScreen(settingsWindow, pages);
+    const isLanded = (): boolean =>
+      container
+        .querySelector(`[${SETTINGS_CONTROL_ATTRIBUTE}]`)
+        ?.hasAttribute("data-settings-landed") === true;
+    // Arrive on the control before the page has drawn it, then let the page's read answer.
+    const arriveThenRead = async (pageId: "general" | "runtime", personInput?: () => void) => {
+      act(() => {
+        settingsWindow.frameStore.navigate(settingsRoute(pageId, "late-control"));
+      });
+      personInput?.();
+      await act(async () => {
+        getByRole("button", { name: "Read" }).click();
+        await crossMacrotaskBoundary();
+      });
+    };
+
+    await arriveThenRead("general");
+    expect(isLanded()).toBe(true);
+
+    await arriveThenRead("runtime", () => {
+      fireEvent.keyDown(container.ownerDocument.body, { key: "a" });
+    });
+    expect(isLanded()).toBe(false);
+
+    await arriveThenRead("general", () => {
+      fireEvent.pointerDown(container.ownerDocument.body);
+    });
+    expect(isLanded()).toBe(false);
+  });
+});
+
+describe("the search box", () => {
+  it("opens the hit the arrows light", async () => {
+    const settingsWindow = windowAt("general");
+    const pages = generalPageDrawing(
+      () => null,
+      [
+        { id: "first-port", label: "First port" },
+        { id: "second-port", label: "Second port" },
+      ],
+    );
+    const { getByRole } = await renderRoutedSettingsScreen(settingsWindow, pages);
+    const searchField = getByRole("combobox", { name: "Search settings" });
+    fireEvent.change(searchField, { target: { value: "port" } });
+    fireEvent.keyDown(searchField, { key: "ArrowDown" });
+    fireEvent.keyDown(searchField, { key: "Enter" });
+    expect(settingsWindow.frameStore.getState().route).toStrictEqual(
+      settingsRoute("general", "second-port"),
     );
   });
 });
@@ -279,5 +349,27 @@ function FieldCommittingOnBlur(props: {
         props.onCommit(value);
       }}
     />
+  );
+}
+
+/** A control drawn only once its read answers, which the case stands in for with `Read`. */
+function ControlDrawnOnRead(): React.JSX.Element {
+  const [isDrawn, setIsDrawn] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setIsDrawn(true);
+        }}
+      >
+        Read
+      </button>
+      {isDrawn ? (
+        <div {...{ [SETTINGS_CONTROL_ATTRIBUTE]: "late-control" }}>
+          <button type="button">Late control</button>
+        </div>
+      ) : null}
+    </>
   );
 }

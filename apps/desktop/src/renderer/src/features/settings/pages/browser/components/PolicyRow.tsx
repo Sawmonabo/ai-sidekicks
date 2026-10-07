@@ -8,7 +8,6 @@
 import { Switch } from "#renderer/components/Switch/Switch.js";
 
 import { ChangedFromDefaultMark } from "#renderer/features/settings/components/ChangedFromDefaultMark.js";
-import { describeSwitchDefault } from "#renderer/features/settings/switch-default.js";
 
 import type { BrowserPolicySwitchId, BrowserPolicySwitchWriter } from "../policy-switches.js";
 
@@ -67,9 +66,7 @@ export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
             {traits.label}
           </label>
           {props.enabled === traits.isOnByDefault ? null : (
-            <ChangedFromDefaultMark
-              defaultDescription={describeSwitchDefault(traits.isOnByDefault)}
-            />
+            <ChangedFromDefaultMark isOnByDefault={traits.isOnByDefault} />
           )}
         </span>
         <p className="meridian-browser-policy__consequence">{traits.consequence}</p>

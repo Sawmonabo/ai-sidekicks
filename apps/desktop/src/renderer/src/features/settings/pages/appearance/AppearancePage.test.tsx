@@ -32,7 +32,7 @@ describe("appearance page", () => {
     const checked = [...container.querySelectorAll(".meridian-scheme-choice__option")].filter(
       (option) => option.querySelector("[data-checked]") !== null,
     );
-    expect(checked[0]?.textContent ?? "").toContain("Follow this machine");
+    expect(checked[0]?.textContent ?? "").toContain("System");
   });
 
   it("chooses the mode a person picks through the window's act", async () => {

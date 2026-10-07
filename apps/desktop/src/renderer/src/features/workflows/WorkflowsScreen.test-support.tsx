@@ -26,6 +26,7 @@ import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { DraftStore } from "#renderer/store/drafts.js";
 import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
+import { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
@@ -78,6 +79,8 @@ export async function mountWorkflowsScreen(
       : withDaemonSubscribe(answering.bridge, options.openStream);
   const frameStore = new WindowStore({ initialRoute: options.route });
   const commandTargets = createWorkflowCommandTargets();
+  const uiStateStore =
+    options.uiStateStore ?? new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
   const context: Omit<ScreenContext, "route"> = {
     bridge,
     frameStore,
@@ -87,9 +90,9 @@ export async function mountWorkflowsScreen(
       projectors: {},
     }),
     paneRegistry: new PaneRegistry(),
-    uiStateStore:
-      options.uiStateStore ?? new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
+    uiStateStore,
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+    lastSettingsPage: new LastSettingsPage(uiStateStore),
     chooseScheme: () => undefined,
   };
   const Host = bridgeWrapper(bridge, engine.clock);

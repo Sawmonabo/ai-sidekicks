@@ -8,6 +8,7 @@ import { SettingsPageContent } from "./SettingsPageContent.js";
 import type { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import type { PendingSearchHit } from "../pending-search-hit.js";
 
 /** Props for {@link SettingsPane}. */
 export interface SettingsPaneProps {
@@ -18,6 +19,8 @@ export interface SettingsPaneProps {
   readonly pages: SettingsPageRegistry;
   /** Moves on every search hit, including a second hit on what is already open. */
   readonly hitOrdinal: number;
+  /** The search hit waiting for the page it opened, which that page takes once. */
+  readonly pendingSearchHit: PendingSearchHit;
   /** Returns to the page list; present only while the window shows one pane at a time. */
   readonly onShowPageList: (() => void) | undefined;
 }
@@ -34,7 +37,13 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
   return (
     <>
       {onShowPageList === undefined ? null : (
-        <button type="button" className="meridian-settings__back" onClick={onShowPageList}>
+        <button
+          type="button"
+          className="meridian-settings__back"
+          // The rail's own button is named Settings; this one steps back to the page list.
+          aria-label="Back to the Settings pages"
+          onClick={onShowPageList}
+        >
           <span aria-hidden="true">‹</span> Settings
         </button>
       )}
@@ -53,6 +62,7 @@ function renderPaneBody(props: SettingsPaneProps): React.JSX.Element {
         context={props.context}
         pages={props.pages}
         hitOrdinal={props.hitOrdinal}
+        pendingSearchHit={props.pendingSearchHit}
       />
     );
   }

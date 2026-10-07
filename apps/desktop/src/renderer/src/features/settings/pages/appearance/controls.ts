@@ -3,28 +3,28 @@ import type { SettingsControl } from "../../types.js";
 /** The head of the Appearance page's color-scheme choice. */
 export const COLOR_SCHEME_HEADING = "Color scheme";
 
+/** The one line drawn under the color-scheme choice, which every option sits in. */
+export const COLOR_SCHEME_HINT =
+  "System is the default. It follows whatever this Mac is set to, and each theme ships both.";
+
 /** The controls the Appearance page draws that search finds, in the order the page draws them. */
-export const APPEARANCE_CONTROLS: Readonly<
-  Record<"followSystem" | "light" | "dark", SettingsControl>
-> = {
-  followSystem: {
+export const APPEARANCE_CONTROLS: Readonly<Record<"system" | "light" | "dark", SettingsControl>> = {
+  system: {
     id: "color-scheme-system",
-    label: "Follow this machine",
+    label: "System",
     heading: COLOR_SCHEME_HEADING,
-    hint:
-      "Paints whichever scheme the operating system is in, and keeps following it when that " +
-      "changes.",
+    hint: COLOR_SCHEME_HINT,
   },
   light: {
     id: "color-scheme-light",
     label: "Light",
     heading: COLOR_SCHEME_HEADING,
-    hint: "Holds the light scheme whatever the operating system is doing.",
+    hint: COLOR_SCHEME_HINT,
   },
   dark: {
     id: "color-scheme-dark",
     label: "Dark",
     heading: COLOR_SCHEME_HEADING,
-    hint: "Holds the dark scheme whatever the operating system is doing.",
+    hint: COLOR_SCHEME_HINT,
   },
 };

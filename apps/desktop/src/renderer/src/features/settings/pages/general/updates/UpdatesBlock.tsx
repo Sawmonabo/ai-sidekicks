@@ -6,9 +6,9 @@
 // download completed. The console never derives readiness from a percent, and only
 // `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
 // for that control under the controls, which stay drawn. Under the read-out sits the switch for
-// the machine setting `updatesAutomatic`, drawn only once the settings file has been read so it never
-// shows a value it does not hold: a refused write leaves the switch where it was and draws the
-// service's words in the page's strip, with `Try again` sending the same change again.
+// the machine setting `updatesAutomatic`, drawn only once the settings file has been read so it
+// never shows a value it does not hold: a refused write leaves the switch where it was and draws
+// the service's words in the strip, with `Try again` sending the same change again.
 
 import type { UpdateState } from "#shared/preload-api.js";
 import { useState, type ReactNode } from "react";

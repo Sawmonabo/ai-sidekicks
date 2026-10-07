@@ -26,7 +26,7 @@ export function GeneralPage(props: { readonly context: SettingsPageContext }): R
         <SettingsFact control={GENERAL_CONTROLS.architecture}>
           <WireFigure value={app.arch} />
         </SettingsFact>
-        <SettingsFact control={GENERAL_CONTROLS.locale}>
+        <SettingsFact control={GENERAL_CONTROLS.language}>
           <WireFigure value={app.locale} />
         </SettingsFact>
       </dl>

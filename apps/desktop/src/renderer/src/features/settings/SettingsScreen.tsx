@@ -21,6 +21,8 @@ import type { SettingsSearchHit } from "./search.js";
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 import { useCommitEditedFieldOnLeave } from "./hooks/useCommitEditedFieldOnLeave.js";
 import { useFocusShownPane } from "./hooks/useFocusShownPane.js";
+import { useLastSettingsPageId } from "./hooks/useLastSettingsPageId.js";
+import { PendingSearchHit } from "./pending-search-hit.js";
 import { useSettingsPageIdleWarm } from "./hooks/useSettingsPageIdleWarm.js";
 import { useSettingsPaneArrangement } from "./hooks/useSettingsPaneArrangement.js";
 import { useSettingsSearch } from "./hooks/useSettingsSearch.js";
@@ -51,6 +53,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // A counter, not a boolean: each search hit lands again, including a second hit on the
   // control already open, and a boolean already true would change nothing.
   const [hitOrdinal, setHitOrdinal] = useState(0);
+  const [pendingSearchHit] = useState(() => new PendingSearchHit());
   // State rather than refs, so what measures and watches these boxes starts once they mount.
   const [screen, setScreen] = useState<HTMLElement | null>(null);
   const [listPane, setListPane] = useState<HTMLDivElement | null>(null);
@@ -66,18 +69,28 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
     },
     [frameStore],
   );
+  // A cursor move only follows the keys, so it takes the place of the page it left in the
+  // window's history rather than adding one Back would have to walk through.
+  const followCursorToPage = useCallback(
+    (pageId: SettingsPageId): void => {
+      frameStore.replaceRoute(settingsRoute(pageId, undefined));
+    },
+    [frameStore],
+  );
   const openSearchHit = useCallback(
     (hit: SettingsSearchHit): void => {
+      pendingSearchHit.hold(hit.pageId);
       frameStore.navigate(settingsRoute(hit.pageId, hit.controlId));
       setHitOrdinal((held) => held + 1);
     },
-    [frameStore],
+    [frameStore, pendingSearchHit],
   );
   const showPageList = useCallback((): void => {
     frameStore.navigate({ kind: "settings", page: undefined });
   }, [frameStore]);
 
   const search = useSettingsSearch(pages, openSearchHit);
+  const restingPageId = useLastSettingsPageId(context.lastSettingsPage, currentPageId);
   const arrangement = useSettingsPaneArrangement({
     screen,
     pagePane,
@@ -151,8 +164,9 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
         ) : null}
         <SettingsPageList
           currentPageId={currentPageId}
+          restingPageId={restingPageId}
           onOpenPage={openPage}
-          opensOnMove={!isOneAtATime}
+          onCursorMove={isOneAtATime ? undefined : followCursorToPage}
           isCollapsed={search.isSearching}
         />
       </div>
@@ -167,6 +181,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
           context={pageContext}
           pages={pages}
           hitOrdinal={hitOrdinal}
+          pendingSearchHit={pendingSearchHit}
           onShowPageList={isOneAtATime ? showPageList : undefined}
         />
       </div>

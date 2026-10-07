@@ -11,7 +11,6 @@ import "./PreferenceToggleRow.css";
 import { useId } from "react";
 
 import { Switch } from "#renderer/components/Switch/Switch.js";
-import { describeSwitchDefault } from "../switch-default.js";
 import { ChangedFromDefaultMark } from "./ChangedFromDefaultMark.js";
 
 /** Props for {@link PreferenceToggleRow}. */
@@ -39,9 +38,7 @@ export function PreferenceToggleRow(props: PreferenceToggleRowProps): React.JSX.
             {props.label}
           </label>
           {props.checked === props.checkedByDefault ? null : (
-            <ChangedFromDefaultMark
-              defaultDescription={describeSwitchDefault(props.checkedByDefault)}
-            />
+            <ChangedFromDefaultMark isOnByDefault={props.checkedByDefault} />
           )}
         </span>
         {props.description === undefined ? null : (

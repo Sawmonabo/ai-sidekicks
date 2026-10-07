@@ -6,6 +6,7 @@
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import { railDestinationFor } from "#renderer/routing/readers.js";
+import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import type { WindowStore } from "#renderer/store/window/store.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
@@ -24,6 +25,8 @@ export interface AppShellProps {
   readonly frameStore: WindowStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */
   readonly screenRegistry: ScreenRegistry;
+  /** The settings page last open, which the rail's Settings opens again. */
+  readonly lastSettingsPage: LastSettingsPage;
   /**
    * The palette's window-owned props: its `when` context, bindings, open state and revision.
    */
@@ -39,7 +42,7 @@ export interface AppShellProps {
 
 /** The window's chrome around the routed screen. */
 export function AppShell(props: AppShellProps): React.JSX.Element {
-  const { frameStore, screenRegistry, palette } = props;
+  const { frameStore, screenRegistry, palette, lastSettingsPage } = props;
   const route = useWindowStore(frameStore, (state) => state.route);
   const banners = useWindowStore(frameStore, (state) => state.banners);
   // A boolean, so a window with no card up re-renders on nothing.
@@ -54,7 +57,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
         // Warmed before navigating: `navigate` commits synchronously and the screen
         // mounts on the next commit, so the fetch is already in flight when it asks.
         warmDestination(screenRegistry, destination);
-        frameStore.navigate(routeForDestination(destination));
+        frameStore.navigate(routeForDestination(destination, lastSettingsPage.pageId));
       }}
       modalOverlayOpen={palette.open || isModalDialogOpen}
       notice={props.notice}

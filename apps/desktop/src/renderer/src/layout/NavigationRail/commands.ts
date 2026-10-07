@@ -9,6 +9,7 @@ import type {
   FrameKeybinding,
 } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
+import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./destinations.js";
 
@@ -61,11 +62,13 @@ export function registerNavigationKeybindings(contributions: CommandContribution
 
 /**
  * One command per rail destination, titled with the rail's label. Each warms the screen before
- * handing `navigate` the destination's route, and again while its palette row is highlighted.
+ * handing `navigate` the destination's route, and again while its palette row is highlighted;
+ * Settings opens on the page last open.
  */
 export function buildNavigationCommands(
   navigate: (route: AppRoute) => void,
   screenRegistry: ScreenRegistry,
+  lastSettingsPage: LastSettingsPage,
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
@@ -74,7 +77,7 @@ export function buildNavigationCommands(
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
       warmDestination(screenRegistry, destination);
-      navigate(routeForDestination(destination));
+      navigate(routeForDestination(destination, lastSettingsPage.pageId));
     },
     preload: () => {
       warmDestination(screenRegistry, destination);

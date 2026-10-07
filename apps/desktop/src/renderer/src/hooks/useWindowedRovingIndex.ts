@@ -275,7 +275,10 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       setMountedFallbackIndex(undefined);
       revealRequestedForIndex.current = moved;
       revealIndex?.(moved);
-      onRowMove?.(moved);
+      // A boundary key at its boundary moved nothing, so there is nothing to tell.
+      if (moved !== activeIndex) {
+        onRowMove?.(moved);
+      }
     },
     [activeIndex, anchorIndex, revealIndex, rowCount, rowSetIdentity, wrapsAround, onRowMove],
   );

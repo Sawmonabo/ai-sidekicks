@@ -9,6 +9,7 @@ import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { DraftStore } from "#renderer/store/drafts.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
@@ -93,6 +94,7 @@ export function windowAt(
     frameStore.navigate({ kind: "session", sessionId });
   }
   frameStore.navigate({ kind: "settings", page });
+  const uiStateStore = UiStateStore.opening();
   return {
     frameStore,
     context: {
@@ -104,8 +106,9 @@ export function windowAt(
       // No session is opened on it, the ordinary case for a settings window.
       sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
       paneRegistry: new PaneRegistry(),
-      uiStateStore: UiStateStore.opening(),
+      uiStateStore,
       draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+      lastSettingsPage: new LastSettingsPage(uiStateStore),
       chooseScheme: () => undefined,
     },
   };

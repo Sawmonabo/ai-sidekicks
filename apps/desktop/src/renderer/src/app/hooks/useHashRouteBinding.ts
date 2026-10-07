@@ -1,6 +1,7 @@
 // The two-way binding between the window's location hash and the frame's route. The hash
 // drives the route when a window is opened by URL or the address is edited; the route drives the
-// hash when the rail or palette navigates.
+// hash when the rail or palette navigates, as a new history entry or, for a move that only follows
+// a cursor, in place of the current one.
 //
 // Two rules make the loop terminate. A write is not news: writing the hash raises `hashchange`,
 // and adopting that echo can revert a route the person chose in the same commit and flip the
@@ -42,7 +43,7 @@ export function useHashRouteBinding(
   // Route → hash. A `not-found` route is left unpublished: formatting it back would destroy
   // the text the person typed before they could fix it.
   useEffect(() => {
-    const current = frameStore.getState().route;
+    const { route: current, routeHistoryWrite } = frameStore.getState();
     if (current.kind === "not-found") {
       return;
     }
@@ -51,6 +52,10 @@ export function useHashRouteBinding(
       return;
     }
     unheardWrite.current = desired;
-    ownerWindow.location.hash = desired;
+    if (routeHistoryWrite === "replace") {
+      ownerWindow.location.replace(desired);
+    } else {
+      ownerWindow.location.hash = desired;
+    }
   }, [frameStore, route, ownerWindow]);
 }

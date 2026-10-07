@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
+import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import type { WindowStore } from "#renderer/store/window/store.js";
 import { subscribeToCommandContributions } from "#renderer/registries/commands/contributions.js";
 import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
@@ -34,6 +35,8 @@ export interface AppCommandsInput {
   readonly appearance: AppearanceClient;
   /** The screen registry the windows mount through, for the destinations' own warm-up. */
   readonly screenRegistry: ScreenRegistry;
+  /** The settings page last open, which the Settings command opens again. */
+  readonly lastSettingsPage: LastSettingsPage;
 }
 
 /**
@@ -41,7 +44,14 @@ export interface AppCommandsInput {
  * every window's palette the command set changed.
  */
 export function useAppCommands(input: AppCommandsInput): number {
-  const { windowStoreUsedLast, documentUsedLast, keyboardMap, appearance, screenRegistry } = input;
+  const {
+    windowStoreUsedLast,
+    documentUsedLast,
+    keyboardMap,
+    appearance,
+    screenRegistry,
+    lastSettingsPage,
+  } = input;
 
   // The palette reads the registry once per revision, so a late registration bumps it.
   const [commandRevision, setCommandRevision] = useState(0);
@@ -66,9 +76,13 @@ export function useAppCommands(input: AppCommandsInput): number {
   // mount's command.
   useEffect(() => {
     const appCommands: readonly CommandDefinition[] = [
-      ...buildNavigationCommands((route) => {
-        windowStoreUsedLast()?.navigate(route);
-      }, screenRegistry),
+      ...buildNavigationCommands(
+        (route) => {
+          windowStoreUsedLast()?.navigate(route);
+        },
+        screenRegistry,
+        lastSettingsPage,
+      ),
       buildColorSchemeCommand(() => {
         const windowStore = windowStoreUsedLast();
         if (windowStore !== undefined) {
@@ -102,6 +116,7 @@ export function useAppCommands(input: AppCommandsInput): number {
     raiseRefusalBanner,
     screenRegistry,
     appearance,
+    lastSettingsPage,
   ]);
 
   // Not awaited: `hydrateFrom` turns a failed read into a read refusal, so a rejection is a

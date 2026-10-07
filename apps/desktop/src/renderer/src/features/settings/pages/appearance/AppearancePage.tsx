@@ -17,7 +17,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { ChangedFromDefaultMark } from "../../components/ChangedFromDefaultMark.js";
 import { settingsControlAnchor } from "../../control-anchor.js";
 import type { SettingsControl } from "../../types.js";
-import { APPEARANCE_CONTROLS, COLOR_SCHEME_HEADING } from "./controls.js";
+import { APPEARANCE_CONTROLS, COLOR_SCHEME_HEADING, COLOR_SCHEME_HINT } from "./controls.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import {
@@ -26,14 +26,14 @@ import {
   type SchemePreference,
 } from "#renderer/styles/tokens.js";
 
-/** One option: the preference it chooses, and the control that names and explains it. */
+/** One option: the preference it chooses, and the control that names it. */
 interface SchemeOption {
   readonly preference: SchemePreference;
   readonly control: SettingsControl;
 }
 
 const SCHEME_OPTIONS: readonly SchemeOption[] = [
-  { preference: SYSTEM_SCHEME_PREFERENCE, control: APPEARANCE_CONTROLS.followSystem },
+  { preference: SYSTEM_SCHEME_PREFERENCE, control: APPEARANCE_CONTROLS.system },
   { preference: "light", control: APPEARANCE_CONTROLS.light },
   { preference: "dark", control: APPEARANCE_CONTROLS.dark },
 ];
@@ -61,7 +61,7 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
           <h3 className="meridian-settings-page__section-head">{COLOR_SCHEME_HEADING}</h3>
           {appliedScheme === undefined || appliedScheme === SYSTEM_SCHEME_PREFERENCE ? null : (
             <ChangedFromDefaultMark
-              defaultDescription={`${APPEARANCE_CONTROLS.followSystem.label} by default`}
+              defaultDescription={`${APPEARANCE_CONTROLS.system.label} by default`}
             />
           )}
         </div>
@@ -84,13 +84,11 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
               <Radio.Root value={option.preference} className="meridian-scheme-choice__control">
                 <Radio.Indicator className="meridian-scheme-choice__indicator" />
               </Radio.Root>
-              <span className="meridian-scheme-choice__text">
-                <span className="meridian-scheme-choice__label">{option.control.label}</span>
-                <span className="meridian-scheme-choice__description">{option.control.hint}</span>
-              </span>
+              <span className="meridian-scheme-choice__label">{option.control.label}</span>
             </label>
           ))}
         </RadioGroup>
+        <p className="meridian-settings-page__aside">{COLOR_SCHEME_HINT}</p>
         {appliedScheme === undefined ? (
           <Nothing
             kind="error"

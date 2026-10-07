@@ -1,7 +1,8 @@
 // The browser tier: how the settings screen shares a window's width, which only a real engine's
 // grid and resize observers decide. The list's track is as wide as its longest page name and
 // stays that wide while a term is typed; when the page's content and the list no longer fit
-// side by side the screen shows one pane at a time, handing focus to the pane that took over.
+// side by side the screen shows one pane at a time, handing focus to the pane that took over, and
+// a change of text size is weighed again.
 
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -85,7 +86,7 @@ describe("browser — the settings screen shares the window's width", () => {
 
     // Back to the list: its tab stop is the page just left, and focus is handed to it.
     act(() => {
-      getByRole("button", { name: "Settings" }).click();
+      getByRole("button", { name: "Back to the Settings pages" }).click();
     });
     expect([listPane.hidden, pagePane.hidden]).toStrictEqual([false, true]);
     const keyboardEntry = getByRole("button", { name: "Keyboard" });
@@ -100,5 +101,15 @@ describe("browser — the settings screen shares the window's width", () => {
       expect([listPane.hidden, pagePane.hidden]).toStrictEqual([true, false]);
     });
     expect(document.activeElement).toBe(getByRole("heading", { name: "Keyboard" }));
+
+    // A smaller text size shrinks the page's content, so the two fit side by side again.
+    document.documentElement.style.fontSize = `${String(rootFontSize / 2)}px`;
+    try {
+      await waitFor(() => {
+        expect(screen.dataset["arrangement"]).toBe("side-by-side");
+      });
+    } finally {
+      document.documentElement.style.removeProperty("font-size");
+    }
   });
 });

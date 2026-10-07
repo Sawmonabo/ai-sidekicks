@@ -1,12 +1,11 @@
 // What the one box above the page list finds, and in what order.
 //
-// A control is found when every typed word appears, as a run of characters ignoring case, in its
-// label, the heading it sits under or its hint. A page is found when every word appears in its
-// name or the words it declares as `scoreSubsequence` judges it, the matcher the command palette
-// ranks with, so a term finds a page the same way in both places. A hit ranks by the weakest
-// field any of its words needed (label, then heading, then hint; a page's name counts as a label
-// and its words as a hint), equal ranks fall in page order, and a page sits ahead of its own
-// controls at an equal rank.
+// Every typed word has to appear in a control's label, the heading it sits under or its hint, as
+// `scoreSubsequence` judges it, the matcher the command palette ranks with, so a word finds the
+// same text in both places. A page is found the same way in its name or the words it declares. A
+// hit ranks by the weakest field any of its words needed (label, then heading, then hint; a
+// page's name counts as a label and its words as a hint), equal ranks fall in page order, and a
+// page sits ahead of its own controls at an equal rank.
 
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 
@@ -47,11 +46,7 @@ export function findSettings(
   const ranked: RankedHit[] = [];
   for (const page of pages) {
     const pageLabel = SETTINGS_PAGE_LABELS[page.pageId];
-    const pageRank = rankOf(
-      words,
-      { label: [pageLabel], heading: [], hint: page.keywords },
-      subsequenceHolds,
-    );
+    const pageRank = rankOf(words, { label: [pageLabel], heading: [], hint: page.keywords });
     if (pageRank !== undefined) {
       ranked.push({
         rank: pageRank,
@@ -59,15 +54,11 @@ export function findSettings(
       });
     }
     for (const control of page.controls) {
-      const controlRank = rankOf(
-        words,
-        {
-          label: [control.label],
-          heading: control.heading === undefined ? [] : [control.heading],
-          hint: control.hint === undefined ? [] : [control.hint],
-        },
-        runHolds,
-      );
+      const controlRank = rankOf(words, {
+        label: [control.label],
+        heading: control.heading === undefined ? [] : [control.heading],
+        hint: control.hint === undefined ? [] : [control.hint],
+      });
       if (controlRank !== undefined) {
         ranked.push({
           rank: controlRank,
@@ -96,29 +87,15 @@ interface RankedHit {
   readonly hit: SettingsSearchHit;
 }
 
-/** Whether `text` holds `word`, judged one way for pages and another for controls. */
-type WordTest = (text: string, word: string) => boolean;
-
-/** A page's test: the word's characters appear in order, as the command palette judges it. */
-function subsequenceHolds(text: string, word: string): boolean {
-  return scoreSubsequence(text, word) !== undefined;
-}
-
-/** A control's test: the word appears as one run of characters, ignoring case. */
-function runHolds(text: string, word: string): boolean {
-  return text.toLowerCase().includes(word.toLowerCase());
-}
-
 /** The weakest field any word needed, or `undefined` when a word appears in none of them. */
 function rankOf(
   words: readonly string[],
   fieldTexts: Readonly<Record<SearchField, readonly string[]>>,
-  holds: WordTest,
 ): number | undefined {
   let rank = 0;
   for (const word of words) {
     const wordRank = SEARCH_FIELDS.findIndex((field) =>
-      fieldTexts[field].some((text) => holds(text, word)),
+      fieldTexts[field].some((text) => scoreSubsequence(text, word) !== undefined),
     );
     if (wordRank === -1) {
       return undefined;

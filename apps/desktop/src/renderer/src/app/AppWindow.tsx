@@ -13,6 +13,7 @@ import { WindowClockProvider } from "#renderer/services/platform/WindowClockProv
 import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
 import type { OpenWindow } from "#renderer/services/window/open-windows.js";
 import { type DraftStore } from "#renderer/store/drafts.js";
+import { type LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { type SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
@@ -36,6 +37,7 @@ export interface AppStores {
   readonly sessionStoreRegistry: SessionStoreRegistry;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
+  readonly lastSettingsPage: LastSettingsPage;
 }
 
 /** What the app hands one window. */
@@ -115,6 +117,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     paneRegistry,
     uiStateStore: appStores.uiStateStore,
     draftStore: appStores.draftStore,
+    lastSettingsPage: appStores.lastSettingsPage,
     chooseScheme,
   };
 
@@ -122,6 +125,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     <AppShell
       frameStore={frameStore}
       screenRegistry={screenRegistry}
+      lastSettingsPage={appStores.lastSettingsPage}
       palette={palette}
       notice={props.notice}
     >
