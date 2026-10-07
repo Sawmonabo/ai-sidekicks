@@ -17,6 +17,7 @@ describe("command.list frames", () => {
     startedAt: "2026-09-29T18:00:00Z",
     waitingInForeground: false,
     waitingForInput: true,
+    echoOff: false,
   };
 
   it("accepts the whole set and a piece of one command's output", () => {

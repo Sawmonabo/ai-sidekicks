@@ -37,7 +37,8 @@ export const CommandIdSchema: z.ZodType<CommandId, CommandId> = z
 /**
  * One running command. `name` is the command as the agent ran it. `waitingInForeground` is
  * true only while the provider holds the agent's turn on this command, the one state
- * `command.background` applies to; `waitingForInput` is true while it is blocked reading input.
+ * `command.background` applies to; `waitingForInput` is true while it is blocked reading input,
+ * and `echoOff` while it waits with the terminal's echo off, so the input line masks what is typed.
  */
 export interface RunningCommand {
   commandId: CommandId;
@@ -46,6 +47,7 @@ export interface RunningCommand {
   startedAt: string;
   waitingInForeground: boolean;
   waitingForInput: boolean;
+  echoOff: boolean;
 }
 const RunningCommandSchema: z.ZodType<RunningCommand> = z
   .object({
@@ -55,6 +57,7 @@ const RunningCommandSchema: z.ZodType<RunningCommand> = z
     startedAt: isoDateTimeSchema,
     waitingInForeground: z.boolean(),
     waitingForInput: z.boolean(),
+    echoOff: z.boolean(),
   })
   .strict();
 
