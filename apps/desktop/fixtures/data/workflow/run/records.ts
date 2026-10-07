@@ -122,7 +122,7 @@ interface StepSeed {
 }
 
 function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[] {
-  return seeds.map((seed, index) => {
+  return seeds.map((seed, index): WorkflowStep => {
     const previous = seeds[index - 1];
     const finished = seed.finishedMinutesAgo !== undefined;
     return {
@@ -140,11 +140,7 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
                 executionIndex: index - 1,
               },
             ],
-      status: seed.status,
-      ...(seed.waitCause === undefined ? {} : { waitCause: seed.waitCause }),
-      ...(seed.waitCause === "account" ? { waitAccount: WORKFLOW_SPENT_ACCOUNT } : {}),
-      ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
-      ...(seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt }),
+      ...statusOfStep(seed),
       startedAt: minutesAgo(seed.startedMinutesAgo),
       ...(finished ? { finishedAt: minutesAgo(seed.finishedMinutesAgo ?? 0) } : {}),
       inputRef: inline({ from: previous?.nodeId ?? "trigger" }),
@@ -152,15 +148,50 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
       logRef: inline(`started ${seed.nodeId}`, ...(finished ? [`finished ${seed.nodeId}`] : [])),
       ...(seed.usdMicros === undefined ? {} : { cost: cost(seed.usdMicros) }),
       ...(seed.error === undefined ? {} : { error: seed.error }),
-      ...(seed.processExit === undefined ? {} : { processExit: seed.processExit }),
-      ...(seed.question === undefined ? {} : { question: seed.question }),
-      ...(seed.resolution === undefined ? {} : { resolution: seed.resolution }),
       ...(seed.reviewPause === undefined ? {} : { reviewPause: seed.reviewPause }),
       ...(seed.childWorkflowRunId === undefined
         ? {}
         : { childWorkflowRunId: seed.childWorkflowRunId as WorkflowRunId }),
     };
   });
+}
+
+// A seeded step's status with what it waits on, or, once it waits no more, how a person answered it.
+function statusOfStep(seed: StepSeed) {
+  const deadline = seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt };
+  const answered = seed.resolution === undefined ? {} : { resolution: seed.resolution };
+  // Two returns, so each matches one arm of the step: failed, or another status that does not wait.
+  if (seed.status === "failed") {
+    const exited = seed.processExit === undefined ? {} : { processExit: seed.processExit };
+    return { status: seed.status, ...answered, ...exited };
+  }
+  if (seed.status !== "waiting") return { status: seed.status, ...answered };
+  switch (seed.waitCause) {
+    case "account":
+      return {
+        status: seed.status,
+        waitCause: seed.waitCause,
+        waitAccount: WORKFLOW_SPENT_ACCOUNT,
+        ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
+      };
+    case "reply":
+      if (seed.question === undefined) {
+        throw new RangeError(`step ${seed.nodeId} waits for a reply, so it holds its question`);
+      }
+      return {
+        status: seed.status,
+        waitCause: seed.waitCause,
+        question: seed.question,
+        ...deadline,
+      };
+    case "approval":
+    case "form":
+      return { status: seed.status, waitCause: seed.waitCause, ...deadline };
+    case "chain":
+      return { status: seed.status, waitCause: seed.waitCause };
+    default:
+      throw new RangeError(`step ${seed.nodeId} waits, so it names what it waits on`);
+  }
 }
 
 /**
@@ -250,7 +281,7 @@ function record(seed: RunSeed): WorkflowRunRecord {
       sessionId: seed.sessionId ?? WORKFLOW_OWN_SESSION,
       definitionId: seed.definitionId,
       workflowVersionId,
-      state: seed.state,
+      ...endOfRun(seed, isFinished),
       mode: seed.mode,
       triggerKind: TRIGGER_KIND_BY_STARTER[seed.startedBy.kind],
       startedBy: seed.startedBy,
@@ -266,9 +297,6 @@ function record(seed: RunSeed): WorkflowRunRecord {
       steps: runSteps,
       ...(seed.failureReason === undefined ? {} : { failureReason: seed.failureReason }),
       startedAt: minutesAgo(seed.startedMinutesAgo),
-      ...(seed.endedMinutesAgo === undefined || !isFinished
-        ? {}
-        : { endedAt: minutesAgo(seed.endedMinutesAgo) }),
       ...(spent === 0 ? {} : { cost: cost(spent) }),
       ...(seed.liveStep === undefined || isFinished ? {} : { liveStep: seed.liveStep }),
       edgeItemCounts: edgeItemCounts(document, runSteps),
@@ -276,6 +304,30 @@ function record(seed: RunSeed): WorkflowRunRecord {
       ...(seed.chainQuestion === undefined ? {} : { chainQuestion: seed.chainQuestion }),
     },
   };
+}
+
+// A run's status with its end: an ended run carries it, while a going run and a failed run parked on
+// its failed step carry none.
+function endOfRun(seed: RunSeed, isFinished: boolean) {
+  const endedAt =
+    seed.endedMinutesAgo === undefined || !isFinished
+      ? undefined
+      : minutesAgo(seed.endedMinutesAgo);
+  switch (seed.state) {
+    case "new":
+    case "running":
+    case "waiting":
+      return { state: seed.state };
+    case "failed":
+      return endedAt === undefined ? { state: seed.state } : { state: seed.state, endedAt };
+    case "succeeded":
+    case "canceled":
+    case "crashed":
+      if (endedAt === undefined) {
+        throw new RangeError(`run ${seed.id} has ended, so it names when`);
+      }
+      return { state: seed.state, endedAt };
+  }
 }
 
 /** The run ids, by the status each run starts the playback in. */
@@ -769,7 +821,7 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     sessionId: read.sessionId,
     definitionId: read.definitionId,
     definitionName: run.definitionName,
-    status: read.state,
+    ...statusOfRun(read.state, waitingStep),
     mode: read.mode,
     triggerKind: read.triggerKind,
     startedBy: read.startedBy,
@@ -778,22 +830,20 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     stepCount: read.steps.filter((step) => step.finishedAt !== undefined).length,
     ...(isRunGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
     ...(read.cost === undefined ? {} : { cost: read.cost }),
-    ...(read.state === "waiting" ? waitOfStep(waitingStep) : {}),
     keep: read.keep,
   };
 }
 
-// Only an account wait carries a resume instant onto the row.
-function waitOfStep(
-  step: WorkflowStep | undefined,
-):
-  | { waitCause?: Exclude<WorkflowWaitCause, "account"> }
-  | { waitCause: "account"; resumeAt?: string } {
-  if (step?.waitCause === undefined) return {};
-  if (step.waitCause !== "account") return { waitCause: step.waitCause };
-  return step.resumeAt === undefined
-    ? { waitCause: "account" }
-    : { waitCause: "account", resumeAt: step.resumeAt };
+// A waiting row names its step's cause, and only an account wait carries a resume instant onto it.
+function statusOfRun(status: WorkflowRunStatus, waitingStep: WorkflowStep | undefined) {
+  if (status !== "waiting") return { status };
+  if (waitingStep?.waitCause === undefined) {
+    throw new RangeError("a waiting run carries the step that waits");
+  }
+  if (waitingStep.waitCause !== "account") return { status, waitCause: waitingStep.waitCause };
+  return waitingStep.resumeAt === undefined
+    ? { status, waitCause: waitingStep.waitCause }
+    : { status, waitCause: waitingStep.waitCause, resumeAt: waitingStep.resumeAt };
 }
 
 // The fixture's paying account carries its provider-reported identity, so it always has a label.

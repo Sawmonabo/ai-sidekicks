@@ -10,7 +10,10 @@ import type {
   WorkflowDocument,
   WorkflowNode,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
-import { parseWorkflowHandle } from "@ai-sidekicks/contracts/workflow/definition/handle";
+import {
+  parseWorkflowHandle,
+  type WorkflowHandleType,
+} from "@ai-sidekicks/contracts/workflow/definition/handle";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { CanvasPoint } from "./layout.js";
@@ -121,8 +124,8 @@ export function nodeHandleIds(document: WorkflowDocument): ReadonlyMap<string, N
   const byNode = new Map<string, NodeHandleIds>();
   for (const node of [document.trigger, ...document.nodes]) {
     byNode.set(node.id, {
-      inputs: [...(inputs.get(node.id) ?? [])].sort(byHandleIndex),
-      outputs: [...(outputs.get(node.id) ?? [])].sort(byHandleIndex),
+      inputs: [...(inputs.get(node.id) ?? [])].sort(byHandle),
+      outputs: [...(outputs.get(node.id) ?? [])].sort(byHandle),
     });
   }
   return byNode;
@@ -197,15 +200,18 @@ export function toRunGraphFlowEdges(
   });
 }
 
+// Where each handle type stands down a side: the item ports above the port an agent calls tools on.
+const HANDLE_TYPE_RANK: Readonly<Record<WorkflowHandleType, number>> = { main: 0, tool: 1 };
+
 /**
  * Handle ids by type, `main` above `tool`, then in index order, so `outputs/main/2` stands above
  * `outputs/main/10`; ids the parse reads alike keep the order of their spelling.
  */
-function byHandleIndex(left: string, right: string): number {
+function byHandle(left: string, right: string): number {
   const leftHandle = parseWorkflowHandle(left);
   const rightHandle = parseWorkflowHandle(right);
   return (
-    leftHandle.type.localeCompare(rightHandle.type) ||
+    HANDLE_TYPE_RANK[leftHandle.type] - HANDLE_TYPE_RANK[rightHandle.type] ||
     leftHandle.index - rightHandle.index ||
     left.localeCompare(right)
   );

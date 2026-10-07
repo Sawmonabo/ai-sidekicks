@@ -1,10 +1,12 @@
 // The acts on a run come from the screen, the command line and an agent's tools. These tests
 // hold the rules those acts rely on: the cancel reason's cap counts bytes, not characters, a re-pin
 // names both versions or neither, a resumed run says where it picks up, a start's session and
-// project are the daemon's to refuse together, and a retry is a new run.
+// project are the daemon's to refuse together, a retry is a new run, and a refusal about nodes
+// names at least one.
 import { describe, expect, it } from "vitest";
 
 import {
+  WorkflowRepositoryRequiredDetailsSchema,
   WorkflowResumedPayloadSchema,
   WorkflowRunCancelRequestSchema,
   WorkflowRunResumeResponseSchema,
@@ -79,5 +81,14 @@ describe("workflow.runRetry", () => {
   it("refuses a retry that answers with its own source run", () => {
     const reply = { workflowRunId: RUN_ID, sourceWorkflowRunId: RUN_ID, state: "new" };
     expect(WorkflowRunRetryResponseSchema.safeParse(reply).success).toBe(false);
+  });
+});
+
+describe("workflow.repository_required", () => {
+  it("names at least one node that needs a repository", () => {
+    expect(WorkflowRepositoryRequiredDetailsSchema.safeParse({ nodeIds: ["git"] }).success).toBe(
+      true,
+    );
+    expect(WorkflowRepositoryRequiredDetailsSchema.safeParse({ nodeIds: [] }).success).toBe(false);
   });
 });

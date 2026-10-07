@@ -57,10 +57,7 @@ const workflowGateResolutionFields = {
   resolvedAt: isoDateTimeSchema,
   decisionContext: z.record(z.string(), z.unknown()),
 };
-/**
- * Wire schema for {@link WorkflowGateResolution}: a node exactly on an approval step's answer.
-
- */
+/** Wire schema for {@link WorkflowGateResolution}: a node exactly on an approval step's answer. */
 export const WorkflowGateResolutionSchema: z.ZodType<WorkflowGateResolution> = z.discriminatedUnion(
   "gateKind",
   [

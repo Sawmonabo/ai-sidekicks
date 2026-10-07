@@ -13,6 +13,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
 import { clearMediaEmulation, emulateReducedMotion } from "../../helpers/media-emulation.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { fixtureRun, mountRunGraph } from "./mount.js";
 
 /** The chip's accessible name, the one control that starts the follow again. */
@@ -29,9 +30,12 @@ function stepsOneOn(steps: readonly WorkflowStep[]): WorkflowStep[] {
   if (live === undefined || nextNode === undefined) {
     throw new Error("the running fixture has no live step with a node after it");
   }
-  const finished = { ...live, status: "succeeded" as const, finishedAt: live.startedAt };
+  const finished: WorkflowStep = {
+    ...withoutWait(live, "succeeded"),
+    finishedAt: live.startedAt,
+  };
   const next: WorkflowStep = {
-    ...live,
+    ...withoutWait(live, "running"),
     nodeId: nextNode,
     executionIndex: live.executionIndex + 1,
     source: [{ nodeId: live.nodeId, outputIndex: 0, executionIndex: live.executionIndex }],

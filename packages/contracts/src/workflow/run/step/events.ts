@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   WorkflowPayloadRefSchema,
   WorkflowCostSchema,
+  WorkflowStepAttemptSchema,
   workflowStepKeyShape,
   type WorkflowPayloadRef,
   type WorkflowCost,
@@ -18,16 +19,13 @@ import {
 import { SessionIdSchema, type SessionId } from "../../../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../../../trust-statement.js";
 import {
-  WorkflowDefinitionIdSchema,
   WorkflowNodeIdSchema,
   WorkflowStepErrorSchema,
-  WorkflowVersionIdSchema,
-  type WorkflowDefinitionId,
   type WorkflowNodeId,
   type WorkflowStepError,
 } from "../../definition/document.js";
-import { WORKFLOW_WAIT_CAUSES, type WorkflowWaitCause } from "../status.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
+import { workflowRunEventFields, type WorkflowRunEventPayload } from "../control.js";
+import { WorkflowWaitCauseSchema, type WorkflowWaitCause } from "../status.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 /**
@@ -41,7 +39,7 @@ export interface WorkflowStepEventPayload extends WorkflowStepKey {
 const workflowStepEventFields = {
   sessionId: SessionIdSchema,
   ...workflowStepKeyShape,
-  attempt: z.number().int().positive(),
+  attempt: WorkflowStepAttemptSchema,
 };
 
 /**
@@ -124,7 +122,7 @@ export const WorkflowPhaseSuspendedPayloadSchema: z.ZodType<WorkflowPhaseSuspend
     z
       .object({
         ...workflowStepEventFields,
-        waitCause: z.enum(WORKFLOW_WAIT_CAUSES).exclude(["account"]),
+        waitCause: WorkflowWaitCauseSchema.exclude(["account"]),
       })
       .strict(),
   ]);
@@ -149,11 +147,7 @@ export const WorkflowStepSkippedPayloadSchema: z.ZodType<WorkflowStepSkippedPayl
  * `nodeId` names the approval step; a chain's question names none. `deviceId` is the
  * device that answered.
  */
-export interface WorkflowGateResolvedPayload {
-  sessionId: SessionId;
-  workflowRunId: WorkflowRunId;
-  definitionId: WorkflowDefinitionId;
-  workflowVersionId: string;
+export interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
   nodeId?: WorkflowNodeId | undefined;
   outcome: ApprovalDecision;
   gateResolutionId: string;
@@ -162,10 +156,7 @@ export interface WorkflowGateResolvedPayload {
 /** Wire schema for {@link WorkflowGateResolvedPayload}. */
 export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPayload> = z
   .object({
-    sessionId: SessionIdSchema,
-    workflowRunId: WorkflowRunIdSchema,
-    definitionId: WorkflowDefinitionIdSchema,
-    workflowVersionId: WorkflowVersionIdSchema,
+    ...workflowRunEventFields,
     nodeId: WorkflowNodeIdSchema.optional(),
     outcome: ApprovalDecisionSchema,
     gateResolutionId: z.string().min(1),

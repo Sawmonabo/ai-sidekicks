@@ -1,7 +1,7 @@
 // The workflow.* methods on one step: reading its input, output or log, storing what one of its
-// panel's tabs holds as an artifact, the agent and human steps' saved outputs, answering an approval
-// step or a chain's question, loading, saving and submitting a waiting form, and opening a fix
-// session on a failed step, with their refusals and the method table. A descriptor registers
+// panel's tabs holds as an artifact, the agent and human steps' saved outputs, answering an
+// approval step or a chain's question, loading, saving and submitting a waiting form, and opening a
+// fix session on a failed step, with their refusals and the method table. A descriptor registers
 // nothing.
 import { z } from "zod";
 import {
@@ -20,13 +20,16 @@ import { SessionIdSchema, type SessionId } from "../../../session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../../definition/document.js";
 import { WorkflowParamSpecSchema, type WorkflowParamSpec } from "../../kind.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
-import { WORKFLOW_STEP_STATUSES, type WorkflowStepStatus } from "../status.js";
+import { WorkflowStepStatusSchema, type WorkflowStepStatus } from "../status.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 // workflow.stepRead
 
-// A step panel's tabs: its three payloads, then its cost and its error.
-const WORKFLOW_STEP_TABS = ["input", "output", "log", "cost", "error"] as const;
+/**
+ * A step panel's tabs, in the order the panel shows them: its three payloads, then its cost and
+ * its error.
+ */
+export const WORKFLOW_STEP_TABS = ["input", "output", "log", "cost", "error"] as const;
 const workflowStepTabEnum = z.enum(WORKFLOW_STEP_TABS);
 
 /** Which of a step's three payloads a read returns. */
@@ -172,7 +175,7 @@ export const WorkflowStepOutputListResponseSchema: z.ZodType<WorkflowStepOutputL
         .object({
           nodeId: WorkflowNodeIdSchema,
           executionIndex: workflowStepKeyShape.executionIndex,
-          status: z.enum(WORKFLOW_STEP_STATUSES).extract(["succeeded", "failed"]),
+          status: WorkflowStepStatusSchema.extract(["succeeded", "failed"]),
           outputs: z.array(WorkflowStepOutputSchema),
         })
         .strict(),

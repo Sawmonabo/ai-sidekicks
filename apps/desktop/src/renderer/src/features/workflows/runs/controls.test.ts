@@ -44,7 +44,8 @@ describe("Retry from this step", () => {
       throw new Error("the fixture's failed run has no failed or no succeeded step");
     }
 
-    expect(retryAvailability({ ...run, state: "running" }, failed)).toStrictEqual({
+    const { endedAt: _endedAt, ...going } = run;
+    expect(retryAvailability({ ...going, state: "running" }, failed)).toStrictEqual({
       kind: "refused",
       reason: "Retry · this run is still going",
     });

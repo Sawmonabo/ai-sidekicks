@@ -199,7 +199,7 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
     afterMs: 200,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRunDelete(request, { answered, readStamp }),
-    noticesFor: (request) => runsRemoved([readString(request, "workflowRunId")]),
+    noticesFor: (request) => runsRemoved(readString(request, "workflowRunId") as WorkflowRunId),
   },
   {
     call: "workflow.runsDeletePreview",
@@ -664,14 +664,14 @@ function stepAnswered(request: unknown): readonly ScenarioNotice[] {
   ];
 }
 
-function runsRemoved(workflowRunIds: readonly string[]): readonly ScenarioNotice[] {
+function runsRemoved(workflowRunId: WorkflowRunId): readonly ScenarioNotice[] {
   return [
     {
       stream: WORKFLOW_STREAM,
       afterMs: 0,
       payloadAtDelivery: (): WorkflowSubscribeNotification => ({
         kind: "runsRemoved",
-        workflowRunIds: workflowRunIds.map((id) => id as WorkflowRunId),
+        workflowRunIds: [workflowRunId],
       }),
     },
   ];
@@ -688,10 +688,12 @@ function bulkRunsRemoved(request: unknown): readonly ScenarioNotice[] {
       afterMs: 0,
       payloadAtDelivery: (answered, readStamp): WorkflowSubscribeNotification | undefined => {
         const cutoffMs = readStamp(readString(request, "olderThan"));
-        const removed = runsBeforeBulkDeletes(answered)
+        const [first, ...rest] = runsBeforeBulkDeletes(answered)
           .filter((run) => isBulkDeletable(run, cutoffMs))
           .map((run) => run.read.workflowRunId);
-        return removed.length === 0 ? undefined : { kind: "runsRemoved", workflowRunIds: removed };
+        return first === undefined
+          ? undefined
+          : { kind: "runsRemoved", workflowRunIds: [first, ...rest] };
       },
     },
   ];

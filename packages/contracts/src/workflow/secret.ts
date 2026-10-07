@@ -102,6 +102,16 @@ export function parseWorkflowSecretReference(text: string): WorkflowSecretRefere
     : null;
 }
 
+/**
+ * A string that is exactly one `secret://` reference, as {@link parseWorkflowSecretReference}
+ * reads it.
+ */
+export const WorkflowSecretReferenceSchema: z.ZodType<string, string> = z
+  .string()
+  .refine((text) => parseWorkflowSecretReference(text) !== null, {
+    message: "A secret is written secret://shared/<name> or secret://project/<name>.",
+  });
+
 // The methods
 
 // A value has no cap of its own; the transport's message limit bounds it.
@@ -219,9 +229,7 @@ export interface WorkflowSecretNotFoundDetails {
 /** Wire schema for {@link WorkflowSecretNotFoundDetails}. */
 export const WorkflowSecretNotFoundDetailsSchema: z.ZodType<WorkflowSecretNotFoundDetails> = z
   .object({
-    reference: z.string().refine((reference) => parseWorkflowSecretReference(reference) !== null, {
-      message: "reference must be a secret:// reference.",
-    }),
+    reference: WorkflowSecretReferenceSchema,
   })
   .strict();
 

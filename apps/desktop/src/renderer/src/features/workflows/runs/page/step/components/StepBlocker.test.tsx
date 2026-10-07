@@ -22,6 +22,7 @@ import {
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
+import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import {
@@ -126,8 +127,7 @@ describe("a step's blocker", () => {
   it("replaces a wait on a person its time limit cut with when it timed out, and nothing else", () => {
     const finishedAt = "2026-01-01T14:12:00.000Z";
     const timedOut = (step: WorkflowStep): WorkflowStep => ({
-      ...step,
-      status: "failed",
+      ...withoutWait(step, "failed"),
       finishedAt,
       error: {
         message: "No answer before the step's timeout.",

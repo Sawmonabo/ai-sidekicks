@@ -58,7 +58,11 @@ export type WorkflowDefinitionFinding =
       rule: Exclude<WorkflowDefinitionFindingRule, "code_packages_unresolved">;
       nodeIds: WorkflowNodeId[];
     }
-  | { rule: "code_packages_unresolved"; nodeIds: WorkflowNodeId[]; detail: string };
+  | {
+      rule: "code_packages_unresolved";
+      nodeIds: [WorkflowNodeId, ...WorkflowNodeId[]];
+      detail: string;
+    };
 /** Wire schema for {@link WorkflowDefinitionFinding}. */
 export const WorkflowDefinitionFindingSchema: z.ZodType<WorkflowDefinitionFinding> = z.union([
   z
@@ -70,7 +74,7 @@ export const WorkflowDefinitionFindingSchema: z.ZodType<WorkflowDefinitionFindin
   z
     .object({
       rule: z.literal("code_packages_unresolved"),
-      nodeIds: z.array(WorkflowNodeIdSchema).min(1),
+      nodeIds: z.tuple([WorkflowNodeIdSchema], WorkflowNodeIdSchema),
       detail: z.string().min(1),
     })
     .strict(),
@@ -103,7 +107,7 @@ export type WorkflowNodeHandles = Pick<WorkflowNodeKindSpec, "category" | "input
 
 /**
  * Answers a node's handles, or `undefined` for a kind the catalog does not list; that node's
- * handles then go unchecked, though its edges still count toward cycles and reach.
+ * handles and category then go unchecked, though its edges still count toward cycles and reach.
  */
 export type WorkflowNodeHandlesResolver = (node: WorkflowNode) => WorkflowNodeHandles | undefined;
 
@@ -111,7 +115,8 @@ export type WorkflowNodeHandlesResolver = (node: WorkflowNode) => WorkflowNodeHa
  * The findings for the rules that need only the document and the kinds' handles: the trigger,
  * an empty document, each edge's ends, cycles, then orphans, each in document order. The rules
  * that need the library, the params, expressions or the code packages are checked elsewhere.
-
+ * A node of a kind the catalog does not list has no known category, so it is never refused as a
+ * trigger in the trigger's place nor as a second trigger among the nodes.
  */
 export function checkWorkflowGraph(
   document: WorkflowDraftDocument,
@@ -133,6 +138,8 @@ export function checkWorkflowGraph(
   const findings: WorkflowDefinitionFinding[] = [];
   if (trigger === undefined) {
     findings.push({ rule: "trigger_missing", nodeIds: [] });
+  } else if (isListedAsNonTrigger(graph, trigger.id)) {
+    findings.push({ rule: "trigger_missing", nodeIds: [trigger.id] });
   }
   if (document.nodes.length === 0) {
     findings.push({ rule: "empty_document", nodeIds: [] });
@@ -158,6 +165,12 @@ export function checkWorkflowGraph(
     }
   }
   return findings;
+}
+
+// A node in the trigger's place whose kind the catalog lists under another category.
+function isListedAsNonTrigger(graph: GraphFacts, nodeId: WorkflowNodeId): boolean {
+  const category = graph.handlesById.get(nodeId)?.category;
+  return category !== undefined && category !== "trigger";
 }
 
 type EdgeRule = Extract<
@@ -246,35 +259,40 @@ function cycles(graph: GraphFacts): WorkflowNodeId[][] {
       continue;
     }
     if (graph.nodeById.has(source) && graph.nodeById.has(target)) {
-      successors.set(source, [...(successors.get(source) ?? []), target]);
+      appendTo(successors, source, target);
       if (source === target) {
         selfEdgeNodeIds.add(source);
       }
     }
   }
-  const cycleComponents = stronglyConnectedComponents(
+  const cycleByNodeId = new Map<WorkflowNodeId, WorkflowNodeId[]>();
+  for (const component of stronglyConnectedComponents(
     graph.nodes.map((node) => node.id),
     successors,
-  )
-    .filter(
-      (component) =>
-        component.length > 1 || component.some((nodeId) => selfEdgeNodeIds.has(nodeId)),
-    )
-    .map((component) => new Set(component));
-  // Each cycle in document order, by its first node and then its members.
+  )) {
+    if (component.length > 1 || component.some((nodeId) => selfEdgeNodeIds.has(nodeId))) {
+      const members: WorkflowNodeId[] = [];
+      for (const nodeId of component) {
+        cycleByNodeId.set(nodeId, members);
+      }
+    }
+  }
+  // One walk in document order fills each cycle's members and lists the cycles by first member.
   const found: WorkflowNodeId[][] = [];
-  for (const node of graph.nodes) {
-    const index = cycleComponents.findIndex((component) => component.has(node.id));
-    if (index !== -1) {
-      const [component] = cycleComponents.splice(index, 1);
-      found.push(graph.nodes.filter((member) => component?.has(member.id)).map(({ id }) => id));
+  for (const { id } of graph.nodes) {
+    const members = cycleByNodeId.get(id);
+    if (members !== undefined) {
+      if (members.length === 0) {
+        found.push(members);
+      }
+      members.push(id);
     }
   }
   return found;
 }
 
-// Tarjan's algorithm: one depth-first pass, each component popped off the stack once its root
-// is finished.
+// Tarjan's algorithm, walked with an explicit stack so a long chain cannot exhaust the call
+// stack: each component is popped off the node stack once its root is finished.
 function stronglyConnectedComponents(
   nodeIds: WorkflowNodeId[],
   successors: ReadonlyMap<WorkflowNodeId, WorkflowNodeId[]>,
@@ -283,31 +301,46 @@ function stronglyConnectedComponents(
   const stack: WorkflowNodeId[] = [];
   const onStack = new Set<WorkflowNodeId>();
   const components: WorkflowNodeId[][] = [];
-  const visit = (nodeId: WorkflowNodeId): { index: number; lowLink: number } => {
-    const own = { index: visits.size, lowLink: visits.size };
-    visits.set(nodeId, own);
+  const enter = (nodeId: WorkflowNodeId) => {
+    const visit = { index: visits.size, lowLink: visits.size };
+    visits.set(nodeId, visit);
     stack.push(nodeId);
     onStack.add(nodeId);
-    for (const next of successors.get(nodeId) ?? []) {
-      const seen = visits.get(next);
-      if (seen === undefined) {
-        own.lowLink = Math.min(own.lowLink, visit(next).lowLink);
-      } else if (onStack.has(next)) {
-        own.lowLink = Math.min(own.lowLink, seen.index);
-      }
-    }
-    if (own.lowLink === own.index) {
-      const component = stack.splice(stack.indexOf(nodeId));
-      for (const member of component) {
-        onStack.delete(member);
-      }
-      components.push(component);
-    }
-    return own;
+    return { nodeId, visit, next: successors.get(nodeId) ?? [], nextIndex: 0 };
   };
-  for (const nodeId of nodeIds) {
-    if (!visits.has(nodeId)) {
-      visit(nodeId);
+  for (const rootId of nodeIds) {
+    if (visits.has(rootId)) {
+      continue;
+    }
+    const frames = [enter(rootId)];
+    for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
+      const nextId = frame.next[frame.nextIndex];
+      if (nextId !== undefined) {
+        frame.nextIndex += 1;
+        const seen = visits.get(nextId);
+        if (seen === undefined) {
+          frames.push(enter(nextId));
+        } else if (onStack.has(nextId)) {
+          frame.visit.lowLink = Math.min(frame.visit.lowLink, seen.index);
+        }
+        continue;
+      }
+      frames.pop();
+      const parent = frames.at(-1);
+      if (parent !== undefined) {
+        parent.visit.lowLink = Math.min(parent.visit.lowLink, frame.visit.lowLink);
+      }
+      if (frame.visit.lowLink === frame.visit.index) {
+        const component: WorkflowNodeId[] = [];
+        for (let member = stack.pop(); member !== undefined; member = stack.pop()) {
+          onStack.delete(member);
+          component.push(member);
+          if (member === frame.nodeId) {
+            break;
+          }
+        }
+        components.push(component);
+      }
     }
   }
   return components;
@@ -319,22 +352,37 @@ function stronglyConnectedComponents(
  * because a tool node has no `main` path and runs only when the agent it serves calls it.
  */
 function orphans(graph: GraphFacts, triggerId: WorkflowNodeId): WorkflowNodeId[] {
+  const nextById = new Map<WorkflowNodeId, WorkflowNodeId[]>();
+  for (const parsedEdge of graph.edges) {
+    const { source, target } = parsedEdge.edge;
+    if (isMainEdge(parsedEdge)) {
+      appendTo(nextById, source, target);
+    } else if (isToolEdge(parsedEdge)) {
+      appendTo(nextById, target, source);
+    }
+  }
   const reached = new Set<WorkflowNodeId>([triggerId]);
   const pending: WorkflowNodeId[] = [triggerId];
   for (let nodeId = pending.pop(); nodeId !== undefined; nodeId = pending.pop()) {
-    for (const parsedEdge of graph.edges) {
-      const { source, target } = parsedEdge.edge;
-      const next =
-        isMainEdge(parsedEdge) && source === nodeId
-          ? target
-          : isToolEdge(parsedEdge) && target === nodeId
-            ? source
-            : undefined;
-      if (next !== undefined && !reached.has(next)) {
+    for (const next of nextById.get(nodeId) ?? []) {
+      if (!reached.has(next)) {
         reached.add(next);
         pending.push(next);
       }
     }
   }
   return graph.nodes.map((node) => node.id).filter((nodeId) => !reached.has(nodeId));
+}
+
+function appendTo(
+  lists: Map<WorkflowNodeId, WorkflowNodeId[]>,
+  key: WorkflowNodeId,
+  value: WorkflowNodeId,
+): void {
+  const list = lists.get(key);
+  if (list === undefined) {
+    lists.set(key, [value]);
+  } else {
+    list.push(value);
+  }
 }

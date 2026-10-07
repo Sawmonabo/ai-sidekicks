@@ -124,6 +124,11 @@ describe("checkWorkflowGraph", () => {
       { ...documentOf([READ], []), trigger: undefined },
       [finding("trigger_missing")],
     ],
+    [
+      "a node of another category in the trigger's place",
+      { ...documentOf([READ], [edge("start", "read")]), trigger: node("start", "files.read") },
+      [finding("trigger_missing", "start")],
+    ],
     ["a trigger with no other node", documentOf([], []), [finding("empty_document")]],
     [
       "a second trigger among the nodes",
@@ -232,6 +237,18 @@ describe("checkWorkflowGraph", () => {
     expect(checkWorkflowGraph(threeWays, resolveNodeHandles)).toEqual([]);
     expect(checkWorkflowGraph(twoWays, resolveNodeHandles)).toEqual([
       finding("handle_type_unknown", "route", "stop"),
+    ]);
+  });
+
+  it("checks a long chain closed into one cycle without exhausting the stack", () => {
+    const chain = Array.from({ length: 10_000 }, (_, index) => node(`step-${index}`, "files.read"));
+    const chainEdges = [
+      edge("start", "step-0"),
+      ...chain.slice(1).map((step, index) => edge(`step-${index}`, step.id)),
+      edge("step-9999", "step-0"),
+    ];
+    expect(checkWorkflowGraph(documentOf(chain, chainEdges), resolveNodeHandles)).toEqual([
+      { rule: "cycle", nodeIds: chain.map(({ id }) => id) },
     ]);
   });
 

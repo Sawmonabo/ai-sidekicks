@@ -4,7 +4,6 @@
 // descriptor registers nothing.
 import { z } from "zod";
 
-import { countSchema } from "../../internal/wire-scalars.js";
 import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../../project.js";
@@ -18,8 +17,13 @@ import {
   type WorkflowItem,
   type WorkflowNodeId,
 } from "../definition/document.js";
-import { WORKFLOW_RUN_STATUSES, type WorkflowRunStatus } from "./status.js";
+import { WorkflowRunStatusSchema, type WorkflowRunStatus } from "./status.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
+import {
+  WorkflowStepAttemptSchema,
+  workflowStepKeyShape,
+  type WorkflowStepKey,
+} from "./step/record.js";
 import {
   WORKFLOW_RUN_MODES,
   WorkflowRunModeSchema,
@@ -58,10 +62,6 @@ const workflowVersionRepinFields = {
   repinnedFromWorkflowVersionId: WorkflowVersionIdSchema,
   repinnedToWorkflowVersionId: WorkflowVersionIdSchema,
 };
-
-// Several replies answer with only some statuses. Each subset is taken from the one
-// status list rather than spelled again, so a renamed status cannot leave a subset behind.
-const workflowRunStatusEnum = z.enum(WORKFLOW_RUN_STATUSES);
 
 // workflow.runStart
 
@@ -119,7 +119,7 @@ export const WorkflowRunStartResponseSchema: z.ZodType<WorkflowRunStartResponse>
   .object({
     workflowRunId: WorkflowRunIdSchema,
     sessionId: SessionIdSchema,
-    state: workflowRunStatusEnum.extract(["new", "running"]),
+    state: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict();
 
@@ -162,7 +162,7 @@ export interface WorkflowRunCancelResponse {
 export const WorkflowRunCancelResponseSchema: z.ZodType<WorkflowRunCancelResponse> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["canceled"]),
+    state: WorkflowRunStatusSchema.extract(["canceled"]),
     canceledEventId: z.string().min(1),
     alreadyCanceled: z.boolean(),
   })
@@ -205,7 +205,7 @@ export type WorkflowRunResumeResponse = {
 } & WorkflowVersionRepin;
 const workflowRunResumeResponseFields = {
   workflowRunId: WorkflowRunIdSchema,
-  state: workflowRunStatusEnum.extract(["running", "waiting"]),
+  state: WorkflowRunStatusSchema.extract(["running", "waiting"]),
 };
 /** Wire schema for {@link WorkflowRunResumeResponse}; a re-pin names both versions or neither. */
 export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z.union([
@@ -240,7 +240,7 @@ export const WorkflowRunRetryResponseSchema: z.ZodType<WorkflowRunRetryResponse>
   .object({
     workflowRunId: WorkflowRunIdSchema,
     sourceWorkflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["new", "running"]),
+    state: WorkflowRunStatusSchema.extract(["new", "running"]),
   })
   .strict()
   .refine((reply) => reply.workflowRunId !== reply.sourceWorkflowRunId, {
@@ -350,7 +350,7 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 // Refusals
 
 // A refusal that names the nodes it is about names at least one.
-const refusedNodeIdsSchema = z.array(WorkflowNodeIdSchema).min(1);
+const refusedNodeIdsSchema = z.tuple([WorkflowNodeIdSchema], WorkflowNodeIdSchema);
 
 /**
  * A start the policy check denied, or whose principal could not be resolved.
@@ -377,13 +377,9 @@ export const WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE =
 export const WORKFLOW_REPOSITORY_REQUIRED_CODE = "workflow.repository_required" as const;
 /** The repository refusal's details: the nodes that need a repository. */
 export interface WorkflowRepositoryRequiredDetails {
-  nodeIds: WorkflowNodeId[];
+  nodeIds: [WorkflowNodeId, ...WorkflowNodeId[]];
 }
-/**
- * Wire schema for {@link WorkflowRepositoryRequiredDetails}.
- *
- * @consumedBy the start and node-run handlers that refuse a run needing a repository
- */
+/** Wire schema for {@link WorkflowRepositoryRequiredDetails}. */
 export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowRepositoryRequiredDetails> =
   z.object({ nodeIds: refusedNodeIdsSchema }).strict();
 
@@ -396,7 +392,7 @@ export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowReposito
 export const WORKFLOW_CODE_PACKAGES_NOT_LOCKED_CODE = "workflow.code_packages_not_locked" as const;
 /** The unlocked-packages refusal's details: the Code nodes whose packages are not locked. */
 export interface WorkflowCodePackagesNotLockedDetails {
-  nodeIds: WorkflowNodeId[];
+  nodeIds: [WorkflowNodeId, ...WorkflowNodeId[]];
 }
 /**
  * Wire schema for {@link WorkflowCodePackagesNotLockedDetails}.
@@ -474,7 +470,13 @@ export interface WorkflowRunEventPayload {
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
 }
-const workflowRunEventFields = {
+/** The members of {@link WorkflowRunEventPayload}, spread into each run event's schema. */
+export const workflowRunEventFields: {
+  sessionId: z.ZodType<SessionId, SessionId>;
+  workflowRunId: z.ZodType<WorkflowRunId, WorkflowRunId>;
+  definitionId: z.ZodType<WorkflowDefinitionId, WorkflowDefinitionId>;
+  workflowVersionId: z.ZodType<string, string>;
+} = {
   sessionId: SessionIdSchema,
   workflowRunId: WorkflowRunIdSchema,
   definitionId: WorkflowDefinitionIdSchema,
@@ -512,11 +514,9 @@ export const WorkflowCanceledPayloadSchema: z.ZodType<WorkflowCanceledPayload> =
   .strict();
 
 /** One step a resumed run picks up, by its node, its attempt and which execution of the node. */
-export interface WorkflowResumedStep {
-  nodeId: WorkflowNodeId;
+export type WorkflowResumedStep = Pick<WorkflowStepKey, "nodeId" | "executionIndex"> & {
   attempt: number;
-  executionIndex: number;
-}
+};
 
 /**
  * Where a resumed run picks up, so a reader rebuilds it without replaying the run's whole history:
@@ -541,9 +541,9 @@ const workflowResumedFields = {
       activeSteps: z.array(
         z
           .object({
-            nodeId: WorkflowNodeIdSchema,
-            attempt: z.number().int().positive(),
-            executionIndex: countSchema,
+            nodeId: workflowStepKeyShape.nodeId,
+            attempt: WorkflowStepAttemptSchema,
+            executionIndex: workflowStepKeyShape.executionIndex,
           })
           .strict(),
       ),

@@ -20,8 +20,11 @@ export const WORKFLOW_RUN_STATUSES = [
 ] as const;
 /** One of {@link WORKFLOW_RUN_STATUSES}. */
 export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
-/** Wire schema for {@link WorkflowRunStatus}. */
-export const WorkflowRunStatusSchema: z.ZodType<WorkflowRunStatus, WorkflowRunStatus> =
+/**
+ * Wire schema for {@link WorkflowRunStatus}. A shape that allows only some statuses takes them
+ * from it with `extract` or `exclude`, so a renamed status cannot leave a subset behind.
+ */
+export const WorkflowRunStatusSchema: z.ZodEnum<{ [Status in WorkflowRunStatus]: Status }> =
   z.enum(WORKFLOW_RUN_STATUSES);
 
 /** The statuses of a run that is still going: new, running or waiting. */
@@ -46,8 +49,8 @@ export const WORKFLOW_STEP_STATUSES = [
 ] as const;
 /** One of {@link WORKFLOW_STEP_STATUSES}. */
 export type WorkflowStepStatus = (typeof WORKFLOW_STEP_STATUSES)[number];
-/** Wire schema for {@link WorkflowStepStatus}. */
-export const WorkflowStepStatusSchema: z.ZodType<WorkflowStepStatus, WorkflowStepStatus> =
+/** Wire schema for {@link WorkflowStepStatus}; a subset of the statuses is taken from it. */
+export const WorkflowStepStatusSchema: z.ZodEnum<{ [Status in WorkflowStepStatus]: Status }> =
   z.enum(WORKFLOW_STEP_STATUSES);
 
 /**
@@ -57,6 +60,6 @@ export const WorkflowStepStatusSchema: z.ZodType<WorkflowStepStatus, WorkflowSte
 export const WORKFLOW_WAIT_CAUSES = ["approval", "form", "reply", "account", "chain"] as const;
 /** One of {@link WORKFLOW_WAIT_CAUSES}. */
 export type WorkflowWaitCause = (typeof WORKFLOW_WAIT_CAUSES)[number];
-/** Wire schema for {@link WorkflowWaitCause}. */
-export const WorkflowWaitCauseSchema: z.ZodType<WorkflowWaitCause, WorkflowWaitCause> =
+/** Wire schema for {@link WorkflowWaitCause}; a subset of the causes is taken from it. */
+export const WorkflowWaitCauseSchema: z.ZodEnum<{ [Cause in WorkflowWaitCause]: Cause }> =
   z.enum(WORKFLOW_WAIT_CAUSES);

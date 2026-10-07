@@ -39,7 +39,7 @@ export type WorkflowNodeKindCategory = (typeof WORKFLOW_NODE_KIND_CATEGORIES)[nu
 
 /**
  * One handle a kind declares on one side. Its id reads `<mode>/<type>/<index>` and says the
- * side and type the spec declares, so a handle is addressable from a stored edge alone.
+ * side and type the handle declares, so a handle is addressable from a stored edge alone.
  * `maxConnections` absent means the handle takes any number of edges.
  */
 export type WorkflowHandleSpec<Mode extends WorkflowHandleMode = WorkflowHandleMode> = {
@@ -67,10 +67,11 @@ function handleSpecArm<Id extends string, Type extends WorkflowHandleType>(
     .strict();
 }
 
-// The template literal lets a negative index or one with leading zeros through; the parse
-// does not.
+// The template literal lets a negative index or one with leading zeros through. Such an id parses
+// to the fallback handle or drops its zeros, so it no longer reads back as itself.
 function hasCanonicalIndex(spec: { id: string }): boolean {
-  return parseWorkflowHandle(spec.id).isTypeKnown;
+  const { mode, type, index } = parseWorkflowHandle(spec.id);
+  return `${mode}/${type}/${index}` === spec.id;
 }
 const CANONICAL_INDEX_ISSUE = {
   path: ["id"],
@@ -220,7 +221,20 @@ const WorkflowNodeKindSpecSchema: z.ZodType<WorkflowNodeKindSpec> = z
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine(({ inputs }) => hasUniqueIds(inputs), {
+    path: ["inputs"],
+    message: "Each input handle id appears once.",
+  })
+  .refine(({ outputs }) => hasUniqueIds(outputs), {
+    path: ["outputs"],
+    message: "Each output handle id appears once.",
+  });
+
+// An edge names a handle by id alone, so two handles with one id on a side are one port.
+function hasUniqueIds(specs: readonly { id: string }[]): boolean {
+  return new Set(specs.map(({ id }) => id)).size === specs.length;
+}
 
 /** The `workflow.kindList` result: every kind the daemon runs. */
 export interface WorkflowKindListResponse {

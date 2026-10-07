@@ -111,8 +111,7 @@ export function runLiveLine(
 
 /**
  * The lines of a waiting run, read from the step that waits. The run read refuses a waiting run
- * with no waiting step, and a step parked on an account without that account, so either missing
- * here is a broken contract and throws.
+ * with no waiting step, so a missing one here is a broken contract and throws.
  */
 function waitingLines(
   run: WorkflowRunReadResponse,
@@ -126,9 +125,6 @@ function waitingLines(
   switch (step.waitCause) {
     case "account": {
       const account = step.waitAccount;
-      if (account === undefined) {
-        throw new Error(`The step ${step.nodeId} parked on an account does not name it.`);
-      }
       // The window's reset is named only where the wait armed the instant it resumes.
       const until = step.resumeAt === undefined ? "" : " until the window resets";
       return {

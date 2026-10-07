@@ -37,7 +37,7 @@ describe("a kind's handle specs", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("refuse an id that says another type, another side, or an unreadable index", () => {
+  it("refuse an id that says another type, another side or an unreadable index, or repeats", () => {
     const main = (id: string) => ({ id, label: "Handle", type: "main" });
     for (const { inputs, outputs } of [
       { inputs: [{ id: "inputs/tool/0", label: "Input", type: "main" }], outputs: [] },
@@ -45,6 +45,8 @@ describe("a kind's handle specs", () => {
       { inputs: [], outputs: [main("inputs/main/0")] },
       { inputs: [main("inputs/main/01")], outputs: [] },
       { inputs: [main("inputs/main/-1")], outputs: [] },
+      { inputs: [main("inputs/main/0"), main("inputs/main/0")], outputs: [] },
+      { inputs: [], outputs: [main("outputs/main/1"), main("outputs/main/1")] },
     ]) {
       const parsed = WorkflowKindListResponseSchema.safeParse(catalogWith(inputs, outputs));
       expect(parsed.success, JSON.stringify({ inputs, outputs })).toBe(false);

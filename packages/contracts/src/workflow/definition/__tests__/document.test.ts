@@ -1,8 +1,9 @@
 // The workflow document is written by the builder, by an agent through its tools and by an
 // imported file. These cases hold what its readers rely on: a failure disposition from the closed
-// three, a schema small enough to send to a model, a content hash blind to layout, pinned data and
-// tags, trigger inputs that start on a value their type allows, a tool binding that carries no
-// policy, and a step's failure whose details never travel without its code.
+// three, node ids that each name one node, a schema small enough to send to a model, a content
+// hash blind to layout, pinned data and tags, trigger inputs with distinct names that start on a
+// value their type allows, a tool binding that carries no policy, and a step's failure whose
+// details never travel without its code.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -83,6 +84,34 @@ describe("WorkflowDocumentSchema", () => {
     expect(WorkflowDocumentSchema.safeParse({ ...FULL_DOCUMENT, nodes: [badNode] }).success).toBe(
       false,
     );
+  });
+
+  // Edges, expressions and step records address a node by id, so one id must name one node.
+  it("refuses a node id used twice, the trigger's included, naming the id", () => {
+    const { trigger: _trigger, ...draft } = FULL_DOCUMENT;
+    const cases = [
+      { schema: WorkflowDocumentSchema, document: FULL_DOCUMENT, repeat: "suite", index: 4 },
+      { schema: WorkflowDocumentSchema, document: FULL_DOCUMENT, repeat: "schedule", index: 4 },
+      {
+        schema: WorkflowDraftDocumentSchema,
+        document: FULL_DOCUMENT,
+        repeat: "schedule",
+        index: 4,
+      },
+      { schema: WorkflowDraftDocumentSchema, document: draft, repeat: "suite", index: 4 },
+    ];
+    for (const { schema, document, repeat, index } of cases) {
+      const nodes = [...document.nodes, { ...SUITE, id: repeat }];
+      const parsed = schema.safeParse({ ...document, nodes });
+      expect(parsed.success, repeat).toBe(false);
+      expect(parsed.error?.issues).toEqual([
+        expect.objectContaining({
+          path: ["nodes", index, "id"],
+          message: expect.stringContaining(repeat),
+        }),
+      ]);
+    }
+    expect(WorkflowDraftDocumentSchema.safeParse(draft).success).toBe(true);
   });
 
   it("keeps tags to a bounded string with no NUL byte, leaving spaces and empty to the daemon", () => {
@@ -175,6 +204,23 @@ describe("trigger inputs", () => {
       withInputs([{ name: "tone", type: "select", options: ["short"], default: "long" }]).success,
     ).toBe(false);
     expect(withInputs([{ name: "count", type: "number", default: 3 }]).success).toBe(false);
+    expect(withInputs([{ name: "tone", type: "select", options: [], default: "" }]).success).toBe(
+      false,
+    );
+  });
+
+  // A start fills inputs by name, so two inputs with one name could not both be filled.
+  it("refuses two inputs with one name, naming it", () => {
+    const parsed = withInputs([
+      { name: "dryRun", type: "boolean", default: false },
+      { name: "dryRun", type: "string", default: "" },
+    ]);
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({
+        path: ["trigger", "inputs", 1, "name"],
+        message: expect.stringContaining("dryRun"),
+      }),
+    ]);
   });
 
   it("refuses inputs on a node that is not the trigger", () => {

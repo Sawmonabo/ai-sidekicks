@@ -231,6 +231,9 @@ describe("a run's header", () => {
 
     // A failed run parked on its failed step has not ended: Resume picks it up, Cancel ends it.
     const parked = fixtureRun(WORKFLOW_RUN_IDS.failed);
+    if (parked.state !== "failed") {
+      throw new Error("the fixture's failed run is not failed");
+    }
     const failedCalls = renderHeader(parked).calls;
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));

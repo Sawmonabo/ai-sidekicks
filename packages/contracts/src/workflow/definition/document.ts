@@ -165,6 +165,22 @@ export const WorkflowNodeSchema: z.ZodType<WorkflowNode, WorkflowNode> = z
   .object(workflowNodeShape)
   .strict();
 
+// Adds one issue for each value that an earlier one already holds, at the place `pathOf` names.
+function reportRepeats(
+  values: readonly string[],
+  pathOf: (index: number) => (string | number)[],
+  messageOf: (value: string) => string,
+  context: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  values.forEach((value, index) => {
+    if (seen.has(value)) {
+      context.addIssue({ code: "custom", path: pathOf(index), message: messageOf(value) });
+    }
+    seen.add(value);
+  });
+}
+
 // What every declared input carries, whatever its type.
 interface WorkflowTriggerInputArm<Type extends WorkflowParamType, Value> {
   name: string;
@@ -174,16 +190,17 @@ interface WorkflowTriggerInputArm<Type extends WorkflowParamType, Value> {
 }
 
 /**
- * One input a workflow declares on its trigger, which a run start fills by `name`. Its type
- * picks the field Run now draws: a checkbox for `boolean`, a list of `options` for `select`, a
- * folder picker for `path`, a box for `string`. `default` is the value the field starts on;
- * a start that leaves an optional input out runs on it.
+ * One input a workflow declares on its trigger, which a run start fills by `name`, unique among
+ * the trigger's inputs. Its type picks the field Run now draws: a checkbox for `boolean`, a list
+ * of `options` for `select`, a folder picker for `path`, a box for `string`. `default` is the
+ * value the field starts on, and a `select` input's is one of its `options`; a start that leaves
+ * an optional input out runs on it.
  */
 export type WorkflowTriggerInput =
   | WorkflowTriggerInputArm<"boolean", boolean>
   | WorkflowTriggerInputArm<"string", string>
   | WorkflowTriggerInputArm<"path", string>
-  | (WorkflowTriggerInputArm<"select", string> & { options: string[] });
+  | (WorkflowTriggerInputArm<"select", string> & { options: [string, ...string[]] });
 
 const triggerInputShape = {
   name: z.string().min(1).describe("The input's name; a run start fills the input by it."),
@@ -207,7 +224,9 @@ const WorkflowTriggerInputSchema: z.ZodType<WorkflowTriggerInput, WorkflowTrigge
       .object({
         ...triggerInputShape,
         type: z.literal("select"),
-        options: z.array(z.string().min(1)).min(1).describe("The choices, at least one."),
+        options: z
+          .tuple([z.string().min(1)], z.string().min(1))
+          .describe("The choices, at least one; default is one of them."),
         default: z.string(),
       })
       .strict()
@@ -226,11 +245,19 @@ const WorkflowTriggerNodeSchema: z.ZodType<WorkflowTriggerNode, WorkflowTriggerN
     ...workflowNodeShape,
     inputs: z
       .array(WorkflowTriggerInputSchema)
+      .superRefine((inputs, context) => {
+        reportRepeats(
+          inputs.map((input) => input.name),
+          (index) => [index, "name"],
+          (name) => `Input name ${name} is used more than once.`,
+          context,
+        );
+      })
       .optional()
       .describe(
-        "The inputs a run starts with, each named and typed (boolean, string, path, or " +
-          "select with its options) with the value it starts on as default; required marks " +
-          "one a start must fill.",
+        "The inputs a run starts with, each with a name no other input uses and a type " +
+          "(boolean, string, path, or select with its options) with the value it starts on " +
+          "as default; required marks one a start must fill.",
       ),
   })
   .strict();
@@ -347,8 +374,9 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
  * succeeds, and on the step it failed in. A coded failure carries the step failure's own
  * `workflow.<condition>` code (a timed-out step, a sandbox that did not start, a Code step
  * over its budget …) and may carry that code's `details`; a failure with no code of its own
- * carries the message alone, never `details`. `itemIndex` names the input item the step failed on: the same
- * zero-based index an expression reads as `$itemIndex`, drawn as it stands (`Item 1` for 1).
+ * carries the message alone, never `details`. `itemIndex` names the input item the step failed
+ * on: the same zero-based index an expression reads as `$itemIndex`, drawn as it stands (`Item 1`
+ * for 1).
  */
 export type WorkflowStepError =
   | {
@@ -432,7 +460,10 @@ const documentBodyShape = {
   description: z.string().optional(),
   nodes: z
     .array(WorkflowNodeSchema)
-    .describe("Every node except the trigger. Node ids are unique across the document."),
+    .describe(
+      "Every node except the trigger. Node ids are unique across the document, the " +
+        "trigger's included.",
+    ),
   edges: z
     .array(WorkflowEdgeSchema)
     .describe(
@@ -475,10 +506,26 @@ export interface WorkflowDocument {
   pinData?: Record<string, WorkflowPinnedItem[]> | undefined;
   tags?: string[] | undefined;
 }
-/** Wire schema for {@link WorkflowDocument}. */
+// A node id names one node, so the trigger's id and every other node's are all distinct.
+function refuseRepeatedNodeIds(
+  document: { trigger?: { id: string } | undefined; nodes: readonly { id: string }[] },
+  context: z.RefinementCtx,
+): void {
+  const ids = document.nodes.map((node) => node.id);
+  const triggerOffset = document.trigger === undefined ? 0 : 1;
+  reportRepeats(
+    document.trigger === undefined ? ids : [document.trigger.id, ...ids],
+    (index) => ["nodes", index - triggerOffset, "id"],
+    (id) => `Node id ${id} is used more than once.`,
+    context,
+  );
+}
+
+/** Wire schema for {@link WorkflowDocument}; it refuses a node id used twice. */
 export const WorkflowDocumentSchema: z.ZodType<WorkflowDocument, WorkflowDocument> = z
   .object({ ...documentBodyShape, trigger: WorkflowTriggerNodeSchema.describe(triggerDescription) })
-  .strict();
+  .strict()
+  .superRefine(refuseRepeatedNodeIds);
 
 /**
  * The document members the content hash covers: its content, never its schema version. The
@@ -505,7 +552,6 @@ export type WorkflowDocumentHashedBody = Pick<
 /**
  * Returns the hashed body of a document, the only part the content hash reads; a member
  * the document leaves out stays out rather than appearing as `undefined`.
-
  */
 export function pickWorkflowDocumentHashedBody(
   document: WorkflowDocument,
@@ -526,14 +572,15 @@ export function pickWorkflowDocumentHashedBody(
 export type WorkflowDraftDocument = Omit<WorkflowDocument, "trigger"> & {
   trigger?: WorkflowTriggerNode | undefined;
 };
-/** Wire schema for {@link WorkflowDraftDocument}. */
+/** Wire schema for {@link WorkflowDraftDocument}; it refuses a node id used twice. */
 export const WorkflowDraftDocumentSchema: z.ZodType<WorkflowDraftDocument, WorkflowDraftDocument> =
   z
     .object({
       ...documentBodyShape,
       trigger: WorkflowTriggerNodeSchema.optional().describe(triggerDescription),
     })
-    .strict();
+    .strict()
+    .superRefine(refuseRepeatedNodeIds);
 
 /**
  * A node's tool parameter: which server's tool, and nothing about its policy. A tool's

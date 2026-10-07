@@ -196,125 +196,6 @@ export const WorkflowStepReviewPauseSchema: z.ZodType<WorkflowStepReviewPause> =
     z.object({ state: z.literal("missing"), reason: z.string().min(1) }).strict(),
   ]);
 
-/**
- * One execution of one node. `executionIndex` is per-run and increasing, so it orders
- * a branching run faithfully; `source` records, per input slot, the edge that actually
- * fed it and which execution of the source produced it (null for a slot nothing fed).
- * A waiting step names its cause and, where armed, the instant it resumes itself and
- * the instant its `Timeout` gives up.
- */
-export interface WorkflowStep {
-  workflowRunId: WorkflowRunId;
-  nodeId: WorkflowNodeId;
-  attempt: number;
-  executionIndex: number;
-  source: (WorkflowStepSource | null)[];
-  status: WorkflowStepStatus;
-  waitCause?: WorkflowWaitCause | undefined;
-  /** Present exactly on a step waiting on `account`: the spent account it waits on. */
-  waitAccount?: WorkflowSpentAccount | undefined;
-  resumeAt?: string | undefined;
-  waitDeadlineAt?: string | undefined;
-  startedAt: string;
-  finishedAt?: string | undefined;
-  inputRef: WorkflowPayloadRef;
-  outputRef: WorkflowPayloadRef;
-  logRef: WorkflowPayloadRef;
-  cost?: WorkflowCost | undefined;
-  error?: WorkflowStepError | undefined;
-  /** Present on a failed step whose process ended on its own: its exit and last lines. */
-  processExit?: ProcessExit | undefined;
-  advisories?: string[] | undefined;
-  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
-  /** Present exactly on a step waiting for a chat reply. */
-  question?: WorkflowStepQuestion | undefined;
-  /** Present once a person has answered this step. */
-  resolution?: WorkflowStepResolution | undefined;
-  /** Present on an approval step of a run that captured its checkout: its pause's snapshot. */
-  reviewPause?: WorkflowStepReviewPause | undefined;
-  /** Present on an `Execute workflow` step once it started its child run, which it links to. */
-  childWorkflowRunId?: WorkflowRunId | undefined;
-}
-/**
- * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other step does;
- * only an account wait resumes itself, and only a wait on a person carries a deadline.
- */
-export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    nodeId: WorkflowNodeIdSchema,
-    attempt: z.number().int().positive(),
-    executionIndex: countSchema,
-    source: z.array(
-      z
-        .object({
-          nodeId: WorkflowNodeIdSchema,
-          outputIndex: countSchema,
-          executionIndex: countSchema,
-        })
-        .strict()
-        .nullable(),
-    ),
-    status: WorkflowStepStatusSchema,
-    waitCause: WorkflowWaitCauseSchema.optional(),
-    waitAccount: WorkflowSpentAccountSchema.optional(),
-    resumeAt: isoDateTimeSchema.optional(),
-    waitDeadlineAt: isoDateTimeSchema.optional(),
-    startedAt: isoDateTimeSchema,
-    finishedAt: isoDateTimeSchema.optional(),
-    inputRef: WorkflowPayloadRefSchema,
-    outputRef: WorkflowPayloadRefSchema,
-    logRef: WorkflowPayloadRefSchema,
-    cost: WorkflowCostSchema.optional(),
-    error: WorkflowStepErrorSchema.optional(),
-    processExit: ProcessExitSchema.optional(),
-    advisories: z.array(z.string().min(1)).optional(),
-    resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
-    question: WorkflowStepQuestionSchema.optional(),
-    resolution: WorkflowStepResolutionSchema.optional(),
-    reviewPause: WorkflowStepReviewPauseSchema.optional(),
-    childWorkflowRunId: WorkflowRunIdSchema.optional(),
-  })
-  .strict()
-  .refine((step) => step.processExit === undefined || step.status === "failed", {
-    path: ["processExit"],
-    message: "Only a failed step carries how its process exited.",
-  })
-  .refine((step) => (step.status === "waiting") === (step.waitCause !== undefined), {
-    path: ["waitCause"],
-    message: "A waiting step names its cause, and no other step carries one.",
-  })
-  .refine(
-    (step) =>
-      (step.waitAccount !== undefined) ===
-      (step.status === "waiting" && step.waitCause === "account"),
-    { path: ["waitAccount"], message: "A step waiting on a spent account names that account." },
-  )
-  .refine(
-    (step) =>
-      step.resumeAt === undefined || (step.status === "waiting" && step.waitCause === "account"),
-    { path: ["resumeAt"], message: "Only a step waiting on a spent account resumes itself." },
-  )
-  .refine(
-    (step) =>
-      step.waitDeadlineAt === undefined ||
-      (step.status === "waiting" &&
-        (step.waitCause === "approval" || step.waitCause === "form" || step.waitCause === "reply")),
-    {
-      path: ["waitDeadlineAt"],
-      message: "Only a step waiting on a person's approval, form or reply carries a deadline.",
-    },
-  )
-  .refine(
-    (step) =>
-      (step.question !== undefined) === (step.status === "waiting" && step.waitCause === "reply"),
-    { path: ["question"], message: "A step waiting for a reply carries its question." },
-  )
-  .refine((step) => step.resolution === undefined || step.status !== "waiting", {
-    path: ["resolution"],
-    message: "A step a person has answered is no longer waiting.",
-  });
-
 const executionIndexSchema = countSchema;
 
 /** The three members that address one step: the run, the node and which execution of it. */
@@ -337,3 +218,168 @@ export const workflowStepKeyShape: {
 export const WorkflowStepKeySchema: z.ZodType<WorkflowStepKey, WorkflowStepKey> = z
   .object(workflowStepKeyShape)
   .strict();
+
+/** Which attempt at a step, counted from 1: each retry is a new attempt. */
+export const WorkflowStepAttemptSchema: z.ZodType<number, number> = z.number().int().positive();
+
+/** The members a step carries whatever its status. */
+interface WorkflowStepFields extends WorkflowStepKey {
+  attempt: number;
+  source: (WorkflowStepSource | null)[];
+  startedAt: string;
+  finishedAt?: string | undefined;
+  inputRef: WorkflowPayloadRef;
+  outputRef: WorkflowPayloadRef;
+  logRef: WorkflowPayloadRef;
+  cost?: WorkflowCost | undefined;
+  error?: WorkflowStepError | undefined;
+  advisories?: string[] | undefined;
+  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+  /** Present on an approval step of a run that captured its checkout: its pause's snapshot. */
+  reviewPause?: WorkflowStepReviewPause | undefined;
+  /** Present on an `Execute workflow` step once it started its child run, which it links to. */
+  childWorkflowRunId?: WorkflowRunId | undefined;
+}
+
+/** A step that waits on nothing names no cause, spent account, instants or question. */
+interface WorkflowStepNoWait {
+  waitCause?: undefined;
+  waitAccount?: undefined;
+  resumeAt?: undefined;
+  waitDeadlineAt?: undefined;
+  question?: undefined;
+}
+
+/**
+ * What a waiting step waits on, by its cause: a spent account names the account and, where armed,
+ * the instant it resumes itself; a wait on a person may carry the instant its `Timeout` gives up,
+ * and a chat reply its question; a chain's question carries neither.
+ */
+type WorkflowStepWait =
+  | (Omit<WorkflowStepNoWait, "waitCause" | "waitAccount" | "resumeAt"> & {
+      waitCause: Extract<WorkflowWaitCause, "account">;
+      /** The spent account the step waits on. */
+      waitAccount: WorkflowSpentAccount;
+      resumeAt?: string | undefined;
+    })
+  | (Omit<WorkflowStepNoWait, "waitCause" | "waitDeadlineAt" | "question"> & {
+      waitCause: Extract<WorkflowWaitCause, "reply">;
+      waitDeadlineAt?: string | undefined;
+      /** The question the chat reply answers. */
+      question: WorkflowStepQuestion;
+    })
+  | (Omit<WorkflowStepNoWait, "waitCause" | "waitDeadlineAt"> & {
+      waitCause: Extract<WorkflowWaitCause, "approval" | "form">;
+      waitDeadlineAt?: string | undefined;
+    })
+  | (Omit<WorkflowStepNoWait, "waitCause"> & { waitCause: Extract<WorkflowWaitCause, "chain"> });
+
+/**
+ * One execution of one node. `executionIndex` is per-run and increasing, so it orders
+ * a branching run faithfully; `source` records, per input slot, the edge that actually
+ * fed it and which execution of the source produced it (null for a slot nothing fed).
+ * Only a waiting step names what it waits on, and only one no longer waiting how a person answered
+ * it.
+ */
+export type WorkflowStep = WorkflowStepFields &
+  (
+    | (WorkflowStepWait & {
+        status: Extract<WorkflowStepStatus, "waiting">;
+        processExit?: undefined;
+        resolution?: undefined;
+      })
+    | (WorkflowStepNoWait & {
+        status: Extract<WorkflowStepStatus, "failed">;
+        /** Present where the step's process ended on its own: its exit and last lines. */
+        processExit?: ProcessExit | undefined;
+        /** Present once a person has answered this step. */
+        resolution?: WorkflowStepResolution | undefined;
+      })
+    | (WorkflowStepNoWait & {
+        status: Exclude<WorkflowStepStatus, "waiting" | "failed">;
+        processExit?: undefined;
+        /** Present once a person has answered this step. */
+        resolution?: WorkflowStepResolution | undefined;
+      })
+  );
+const workflowStepFields = {
+  ...workflowStepKeyShape,
+  attempt: WorkflowStepAttemptSchema,
+  source: z.array(
+    z
+      .object({
+        nodeId: WorkflowNodeIdSchema,
+        outputIndex: countSchema,
+        executionIndex: countSchema,
+      })
+      .strict()
+      .nullable(),
+  ),
+  startedAt: isoDateTimeSchema,
+  finishedAt: isoDateTimeSchema.optional(),
+  inputRef: WorkflowPayloadRefSchema,
+  outputRef: WorkflowPayloadRefSchema,
+  logRef: WorkflowPayloadRefSchema,
+  cost: WorkflowCostSchema.optional(),
+  error: WorkflowStepErrorSchema.optional(),
+  advisories: z.array(z.string().min(1)).optional(),
+  resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
+  reviewPause: WorkflowStepReviewPauseSchema.optional(),
+  childWorkflowRunId: WorkflowRunIdSchema.optional(),
+};
+const waitingStepFields = {
+  ...workflowStepFields,
+  status: WorkflowStepStatusSchema.extract(["waiting"]),
+};
+const answerableStepFields = {
+  ...workflowStepFields,
+  resolution: WorkflowStepResolutionSchema.optional(),
+};
+
+/**
+ * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other step does;
+ * only an account wait resumes itself, and only a wait on a person carries a deadline.
+ */
+export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z.discriminatedUnion("status", [
+  z.discriminatedUnion("waitCause", [
+    z
+      .object({
+        ...waitingStepFields,
+        waitCause: WorkflowWaitCauseSchema.extract(["account"]),
+        waitAccount: WorkflowSpentAccountSchema,
+        resumeAt: isoDateTimeSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...waitingStepFields,
+        waitCause: WorkflowWaitCauseSchema.extract(["reply"]),
+        waitDeadlineAt: isoDateTimeSchema.optional(),
+        question: WorkflowStepQuestionSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...waitingStepFields,
+        waitCause: WorkflowWaitCauseSchema.extract(["approval", "form"]),
+        waitDeadlineAt: isoDateTimeSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({ ...waitingStepFields, waitCause: WorkflowWaitCauseSchema.extract(["chain"]) })
+      .strict(),
+  ]),
+  z
+    .object({
+      ...answerableStepFields,
+      status: WorkflowStepStatusSchema.extract(["failed"]),
+      processExit: ProcessExitSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      ...answerableStepFields,
+      status: WorkflowStepStatusSchema.exclude(["waiting", "failed"]),
+    })
+    .strict(),
+]);
