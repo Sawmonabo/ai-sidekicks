@@ -93,7 +93,7 @@ interface PlatformBridge {
     getNotificationPermission(): Promise<NotificationPermission>;
     // one clipboard write: a plain line, or the text with a formatted flavor beside it (main's `clipboard.write`)
     copyToClipboard(content: { text: string; html?: string }): Promise<void>;
-    // the clipboard's plain text, read for a paste into a page on another machine (main's `clipboard.readText`)
+    // the clipboard's plain text, read only inside a person's own `Paste` press into a page on another machine (main's `clipboard.readText`)
     readClipboardText(): Promise<string>;
     // a file or folder shown in the platform's file manager
     revealInFileExplorer(path: FilePathRef): Promise<void>;
@@ -166,13 +166,13 @@ interface PlatformBridge {
     ): Unsubscribe;
   };
 
-  // the keyboard map, main's own owner-only file of the overridden rows; no feed, since one renderer holds it
+  // the keyboard map, main's own owner-only file of the overridden rows, and the keys the application menu holds; no feed, since one renderer holds it
   keyboardMap: {
     // the overridden rows as stored, with the repair main made when the file was broken
     read(): Promise<KeyboardMapReading>;
     // the whole map, written atomically; answered with the map as stored
     write(map: KeyboardMap): Promise<KeyboardMap>;
-    // each key a row of the installed application menu holds, with that row's label and its menu's, so a rebind onto one is refused
+    // each key a row of the installed application menu holds, with that row's label and its menu's, so a rebind onto one is refused; empty on a host with no application menu
     readMenuKeys(): Promise<MenuKey[]>;
   };
 
