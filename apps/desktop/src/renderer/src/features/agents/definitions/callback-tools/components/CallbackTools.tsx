@@ -1,7 +1,7 @@
 // Which daemon-hosted tools an agent can reach. Three states never merge: capability undeclared
-// (section absent), registry withheld (no approval-create seam, so a stray invocation is
-// denied), and exposed. The flag and the registry come from separate reads, so each has its
-// own arm, and the registry is never synthesized from observed tool rows.
+// (section absent), registry withheld (the daemon's approval service is not running, so a stray
+// invocation is denied), and exposed. The flag and the registry come from separate reads, so
+// each has its own arm, and the registry is never synthesized from observed tool rows.
 
 import "./CallbackTools.css";
 
@@ -43,13 +43,10 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <Nothing
         kind="not-checked"
         placement="block"
-        title="The bound driver's capability flags have not been read."
+        title="Whether the provider supports these tools has not been read."
         detail={
-          "Whether this session's sidekicks can reach a tool the " +
-          "background service hosts at all is a flag on the driver, and " +
-          "this build has not read one. Nothing is reported here until it " +
-          "has, because an empty list under a heading would report a " +
-          "registry that exists and holds nothing."
+          "Nothing is listed until then, because an empty list would read as a sidekick " +
+          "with no tools."
         }
       />
     );
@@ -77,9 +74,9 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
   return (
     <div className="meridian-callback-tools">
       <p className="meridian-callback-tools__note">
-        These are constructed and trusted by the background service rather than produced by a
-        provider. Each one is governed exactly as a provider tool is, its invocations land as
-        ordinary tool rows, and none of them bypasses the approval pipeline.
+        The background service provides these tools, not a provider. A sidekick's call to one is an
+        ordinary tool call under the permission level of the session or workflow run it works in, so
+        a level that asks first raises the approval card before the tool runs.
       </p>
       <CallbackToolRows tools={props.registry.tools} />
     </div>

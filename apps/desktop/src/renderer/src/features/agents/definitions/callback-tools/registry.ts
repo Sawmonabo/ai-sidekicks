@@ -1,7 +1,7 @@
 // What this session's daemon-hosted tool registry holds, and whether it is exposed. The caller
 // supplies the read (the registry travels on the spawn parameter, not a client read), and a
-// rejection surfaces unhandled. While the approval-create seam is unregistered the registry
-// is withheld: entries are still listed, and a stray invocation is denied by the host.
+// rejection surfaces unhandled. While the daemon's approval service is not running the registry
+// is withheld: entries are still listed, and a stray invocation is denied by the daemon.
 
 import { useEffect, useState } from "react";
 
