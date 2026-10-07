@@ -84,9 +84,9 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'turbo.json'
               # The root settings the desktop's build and tiers run under: the TypeScript configs
-              # its own extend, the shared Vitest settings its Vitest config imports, the Node
-              # version and the install settings. A change under `patches/` moves that patch's
-              # hash in the lockfile, so the lockfile entry covers it.
+              # the desktop's tsconfigs extend, the shared Vitest settings its Vitest config
+              # imports, the Node version and the install settings. A change under `patches/`
+              # moves that patch's hash in the lockfile, so the lockfile entry covers it.
               - 'tsconfig.base.json'
               - 'tsconfig.node.json'
               - 'vitest.shared.ts'
