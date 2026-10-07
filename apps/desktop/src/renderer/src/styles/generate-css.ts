@@ -42,6 +42,7 @@ import {
   INSPECTOR_WIDTH_REM,
   AGENTS_PANE_WIDTH_REM,
   CONVERSATION_FLOOR_REM,
+  CONVERSATION_HEIGHT_FLOOR_REM,
   PANE_SEPARATOR_WIDTH_REM,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
@@ -270,6 +271,7 @@ function invariantBlock(): string {
   lines.push(declaration("inspector-width", `${INSPECTOR_WIDTH_REM}rem`));
   lines.push(declaration("agents-pane-width", `${AGENTS_PANE_WIDTH_REM}rem`));
   lines.push(declaration("conversation-floor", `${CONVERSATION_FLOOR_REM}rem`));
+  lines.push(declaration("conversation-height-floor", `${CONVERSATION_HEIGHT_FLOOR_REM}rem`));
   lines.push(declaration("pane-separator-width", `${PANE_SEPARATOR_WIDTH_REM}rem`));
   lines.push(declaration("window-height-floor", `${WINDOW_HEIGHT_FLOOR_REM}rem`));
   // The terminal opens on a third of its pane block's height; the percentage resolves against the

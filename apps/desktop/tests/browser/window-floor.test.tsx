@@ -9,7 +9,8 @@
 // as its title, with nothing overflowing or overlapping; a box planted too wide, one planted over
 // a row, a short value that is not cut, and a record narrower than its label column are the
 // negative controls. The whole app held at its floor keeps the conversation in view above the
-// composer with its command list open; a window shorter by the conversation's height leaves none.
+// composer with its command list open; on a screen shorter than the floor the conversation keeps
+// its own height floor, and the list gives way and scrolls in what is left.
 
 import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -57,6 +58,9 @@ const UNBREAKABLE_WIRE_VALUE = "f".repeat(96);
 
 /** The conversation's scroller, the box the transcript's rows scroll in. */
 const CONVERSATION_SCROLLER = ".meridian-transcript-viewport__scroll-container";
+
+/** A usable height under the window's floor at every text size, as a short display gives. */
+const SHORT_SCREEN_HEIGHT_PX = 560;
 
 /** Mounts the frame with tokens installed and `screen` in it, recording every floor it reports. */
 async function renderFrame(
@@ -147,14 +151,14 @@ function elementOf<TElement extends Element>(root: ParentNode, selector: string)
   return element;
 }
 
-/** How wide `inlineSize` lays out inside `parent`, in CSS px, read off a box sized by it. */
-function laidOutWidth(parent: Element, inlineSize: string): number {
-  const box = document.createElement("div");
-  box.style.inlineSize = inlineSize;
+/** How long `size` lays out inside `parent` along `axis`, in CSS px, read off a box sized by it. */
+function laidOutSize(parent: Element, axis: "inlineSize" | "blockSize", size: string): number {
+  const box = parent.ownerDocument.createElement("div");
+  box.style[axis] = size;
   parent.append(box);
-  const width = box.getBoundingClientRect().width;
+  const { width, height } = box.getBoundingClientRect();
   box.remove();
-  return width;
+  return axis === "inlineSize" ? width : height;
 }
 
 function boxOf(selector: string): DOMRect {
@@ -239,8 +243,16 @@ describe("the window floor", () => {
       throw new Error("the frame reported no floor");
     }
     await resizeViewport(Math.ceil(floor.width), Math.ceil(floor.height));
-    const conversationFloorPx = laidOutWidth(screenRegion(), "var(--meridian-conversation-floor)");
-    const separatorPx = laidOutWidth(screenRegion(), "var(--meridian-pane-separator-width)");
+    const conversationFloorPx = laidOutSize(
+      screenRegion(),
+      "inlineSize",
+      "var(--meridian-conversation-floor)",
+    );
+    const separatorPx = laidOutSize(
+      screenRegion(),
+      "inlineSize",
+      "var(--meridian-pane-separator-width)",
+    );
     const columnPx = boxOf(".meridian-frame__column").width;
     cleanup();
 
@@ -419,7 +431,7 @@ describe("at the window floor", () => {
     );
   });
 
-  it("keeps the conversation in view above the composer with its command list open", async () => {
+  it("keeps the conversation over the open command list, at the floor and under it", async () => {
     document.location.hash = formatRoute({ kind: "session", sessionId: SESSION_ID });
     const appWindow = await renderAppSettled(TRANSCRIPT_STATES_SCENARIO_ID);
     const floor = (
@@ -434,26 +446,37 @@ describe("at the window floor", () => {
     await act(async () => {
       await userEvent.keyboard("/");
     });
-    await untilDrawn(appWindow, ".meridian-command-discovery__scroller");
+    const list = await untilDrawn(appWindow, ".meridian-command-discovery__scroller");
 
     const conversation = elementOf<HTMLElement>(appWindow.document, CONVERSATION_SCROLLER);
+    const paneRow = elementOf<HTMLElement>(
+      appWindow.document,
+      ".meridian-session-screen > .meridian-pane-layout",
+    );
     const composer = elementOf<HTMLElement>(
       appWindow.document,
       ".meridian-session-screen__composer",
     );
-    const conversationHeight = conversation.getBoundingClientRect().height;
-    expect(conversationHeight).toBeGreaterThan(0);
+    expect(conversation.getBoundingClientRect().height).toBeGreaterThan(0);
     expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(appWindow.innerHeight);
 
-    // Negative control: a window shorter by the conversation's height leaves it none.
+    // A display shorter than the floor gives a window under it. The conversation keeps its own
+    // height floor, and the list, shorter than its bound, scrolls in what is left.
     await act(async () => {
-      await resizeViewport(
-        Math.ceil(floor.width),
-        Math.ceil(floor.height) - Math.ceil(conversationHeight),
-      );
+      await resizeViewport(Math.ceil(floor.width), SHORT_SCREEN_HEIGHT_PX);
     });
-    await waitFor(() => {
-      expect(conversation.getBoundingClientRect().height).toBe(0);
-    });
+    // Read in the page's body, a block, where no flex row could shrink the measuring box.
+    const { body } = appWindow.document;
+    const heightFloorPx = laidOutSize(
+      body,
+      "blockSize",
+      "var(--meridian-conversation-height-floor)",
+    );
+    const listBoundPx = laidOutSize(body, "blockSize", "var(--meridian-enumeration-max-height)");
+    expect(paneRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(heightFloorPx - 0.5);
+    expect(conversation.getBoundingClientRect().height).toBeGreaterThan(0);
+    expect(list.clientHeight).toBeLessThan(listBoundPx);
+    expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
+    expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(appWindow.innerHeight);
   });
 });

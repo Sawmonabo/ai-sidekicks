@@ -1,14 +1,15 @@
 /* The session screen: its grid, banners and composer region. */
 
 /*
- * Head, pane layout, composer. `minmax(0, 1fr)` lets the panes scroll instead of pushing
- * the composer off the bottom. `SessionScreen.tsx` writes the height the pane layout and the
- * composer share onto it as `--meridian-session-flow-height`, so the composer's draft can cap
- * itself at a share of the conversation's.
+ * Head, pane layout, composer. The pane layout's row takes what the head and the composer leave,
+ * down to the conversation's height floor; below that the composer's row gives way instead, and
+ * its open command list scrolls in what is left. `SessionScreen.tsx` writes the height the pane
+ * layout and the composer share onto it as `--meridian-session-flow-height`, so the composer's
+ * draft can cap itself at a share of the conversation's.
  */
 .meridian-session-screen {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(var(--meridian-conversation-height-floor), 1fr) minmax(0, auto);
   min-width: 0;
   min-height: 100%;
   background: var(--meridian-ground);
@@ -73,7 +74,10 @@
   color: var(--meridian-text);
 }
 
+/* A column, so the composer inside gives way to the row's height on a short window. */
 .meridian-session-screen__composer {
+  display: flex;
+  flex-direction: column;
   border-top: 1px solid var(--meridian-edge);
   background: var(--meridian-surface);
 }

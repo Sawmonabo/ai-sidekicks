@@ -196,6 +196,18 @@ export const AGENTS_PANE_WIDTH_REM = 27.5;
  */
 export const CONVERSATION_FLOOR_REM = 26.25;
 
+// How many lines of the transcript's reading text the conversation's row keeps, its head
+// included, on a window too short for it and everything under it.
+const CONVERSATION_HEIGHT_FLOOR_LINES = 5;
+
+/**
+ * The shortest the session's pane row gets, in rem: five lines of the transcript's reading text,
+ * 107 px at the default text size, so the conversation's head and its newest lines stay in view.
+ * On a shorter window a tall part of the composer, the open command list, scrolls in what is left.
+ */
+export const CONVERSATION_HEIGHT_FLOOR_REM: number =
+  CONVERSATION_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT;
+
 /**
  * The separator between two panes in a pane row, in rem: its width is the drag target and a
  * hairline is drawn down its middle. Summed into the window's floor, which holds one separator
