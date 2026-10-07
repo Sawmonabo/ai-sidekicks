@@ -16,7 +16,7 @@
 
 # Sourced by every generated git hook immediately before lefthook is called
 # (`internal/templates/hook.tmpl` emits `[ -f <rc> ] && . <rc>`). For `pre-commit` it takes a
-# repository-wide mutex so two linked worktrees never sit inside lefthook's unstaged-changes backup
+# repository-wide mutex so two worktrees never sit inside lefthook's unstaged-changes backup
 # window at once: that backup lives in the common git dir (`--git-path info` resolves there for a
 # linked worktree) plus the shared `refs/stash`, so concurrent runs overwrite and drop each other's.
 # The rc file is the only repo-owned code that can wrap the window, since it opens before the first

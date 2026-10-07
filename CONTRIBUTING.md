@@ -12,7 +12,7 @@ Cut every branch from `develop` as `<type>/<topic>` in kebab-case, where `type` 
 
 ## Hooks
 
-`pnpm install` installs them. Pre-commit: lint-staged (ESLint fix, Prettier) then a secret scan (gitleaks); commit-msg: commitlint. Never `--no-verify`. The worktree hook needs `jq` and `python3`; the secret scan uses `gitleaks` and only warns when it is missing; `lychee` is optional locally (CI installs its own); Claude Code's code-intelligence plugins need `typescript-language-server` and the `rust-analyzer` rustup component. When several worktrees commit at once, a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) serializes them.
+`pnpm install` installs them. Pre-commit: lint-staged (ESLint fix, Prettier) then a secret scan (gitleaks); commit-msg: commitlint. Never `--no-verify`. The worktree hook needs `jq` and `python3`; the secret scan uses `gitleaks` and only warns when it is missing; `lychee` is optional locally (CI installs its own); Claude Code's code-intelligence plugins need `typescript-language-server` and the `rust-analyzer` rustup component. When several worktrees commit at once, a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) serializes them. In a linked worktree, pre-commit fails on a file with both staged and unstaged changes (`failed to save all unstaged changes: exit status 129`, evilmartians/lefthook#1580): stage it whole, and re-stage it after any later edit, before you commit.
 
 ## Pull requests
 
