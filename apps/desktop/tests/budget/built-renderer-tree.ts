@@ -52,9 +52,6 @@ const BUILD_OUTPUT_DIRECTORY: string = join(PACKAGE_ROOT, "out");
 /** `out/renderer/`, the `renderer.build.outDir` of `electron.vite.config.ts`. */
 const RENDERER_OUTPUT_DIRECTORY: string = join(BUILD_OUTPUT_DIRECTORY, "renderer");
 
-/** The chunk graph the renderer build writes because its config sets `manifest: true`. */
-const RENDERER_MANIFEST_PATH: string = join(RENDERER_OUTPUT_DIRECTORY, ".vite", "manifest.json");
-
 /** The extensions a shipped text file carries. Source maps are excluded: not shipped. */
 const SHIPPED_TEXT_EXTENSIONS = /\.(?:js|cjs|mjs|html?|css)$/iu;
 
@@ -107,22 +104,24 @@ export function readSourceMapsOrFailLoudly(
 }
 
 /**
- * The renderer build's initial graph, read off the bundler's chunk manifest: every entry chunk and
- * what it reaches by static import, with its stylesheets and assets, so lazy chunks stay out.
- * Throws when the manifest is missing, marks no entry, names a chunk it does not hold, or names a
- * file of no budget kind or one that does not glob to itself, which size-limit would drop.
+ * The initial graph of the renderer build in `rendererOutputDirectory` (`out/renderer` unless
+ * another is handed in), read off the chunk manifest its `manifest: true` config writes: every
+ * entry chunk and what it reaches by static import, with its stylesheets and assets, so lazy
+ * chunks stay out. Throws when the manifest is missing, marks no entry, names a chunk it does not
+ * hold, or names a file of no budget kind or one that does not glob to itself, which size-limit
+ * would drop.
  */
-export function readInitialGraphOrFailLoudly(): InitialGraph {
-  if (!existsSync(RENDERER_MANIFEST_PATH)) {
-    throw missingBuildError(RENDERER_MANIFEST_PATH);
+export function readInitialGraphOrFailLoudly(
+  rendererOutputDirectory: string = RENDERER_OUTPUT_DIRECTORY,
+): InitialGraph {
+  const manifestPath = join(rendererOutputDirectory, ".vite", "manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw missingBuildError(manifestPath);
   }
-  const manifest = JSON.parse(readFileSync(RENDERER_MANIFEST_PATH, "utf8")) as Record<
-    string,
-    ManifestChunk
-  >;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, ManifestChunk>;
   const pendingKeys = Object.keys(manifest).filter((key) => manifest[key]?.isEntry === true);
   if (pendingKeys.length === 0) {
-    throw new Error(`${RENDERER_MANIFEST_PATH} marks no chunk as an entry, so there is no graph.`);
+    throw new Error(`${manifestPath} marks no chunk as an entry, so there is no graph.`);
   }
 
   const visitedKeys = new Set<string>();
@@ -133,7 +132,7 @@ export function readInitialGraphOrFailLoudly(): InitialGraph {
     }
     const chunk = manifest[key];
     if (chunk === undefined) {
-      throw new Error(`${RENDERER_MANIFEST_PATH} imports a chunk \`${key}\` it does not hold.`);
+      throw new Error(`${manifestPath} imports a chunk \`${key}\` it does not hold.`);
     }
     visitedKeys.add(key);
     for (const emitted of [chunk.file, ...(chunk.css ?? []), ...(chunk.assets ?? [])]) {
@@ -144,7 +143,7 @@ export function readInitialGraphOrFailLoudly(): InitialGraph {
 
   const initialGraph: InitialGraph = { code: [], fonts: [] };
   for (const emitted of [...emittedFiles].sort()) {
-    const path = join(RENDERER_OUTPUT_DIRECTORY, emitted);
+    const path = join(rendererOutputDirectory, emitted);
     const budgetKind = budgetKindOf(emitted);
     if (budgetKind === undefined) {
       throw new Error(
@@ -156,7 +155,7 @@ export function readInitialGraphOrFailLoudly(): InitialGraph {
     const globbed = globSync(path);
     if (globbed.length !== 1 || globbed[0] !== path) {
       throw new Error(
-        `${RENDERER_MANIFEST_PATH} names ${emitted}, which does not glob to itself ` +
+        `${manifestPath} names ${emitted}, which does not glob to itself ` +
           `(found ${globbed.length === 0 ? "nothing" : globbed.join(", ")}), so size-limit ` +
           "would leave it out of the sum.",
       );
