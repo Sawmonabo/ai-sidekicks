@@ -124,8 +124,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
   // included, folds the fixture code away.
   const isFixtureBuild = mode === "development" || mode === "fixtures";
   // The builds the automated Electron tiers launch, which may hide their windows
-  // (`src/main/windows/reveal.ts`). Narrower than the fixture flag: a
-  // development window is never hidden.
+  // (`src/main/windows/reveal.ts`) and keep the remote-debugging switches Playwright attaches
+  // through (`src/main/index.ts`). Narrower than the fixture flag: a development window is never
+  // hidden.
   const isTestTierBuild = isSmokeBuild || mode === "fixtures";
 
   return {

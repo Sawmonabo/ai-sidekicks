@@ -1,12 +1,12 @@
 // Tier: bundle. A release build serves no remote-debugging connection: main removes Chromium's
 // `--remote-debugging-port` and `--remote-debugging-pipe` switches before Electron reads them.
 //
-// The release `out/` is launched with the development Electron binary on a private profile, with
-// the port switch and a `--fixture` launch. A release build refuses `--fixture` inside its ready
-// continuation, after Electron has decided whether to start the server and before any window
-// opens or the background service is sought, so the exit is the point the answer is settled.
-// Chromium writes `DevToolsActivePort` into the profile whenever it serves, and a port it serves
-// takes a connection, so both are read: the record after the exit, the port throughout the run.
+// The release `out/` is launched through the smoke tier's spawn harness with the port switch and a
+// `--fixture` launch. A release build refuses `--fixture` inside its ready continuation, after
+// Electron has decided whether to start the server and before any window opens, so the exit is
+// the point the answer is settled. Chromium prints `DevTools listening` and writes
+// `DevToolsActivePort` into the profile whenever it serves, and a port it serves takes a
+// connection, so all three are read: the port throughout the run, the output and the record after.
 
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
@@ -15,24 +15,20 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import { MAIN_DIAGNOSTIC_LOG_FILE_NAME } from "#main/services/diagnostic-log.js";
 import { PROFILE_LOGS_FOLDER_NAME } from "#main/services/install-profile.js";
-import { spawnChildCleanedUpAtSettleTime } from "../helpers/electron/child/cleanup.js";
-import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "../helpers/fixture/bundle.js";
-import { createLaunchProfile } from "../helpers/launch/profile.js";
-import { readSourceMapsOrFailLoudly } from "./built-renderer-tree.js";
+import { BOOT_TEST_TIMEOUT_MS, spawnElectron } from "../helpers/smoke-probe/harness.js";
+import { readSourceMapsOrFailLoudly, SMOKE_PROBE_FOLDER } from "./built-renderer-tree.js";
 
-/** How long the release launch has to reach its refusal of `--fixture` and exit. */
-const RELEASE_LAUNCH_EXIT_TIMEOUT_MS = 30_000;
-
-/** How often the run's port is tried while the launch runs. */
+/** How often the launch's port is tried while it runs; a served port answers at once. */
 const PORT_ATTEMPT_INTERVAL_MS = 25;
 
 /** The file Chromium writes into the profile when it serves a remote-debugging connection. */
 const SERVED_PORT_RECORD_FILE_NAME = "DevToolsActivePort";
 
-/** A main-bundle module only a smoke build ships, which keeps the switch for its harness. */
-const SMOKE_PROBE_FOLDER = "/src/main/probes/";
+/** The line Chromium prints when it serves a remote-debugging connection. */
+const SERVED_PORT_ANNOUNCEMENT = "DevTools listening on";
 
 /** A port no process holds now, which the launch is asked to serve on. */
 async function findFreePort(): Promise<number> {
@@ -72,73 +68,44 @@ describe("release build — no remote-debugging connection", () => {
     async () => {
       // A fixtures or smoke build keeps the switch for its harness, so a run against one would
       // report that build, not the release.
-      const mainModules = readSourceMapsOrFailLoudly("main").flatMap((map) => map.sources);
+      const nonReleaseModules = readSourceMapsOrFailLoudly("main")
+        .flatMap((map) => map.sources)
+        .filter((source) => isFixtureOnlyModule(source) || source.includes(SMOKE_PROBE_FOLDER));
       expect(
-        mainModules.filter(
-          (source) => isFixtureOnlyModule(source) || source.includes(SMOKE_PROBE_FOLDER),
-        ),
+        nonReleaseModules,
         "out/ holds a fixtures or smoke build; run pnpm --filter @ai-sidekicks/desktop build",
       ).toEqual([]);
 
       const port = await findFreePort();
-      const profile = createLaunchProfile("sidekicks-remote-debugging-test-");
-      const managed = spawnChildCleanedUpAtSettleTime(
-        {
-          command: ELECTRON_BIN,
-          args: [
-            `--user-data-dir=${profile.directory}`,
-            `--remote-debugging-port=${String(port)}`,
-            MAIN_ENTRY_PATH,
-            "--fixture",
-            "first-run",
-          ],
-          cwd: PACKAGE_ROOT,
-          env: process.env,
-        },
-        profile.remove,
-      );
-      let output = "";
-      managed.child.stdout.on("data", (chunk: Buffer) => {
-        output += chunk.toString("utf8");
+      let hasSettled = false;
+      const launch = spawnElectron({
+        chromiumSwitches: [`--remote-debugging-port=${String(port)}`],
+        appArguments: ["--fixture", FIRST_RUN_SCENARIO.id],
+      }).finally(() => {
+        hasSettled = true;
       });
-      managed.child.stderr.on("data", (chunk: Buffer) => {
-        output += chunk.toString("utf8");
-      });
-      const exit = new Promise<number | null>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(
-            new Error(
-              `the release launch did not exit within ${String(RELEASE_LAUNCH_EXIT_TIMEOUT_MS)} ms:\n${output}`,
-            ),
-          );
-        }, RELEASE_LAUNCH_EXIT_TIMEOUT_MS);
-        managed.child.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code);
-        });
-      });
-      let hasExited = false;
       let isServed = false;
-      void exit.finally(() => {
-        hasExited = true;
-      });
-      while (!hasExited && !isServed) {
+      while (!hasSettled && !isServed) {
         isServed = await isPortServed(port);
         await new Promise((resolve) => setTimeout(resolve, PORT_ATTEMPT_INTERVAL_MS));
       }
-      const exitCode = await exit;
+      const result = await launch;
 
+      expect(result.timedOut, result.combinedOutput).toBe(false);
+      expect(result.profileDirectory, result.combinedOutput).toBeDefined();
+      const profileDirectory = result.profileDirectory ?? "";
       const mainLog = readFileSync(
-        join(profile.directory, PROFILE_LOGS_FOLDER_NAME, MAIN_DIAGNOSTIC_LOG_FILE_NAME),
+        join(profileDirectory, PROFILE_LOGS_FOLDER_NAME, MAIN_DIAGNOSTIC_LOG_FILE_NAME),
         "utf8",
       );
       // The launch got as far as the ready continuation, past Electron's decision.
-      expect(exitCode, output).toBe(1);
+      expect(result.exitCode, result.combinedOutput).toBe(1);
       expect(mainLog).toContain("--fixture needs a development or fixtures build");
       expect(isServed, `port ${String(port)} took a connection`).toBe(false);
-      expect(existsSync(join(profile.directory, SERVED_PORT_RECORD_FILE_NAME))).toBe(false);
+      expect(result.combinedOutput).not.toContain(SERVED_PORT_ANNOUNCEMENT);
+      expect(existsSync(join(profileDirectory, SERVED_PORT_RECORD_FILE_NAME))).toBe(false);
       expect(mainLog).toContain("--remote-debugging-port was refused");
     },
-    RELEASE_LAUNCH_EXIT_TIMEOUT_MS * 2,
+    BOOT_TEST_TIMEOUT_MS,
   );
 });

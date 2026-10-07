@@ -1,8 +1,9 @@
-// Electron main-process entrypoint. Startup order is load-bearing: the renderer scheme's
-// registration at module top level, before `app.ready`, then the profile keyed to the install,
-// main's log, the crash reporter and the single-instance lock, then the kept appearance, the
-// registry of windows and its lifecycle, and the `sidekicks://` link handler, so a second launch or
-// a link arriving during start, a link that launches the app on macOS among them, is heard; inside
+// Electron main-process entrypoint. Startup order is load-bearing: a release build's refusal of the
+// remote-debugging switches first, then the renderer scheme's registration at module top level,
+// before `app.ready`, then the profile keyed to the install, main's log, the crash reporter, the
+// refusal's log line and the single-instance lock, then the kept appearance, the registry of
+// windows and its lifecycle, and the `sidekicks://` link handler, so a second launch or a link
+// arriving during start, a link that launches the app on macOS among them, is heard; inside
 // `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the Dock icon of a
 // development run, the macOS menu-bar icon, the bridge handlers, the hidden window, whose console
 // document opens every window a person sees, and the background service's start and watch.
@@ -49,7 +50,7 @@ import {
   type MainDiagnosticLog,
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
-import { refuseRemoteDebugging } from "./services/remote-debugging.js";
+import { logRefusedRemoteDebugging, refuseRemoteDebugging } from "./services/remote-debugging.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
@@ -73,6 +74,13 @@ const DOCK_ICON_FILE = "dock-icon.png";
 // The macOS menu-bar icon's resting face. The `Template` suffix makes macOS draw it in the menu
 // bar's own color, and the image loads with its `@2x` beside it.
 const MENU_BAR_IDLE_FACE_FILE = "menu-bar-idleTemplate.png";
+
+// First, so no failure later in this script leaves the switches to be served: Electron starts the
+// debugging server once the script ends, whether startup failed or not. A release build serves no
+// debugging connection; the development build and the test-tier builds keep it for a debugger and
+// Playwright.
+const refusedRemoteDebugging =
+  !import.meta.env.DEV && !__TEST_TIER_BUILD__ ? refuseRemoteDebugging(app.commandLine) : [];
 
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
@@ -98,11 +106,10 @@ startCrashReporter(
   ),
 );
 
-// A release build serves no debugging connection; the development build and the builds the test
-// tiers drive keep it, since a debugger and Playwright attach through it.
-if (!import.meta.env.DEV && !__TEST_TIER_BUILD__) {
-  refuseRemoteDebugging(app.commandLine, "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG);
-}
+logRefusedRemoteDebugging(
+  refusedRemoteDebugging,
+  "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG,
+);
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
 // build. In a release bundle the smoke branch folds away and Rollup drops the probe modules.

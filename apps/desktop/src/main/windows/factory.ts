@@ -65,7 +65,7 @@ const HIDDEN_WINDOW_BOUNDS: Rectangle = { x: 0, y: 0, width: 800, height: 600 };
 /** The state the hidden window is revealed into when it shows its load-failure document. */
 const FAILURE_REVEAL: RevealState = { isMaximized: false, isFullScreen: false };
 
-/** The `webContents` methods through which Electron opens developer tools, and no other path. */
+/** The `webContents` methods a JavaScript caller opens developer tools through. */
 const DEVELOPER_TOOLS_OPENERS = [
   "openDevTools",
   "toggleDevTools",
@@ -140,8 +140,7 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
 
 /**
  * Replaces an adopted document's developer-tools openers with one that logs and opens nothing.
- * Electron leaves a `window.open` guest's developer tools on whatever its options say, so the
- * `devTools` preference cannot turn them off.
+ * Electron builds a `window.open` guest with no options, so no `devTools` preference reaches it.
  */
 function refuseDeveloperToolsOpeners(
   webContents: WebContents,

@@ -1,22 +1,27 @@
 // Developer tools in the console's windows outside a development build, on the fixtures build. A
 // console window a person sees adopts the page Chromium made for the console document's
-// `window.open`, whose developer tools Electron leaves on whatever its options say, so the factory
-// refuses that page's openers and closes developer tools anything else opens in it. The menu
-// carries no developer-tools row; the row's chord is checked through the row, since a key a test
-// presses reaches the page and never the menu.
+// `window.open`, which Electron builds with no options, so no `devTools` preference reaches it: the
+// factory refuses that page's openers and closes developer tools anything else opens in it. The
+// openers driven here are the three that need no worker; the worker inspectors are refused the same
+// way and have no worker to open here. The menu carries no developer-tools row; the row's chord is
+// checked through the row, since a key a test presses reaches the page and never the menu.
 //
-// A refused opener reports nothing, so the openers are given one in-window step to announce
-// `devtools-opened`, and a passing run waits that step out. An opener that works announces it in
-// well under a second.
+// A refused opener reports nothing, so a passing run waits out its announcement window.
 
 import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import { withLaunchedApp } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch/body.js";
 
 const bundleIsBuilt = fixtureBundleExists();
+
+/**
+ * How long an opener has to announce `devtools-opened`, in milliseconds. One that works announces
+ * it in about 0.4 s on an unloaded macOS M1 Pro, so 5 s leaves a slower runner room before a
+ * working opener is missed.
+ */
+const DEVELOPER_TOOLS_ANNOUNCEMENT_MS = 5_000;
 
 /** The address a console window a person sees starts on: a blank page the console document draws. */
 const VISIBLE_WINDOW_ADDRESS = "about:blank";
@@ -36,9 +41,9 @@ interface BackstopReading {
 }
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — developer tools outside a development build", () => {
-  it("refuses every way a console window opens developer tools, and offers no menu row", async () => {
+  it("refuses a console window's developer-tools openers, and offers no menu row", async () => {
     await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
-      const stepMs = appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS);
+      const stepMs = appUnderTest.bodyAllowance.boundedMs(DEVELOPER_TOOLS_ANNOUNCEMENT_MS);
       const openerReadings = await appUnderTest.application.evaluate(
         async ({ webContents }, { address, stepMs }): Promise<OpenerReading[]> =>
           await Promise.all(
@@ -120,6 +125,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — developer tools outside a develo
           isDevToolsOpened: false,
         });
       }
+      expect(backstopReadings).toHaveLength(openerReadings.length);
       for (const reading of backstopReadings) {
         expect(reading, `developer tools left open in ${reading.url}`).toEqual<BackstopReading>({
           url: reading.url,
