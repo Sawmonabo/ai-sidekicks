@@ -39,6 +39,7 @@ import { SessionEventAppender, type SessionEventLog } from "../events/session/ap
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { boundFailureDetail, type ProviderDriver } from "../provider/driver/contract.js";
+import type { StartingRunInterruptClaim } from "../session/run/engine.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
@@ -87,8 +88,8 @@ export interface SettledInterventionOutcome {
 interface InterventionRunEngine {
   /** Ends the run `interrupted` for an applied or degraded interrupt; changes nothing otherwise. */
   settleInterventionOutcome(outcome: SettledInterventionOutcome): Promise<void>;
-  /** Claims the interrupt of a run no driver has been handed yet; false once a driver has it. */
-  claimSetupInterrupt(runId: RunId): boolean;
+  /** Claims the interrupt of a run no driver has yet; see `RunEngine.claimStartingInterrupt`. */
+  claimStartingInterrupt(runId: RunId): StartingRunInterruptClaim;
 }
 
 /** What the intervention service needs from the rest of the daemon. */
@@ -139,7 +140,8 @@ type DispatchOutcome =
       readonly to: "degraded";
       readonly fallbackAction: string | undefined;
     }
-  | { readonly from: "accepted"; readonly to: "rejected"; readonly reason: string };
+  | { readonly from: "accepted"; readonly to: "rejected"; readonly reason: string }
+  | { readonly from: "accepted"; readonly to: "expired" };
 
 /**
  * Takes every intervention on a run, from a person's connection or from the daemon itself, to
@@ -241,7 +243,7 @@ export class InterventionService {
     } catch (error) {
       return this.#fail(target, error);
     }
-    if (outcome.to === "rejected") {
+    if (outcome.to === "rejected" || outcome.to === "expired") {
       return this.#resolve(target, outcome);
     }
     // The verdict stands whatever the run did since the accept, so the advance holds no comparand.
@@ -265,12 +267,17 @@ export class InterventionService {
         ? { from: "accepted", to: "applied" }
         : { from: "accepted", to: "rejected", reason: retried.rejectionReason };
     }
-    // A run still in its setup gates has no provider turn to stop; the engine never starts it.
-    if (
-      request.type === "interrupt" &&
-      this.#deps.runEngine.claimSetupInterrupt(request.targetRunId)
-    ) {
-      return { from: "accepted", to: "applied" };
+    if (request.type === "interrupt") {
+      const claim = this.#deps.runEngine.claimStartingInterrupt(request.targetRunId);
+      // A run still in its setup gates has no provider turn to stop; the engine never starts it.
+      if (claim.status === "claimed") {
+        return { from: "accepted", to: "applied" };
+      }
+      // A stop never reaches a driver still starting the run: it waits for the start, and expires
+      // undispatched when the start failed and ended the run.
+      if (claim.status === "starting" && !(await claim.hasDriverRun)) {
+        return { from: "accepted", to: "expired" };
+      }
     }
     const result = await this.#deps
       .resolveDriver(request.targetRunId)

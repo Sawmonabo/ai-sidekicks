@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
@@ -18,6 +17,7 @@ import {
   readInterventionFormSettlement,
 } from "../form-settlement.js";
 import type { InterventionFormSettlement } from "../form-settlement.js";
+import { NotDeliveredLine } from "../../components/NotDeliveredLine.js";
 import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type {
   RunControlDispatcher,
@@ -84,7 +84,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     () => EMPTY_FORM,
   );
   const { body, localRefusal, pendingDispatch } = form;
-  // `Try again` submits the form, so a retry takes the same path, latch and checks as Send.
+  // `Retry` submits the form, so a retry takes the same path, latch and checks as Send.
   const formRef = useRef<HTMLFormElement>(null);
 
   const publishBody = useCallback(
@@ -185,20 +185,16 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           attempt={localRefusal}
         />
       )}
-      {settlement === undefined || settlement.kind === "landed" ? null : (
-        <InlineRefusal
-          code={settlement.notice.code}
-          detail={settlement.notice.detail}
-          action={
-            settlement.kind === "undelivered" ? (
-              <TryAgainButton
-                onPress={() => {
-                  formRef.current?.requestSubmit();
-                }}
-              />
-            ) : undefined
-          }
+      {settlement === undefined || settlement.kind === "landed" ? null : settlement.kind ===
+        "undelivered" ? (
+        <NotDeliveredLine
+          refusal={settlement.notice}
+          onRetry={() => {
+            formRef.current?.requestSubmit();
+          }}
         />
+      ) : (
+        <InlineRefusal code={settlement.notice.code} detail={settlement.notice.detail} />
       )}
       <div className="meridian-run-composer__actions">
         <button

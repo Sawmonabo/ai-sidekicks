@@ -176,7 +176,7 @@ Plan-012 implementation lands as a sequence of small PRs. Each PR exercises one 
     - `runtime-binding-store.ts` (Plan-003-owned module).
     - `RuntimeBindingRead` { runId } → { runId, driverName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/persistence-payloads.md §Plan-012 — Persistence And Recovery`.
     - `DriverResumeResult` discriminated union incl. `recoveryCondition: RecoveryCondition` ← `docs/architecture/contracts/provider-driver-payloads.md §Plan-003 — Provider Driver Contract (Internal Interface)`; [Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior), per [Spec-013 §In-Flight Receipts After A Restart](../specs/013-persistence-and-recovery.md#in-flight-receipts-after-a-restart).
-    - `RunFailureCategory` ∈ {provider failure, transport failure, local persistence failure, projection failure, refused} ← `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
+    - `RunFailureCategory` ∈ {provider failure, transport failure, local persistence failure, projection failure, refused, setup failure} ← `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
     - `command_receipts` in-flight predicate (`started_at IS NOT NULL AND completed_at IS NULL`) ← [Spec-013 §In-Flight Receipts After A Restart](../specs/013-persistence-and-recovery.md#in-flight-receipts-after-a-restart).
 
 - **T12.5 — The restart compare: resume position-compare, the read-only add, and the restart question (`run.recoveryResolve`).** Not built.

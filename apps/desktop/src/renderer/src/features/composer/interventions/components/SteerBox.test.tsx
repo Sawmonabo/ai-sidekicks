@@ -291,7 +291,7 @@ describe("the composer outlives its dispatch", () => {
 });
 
 describe("a steer the background service could not deliver", () => {
-  it("reads that it was not delivered, and Try again sends the same text again", async () => {
+  it("reads Not delivered · Retry, and Retry sends the same text again", async () => {
     let answers = 0;
     const failedThenApplied: ScriptedAnswer = () => {
       answers += 1;
@@ -310,11 +310,12 @@ describe("a steer the background service could not deliver", () => {
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
-    expect(container.textContent).toContain("This steer was not delivered.");
+    const line = container.querySelector(".meridian-composer__not-delivered");
+    expect(line?.textContent).toBe("Not delivered · Retry");
 
-    const tryAgain = within(container).getByRole("button", { name: "Try again" });
+    const retry = within(container).getByRole("button", { name: "Retry" });
     await act(async () => {
-      tryAgain.click();
+      retry.click();
     });
     expect(calls).toHaveLength(2);
     expect(calls[1]?.params).toMatchObject({ type: "steer", content: "stop editing that file" });

@@ -119,11 +119,13 @@ const RUN_FAILURE_CATEGORIES = [
   "local persistence failure",
   "projection failure",
   "refused",
+  "setup failure",
 ] as const;
 
 /**
  * Why a run failed: `refused` is a turn the provider's safety check refused with no other model
- * to take it. The values carry spaces because they are wire literals, not identifiers.
+ * to take it, and `setup failure` a setup gate that threw before the provider started the run.
+ * The values carry spaces because they are wire literals, not identifiers.
  */
 export type RunFailureCategory = (typeof RUN_FAILURE_CATEGORIES)[number];
 /** Parses a {@link RunFailureCategory}. */

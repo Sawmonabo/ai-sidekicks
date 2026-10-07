@@ -264,7 +264,8 @@ interface RunStateChangeEvent {
         origin: "provider";
       }
     | {
-        // A setup gate threw before the provider started the run, which ends it starting -> failed.
+        // A setup gate threw before the provider started the run, which ends it starting -> failed
+        // with failureCategory "setup failure".
         cause: "setup-failed";
         origin: "daemon";
         code?: string; // the gate's error code, such as "workspace.execution_root_unresolved"

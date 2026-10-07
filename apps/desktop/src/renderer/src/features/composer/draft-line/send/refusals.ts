@@ -26,7 +26,10 @@ export const COMPOSER_REFUSAL_CODES = [
 /** One composer refusal code, derived from `COMPOSER_REFUSAL_CODES`. */
 export type ComposerRefusalCode = (typeof COMPOSER_REFUSAL_CODES)[number];
 
-/** A message the background service took and could not deliver, which `Try again` sends again. */
+/** The words under a message or steer the background service took and could not deliver. */
+export const NOT_DELIVERED_DETAIL = "Not delivered";
+
+/** A message the background service took and could not deliver, which `Retry` sends again. */
 export interface UndeliveredMessageRefusal extends Refusal {
   readonly isUndelivered: true;
 }
@@ -45,12 +48,12 @@ export function unparseableIdentifier(): Refusal {
  * The refusal for an intervention the daemon answered and did not admit. Daemon-origin; the
  * code is the response's `rejectionReason` or `failureReason` when sent, else the lifecycle
  * state. The sentence speaks of the user's text, which the line still holds; a dispatch that
- * failed reads that the message was not delivered, which `Try again` sends again.
+ * failed reads `Not delivered`, which `Retry` sends again.
  */
 export function interventionNotApplied(response: InterventionRequestResponse): Refusal {
   if (response.state === "failed") {
     const undelivered: UndeliveredMessageRefusal = {
-      ...refuse(DAEMON_REFUSAL_ORIGIN, response.failureReason, "This message was not delivered."),
+      ...refuse(DAEMON_REFUSAL_ORIGIN, response.failureReason, NOT_DELIVERED_DETAIL),
       isUndelivered: true,
     };
     return undelivered;

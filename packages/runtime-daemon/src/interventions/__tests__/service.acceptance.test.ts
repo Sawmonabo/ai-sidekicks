@@ -339,6 +339,69 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(countTerminals(runId)).toBe(1);
   });
 
+  it("holds a stop that lands while the driver starts the run until the driver has it", async () => {
+    // A driver shaped like the real ones: it binds a run only once its start returns, and it
+    // refuses to stop a run it has not bound.
+    const boundRuns = new Set<RunId>();
+    answerDriver = (params) =>
+      boundRuns.has(params.targetRunId)
+        ? Promise.resolve(driverResult)
+        : Promise.reject(new Error("No live run to interrupt"));
+    const startsCalled = new Map<RunId, PromiseWithResolvers<void>>();
+    const startsReleased = new Map<RunId, PromiseWithResolvers<void>>();
+    const providerDriver = {
+      startRun: async (params: { readonly runId: RunId }) => {
+        startsCalled.get(params.runId)?.resolve();
+        await startsReleased.get(params.runId)?.promise;
+        boundRuns.add(params.runId);
+      },
+    };
+    const origin = { actor: DeviceIdSchema.parse(randomUUID()) };
+    const countAccepted = () =>
+      readSessionEventTypes().filter((type) => type === "intervention.accepted").length;
+    const startAndStop = async (runId: RunId) => {
+      startsCalled.set(runId, Promise.withResolvers<void>());
+      startsReleased.set(runId, Promise.withResolvers<void>());
+      const started = fixture.engine
+        .startRun({
+          runId,
+          queueItem: makeQueueItem(),
+          provider: "claude",
+          driver: providerDriver,
+          driverParams: { agentConfig: {} },
+          executionPosture: TEST_EXECUTION_POSTURE,
+        })
+        .catch((error: unknown) => error);
+      await startsCalled.get(runId)?.promise;
+      const acceptedBefore = countAccepted();
+      const stop = service.applyIntervention(interrupt(runId, readVersion(runId)), origin);
+      // Released only once the stop is accepted and waiting, inside the start's window.
+      while (countAccepted() === acceptedBefore) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      return { started, stop };
+    };
+
+    const bound = await fixture.queueRun();
+    const boundStart = await startAndStop(bound);
+    startsReleased.get(bound)?.resolve();
+    expect(await boundStart.stop).toMatchObject({
+      interventionType: "interrupt",
+      state: "applied",
+    });
+    await boundStart.started;
+    expect(fixture.runs.getRun(bound)?.state).toBe("interrupted");
+    expect(driverCalls.map((params) => params.targetRunId)).toEqual([bound]);
+
+    const unstarted = await fixture.queueRun();
+    const unstartedStart = await startAndStop(unstarted);
+    startsReleased.get(unstarted)?.reject(new Error("spawn claude ENOENT"));
+    expect(await unstartedStart.stop).toMatchObject({ state: "expired" });
+    await unstartedStart.started;
+    expect(fixture.runs.getRun(unstarted)?.state).toBe("failed");
+    expect(driverCalls).toHaveLength(1);
+  });
+
   it("dispatches a stop past a stuck steer, keeps the steer's verdict, and expires the steer behind it", async () => {
     const runId = await fixture.runThrough(["starting", "running"]);
     const runningVersion = readVersion(runId);

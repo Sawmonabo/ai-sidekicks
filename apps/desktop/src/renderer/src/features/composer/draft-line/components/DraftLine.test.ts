@@ -113,7 +113,7 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
     expect(refusal?.textContent).toContain("still in the line");
   });
 
-  it("reads an undelivered message, and Try again sends it again and clears the line", async () => {
+  it("reads Not delivered · Retry, and Retry sends the message again and clears the line", async () => {
     let answers = 0;
     const bar = mountAddressable(
       sendCallsAnswering(async (call) => {
@@ -139,15 +139,15 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
     });
 
     expect(bar.line().value).toBe("keep going on the parser");
-    const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
-    expect(refusal?.textContent).toContain("This message was not delivered.");
-    const tryAgain = refusal?.querySelector(".meridian-try-again");
-    expect(tryAgain?.textContent).toBe("Try again");
+    const line = bar.result.container.querySelector(".meridian-composer__not-delivered");
+    expect(line?.textContent).toBe("Not delivered · Retry");
+    const retry = line?.querySelector(".meridian-try-again");
     await act(async () => {
-      (tryAgain as HTMLButtonElement).click();
+      (retry as HTMLButtonElement).click();
     });
     expect(answers).toBe(2);
     expect(bar.line().value).toBe("");
+    expect(bar.result.container.querySelector(".meridian-composer__not-delivered")).toBeNull();
   });
 
   it("negative control: the same send against an applied answer clears the line", async () => {

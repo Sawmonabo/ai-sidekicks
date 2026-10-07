@@ -2,6 +2,7 @@
 // settled state become three form outcomes. No JSX, so each arm is testable directly.
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { NOT_DELIVERED_DETAIL } from "../draft-line/send/refusals.js";
 import type { RunControlOutcome } from "../run/controls/services/dispatch.js";
 import type { RunControlAdmissionRefusal } from "../run/controls/hooks/useRunControlDispatch.js";
 
@@ -10,7 +11,7 @@ export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
 
 /**
  * What one settled dispatch means to the form. A refusal is retried by confirming again, and an
- * undelivered steer also by its `Try again`; an intervention recorded and not yet applied would
+ * undelivered steer also by its `Retry`; an intervention recorded and not yet applied would
  * be doubled by a second confirm, so that arm latches the confirm and leaves cancel as the way
  * out.
  */
@@ -53,7 +54,7 @@ export function readInterventionFormSettlement(
         notice: refuse(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
           response.failureReason,
-          "This steer was not delivered.",
+          NOT_DELIVERED_DETAIL,
         ),
       };
     case "expired":

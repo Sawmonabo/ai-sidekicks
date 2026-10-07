@@ -128,6 +128,7 @@ describe("run engine", () => {
           runVersion: 2,
           previousState: "starting",
           newState: "failed",
+          failureCategory: "setup failure",
           failureCause: {
             cause: "setup-failed",
             origin: "daemon",
@@ -169,8 +170,8 @@ describe("run engine", () => {
         await new Promise((resolve) => setImmediate(resolve));
       }
 
-      expect(fixture.engine.claimSetupInterrupt(passing)).toBe(true);
-      expect(fixture.engine.claimSetupInterrupt(throwing)).toBe(true);
+      expect(fixture.engine.claimStartingInterrupt(passing)).toEqual({ status: "claimed" });
+      expect(fixture.engine.claimStartingInterrupt(throwing)).toEqual({ status: "claimed" });
       gates.get(passing)?.resolve();
       const gateError = new Error("git worktree add failed");
       gates.get(throwing)?.reject(gateError);
@@ -180,7 +181,7 @@ describe("run engine", () => {
       expect(driver.startedRuns).toEqual([]);
       // The interrupt that claimed each run ends it; the gate's throw does not.
       expect(fixture.runs.getRun(throwing)?.state).toBe("starting");
-      expect(fixture.engine.claimSetupInterrupt(passing)).toBe(false);
+      expect(fixture.engine.claimStartingInterrupt(passing)).toEqual({ status: "driver" });
     });
 
     it("keeps the interrupt's end when a gate throws after an interrupt landed", async () => {

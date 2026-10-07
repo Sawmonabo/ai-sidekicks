@@ -24,12 +24,12 @@ export interface RequestedIntervention {
 
 /**
  * One move of an intervention's row. Each leaves exactly the state its `from` names; only a
- * `rejected` or `failed` row carries a reason and only a `degraded` one a fallback. Only a request
- * expires: once dispatched, the driver's verdict stands.
+ * `rejected` or `failed` row carries a reason and only a `degraded` one a fallback. A request
+ * expires only before dispatch: once dispatched, the driver's verdict stands.
  */
 export type InterventionTransition =
   | { readonly from: "requested"; readonly to: "accepted" }
-  | { readonly from: "requested"; readonly to: "expired" }
+  | { readonly from: "requested" | "accepted"; readonly to: "expired" }
   | { readonly from: "requested" | "accepted"; readonly to: "rejected"; readonly reason: string }
   | { readonly from: "accepted"; readonly to: "failed"; readonly reason: string }
   | { readonly from: "accepted"; readonly to: "applied" }

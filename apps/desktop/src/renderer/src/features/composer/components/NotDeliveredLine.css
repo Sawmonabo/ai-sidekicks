@@ -1,0 +1,8 @@
+/* A delivery that failed reads red, with its `Retry` at the line's right end. */
+
+.meridian-composer__not-delivered {
+  margin: var(--meridian-space-2) 0 0;
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-sm);
+  text-align: end;
+}

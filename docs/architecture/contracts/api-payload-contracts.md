@@ -169,7 +169,8 @@ type RunFailureCategory =
   | "transport failure"
   | "local persistence failure"
   | "projection failure"
-  | "refused"; // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run Lifecycle)
+  | "refused" // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run Lifecycle)
+  | "setup failure"; // a setup gate threw before the provider started the run (Spec-005 §Run Lifecycle)
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
 type InterventionType = "steer" | "interrupt" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the first two, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
