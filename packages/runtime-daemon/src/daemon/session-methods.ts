@@ -183,7 +183,11 @@ export function registerSessionMethods(
   registerSessionTagMethods(registry, { tags: new SessionTagService(database) });
   registerSessionSearch(registry, { sessionSearch: new SessionSearchService(database.reader) });
   registerSessionFileSearch(registry, {
-    fileSearch: new FileSearchService({ reader: database.reader, git }),
+    fileSearch: new FileSearchService({
+      reader: database.reader,
+      git,
+      writeServiceLog: deps.writeServiceLog,
+    }),
   });
   registerTranscriptSearch(registry, {
     transcriptSearch: new TranscriptSearchService(database.reader),

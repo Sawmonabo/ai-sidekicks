@@ -16,6 +16,7 @@ import {
   type SessionFileSearchResponse,
 } from "@ai-sidekicks/contracts/session/methods";
 
+import type { ServiceLogWriter } from "../../../daemon/service-log.js";
 import type { GitCommand } from "../../../git/process.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
@@ -42,6 +43,8 @@ export interface FileSearchServiceDeps {
   readonly reader: Database;
   /** The daemon's hook-neutralized git entry point. */
   readonly git: GitCommand;
+  /** Where a rules file the listing could not read is named. */
+  readonly writeServiceLog: ServiceLogWriter;
 }
 
 interface RankedPath {
@@ -54,11 +57,13 @@ interface RankedPath {
 /** Answers `session.fileSearch` over the session's working folder. */
 export class FileSearchService {
   readonly #git: GitCommand;
+  readonly #writeServiceLog: ServiceLogWriter;
   readonly #workingFolder: Statement<[string], { readonly fs_root: string }>;
   readonly #sessionExists: Statement<[string], unknown>;
 
   constructor(deps: FileSearchServiceDeps) {
     this.#git = deps.git;
+    this.#writeServiceLog = deps.writeServiceLog;
     this.#workingFolder = deps.reader.prepare(WORKING_FOLDER_SQL);
     this.#sessionExists = deps.reader.prepare(SESSION_EXISTS_SQL);
   }
@@ -82,7 +87,7 @@ export class FileSearchService {
         { code: SESSION_WORKING_FOLDER_UNAVAILABLE_CODE, detail: { sessionId: request.sessionId } },
       );
     }
-    const listedPaths = await listWorkingFolder(workingFolder, this.#git);
+    const listedPaths = await listWorkingFolder(workingFolder, this.#git, this.#writeServiceLog);
     const rankedPaths = rankPaths(listedPaths, request.query);
     return {
       paths: await keepContainedPaths(workingFolder, rankedPaths),

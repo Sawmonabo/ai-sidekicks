@@ -1,7 +1,7 @@
 // The `@` file search over a real folder on disk: what it keeps, what it drops, and how a failed
 // read reaches the caller.
 
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,9 @@ import { FileSearchService } from "../service.js";
 
 const TIMESTAMP = "2026-10-06T00:00:00.000Z";
 const gitCommand: GitCommand = (argv) => runGitWithExecFile(argv, { timeoutMs: 10_000 });
+const writeServiceLog = (line: string): void => {
+  throw new Error(`unexpected service log line: ${line}`);
+};
 
 describe("session.fileSearch", () => {
   let scratch: string;
@@ -75,7 +78,11 @@ describe("session.fileSearch", () => {
     if (isGit) {
       await gitCommand(["-C", workingFolder, "init", "--quiet"]);
     }
-    const fileSearch = new FileSearchService({ reader: database, git: gitCommand });
+    const fileSearch = new FileSearchService({
+      reader: database,
+      git: gitCommand,
+      writeServiceLog,
+    });
 
     const response = await fileSearch.search({ sessionId, query: "billing" });
 
@@ -91,7 +98,11 @@ describe("session.fileSearch", () => {
   });
 
   it("refuses an unknown session, and fails rather than answering empty with no folder", async () => {
-    const fileSearch = new FileSearchService({ reader: database, git: gitCommand });
+    const fileSearch = new FileSearchService({
+      reader: database,
+      git: gitCommand,
+      writeServiceLog,
+    });
 
     await expect(fileSearch.search({ sessionId: sessionIdOf(9), query: "" })).rejects.toThrow(
       SessionNotFoundError,
@@ -127,34 +138,90 @@ describe("listWorkingFolder", () => {
       "pkg/sub/local.ts": "",
       "pkg/sub/deeper.log": "",
       "other/secret.txt": "",
+      // Git reads no rules from a folder named .gitignore or through a link, and lists both.
+      "odd/.gitignore/inner.ts": "",
+      "linked-rules.txt": "hidden.ts\n",
+      "linked/hidden.ts": "",
     };
     try {
       for (const [path, content] of Object.entries(files)) {
         await mkdir(join(folder, path, ".."), { recursive: true });
         await writeFile(join(folder, path), content);
       }
+      await symlink(join(folder, "linked-rules.txt"), join(folder, "linked", ".gitignore"));
       // A folder named .git that is no repository leaves the folder outside git.
       await mkdir(join(folder, ".git"));
       await writeFile(join(folder, ".git", "stray.ts"), "");
 
-      const walked = (await listWorkingFolder(folder, repositoryGit)).sort();
+      const walkLog: string[] = [];
+      const walked = (
+        await listWorkingFolder(folder, repositoryGit, (line) => {
+          walkLog.push(line);
+        })
+      ).sort();
       await rm(join(folder, ".git"), { recursive: true });
       await repositoryGit(["-C", folder, "init", "--quiet"]);
-      const listedByGit = (await listWorkingFolder(folder, repositoryGit)).sort();
+      const gitLog: string[] = [];
+      const listedByGit = (
+        await listWorkingFolder(folder, repositoryGit, (line) => {
+          gitLog.push(line);
+        })
+      ).sort();
 
       expect(walked).toEqual([
         ".gitignore",
         "keep.ts",
+        "linked-rules.txt",
+        "linked/.gitignore",
+        "linked/hidden.ts",
+        "odd/.gitignore/inner.ts",
         "other/secret.txt",
         "pkg/.gitignore",
         "pkg/important.log",
         "pkg/sub/local.ts",
       ]);
       expect(walked).toEqual(listedByGit);
+      // Each names the linked rules file it read no rules through, as git warns of it.
+      for (const log of [walkLog, gitLog]) {
+        expect(log).toHaveLength(1);
+        expect(log[0]).toContain("linked/.gitignore");
+      }
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    ["outside git", false],
+    ["inside a git working tree", true],
+  ])(
+    "lists past a .gitignore it cannot read, its rules unread as in git, and logs it, %s",
+    async (_label, isGit) => {
+      const folder = await realpath(await mkdtemp(join(tmpdir(), "file-listing-")));
+      const rulesPath = join(folder, "locked", ".gitignore");
+      try {
+        await mkdir(join(folder, "locked"));
+        await writeFile(join(folder, "locked", "a.log"), "");
+        await writeFile(rulesPath, "*.log\n");
+        await chmod(rulesPath, 0o000);
+        if (isGit) {
+          await repositoryGit(["-C", folder, "init", "--quiet"]);
+        }
+        const logged: string[] = [];
+
+        const listed = await listWorkingFolder(folder, repositoryGit, (line) => {
+          logged.push(line);
+        });
+
+        expect(listed.sort()).toEqual(["locked/.gitignore", "locked/a.log"]);
+        expect(logged).toHaveLength(1);
+        expect(logged[0]).toContain("locked/.gitignore");
+      } finally {
+        await chmod(rulesPath, 0o644);
+        await rm(folder, { recursive: true, force: true });
+      }
+    },
+  );
 
   const busy = Object.assign(new Error("resource temporarily unavailable"), { code: "EAGAIN" });
 
@@ -164,18 +231,21 @@ describe("listWorkingFolder", () => {
       .mockRejectedValueOnce(busy)
       .mockResolvedValueOnce({ stdout: Buffer.from("a.ts\0b.ts\0"), stderr: "" });
 
-    await expect(listWorkingFolder("/work", git)).resolves.toEqual(["a.ts", "b.ts"]);
+    await expect(listWorkingFolder("/work", git, writeServiceLog)).resolves.toEqual([
+      "a.ts",
+      "b.ts",
+    ]);
     expect(git).toHaveBeenCalledTimes(2);
   });
 
   it("surfaces a second retryable failure as the failed read, and retries no other", async () => {
     const twiceBusy = vi.fn<GitCommand>().mockRejectedValue(busy);
-    await expect(listWorkingFolder("/work", twiceBusy)).rejects.toBe(busy);
+    await expect(listWorkingFolder("/work", twiceBusy, writeServiceLog)).rejects.toBe(busy);
     expect(twiceBusy).toHaveBeenCalledTimes(2);
 
     const corrupt = Object.assign(new Error("index file corrupt"), { code: 128, stderr: "fatal" });
     const failing = vi.fn<GitCommand>().mockRejectedValue(corrupt);
-    await expect(listWorkingFolder("/work", failing)).rejects.toBe(corrupt);
+    await expect(listWorkingFolder("/work", failing, writeServiceLog)).rejects.toBe(corrupt);
     expect(failing).toHaveBeenCalledTimes(1);
   });
 });
