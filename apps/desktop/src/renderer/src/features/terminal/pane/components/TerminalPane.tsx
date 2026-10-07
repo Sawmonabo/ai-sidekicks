@@ -1,4 +1,4 @@
-// The terminal pane's registered body: the session's shared shell inside the pane frame.
+// The terminal pane's registered body: the shell it shows, inside the pane frame.
 //
 // Its one decision is whether a session was addressed, and with none it draws nothing inside the
 // frame; everything that needs a store is in `SessionTerminalPane.tsx`, because store hooks may

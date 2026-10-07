@@ -6,9 +6,9 @@
 // against contexts ever created, not terminals drawing now: a count that fell on teardown
 // would let a churning page mint contexts without bound.
 //
-// Allocation is per context, not per terminal id: a terminal id is the session's id and
-// several panes can be open on one session, each with its own addon and context. `acquire`
-// mints a lease per context; `release` and `reclaim` require it back.
+// Allocation is per context, not per terminal id: several panes can show one shell, each with its
+// own addon and context. `acquire` mints a lease per context; `release` and `reclaim` require it
+// back.
 //
 // `release` says a terminal stopped drawing, and the context still counts. `reclaim` says the
 // context does not exist (construction threw, or the host lost it) and gives the allowance

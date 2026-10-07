@@ -2,7 +2,7 @@
 
 import type { PaneRegistry } from "#renderer/registries/panes/registry.js";
 
-/** Registers the terminal pane kind; a session has one terminal pane, so a second claim errors. */
+/** Registers the terminal pane kind; a second claim on it by another owner errors. */
 export function registerTerminalPane(registry: PaneRegistry): void {
   registry.register({
     kind: "terminal",
