@@ -100,8 +100,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // environment because the test file is the driver and the code under test runs in another
     // process. Each file is named for the defect it reproduces, not the module it touches.
     //
-    // Playwright's auto-retrying `expect` is not used: its web-assertion timeouts come from a
-    // test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
+    // Playwright's auto-retrying `expect` is not used: it ships only with Playwright's runner
+    // (`playwright/test`), which these tiers never load. Waiting is explicit (`locator.waitFor`,
     // `expect.poll`), asserting is Vitest's, and every wait is handed
     // `bodyAllowance.boundedMs(<its own bound>)` so the first wait that cannot fit names its step.
     //
