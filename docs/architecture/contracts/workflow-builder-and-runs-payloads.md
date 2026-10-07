@@ -306,7 +306,7 @@ type WorkflowSubscribeNotification =
 // inspector and an agent all read ONE list. One declarative description drives the parameter form, the
 // canvas ports, the palette entry and the validation; everything that renders a node is a generic renderer
 // over it.
-interface WorkflowKindListRequest {}
+// The request is `EmptyPayload`: it takes no members.
 interface WorkflowHandleSpec {
   id: string; // encodes the direction, the type and the index, so a handle is addressable without a lookup
   label: string;
@@ -588,7 +588,7 @@ interface WorkflowHumanFormReadResponse {
 // parked on a spent provider account, folded into one entry per account with the count of runs it
 // holds, because the entry is keyed by the account and never the run; nobody can answer those, so Next waiting never
 // opens one. What it lists moves with workflow.subscribe's run notifications.
-interface WorkflowRunAttentionListRequest {}
+// The request is `EmptyPayload`: it takes no members.
 interface WorkflowRunAttentionListResponse {
   // Every account line first, then the run lines; no account line follows a run line.
   entries: WorkflowRunAttentionEntry[];
@@ -630,7 +630,7 @@ interface WorkflowWebhookTokenRotateResponse {
 // one port every workflow's address uses, set in Settings, and whether it listens. It does not listen when
 // the port was already held at daemon start (`port_taken`); nothing moves to another port, and every
 // webhook trigger shows that reason in place of its address.
-interface WorkflowWebhookListenerReadRequest {}
+// The request is `EmptyPayload`: it takes no members.
 interface WorkflowWebhookListenerReadResponse {
   port: number; // 1 to 65535
   state: "listening" | "port_taken";
