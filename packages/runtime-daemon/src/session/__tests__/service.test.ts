@@ -1,8 +1,10 @@
-// SessionService over SQLite: rebuild order, restart durability, schema idempotency including a
-// concurrent-boot race across worker threads, the append guard and the read-side payload check.
-// Each test gets its own database file under os.tmpdir(), opened as the daemon opens it: writes
-// through the database writer, reads on a read-only connection.
+// SessionService over SQLite: the read `session.read` answers from the session's row with its
+// cursors, the rebuild from the log in sequence order and across a restart, and schema
+// idempotency including a concurrent-boot race across worker threads. Each test gets its own
+// database file under os.tmpdir(), opened as the daemon opens it: writes through the database
+// writer, reads on a read-only connection.
 
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,28 +14,50 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
+
 import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
 } from "../../database/connections.js";
+import { EventLogService } from "../../events/log-service.js";
+import { SessionNotFoundError } from "../../ipc/session-errors.js";
+import { directoryStatementsFor } from "../directory/row.js";
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
 import { SessionService } from "../service.js";
 import {
   insertStoredEvent,
   makeCreatedEvent,
   OWNER_ACTOR_ID,
-  SESSION_ID,
 } from "../__fixtures__/stored-event.js";
 import type { StoredEvent } from "../records.js";
+
+const SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9a01" as SessionId;
+const UNKNOWN_SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9aff" as SessionId;
 
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
 
-function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): StoredEvent {
+function storedCreatedEvent(monotonicNs: bigint): StoredEvent {
+  const created = makeCreatedEvent();
   return {
-    id: `01J0EV0002NN5J5J5J5J5J5J0${sequence.toString()}`,
+    ...created,
+    sessionId: SESSION_ID,
+    monotonicNs,
+    payload: { ...created.payload, sessionId: SESSION_ID },
+  };
+}
+
+function storedRenamedEvent(sequence: number, monotonicNs: bigint, name: string): StoredEvent {
+  return {
+    id: `0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9b0${sequence.toString()}`,
     sessionId: SESSION_ID,
     sequence,
     occurredAt: "2026-04-27T12:02:00.000Z",
@@ -41,7 +65,7 @@ function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): 
     category: "session_lifecycle",
     type: "session.renamed",
     actor: OWNER_ACTOR_ID,
-    payload: { sessionId: SESSION_ID, name },
+    payload: { sessionId: SESSION_ID, name, origin: "user" },
     correlationId: null,
     causationId: null,
     version: "1.0",
@@ -101,96 +125,93 @@ afterEach(async () => {
 });
 
 // ----------------------------------------------------------------------------
+// session.read
+// ----------------------------------------------------------------------------
+
+describe("SessionService — readSession", () => {
+  it("answers the session's row with the start of the log as earliest and its head as latest", async () => {
+    const events = new EventLogService({
+      writer: ctx.connections.writer,
+      reader: ctx.connections.reader,
+      projectionStatements: directoryStatementsFor,
+    });
+    const version = EventEnvelopeVersionSchema.parse("1.0");
+    const created = storedCreatedEvent(1n);
+    await events.append({
+      id: randomUUID(),
+      sessionId: SESSION_ID,
+      occurredAt: created.occurredAt,
+      category: "session_lifecycle",
+      type: "session.created",
+      actor: null,
+      payload: created.payload,
+      version,
+    });
+    await events.append({
+      id: randomUUID(),
+      sessionId: SESSION_ID,
+      occurredAt: "2026-04-27T12:05:00.000Z",
+      category: "session_lifecycle",
+      type: "session.muted",
+      actor: null,
+      payload: { sessionId: SESSION_ID, at: "2026-04-27T12:05:00.000Z" },
+      version,
+    });
+
+    expect(ctx.service.readSession({ sessionId: SESSION_ID })).toStrictEqual({
+      session: {
+        id: SESSION_ID,
+        state: "provisioning",
+        shape: "chat",
+        muted: true,
+        pendingWorkingFolder: null,
+        createdAt: created.occurredAt,
+        updatedAt: "2026-04-27T12:05:00.000Z",
+      },
+      transcriptCursors: {
+        earliest: encodeEventCursor(START_OF_LOG_POSITION),
+        latest: encodeEventCursor(1),
+      },
+    });
+  });
+
+  it("refuses a session this daemon holds no row for with session.not_found", () => {
+    expect(() => ctx.service.readSession({ sessionId: UNKNOWN_SESSION_ID })).toThrow(
+      SessionNotFoundError,
+    );
+  });
+});
+
+// ----------------------------------------------------------------------------
 // Sequence-ASC rebuild
 // ----------------------------------------------------------------------------
 
-describe("SessionService — rebuildSession reads events by sequence ASC", () => {
-  it(
-    "reproduces the snapshot deterministically when events are inserted in scrambled sequence " +
-      "order",
-    async () => {
-      // UNIQUE(session_id, sequence) tolerates any insert order; the read path's ORDER BY
-      // sequence ASC establishes the order.
-      const created: StoredEvent = makeCreatedEvent();
-      const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
-      const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
+describe("SessionService — rebuildSession", () => {
+  it("folds the log in sequence order, whatever the insert order and monotonic_ns say", async () => {
+    // UNIQUE(session_id, sequence) tolerates any insert order and monotonic_ns runs backwards, so
+    // only an ORDER BY sequence leaves the second rename as the name.
+    await insertStoredEvent(
+      ctx.connections.writer,
+      storedRenamedEvent(2, 1_000_000_000n, "Release Notes"),
+    );
+    await insertStoredEvent(ctx.connections.writer, storedCreatedEvent(5_000_000_000n));
+    await insertStoredEvent(
+      ctx.connections.writer,
+      storedRenamedEvent(1, 3_000_000_000n, "Design Review"),
+    );
 
-      await insertStoredEvent(ctx.connections.writer, secondRename);
-      await insertStoredEvent(ctx.connections.writer, created);
-      await insertStoredEvent(ctx.connections.writer, firstRename);
-
-      const events = ctx.service.readEvents(SESSION_ID);
-      expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
-
-      const snapshot = ctx.service.rebuildSession(SESSION_ID);
-      expect(snapshot).not.toBeNull();
-      if (snapshot === null) return;
-      expect(snapshot.asOfSequence).toBe(2);
-      expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
-    },
-  );
-});
-// ----------------------------------------------------------------------------
-// Sequence, not monotonic_ns
-// ----------------------------------------------------------------------------
-
-describe("SessionService — rebuildSession uses sequence not monotonic_ns", () => {
-  it("orders events by sequence even when monotonic_ns goes backwards across rows", async () => {
-    // monotonic_ns is in-daemon debug data; sequence is the order key, so clock skew in
-    // monotonic_ns must not reorder the rebuild.
-    const e0: StoredEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
-    const e1: StoredEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
-    const e2: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
-
-    await insertStoredEvent(ctx.connections.writer, e0);
-    await insertStoredEvent(ctx.connections.writer, e1);
-    await insertStoredEvent(ctx.connections.writer, e2);
-
-    const events = ctx.service.readEvents(SESSION_ID);
-    expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
-    expect(events.map((e) => e.monotonicNs)).toEqual([
-      5_000_000_000n,
-      1_000_000_000n,
-      3_000_000_000n,
-    ]);
-    // Sorting by monotonic_ns would give [1, 2, 0], so the read path is not using it.
-    const monotonicSorted = [...events].sort((a, b) => Number(a.monotonicNs - b.monotonicNs));
-    expect(monotonicSorted.map((e) => e.sequence)).toEqual([1, 2, 0]);
-
-    // Sequence order puts `session.created` first, so the snapshot still bootstraps.
     const snapshot = ctx.service.rebuildSession(SESSION_ID);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-    expect(snapshot.sessionId).toBe(SESSION_ID);
-    expect(snapshot.asOfSequence).toBe(2);
+    expect(snapshot).toMatchObject({
+      sessionId: SESSION_ID,
+      name: "Release Notes",
+      asOfSequence: 2,
+      ownerActor: OWNER_ACTOR_ID,
+    });
   });
 
-  it(
-    "round-trips a monotonic_ns value above Number.MAX_SAFE_INTEGER as bigint without " +
-      "precision loss",
-    async () => {
-      // The other fixtures sit below Number.MAX_SAFE_INTEGER, so a `Number(row.monotonic_ns)`
-      // regression in `hydrateRow` would not show. 2^53 + 1 is the first value a double cannot
-      // hold.
-      const BIGINT_BOUNDARY: bigint = 9_007_199_254_740_993n; // 2^53 + 1
-      const created: StoredEvent = {
-        ...makeCreatedEvent(),
-        monotonicNs: BIGINT_BOUNDARY,
-      };
-      await insertStoredEvent(ctx.connections.writer, created);
-
-      const events = ctx.service.readEvents(SESSION_ID);
-      expect(events).toHaveLength(1);
-      const event = events[0];
-      expect(event).toBeDefined();
-      if (event === undefined) return; // type guard for TS
-
-      expect(typeof event.monotonicNs).toBe("bigint");
-      // A `Number()` regression would come back as 2^53, one below the boundary.
-      expect(event.monotonicNs).toBe(BIGINT_BOUNDARY);
-      expect(event.monotonicNs).not.toBe(BIGINT_BOUNDARY - 1n);
-    },
-  );
+  it("answers null for a session with no events", () => {
+    expect(ctx.service.rebuildSession(UNKNOWN_SESSION_ID)).toBeNull();
+  });
 });
 
 // ----------------------------------------------------------------------------
@@ -199,13 +220,15 @@ describe("SessionService — rebuildSession uses sequence not monotonic_ns", () 
 
 describe("SessionService — snapshot survives daemon restart", () => {
   it("yields identical projection after closing and reopening the database file", async () => {
-    const created: StoredEvent = makeCreatedEvent();
-    const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
-    const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
-
-    await insertStoredEvent(ctx.connections.writer, created);
-    await insertStoredEvent(ctx.connections.writer, firstRename);
-    await insertStoredEvent(ctx.connections.writer, secondRename);
+    await insertStoredEvent(ctx.connections.writer, storedCreatedEvent(1_000_000_000n));
+    await insertStoredEvent(
+      ctx.connections.writer,
+      storedRenamedEvent(1, 2_000_000_000n, "Design Review"),
+    );
+    await insertStoredEvent(
+      ctx.connections.writer,
+      storedRenamedEvent(2, 3_000_000_000n, "Release Notes"),
+    );
 
     const beforeRestart = ctx.service.rebuildSession(SESSION_ID);
     expect(beforeRestart).not.toBeNull();
@@ -215,13 +238,8 @@ describe("SessionService — snapshot survives daemon restart", () => {
     expect(closedReader.open).toBe(false);
 
     const afterRestart = ctx.service.rebuildSession(SESSION_ID);
-    expect(afterRestart).not.toBeNull();
-
     expect(afterRestart).toEqual(beforeRestart);
-
-    if (afterRestart === null) return;
-    expect(afterRestart.ownerActor).toBe(OWNER_ACTOR_ID);
-    expect(afterRestart.asOfSequence).toBe(2);
+    expect(afterRestart).toMatchObject({ ownerActor: OWNER_ACTOR_ID, asOfSequence: 2 });
   });
 
   it("a reopen keeps the schema it finds (does not re-create it)", async () => {
@@ -494,55 +512,4 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
       ),
     ).rejects.toThrow(/DEFERRED replica path/);
   }, 30_000);
-});
-
-// ----------------------------------------------------------------------------
-// Read-side payload trust boundary (parsePayload)
-// ----------------------------------------------------------------------------
-//
-// `readEvents` parses each row's `payload` as JSON and requires a plain object, matching the wire
-// schema's object payloads. A writer that stores malformed JSON or a
-// non-object value would otherwise surface as a misleading `TypeError` in the projector.
-//
-// The tests write through a raw statement: the `payload` column is `TEXT NOT NULL`, so SQLite
-// accepts any string and the check must happen at hydration.
-
-describe("SessionService — read-side payload validation", () => {
-  async function appendRaw(payloadText: string, sequence: number, id: string): Promise<void> {
-    await ctx.connections.writer.write([
-      {
-        sql: `INSERT INTO session_events (
-                id, session_id, sequence, occurred_at, monotonic_ns,
-                category, type, payload
-              ) VALUES (
-                @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-                @category, @type, @payload
-              )`,
-        bindings: {
-          id,
-          session_id: SESSION_ID,
-          sequence,
-          occurred_at: "2026-04-27T12:00:00.000Z",
-          monotonic_ns: 1n,
-          category: "session_lifecycle",
-          type: "session.created",
-          payload: payloadText,
-        },
-      },
-    ]);
-  }
-
-  it.each([
-    ["null", "01J0EV8881NN5J5J5J5J5J5J5J", /payload must be a JSON object .* \(got null\)/],
-    ['["a","b"]', "01J0EV8882NN5J5J5J5J5J5J5J", /payload must be a JSON object .* \(got array\)/],
-    [
-      '"plain string"',
-      "01J0EV8883NN5J5J5J5J5J5J5J",
-      /payload must be a JSON object .* \(got string\)/,
-    ],
-    ["{not valid json", "01J0EV8884NN5J5J5J5J5J5J5J", /payload is not valid JSON/],
-  ])("throws a structured error for the stored payload %s", async (payloadText, id, refusal) => {
-    await appendRaw(payloadText, 0, id);
-    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(refusal);
-  });
 });

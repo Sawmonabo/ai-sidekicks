@@ -8,17 +8,18 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
 import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { WriteRefusedError } from "../../../database/writer.js";
-import { rebuildSession } from "../../projector.js";
 import type { LiveRunActivity, SessionDirectoryRow } from "../../records.js";
 import { SessionService } from "../../service.js";
 import { directoryStatementsFor } from "../row.js";
 
-const SESSION_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
+const SESSION_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10" as SessionId;
 const PARENT_SESSION_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
 const SCRATCH_DEFINITION_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
 const RUN_A = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8fa1";
@@ -129,7 +130,7 @@ function readStoredRow(sessionId: string): SessionDirectoryRow {
 
 // The stored row, checked against a rebuild over the stored log; returns the rebuilt activity.
 function expectRowToMatchRebuild(): string {
-  const record = rebuildSession(sessions.readEvents(SESSION_ID));
+  const record = sessions.rebuildSession(SESSION_ID);
   if (record === null) throw new Error("the session has no events");
   const { activity, asOfSequence: _asOfSequence, ownerActor: _ownerActor, ...rebuilt } = record;
   expect(readStoredRow(SESSION_ID)).toEqual(rebuilt);
@@ -300,6 +301,6 @@ describe("the session directory row against a rebuild from the log", () => {
         at(0),
       ),
     ).rejects.toBeInstanceOf(WriteRefusedError);
-    expect(sessions.readEvents(SESSION_ID)).toEqual([]);
+    expect(sessions.rebuildSession(SESSION_ID)).toBeNull();
   });
 });

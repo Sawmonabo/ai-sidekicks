@@ -1,10 +1,17 @@
 // Pure fold from a session's event stream to a `DaemonSessionRecord`. It does no I/O; the
 // caller supplies events in `sequence ASC` order and the projector trusts that order. The
 // directory columns come from the same table the event's own write applies to the `sessions` row.
+// It reads only members a hydrated envelope and a stored row both carry, so either can be folded.
 
 import { foldDirectoryRow, openDirectoryRow } from "./directory/row.js";
 import { sessionActivityOf } from "./directory/run-activity.js";
 import type { DaemonSessionRecord, SessionDirectoryRow, StoredEvent } from "./records.js";
+
+// The members of one stored event the rebuild reads.
+type RebuildEvent = Pick<
+  StoredEvent,
+  "sessionId" | "sequence" | "occurredAt" | "category" | "type" | "payload"
+> & { readonly actor?: string | null | undefined };
 
 /**
  * Folds a session's events into a record, or returns `null` for an empty list, since a
@@ -15,11 +22,11 @@ import type { DaemonSessionRecord, SessionDirectoryRow, StoredEvent } from "./re
  * from it would present partial state as complete. Throws for a later `session.created`, which
  * would replace the session mid-stream.
  */
-export function rebuildSession(events: ReadonlyArray<StoredEvent>): DaemonSessionRecord | null {
+export function rebuildSession(events: ReadonlyArray<RebuildEvent>): DaemonSessionRecord | null {
   if (events.length === 0) {
     return null;
   }
-  const first: StoredEvent = events[0]!;
+  const first: RebuildEvent = events[0]!;
   if (first.type !== "session.created") {
     throw new Error(
       `rebuildSession: expected first event type 'session.created', ` +
@@ -45,9 +52,11 @@ export function rebuildSession(events: ReadonlyArray<StoredEvent>): DaemonSessio
   };
 }
 
-// The owner is the envelope's `actor`. A system-emitted bootstrap has `actor: null` (legal on the
+// The owner is the envelope's `actor`. A system-emitted bootstrap has no actor (legal on the
 // wire), which stays `null` rather than an invented identity. An empty string is normalized to
 // `null` so readers check one absent form.
-function ownerActorOf(created: StoredEvent): string | null {
-  return created.actor !== null && created.actor.length > 0 ? created.actor : null;
+function ownerActorOf(created: RebuildEvent): string | null {
+  return created.actor !== undefined && created.actor !== null && created.actor.length > 0
+    ? created.actor
+    : null;
 }

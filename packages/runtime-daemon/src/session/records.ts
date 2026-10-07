@@ -6,8 +6,8 @@ import type { SessionActivity } from "@ai-sidekicks/contracts/session/directory"
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 
 /**
- * One `session_events` row as `SessionService.readEvents` returns it to the projector. The content
- * column is left out. `sequence`, not `monotonicNs`, is the order key.
+ * One `session_events` row with its columns as stored, the content column left out. `sequence`,
+ * not `monotonicNs`, is the order key.
  */
 export interface StoredEvent {
   readonly id: string;
