@@ -17,8 +17,11 @@ import type { CommandDefinition } from "#renderer/registries/commands/definition
 import { commandRegistry, registerCommands } from "#renderer/registries/commands/registry.js";
 import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
-import { buildNavigationCommands } from "#renderer/layout/NavigationRail/commands.js";
-import { buildColorSchemeCommand, useBridgeCommands } from "#renderer/features/settings/index.js";
+import {
+  buildNavigationCommands,
+  buildRailControlCommands,
+} from "#renderer/layout/NavigationRail/commands.js";
+import { useBridgeCommands } from "#renderer/features/settings/index.js";
 import { discloseUnkeptScheme } from "../unkept-scheme.js";
 
 /** What the app's commands act through. */
@@ -83,11 +86,16 @@ export function useAppCommands(input: AppCommandsInput): number {
         screenRegistry,
         lastSettingsPage,
       ),
-      buildColorSchemeCommand(() => {
-        const windowStore = windowStoreUsedLast();
-        if (windowStore !== undefined) {
-          discloseUnkeptScheme(appearance.chooseNextScheme(), windowStore);
-        }
+      ...buildRailControlCommands({
+        toggleNotificationsList: () => {
+          windowStoreUsedLast()?.toggleNotificationsList();
+        },
+        chooseNextColorScheme: () => {
+          const windowStore = windowStoreUsedLast();
+          if (windowStore !== undefined) {
+            discloseUnkeptScheme(appearance.chooseNextScheme(), windowStore);
+          }
+        },
       }),
       ...bridgeCommands,
     ];

@@ -19,7 +19,7 @@ import {
   renderSettled,
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
-import { UPDATE_FAILED_DETAIL } from "./updater-reading.js";
+import { UPDATE_FAILED_DETAIL } from "./state-words.js";
 
 describe("the updates block — nothing downloads without a press", () => {
   it("offers the download on a found update, and downloads on a press", async () => {

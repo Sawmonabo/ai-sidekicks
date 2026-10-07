@@ -12,14 +12,20 @@ import type { ComponentType, SVGProps } from "react";
 
 import type { GlyphName } from "#renderer/styles/glyphs.js";
 
-// --- The top-level destinations.
+// --- The rail destinations and controls.
 // Rail destination; Tabler stacks the same plate and two chevrons out of the same lines.
 import SessionsFace from "~icons/tabler/stack-2";
+// Rail destination; Tabler's open book is two pages from a spine, plain lines and page curves.
+import SkillsFace from "~icons/tabler/book";
+// The attention control; Tabler's bell is curves and a half-arc clapper, with no corner radius.
+import BellFace from "~icons/tabler/bell";
+// The color-scheme control; a crescent of two arcs.
+import MoonFace from "~icons/tabler/moon";
 // Rail destination; sliders rather than the gear the set rejects, drawn as rules and handles.
 import SettingsFace from "~icons/tabler/adjustments-horizontal";
 
 // --- Entity and pane kinds — the breadcrumb's kind glyph.
-// An agent, which is reserved as ours.
+// The robot, the one generic agent mark; Tabler's `robot` rounds its head and adds a body.
 import AgentFace from "~icons/signature/agent";
 // Runs are reserved as ours; Tabler's `activity` is near-identical, so the pair must match.
 import RunFace from "~icons/signature/run";
@@ -57,6 +63,32 @@ import CheckFace from "~icons/tabler/check";
 import DotFace from "~icons/tabler/point";
 // The compaction boundary's own mark; Tabler's `fold` is arrows over a dotted rule.
 import FoldFace from "~icons/signature/fold";
+// A muted session's mark; Tabler cuts its bell where the slash crosses, so it matches `bell`.
+import BellOffFace from "~icons/tabler/bell-off";
+
+// --- Tool verbs — a transcript tool row's leading glyph.
+// Thinking; lobes drawn as arcs, with no corner radius.
+import BrainFace from "~icons/tabler/brain";
+// Read; two curves and a pupil drawn as two half-arcs.
+import EyeFace from "~icons/tabler/eye";
+// A tool-server call and the generic verb; a plug body, prongs and cord, all plain.
+import PlugFace from "~icons/tabler/plug";
+
+// --- Composer toolbar controls.
+// The model control; one closed polyline.
+import StarFace from "~icons/tabler/star";
+// Effort; a circle of two half-arcs, a hub, a needle and a scale arc.
+import GaugeFace from "~icons/tabler/gauge";
+// Fast output; one closed polyline.
+import BoltFace from "~icons/tabler/bolt";
+// Build; Tabler rounds the hammer's head with explicit corner arcs.
+import HammerFace from "~icons/signature/hammer";
+// Plan; Tabler's clipboards round the board with an explicit radius.
+import ChecklistFace from "~icons/signature/checklist";
+// The permission level; Tabler rounds the lock's body with an explicit radius.
+import LockFace from "~icons/signature/lock";
+// Attach; one path whose arcs are the clip's own turns.
+import PaperclipFace from "~icons/tabler/paperclip";
 
 // --- Control verbs and navigation.
 // A ring and a tail, both plain.
@@ -95,6 +127,9 @@ export type GlyphIcon = ComponentType<SVGProps<SVGSVGElement>>;
  */
 export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   sessions: SessionsFace,
+  skills: SkillsFace,
+  bell: BellFace,
+  moon: MoonFace,
   settings: SettingsFace,
   agent: AgentFace,
   run: RunFace,
@@ -114,6 +149,17 @@ export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   check: CheckFace,
   dot: DotFace,
   fold: FoldFace,
+  "bell-off": BellOffFace,
+  brain: BrainFace,
+  eye: EyeFace,
+  plug: PlugFace,
+  star: StarFace,
+  gauge: GaugeFace,
+  bolt: BoltFace,
+  hammer: HammerFace,
+  checklist: ChecklistFace,
+  lock: LockFace,
+  paperclip: PaperclipFace,
   search: SearchFace,
   close: CloseFace,
   "chevron-right": ChevronRightFace,

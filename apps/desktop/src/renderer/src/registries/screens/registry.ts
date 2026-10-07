@@ -1,8 +1,8 @@
 // How each feature's screens reach the window. The router resolves the route to a screen name,
 // looks up the renderer registered here and mounts it in an error boundary, so it imports no
 // feature. Registrars are called from `app/registrations.ts`. A screen name with no renderer is a
-// composition defect and the router throws; only the pane harness, registered by a fixture launch,
-// may be absent.
+// composition defect and the router throws, except the pane harness, registered by a fixture
+// launch, and the sidekicks and skills screens, which draw an empty frame until registered.
 
 import { createElement } from "react";
 
@@ -18,6 +18,8 @@ import { type ScreenContext } from "./context.js";
 export const SCREEN_NAMES = [
   "sessions",
   "session",
+  "sidekicks",
+  "skills",
   "workflows",
   "settings",
   // Reached only by the fixture-gated `#/pane-harness/…` address, so a release renderer can name
@@ -135,6 +137,11 @@ export function findScreenNameForRoute(route: AppRoute): ScreenName | undefined 
       return "sessions";
     case "session":
       return "session";
+    case "sidekicks":
+    case "sidekicks-plugins":
+      return "sidekicks";
+    case "skills":
+      return "skills";
     case "workflows":
       return "workflows";
     case "settings":

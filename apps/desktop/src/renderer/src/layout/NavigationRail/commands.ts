@@ -1,5 +1,6 @@
-// The rail's own acts: one command and one chord per rail destination, walked from
-// `RAIL_DESTINATIONS` so the palette, the chord table and the rail share one closed set.
+// The rail's own acts: one command per rail destination, walked from `RAIL_DESTINATIONS` so the
+// palette, the chord table and the rail share one closed set, a chord for those that hold one, and
+// the rows of the rail's two controls. Every row sits in the palette's `Console` group.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
@@ -10,22 +11,37 @@ import type {
 } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
-import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
+import { RAIL_CONTROL_LABELS, RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./destinations.js";
+
+/** What the rail's two control rows do, each on the window used last. */
+export interface RailControlActs {
+  readonly toggleNotificationsList: () => void;
+  readonly chooseNextColorScheme: () => void;
+}
 
 /**
  * What the palette and the chord table need to offer one rail destination. Command ids are written
- * out because a person can rebind them on the Keyboard page; Settings takes `$mod+,`.
+ * out because a person can rebind them on the Keyboard page; Settings takes `$mod+,`, the
+ * platform's own chord for it.
  */
 export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavigationDetail>> = {
   sessions: {
     commandId: "frame.goToSessions",
-    chord: "$mod+1",
+    chord: "$mod+b",
     keywords: ["list", "home"],
+  },
+  sidekicks: {
+    commandId: "frame.goToSidekicks",
+    keywords: ["agents", "definitions", "plugins"],
+  },
+  skills: {
+    commandId: "frame.goToSkills",
+    keywords: ["instructions", "folders"],
   },
   workflows: {
     commandId: "frame.goToWorkflows",
-    chord: "$mod+2",
+    chord: "$mod+Shift+KeyW",
     keywords: ["builder", "automation", "graph"],
   },
   settings: {
@@ -36,15 +52,15 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
 };
 
 /**
- * The rail's chords, one per destination in rail order.
+ * The rail's chords, in rail order, for the destinations that hold one.
  *
  * None fires in a text input: navigating away mid-sentence loses what was typed.
  */
-export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.map(
-  (destination) => ({
-    chord: RAIL_NAVIGATION_DETAILS[destination].chord,
-    commandId: RAIL_NAVIGATION_DETAILS[destination].commandId,
-  }),
+export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.flatMap(
+  (destination) => {
+    const { chord, commandId } = RAIL_NAVIGATION_DETAILS[destination];
+    return chord === undefined ? [] : [{ chord, commandId }];
+  },
 );
 
 /**
@@ -73,7 +89,7 @@ export function buildNavigationCommands(
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
     title: RAIL_ENTRY_TEMPLATES[destination].label,
-    group: "App",
+    group: CONSOLE_COMMAND_GROUP,
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
       warmDestination(screenRegistry, destination);
@@ -85,12 +101,38 @@ export function buildNavigationCommands(
   }));
 }
 
+/**
+ * The rows of the rail's two controls, titled with the rail's labels: one opens or shuts the
+ * notifications list, the other steps the color scheme. The caller's acts pick the window.
+ */
+export function buildRailControlCommands(acts: RailControlActs): readonly FrameCommand[] {
+  return [
+    {
+      id: "frame.toggleNotifications",
+      title: RAIL_CONTROL_LABELS.notifications,
+      group: CONSOLE_COMMAND_GROUP,
+      keywords: ["attention", "waiting", "bell"],
+      run: acts.toggleNotificationsList,
+    },
+    {
+      id: "frame.cycleColorScheme",
+      title: RAIL_CONTROL_LABELS.colorScheme,
+      group: CONSOLE_COMMAND_GROUP,
+      keywords: ["dark", "light", "system"],
+      run: acts.chooseNextColorScheme,
+    },
+  ];
+}
+
 interface RailNavigationDetail {
   readonly commandId: string;
-  /** tinykeys syntax, single press. */
-  readonly chord: string;
+  /** tinykeys syntax, single press; absent while the destination ships with no chord. */
+  readonly chord?: string;
   /** Extra words a person might type for this destination in the palette. */
   readonly keywords: readonly string[];
 }
 
 const NAVIGATION_COMMAND_OWNER = "navigation";
+
+/** The palette group every rail row sits in. */
+const CONSOLE_COMMAND_GROUP = "Console";

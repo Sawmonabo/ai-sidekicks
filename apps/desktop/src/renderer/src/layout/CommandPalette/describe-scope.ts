@@ -11,6 +11,11 @@ export function describePaletteScope(route: AppRoute): string | undefined {
   switch (route.kind) {
     case "sessions":
       return "All sessions";
+    case "sidekicks":
+    case "sidekicks-plugins":
+      return "Sidekicks";
+    case "skills":
+      return "Skills";
     case "workflows":
       return "Workflows";
     case "settings":

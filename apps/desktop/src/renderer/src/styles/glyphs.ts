@@ -24,8 +24,9 @@
 //      A component that wants a glyph the app lacks adds it to the set instead of reaching
 //      for an image.
 //
-// The set stays small: each name is a rail destination, a pane kind, a sidebar section's entity
-// kind, one of the five kinds of nothing, or a control verb the app offers.
+// The set stays small: each name is a rail destination or control, a pane kind, a sidebar
+// section's entity kind, a state mark, one of the five kinds of nothing, a tool row's verb, a
+// composer toolbar control, or a control verb the app offers.
 
 /** The box the set's own faces are drawn in. Both axes; square by construction. */
 export const GLYPH_VIEWBOX_SIZE = 16;
@@ -56,13 +57,17 @@ export const GLYPH_SIZE_ROW = 12;
 export const GLYPH_SIZE_CHROME = 14;
 
 /**
- * Every glyph the app can draw, in reading order: rail destinations, entity and pane kinds,
- * state marks, then control verbs and navigation. Which face draws each name is in
- * `components/Glyph/icons.ts`; this array declares that the set is closed.
+ * Every glyph the app can draw, in reading order: rail destinations and controls, entity and
+ * pane kinds, state marks, tool verbs, composer toolbar controls, then control verbs and
+ * navigation. Which face draws each name is in `components/Glyph/icons.ts`; this array declares
+ * that the set is closed.
  */
 export const GLYPH_NAMES = [
-  // --- The rail destinations.
+  // --- The rail destinations and controls.
   "sessions",
+  "skills",
+  "bell",
+  "moon",
   "settings",
   // --- Entity and pane kinds — the breadcrumb's kind glyph.
   "agent",
@@ -84,6 +89,19 @@ export const GLYPH_NAMES = [
   "check",
   "dot",
   "fold",
+  "bell-off",
+  // --- Tool verbs — a transcript tool row's leading glyph.
+  "brain",
+  "eye",
+  "plug",
+  // --- Composer toolbar controls.
+  "star",
+  "gauge",
+  "bolt",
+  "hammer",
+  "checklist",
+  "lock",
+  "paperclip",
   // --- Control verbs and navigation.
   "search",
   "close",

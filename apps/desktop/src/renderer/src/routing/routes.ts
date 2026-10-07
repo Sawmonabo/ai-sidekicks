@@ -15,6 +15,27 @@ export type AppRoute =
   // what an unknown one shows.
   | { readonly kind: "workflows"; readonly tab?: undefined }
   | { readonly kind: "workflows"; readonly tab: "runs"; readonly runId?: string }
+  // Three arms: the library at `#/sidekicks`, a new definition at `#/sidekicks/new` and a saved
+  // one at `#/sidekicks/<definitionId>`, so `new` is never an id. The id is a bare string because
+  // the agents feature decides what an unknown one shows; ids are daemon-minted UUIDs, so neither
+  // `new` nor `plugins` is ever one.
+  | { readonly kind: "sidekicks"; readonly definition?: undefined }
+  | { readonly kind: "sidekicks"; readonly definition: "new" }
+  | { readonly kind: "sidekicks"; readonly definition: "saved"; readonly definitionId: string }
+  // `Browse plugins`, at `#/sidekicks/plugins`.
+  | { readonly kind: "sidekicks-plugins" }
+  // Three arms: the list at `#/skills`, the new-skill form at `#/skills?new` and one folder at
+  // `#/skills/<skillId>`, opened at its entry file or, with `filePath`, at one other file. The
+  // form's address is a query, so a folder named `new` keeps its real name. The file path is
+  // relative to the folder and spans the remaining segments, one escaped segment per name.
+  | { readonly kind: "skills"; readonly folder?: undefined }
+  | { readonly kind: "skills"; readonly folder: "new" }
+  | {
+      readonly kind: "skills";
+      readonly folder: "existing";
+      readonly skillId: string;
+      readonly filePath?: string;
+    }
   // Two arms, not one optional member: `#/settings` carries no page, so a selection without a
   // page is a value `formatRoute` cannot write down; the split makes it unrepresentable. The
   // selection is a bare string because `settings/` sits above this module and decides what a
@@ -49,6 +70,11 @@ export function parseRoute(hash: string): AppRoute {
     return DEFAULT_ROUTE;
   }
 
+  // The new-skill form is the one address with a query; `formatRoute` escapes every other `?`.
+  if (path.includes("?")) {
+    return path === "skills?new" ? { kind: "skills", folder: "new" } : notFound(hash);
+  }
+
   const segments = path.split("/");
   const [head, ...rest] = segments;
   // `split` never returns an empty array; the `undefined` check is for the compiler.
@@ -66,6 +92,14 @@ export function parseRoute(hash: string): AppRoute {
 
   if (head === "workflows") {
     return parseWorkflowsRoute(rest, hash);
+  }
+
+  if (head === "sidekicks") {
+    return parseSidekicksRoute(rest, hash);
+  }
+
+  if (head === "skills") {
+    return parseSkillsRoute(rest, hash);
   }
 
   if (head === "settings") {
@@ -123,6 +157,27 @@ export function formatRoute(route: AppRoute): string {
       return route.runId === undefined
         ? "#/workflows/runs"
         : `#/workflows/runs/${encodeURIComponent(route.runId)}`;
+    }
+    case "sidekicks":
+      if (route.definition === undefined) {
+        return "#/sidekicks";
+      }
+      return route.definition === "new"
+        ? "#/sidekicks/new"
+        : `#/sidekicks/${encodeURIComponent(route.definitionId)}`;
+    case "sidekicks-plugins":
+      return "#/sidekicks/plugins";
+    case "skills": {
+      if (route.folder === undefined) {
+        return "#/skills";
+      }
+      if (route.folder === "new") {
+        return "#/skills?new";
+      }
+      const folderAddress = `#/skills/${encodeURIComponent(route.skillId)}`;
+      return route.filePath === undefined
+        ? folderAddress
+        : `${folderAddress}/${route.filePath.split("/").map(encodeURIComponent).join("/")}`;
     }
     case "settings": {
       if (route.page === undefined) {
@@ -194,6 +249,54 @@ function parseWorkflowsRoute(rest: readonly string[], hash: string): AppRoute {
   }
   const runId = decodeSegment(runSegment);
   return runId === undefined ? notFound(hash) : { kind: "workflows", tab: "runs", runId };
+}
+
+/**
+ * `#/sidekicks`, `#/sidekicks/new`, `#/sidekicks/plugins` and `#/sidekicks/<definitionId>`, and
+ * nothing deeper.
+ */
+function parseSidekicksRoute(rest: readonly string[], hash: string): AppRoute {
+  const [definitionSegment] = rest;
+  if (definitionSegment === undefined) {
+    return { kind: "sidekicks" };
+  }
+  if (rest.length > 1) {
+    return notFound(hash);
+  }
+  if (definitionSegment === "new") {
+    return { kind: "sidekicks", definition: "new" };
+  }
+  if (definitionSegment === "plugins") {
+    return { kind: "sidekicks-plugins" };
+  }
+  const definitionId = decodeSegment(definitionSegment);
+  return definitionId === undefined
+    ? notFound(hash)
+    : { kind: "sidekicks", definition: "saved", definitionId };
+}
+
+/**
+ * `#/skills`, `#/skills/<skillId>` and `#/skills/<skillId>/<file path>`, the path spanning every
+ * remaining segment; the form's `#/skills?new` is read before the path is split.
+ */
+function parseSkillsRoute(rest: readonly string[], hash: string): AppRoute {
+  const [skillSegment, ...fileSegments] = rest;
+  if (skillSegment === undefined) {
+    return { kind: "skills" };
+  }
+  const skillId = decodeSegment(skillSegment);
+  if (skillId === undefined) {
+    return notFound(hash);
+  }
+  if (fileSegments.length === 0) {
+    // The key is omitted, not set to `undefined`, so the round trip stays exact.
+    return { kind: "skills", folder: "existing", skillId };
+  }
+  const fileNames = fileSegments.map(decodeSegment);
+  if (fileNames.some((fileName) => fileName === undefined)) {
+    return notFound(hash);
+  }
+  return { kind: "skills", folder: "existing", skillId, filePath: fileNames.join("/") };
 }
 
 function notFound(attempted: string): AppRoute {

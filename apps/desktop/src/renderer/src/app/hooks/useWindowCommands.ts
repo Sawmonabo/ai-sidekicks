@@ -2,7 +2,7 @@
 // own document, since a key pressed in one window reaches only that window, and reads the window's
 // own `when` context; the commands are registered once for the app (`useAppCommands.ts`).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppRoute } from "#renderer/routing/routes.js";
 import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/semantics.js";
@@ -27,13 +27,26 @@ export interface WindowCommandsInput {
   readonly revision: number;
 }
 
+/** One window's palette props and its reading of the chords bound now. */
+export interface WindowCommands {
+  /** The palette's props: its `when` context, its bindings, its open state and the revision. */
+  readonly palette: Pick<
+    CommandPaletteProps,
+    "context" | "bindings" | "revision" | "open" | "onOpenChange"
+  >;
+  /**
+   * The chord a command holds now, as its Keyboard row shows it, or `undefined` while it holds
+   * none. Read off the override store's snapshot, so it is current in the render a rebinding
+   * causes.
+   */
+  readonly readBoundChord: (commandId: string) => string | undefined;
+}
+
 /**
- * Install this window's chord table and return its palette's props: its `when` context, its
- * bindings, its open state, its chord target and the app's command revision.
+ * Install this window's chord table and return its palette's props and its reading of the chords
+ * bound now.
  */
-export function useWindowCommands(
-  input: WindowCommandsInput,
-): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
+export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
   const { route, lastOpenedSessionId, ownerWindow, revision } = input;
 
   // Derived from the route, so the palette cannot disagree with the rail about where it is.
@@ -70,7 +83,7 @@ export function useWindowCommands(
     keyBindings.setBindings(keybindingSnapshot.bindings);
   }, [keyBindings, keybindingSnapshot]);
 
-  // Absent while a chord is recorded: it listens in the capture phase, so recording `$mod+1`
+  // Absent while a chord is recorded: it listens in the capture phase, so recording `$mod+b`
   // would navigate to Sessions instead of binding it.
   useEffect(() => {
     if (keybindingSnapshot.recording) {
@@ -79,11 +92,22 @@ export function useWindowCommands(
     return keyBindings.install(ownerWindow);
   }, [keyBindings, keybindingSnapshot, ownerWindow]);
 
+  // Off the snapshot rather than the table: the table takes a rebinding in an effect, after the
+  // render that draws the new chord.
+  const readBoundChord = useCallback(
+    (commandId: string) =>
+      keybindingSnapshot.bindings.find((binding) => binding.commandId === commandId)?.chord,
+    [keybindingSnapshot],
+  );
+
   return {
-    context: whenContext,
-    bindings: keyBindings,
-    revision,
-    open: paletteOpen,
-    onOpenChange: setPaletteOpen,
+    palette: {
+      context: whenContext,
+      bindings: keyBindings,
+      revision,
+      open: paletteOpen,
+      onOpenChange: setPaletteOpen,
+    },
+    readBoundChord,
   };
 }

@@ -73,7 +73,7 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   const workflowCommandTargets = createWorkflowCommandTargets();
 
   // The rail's chords first: the chord table's first match wins, so a feature registered
-  // earlier could take `$mod+1` from the rail.
+  // earlier could take `$mod+b` from the rail.
   registerNavigationKeybindings(commands);
   registerComposerCommands(commands);
   registerComposerKeybindings(commands);

@@ -17,6 +17,8 @@ import { type DraftStore } from "#renderer/store/drafts.js";
 import { type LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { type SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
+import { isUpdateStaged } from "#renderer/store/update/updater-reading.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import type { SchemePreference } from "#renderer/styles/tokens.js";
@@ -91,7 +93,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
 
   useWindowTitle(ownerWindow, route, props.appTitle);
 
-  const palette = useWindowCommands({
+  const { palette, readBoundChord } = useWindowCommands({
     route,
     lastOpenedSessionId,
     ownerWindow,
@@ -104,6 +106,13 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     },
     [appearance, frameStore],
   );
+
+  const cycleColorScheme = useCallback(() => {
+    discloseUnkeptScheme(appearance.chooseNextScheme(), frameStore);
+  }, [appearance, frameStore]);
+
+  // The window's one reading of the updater, which the rail's Settings dot reads.
+  const updateReading = useUpdateReading(bridge.update);
 
   const sessionStore = useActiveSessionStore(
     appStores.sessionStoreRegistry,
@@ -129,6 +138,9 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       screenRegistry={screenRegistry}
       lastSettingsPage={appStores.lastSettingsPage}
       palette={palette}
+      readBoundChord={readBoundChord}
+      onCycleColorScheme={cycleColorScheme}
+      isUpdateStaged={isUpdateStaged(updateReading)}
       notice={props.notice}
       // The loosest density's floor, so the window holds one pane beside the conversation at
       // whichever density the pane layout runs at; in px as the layout holds it, so it does not

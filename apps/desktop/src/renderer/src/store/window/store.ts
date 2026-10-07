@@ -1,6 +1,6 @@
-// Window-level state: the route, the modal-dialog flag, the banner stack, and the pane a screen
-// asked a session to open. The appearance is not here: main keeps it, and the window applies what
-// main kept (`app/hooks/useAppearance.ts`).
+// Window-level state: the route, the modal-dialog flag, the banner stack, which list the sessions
+// track holds, and the pane a screen asked a session to open. The appearance is not here: main
+// keeps it, and the window applies what main kept (`app/hooks/useAppearance.ts`).
 //
 // Separate from `SessionStore`: session state is per session and arrives from the bridge, while
 // frame state is per window and arrives from the person. Merging them would re-render the rail on
@@ -36,7 +36,10 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
  */
 export type RouteHistoryWrite = "push" | "replace";
 
-/** The window store's state: route, modal-dialog flag, banners, focus, report. */
+/** A list the sessions track beside the rail can hold. */
+export type SessionsTrackList = "notifications";
+
+/** The window store's state: route, modal-dialog flag, banners, sessions track, focus, report. */
 export interface WindowStoreState {
   readonly route: AppRoute;
   /** How the current route is written to the window's history. */
@@ -58,6 +61,11 @@ export interface WindowStoreState {
    */
   readonly isModalDialogOpen: boolean;
   readonly banners: readonly WindowBanner[];
+  /**
+   * The list the sessions track holds, or `undefined` while the track is closed. One cell, so the
+   * track never holds two lists at once.
+   */
+  readonly sessionsTrackList: SessionsTrackList | undefined;
   /**
    * True while the window has focus; the refresh scheduler's `window-focus` reason. Seeded from
    * the document ({@link documentReportsWindowFocus}) and moved by the frame's focus and blur
@@ -98,6 +106,7 @@ export class WindowStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       isModalDialogOpen: false,
       banners: [],
+      sessionsTrackList: undefined,
       isWindowFocused: documentReportsWindowFocus(options.ownerDocument ?? document),
       mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
     }));
@@ -216,6 +225,14 @@ export class WindowStore {
       return;
     }
     this.#store.setState({ banners: banners.filter((banner) => banner.id !== bannerId) });
+  }
+
+  /** Open the notifications list in the sessions track, or close the track while it holds it. */
+  public toggleNotificationsList(): void {
+    const { sessionsTrackList } = this.#store.getState();
+    this.#store.setState({
+      sessionsTrackList: sessionsTrackList === "notifications" ? undefined : "notifications",
+    });
   }
 
   /**

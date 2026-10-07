@@ -1,5 +1,6 @@
 // The updater double, the machine-settings service double and the settled render the
-// updates-block suite drives.
+// updates-block suite drives. The render binds the window's one updater reading and hands it to the
+// block, as the window does.
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -13,9 +14,10 @@ import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
+import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
+import type { UpdaterCalls } from "#renderer/store/update/updater-reading.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
-import type { UpdaterCalls } from "./updater-reading.js";
 
 /**
  * An updater that reports one state and answers both controls.
@@ -133,7 +135,7 @@ export async function renderSettled(
 ): Promise<{ readonly block: HTMLElement }> {
   return await mountSettled(
     freshBridge(),
-    <UpdatesBlock updater={updater} preferences={preferences} />,
+    <UpdatesBlockOnReading updater={updater} preferences={preferences} />,
   );
 }
 
@@ -161,7 +163,16 @@ function UpdatesBlockOnMachineSettings(props: {
   readonly bridge: PlatformBridge;
 }): React.JSX.Element {
   const preferences = useMachineSettings(props.bridge);
-  return <UpdatesBlock updater={props.updater} preferences={preferences} />;
+  return <UpdatesBlockOnReading updater={props.updater} preferences={preferences} />;
+}
+
+/** The block handed the reading bound over `updater`, as the window binds it once. */
+function UpdatesBlockOnReading(props: {
+  readonly updater: UpdaterCalls;
+  readonly preferences: UpdatesBlockProps["preferences"];
+}): React.JSX.Element {
+  const reading = useUpdateReading(props.updater);
+  return <UpdatesBlock reading={reading} updater={props.updater} preferences={props.preferences} />;
 }
 
 /** A fresh fixture bridge per mount, so one case's machine-settings store is never another's. */

@@ -1,7 +1,8 @@
 // What the rail shows and where each destination goes: the one place `NavigationRail` (which
-// knows no routes) and `routing/` (which knows no rail) meet. The three destinations are reachable
-// from every main-window route, so the entries are a constant. A session screen route maps onto
-// `sessions`. Render order comes from the `RAIL_DESTINATIONS` tuple, the set from the entry table.
+// knows no routes) and `routing/` (which knows no rail) meet. Every destination is reachable from
+// every main-window route, so the entries are constants. A session screen route maps onto
+// `sessions`. Render order comes from the `RAIL_DESTINATIONS` tuple, the set from the entry table;
+// Settings, last in the tuple, stands apart at the rail's foot.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
@@ -14,13 +15,18 @@ import { preloadQuietly } from "#renderer/components/LazyBody/idle-warm.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**
- * The rail's contents, built once. A module constant, not a per-render builder, so `AppFrame` is
- * not handed a new array on every pass.
+ * The destinations above the rail's spacer, built once. A module constant, not a per-render
+ * builder, so `AppFrame` is not handed a new array on every pass.
  */
-export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destination) => ({
-  destination,
-  ...RAIL_ENTRY_TEMPLATES[destination],
-}));
+export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.filter(
+  (destination) => destination !== "settings",
+).map((destination) => ({ destination, ...RAIL_ENTRY_TEMPLATES[destination] }));
+
+/** The Settings destination, at the rail's foot below its controls. */
+export const RAIL_SETTINGS_ENTRY: RailEntry = {
+  destination: "settings",
+  ...RAIL_ENTRY_TEMPLATES.settings,
+};
 
 /**
  * Where a rail click goes: Settings opens on `lastSettingsPageId`, the page last open, or on its
@@ -33,6 +39,10 @@ export function routeForDestination(
   switch (destination) {
     case "sessions":
       return { kind: "sessions" };
+    case "sidekicks":
+      return { kind: "sidekicks" };
+    case "skills":
+      return { kind: "skills" };
     case "workflows":
       return { kind: "workflows" };
     case "settings":

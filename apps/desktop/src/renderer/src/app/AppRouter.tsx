@@ -4,13 +4,15 @@
 //
 // Resolution happens during render, since the registry is composed at module scope and an
 // effect would let the first paint say the screen does not exist. A route whose screen has no
-// registration is a composition defect and throws; the exception is the pane harness, which only
-// a fixture launch registers, so elsewhere its address renders as not-found.
+// registration is a composition defect and throws, with two exceptions: the pane harness, which
+// only a fixture launch registers, so elsewhere its address renders as not-found; and the
+// sidekicks and skills screens, which draw the empty frame until their features register them.
 //
 // The mounted screen is keyed on what it is about, not on the whole address: a second session or
 // a second pane kind in the harness gets a fresh screen, so React never hands one subject's state
 // to another, while a move inside one destination (a run's page on the workflows screen, a
-// settings page, a message in the same session) keeps the screen and what it holds.
+// settings page, a message in the same session, `Browse plugins` and a definition under Sidekicks,
+// a file in a skill folder) keeps the screen and what it holds.
 
 import { Fragment } from "react";
 
@@ -20,6 +22,7 @@ import { ScreenNotice } from "#renderer/components/ScreenNotice/ScreenNotice.js"
 import { type AppRoute } from "#renderer/routing/routes.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { screenRegistry, findScreenNameForRoute } from "#renderer/registries/screens/registry.js";
+import { PendingScreenBody } from "#renderer/registries/screens/PendingScreenBody.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
 
 /** The screen context the router resolves the current route against. */
@@ -50,6 +53,9 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const descriptor =
     screenName === undefined ? undefined : screenRegistry.descriptorFor(screenName);
   if (descriptor === undefined) {
+    if (screenName === "sidekicks" || screenName === "skills") {
+      return <PendingScreenBody />;
+    }
     if (route.kind === "pane-harness") {
       return <AddressNamesNothing />;
     }
@@ -70,7 +76,8 @@ function SessionOpeningNotice(): React.JSX.Element {
 
 /**
  * What the mounted screen is about: the session for a session, the pane kind and session for the
- * harness, and the destination alone for the rest, whose screens follow their own address.
+ * harness, and the destination alone for the rest, whose screens follow their own address; both
+ * sidekicks arms are the one Sidekicks screen.
  */
 function screenSubjectKey(route: Exclude<AppRoute, { kind: "not-found" }>): string {
   switch (route.kind) {
@@ -78,7 +85,11 @@ function screenSubjectKey(route: Exclude<AppRoute, { kind: "not-found" }>): stri
       return `session:${route.sessionId}`;
     case "pane-harness":
       return `pane-harness:${route.paneKind}:${route.sessionId}`;
+    case "sidekicks":
+    case "sidekicks-plugins":
+      return "sidekicks";
     case "sessions":
+    case "skills":
     case "workflows":
     case "settings":
       return route.kind;

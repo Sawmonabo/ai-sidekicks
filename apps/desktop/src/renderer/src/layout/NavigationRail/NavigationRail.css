@@ -11,13 +11,19 @@
   app-region: drag;
 }
 
+/* Fills the rail's height, so the spacer can push the controls and Settings to its foot. */
 .meridian-rail__list {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--meridian-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.meridian-rail__spacer {
+  flex: 1 1 auto;
 }
 
 .meridian-rail__item {
@@ -63,4 +69,26 @@
   width: var(--meridian-leading-edge);
   border-radius: calc(var(--meridian-leading-edge) / 2);
   background: var(--meridian-accent);
+}
+
+/* The two marks sit on the glyph's top trailing corner, inside the button, so neither moves the
+ * glyph. The pip is the attention amber: a person is needed. */
+.meridian-rail__pip,
+.meridian-rail__dot {
+  position: absolute;
+  inset-block-start: var(--meridian-space-2);
+  inset-inline-end: var(--meridian-space-2);
+  inline-size: var(--meridian-space-2);
+  block-size: var(--meridian-space-2);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.meridian-rail__pip {
+  background: var(--meridian-amber-mark);
+}
+
+/* The staged update's dot is the rail's quiet mark: nothing is needed from the person. */
+.meridian-rail__dot {
+  background: var(--meridian-text-faint);
 }
