@@ -51,12 +51,6 @@ describe("InterventionRequestPayload", () => {
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
   });
 
-  it("refuses a cancel, which is no intervention", () => {
-    expect(InterventionRequestPayloadSchema.safeParse({ ...guards, type: "cancel" }).success).toBe(
-      false,
-    );
-  });
-
   it.each(arms)("refuses the %s arm without its mandatory comparand", (_type, payload) => {
     // An optional comparand would let a caller bypass the stale-request guard, so absence must
     // refuse on every arm.

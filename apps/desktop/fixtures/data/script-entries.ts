@@ -17,6 +17,7 @@
 // none.
 
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
+import type { RunCompletionKind } from "@ai-sidekicks/contracts/run/control";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import type { ScenarioBeat } from "../scenario.js";
@@ -59,6 +60,8 @@ interface RunTransitionInput {
   /** Absent only on the birth transition, which has no prior state. */
   readonly previousState?: string;
   readonly newState: string;
+  /** Whether a completed run ended its turn or its whole task. Carried on `run.completed` only. */
+  readonly completionKind?: RunCompletionKind;
   /** The agent the run belongs to. Carried on the birth transition. */
   readonly agentId?: string;
   readonly actorId?: string;
@@ -233,6 +236,7 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
       runVersion: input.runVersion,
       ...(input.previousState === undefined ? {} : { previousState: input.previousState }),
       newState: input.newState,
+      ...(input.completionKind === undefined ? {} : { completionKind: input.completionKind }),
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
       ...creation,
     },

@@ -97,14 +97,16 @@ export type InterventionId = string & { readonly __brand: "InterventionId" };
 export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
+const INTERVENTION_STATES = [
+  "requested",
+  "accepted",
+  "applied",
+  "rejected",
+  "degraded",
+  "expired",
+] as const;
 /** Where an intervention stands, from request to outcome. */
-export type InterventionState =
-  | "requested"
-  | "accepted"
-  | "applied"
-  | "rejected"
-  | "degraded"
-  | "expired";
+export type InterventionState = (typeof INTERVENTION_STATES)[number];
 
 /** Why a run failed. The values carry spaces because they are wire literals, not identifiers. */
 export type RunFailureCategory =
@@ -277,12 +279,13 @@ export const InterventionRequestResponseSchema: z.ZodType<
   z
     .object({
       ...interventionResponseBaseShape,
-      state: z.enum(["requested", "accepted", "applied", "degraded", "expired"]),
+      state: z.enum(INTERVENTION_STATES).exclude(["rejected"]),
     })
     .strict(),
 ]);
 
-const executionPostureSchema: z.ZodType<ExecutionPosture> = z
+/** Parses an {@link ExecutionPosture}. */
+export const ExecutionPostureSchema: z.ZodType<ExecutionPosture> = z
   .object({
     mode: PermissionLevelSchema,
     writableRoots: z.array(filesystemPathSchema),
@@ -336,7 +339,8 @@ export type RunFailureCause =
   | RunRefusedCause
   | (ProviderUsageLimitSignal & { origin: "provider" })
   | (ProviderSpentRetriesSignal & { origin: "provider" });
-const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
+/** Parses a {@link RunFailureCause}. */
+export const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
   RunRefusedCauseSchema,
   z
     .object({
@@ -373,6 +377,14 @@ export const ProcessExitSchema: z.ZodType<ProcessExit> = z.union([
     .strict(),
 ]);
 
+/** How a completed run ended: its turn finished (`turn`) or its whole task did (`task`). */
+export type RunCompletionKind = "turn" | "task";
+/** Parses a {@link RunCompletionKind}. */
+export const RunCompletionKindSchema: z.ZodType<RunCompletionKind, RunCompletionKind> = z.enum([
+  "turn",
+  "task",
+]);
+
 /**
  * One run state transition as `run.subscribeState` delivers it, with its new run version.
  * `sessionId` is carried by the subscription's scope, not repeated per event.
@@ -391,7 +403,7 @@ export interface RunStateChangeEvent {
   // the cause as the substring before the first space; the whole value is not always prose.
   providerFailureDetail?: string | undefined;
   processExit?: ProcessExit | undefined;
-  completionKind?: "turn" | "task" | undefined;
+  completionKind?: RunCompletionKind | undefined;
   // Present only on a terminal the daemon itself closed; such a terminal is never a crash.
   intendedClose?: true | undefined;
   // Stamped only on `run.running`, where the workspace root and effective posture are final.
@@ -416,9 +428,9 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
       "RunStateChangeEvent.providerFailureDetail",
     ).optional(),
     processExit: ProcessExitSchema.optional(),
-    completionKind: z.enum(["turn", "task"]).optional(),
+    completionKind: RunCompletionKindSchema.optional(),
     intendedClose: z.literal(true).optional(),
-    executionPosture: executionPostureSchema.optional(),
+    executionPosture: ExecutionPostureSchema.optional(),
     trigger: InterruptReasonSchema.optional(),
     timestamp: isoDateTimeSchema,
   })
