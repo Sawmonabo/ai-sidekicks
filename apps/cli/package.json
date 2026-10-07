@@ -1,0 +1,34 @@
+{
+  "name": "@ai-sidekicks/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The sidekicks command line, which drives the local daemon through the client SDK.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "bin": {
+    "sidekicks": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rolldown -c rolldown.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint src rolldown.config.ts vitest.config.ts eslint.config.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@ai-sidekicks/client-sdk": "workspace:*",
+    "@ai-sidekicks/contracts": "workspace:*",
+    "commander": "15.0.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "catalog:testing",
+    "rolldown": "1.2.12",
+    "vitest": "catalog:testing"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "inputs": ["src/**", "rolldown.config.ts", "tsconfig.json", "package.json"],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      // The config files are type-checked too.
+      "inputs": [
+        "src/**",
+        "rolldown.config.ts",
+        "vitest.config.ts",
+        "$TURBO_ROOT$/vitest.shared.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      // It emits nothing; the root's `dist/**` output would otherwise snapshot the bundle.
+      "outputs": []
+    }
+  }
+}

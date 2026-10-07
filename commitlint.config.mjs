@@ -18,6 +18,7 @@ export default {
         "daemon",
         "control-plane",
         "desktop",
+        "cli",
         "sidecar-rust-pty",
         "pty-sidecar-publishing",
         // Cross-cutting nouns
