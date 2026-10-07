@@ -367,6 +367,8 @@ CREATE TABLE interventions (
   device_id               TEXT,
   -- Why a request was rejected, so a retry's saved reply carries the same reason.
   rejection_reason        TEXT,
+  -- The fallback a degraded intervention took; NULL in every other state.
+  fallback_action         TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
   -- An identical retry returns the saved result; a reused key with a
