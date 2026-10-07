@@ -33,8 +33,10 @@ import {
 // write; the rest wait for the next round.
 const RESCORE_ROUND_LIMIT = 64;
 
-// How long a round holds the main thread before it yields a turn of the event loop.
-const SCORING_SLICE_MS = 2;
+// How long a round holds the main thread before it yields a turn of the event loop. One turn can
+// run two slices, the one a write's reply resumes and the one its yield runs next, so each stays
+// well inside the main thread's 5 ms.
+const SCORING_SLICE_MS = 1;
 
 const LINKS_OF_SESSION_SQL = `
   SELECT target_session_id AS otherSessionId, kind, 1 AS isSource,
@@ -291,6 +293,12 @@ export class SessionRelatedRanking {
     const statements: WriteStatement[] = [];
     for (const sessionId of sessionIds) {
       await slice.yieldWhenSpent();
+      // The walk reads each neighbor's links too, one read between yields, so one session's walk
+      // never holds the thread past a slice; scoring then reads only what these reads kept.
+      for (const link of linksOf(sessionId)) {
+        await slice.yieldWhenSpent();
+        linksOf(link.otherSessionId);
+      }
       statements.push(
         { sql: "DELETE FROM session_related WHERE session_id = ?", bindings: [sessionId] },
         {

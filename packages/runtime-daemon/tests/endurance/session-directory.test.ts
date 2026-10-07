@@ -1,8 +1,8 @@
 // Tier: endurance. The session directory's budgets, measured on the seeded set through the paths
 // the daemon serves them on: every search class's first page and next page on the search thread,
-// how long a search holds the daemon's main thread, and a stored related list's read. It prints
-// p50 and p95 per class against each budget, with the test process's resident memory beside them,
-// and fails on any class over one.
+// how long a search holds the daemon's main thread, a stored related list's read, and how long a
+// re-score after a new link holds the main thread. It prints p50 and p95 per class against each
+// budget, with the test process's resident memory beside them, and fails on any class over one.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -267,7 +267,7 @@ describe("the session directory's budgets on the seeded set", () => {
     ).toEqual([]);
   });
 
-  it("reads a session's stored related list within budget", async () => {
+  it("reads a stored related list and re-scores one without holding the main thread", async () => {
     const ranking = new SessionRelatedRanking({
       reader: database.reader,
       writer: database.writer,
@@ -311,9 +311,11 @@ describe("the session directory's budgets on the seeded set", () => {
         `${String(SEEDED_SET_SIZE.links)} links (p50/p95): read ${read.p50Ms.toFixed(3)}/` +
         `${read.p95Ms.toFixed(3)} ms, budget ${String(RELATED_LIST_P95_BUDGET_MS)} ms at p95; ` +
         `re-score after one new link ${formatTiming(rescore)} in the background, ` +
-        `${formatTurns(turns)}; ${residentMemory()}`,
+        `${formatTurns(turns)}, budget ${String(MAIN_THREAD_TURN_BUDGET_MS)} ms; ` +
+        residentMemory(),
     );
     expect(serviceLogLines).toEqual([]);
     expect(read.p95Ms).toBeLessThanOrEqual(RELATED_LIST_P95_BUDGET_MS);
+    expect(turns.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
   });
 });
