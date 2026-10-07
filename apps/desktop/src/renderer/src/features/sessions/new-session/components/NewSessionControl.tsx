@@ -53,15 +53,13 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
           detail={composition.sendResult.refusal.detail}
         />
       )}
+      {/* Plain paragraphs: the composition announces the settlement these two lines spell out
+          when it lands, so announcing them here would say it twice. */}
       {composition.unsentEditsSentence === undefined ? null : (
-        // A plain paragraph, unlike the completed-calls line below: the composition announces
-        // this sentence when the settlement lands, so a status region would say it twice.
         <p className="meridian-new-session__unsent">{composition.unsentEditsSentence}</p>
       )}
       {completedCalls.length === 0 ? null : (
-        // A status region: what already exists is the half of a partial send a person acts
-        // on, and it arrives after the press.
-        <p className="meridian-new-session__completed" role="status">
+        <p className="meridian-new-session__completed">
           {`Already sent: ${completedCalls.join(", ")}`}
         </p>
       )}

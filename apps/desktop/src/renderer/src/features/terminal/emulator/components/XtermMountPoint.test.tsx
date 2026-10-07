@@ -17,6 +17,7 @@ import {
   emulatorElementOf,
   typeOneCharacter,
 } from "./XtermMountPoint.test-support.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 afterEach(() => {
   reclaimComponentHolds(COMPONENT_TERMINAL_IDS);
@@ -226,6 +227,7 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
           throw consumerFailure;
         }}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
 
     await expect(settleEmulatorLoad()).rejects.toThrow(consumerFailure);

@@ -20,6 +20,7 @@ import {
 } from "../../bind-control-availability.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./controller.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * The line that holds the control while no branch is named. The branch is required here though
@@ -114,14 +115,20 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       </button>
       {unavailableBecause === undefined ? null : (
         // The mount's own sentence; never a second wording.
-        <p className="meridian-prepare-root__held" role="status">
-          {unavailableBecause}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-prepare-root__held"
+          words={unavailableBecause}
+          politeness="polite"
+        />
       )}
       {isBranchNamed ? null : (
-        <p className="meridian-form__blocked" role="status">
-          {BRANCH_REQUIRED_COPY}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-form__blocked"
+          words={BRANCH_REQUIRED_COPY}
+          politeness="polite"
+        />
       )}
     </details>
   );
@@ -155,7 +162,13 @@ function renderSettlement(
       return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "prepared":
       return (
-        <div className="meridian-form__settlement meridian-form__settlement--inline" role="status">
+        // The state is read out; the root path and the re-read control beside it are not.
+        <AnnouncedLine
+          element="div"
+          className="meridian-form__settlement meridian-form__settlement--inline"
+          words={codeWords(reading.state)}
+          politeness="polite"
+        >
           <WireFigure value={reading.executionRoot} title={reading.executionRoot} />
           <span>{codeWords(reading.state)}</span>
           {/* The re-read is a control, not an effect: it stays after the first press because the
@@ -163,7 +176,7 @@ function renderSettlement(
           <button type="button" className={BUTTON_CLASS_NAME} onClick={onPrepared}>
             Show it in the roots list
           </button>
-        </div>
+        </AnnouncedLine>
       );
   }
 }

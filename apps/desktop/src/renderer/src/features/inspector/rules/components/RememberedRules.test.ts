@@ -5,6 +5,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SECOND_RULE_ID, renderGrants, rule } from "../remembered-rule.test-support.js";
+import { OUTSIDE_LIVE_REGIONS } from "#test/helpers/live-region.js";
 
 describe("only the confirming click mutates", () => {
   it("asks first, and canceling leaves zero mutations", () => {
@@ -51,7 +52,9 @@ describe("the empty and short reads", () => {
     // unavailable.
     renderGrants({ rules: [], unreadableCount: 3 });
     expect(screen.getByText("Standing permissions could not be read.")).not.toBeNull();
-    expect(screen.getByText(/not known to be none/u)).not.toBeNull();
+    expect(
+      screen.getByText(/not known to be none/u, { ignore: OUTSIDE_LIVE_REGIONS }),
+    ).not.toBeNull();
     expect(screen.queryByText("No rules yet")).toBeNull();
   });
 

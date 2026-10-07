@@ -15,6 +15,7 @@ import {
   served,
 } from "#renderer/lib/provider-binding/account/reading.test-support.js";
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /**
  * Two accounts under `claude` and one under `codex`. `acct-team` is marked default while the
@@ -58,6 +59,7 @@ function renderedAxis(axis: AxisCase): HTMLElement {
       isOverridden={axis.isOverridden}
       onValueChange={axis.onValueChange ?? ((): void => {})}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
   return container;
 }

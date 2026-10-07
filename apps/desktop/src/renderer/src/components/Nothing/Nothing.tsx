@@ -15,6 +15,8 @@
 import "./Nothing.css";
 
 import { GLYPH_SIZE_ROW, type GlyphName } from "#renderer/styles/glyphs.js";
+import type { AnnouncementPoliteness } from "../LiveAnnouncer/announcer.js";
+import { useAnnounceWhenShown } from "#renderer/hooks/announce/useAnnounceWhenShown.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
 /** The closed set of empty-state kinds. */
@@ -41,6 +43,11 @@ export interface NothingProps {
   readonly detail?: string;
   /** The next step, when there is one. A button, a link, a control. */
   readonly action?: React.ReactNode;
+  /**
+   * The attempt this state answers, for a retry that can end in the same words: a new value says
+   * them again. Keep its identity across renders (the refusal the retry replaces).
+   */
+  readonly attempt?: unknown;
 }
 
 /** What a kind supplies, and nothing about where it is mounted. */
@@ -56,8 +63,12 @@ interface NothingKindTraits {
    * measure.
    */
   readonly detailClassName: string;
-  /** The kind's live-region role, in both shapes. Absent where nothing is in progress. */
-  readonly role?: "status";
+  /**
+   * The announcer lane the state's words are said on when it is drawn, in both shapes: it mounts
+   * holding them, which most screen readers never announce from a live role. Absent where the
+   * state is quiet.
+   */
+  readonly announcement?: AnnouncementPoliteness;
   /** Whether the kind is a read still in flight. */
   readonly busy?: boolean;
 }
@@ -68,7 +79,7 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
     defaultPlacement: "block",
     copy: "skeleton",
     detailClassName: "meridian-nothing__detail",
-    role: "status",
+    announcement: "polite",
     busy: true,
   },
   empty: {
@@ -81,7 +92,7 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
     copy: "prose",
     glyph: "alert",
     detailClassName: "meridian-nothing__message",
-    role: "status",
+    announcement: "assertive",
   },
   "not-checked": {
     defaultPlacement: "inline",
@@ -93,7 +104,7 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
     copy: "prose",
     glyph: "clock",
     detailClassName: "meridian-nothing__detail",
-    role: "status",
+    announcement: "polite",
   },
 };
 
@@ -116,6 +127,11 @@ export function Nothing(props: NothingProps): React.JSX.Element {
   const className =
     `meridian-nothing ${SHAPE_MODIFIER_BY_PLACEMENT[placement]} ` +
     `meridian-nothing--${props.kind}`;
+  useAnnounceWhenShown(
+    traits.announcement === undefined ? undefined : shownWords(props, traits, placement),
+    traits.announcement ?? "polite",
+    props.attempt,
+  );
   return placement === "inline"
     ? renderBadge(props, traits, className)
     : renderBlock(props, traits, className);
@@ -132,14 +148,14 @@ function renderBadge(
 ): React.JSX.Element {
   if (traits.copy === "skeleton") {
     return (
-      <span className={className} role={traits.role} aria-busy={traits.busy}>
+      <span className={className} aria-busy={traits.busy}>
         <span className="meridian-visually-hidden">{props.title}</span>
         <span className="meridian-nothing__skeleton-bar" aria-hidden="true" />
       </span>
     );
   }
   return (
-    <span className={className} role={traits.role} aria-busy={traits.busy}>
+    <span className={className} aria-busy={traits.busy}>
       {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
       <span className="meridian-nothing__badge-label" title={props.detail}>
         {props.title}
@@ -159,7 +175,7 @@ function renderBlock(
 ): React.JSX.Element {
   if (traits.copy === "skeleton") {
     return (
-      <div className={className} role={traits.role} aria-busy={traits.busy}>
+      <div className={className} aria-busy={traits.busy}>
         <span className="meridian-visually-hidden">{props.title}</span>
         {SKELETON_BAR_WIDTHS.map((width) => (
           <span
@@ -173,7 +189,7 @@ function renderBlock(
     );
   }
   return (
-    <div className={className} role={traits.role} aria-busy={traits.busy}>
+    <div className={className} aria-busy={traits.busy}>
       <p className="meridian-nothing__title">
         {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
         {props.title}
@@ -184,4 +200,21 @@ function renderBlock(
       )}
     </div>
   );
+}
+
+/**
+ * The words the state shows: its title, and in a block of prose its second line too. A badge
+ * carries that line only as a tooltip, and a skeleton shows none.
+ */
+function shownWords(
+  props: NothingProps,
+  traits: NothingKindTraits,
+  placement: NothingPlacement,
+): string {
+  if (placement === "inline" || traits.copy === "skeleton" || props.detail === undefined) {
+    return props.title;
+  }
+  return /[.?!…]$/u.test(props.title)
+    ? `${props.title} ${props.detail}`
+    : `${props.title}. ${props.detail}`;
 }

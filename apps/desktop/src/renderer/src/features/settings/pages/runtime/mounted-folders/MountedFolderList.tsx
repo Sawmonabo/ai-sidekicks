@@ -128,19 +128,19 @@ export function MountedFolderList(props: {
 }
 
 /**
- * The one sentence this list announces, or `undefined` while the read is in flight.
+ * The one sentence this list announces, or `undefined` while the read is in flight or where it
+ * failed, whose refusal line speaks for itself.
  *
  * The counts are what speech lacks: on screen the rows are the count. The unread tail is
  * named in the same sentence, since a bounded read that said only what it opened would
- * report a smaller session. A refused read speaks the refusal's own detail, the words the
- * card shows.
+ * report a smaller session.
  */
 function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
   if (state.kind === "not-loaded") {
     return undefined;
   }
   if (state.kind === "failed") {
-    return state.refusal.detail;
+    return undefined;
   }
   const { readings, unreadMountCount } = state.value;
   if (readings.length === 0) {

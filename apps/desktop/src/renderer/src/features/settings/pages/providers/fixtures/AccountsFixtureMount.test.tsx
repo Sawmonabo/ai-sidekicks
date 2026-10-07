@@ -13,6 +13,7 @@ import {
 } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { drawnText, liveRegionText } from "#test/helpers/live-region.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { RegisteredBodyPage } from "../../RegisteredBodyPage.js";
@@ -132,12 +133,15 @@ describe("AccountsFixtureMount", () => {
 
     // The first sign-in fails, with the provider's own reason under the line.
     await signInEndsAfterStart();
-    expect(container.textContent).toContain("Sign-in did not finish.");
-    expect(container.textContent).toContain("The device code expired before it was entered.");
+    expect(drawnText(container)).toContain("Sign-in did not finish.");
+    expect(drawnText(container)).toContain("The device code expired before it was entered.");
+    expect(liveRegionText(container, "assertive")).toBe(
+      "Sign-in did not finish. The device code expired before it was entered.",
+    );
 
     // `Sign in` is still there, and the next attempt finishes and leaves nothing drawn.
     await signInEndsAfterStart();
-    expect(container.textContent).not.toContain("Sign-in did not finish.");
+    expect(drawnText(container)).not.toContain("Sign-in did not finish.");
   });
 
   it("reports no completion for a sign-in canceled before it finishes", async () => {
@@ -179,9 +183,10 @@ describe("AccountsFixtureMount", () => {
       fixture.scenarioEngine.advance(200);
     });
 
-    expect(form.querySelector('[role="alert"]')?.textContent).toBe(
+    expect(form.querySelector(".meridian-settings-page__state--failed")?.textContent).toBe(
       "The provider did not accept that token.",
     );
+    expect(liveRegionText(container, "assertive")).toBe("The provider did not accept that token.");
     expect(field.value).toBe("");
     expect(form.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
   });

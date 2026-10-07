@@ -17,6 +17,7 @@ import {
   deriveTranscriptWindow,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
 function viewportRowFor(transcriptWindow: TranscriptWindowModel, key: string): ViewportRow {
@@ -65,6 +66,7 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
         // A window with neither the header nor any projected row under that key.
         {...rendererOptions(deriveTranscriptWindow([]), { renderTranscriptRow: rowRendererCalls })}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
 
     expect(container.textContent).toContain("This entry is no longer loaded.");

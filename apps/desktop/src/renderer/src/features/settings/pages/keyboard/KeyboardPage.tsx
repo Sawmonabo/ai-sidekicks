@@ -38,6 +38,7 @@ import {
   type AppliedChordRecording,
   type KeybindingRow,
 } from "./keybinding-map.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
@@ -249,11 +250,12 @@ export function KeyboardPage(): ReactNode {
           </ul>
         )}
         {keybindingOverrides.repair === undefined ? null : (
-          <p className="meridian-settings-page__state" role="alert">
-            The keyboard map could not be read, so the chords the app ships with were used and the
-            file was written out again. Any chord changed before now is back at the one the app
-            ships with.
-          </p>
+          <AnnouncedLine
+            element="p"
+            className="meridian-settings-page__state"
+            words={KEYBOARD_MAP_REPAIRED}
+            politeness="assertive"
+          />
         )}
         {keybindingOverrides.readRefusal === undefined ? null : (
           <InlineRefusal
@@ -317,3 +319,8 @@ function describeBinding(
     : `${act} for as long as this window is open, and will not come ` +
         `back after a reload. ${unsaved.detail}`;
 }
+
+/** What the page says where the keyboard map could not be read and was written out again. */
+const KEYBOARD_MAP_REPAIRED =
+  "The keyboard map could not be read, so the chords the app ships with were used and the file " +
+  "was written out again. Any chord changed before now is back at the one the app ships with.";

@@ -26,6 +26,11 @@ export interface InlineRefusalProps extends RefusalProps {
    * out.
    */
   readonly announcement?: string;
+  /**
+   * The attempt this refusal answers, for a retry that can end in the same words: a new value says
+   * them again. Keep its identity across renders (the refusal the retry replaces).
+   */
+  readonly attempt?: unknown;
 }
 
 /**
@@ -34,7 +39,7 @@ export interface InlineRefusalProps extends RefusalProps {
  */
 export function InlineRefusal(props: InlineRefusalProps): React.JSX.Element {
   const detail = formatWireString(props.detail);
-  useAnnounceWhenShown(props.announcement ?? detail, "assertive");
+  useAnnounceWhenShown(props.announcement ?? detail, "assertive", props.attempt);
   const isStrip = props.onTryAgain !== undefined;
   const shapeClassName = isStrip ? "meridian-refusal--strip" : "meridian-refusal--inline";
   return (

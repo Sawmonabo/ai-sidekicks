@@ -17,6 +17,7 @@ import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { ComposerToolbar } from "./ComposerToolbar.js";
 import { agentPane } from "../Composer.test-support.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The toolbar's session, as a registered `SessionId`: a UUID, not a readable name. */
 const SESSION_ID = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b";
@@ -85,6 +86,7 @@ export function mountToolbar(
       route={DEFAULT_ROUTE}
       focusedPane={addressing.focusedPane}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
   return container;
 }

@@ -11,6 +11,9 @@ import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mutation.js";
 import { SessionName } from "./SessionName.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { formatWireString } from "#renderer/lib/wire/figures.js";
+import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 
 /**
  * What the last change to one control did, in place: `Sending…` while it is on its way, once past
@@ -48,8 +51,21 @@ export function MutationOutcomeLine(props: {
         : undefined;
     return entry === undefined ? [] : [{ liveResult, entry }];
   });
+  // Read out as drawn: each session named as the list names it.
+  const words = [
+    ...settlement.grades.map((grade) => settleLineFor(grade, binding.provider)),
+    ...failedSessions.map(
+      ({ entry }) =>
+        `${formatWireString(sessionDisplayTitleOf(entry).text)} is still running with the old setting.`,
+    ),
+  ].join(" ");
   return (
-    <div className="meridian-mcp__outcome" role="status">
+    <AnnouncedLine
+      element="div"
+      className="meridian-mcp__outcome"
+      words={words}
+      politeness="polite"
+    >
       {settlement.grades.map((grade) => (
         <p key={grade} className="meridian-settings-page__state">
           {settleLineFor(grade, binding.provider)}
@@ -60,6 +76,6 @@ export function MutationOutcomeLine(props: {
           <SessionName entry={entry} /> is still running with the old setting.
         </p>
       ))}
-    </div>
+    </AnnouncedLine>
   );
 }

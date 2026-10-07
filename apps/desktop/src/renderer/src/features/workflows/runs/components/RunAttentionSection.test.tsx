@@ -16,6 +16,9 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { RunAttentionSection } from "./RunAttentionSection.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
+import { OUTSIDE_LIVE_REGIONS, liveRegionText } from "#test/helpers/live-region.js";
 
 // Local calendar instants, so every figure below falls on the same day as now.
 const NOW_MS = new Date(2026, 0, 1, 14, 20).getTime();
@@ -74,6 +77,7 @@ describe("the attention list", () => {
         readAgain={() => undefined}
         answeredCount={0}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
 
     const lines = screen.getAllByRole("listitem").map((item) => item.textContent);
@@ -98,11 +102,15 @@ describe("the attention list", () => {
         answeredCount={3}
       />
     );
-    const { rerender } = render(section({ kind: "not-loaded" }));
+    const { rerender } = render(section({ kind: "not-loaded" }), {
+      wrapper: LiveAnnouncerProvider,
+    });
     act(() => {
       clock.advance(LOADING_NOTICE_DELAY_MS);
     });
-    expect(screen.getByText("Loading what is waiting…")).toBeTruthy();
+    expect(
+      screen.getByText("Loading what is waiting…", { ignore: OUTSIDE_LIVE_REGIONS }),
+    ).toBeTruthy();
     expect(screen.queryByText(/Nothing waiting/)).toBeNull();
 
     rerender(
@@ -114,5 +122,41 @@ describe("the attention list", () => {
 
     rerender(section({ kind: "loaded", value: { entries: [], waitingOnPersonCount: 0 } }));
     expect(screen.getByText("Nothing waiting · you answered 3 runs this afternoon")).toBeTruthy();
+  });
+
+  it("says the failure again when `Try again` fails the same way", () => {
+    // The read stays failed across the retry and settles a new refusal in the same words, so
+    // only the new refusal can tell the announcer it is a second failure.
+    const clock = new ManualClock(NOW_MS);
+    const failedRead = (): React.ComponentProps<typeof RunAttentionSection>["state"] => ({
+      kind: "failed",
+      refusal: refuse("daemon", "daemon.unavailable", "Not running."),
+    });
+    const section = (state: React.ComponentProps<typeof RunAttentionSection>["state"]) => (
+      <LiveAnnouncerProvider clock={clock}>
+        <RunAttentionSection
+          state={state}
+          onOpenRun={() => undefined}
+          nowMs={NOW_MS}
+          clock={clock}
+          readAgain={() => undefined}
+          answeredCount={0}
+        />
+      </LiveAnnouncerProvider>
+    );
+    const firstFailure = failedRead();
+    const { container, rerender } = render(section(firstFailure));
+    const said = [liveRegionText(container, "assertive")];
+    act(() => {
+      clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
+    });
+    // A re-render of the same failure is not a new one.
+    rerender(section(firstFailure));
+    said.push(liveRegionText(container, "assertive"));
+    rerender(section(failedRead()));
+    said.push(liveRegionText(container, "assertive"));
+
+    const failure = "Could not load what is waiting. Not running.";
+    expect(said).toStrictEqual([failure, "", failure]);
   });
 });

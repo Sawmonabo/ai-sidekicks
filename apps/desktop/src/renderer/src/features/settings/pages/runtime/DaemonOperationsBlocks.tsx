@@ -218,6 +218,7 @@ function renderStatusRegion(
           code={reading.refusal.code}
           detail={NOT_ANSWERING_MESSAGE}
           onTryAgain={checkAgain}
+          attempt={reading.refusal}
         />
       );
   }

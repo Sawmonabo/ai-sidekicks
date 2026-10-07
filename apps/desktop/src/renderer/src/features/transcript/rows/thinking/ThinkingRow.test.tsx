@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type ReasoningReading } from "./reasoning-reading.js";
 import { ThinkingRow } from "./ThinkingRow.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
 
@@ -25,6 +26,7 @@ function renderThinkingRow(
       reading={overrides.reading ?? { status: "not-asked" }}
       onExpand={overrides.onExpand ?? (() => undefined)}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
   return container;
 }

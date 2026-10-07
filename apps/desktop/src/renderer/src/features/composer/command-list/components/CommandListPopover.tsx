@@ -23,6 +23,7 @@ import {
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandReadState } from "../provider/read.js";
 import { EnumerationState } from "./EnumerationState.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * A picked entry carries no typed argument, so an argument-reading command takes its palette
@@ -212,9 +213,12 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         />
       ) : null}
       {activationNotice === undefined ? null : (
-        <p className="meridian-command-discovery__notice" role="status">
-          {activationNotice}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-command-discovery__notice"
+          words={activationNotice}
+          politeness="polite"
+        />
       )}
       <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
       {actionOutcome?.status === "refused" ? (

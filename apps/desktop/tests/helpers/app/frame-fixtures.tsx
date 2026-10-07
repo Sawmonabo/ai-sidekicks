@@ -1,11 +1,12 @@
 // What both frame suites need before they can render a frame: the props `AppFrame` requires that
-// no case makes a claim about, and the bridge host the frame resolves its clock from. Anything a
-// single suite uses (the exploding screen, the failure card's addressing, the banner, the live
-// regions) stays beside its one reader.
+// no case makes a claim about, the bridge host the frame resolves its clock from, and the
+// announcer the frame mounts inside it. Anything a single suite uses (the exploding screen, the
+// failure card's addressing, the banner, reading the live regions) stays beside its one reader.
 import { createStubBridge } from "#shared/preload-api.js";
 import type { ReactNode } from "react";
 import type { Clock } from "#renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
 import {
@@ -73,6 +74,22 @@ export function bridgeWrapper(
       <PlatformBridgeProvider bridge={bridge} {...(clock === undefined ? {} : { clock })}>
         {props.children}
       </PlatformBridgeProvider>
+    );
+  };
+}
+
+/**
+ * A wrapper's tree with the window's announcer inside it, where the frame mounts it, so a
+ * component that speaks can render under a bridge host.
+ */
+export function withAnnouncer(
+  Host: (props: { readonly children: ReactNode }) => React.JSX.Element,
+): (props: { readonly children: ReactNode }) => React.JSX.Element {
+  return function AnnouncedHost(props: { readonly children: ReactNode }): React.JSX.Element {
+    return (
+      <Host>
+        <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
+      </Host>
     );
   };
 }

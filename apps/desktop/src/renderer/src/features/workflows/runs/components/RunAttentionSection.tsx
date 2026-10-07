@@ -49,6 +49,7 @@ export function RunAttentionSection(props: {
           title="Could not load what is waiting"
           detail={state.refusal.detail}
           action={<TryAgainButton onPress={props.readAgain} />}
+          attempt={state.refusal}
         />
       ) : state.value.entries.length === 0 ? (
         <p className="meridian-workflows-attention__nothing">

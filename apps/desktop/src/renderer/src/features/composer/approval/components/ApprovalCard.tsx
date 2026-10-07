@@ -241,7 +241,9 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         </>
       ) : null}
 
-      {props.refusal === undefined ? null : <RefusalWithRemedy refusal={props.refusal} />}
+      {props.refusal === undefined ? null : (
+        <RefusalWithRemedy refusal={props.refusal} attempt={props.refusal} />
+      )}
     </article>
   );
 }

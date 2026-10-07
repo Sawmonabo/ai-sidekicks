@@ -1,23 +1,30 @@
 // A line that mounts already holding its words is not announced by most screen readers, so a
 // line drawn on a refusal, a failure or a settled act speaks through the app's one announcer.
 //
-// The words are the key, over `useAnnounceOncePerSentence.ts`: a re-render says nothing, new
-// words speak, and a line taken away is forgotten, so the same line drawn again speaks again.
+// The words are said when the line is drawn and again when they change; a re-render says
+// nothing, and a line taken away and drawn again speaks again. A retry that fails the same way
+// can leave the line drawn with the same words, so a caller passes the attempt: a new attempt
+// value says the words again even when they have not changed.
 
-import { useMemo } from "react";
+import { useEffect } from "react";
 
 import type { AnnouncementPoliteness } from "#renderer/components/LiveAnnouncer/announcer.js";
-import { useAnnounceOncePerSentence } from "./useAnnounceOncePerSentence.js";
+import { useAnnounce } from "./useAnnounce.js";
 
 /**
- * Announce a drawn line's words once when it is shown and again when they change. `sentence` is
- * `undefined` while the line is not drawn, which forgets it.
+ * Announce a drawn line's words when it is shown, when they change, and when `attempt` changes.
+ * `sentence` is `undefined` while the line is not drawn. `attempt` must keep its identity across
+ * renders (a refusal or reading object the retry replaces), or every render speaks.
  */
 export function useAnnounceWhenShown(
   sentence: string | undefined,
   politeness: AnnouncementPoliteness,
+  attempt?: unknown,
 ): void {
-  // Memoized on the words, so the latch's effect runs when they change and not once per render.
-  const sentences = useMemo(() => (sentence === undefined ? [] : [sentence]), [sentence]);
-  useAnnounceOncePerSentence(sentences, politeness);
+  const announce = useAnnounce();
+  useEffect(() => {
+    if (sentence !== undefined) {
+      announce(sentence, politeness);
+    }
+  }, [sentence, politeness, attempt, announce]);
 }

@@ -19,11 +19,13 @@ export interface RefusalWithRemedyProps {
    * something the remedy table cannot, such as the position a rewind landed at.
    */
   readonly detailAction?: React.ReactNode;
+  /** The attempt the refusal answers, so a retry refused the same way is said again. */
+  readonly attempt?: unknown;
 }
 
 /** The daemon's words, with the console's next move in the action row. */
 export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Element {
-  const { refusal, detailAction } = props;
+  const { refusal, detailAction, attempt } = props;
   const remedy = refusalRemedyFor(refusal.code);
   const action =
     remedy === undefined && detailAction === undefined ? undefined : (
@@ -36,6 +38,7 @@ export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Elem
         reason={refusal.reason}
         detail={refusal.detail}
         action={action}
+        attempt={attempt}
       />
     );
   }
@@ -45,6 +48,7 @@ export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Elem
       reason={refusal.reason}
       detail={refusal.detail}
       action={action}
+      attempt={attempt}
     />
   );
 }

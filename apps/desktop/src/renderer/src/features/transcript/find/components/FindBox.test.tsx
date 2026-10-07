@@ -3,6 +3,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { liveRegionText } from "#test/helpers/live-region.js";
 import { FindBox } from "./FindBox.js";
 import { findInTranscript, type FindResult } from "../matcher.js";
 import { runRow } from "../../event-rows.test-support.js";
@@ -69,6 +71,7 @@ function renderField(
       onStep={(direction) => acts.push(`step:${direction}`)}
       onClose={() => acts.push("close")}
     />,
+    { wrapper: LiveAnnouncerProvider },
   );
   return {
     field: screen.getByRole("search"),
@@ -85,6 +88,7 @@ describe("find field — the counter is the app's own reading", () => {
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
     expect(field.textContent).toContain("1 of 3");
     expect(field.textContent).not.toContain(`1 of ${String(UNCAPPED_TOTAL)}`);
+    expect(liveRegionText(document.body, "polite")).toBe("1 of 3");
   });
 });
 

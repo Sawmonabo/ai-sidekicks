@@ -19,6 +19,7 @@ import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** Props for the re-attach confirmation. */
 export interface ReattachControlProps {
@@ -119,9 +120,12 @@ function renderSettlement(act: AttachRequestReading): React.JSX.Element | null {
       return <InlineRefusal code={act.refusal.code} detail={act.refusal.detail} />;
     case "attached":
       return (
-        <p className="meridian-form__settlement" role="status">
-          Attached as a new mount. This row is now history.
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-form__settlement"
+          words="Attached as a new mount. This row is now history."
+          politeness="polite"
+        />
       );
   }
 }

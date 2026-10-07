@@ -47,6 +47,7 @@ export function RunsStrip(props: {
           code={nextWaiting.refusal.code}
           detail={nextWaiting.refusal.detail}
           action={<TryAgainButton onPress={props.readAttentionAgain} />}
+          attempt={nextWaiting.refusal}
         />
       ) : null}
       {pause?.paused === true ? (

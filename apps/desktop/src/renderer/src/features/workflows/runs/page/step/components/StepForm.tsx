@@ -48,6 +48,7 @@ export function StepForm(props: {
         title="Could not load the form"
         detail={read.refusal.detail}
         action={<TryAgainButton onPress={form.readAgain} />}
+        attempt={read.refusal}
       />
     );
   }

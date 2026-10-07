@@ -36,6 +36,7 @@ import { NO_RUN_FILTERS, hasRunFilters, noRunMatchSentence } from "./filters.js"
 import type { RunListAnswer, RunListAsk } from "./list-pages.js";
 import { runCountWords } from "../words.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** What the Runs tab's list is drawn from, and where it leads. */
 export interface RunsTabProps {
@@ -81,9 +82,12 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
   return (
     <div className="meridian-workflows-runs">
       {props.isRunMissing ? (
-        <p className="meridian-workflows-runs__missing" role="status">
-          That run is not here.
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-workflows-runs__missing"
+          words="That run is not here."
+          politeness="polite"
+        />
       ) : null}
       <RunAttentionSection
         state={attentionState}
@@ -116,7 +120,11 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
         <InlineRefusal code={props.namingRefusal.code} detail={props.namingRefusal.detail} />
       )}
       {filters.lastRefusal === undefined ? null : (
-        <InlineRefusal code={filters.lastRefusal.code} detail={filters.lastRefusal.detail} />
+        <InlineRefusal
+          code={filters.lastRefusal.code}
+          detail={filters.lastRefusal.detail}
+          attempt={filters.lastRefusal}
+        />
       )}
       <RunsList {...props} nowMs={nowMs} clock={clock} />
     </div>
@@ -142,6 +150,7 @@ function RunsList(
         title="Could not load the runs"
         detail={listState.refusal.detail}
         action={<TryAgainButton onPress={props.readListAgain} />}
+        attempt={listState.refusal}
       />
     );
   }
@@ -175,6 +184,7 @@ function RunsList(
             title="Could not load older runs"
             detail={listState.value.earlierRefusal.detail}
             action={<TryAgainButton onPress={props.readListAgain} />}
+            attempt={listState.value.earlierRefusal}
           />
         )}
       </div>
@@ -192,9 +202,16 @@ function RunsList(
   }
   const definitionId = ask.filters.definitionId;
   const workflowName = props.definitions.find((definition) => definition.id === definitionId)?.name;
+  const noMatchSentence = noRunMatchSentence(ask.filters, workflowName);
   return (
-    <div className="meridian-workflows-runs__no-match" role="status" aria-busy={isReplacing}>
-      <p>{noRunMatchSentence(ask.filters, workflowName)}</p>
+    <AnnouncedLine
+      element="div"
+      className="meridian-workflows-runs__no-match"
+      words={noMatchSentence}
+      politeness="polite"
+      isBusy={isReplacing}
+    >
+      <p>{noMatchSentence}</p>
       {hasRunFilters(ask.filters) ? (
         <ActionButton
           onClick={() => {
@@ -204,7 +221,7 @@ function RunsList(
           Clear filters
         </ActionButton>
       ) : null}
-    </div>
+    </AnnouncedLine>
   );
 }
 
@@ -214,9 +231,9 @@ function isWithoutRuns(runCountState: PushDrivenReadState<number>): boolean {
 }
 
 /**
- * What a screen reader hears once the runs are read: how many are listed, `No runs yet` where
- * there is no run at all, or why they could not be read. A filter matching nothing says so in its
- * own status line instead.
+ * What a screen reader hears once the runs are read: how many are listed, or `No runs yet` where
+ * there is no run at all. A failed read's error line and a filter matching nothing say so in their
+ * own lines instead.
  */
 function runsSettlementSentence(
   listState: PushDrivenReadState<RunListAnswer>,
@@ -226,7 +243,7 @@ function runsSettlementSentence(
     case "not-loaded":
       return undefined;
     case "failed":
-      return listState.refusal.detail;
+      return undefined;
     case "loaded": {
       const { response } = listState.value;
       if (response.runs.length > 0) {

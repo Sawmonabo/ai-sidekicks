@@ -27,27 +27,28 @@ import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import { UPDATE_FAILED_DETAIL, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
+import { type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
 
 /**
- * What each settled arm of the updater's read says, for the person who cannot see it.
+ * What each settled arm of the updater's read says, for the person who cannot see it; the
+ * `error` arm's line speaks for itself.
  *
- * Total over `UpdateState`, so a new upstream arm is a compile error. It carries no percent:
- * `downloading` re-settles on every push and a sentence with the figure would be announced
- * once per percentage point.
+ * Total over the other arms of `UpdateState`, so a new upstream arm is a compile error. It
+ * carries no percent: `downloading` re-settles on every push and a sentence with the figure would
+ * be announced once per percentage point.
  */
-const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>> = {
-  idle: "Update state read. No update is waiting.",
-  checking: "Update state read. A check is running.",
-  available: "Update state read. An update is available to download.",
-  downloading: "Update state read. An update is downloading.",
-  verifying: "Update state read. The update's signature is being checked.",
-  ready: "Update state read. An update has downloaded and installs on the next restart.",
-  error: `Update state read. ${UPDATE_FAILED_DETAIL}`,
-};
+const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<Exclude<UpdateState["status"], "error">, string>> =
+  {
+    idle: "Update state read. No update is waiting.",
+    checking: "Update state read. A check is running.",
+    available: "Update state read. An update is available to download.",
+    downloading: "Update state read. An update is downloading.",
+    verifying: "Update state read. The update's signature is being checked.",
+    ready: "Update state read. An update has downloaded and installs on the next restart.",
+  };
 
 /** The subsystem a refused updater control names as its author. */
 const UPDATER_CONTROL_ORIGIN = "updater-control";
@@ -200,8 +201,11 @@ function renderAutomaticCheck(
 
 /**
  * The one sentence this block announces, or `undefined` while no state has settled; a refused
- * read is drawn as a refusal, which speaks for itself.
+ * read and the updater's failure are drawn as lines that speak for themselves.
  */
 function updateSettlementSentence(reading: UpdateReading): string | undefined {
-  return reading.kind === "state" ? UPDATE_STATUS_SETTLEMENTS[reading.state.status] : undefined;
+  if (reading.kind !== "state" || reading.state.status === "error") {
+    return undefined;
+  }
+  return UPDATE_STATUS_SETTLEMENTS[reading.state.status];
 }

@@ -84,6 +84,8 @@ export function UpdateReadOut(props: {
           code={UPDATE_FAILED_CODE}
           detail={UPDATE_FAILED_DETAIL}
           onTryAgain={props.onTryAgain}
+          // A check that fails again reports a new failure in the same words; it is said again.
+          attempt={state}
         />
       );
   }

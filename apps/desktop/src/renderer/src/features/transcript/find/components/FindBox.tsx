@@ -1,6 +1,8 @@
 // The find field. Its counts are the renderer's own reading of rows it holds, so they render
-// proportionally through `DerivedFigure` rather than in the mono the daemon's figures wear.
+// proportionally through `DerivedFigure` rather than in the mono the daemon's figures wear. The
+// count mounts with the field already holding its words, so it speaks through the app's announcer.
 
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
@@ -27,6 +29,7 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
   const { result } = props;
   const inputRef = useCaretOnOpen(props.openRequestCount);
   const hasMatches = result.matches.length > 0;
+  const countText = matchCountText(result, props.currentMatchIndex);
 
   return (
     <div className="meridian-find" role="search">
@@ -57,9 +60,9 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
         />
       </label>
 
-      <span role="status">
-        <DerivedFigure text={matchCountText(result, props.currentMatchIndex)} />
-      </span>
+      <AnnouncedLine element="span" words={countText} politeness="polite">
+        <DerivedFigure text={countText} />
+      </AnnouncedLine>
 
       <button
         type="button"

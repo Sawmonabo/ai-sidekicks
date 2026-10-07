@@ -17,6 +17,7 @@ import {
 } from "../hooks/useTranscriptViewport.js";
 import type { ViewportRow } from "../snapshot.js";
 import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 const LONG_LOG_ROW_COUNT = 500;
 
@@ -78,6 +79,7 @@ describe("the transcript viewport — the feed", () => {
         renderRow={renderRow}
         feedLabel="Transcript"
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     expect(screen.getByRole("feed", { name: "Transcript" })).toBeDefined();
     const mounted = container.querySelectorAll(".meridian-transcript-viewport__row");
@@ -95,6 +97,7 @@ describe("the transcript viewport — the feed", () => {
         renderRow={renderRow}
         feedLabel="Transcript"
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     // Row measurements coalesce onto one frame; after that a quiet viewport holds nothing armed.
     for (let pass = 0; pass < 4; pass += 1) {
@@ -116,6 +119,7 @@ describe("the transcript viewport — the feed", () => {
         renderRow={renderRow}
         feedLabel="Transcript"
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     // Both rows are in the document under keys of their own; a shared key would leave one,
     // because the library's caches are keyed by item key.
@@ -133,6 +137,7 @@ describe("the transcript viewport — the feed", () => {
         feedLabel="Transcript"
         holder={holder}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     const scrollContainer = container.querySelector<HTMLElement>(
       ".meridian-transcript-viewport__scroll-container",

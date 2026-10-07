@@ -8,6 +8,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
 import { type ReadingState } from "#renderer/lib/partial-read.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * The provider half of the list when it is not the whole list: nobody asked, reading, refused, no
@@ -22,8 +23,9 @@ export function EnumerationState(props: {
   const { enumeration, addressedGroup } = props;
   switch (enumeration.phase) {
     case "not-checked":
+      // No live role: the state announces itself through the app's announcer.
       return (
-        <div className="meridian-command-discovery__state" role="status">
+        <div className="meridian-command-discovery__state">
           <Nothing
             kind="not-checked"
             title="No sidekick is addressed, so no provider was asked"
@@ -35,8 +37,8 @@ export function EnumerationState(props: {
         </div>
       );
     case "not-loaded":
-      // The empty state and the refusal below are their own status regions, so each line is
-      // announced once.
+      // No live role: the loading line and the refusal below announce themselves through the
+      // app's announcer.
       return (
         <div className="meridian-command-discovery__state">
           <Nothing kind="not-loaded" title="Reading the provider's commands and skills" />
@@ -51,18 +53,18 @@ export function EnumerationState(props: {
     case "served":
       if (addressedGroup === undefined) {
         return (
-          <div className="meridian-command-discovery__state" role="status">
+          <AnnouncedLine
+            element="div"
+            className="meridian-command-discovery__state"
+            words={`${NOTHING_PUBLISHED_TITLE}. ${NOTHING_PUBLISHED_DETAIL}`}
+            politeness="polite"
+          >
             <Nothing
               kind="empty"
-              title="This run's binding published nothing here"
-              detail={
-                "The sidekick answered for the bindings it holds and none of " +
-                "them could be attributed to the run this composer is addressed " +
-                "to, so no provider entry is offered — another binding's " +
-                "commands are never shown under this one."
-              }
+              title={NOTHING_PUBLISHED_TITLE}
+              detail={NOTHING_PUBLISHED_DETAIL}
             />
-          </div>
+          </AnnouncedLine>
         );
       }
       // Said whether or not the filter matched: a nonempty list off a cut enumeration looks
@@ -83,3 +85,12 @@ export function EnumerationState(props: {
 function cutEnumerationReading(group: ProviderCommandBindingGroup): ReadingState {
   return group.complete ? { kind: "served" } : { kind: "cut", servedCount: group.entries.length };
 }
+
+/** What the list says where the reply holds no group for this run's binding. */
+const NOTHING_PUBLISHED_TITLE = "This run's binding published nothing here";
+
+/** Why no provider entry is offered then. */
+const NOTHING_PUBLISHED_DETAIL =
+  "The sidekick answered for the bindings it holds and none of them could be attributed to " +
+  "the run this composer is addressed to, so no provider entry is offered — another " +
+  "binding's commands are never shown under this one.";

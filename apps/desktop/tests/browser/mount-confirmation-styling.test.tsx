@@ -8,11 +8,12 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { PrepareExecutionRoot } from "#renderer/features/repos/mounts/execution-roots/prepare/PrepareExecutionRoot.js";
 import { RootRemovalConfirmation } from "#renderer/features/repos/mounts/execution-roots/removal/RootRemovalConfirmation.js";
 import { preparingDaemon } from "#renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
-import { bridgeWrapper } from "../helpers/app/frame-fixtures.js";
+import { bridgeWrapper, withAnnouncer } from "../helpers/app/frame-fixtures.js";
 import { bridgeOnClock } from "../helpers/fixture/bridge.js";
 
 const WORKTREE_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
@@ -54,6 +55,7 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
         operations={scriptedRepoOperations()}
         rootId={WORKTREE_ID}
       />,
+      { wrapper: LiveAnnouncerProvider },
     );
     const trigger = screen.getByRole("button", { name: `Remove ${WORKTREE_ID}` });
     expect(propertiesRestyled(trigger), "no sheet reached the trigger").not.toEqual([]);
@@ -89,7 +91,7 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
         availability={{ available: true }}
         onPrepared={() => undefined}
       />,
-      { wrapper: bridgeWrapper(bridge, clock) },
+      { wrapper: withAnnouncer(bridgeWrapper(bridge, clock)) },
     );
     const label = container.querySelector(".meridian-form__label");
     const input = container.querySelector(".meridian-form__input");

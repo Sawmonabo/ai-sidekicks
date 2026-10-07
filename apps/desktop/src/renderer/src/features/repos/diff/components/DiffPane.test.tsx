@@ -6,7 +6,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
-import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { liveBridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 import { type DiffModel } from "../model.js";
 
@@ -24,7 +24,7 @@ installDiffPaneLayout();
 describe("diff pane — the empty state it renders", () => {
   it("says the question was not put, in the pane", () => {
     const { container } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />, {
-      wrapper: liveBridgeWrapper(),
+      wrapper: withAnnouncer(liveBridgeWrapper()),
     });
     const nothing = container.querySelector(".meridian-nothing");
     expect(nothing?.classList.contains("meridian-nothing--not-checked")).toBe(true);
@@ -39,7 +39,7 @@ describe("diff pane — the file list and the rows", () => {
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
-      { wrapper: liveBridgeWrapper() },
+      { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
     const before = container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount");
     fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
@@ -80,7 +80,7 @@ describe("diff pane — expanding a gap in a file that is not the first", () => 
   it("reveals the selected file's whole gap, because it read that file's count", () => {
     const { container, getAllByRole, getByRole } = render(
       <DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={UNEVEN_GAP_DIFF} />,
-      { wrapper: liveBridgeWrapper() },
+      { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
     fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
     // The label is the second file's own count, not the first file's.
@@ -115,7 +115,7 @@ describe("diff pane — reused for a different diff", () => {
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
-      { wrapper: liveBridgeWrapper() },
+      { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
     fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
     rerender(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={OTHER_DIFF} />);
@@ -135,7 +135,7 @@ describe("diff pane — reused for a different diff", () => {
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
-      { wrapper: liveBridgeWrapper() },
+      { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
     const gapCountBefore = container.querySelectorAll(".meridian-diff__row--gap").length;
     fireEvent.click(getAllByRole("button", { name: /Expand \d+ hidden lines/u })[0]!);
@@ -155,7 +155,7 @@ describe("diff pane — the toolbar", () => {
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
         diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
       />,
-      { wrapper: liveBridgeWrapper() },
+      { wrapper: withAnnouncer(liveBridgeWrapper()) },
     );
     expect(container.querySelectorAll(".meridian-diff__side--base").length).toBe(0);
     fireEvent.click(getByRole("button", { name: "Unified view" }));

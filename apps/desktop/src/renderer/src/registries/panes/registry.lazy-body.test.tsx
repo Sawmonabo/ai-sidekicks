@@ -8,6 +8,8 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settle } from "#test/helpers/settle.js";
+import { drawnText } from "#test/helpers/live-region.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
@@ -136,9 +138,10 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
       <ErrorBoundary regionName="The diff pane">
         <MountedDiffPane registry={registry} />
       </ErrorBoundary>,
+      { wrapper: LiveAnnouncerProvider },
     );
     await settle();
-    expect(container.textContent).toContain("The diff pane stopped rendering.");
+    expect(drawnText(container)).toContain("The diff pane stopped rendering.");
 
     fireEvent.click(within(container).getByRole("button", { name: "Retry" }));
     await settle();

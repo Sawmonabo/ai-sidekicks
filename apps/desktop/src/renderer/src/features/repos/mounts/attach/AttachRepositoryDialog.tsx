@@ -16,6 +16,7 @@ import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./form.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */
 export interface AttachRepositoryDialogProps {
@@ -113,9 +114,12 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
         </div>
         {/* The reason the control is closed is always said; a grayed button reports nothing. */}
         {verdict.status === "incomplete" ? (
-          <p className="meridian-form__blocked" role="status">
-            {verdict.because}
-          </p>
+          <AnnouncedLine
+            element="p"
+            className="meridian-form__blocked"
+            words={verdict.because}
+            politeness="polite"
+          />
         ) : null}
       </OverlayDialogPopup>
     </Dialog.Root>
@@ -136,7 +140,13 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
       return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "attached":
       return (
-        <div className="meridian-form__settlement" role="status">
+        // The line says what happened; the minted mount and root under it are not read out.
+        <AnnouncedLine
+          element="div"
+          className="meridian-form__settlement"
+          words="Attached."
+          politeness="polite"
+        >
           <p>Attached.</p>
           <dl className="meridian-repo-attach__minted">
             <dt>Mount</dt>
@@ -154,7 +164,7 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
               />
             </dd>
           </dl>
-        </div>
+        </AnnouncedLine>
       );
   }
 }

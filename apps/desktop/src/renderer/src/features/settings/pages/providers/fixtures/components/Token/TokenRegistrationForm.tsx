@@ -12,6 +12,7 @@ import {
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
 } from "../../sign-in/flow.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * `Paste a token instead`: a name and one masked field for a credential the person minted at
@@ -94,13 +95,15 @@ export function TokenRegistrationForm(props: {
         aria-describedby={nameRefusal === undefined ? undefined : nameRefusalId}
       />
       {nameRefusal === undefined ? null : (
-        <p
+        <AnnouncedLine
+          element="p"
           id={nameRefusalId}
           className="meridian-settings-page__state meridian-settings-page__state--failed"
-          role="alert"
-        >
-          {nameRefusal}
-        </p>
+          words={nameRefusal}
+          politeness="assertive"
+          // A second press refused the same way is a new refusal, said again.
+          attempt={outcome.kind === "refused" ? outcome.refusal : undefined}
+        />
       )}
 
       <label htmlFor={tokenFieldId} className="meridian-visually-hidden">

@@ -30,6 +30,7 @@ import { useReveal } from "../reveal/hooks/useReveal.js";
 import { useAnimationFrameScheduler } from "../hooks/useAnimationFrameScheduler.js";
 import { replyRowIdsByFootRowId } from "../window/reply-rows.js";
 import { DrawnReplyText } from "../copy/drawn-reply-text.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** A channel that draws `liveTextByRowId` and keeps its own record of what reply rows drew. */
 function channelDrawing(liveTextByRowId: ReadonlyMap<string, string>): RowRevealContextValue {
@@ -85,6 +86,7 @@ function renderMessageCard(
         />
       </RowRevealContext>
     </FixtureBridgeProvider>,
+    { wrapper: LiveAnnouncerProvider },
   );
   return container;
 }

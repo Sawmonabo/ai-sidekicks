@@ -108,7 +108,11 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
           {invocationRefusal === undefined ? null : (
             // Below the rows: the answer to the press just made.
             <div className="command-palette__refusal">
-              <InlineRefusal code={invocationRefusal.code} detail={invocationRefusal.detail} />
+              <InlineRefusal
+                code={invocationRefusal.code}
+                detail={invocationRefusal.detail}
+                attempt={invocationRefusal}
+              />
             </div>
           )}
 

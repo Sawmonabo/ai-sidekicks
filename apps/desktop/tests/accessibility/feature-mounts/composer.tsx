@@ -32,6 +32,7 @@ import {
   type FixtureBridge,
 } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { settleScheduledRead } from "../../helpers/scheduled-read.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { DraftStore } from "#renderer/store/drafts.js";
@@ -81,7 +82,9 @@ async function mountViewSettled(
   element: ReactElement,
 ): Promise<HTMLElement> {
   const { container } = await renderSettled(
-    <FixtureBridgeProvider fixture={fixture}>{element}</FixtureBridgeProvider>,
+    <FixtureBridgeProvider fixture={fixture}>
+      <LiveAnnouncerProvider clock={fixture.scenarioEngine.clock}>{element}</LiveAnnouncerProvider>
+    </FixtureBridgeProvider>,
   );
   await settleScheduledRead(fixture.scenarioEngine.clock);
   requireNoReadInFlight(container);

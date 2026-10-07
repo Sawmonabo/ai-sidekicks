@@ -16,6 +16,9 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import { failingRepoMountsReader } from "#test/helpers/failing-repo-mounts-reader.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
+import { drawnText, liveRegionText } from "#test/helpers/live-region.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
 
 const SESSION_ID = "session-catching-up";
@@ -35,7 +38,9 @@ function renderLine(
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   return render(
     <PlatformBridgeProvider bridge={fixture.bridge} clock={clock}>
-      <SessionCatchUpLine sessionStore={sessionStore} onTryAgain={onTryAgain} />
+      <LiveAnnouncerProvider clock={clock}>
+        <SessionCatchUpLine sessionStore={sessionStore} onTryAgain={onTryAgain} />
+      </LiveAnnouncerProvider>
     </PlatformBridgeProvider>,
   ).container;
 }
@@ -47,7 +52,7 @@ function advance(clock: ManualClock, milliseconds: number): void {
 }
 
 describe("SessionCatchUpLine", () => {
-  it("says it couldn't catch up when the repair read of a gap fails", async () => {
+  it("says it couldn't catch up each time the repair read of a gap fails", async () => {
     const clock = new ManualClock(0);
     let readRejects = false;
     // Its own session, so the capture case below reads only its own records.
@@ -78,14 +83,23 @@ describe("SessionCatchUpLine", () => {
     readRejects = true;
     await readOnce();
     advance(clock, CATCH_UP_LINE_DWELL_MS);
-    const afterTheRepairFailed = container.textContent;
+    const afterTheRepairFailed = drawnText(container);
+    const saidOnTheFirstFailure = liveRegionText(container, "assertive");
+    advance(clock, LIVE_ANNOUNCEMENT_HOLD_MS);
+    // A second failure leaves the same words standing; it is a new failure all the same.
+    await readOnce();
+    const saidOnTheSecondFailure = liveRegionText(container, "assertive");
     readRejects = false;
     await readOnce();
     advance(clock, CATCH_UP_LINE_DWELL_MS);
     entry.dispose();
 
     expect(afterTheRepairFailed).toBe("Couldn't catch up · Try again");
-    expect(container.textContent).toBe("");
+    expect([saidOnTheFirstFailure, saidOnTheSecondFailure]).toStrictEqual([
+      "Couldn't catch up",
+      "Couldn't catch up",
+    ]);
+    expect(drawnText(container)).toBe("");
   });
 
   it("says it couldn't catch up if the mounts read fails after a good session read", async () => {
@@ -113,11 +127,11 @@ describe("SessionCatchUpLine", () => {
     mountsReader.start();
     await landReads();
     advance(clock, CATCH_UP_LINE_DWELL_MS);
-    const afterTheMountsReadFailed = container.textContent;
+    const afterTheMountsReadFailed = drawnText(container);
     entry.refreshScheduler.request("user-request");
     await landReads();
     advance(clock, CATCH_UP_LINE_DWELL_MS);
-    const afterAGoodSessionRead = container.textContent;
+    const afterAGoodSessionRead = drawnText(container);
     const tryAgain = container.querySelector("button");
     if (tryAgain === null) {
       throw new Error("the failed line drew no Try again");
@@ -188,7 +202,8 @@ describe("SessionCatchUpLine", () => {
         detail: `session ${SESSION_ID}: read-failed`,
       }),
     ]);
-    expect(container.textContent).toBe("Couldn't catch up · Try again");
+    expect(drawnText(container)).toBe("Couldn't catch up · Try again");
+    expect(liveRegionText(container, "assertive")).toBe("Couldn't catch up");
     expect(container.textContent).not.toContain("read-failed");
   });
 });

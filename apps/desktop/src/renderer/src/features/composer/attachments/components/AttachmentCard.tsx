@@ -24,6 +24,7 @@ import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import type { AttachmentIngestEntry, AttachmentReading } from "../shapes.js";
 
 import "./AttachmentCard.css";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /** Whose claim a name is, where the name shown is still the caller's own. */
 const DECLARED_NAME_TITLE = "Declared by the sender";
@@ -129,9 +130,12 @@ function renderIngesting(
       />
 
       {isIngestStalled(entry, props.nowMilliseconds) ? (
-        <p className="meridian-attachment__note" role="status">
-          This upload has gone quiet.
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-attachment__note"
+          words="This upload has gone quiet."
+          politeness="polite"
+        />
       ) : null}
 
       {entry.refusal === undefined ? null : (
@@ -170,9 +174,12 @@ function renderIngesting(
       </div>
 
       {entry.state === "abandoned" ? (
-        <p className="meridian-attachment__note" role="status">
-          {INGEST_ABANDON_COPY}
-        </p>
+        <AnnouncedLine
+          element="p"
+          className="meridian-attachment__note"
+          words={INGEST_ABANDON_COPY}
+          politeness="polite"
+        />
       ) : null}
     </>
   );

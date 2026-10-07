@@ -18,6 +18,7 @@ import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mutation.js";
 import { MutationOutcomeLine } from "./components/MutationOutcomeLine.js";
 import { ServerLegs } from "./components/ServerLegs.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 afterEach(() => {
   cleanup();
@@ -65,6 +66,7 @@ describe("the two lists that render a live leg", () => {
           sessionDirectory={{ status: "reading" }}
           nowMilliseconds={0}
         />,
+        { wrapper: LiveAnnouncerProvider },
       ),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);
@@ -78,6 +80,7 @@ describe("the two lists that render a live leg", () => {
           sessionDirectory={{ status: "reading" }}
           clock={new ManualClock(0)}
         />,
+        { wrapper: LiveAnnouncerProvider },
       ),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);

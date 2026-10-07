@@ -20,12 +20,17 @@ export interface DependentRead {
 /** Which dependent reads failed their last pass, in the order they failed. */
 export interface FailedDependentReadsState {
   readonly failedReads: readonly DependentRead[];
+  /**
+   * How many failed passes were recorded, a repeat of a read already failed included, so a
+   * retry that fails again is a new failure.
+   */
+  readonly failedPassCount: number;
 }
 
 /** One session's record of its dependent reads that failed, and the way to ask them again. */
 export class FailedDependentReads {
   readonly #store: StoreApi<FailedDependentReadsState> = createStore<FailedDependentReadsState>(
-    () => ({ failedReads: [] }),
+    () => ({ failedReads: [], failedPassCount: 0 }),
   );
 
   /** The read-only face React subscribes to. */
@@ -33,13 +38,13 @@ export class FailedDependentReads {
     return toReadableStore(this.#store);
   }
 
-  /** Record that this read's last pass failed. Recording one twice changes nothing. */
+  /** Record that this read's last pass failed; a read failing again is listed once. */
   public markFailed(read: DependentRead): void {
-    const { failedReads } = this.#store.getState();
-    if (failedReads.includes(read)) {
-      return;
-    }
-    this.#store.setState({ failedReads: [...failedReads, read] });
+    const { failedReads, failedPassCount } = this.#store.getState();
+    this.#store.setState({
+      failedReads: failedReads.includes(read) ? failedReads : [...failedReads, read],
+      failedPassCount: failedPassCount + 1,
+    });
   }
 
   /**

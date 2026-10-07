@@ -37,15 +37,20 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   const { progress } = model;
   const providerLabel = PROVIDER_LABELS[model.provider];
   // The row mounts holding its words, so it speaks them through the app's announcer; a refused
-  // row's refusal speaks for itself.
+  // row's refusal speaks for itself. A running import is said once, without the count it
+  // redraws on every frame, which would otherwise be read out frame by frame.
   const sentence = rowSentence(model, providerLabel);
-  useAnnounceWhenShown(sentence, "polite");
+  useAnnounceWhenShown(
+    model.isUnderway && progress.status !== "failed" ? importingWords(providerLabel) : sentence,
+    "polite",
+  );
   if (progress.status === "failed") {
     return (
       <InlineRefusal
         code={progress.refusal.code}
         detail={progress.refusal.detail}
         onTryAgain={model.reopen}
+        attempt={progress.refusal}
       />
     );
   }
@@ -97,6 +102,10 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   return <SettledLine settlement={settlement} providerLabel={providerLabel} />;
 }
 
+function importingWords(providerLabel: string): string {
+  return `Importing from ${providerLabel}…`;
+}
+
 /**
  * The words the row shows where they are the row's own: while an import runs, once it stopped,
  * and once it settled. `undefined` where the row is a refusal or draws nothing.
@@ -109,7 +118,7 @@ function rowSentence(model: ProviderImportModel, providerLabel: string): string 
   const { newest } = progress;
   if (model.isUnderway) {
     const count = newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : "";
-    return `Importing from ${providerLabel}…${count}`;
+    return `${importingWords(providerLabel)}${count}`;
   }
   if (newest?.kind !== "settled" || newest.settlement.outcome === "refused") {
     return undefined;

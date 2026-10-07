@@ -217,19 +217,16 @@ export class SessionStore {
 
   /**
    * Record that a read of this session failed: `read-failed` merged through the ladder, and the
-   * failure kept beside it so a store already behind for a worse cause still says its repair
-   * read failed. The next read that lands clears both.
+   * failure counted beside it so a store already behind for a worse cause still says its repair
+   * read failed. Every failure counts, so a retry that fails again is a new one. The next read
+   * that lands clears both.
    */
   public markReadFailed(): void {
     const current = this.#store.getState();
-    const merged = worstDegradedCause(current.degradedCause, "read-failed");
-    if (merged === current.degradedCause && current.lastReadFailed) {
-      return;
-    }
     this.#store.setState({
       ...current,
-      degradedCause: merged,
-      lastReadFailed: true,
+      degradedCause: worstDegradedCause(current.degradedCause, "read-failed"),
+      failedReadCount: current.failedReadCount + 1,
       revision: current.revision + 1,
     });
   }

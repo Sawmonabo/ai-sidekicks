@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
-import { refusalWords } from "#renderer/lib/code-words.js";
+import { refusalSentence } from "#renderer/lib/code-words.js";
 import type { WindowBanner } from "#renderer/store/window/store.js";
 
 /** Announces each newly raised refusal banner once, in the assertive region. */
@@ -22,8 +22,7 @@ export function useRefusalBannerAnnouncements(banners: readonly WindowBanner[]):
       if (alreadyAnnounced?.has(banner.id) === true) {
         continue;
       }
-      const words = refusalWords(banner.code, banner.reason);
-      announce(words === undefined ? banner.detail : `${words}. ${banner.detail}`, "assertive");
+      announce(refusalSentence(banner.code, banner.reason, banner.detail), "assertive");
     }
     announcedBannerIdsRef.current = new Set(banners.map((banner) => banner.id));
   }, [banners, announce]);

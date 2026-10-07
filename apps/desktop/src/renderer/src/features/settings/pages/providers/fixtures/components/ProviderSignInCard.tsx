@@ -5,10 +5,11 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatDuration } from "#renderer/lib/wire/figures.js";
+import { formatDuration, formatWireString } from "#renderer/lib/wire/figures.js";
 import { useOpenSignInPage } from "../hooks/useOpenSignInPage.js";
 import { useSignInTimeLeft } from "../hooks/useSignInTimeLeft.js";
 import type { ProviderSignInFlowState } from "../sign-in/flow.js";
+import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
 /**
  * What a person needs to finish the provider's own sign-in: the code, the line under it saying how
@@ -31,17 +32,23 @@ export function ProviderSignInCard(props: {
   }
   if (flow.kind === "unfinished") {
     return (
-      <div
+      <AnnouncedLine
+        element="div"
         className="meridian-settings-page__state meridian-settings-page__state--failed"
-        role="alert"
+        words={
+          flow.failureReason === undefined
+            ? SIGN_IN_UNFINISHED
+            : `${SIGN_IN_UNFINISHED} ${formatWireString(flow.failureReason)}`
+        }
+        politeness="assertive"
       >
-        <p>Sign-in did not finish.</p>
+        <p>{SIGN_IN_UNFINISHED}</p>
         {flow.failureReason === undefined ? null : (
           <p className="meridian-settings-page__aside">
             <WireFigure value={flow.failureReason} />
           </p>
         )}
-      </div>
+      </AnnouncedLine>
     );
   }
   return (
@@ -118,3 +125,6 @@ function SignInInProgress(props: {
     </div>
   );
 }
+
+/** What a sign-in that ended without signing in says, above the provider's own reason. */
+const SIGN_IN_UNFINISHED = "Sign-in did not finish.";
