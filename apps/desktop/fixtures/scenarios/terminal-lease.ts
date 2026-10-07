@@ -4,12 +4,13 @@
 // lease transitions are wire-true. Terminal output (bytes, scrollback, resize) has no
 // registered type and is absent rather than invented.
 //
-// A hold ends three ways and the script reaches each: another device takes the shell (a shell
-// has no release control), the holder's connection ends, or the holding run leaves `running`.
-// Each is reached as the daemon reaches it, so the run-idle release follows the run's queued,
-// starting and `running` beats, an agent-path take bound to the run, and the run leaving
-// `running`. That release is the holding run's first transition out of `running` and leaves
-// a device's hold alone.
+// A hold ends four ways and the script reaches each: another device takes the shell (a shell
+// has no release control), the holder's connection ends, the command a run holds the shell for
+// ends, or the holding run leaves `running`. Each is reached as the daemon reaches it: after the
+// run's queued, starting and `running` beats, an agent-path take bound to the run and its first
+// command, that command's stored ending and the release that follows it, a take for the run's
+// next command, and the run leaving `running`. That last release is the holding run's first
+// transition out of `running` and leaves a device's hold alone.
 //
 // The lease is per shell and the holder is a device: every transition names its shell, and a
 // run's hold names the machine's own device and the run.
@@ -45,8 +46,11 @@ const TERMINAL_SCENARIO_SHELL_ID = TERMINAL_SCENARIO_SESSION_ID;
 /** The agent's run; `auto_released_run_idle` needs a holding run to bind to. */
 const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
-/** The run's command that holds the shell. */
+/** The run's first command, whose ending gives the shell back. */
 const TERMINAL_AGENT_COMMAND_ID = "command-pnpm-test";
+
+/** The run's next command, which holds the shell when the run leaves `running`. */
+const TERMINAL_AGENT_NEXT_COMMAND_ID = "command-pnpm-lint";
 
 /**
  * The scenario's cast by role, so tests get each id with the role it plays.
@@ -60,7 +64,8 @@ interface TerminalScenarioRoles {
   /** The other device the lease changes hands to. */
   readonly otherDevice: string;
   /**
-   * The session's lead, whose run's idling is one of the ways a hold ends. The run binds to
+   * The session's lead, whose run's command ending and idling are two of the ways a hold ends.
+   * The run binds to
    * the lease, never this id: a run's take names the machine's own device and the run.
    */
   readonly agent: string;
@@ -200,6 +205,33 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
     previousHolderDeviceId: null,
     reason: "taken",
   }),
+  // The command's stored ending, which the release below follows.
+  {
+    atMs: 3400,
+    kind: "command.ended",
+    payload: {
+      sessionId: TERMINAL_SCENARIO_SESSION_ID,
+      runId: TERMINAL_AGENT_RUN_ID,
+      commandId: TERMINAL_AGENT_COMMAND_ID,
+      ending: "finished",
+      exitCode: 0,
+      durationMs: 100,
+    },
+  },
+  leaseTransitionEntry({
+    atMs: 3450,
+    holderDeviceId: null,
+    previousHolderDeviceId: OWNER_ID,
+    reason: "auto_released_command_ended",
+  }),
+  leaseTransitionEntry({
+    atMs: 3500,
+    holderDeviceId: OWNER_ID,
+    holderRunId: TERMINAL_AGENT_RUN_ID,
+    holderCommandId: TERMINAL_AGENT_NEXT_COMMAND_ID,
+    previousHolderDeviceId: null,
+    reason: "taken",
+  }),
   // The holding run's first transition out of `running`, which the release below follows.
   run.transition(TERMINAL_AGENT_RUN_ID, {
     atMs: 3600,
@@ -232,8 +264,9 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
   label: "Lease changing hands",
   purpose:
     "One of the session's shells moving between two of the user's devices and an agent " +
-    "run — the run queued, started, taken on the agent path, and completed, so the run-idle " +
-    "release follows the acquisition it releases — reaching each automatic ending of a hold " +
+    "run — the run queued, started, taken on the agent path for one command, given back when " +
+    "that command ends, taken again for its next, and completed, so each release follows the " +
+    "acquisition it releases — reaching each automatic ending of a hold " +
     "and ending held. The output stream is absent until the terminal pane's " +
     "renderer is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,

@@ -376,7 +376,7 @@ export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = O
 
 /**
  * One change of one shell's holder. The holder members say who holds it after the change, so a take
- * names a holder and both releases name nobody; the device it moved off is
+ * names a holder and a release names nobody; the device it moved off is
  * `previousHolderDeviceId`. Clients fold these and never infer a holder from a take they made.
  */
 export interface PtyControlChangedPayload {
@@ -427,8 +427,8 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
 
 /**
  * A take, a close or a resize refused because someone else holds the shell. The details name the
- * holder, so the screen can tell a run's hold, which only stopping its command ends, from another
- * device's, which a forced take or close moves.
+ * holder, so the screen can tell a run's hold, which ends with its command and which no take moves, from
+ * another device's, which a forced take or close moves.
  */
 export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
 /**

@@ -54,7 +54,7 @@ export interface TerminalLeaseState {
   readonly holderDeviceId: string | null;
   /** The run the wire named as the holder, while an agent's run holds the shell. */
   readonly holderRunId: RunId | undefined;
-  /** The run's command the wire named as the holder; stopping it ends the run's hold. */
+  /** The run's command the wire named as the holder; the run's hold ends when it ends. */
   readonly holderCommandId: CommandId | undefined;
 }
 

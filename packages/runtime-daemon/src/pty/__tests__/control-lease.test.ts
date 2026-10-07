@@ -1,6 +1,6 @@
-// One shell's control lease: racing takes, a run's hold that no device take moves and that names
-// its latest command, forced takes, holds that end with the last connection that took them, failed
-// broadcasts, and the write, resize and close checks. Every broadcast is parsed against the wire
+// One shell's control lease: racing takes, a run's hold that no device take moves, that names its
+// latest command and that ends with that command or the run, forced takes, holds that end with the
+// last connection that took them, failed broadcasts, and the write, resize and close checks. Every broadcast is parsed against the wire
 // schema, so a contradictory change fails the act that sent it.
 
 import { describe, expect, it } from "vitest";
@@ -166,6 +166,7 @@ describe("ShellControlLease", () => {
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
+    await lease.releaseCommand({ runId: RUN_B, commandId: COMMAND_C });
     expect(lease.holder()).toMatchObject({ holderRunId: RUN_A, holderCommandId: COMMAND_C });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_C });
     expect(lease.holder()).toBeNull();
@@ -404,6 +405,19 @@ describe("ShellControlLease", () => {
     failPendingBroadcast();
     await expect(otherRunTake).rejects.toThrow("the event log is unavailable");
     await idleRelease;
+    expect(lease.holder()).toBeNull();
+    await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A });
+    pendingBroadcast = new Promise((_resolve, reject) => {
+      failPendingBroadcast = () => {
+        reject(new Error("the event log is unavailable"));
+      };
+    });
+    const nextCommandTake = lease.takeForRun({ runId: RUN_A, commandId: COMMAND_C });
+    const commandEnd = lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
+    pendingBroadcast = undefined;
+    failPendingBroadcast();
+    await expect(nextCommandTake).rejects.toThrow("the event log is unavailable");
+    await commandEnd;
     expect(lease.holder()).toBeNull();
 
     await lease.take({ deviceId: LAPTOP, transportId: 1 }, false);
