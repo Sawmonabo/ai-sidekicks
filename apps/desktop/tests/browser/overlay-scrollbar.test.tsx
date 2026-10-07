@@ -4,11 +4,14 @@
 // scroller it overflows over its content, and the conversation draws none: no scroller shows the
 // platform's bar. The window is shorter than a desktop window's floor so every screen overflows;
 // Remote Control's surfaces run these screens with no window floor at all. The sweep covers what
-// each screen draws on opening, and the scrollers that need a state of their own are covered
-// elsewhere: the draft box's bar in the text-box tier, Review's diff and the command palette's list
-// with their bars showing in the accessibility tier, and all three scrolled in the endurance tier.
-// A plain scroller planted beside them, and an overlay forced onto the conversation, are the
-// negative controls the sweep must report.
+// each screen draws on opening, and two states opened after it: the composer's command list and a
+// run's step panel. The draft box's bar is covered in the text-box tier, Review's diff and the
+// command palette's list with their bars showing in the accessibility tier, and all three scrolled
+// in the endurance tier. Two scrollers are covered nowhere until a screen mounts them: the
+// workflow start candidates, which nothing renders yet, and the Preview tab strip, which only the
+// Preview pane's content draws, a body the Preview pane does not mount yet. A plain scroller
+// planted beside them, and an overlay forced onto the conversation, are the negative controls the
+// sweep must report.
 //
 // A row's scroller, a payload and a pane's body wait for a first pointer move, wheel, scroll or
 // focus past the deadline an idle start keeps, and the transcript's pane body attaches no bar at
@@ -18,7 +21,7 @@
 // window whose library copy fails to load gives its scrollers the platform's bar back and records
 // the failure once.
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
@@ -27,6 +30,12 @@ import {
   SESSION_ID,
   TRANSCRIPT_STATES_SCENARIO_ID,
 } from "#fixtures/scenarios/transcript-states.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import { ScenarioFixtureControl } from "#renderer/services/daemon/selection.fixture.js";
+import { WINDOW_HEIGHT_FLOOR_REM } from "#renderer/styles/palette.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
@@ -49,6 +58,7 @@ import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
+import { advanceScenarioUntil } from "../helpers/scenario/manual-clock.js";
 import { untilInsideAct } from "../helpers/settle.js";
 
 /**
@@ -99,6 +109,59 @@ const BUSY_WINDOW_START_TIMEOUT_MS = 3000;
 const OVERLAY_START_TIMEOUT_MS = 5000;
 
 const SESSION_ROUTE = formatRoute({ kind: "session", sessionId: SESSION_ID });
+
+/** A state a screen opens into once it has drawn, with a scroller only that state shows. */
+interface OpenedState {
+  readonly name: string;
+  readonly route: string;
+  /** The scenario the app plays, one that answers the reads the state's screen makes. */
+  readonly scenarioId: string;
+  /** The window's size, in CSS pixels. */
+  readonly window: { readonly width: number; readonly height: number };
+  readonly scrollerSelector: string;
+  /** Opens the state in the app's window. */
+  readonly open: (appWindow: Window) => Promise<void>;
+}
+
+const OPENED_STATES: readonly OpenedState[] = [
+  {
+    name: "the composer's command list",
+    route: SESSION_ROUTE,
+    scenarioId: TRANSCRIPT_STATES_SCENARIO_ID,
+    // At the height floor: the composer with its list open stands taller than the short window,
+    // which would leave the pane row no height at all.
+    window: {
+      width: SHORT_WINDOW.width,
+      height: WINDOW_HEIGHT_FLOOR_REM * DEFAULT_APPEARANCE_RECORD.textSize,
+    },
+    scrollerSelector: ".meridian-command-discovery__scroller",
+    open: async (appWindow) => {
+      const line = await untilDrawn(appWindow, ".meridian-composer textarea");
+      line.focus();
+      await act(async () => {
+        await userEvent.keyboard("/");
+      });
+    },
+  },
+  {
+    name: "a run's step panel",
+    route: formatRoute({ kind: "workflows", tab: "runs", runId: WORKFLOW_RUN_IDS.waitingReply }),
+    scenarioId: CONCURRENT_STREAMING_SCENARIO_ID,
+    // Narrow, so the step's question and answer wrap taller than the run graph beside the panel,
+    // whose height the panel takes.
+    window: { width: 480, height: SHORT_WINDOW.height },
+    scrollerSelector: ".meridian-workflow-step__scroller",
+    // The run page opens its step panel on the step waiting on a person, once the run is read on
+    // the scenario's clock.
+    open: async (appWindow) => {
+      await advanceScenarioUntil(runningScenario(), () => {
+        expect(
+          appWindow.document.querySelector(".meridian-workflow-step__scroller"),
+        ).not.toBeNull();
+      });
+    },
+  },
+];
 
 const tierViewport = { width: window.innerWidth, height: window.innerHeight };
 
@@ -217,6 +280,35 @@ describe("the overlay scrollbar", () => {
       expect(scrollersDrawnWrong(appWindow.document)).toStrictEqual([
         "div.plain-scroller (platform bar true, overlay false, drawn false)",
       ]);
+    });
+  }
+
+  for (const state of OPENED_STATES) {
+    it(`draws the bar of ${state.name} over its content`, async () => {
+      document.location.hash = state.route;
+      await page.viewport(state.window.width, state.window.height);
+      const appWindow = await renderAppSettled(state.scenarioId);
+      await state.open(appWindow);
+
+      // The state's own scroller overflows, so the sweep below covers it.
+      await untilInsideAct(() =>
+        expect
+          .poll(
+            () =>
+              scrollingElements(appWindow.document).some((element) =>
+                element.matches(state.scrollerSelector),
+              ),
+            { timeout: OVERLAY_START_TIMEOUT_MS },
+          )
+          .toBe(true),
+      );
+      await untilInsideAct(() =>
+        expect
+          .poll(() => scrollersDrawnWrongOnceReached(appWindow.document), {
+            timeout: OVERLAY_START_TIMEOUT_MS,
+          })
+          .toStrictEqual([]),
+      );
     });
   }
 
@@ -443,6 +535,27 @@ function describeStart(scroller: Element): "started" | "waiting" | "none" {
     return "started";
   }
   return scroller.hasAttribute(AWAITING_OVERLAY_ATTRIBUTE) ? "waiting" : "none";
+}
+
+/** The scenario the app's fixture composition plays, as it hangs it on the page. */
+function runningScenario(): ScenarioFixtureControl {
+  const control: unknown = Reflect.get(globalThis, SCENARIO_FIXTURE_GLOBAL);
+  if (!(control instanceof ScenarioFixtureControl)) {
+    throw new Error("the app's fixture composition hung no scenario on the page");
+  }
+  return control;
+}
+
+/** The element `selector` names in the app's window, once the window has drawn it. */
+async function untilDrawn(appWindow: Window, selector: string): Promise<HTMLElement> {
+  await untilInsideAct(() =>
+    expect
+      .poll(() => appWindow.document.querySelector(selector), {
+        timeout: OVERLAY_START_TIMEOUT_MS,
+      })
+      .not.toBeNull(),
+  );
+  return requireElement(appWindow.document, selector);
 }
 
 function requireElement(root: ParentNode, selector: string): HTMLElement {
