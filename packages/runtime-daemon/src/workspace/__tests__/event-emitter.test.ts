@@ -57,7 +57,13 @@ beforeEach(async () => {
   const database = await openScratchDatabase();
   ctx = {
     database,
-    eventLog: new EventLogService({ writer: database.writer, reader: database.reader }),
+    eventLog: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
   };
 });
 

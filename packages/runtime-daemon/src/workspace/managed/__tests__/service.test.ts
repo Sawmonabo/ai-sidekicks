@@ -60,7 +60,13 @@ beforeEach(async () => {
   repoMounts = new RepoMountService({
     database,
     events: new WorkspaceEventEmitter({
-      sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
+      sessionEvents: new EventLogService({
+        writer: database.writer,
+        reader: database.reader,
+        writeServiceLog: (line) => {
+          throw new Error(`unexpected service log line: ${line}`);
+        },
+      }),
     }),
     nodeId: NODE_ID,
   });
@@ -204,7 +210,13 @@ describe("ManagedWorkspaceService.delete", () => {
     const { workspaceId } = await new WorkspaceService({
       database,
       events: new WorkspaceEventEmitter({
-        sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
+        sessionEvents: new EventLogService({
+          writer: database.writer,
+          reader: database.reader,
+          writeServiceLog: (line) => {
+            throw new Error(`unexpected service log line: ${line}`);
+          },
+        }),
       }),
     }).bind({
       sessionId: SESSION_ID,

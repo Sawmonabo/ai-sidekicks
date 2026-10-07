@@ -106,6 +106,14 @@ interface DependentWorkspaceRow {
   readonly session_id: string;
 }
 
+// The machine's attached mount at one canonical root.
+interface ActiveMountRow {
+  readonly id: string;
+  readonly canonical_root: string;
+  readonly vcs_type: string;
+  readonly origin: string;
+}
+
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface RepoMountServiceDeps {
   /** The daemon database: reads on its reader, writes through its writer. */
@@ -285,7 +293,6 @@ export class RepoMountService {
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectMountStmt: Statement;
   readonly #selectActiveMountByRootStmt: Statement;
-  readonly #selectAttachedMountStmt: Statement;
   readonly #selectManagedRootStmt: Statement;
 
   constructor(deps: RepoMountServiceDeps) {
@@ -336,20 +343,14 @@ export class RepoMountService {
         WHERE id = @repo_mount_id`,
     );
 
-    // Behind `repo.already_attached`. The predicate mirrors `idx_repo_mounts_active_root`; if they
-    // diverge, the refusal degrades to an internal error.
+    // Behind `repo.already_attached` and the folder's mount lookup. The predicate mirrors
+    // `idx_repo_mounts_active_root`; if they diverge, the refusal degrades to an internal error.
     this.#selectActiveMountByRootStmt = database.prepare(
-      `SELECT id
+      `SELECT id, canonical_root, vcs_type, origin
          FROM repo_mounts
         WHERE node_id = @node_id
           AND canonical_root = @canonical_root
           AND state = '${ATTACHED_MOUNT_STATE}'`,
-    );
-
-    this.#selectAttachedMountStmt = database.prepare(
-      `SELECT id, canonical_root, vcs_type, origin
-         FROM repo_mounts
-        WHERE id = @repo_mount_id AND state = '${ATTACHED_MOUNT_STATE}'`,
     );
 
     this.#selectManagedRootStmt = database.prepare(
@@ -401,19 +402,10 @@ export class RepoMountService {
       if (!(error instanceof RepoAlreadyAttachedError)) {
         throw error;
       }
-      const mount = this.#selectAttachedMountStmt.get({
-        repo_mount_id: error.conflictingRepoMountId,
-      }) as
-        | {
-            readonly id: string;
-            readonly canonical_root: string;
-            readonly vcs_type: string;
-            readonly origin: string;
-          }
-        | undefined;
-      // A managed workspace is never a project, and a mount detached since the refused insert is
-      // no longer the folder's mount.
-      if (mount?.origin !== ATTACHED_MOUNT_ORIGIN) {
+      // With none, the folder is a chat's managed workspace, or its mount was detached since the
+      // refused insert; the refusal stands.
+      const { mount } = await this.#resolveFolderMount(input);
+      if (mount === undefined) {
         throw error;
       }
       return this.#projectAttachResponse({
@@ -422,6 +414,22 @@ export class RepoMountService {
         vcsType: mount.vcs_type,
       });
     }
+  }
+
+  /**
+   * The folder at `localPath` resolved the way `attach` resolves it, attaching nothing: its
+   * canonical root, and the attached project mount that holds it, or `undefined` when none does. A
+   * chat's managed workspace is never a project, so its mount is never answered. Throws
+   * `RepoRootResolutionError` for a path that resolves to no repository.
+   */
+  async resolveFolder(
+    input: RepoAttachPathRequest,
+  ): Promise<{ readonly canonicalRoot: string; readonly repoMountId: RepoMountId | undefined }> {
+    const { canonicalRoot, mount } = await this.#resolveFolderMount(input);
+    return {
+      canonicalRoot,
+      repoMountId: mount === undefined ? undefined : RepoMountIdSchema.parse(mount.id),
+    };
   }
 
   /** The folder of the chat's managed workspace, or `undefined` when the session has none. */
@@ -581,7 +589,7 @@ export class RepoMountService {
       const conflict = this.#selectActiveMountByRootStmt.get({
         node_id: this.#nodeId,
         canonical_root: fields.canonicalRoot,
-      }) as { readonly id: string } | undefined;
+      }) as ActiveMountRow | undefined;
       if (conflict === undefined) {
         // Another constraint (id collision, `vcs_type` CHECK): rethrow, or the caller would be
         // sent to detach a mount that does not exist.
@@ -589,6 +597,19 @@ export class RepoMountService {
       }
       throw new RepoAlreadyAttachedError(conflict.id);
     }
+  }
+
+  // The folder's resolved root and the project mount at it; a chat's managed mount is never one.
+  async #resolveFolderMount(input: RepoAttachPathRequest): Promise<{
+    readonly canonicalRoot: string;
+    readonly mount: ActiveMountRow | undefined;
+  }> {
+    const { canonicalRoot } = await this.#resolver.resolveCanonicalRoot(input.localPath);
+    const mount = this.#selectActiveMountByRootStmt.get({
+      node_id: this.#nodeId,
+      canonical_root: canonicalRoot,
+    }) as ActiveMountRow | undefined;
+    return { canonicalRoot, mount: mount?.origin === ATTACHED_MOUNT_ORIGIN ? mount : undefined };
   }
 
   /** Fetch a mount row in any state, or refuse with `repo.not_found`. */

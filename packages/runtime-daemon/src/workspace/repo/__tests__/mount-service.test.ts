@@ -219,7 +219,13 @@ function writeRaw(sql: string, bindings: unknown[] | Record<string, unknown>): P
 beforeEach(async () => {
   const database = await openScratchDatabase();
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
+    sessionEvents: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
   });
   const workspaces = new WorkspaceService({
     database,
@@ -293,6 +299,56 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
     expect(requireMountRow(harness.database.reader, first.repoMountId).state).toBe("detached");
     expect(requireMountRow(harness.database.reader, second.repoMountId).state).toBe("attached");
     expect(countMountRows()).toBe(2);
+  });
+});
+
+describe("RepoMountService.resolveFolder", () => {
+  it("finds the folder's mount from any path inside it, and attaches none it lacks", async () => {
+    const unattached = await harness.service.resolveFolder({
+      localPath: gitFixtures.nestedDirectory,
+    });
+    expect(unattached.repoMountId).toBeUndefined();
+    expect(countMountRows()).toBe(0);
+
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+
+    // The root it answers is the one `attach` stores, whichever path inside the folder it is given.
+    expect(unattached.canonicalRoot).toBe(
+      requireMountRow(harness.database.reader, attached.repoMountId).canonical_root,
+    );
+    expect(await harness.service.resolveFolder({ localPath: gitFixtures.nestedDirectory })).toEqual(
+      { canonicalRoot: unattached.canonicalRoot, repoMountId: attached.repoMountId },
+    );
+    // Attaching the folder again answers the same mount through the same lookup.
+    const reused = await harness.service.attachOrReuse({ localPath: gitFixtures.nestedDirectory });
+    expect(reused.repoMountId).toBe(attached.repoMountId);
+    expect(countMountRows()).toBe(1);
+  });
+
+  it("never answers a chat's managed mount, and attaching its folder is refused", async () => {
+    await harness.service.attachManaged({
+      sessionId: SESSION_ID,
+      canonicalRoot: gitFixtures.repositoryRoot,
+    });
+
+    expect(
+      (await harness.service.resolveFolder({ localPath: gitFixtures.repositoryRoot })).repoMountId,
+    ).toBeUndefined();
+    const refusal = await captureRejection(() =>
+      harness.service.attachOrReuse({ localPath: gitFixtures.repositoryRoot }),
+    );
+    expect(refusal).toBeInstanceOf(RepoAlreadyAttachedError);
+    expect(countMountRows()).toBe(1);
+  });
+
+  it("refuses a folder that is no repository", async () => {
+    // The fixture root holds the repository but is none itself.
+    const refusal = await captureRejection(() =>
+      harness.service.resolveFolder({ localPath: gitFixtures.fixtureRoot }),
+    );
+
+    expect(refusal).toBeInstanceOf(RepoRootResolutionError);
+    expect(countMountRows()).toBe(0);
   });
 });
 
@@ -451,11 +507,12 @@ describe("RepoMountService.detach", () => {
 
   it("emits no second workspace.archived for an already-archived dependent", async () => {
     const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-    const liveWorkspaceId = await bindWorkspace(attached.repoMountId);
     const archivedWorkspaceId = await bindWorkspace(attached.repoMountId);
     // Planted directly, standing in for a workspace archived earlier. `archived` is terminal, so
-    // re-archiving is not a transition and gets no event.
+    // re-archiving is not a transition and gets no event. An archived workspace is not the
+    // session's live one on the mount, so binding again makes another.
     await writeRaw("UPDATE workspaces SET state = 'archived' WHERE id = ?", [archivedWorkspaceId]);
+    const liveWorkspaceId = await bindWorkspace(attached.repoMountId);
 
     const response = await harness.service.detach({ repoMountId: attached.repoMountId });
 
@@ -502,13 +559,16 @@ describe("RepoMountService.detach", () => {
       sessionEvents: new EventLogService({
         writer: harness.database.writer,
         reader: harness.database.reader,
+        writeServiceLog: (line) => {
+          throw new Error(`unexpected service log line: ${line}`);
+        },
       }),
     });
     const service = createService({ events: emitter });
 
     const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
     const firstWorkspaceId = await bindWorkspace(attached.repoMountId);
-    const secondWorkspaceId = await bindWorkspace(attached.repoMountId);
+    const secondWorkspaceId = await bindWorkspace(attached.repoMountId, OTHER_SESSION_ID);
 
     const error = await captureRejection(() =>
       service.detach({ repoMountId: attached.repoMountId }),
@@ -535,12 +595,15 @@ describe("RepoMountService.detach", () => {
     // the failure. That proves the loop continued.
     expect(readLifecycleEventTypes(harness.database.reader, SESSION_ID)).toEqual([
       "workspace.preparing",
+    ]);
+    expect(readLifecycleEventTypes(harness.database.reader, OTHER_SESSION_ID)).toEqual([
       "workspace.preparing",
       "workspace.archived",
     ]);
-    const archivedEnvelopes = readLifecycleEnvelopes(harness.database.reader, SESSION_ID).filter(
-      (row) => row.type === "workspace.archived",
-    );
+    const archivedEnvelopes = readLifecycleEnvelopes(
+      harness.database.reader,
+      OTHER_SESSION_ID,
+    ).filter((row) => row.type === "workspace.archived");
     expect(
       (JSON.parse(archivedEnvelopes[0]?.payload ?? "{}") as { workspaceId?: string }).workspaceId,
     ).toBe(secondWorkspaceId);
@@ -551,9 +614,9 @@ describe("RepoMountService.detach", () => {
     expect(retry.state).toBe("detached");
     expect(retry.archivedWorkspaceIds).toEqual([]);
     expect(
-      readLifecycleEventTypes(harness.database.reader, SESSION_ID).filter(
-        (type) => type === "workspace.archived",
-      ),
+      [SESSION_ID, OTHER_SESSION_ID]
+        .flatMap((sessionId) => readLifecycleEventTypes(harness.database.reader, sessionId))
+        .filter((type) => type === "workspace.archived"),
     ).toHaveLength(1);
   });
 

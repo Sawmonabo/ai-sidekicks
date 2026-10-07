@@ -192,7 +192,13 @@ beforeEach(async () => {
     workspaces: new WorkspaceService({
       database,
       events: new WorkspaceEventEmitter({
-        sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
+        sessionEvents: new EventLogService({
+          writer: database.writer,
+          reader: database.reader,
+          writeServiceLog: (line) => {
+            throw new Error(`unexpected service log line: ${line}`);
+          },
+        }),
       }),
       probePath,
       now: clock,

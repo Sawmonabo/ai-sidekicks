@@ -13,7 +13,8 @@
 //   - The writer's connection runs with `secure_delete` on, so a freed page is overwritten with
 //     zeros. The write-ahead log still holds the deleted pages' earlier images until a checkpoint,
 //     so the purge ends with the writer's `TRUNCATE` checkpoint once its deletes and its receipt
-//     have committed, even when nothing was deleted, tried again while a reader keeps it busy.
+//     have committed, even when nothing was deleted. While a reader keeps the log busy it tries
+//     again a bounded number of times, then reports the log as left untruncated.
 //   - The purge refuses to start inside an append-lock hold. The lock is reentrant per owner, so a
 //     purge entered inside a hold would delete rows outside the serialization the hold provides.
 //   - A refused session does not stop the deletion; the others are independent. Each session's
@@ -73,11 +74,12 @@ const NEVER_PURGED_CATEGORY_SQL_LIST: string = NEVER_PURGED_EVENT_CATEGORIES.map
   (category) => `'${category}'`,
 ).join(", ");
 
-// The first try, right after the deletes commit, waits out the writer connection's busy timeout
-// for a reader to finish; each retry answers busy at once, so a reader that stays open holds the
-// writer for no wait, and the wait between retries doubles to a cap.
-const CHECKPOINT_RETRY_FIRST_DELAY_MS = 1_000;
-const CHECKPOINT_RETRY_MAX_DELAY_MS = 60_000;
+// The waits between the truncation's tries while a reader keeps the log busy: seven tries, 63 s of
+// waits between them. The first try, right after the deletes commit, waits out the writer
+// connection's busy timeout for the reader, holding the writer and every write behind it that
+// long; each retry answers busy at once, so a reader that stays open costs the writer only that
+// first wait.
+const CHECKPOINT_RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
 
 const PURGEABLE_WHERE = `session_id = ? AND category NOT IN (${NEVER_PURGED_CATEGORY_SQL_LIST})`;
 
@@ -113,7 +115,9 @@ export interface SessionPurgeResult {
   /**
    * Present iff the deletion as a whole was refused or did not finish: before any session was
    * touched (the lock-hold check; `outcomes` is then empty), when the receipt could not be appended
-   * after rows were deleted, or when the checkpoint that truncates the write-ahead log failed.
+   * after rows were deleted, or when the write-ahead log was left untruncated, by a failed
+   * checkpoint or by a reader that kept it busy through every try. A purge of no session truncates
+   * the log again.
    */
   readonly refusedReason?: string | undefined;
 }
@@ -128,7 +132,9 @@ export interface SessionPurgeEventLog {
 
 /** Construction dependencies. */
 export interface SessionPurgeDeps {
-  /** The writer every delete and the checkpoint go through; its connection has `secure_delete` on. */
+  /**
+   * The writer every delete and the checkpoint go through; its connection has `secure_delete` on.
+   */
   readonly writer: Pick<DatabaseWriter, "write" | "checkpoint">;
   /** This daemon's NodeId, attributed in every receipt. */
   readonly nodeId: NodeId;
@@ -136,7 +142,9 @@ export interface SessionPurgeDeps {
   readonly eventLog: SessionPurgeEventLog;
   /** Removes a chat's managed workspace folder; a session with none removes nothing. */
   readonly managedWorkspaces: Pick<ManagedWorkspaceService, "deleteFolder">;
-  /** The session lock every session-wide transition holds for its whole run, keyed by session id. */
+  /**
+   * The session lock every session-wide transition holds for its whole run, keyed by session id.
+   */
   readonly sessionLock: Pick<KeyedLock<SessionId>, "run">;
   /** The live sessions list, told of each session whose rows went. */
   readonly sessionList: Pick<SessionListFeed, "refresh">;
@@ -148,6 +156,11 @@ export interface SessionPurgeDeps {
   readonly operationIdFactory?: () => string;
   /** Mints the receipt row's id. Defaults to `mintUuidV7`. */
   readonly newEventId?: () => string;
+  /**
+   * The waits, in milliseconds, between the truncation's tries while a reader keeps the log busy;
+   * one retry follows each. Defaults to 1, 2, 4, 8, 16 and 32 seconds.
+   */
+  readonly checkpointRetryDelaysMs?: readonly number[];
 }
 
 // The range read's row once rows were deleted: its guard returns it only when both ends are safe
@@ -184,6 +197,7 @@ export class SessionPurge {
   readonly #now: () => Date;
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
+  readonly #checkpointRetryDelaysMs: readonly number[];
 
   constructor(deps: SessionPurgeDeps) {
     this.#writer = deps.writer;
@@ -196,12 +210,15 @@ export class SessionPurge {
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
+    this.#checkpointRetryDelaysMs = deps.checkpointRetryDelaysMs ?? CHECKPOINT_RETRY_DELAYS_MS;
   }
 
   /**
    * Removes a chat's managed workspace folder and deletes every purgeable row of each session in
    * `sessionIds`, queues the related lists of the sessions they were linked to for re-scoring,
    * appends one receipt naming every session that lost rows, and truncates the write-ahead log.
+   * With the default retry waits, a reader that keeps the log busy holds the purge about 70 s at
+   * most: the first try's busy timeout, then 63 s of waits.
    *
    * Never throws: every failure becomes a `refusedReason`, on the session it belongs to or on the
    * deletion.
@@ -330,26 +347,38 @@ export class SessionPurge {
   }
 
   /**
-   * Truncates the log, trying again while another connection's older snapshot keeps it busy, until
-   * it succeeds; only the first try waits for the reader. Returns why it could not when the
-   * checkpoint itself fails.
+   * Truncates the log, trying again after each retry wait while another connection's older
+   * snapshot keeps it busy; only the first try waits for the reader. Returns why the log is left
+   * untruncated: the checkpoint failed, or the reader outlasted every try.
    */
   async #truncateWriteAheadLog(): Promise<string | undefined> {
-    for (let delayMs = CHECKPOINT_RETRY_FIRST_DELAY_MS, isFirstTry = true; ; isFirstTry = false) {
+    for (let retry = 0; ; retry += 1) {
       let checkpoint: CheckpointResult;
       try {
         checkpoint = await this.#writer.checkpoint("TRUNCATE", {
-          shouldWaitForReaders: isFirstTry,
+          shouldWaitForReaders: retry === 0,
         });
       } catch (error) {
-        return `the write-ahead log could not be truncated after the purge: ${describeError(error)}`;
+        return (
+          "the write-ahead log could not be truncated after the purge: " + describeError(error)
+        );
       }
       if (!checkpoint.isBusy) {
         return undefined;
       }
+      const delayMs = this.#checkpointRetryDelaysMs[retry];
+      if (delayMs === undefined) {
+        const waitedMs = this.#checkpointRetryDelaysMs.reduce((total, wait) => total + wait, 0);
+        return (
+          `a reader kept the write-ahead log busy through ${String(retry + 1)} truncation tries ` +
+          `over ${String(waitedMs)} ms of retry waits, so it still holds ` +
+          `${String(checkpoint.logFrames)} frames, the deleted rows' earlier pages among them; ` +
+          "the rows and the receipt are done, and a purge of no session truncates the log once " +
+          "the reader ends"
+        );
+      }
       // Unreferenced, so a retry pending at shutdown never holds the daemon open.
       await sleep(delayMs, undefined, { ref: false });
-      delayMs = Math.min(delayMs * 2, CHECKPOINT_RETRY_MAX_DELAY_MS);
     }
   }
 
@@ -415,11 +444,12 @@ const SESSION_RUN_IDS_SQL = `SELECT json_extract(payload, '$.runId') FROM sessio
  * read returns its row only while the stored sequences are safe integers, so a range the receipt
  * could not name refuses the write before anything is deleted. A run's interventions, bindings and
  * command receipts are found through the session's log, so they go before its events; a snapshot
- * names the event it reflects, so snapshots go before the events too. A link or a related-list entry goes whichever side names
- * the session. The group the session leaves empty goes after the session's row and before its
- * workspaces, through which its project is found; no other group is ever empty, because each group
- * write keeps at least one session in it. Every row naming a workspace goes before the workspace,
- * and the workspaces before the chat's managed mount, because foreign keys hold on DELETE too.
+ * names the event it reflects, so snapshots go before the events too. A link or a related-list
+ * entry goes whichever side names the session. The group the session leaves empty goes after the
+ * session's row and before its workspaces, through which its project is found; no other group is
+ * ever empty, because each group write keeps at least one session in it. Every row naming a
+ * workspace goes before the workspace, and the workspaces before the chat's managed mount, because
+ * foreign keys hold on DELETE too.
  */
 function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
   return [
@@ -429,7 +459,8 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
              WHERE ${PURGEABLE_WHERE}
             HAVING MIN(sequence) IS NULL
                 OR (typeof(MIN(sequence)) = 'integer' AND typeof(MAX(sequence)) = 'integer'
-                    AND MIN(sequence) >= 0 AND MAX(sequence) <= ${String(Number.MAX_SAFE_INTEGER)})`,
+                    AND MIN(sequence) >= 0
+                    AND MAX(sequence) <= ${String(Number.MAX_SAFE_INTEGER)})`,
       bindings: [sessionId],
       expectedRowCount: 1,
     },
@@ -461,10 +492,7 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     removeEmptyGroupsOfSessionProjectStatement(sessionId),
     { sql: "DELETE FROM session_create_requests WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_convert_requests WHERE session_id = ?", bindings: [sessionId] },
-    {
-      sql: "DELETE FROM session_convert_skipped_files WHERE session_id = ?",
-      bindings: [sessionId],
-    },
+    { sql: "DELETE FROM session_convert_files WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM queue_items WHERE session_id = ?", bindings: [sessionId] },
     {
       sql: `DELETE FROM run_execution_contexts

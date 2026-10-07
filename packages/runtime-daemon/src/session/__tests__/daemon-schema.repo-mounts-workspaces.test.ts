@@ -86,6 +86,7 @@ describe("repo_mounts and workspaces constraints", () => {
 
   function insertWorkspaceRow(overrides: {
     id: string;
+    sessionId?: string;
     repoMountId?: string;
     executionMode?: string;
     state?: string;
@@ -96,7 +97,7 @@ describe("repo_mounts and workspaces constraints", () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       overrides.id,
-      "session-1",
+      overrides.sessionId ?? "session-1",
       overrides.repoMountId ?? "mount-1",
       overrides.executionMode ?? "bound-root",
       FIXTURE_CANONICAL_ROOT,
@@ -181,7 +182,11 @@ describe("repo_mounts and workspaces constraints", () => {
     insertRepoMountRow({ id: "mount-1" });
     for (const state of Object.keys(WORKSPACE_STATES)) {
       expect(() => {
-        insertWorkspaceRow({ id: `workspace-state-${state}`, state });
+        insertWorkspaceRow({
+          id: `workspace-state-${state}`,
+          sessionId: `session-${state}`,
+          state,
+        });
       }).not.toThrow();
     }
     // 'attached' is a valid repo-mount state that must not leak into the workspace vocabulary.
@@ -194,7 +199,11 @@ describe("repo_mounts and workspaces constraints", () => {
     insertRepoMountRow({ id: "mount-1" });
     for (const executionMode of Object.keys(EXECUTION_MODES)) {
       expect(() => {
-        insertWorkspaceRow({ id: `workspace-mode-${executionMode}`, executionMode });
+        insertWorkspaceRow({
+          id: `workspace-mode-${executionMode}`,
+          sessionId: `session-${executionMode}`,
+          executionMode,
+        });
       }).not.toThrow();
     }
     expect(() => {

@@ -1,6 +1,7 @@
 // Proves WorkspaceService never persists a workspace outside its mount, on another chat's managed
-// mount or for a missing session, scrubs credentials from a recorded failure, turns a vanished root into a persisted `stale`, and
-// grants a run hold to exactly one run. Real SQLite, event log and directories.
+// mount, for a missing session or twice for one session on one mount, scrubs credentials from a
+// recorded failure, turns a vanished root into a persisted `stale`, and grants a run hold to
+// exactly one run. Real SQLite, event log and directories.
 
 import { mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
@@ -19,7 +20,11 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
-import { RepoMountManagedError, TrustEnvelopeViolationError } from "../repo/errors.js";
+import {
+  RepoMountManagedError,
+  RepoMountNotFoundError,
+  TrustEnvelopeViolationError,
+} from "../repo/errors.js";
 import { TrustEnvelopeValidator } from "../trust-envelope.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 import type { FilesystemPathProbe } from "../projector.js";
@@ -64,6 +69,8 @@ const WORKSPACE_ID_POOL: readonly string[] = [
   "0190f8b2-0000-7000-8000-000000000005",
   "0190f8b2-0000-7000-8000-000000000006",
 ];
+// An id no pooled source mints, for a workspace that must not collide with one.
+const UNPOOLED_WORKSPACE_ID: string = "0190f8b2-0000-7000-8000-000000000007";
 
 /** What a bind that its preparation then completes appends, in order. */
 const READY_BIND_EVENTS: readonly string[] = ["workspace.preparing", "workspace.ready"];
@@ -188,7 +195,13 @@ beforeEach(async () => {
   );
   const database = await openScratchDatabase();
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
+    sessionEvents: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
   });
 
   // `siblingRoot` exists so the traversal arm fails on containment rather than on absence.
@@ -374,6 +387,90 @@ describe("bind", () => {
     );
     expect(switchRefusal).toBeInstanceOf(WorkspaceModeUnsupportedError);
     expect(requireWorkspaceRow(harness.database.reader, workspaceId).state).toBe("ready");
+  });
+
+  it("answers a repeat bind to the mount with its live workspace, writing nothing", async () => {
+    const workspaceId = await bindReadyWorkspace(
+      harness.service,
+      SESSION_ID,
+      GIT_MOUNT_ID,
+      harness.gitMountRoot,
+    );
+    const probePath = vi.fn<FilesystemPathProbeFn>();
+
+    const again = await createService({ probePath }).bind({
+      sessionId: SESSION_ID,
+      repoMountId: GIT_MOUNT_ID,
+      executionMode: "bound-root",
+    });
+
+    expect(again).toEqual({ workspaceId, executionMode: "bound-root", state: "ready" });
+    expect(probePath).not.toHaveBeenCalled();
+    expect(countRows("workspaces")).toBe(1);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
+    // The database itself holds the session to one live workspace on the mount.
+    await expect(
+      writeRaw(
+        `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, state, created_at,
+                                 updated_at)
+         VALUES (?, ?, ?, 'bound-root', 'ready', ?, ?)`,
+        UNPOOLED_WORKSPACE_ID,
+        SESSION_ID,
+        GIT_MOUNT_ID,
+        "2026-08-04T00:00:00.000Z",
+        "2026-08-04T00:00:00.000Z",
+      ),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("does not answer an archived workspace: its detached mount refuses the bind", async () => {
+    await bindReadyWorkspace(harness.service, SESSION_ID, GIT_MOUNT_ID, harness.gitMountRoot);
+    await writeRaw("UPDATE repo_mounts SET state = 'detached' WHERE id = ?", GIT_MOUNT_ID);
+    await writeRaw(
+      "UPDATE workspaces SET state = 'archived' WHERE repo_mount_id = ?",
+      GIT_MOUNT_ID,
+    );
+
+    const refusal = await captureRejection(() =>
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
+    );
+
+    expect(refusal).toBeInstanceOf(RepoMountNotFoundError);
+    expect(countRows("workspaces")).toBe(1);
+  });
+
+  it("answers a bind that another bind of the session to the mount beat to the write", async () => {
+    // The other bind lands between this one's reads and its write.
+    let boundMeanwhile: string | undefined;
+    const validator = new TrustEnvelopeValidator();
+    const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
+    vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
+      const resolved = await validateExecutionRootOriginal(candidate);
+      const meanwhile = await harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      });
+      boundMeanwhile = meanwhile.workspaceId;
+      return resolved;
+    });
+
+    const answer = await createService({
+      trustEnvelope: validator,
+      newWorkspaceId: () => UNPOOLED_WORKSPACE_ID,
+    }).bind({ sessionId: SESSION_ID, repoMountId: GIT_MOUNT_ID, executionMode: "bound-root" });
+
+    expect(answer).toEqual({
+      workspaceId: boundMeanwhile,
+      executionMode: "bound-root",
+      state: "preparing",
+    });
+    expect(countRows("workspaces")).toBe(1);
+    expect(readEventTypes()).toEqual(["workspace.preparing"]);
   });
 });
 

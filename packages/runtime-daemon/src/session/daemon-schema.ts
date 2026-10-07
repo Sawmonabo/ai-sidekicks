@@ -528,6 +528,10 @@ CREATE TABLE workspaces (
 
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
+-- A session has one live workspace on a mount, so binding it again answers that one; an archived
+-- row is history and does not count.
+CREATE UNIQUE INDEX idx_workspaces_live_session_mount
+  ON workspaces(session_id, repo_mount_id) WHERE state <> 'archived';
 
 -- Session and run ids are event-sourced, so they carry no foreign key.
 CREATE TABLE worktrees (

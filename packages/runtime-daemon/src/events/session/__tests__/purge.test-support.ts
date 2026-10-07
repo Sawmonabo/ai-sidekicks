@@ -13,7 +13,6 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
-import type { DatabaseWriter } from "../../../database/writer.js";
 import { KeyedLock } from "../../../keyed-lock.js";
 import { EventLogService } from "../../log-service.js";
 import { SessionRelatedRanking } from "../../../session/related/ranking.js";
@@ -22,6 +21,7 @@ import { ManagedWorkspaceService } from "../../../workspace/managed/service.js";
 import { RepoMountService } from "../../../workspace/repo/mount-service.js";
 import {
   SessionPurge,
+  type SessionPurgeDeps,
   type SessionPurgeEventLog,
   type SessionPurgeOutcome,
   type SessionPurgeResult,
@@ -108,7 +108,7 @@ type DirectoryTable =
   | "queueItems"
   | "createRequests"
   | "convertRequests"
-  | "skippedFiles"
+  | "convertFiles"
   | "interventions"
   | "runtimeBindings"
   | "commandReceipts"
@@ -130,7 +130,7 @@ const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   queueItems: "SELECT session_id FROM queue_items ORDER BY 1",
   createRequests: "SELECT session_id FROM session_create_requests ORDER BY 1",
   convertRequests: "SELECT session_id FROM session_convert_requests ORDER BY 1",
-  skippedFiles: "SELECT session_id FROM session_convert_skipped_files ORDER BY 1",
+  convertFiles: "SELECT session_id FROM session_convert_files ORDER BY 1",
   interventions: "SELECT target_run_id FROM interventions ORDER BY 1",
   runtimeBindings: "SELECT run_id FROM runtime_bindings ORDER BY 1",
   commandReceipts: "SELECT run_id FROM command_receipts ORDER BY 1",
@@ -169,7 +169,13 @@ export class PurgeFixture {
       repoMounts: new RepoMountService({
         database: scratch,
         events: new WorkspaceEventEmitter({
-          sessionEvents: new EventLogService({ writer: scratch.writer, reader: scratch.reader }),
+          sessionEvents: new EventLogService({
+            writer: scratch.writer,
+            reader: scratch.reader,
+            writeServiceLog: (line) => {
+              throw new Error(`unexpected service log line: ${line}`);
+            },
+          }),
         }),
         nodeId: NODE,
       }),
@@ -200,20 +206,25 @@ export class PurgeFixture {
     rmSync(this.homeDirectory, { recursive: true, force: true });
   }
 
-  /** The purge over this fixture, appending its receipt to `eventLog`, writing through `writer`. */
+  /**
+   * The purge over this fixture, appending its receipt to a recording log and writing through the
+   * fixture's writer unless `overrides` names others.
+   */
   buildPurge(
-    eventLog: SessionPurgeEventLog = new RecordingEventLog(),
-    writer: Pick<DatabaseWriter, "write" | "checkpoint"> = this.scratch.writer,
+    overrides: Partial<
+      Pick<SessionPurgeDeps, "eventLog" | "writer" | "checkpointRetryDelaysMs">
+    > = {},
   ): SessionPurge {
     return new SessionPurge({
-      writer,
+      writer: this.scratch.writer,
       nodeId: NODE,
-      eventLog,
+      eventLog: new RecordingEventLog(),
       managedWorkspaces: this.managedWorkspaces,
       sessionLock: this.sessionLock,
       sessionList: this.sessionList,
       relatedRanking: this.relatedRanking,
       now: () => new Date(PURGE_INSTANT),
+      ...overrides,
     });
   }
 
@@ -225,8 +236,8 @@ export class PurgeFixture {
     await this.scratch.writer.write([
       {
         sql: `INSERT INTO session_events
-                (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
-                 correlation_id, causation_id, version, content_payload)
+                (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor,
+                 payload, correlation_id, causation_id, version, content_payload)
               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         bindings: [
           id,
@@ -303,7 +314,7 @@ export class PurgeFixture {
     return rows;
   }
 
-  // A workspace of the session on the mount, with a branch context and a run's execution root on it.
+  // A workspace of the session on the mount, with a branch context and a run's execution root.
   async seedBoundRun(names: {
     readonly sessionId: SessionId;
     readonly repoMountId: string;
@@ -340,9 +351,9 @@ export class PurgeFixture {
     ]);
   }
 
-  // The rows that name the session or one of its runs: a queued message, the idempotency keys of its
-  // create and its conversion, a file the conversion skipped, and each run's steer, provider binding
-  // and command receipt.
+  // The rows that name the session or one of its runs: a queued message, the idempotency keys of
+  // its create and its conversion, a file the conversion dealt with, and each run's steer, provider
+  // binding and command receipt.
   async seedRowsNamingSession(sessionId: SessionId, runIds: readonly string[]): Promise<void> {
     await this.scratch.writer.write([
       {
@@ -351,15 +362,19 @@ export class PurgeFixture {
         bindings: [`queue-${sessionId}`, sessionId, PURGE_INSTANT, PURGE_INSTANT],
       },
       {
-        sql: "INSERT INTO session_create_requests (client_idempotency_key, session_id) VALUES (?, ?)",
-        bindings: [`create-${sessionId}`, sessionId],
+        sql: `INSERT INTO session_create_requests
+                (client_idempotency_key, session_id, repo_mount_id, execution_mode)
+              VALUES (?, ?, ?, 'bound-root')`,
+        bindings: [`create-${sessionId}`, sessionId, `managed-mount-${sessionId}`],
       },
       {
-        sql: "INSERT INTO session_convert_requests (client_idempotency_key, session_id) VALUES (?, ?)",
-        bindings: [`convert-${sessionId}`, sessionId],
+        sql: `INSERT INTO session_convert_requests
+                (client_idempotency_key, session_id, repo_mount_id)
+              VALUES (?, ?, ?)`,
+        bindings: [`convert-${sessionId}`, sessionId, `project-mount-${sessionId}`],
       },
       {
-        sql: `INSERT INTO session_convert_skipped_files (session_id, path, reason)
+        sql: `INSERT INTO session_convert_files (session_id, path, outcome)
               VALUES (?, 'notes/plan.md', 'repository_has_file')`,
         bindings: [sessionId],
       },

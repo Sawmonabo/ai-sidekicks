@@ -2,9 +2,9 @@
 // naming the session outright, in foreign-key order, re-scores the related lists it leaves behind,
 // tells the live list whatever happens to the receipt, refuses a session whose range the receipt
 // could not name, can be run again after any failure to finish, leaves no copy of the content in
-// the database file or its write-ahead log, truncating it every time and again while a reader keeps
-// it busy, keeps every worktree folder and the rows of those still on disk, waits for the session
-// lock, and never runs inside an append-lock hold.
+// the database file or its write-ahead log, truncating it every time and trying again a bounded
+// number of times while a reader keeps it busy, keeps every worktree folder and the rows of those
+// still on disk, waits for the session lock, and never runs inside an append-lock hold.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +53,7 @@ describe("SessionPurge — the whole session", () => {
     const otherSnapshot = await fixture.seedSnapshot(SECOND_SESSION, otherSession.sequence);
 
     const eventLog = new RecordingEventLog();
-    const result = await fixture.buildPurge(eventLog).purge([SESSION]);
+    const result = await fixture.buildPurge({ eventLog }).purge([SESSION]);
     const outcome = onlyOutcome(result);
 
     expect(result.refusedReason).toBeUndefined();
@@ -140,7 +140,8 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
           bindings: [sessionId, PURGE_INSTANT],
         },
         {
-          sql: "INSERT INTO session_tags (session_id, tag, tag_folded) VALUES (?, 'Billing', 'billing')",
+          sql: `INSERT INTO session_tags (session_id, tag, tag_folded)
+                VALUES (?, 'Billing', 'billing')`,
           bindings: [sessionId],
         },
         {
@@ -189,7 +190,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       queueItems: [SECOND_SESSION],
       createRequests: [SECOND_SESSION],
       convertRequests: [SECOND_SESSION],
-      skippedFiles: [SECOND_SESSION],
+      convertFiles: [SECOND_SESSION],
       interventions: ["run-kept"],
       runtimeBindings: ["run-kept"],
       commandReceipts: ["run-kept"],
@@ -266,7 +267,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(fixture.readDirectoryRows().mounts).toEqual([]);
   });
 
-  it("keeps the rows a refused write named after the folder went, and finishes on a retry", async () => {
+  it("keeps the rows a refused write named after the folder went; a retry finishes", async () => {
     await fixture.seedSessionRow(SESSION);
     await fixture.seedMessage("a");
     const workspace = await fixture.managedWorkspaces.create({ sessionId: SESSION });
@@ -299,14 +300,14 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       append: () => Promise.reject(new Error("the log is full")),
     };
 
-    const result = await fixture.buildPurge(failingEventLog).purge([SESSION]);
+    const result = await fixture.buildPurge({ eventLog: failingEventLog }).purge([SESSION]);
 
     expect(result.refusedReason).toContain("the log is full");
     expect(fixture.readDirectoryRows().sessions).toEqual([]);
     expect(fixture.sessionList.refreshedSessionIds).toEqual([SESSION]);
   });
 
-  it("waits for the session lock, so no conversion copies out of a folder being removed", async () => {
+  it("waits for the session lock, so no conversion copies out of a folder it removes", async () => {
     await fixture.seedSessionRow(SESSION);
     const message = await fixture.seedMessage("hi");
     const workspace = await fixture.managedWorkspaces.create({ sessionId: SESSION });
@@ -332,7 +333,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
 });
 
 describe("SessionPurge — the worktrees the session made", () => {
-  it("deletes the rows of those gone from disk that nothing names, and touches no folder", async () => {
+  it("deletes the rows of those gone that nothing names, and touches no folder", async () => {
     await fixture.scratch.writer.write([
       {
         sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, attached_at,
@@ -446,7 +447,7 @@ describe("SessionPurge — one receipt per deletion", () => {
     const eventLog = new RecordingEventLog();
 
     const result = await fixture
-      .buildPurge(eventLog)
+      .buildPurge({ eventLog })
       .purge([SESSION, SECOND_SESSION, THIRD_SESSION]);
 
     expect(result.refusedReason).toBeUndefined();
@@ -476,7 +477,7 @@ describe("SessionPurge — a range the receipt could not name", () => {
     });
     const eventLog = new RecordingEventLog();
 
-    const outcome = onlyOutcome(await fixture.buildPurge(eventLog).purge([SESSION]));
+    const outcome = onlyOutcome(await fixture.buildPurge({ eventLog }).purge([SESSION]));
 
     expect(outcome.rowsDeleted).toBe(0);
     expect(outcome.refusedReason).toContain("not safe integers");
@@ -509,7 +510,7 @@ describe("SessionPurge — no copy survives on disk", () => {
     }
   });
 
-  it("truncates the write-ahead log even when it deleted nothing", async () => {
+  it("truncates the write-ahead log even when it deleted nothing or had no session", async () => {
     await fixture.seedMessage("another session's", SECOND_SESSION);
     const walPath = `${fixture.scratch.databasePath}-wal`;
     expect(statSync(walPath).size).toBeGreaterThan(0);
@@ -519,9 +520,17 @@ describe("SessionPurge — no copy survives on disk", () => {
     expect(result.refusedReason).toBeUndefined();
     expect(onlyOutcome(result).rowsDeleted).toBe(0);
     expect(statSync(walPath).size).toBe(0);
+
+    // A purge of no session is how a caller truncates a log an earlier purge left untruncated.
+    await fixture.seedMessage("a third session's", THIRD_SESSION);
+    expect(statSync(walPath).size).toBeGreaterThan(0);
+    const noSession = await fixture.buildPurge().purge([]);
+    expect(noSession.outcomes).toEqual([]);
+    expect(noSession.refusedReason).toBeUndefined();
+    expect(statSync(walPath).size).toBe(0);
   });
 
-  it("tries the truncation again while a reader keeps the log busy, without waiting on it", async () => {
+  it("tries a busy truncation again, waiting for the reader on the first try only", async () => {
     await fixture.seedMessage("hi");
     const writer = fixture.scratch.writer;
     const triesWaitingForReaders: boolean[] = [];
@@ -538,13 +547,41 @@ describe("SessionPurge — no copy survives on disk", () => {
     };
 
     const result = await fixture
-      .buildPurge(new RecordingEventLog(), busyOnceWriter)
+      .buildPurge({ writer: busyOnceWriter, checkpointRetryDelaysMs: [1] })
       .purge([SESSION]);
 
     expect(result.refusedReason).toBeUndefined();
     // Only the try right after the commit waits for a reader; the retry answers at once.
     expect(triesWaitingForReaders).toEqual([true, false]);
     expect(statSync(`${fixture.scratch.databasePath}-wal`).size).toBe(0);
+  });
+
+  it("gives up on a log a reader keeps busy past its last retry, saying what is left", async () => {
+    await fixture.seedMessage("hi");
+    const writer = fixture.scratch.writer;
+    const triesWaitingForReaders: boolean[] = [];
+    // Every try answers busy, as a reader that never ends its snapshot makes it.
+    const alwaysBusyWriter: Pick<DatabaseWriter, "write" | "checkpoint"> = {
+      write: (statements) => writer.write(statements),
+      checkpoint: (_mode, options) => {
+        triesWaitingForReaders.push(options?.shouldWaitForReaders ?? true);
+        return Promise.resolve({ isBusy: true, logFrames: 7, checkpointedFrames: 0 });
+      },
+    };
+
+    const result = await fixture
+      .buildPurge({ writer: alwaysBusyWriter, checkpointRetryDelaysMs: [1, 2] })
+      .purge([SESSION]);
+
+    // The rows went; only the truncation is left, and the reason says so.
+    expect(onlyOutcome(result).rowsDeleted).toBe(1);
+    expect(triesWaitingForReaders).toEqual([true, false, false]);
+    expect(result.refusedReason).toBe(
+      "a reader kept the write-ahead log busy through 3 truncation tries over 3 ms of retry " +
+        "waits, so it still holds 7 frames, the deleted rows' earlier pages among them; the rows " +
+        "and the receipt are done, and a purge of no session truncates the log once the reader " +
+        "ends",
+    );
   });
 });
 
