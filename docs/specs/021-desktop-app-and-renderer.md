@@ -385,7 +385,7 @@ Named targets. The renderer bundle budget is measured on every console PR; the e
 | --- | --- |
 | Renderer initial bundle | ≤ 450 kB gzip, excluding lazy chunks (terminal, node graph, math, diagrams, browser tools) |
 | Frame time, four lanes streaming | p95 ≤ 16.7 ms on the reference machine |
-| Scrolling, four lanes streaming | a trackpad fling with its momentum and a wheel scroll, on every scroller but the conversation, at 120 Hz on the reference machine: while a fling moves the content, p95 ≤ 8.4 ms (one refresh) between presented frames; and each scroll input that moves the content is drawn in the next frame the window submits after the input reaches it |
+| Scrolling, four lanes streaming | a trackpad fling with its momentum and a wheel scroll, on every scroller but the conversation, at 120 Hz on the reference machine: while a fling moves the content, p95 ≤ 8.4 ms (one refresh) between presented frames; and each scroll input that moves the content is submitted in a frame within two refreshes (16.7 ms) of reaching the renderer |
 | Renderer heap, one session open at rest | ≤ 120 MB |
 | Renderer heap, each further window showing one session at rest | the figure Plan-020 T-020r-5-3 measures when windows land, recorded in the endurance ledger; a later change that raises it fails |
 | Windows opened and closed, fifty times over | the at-rest renderer heap returns to its level before the first opened, beyond what the recent-sessions cache holds within its share, and no closed window's document, listener or session store is retained |

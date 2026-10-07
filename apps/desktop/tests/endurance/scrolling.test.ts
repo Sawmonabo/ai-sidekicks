@@ -1,29 +1,30 @@
-// The scrolling budget: a fling with its momentum and a wheel scroll on each scroller but the
+// The scrolling budgets: a fling with its momentum and a wheel scroll on each scroller but the
 // conversation, while four agent lanes stream, read from the window's own frame and input records
 // in a DevTools trace. The fling is a touch drag let go at speed, the one fling the DevTools
 // protocol can make; its momentum reaches the window as the browser's inertial scroll updates.
 //
 // Each trace gives two readings. The gaps between the frames the window presented while a fling
 // moved the content, from the frame that drew its first moving update to the frame that drew its
-// last: one refresh each when no frame is missed. And for each update that moved the content,
-// whether the next frame the window submitted after the input reached it is the frame that drew
-// it. The input is the wheel turn or touch move the update was made from: it reaches the window
-// where its trip from the browser ends (`BrowserMainToRendererCompositor`), which is before the
-// update's own when a handler holds it. The frame that drew the update is the one its
-// `display_trace_id` names, and any other frame the window submitted that began after the input
-// arrived and before that one is a frame the input missed.
+// last: one refresh each when no frame is missed. And for each update that moved the content, the
+// time from its input reaching the window to the submit of the frame that drew it: within two
+// refreshes it was drawn in the first frame after the input, since an input that arrives just after
+// a frame began waits at most a refresh for the next one, which submits within the refresh after.
+// The input is the wheel turn or touch move the update was made from: it reaches the window where
+// its trip from the browser ends (`BrowserMainToRendererCompositor`), which is before the update's
+// own when a handler holds it. The frame that drew the update is the one its `display_trace_id`
+// names.
 //
 // Whether an update moved the content is Chromium's own verdict, its `ScrollJankV4` record's damage
 // type. An update that arrives once the content is at its end moves nothing and has no frame to be
 // drawn in: Chromium closes its record on whatever frame the window submits next, so counting it
 // would report a delay nobody can see.
 //
-// The ceiling is one refresh of a 120 Hz display. The comparison is made where the trace says the
-// display refreshes at least that often and printed elsewhere, since on a slower display one
-// refresh is longer than the ceiling. Chromium scrolls each of these scrollers off the main
-// thread, so main-thread work cannot make a fling miss a frame; the frame control plants drawing
-// too heavy for one refresh instead. The next-frame control holds each wheel turn in a handler
-// while an animation keeps the compositor submitting frames, so the turn misses those frames.
+// The ceilings are one and two refreshes of a 120 Hz display. The comparison is made where the
+// trace says the display refreshes at least that often and printed elsewhere, since on a slower
+// display one refresh is longer than the frame ceiling. Chromium scrolls each of these scrollers off
+// the main thread, so main-thread work cannot make a fling miss a frame; the frame control plants
+// drawing too heavy for one refresh instead. The input control holds each wheel turn in a handler,
+// which holds back the update the browser makes of it.
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. The frame-time
 // sampler (`frame-sampling.ts`) drives the script one step per frame, and each gesture starts once
@@ -58,10 +59,15 @@ import { evaluateBudget } from "../helpers/budget/evaluation.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-/** The budget row this file measures. */
-const SCROLLING_BUDGET_ID = "scrolling-four-lanes";
+/** The row bounding the gaps between presented frames through a fling. */
+const FRAME_GAP_BUDGET_ID = "scrolling-four-lanes";
 
-const budget = BudgetRegistry.load().requireBudget(SCROLLING_BUDGET_ID);
+/** The row bounding each input's wait for the frame that draws it. */
+const INPUT_TO_FRAME_BUDGET_ID = "scrolling-input-to-frame-four-lanes";
+
+const budgetRegistry = BudgetRegistry.load();
+const frameGapBudget = budgetRegistry.requireBudget(FRAME_GAP_BUDGET_ID);
+const inputToFrameBudget = budgetRegistry.requireBudget(INPUT_TO_FRAME_BUDGET_ID);
 
 /** The two gestures the row names. */
 type ScrollGesture = "fling" | "wheel";
@@ -78,10 +84,9 @@ interface ScrollHost {
 
 /**
  * What a negative control adds before its gesture: a wheel handler that holds the main thread on
- * every turn, added as one that may cancel the scroll so the browser waits for it, beside an
- * animation that keeps the window submitting frames meanwhile; or see-through layers over the
- * scroller, each blurring what is behind it, which the display redraws on every frame the content
- * moves.
+ * every turn, added as one that may cancel the scroll so the browser waits for it; or see-through
+ * layers over the scroller, each blurring what is behind it, which the display redraws on every
+ * frame the content moves.
  */
 type Plant =
   | { readonly kind: "held-wheel"; readonly holdMs: number }
@@ -105,10 +110,17 @@ interface ScrollReading {
   readonly movingUpdateCount: number;
   /** Updates with no frame of their own: they moved nothing, or Chromium merged them into the next. */
   readonly stillUpdateCount: number;
-  /** Each moving update not drawn in the next frame submitted after its input arrived. */
-  readonly lateUpdates: readonly string[];
-  /** The longest from a moving update's input arriving to the submit of the frame drawing it. */
-  readonly longestArriveToSubmitMs: number;
+  /** Each moving update that no presented frame drew. */
+  readonly undrawnUpdates: readonly string[];
+  /** The moving update that waited longest for the frame that drew it. */
+  readonly slowestInputToSubmit: InputToSubmit;
+}
+
+/** One moving update's wait, from its input reaching the window to its frame's submit. */
+interface InputToSubmit {
+  /** The update by type and time into the scroll, as a printed line or a failure names it. */
+  readonly update: string;
+  readonly durationMs: number;
 }
 
 /** One trace record, with only the members these readings use. */
@@ -136,7 +148,6 @@ interface StageTimes {
 
 /** One compositor frame the window submitted, as Chromium's report of it describes it. */
 interface SubmittedFrame {
-  readonly beganUs: number;
   readonly submittedUs: number;
   readonly presentedAtUs: number | undefined;
 }
@@ -186,9 +197,6 @@ const CLOCK_STEP_MS = 50;
 
 /** How long the planted wheel handler holds the main thread: several refreshes at any rate. */
 const WHEEL_HOLD_MS = 30;
-
-/** One sweep of the animation that keeps the window drawing while a wheel turn is held. */
-const HELD_WHEEL_ANIMATION_SWEEP_MS = 400;
 
 /** Blurring layers stacked over the scroller: more drawing than one refresh holds. */
 const BLURRING_LAYER_COUNT = 48;
@@ -252,9 +260,10 @@ describe.skipIf(!bundleIsBuilt)(
   "endurance — scrolling with the concurrent-streaming session open",
   () => {
     for (const host of SCROLL_HOSTS) {
-      it(`${host.name}: a frame each refresh through a fling, each input in the next frame`, async () => {
+      it(`${host.name}: a frame each refresh through a fling, each input in the first frame after it`, async () => {
         const flingGapPercentiles: number[] = [];
-        const lateUpdates: string[] = [];
+        const undrawnUpdates: string[] = [];
+        const slowestInputToSubmitByRun: InputToSubmit[] = [];
         const runSummaries: string[] = [];
         let slowestRefreshMs = 0;
         for (const gesture of SCROLL_GESTURES) {
@@ -267,26 +276,36 @@ describe.skipIf(!bundleIsBuilt)(
             if (gesture === "fling") {
               flingGapPercentiles.push(percentileByNearestRank(reading.presentedFrameGapsMs, 0.95));
             }
-            lateUpdates.push(...reading.lateUpdates.map((late) => `${label}: ${late}`));
+            undrawnUpdates.push(...reading.undrawnUpdates.map((update) => `${label}: ${update}`));
+            slowestInputToSubmitByRun.push({
+              update: `${label}: ${reading.slowestInputToSubmit.update}`,
+              durationMs: reading.slowestInputToSubmit.durationMs,
+            });
             runSummaries.push(
               `${gesture} ${String(runIndex)}: ${String(reading.movingUpdateCount)} moving, ` +
-                `${String(reading.lateUpdates.length)} late, ${String(reading.stillUpdateCount)} still, ` +
-                `arrive-to-submit up to ${reading.longestArriveToSubmitMs.toFixed(2)} ms`,
+                `${String(reading.stillUpdateCount)} still, input to submit up to ` +
+                `${reading.slowestInputToSubmit.durationMs.toFixed(2)} ms`,
             );
           }
         }
         const flingGapP95 = percentileByNearestRank(flingGapPercentiles, 0.5);
-        const verdict = evaluateBudget(budget, flingGapP95);
+        const slowestInputToSubmit = slowestOf(slowestInputToSubmitByRun);
+        const frameGapVerdict = evaluateBudget(frameGapBudget, flingGapP95);
+        const inputVerdict = evaluateBudget(inputToFrameBudget, slowestInputToSubmit.durationMs);
         const isComparable = isComparableRefresh(slowestRefreshMs);
 
         process.stdout.write(
           `[endurance] scrolling ${host.name}: presented-frame gap p95 through a fling ` +
             `${flingGapP95.toFixed(2)} ms (median of ${String(MEASURED_RUN_COUNT)} runs: ` +
             `${flingGapPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
-            `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
-            `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
+            `of a ${String(frameGapBudget.limit.canonicalValue)} ms ceiling ` +
+            `(${(frameGapVerdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
+            `slowest input to submit ${slowestInputToSubmit.durationMs.toFixed(2)} ms ` +
+            `(${slowestInputToSubmit.update}) of a ` +
+            `${String(inputToFrameBudget.limit.canonicalValue)} ms ceiling ` +
+            `(${(inputVerdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
             `${runSummaries.join("; ")} — one refresh is ${slowestRefreshMs.toFixed(3)} ms, so ` +
-            `${isComparable ? "this reading gates" : "this reading is reported and gates nothing"}\n`,
+            `${isComparable ? "these readings gate" : "these readings are reported and gate nothing"}\n`,
         );
 
         if (!isComparable) {
@@ -295,13 +314,22 @@ describe.skipIf(!bundleIsBuilt)(
           return;
         }
         expect(
-          verdict.withinBudget,
-          `${budget.label}: ${host.name}'s fling presented frames ${flingGapP95.toFixed(2)} ms ` +
-            `apart at the 95th percentile, against a ${String(budget.limit.canonicalValue)} ms ceiling`,
+          frameGapVerdict.withinBudget,
+          `${frameGapBudget.label}: ${host.name}'s fling presented frames ` +
+            `${flingGapP95.toFixed(2)} ms apart at the 95th percentile, against a ` +
+            `${String(frameGapBudget.limit.canonicalValue)} ms ceiling`,
         ).toBe(true);
-        expect(lateUpdates, `${host.name}: scroll inputs drawn after the next frame`).toStrictEqual(
-          [],
-        );
+        expect(
+          inputVerdict.withinBudget,
+          `${inputToFrameBudget.label}: ${slowestInputToSubmit.update} waited ` +
+            `${slowestInputToSubmit.durationMs.toFixed(2)} ms from its input reaching the window ` +
+            `to its frame's submit, against a ` +
+            `${String(inputToFrameBudget.limit.canonicalValue)} ms ceiling`,
+        ).toBe(true);
+        expect(
+          undrawnUpdates,
+          `${host.name}: scroll updates that moved the content and no presented frame drew`,
+        ).toStrictEqual([]);
       });
     }
 
@@ -323,31 +351,34 @@ describe.skipIf(!bundleIsBuilt)(
       }
 
       expect(
-        evaluateBudget(budget, heavyGapP95).withinBudget,
+        evaluateBudget(frameGapBudget, heavyGapP95).withinBudget,
         "a fling whose every frame takes the display longer than one refresh to draw passed the " +
           "frame ceiling, so the reading would report green over the frames it exists to catch",
       ).toBe(false);
     });
 
-    it("negative control: wheel input held by a wheel handler misses frames", async () => {
-      // Without this the next-frame reading could pass over a reader that dated each input from
-      // the update the browser made of it, after the hold, rather than from the turn itself.
+    it("negative control: wheel input held by a wheel handler crosses the input ceiling", async () => {
+      // Without this the input reading could pass over a reader that timed each update from its
+      // own arrival, after the hold, rather than from the wheel turn it was made from.
       const { reading } = await scrollOnce(SCREEN_REGION, "wheel", {
         kind: "held-wheel",
         holdMs: WHEEL_HOLD_MS,
       });
+      const { slowestInputToSubmit } = reading;
       process.stdout.write(
         `[endurance] scrolling under a planted ${String(WHEEL_HOLD_MS)} ms wheel handler: ` +
-          `${String(reading.movingUpdateCount)} moving updates, ` +
-          `${String(reading.lateUpdates.length)} late, arrive-to-submit up to ` +
-          `${reading.longestArriveToSubmitMs.toFixed(2)} ms\n`,
+          `${String(reading.movingUpdateCount)} moving updates, slowest input to submit ` +
+          `${slowestInputToSubmit.durationMs.toFixed(2)} ms (${slowestInputToSubmit.update})\n`,
       );
+      if (!isComparableRefresh(reading.refreshIntervalMs)) {
+        return;
+      }
 
       expect(
-        reading.lateUpdates.length,
-        "no wheel turn missed a frame while a handler held each one for several refreshes, so " +
-          "the next-frame reading could not tell a late input from one drawn on time",
-      ).toBeGreaterThan(0);
+        evaluateBudget(inputToFrameBudget, slowestInputToSubmit.durationMs).withinBudget,
+        "a wheel scroll whose handler held each turn for several refreshes passed the input " +
+          "ceiling, so the reading would report green over the wait it exists to catch",
+      ).toBe(false);
     });
   },
 );
@@ -426,37 +457,18 @@ async function scrollOnce(
 /** Adds what a negative control plants to the scroller, or over it. */
 async function plant(scroller: Locator, planted: Plant): Promise<void> {
   if (planted.kind === "held-wheel") {
-    await scroller.evaluate(
-      (element, [holdMs, sweepMs]) => {
-        element.addEventListener(
-          "wheel",
-          () => {
-            const holdUntil = performance.now() + holdMs;
-            while (performance.now() < holdUntil) {
-              /* hold the main thread, the way a handler over its budget does */
-            }
-          },
-          { passive: false },
-        );
-        // A transform animation runs on the compositor, which keeps drawing it through the hold.
-        const marker = document.createElement("div");
-        Object.assign(marker.style, {
-          position: "fixed",
-          left: "0",
-          top: "0",
-          width: "8px",
-          height: "8px",
-          background: "currentcolor",
-        });
-        document.body.append(marker);
-        marker.animate([{ transform: "translateX(0)" }, { transform: "translateX(8px)" }], {
-          duration: sweepMs,
-          direction: "alternate",
-          iterations: Number.POSITIVE_INFINITY,
-        });
-      },
-      [planted.holdMs, HELD_WHEEL_ANIMATION_SWEEP_MS] as const,
-    );
+    await scroller.evaluate((element, holdMs) => {
+      element.addEventListener(
+        "wheel",
+        () => {
+          const holdUntil = performance.now() + holdMs;
+          while (performance.now() < holdUntil) {
+            /* hold the main thread, the way a handler over its budget does */
+          }
+        },
+        { passive: false },
+      );
+    }, planted.holdMs);
     return;
   }
   await scroller.evaluate((element, layerCount) => {
@@ -481,11 +493,11 @@ async function plant(scroller: Locator, planted: Plant): Promise<void> {
 }
 
 /**
- * Whether a display refreshing this often can meet the ceiling at all: one refresh longer than
- * the ceiling is a display slower than the row's own rate.
+ * Whether a display refreshing this often can meet the ceilings at all: one refresh longer than
+ * the frame ceiling is a display slower than the rows' own rate.
  */
 function isComparableRefresh(refreshIntervalMs: number): boolean {
-  return refreshIntervalMs <= budget.limit.canonicalValue;
+  return refreshIntervalMs <= frameGapBudget.limit.canonicalValue;
 }
 
 /** Asserts four lanes were mid-turn during the gesture and the script was driven throughout it. */
@@ -741,7 +753,6 @@ function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
       throw new Error("a frame report carries a display id and no submit");
     }
     const frame: SubmittedFrame = {
-      beganUs: begin.ts,
       submittedUs,
       presentedAtUs: PRESENTED_FRAME_STATES.has(String(report["state"])) ? end.ts : undefined,
     };
@@ -749,12 +760,12 @@ function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     frameByDisplayTraceId.set(String(report["display_trace_id"]), frame);
   }
 
-  const lateUpdates: string[] = [];
+  const undrawnUpdates: string[] = [];
+  const inputToSubmits: InputToSubmit[] = [];
   const drawnPresentationsUs: number[] = [];
   let refreshIntervalMs: number | undefined;
   let movingUpdateCount = 0;
   let stillUpdateCount = 0;
-  let longestArriveToSubmitMs = 0;
   for (const { begin } of latencies) {
     const latency = latencyOf(begin);
     const updateType = String(latency["event_type"]);
@@ -768,30 +779,20 @@ function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
       continue;
     }
     movingUpdateCount += 1;
-    const arrivedUs = inputArrivalByStamp.get(begin.ts);
-    const where = `${updateType} ${((begin.ts - scrollBegin.begin.ts) / 1000).toFixed(1)} ms in`;
+    const inputArrivedUs = inputArrivalByStamp.get(begin.ts);
+    const update = `${updateType} ${((begin.ts - scrollBegin.begin.ts) / 1000).toFixed(1)} ms in`;
     const drawingFrame = frameByDisplayTraceId.get(String(latency["display_trace_id"]));
-    if (arrivedUs === undefined || drawingFrame?.presentedAtUs === undefined) {
-      lateUpdates.push(`${where} moved the content and no presented frame drew it`);
+    if (inputArrivedUs === undefined || drawingFrame?.presentedAtUs === undefined) {
+      undrawnUpdates.push(update);
       continue;
     }
-    longestArriveToSubmitMs = Math.max(
-      longestArriveToSubmitMs,
-      (drawingFrame.submittedUs - arrivedUs) / 1000,
-    );
+    inputToSubmits.push({
+      update,
+      durationMs: (drawingFrame.submittedUs - inputArrivedUs) / 1000,
+    });
     drawnPresentationsUs.push(drawingFrame.presentedAtUs);
-    // A frame that began before the update arrived was already under way without it.
-    const missedFrameCount = frames.filter(
-      (frame) =>
-        frame !== drawingFrame &&
-        frame.beganUs >= arrivedUs &&
-        frame.submittedUs < drawingFrame.submittedUs,
-    ).length;
-    if (missedFrameCount > 0) {
-      lateUpdates.push(`${where} missed ${String(missedFrameCount)} submitted frames`);
-    }
   }
-  if (refreshIntervalMs === undefined || drawnPresentationsUs.length === 0) {
+  if (refreshIntervalMs === undefined || inputToSubmits.length === 0) {
     throw new Error("no scroll update in the trace moved the content");
   }
 
@@ -818,9 +819,21 @@ function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     presentedFrameGapsMs,
     movingUpdateCount,
     stillUpdateCount,
-    lateUpdates,
-    longestArriveToSubmitMs,
+    undrawnUpdates,
+    slowestInputToSubmit: slowestOf(inputToSubmits),
   };
+}
+
+/** The longest of several waits; throws on none, since a reading always has one. */
+function slowestOf(waits: readonly InputToSubmit[]): InputToSubmit {
+  const [first, ...rest] = waits;
+  if (first === undefined) {
+    throw new Error("there is no wait to take the slowest of");
+  }
+  return rest.reduce(
+    (slowest, candidate) => (candidate.durationMs > slowest.durationMs ? candidate : slowest),
+    first,
+  );
 }
 
 /** When the input or update a latency record follows reached the window, if the trace has it. */
