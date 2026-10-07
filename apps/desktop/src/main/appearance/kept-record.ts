@@ -12,13 +12,8 @@
 
 import type { NativeTheme } from "electron";
 
-import type {
-  AppearanceChoice,
-  AppearanceGrounds,
-  AppearanceRecord,
-  ColorScheme,
-  SchemePreference,
-} from "#shared/appearance.js";
+import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "#shared/appearance.js";
+import type { ColorScheme, SchemePreference } from "#shared/color-scheme.js";
 
 import type { AppearanceRecordFile } from "./record-file.js";
 

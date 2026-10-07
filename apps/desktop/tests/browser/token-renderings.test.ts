@@ -1,4 +1,4 @@
-// The four renderings, two themes by light and dark, read off the running page rather than off the
+// Every rendering, each theme by light and dark, read off the running page rather than off the
 // palette's records: the token sheet is installed and the root stamped as main's appearance record
 // stamps it, and every color is read from what Chromium paints. A token that resolves to another
 // rendering's value, or a pair that falls below its floor, fails naming the rendering.
@@ -6,7 +6,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
-import { GLASS_OPACITY_PERCENT } from "#renderer/styles/palette.js";
 import {
   ACCENT_FILL_PAIRS,
   GROUND_TOKEN_NAMES,
@@ -22,19 +21,14 @@ import {
   formatHueWheelTokenName,
   tokenReference,
 } from "#renderer/styles/tokens.js";
-import {
-  APPEARANCE_THEMES,
-  COLOR_SCHEMES,
-  DEFAULT_APPEARANCE_RECORD,
-  SYSTEM_SCHEME_PREFERENCE,
-  type AppearanceTheme,
-  type ColorScheme,
-} from "#shared/appearance.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { COLOR_SCHEMES, SYSTEM_SCHEME_PREFERENCE, type ColorScheme } from "#shared/color-scheme.js";
+import { APPEARANCE_THEMES, THEME_PALETTES, type AppearanceTheme } from "#shared/theme/registry.js";
 import { contrastRatio, formatOklch, type SrgbColor } from "#shared/color.js";
 import { tokenVariableName } from "#shared/token-variable.js";
 import { clearMediaEmulation, emulateSystemScheme } from "#test/helpers/media-emulation.js";
 
-/** One of the four renderings. */
+/** One rendering: a theme in one scheme. */
 interface Rendering {
   readonly theme: AppearanceTheme;
   readonly scheme: ColorScheme;
@@ -143,7 +137,7 @@ function findForeignValues(rendering: Rendering): string[] {
       ([tokenName, color]) =>
         [tokenName, formatOklch(color[rendering.theme][rendering.scheme])] as const,
     ),
-    ["glass", `${String(GLASS_OPACITY_PERCENT[rendering.theme][rendering.scheme])}%`],
+    ["glass", `${String(THEME_PALETTES[rendering.theme].glassOpacityPercent[rendering.scheme])}%`],
   ];
   return expected.flatMap(([tokenName, value]) =>
     declared(tokenName) === value

@@ -128,6 +128,7 @@
         // A diagram block in a reply drawn as a picture.
         "mermaid",
         // The overlay scrollbar on every scroller but the conversation.
+        "overlayscrollbars",
         "overlayscrollbars-react",
         // The strokes a person draws to mark up the Preview page.
         "perfect-freehand",

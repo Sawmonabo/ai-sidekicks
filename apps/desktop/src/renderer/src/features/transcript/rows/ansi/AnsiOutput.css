@@ -1,6 +1,7 @@
 /* ANSI command output (`AnsiOutput`). */
 
-/* The sixteen ANSI names are tokens in `styles/palette.ts`. */
+/* The sixteen ANSI names are tokens: twelve hued roles in each theme's table (`src/shared/theme/`)
+ * and four aliases in `styles/palette.ts`. */
 
 .meridian-ansi__body {
   margin: 0;

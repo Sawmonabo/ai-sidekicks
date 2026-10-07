@@ -9,11 +9,8 @@
 // node-context tooling imports `styles/` with no DOM lib.
 
 import { generateMeridianCss } from "#renderer/styles/generate-css.js";
-import {
-  composeRootAppearance,
-  type AppearanceRecord,
-  type ColorScheme,
-} from "#shared/appearance.js";
+import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
+import { type ColorScheme } from "#shared/color-scheme.js";
 import { generateTypefaceCss } from "#renderer/styles/typeface.js";
 
 /** The id the generated sheet is installed under. */

@@ -11,10 +11,7 @@ import { readFileSync } from "node:fs";
 import * as z from "zod/mini";
 
 import {
-  APPEARANCE_THEMES,
-  COLOR_SCHEMES,
   DEFAULT_APPEARANCE_RECORD,
-  SYSTEM_SCHEME_PREFERENCE,
   TEXT_SIZES,
   TRANSCRIPT_WIDTH_CEILING,
   TRANSCRIPT_WIDTH_FLOOR,
@@ -22,6 +19,8 @@ import {
   type AppearanceGrounds,
   type AppearanceRecord,
 } from "#shared/appearance.js";
+import { COLOR_SCHEMES, SYSTEM_SCHEME_PREFERENCE } from "#shared/color-scheme.js";
+import { APPEARANCE_THEMES } from "#shared/theme/registry.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../services/missing-path.js";

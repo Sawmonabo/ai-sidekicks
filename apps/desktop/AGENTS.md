@@ -84,7 +84,7 @@ Fixtures conform to production boundaries and never define them.
 
 Held in review; a checker would get both wrong.
 
-- **Two hues carry attention, never a third:** amber, a person is needed; red, something failed. Every attention color is an `ATTENTION_TOKENS` entry in `styles/palette.ts`; the brand accent is one desaturated cyan, for interactive affordances and a running state. No stylesheet paints an attention treatment from its own hex, named color or raw `oklch()`; a raw `oklch(0% 0 0 / …)` in a `box-shadow` is an opacity, not a hue.
+- **Two hues carry attention, never a third:** amber, a person is needed; red, something failed. Every attention color is an `ATTENTION_ROLES` role in `src/shared/theme/palette.ts`, filled by each theme's table; the brand accent is one desaturated cyan, for interactive affordances and a running state. No stylesheet paints an attention treatment from its own hex, named color or raw `oklch()`; a raw `oklch(0% 0 0 / …)` in a `box-shadow` is an opacity, not a hue.
 - **Copy is sentence case, never exclaims or celebrates.** A receipt states what happened: no exclamation mark, no congratulation, no Title Case run of three or more words.
 
 ## Naming

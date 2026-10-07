@@ -4,11 +4,8 @@
 // safe-start mark on a load after repeated renderer crashes. Every value comes from the
 // schema-checked record, an enum or a positive number, so none needs escaping.
 
-import {
-  composeRootAppearance,
-  type AppearanceRecord,
-  type ColorScheme,
-} from "#shared/appearance.js";
+import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
+import { type ColorScheme } from "#shared/color-scheme.js";
 import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 
 /** What one served console document's root carries. */

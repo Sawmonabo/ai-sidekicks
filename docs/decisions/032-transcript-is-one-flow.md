@@ -80,7 +80,7 @@ A uniform list suits everything the agent produces, which is nearly all of the s
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | The product has one user per console | The product scope: one user and their agents | With several people in one transcript, an identity mark would be needed |
-| 2 | A tint and a right edge are readable in both themes and both color schemes | The design's contrast check runs at run time against the theme tokens | The bubble would need a border in the failing theme |
+| 2 | A tint and a right edge are readable in every theme and both color schemes | The design's contrast check runs at run time against the theme tokens | The bubble would need a border in the failing theme |
 | 3 | Child agents are distinguishable without per-row labels | Their work is grouped in dispatch blocks headed by swatch and name | Per-row swatches would return inside the lead's flow |
 
 ---

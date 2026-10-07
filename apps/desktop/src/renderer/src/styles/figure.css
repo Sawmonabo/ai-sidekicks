@@ -2,7 +2,7 @@
  * Figures: the mono wire signature, and the derived form beside it.
  *
  * A global sheet, loaded through `global-sheets.ts`. Hand-authored composition: the generated
- * token sheet (from `styles/palette.ts`) carries only values, while this sheet reads every value
+ * token sheet (from each theme's table and `styles/palette.ts`) carries only values, while this sheet reads every value
  * back as a custom property. Mono is the signature that a figure came from the wire.
  */
 
