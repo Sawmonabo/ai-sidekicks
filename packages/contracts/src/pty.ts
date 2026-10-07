@@ -8,11 +8,18 @@
 // this machine. A run's hold carries this machine's device id, the run's id and the holding
 // command's id, so a screen can tell "this device", "another device" and "a run" apart and stop
 // the command. There is no release: a hold ends when another device takes the shell, the holding
-// connection ends, or the holding run leaves its running state.
+// connection or the pane's output subscription it was taken through ends, or the holding run's
+// command ends or the run leaves its running state. Every change of holder raises the shell's
+// lease version by one, so a client keeps whichever reading of the holder is newest.
 import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
+import {
+  SubscribeAckResponseSchema,
+  SubscriptionIdSchema,
+  type SubscribeAckResponse,
+  type SubscriptionId,
+} from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -36,6 +43,9 @@ export const TerminalIdSchema: z.ZodType<TerminalId, TerminalId> = z
   .brand<"TerminalId">() as unknown as z.ZodType<TerminalId, TerminalId>;
 
 const holderDeviceIdSchema = wireFreeFormString(DEVICE_ID_MAX_LEN, "holderDeviceId");
+
+// How many times a shell's holder has changed; a shell opens at 0.
+const leaseVersionSchema = z.number().int().nonnegative();
 
 /**
  * Who holds one shell's control lease. `holderDeviceId` is the holding device (this machine's own
@@ -95,13 +105,15 @@ const PtyShellStatusSchema: z.ZodType<PtyShellStatus> = z.discriminatedUnion("st
 
 /**
  * One shell as the tab strip draws it. `title` is the title the shell set for itself, or its
- * program's base name until it sets one. `holder` is `null` while nobody holds the shell.
+ * program's base name until it sets one. `holder` is `null` while nobody holds the shell, and
+ * `leaseVersion` is the lease version that holder was read at.
  */
 export interface PtyListEntry {
   terminalId: TerminalId;
   title: string;
   status: PtyShellStatus;
   holder: TerminalControlHolder | null;
+  leaseVersion: number;
 }
 const PtyListEntrySchema: z.ZodType<PtyListEntry> = z
   .object({
@@ -109,6 +121,7 @@ const PtyListEntrySchema: z.ZodType<PtyListEntry> = z
     title: z.string().min(1),
     status: PtyShellStatusSchema,
     holder: TerminalControlHolderSchema.nullable(),
+    leaseVersion: leaseVersionSchema,
   })
   .strict();
 
@@ -204,8 +217,8 @@ export const PtyOutputSubscribeRequestSchema: z.ZodType<
 /**
  * One frame of a shell's output stream. The first is always `scrollback`: the scrollback window
  * starting at its first whole line, the columns and rows it was last drawn at (so a running
- * program's boxes come back unwrapped), and who holds it. Then `output` in the order the shell
- * wrote it, and `exited` once its program ends.
+ * program's boxes come back unwrapped), and who holds it at which lease version. Then `output` in
+ * the order the shell wrote it, and `exited` once its program ends.
  */
 export type PtyOutputFrame =
   | {
@@ -216,6 +229,7 @@ export type PtyOutputFrame =
       columns: number;
       rows: number;
       holder: TerminalControlHolder | null;
+      leaseVersion: number;
     }
   | { kind: "output"; sessionId: SessionId; terminalId: TerminalId; data: string }
   | { kind: "exited"; sessionId: SessionId; terminalId: TerminalId; exitCode: number };
@@ -230,6 +244,7 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
       columns: z.number().int().positive(),
       rows: z.number().int().positive(),
       holder: TerminalControlHolderSchema.nullable(),
+      leaseVersion: leaseVersionSchema,
     })
     .strict(),
   z
@@ -256,10 +271,15 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
  */
 export type PtyWriteKind = "keys" | "paste";
 
-/** Input for one shell, written as it arrives; the writer must hold the shell. */
+/**
+ * Input for one shell, written as it arrives; the writer's connection must hold the shell. A first
+ * write to a shell nobody holds takes it, bound to `outputSubscriptionId`, the writing pane's own
+ * `pty.outputSubscribe` subscription to that shell.
+ */
 export interface PtyWriteRequest {
   sessionId: SessionId;
   terminalId: TerminalId;
+  outputSubscriptionId: SubscriptionId;
   data: string;
   kind: PtyWriteKind;
 }
@@ -268,12 +288,13 @@ export const PtyWriteRequestSchema: z.ZodType<PtyWriteRequest, PtyWriteRequest> 
   .object({
     sessionId: SessionIdSchema,
     terminalId: TerminalIdSchema,
+    outputSubscriptionId: SubscriptionIdSchema,
     data: z.string(),
     kind: z.enum(["keys", "paste"]),
   })
   .strict();
 
-/** A shell's new size in character cells. Only the holding device sets it; watchers follow it. */
+/** A shell's new size in character cells. Only a connection holding it sets it; watchers follow. */
 export interface PtyResizeRequest {
   sessionId: SessionId;
   terminalId: TerminalId;
@@ -322,12 +343,14 @@ export const SessionSetTerminalFlowControlResponseSchema: z.ZodType<SessionSetTe
   z.object({ accepted: z.literal(true) }).strict();
 
 /**
- * Take one shell's lease for the calling device. `force` moves it off another of the user's
- * devices; a take never moves it off a run.
+ * Take one shell's lease for the calling connection, bound to `outputSubscriptionId`, the taking
+ * pane's own `pty.outputSubscribe` subscription to that shell, whose end gives the hold back.
+ * `force` moves it off another of the user's devices; a take never moves it off a run.
  */
 export interface SessionTakeControlRequest {
   sessionId: SessionId;
   terminalId: TerminalId;
+  outputSubscriptionId: SubscriptionId;
   force?: boolean | undefined;
 }
 /** Parses a {@link SessionTakeControlRequest}. */
@@ -338,6 +361,7 @@ export const SessionTakeControlRequestSchema: z.ZodType<
   .object({
     sessionId: SessionIdSchema,
     terminalId: TerminalIdSchema,
+    outputSubscriptionId: SubscriptionIdSchema,
     force: z.boolean().optional(),
   })
   .strict();
@@ -357,14 +381,15 @@ export const PTY_CONTROL_CHANGED_EVENT = "pty.control_changed" as const;
 
 /**
  * Why a shell's holder changed: it was taken, taken by force off another device, the holding
- * connection ended, the holding run's command ended, or the holding run left its running state.
- * A run's two releases hand the shell back to the device the run took it from, while one of that
- * device's connections is open.
+ * connection ended, the pane's output subscription it was taken through closed, the holding run's
+ * command ended, or the holding run left its running state. A run's two releases hand the shell
+ * back to the device the run took it from, while one of that device's bindings is open.
  */
 export type PtyControlChangedReason =
   | "taken"
   | "taken_by_force"
   | "auto_released_disconnect"
+  | "auto_released_pane_closed"
   | "auto_released_command_ended"
   | "auto_released_run_idle";
 /** Every {@link PtyControlChangedReason}. */
@@ -372,16 +397,17 @@ export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = O
   "taken",
   "taken_by_force",
   "auto_released_disconnect",
+  "auto_released_pane_closed",
   "auto_released_command_ended",
   "auto_released_run_idle",
 ]);
 
 /**
- * One change of one shell's holder: the holder members name who holds it after the change and
- * `previousHolderDeviceId` who held it before, so a take names a holder, every release names the
- * holder it ended, a disconnect names nobody after it, and a run's release names the device it
- * hands the shell back to or nobody. Clients fold these and never infer a holder from a take they
- * made.
+ * One change of one shell's holder: the holder members name who holds it after the change,
+ * `previousHolderDeviceId` who held it before, and `leaseVersion` the change's lease version. A
+ * take names a holder, every release names the holder it ended, a disconnect or a closed pane names
+ * nobody after it, and a run's release names the device it hands the shell back to or nobody.
+ * Clients keep the newest version they have read and never infer a holder from a take they made.
  */
 export interface PtyControlChangedPayload {
   sessionId: SessionId;
@@ -391,12 +417,13 @@ export interface PtyControlChangedPayload {
   holderCommandId?: CommandId | undefined;
   previousHolderDeviceId: string | null;
   reason: PtyControlChangedReason;
+  leaseVersion: number;
 }
 /**
  * Parses a {@link PtyControlChangedPayload}, refusing one that contradicts itself: a take that
- * names no holder, a release that names no holder it ended, a disconnect that names a holder after
- * it, a release that names a run, a forced take by a run or off no other device, or a run's hold
- * named apart from its holding command.
+ * names no holder, a release that names no holder it ended, a disconnect or a closed pane that
+ * names a holder after it, a release that names a run, a forced take by a run or off no other
+ * device, or a run's hold named apart from its holding command.
  */
 export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
   .object({
@@ -407,6 +434,7 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
     holderCommandId: CommandIdSchema.optional(),
     previousHolderDeviceId: holderDeviceIdSchema.nullable(),
     reason: z.enum(PTY_CONTROL_CHANGED_REASONS),
+    leaseVersion: leaseVersionSchema.min(1),
   })
   .strict()
   .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND)
@@ -418,7 +446,10 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
       if (payload.previousHolderDeviceId === null) {
         return false;
       }
-      if (payload.reason === "auto_released_disconnect") {
+      if (
+        payload.reason === "auto_released_disconnect" ||
+        payload.reason === "auto_released_pane_closed"
+      ) {
         return payload.holderDeviceId === null && payload.holderRunId === undefined;
       }
       return payload.holderRunId === undefined;
@@ -426,7 +457,8 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
     {
       message:
         "a take names the holder after it; a release names the holder it ended, and after it " +
-        "nobody for a disconnect, or the device a run's release hands the shell back to, or nobody",
+        "nobody for a disconnect or a closed pane, or the device a run's release hands the shell " +
+        "back to, or nobody",
       path: ["holderDeviceId"],
     },
   )
@@ -468,8 +500,9 @@ export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOther
   .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND);
 
 /**
- * A write to a shell someone else holds, a run's write to a shell it does not hold, or a resize of
- * a shell nobody holds. A device's write to a shell nobody holds takes it instead.
+ * A write from a writer that does not hold the shell, or a resize from a connection that does not
+ * while nobody else holds it or its own device holds it on another connection. A device's write to
+ * a shell nobody holds takes it instead.
  */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
 /**

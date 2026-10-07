@@ -1,7 +1,8 @@
 // `session.takeControl`: takes one shell's control lease for the calling device's connection.
 //
 // The caller is the device and connection the gateway stamped on the call, never a request field,
-// so the lease ends with that connection. The registry parses the request before the handler runs.
+// so the lease ends with that connection, or with the pane output subscription the request names.
+// The registry parses the request before the handler runs.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { TERMINAL_CONTROL_METHOD_DESCRIPTORS, type TerminalId } from "@ai-sidekicks/contracts/pty";
@@ -31,9 +32,14 @@ export function registerSessionTakeControl(
       if (ctx.deviceId === undefined || ctx.transportId === undefined) {
         throw new Error("session.takeControl needs the calling device and its connection");
       }
-      return deps
-        .findShellLease(request.sessionId, request.terminalId)
-        .take({ deviceId: ctx.deviceId, transportId: ctx.transportId }, request.force === true);
+      return deps.findShellLease(request.sessionId, request.terminalId).take(
+        {
+          deviceId: ctx.deviceId,
+          transportId: ctx.transportId,
+          outputSubscriptionId: request.outputSubscriptionId,
+        },
+        request.force === true,
+      );
     },
   );
 }

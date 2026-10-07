@@ -1,6 +1,6 @@
 // A session's shells cross from the daemon to every device that shows them, and the lease decides
 // which of those devices may type. A shell appears once in the list and in a tab order, a run's
-// hold names its command, and a lease change's holder agrees with its reason.
+// hold names its command, and a lease change's holder agrees with its reason and raises the version.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,7 +14,7 @@ const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
 const COMMAND_ID = "command-1";
 const RUN_HOLD = { holderRunId: RUN_ID, holderCommandId: COMMAND_ID };
-const SHELL = { sessionId: SESSION_ID, terminalId: "term-1" };
+const SHELL_CHANGE = { sessionId: SESSION_ID, terminalId: "term-1", leaseVersion: 1 };
 
 describe("pty.list", () => {
   const running = {
@@ -22,18 +22,20 @@ describe("pty.list", () => {
     title: "zsh",
     status: { state: "running" },
     holder: null,
+    leaseVersion: 0,
   };
 
   it("accepts the whole set, a run's hold and an exited shell among it", () => {
     const update = {
       sessionId: SESSION_ID,
       terminals: [
-        { ...running, holder: { holderDeviceId: "laptop", ...RUN_HOLD } },
+        { ...running, holder: { holderDeviceId: "laptop", ...RUN_HOLD }, leaseVersion: 3 },
         {
           terminalId: "term-2",
           title: "pnpm dev",
           status: { state: "exited", exitCode: 1 },
           holder: null,
+          leaseVersion: 2,
         },
       ],
     };
@@ -61,7 +63,7 @@ describe("pty.reorder", () => {
 describe("the per-shell lease", () => {
   it("accepts a take by a device and a take by a run's command", () => {
     const byDevice = {
-      ...SHELL,
+      ...SHELL_CHANGE,
       holderDeviceId: "desktop",
       previousHolderDeviceId: "laptop",
       reason: "taken",
@@ -70,11 +72,15 @@ describe("the per-shell lease", () => {
     expect(PtyControlChangedPayloadSchema.safeParse({ ...byDevice, ...RUN_HOLD }).success).toBe(
       true,
     );
+    // A shell opens at version 0 and every change raises it, so no change carries 0.
+    expect(PtyControlChangedPayloadSchema.safeParse({ ...byDevice, leaseVersion: 0 }).success).toBe(
+      false,
+    );
   });
 
   it("refuses a run's hold that does not name the run and its command together", () => {
     const byRun = {
-      ...SHELL,
+      ...SHELL_CHANGE,
       holderDeviceId: "desktop",
       previousHolderDeviceId: null,
       reason: "taken",
@@ -94,6 +100,7 @@ describe("the per-shell lease", () => {
             title: "zsh",
             status: { state: "running" },
             holder: { ...shellHolder, ...half },
+            leaseVersion: 1,
           },
         ],
       };
@@ -103,7 +110,7 @@ describe("the per-shell lease", () => {
 
   it("accepts a forced take off another device, and refuses one off nobody or by a run", () => {
     const forced = {
-      ...SHELL,
+      ...SHELL_CHANGE,
       holderDeviceId: "desktop",
       previousHolderDeviceId: "laptop",
       reason: "taken_by_force",
@@ -122,7 +129,7 @@ describe("the per-shell lease", () => {
 
   it("holds each take and release to the holders its reason names, a hand-back among them", () => {
     const payload = {
-      ...SHELL,
+      ...SHELL_CHANGE,
       holderDeviceId: null,
       previousHolderDeviceId: "laptop",
       reason: "taken",
@@ -130,19 +137,23 @@ describe("the per-shell lease", () => {
     expect(PtyControlChangedPayloadSchema.safeParse(payload).success).toBe(false);
 
     const release = {
-      ...SHELL,
+      ...SHELL_CHANGE,
       holderDeviceId: null,
       previousHolderDeviceId: "laptop",
       reason: "auto_released_disconnect",
     };
-    expect(PtyControlChangedPayloadSchema.safeParse(release).success).toBe(true);
-    expect(
-      PtyControlChangedPayloadSchema.safeParse({ ...release, holderDeviceId: "laptop" }).success,
-    ).toBe(false);
-    expect(
-      PtyControlChangedPayloadSchema.safeParse({ ...release, previousHolderDeviceId: null })
-        .success,
-    ).toBe(false);
+    // A closed pane, like an ended connection, ends the hold and names nobody after it.
+    for (const reason of ["auto_released_disconnect", "auto_released_pane_closed"]) {
+      const ended = { ...release, reason };
+      expect(PtyControlChangedPayloadSchema.safeParse(ended).success).toBe(true);
+      expect(
+        PtyControlChangedPayloadSchema.safeParse({ ...ended, holderDeviceId: "laptop" }).success,
+      ).toBe(false);
+      expect(
+        PtyControlChangedPayloadSchema.safeParse({ ...ended, previousHolderDeviceId: null })
+          .success,
+      ).toBe(false);
+    }
     for (const reason of ["auto_released_command_ended", "auto_released_run_idle"]) {
       const runRelease = { ...release, previousHolderDeviceId: "desktop", reason };
       expect(PtyControlChangedPayloadSchema.safeParse(runRelease).success).toBe(true);
