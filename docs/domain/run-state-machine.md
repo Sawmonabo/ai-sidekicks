@@ -128,6 +128,7 @@ The following table lists every allowed run state transition. It includes primar
 | `pausing` | `paused` | The step in flight landed | Nothing is running; the run continues later from exactly where it stopped, with nothing repeated |
 | `pausing` | `running` | The pause toggle pressed again, or a send | Pressed before the step in flight landed; the run goes on from where it is, with nothing repeated ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `pausing` | `interrupted` | Interrupt intervention | User-initiated stop while the step in flight is finishing — an interrupt stays available throughout a pause — or an undo ending the turn (§Rollback Transitions) |
+| `pausing` | `failed` | Unrecovered error | Provider, transport, or internal error while the step in flight is finishing |
 | `running` | `interrupted` | Interrupt intervention | User-initiated stop, or an undo ending the running turn (§Rollback Transitions) |
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
@@ -166,6 +167,8 @@ The following table lists every allowed run state transition. It includes primar
 | `paused` | `failed` | Startup reconciliation | Resume impossible and no prior user-initiated stop |
 | `paused` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 | `paused` | `waiting_for_input` | Startup reconciliation | Resume succeeds (`DriverResumeResult.status: 'resumed'`) but the driver-reported session position diverges from the daemon-recorded position — the local log is authoritative and the run halts for human action carrying `recovery-needed` ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)) |
+| `pausing` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
+| `pausing` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
 
 ## Derived Failure And Recovery Signals
 
