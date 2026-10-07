@@ -282,9 +282,10 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — several windows", () => {
           { timeout: stepTimeout(), message: "the window drew no overlay scrollbar" },
         )
         .toBe(1);
-      // The minimized window's frames are not asserted: a minimized window pauses its own
-      // drawing, but the test build switches background throttling off, so here it keeps
-      // drawing. What holds either way is that the console still holds it, below.
+      // The minimized window's frames are not asserted: Playwright's focus emulation holds every
+      // page it drives visible, so here a minimized window keeps drawing, on Linux too with
+      // Chromium's throttling switched back on. What holds either way is that the console still
+      // holds it, below.
 
       // An app-wide change the console applies to every window it holds: the View menu's
       // scheme, clicked in main as a person's click runs it. A fresh profile carries none.
