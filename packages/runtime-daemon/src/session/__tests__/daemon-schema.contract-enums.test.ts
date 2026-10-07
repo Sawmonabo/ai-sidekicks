@@ -40,7 +40,6 @@ const QUEUE_ITEM_STATES: Record<QueueItemState, true> = {
 const INTERVENTION_TYPES: Record<InterventionType, true> = {
   steer: true,
   interrupt: true,
-  cancel: true,
   faster_model_retry: true,
 };
 

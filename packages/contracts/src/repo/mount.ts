@@ -1,8 +1,8 @@
 // Repo-mount contracts: the branded `RepoMountId` and `WorkspaceId`, the repo and workspace enums,
-// the derived `RepoMountHealth` projection, and the repo, workspace and worktree lifecycle event
-// payload with its factories. The mount methods (`repo.attach`, `repo.mountRead`, `repo.detach`)
-// are in `repo/folders.ts`. The other `repo.*` contract files import these definitions and never
-// redefine them; this module imports none of them.
+// the derived `RepoMountHealth` projection and the payload of its change, and the repo, workspace
+// and worktree lifecycle event payload with its factories. The mount methods (`repo.attach`,
+// `repo.mountRead`, `repo.detach`) are in `repo/folders.ts`. The other `repo.*` contract files
+// import these definitions and never redefine them; this module imports none of them.
 //
 // This module imports nothing that reaches `../event/session.js`: `event/session.ts`
 // imports the lifecycle payload schema from here, and a cycle among module-scope Zod initializers
@@ -76,19 +76,38 @@ export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git"]);
 /**
  * A mount's health, probed on every read and never stored. `unreachable` means the root cannot be
  * probed and outranks the rest; `identity_mismatch` means the root's git common directory is not
- * the one recorded at attach, and re-attaching is the recovery.
+ * the one recorded at attach. `isRepository` says whether git still answers for the root, which
+ * decides whether re-attaching can recover it.
  */
-export interface RepoMountHealth {
-  status: "healthy" | "unreachable" | "identity_mismatch";
-  checkedAt: string;
+export type RepoMountHealth =
+  | { status: "healthy" | "unreachable"; checkedAt: string; isRepository?: never }
+  | { status: "identity_mismatch"; isRepository: boolean; checkedAt: string };
+/** Wire schema for {@link RepoMountHealth}; only `identity_mismatch` carries `isRepository`. */
+export const RepoMountHealthSchema: z.ZodType<RepoMountHealth, RepoMountHealth> =
+  z.discriminatedUnion("status", [
+    z.object({ status: z.enum(["healthy", "unreachable"]), checkedAt: isoDateTimeSchema }).strict(),
+    z
+      .object({
+        status: z.literal("identity_mismatch"),
+        isRepository: z.boolean(),
+        checkedAt: isoDateTimeSchema,
+      })
+      .strict(),
+  ]);
+
+/**
+ * The `repo.mount_health_changed` payload: a mount's health after the daemon's re-probe changed
+ * it, sent on the stream of every session on that mount.
+ */
+export interface RepoMountHealthChangedPayload {
+  repoMountId: RepoMountId;
+  health: RepoMountHealth;
 }
-/** Wire schema for {@link RepoMountHealth}. */
-export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
-  .object({
-    status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
-    checkedAt: isoDateTimeSchema,
-  })
-  .strict();
+/** Parses a {@link RepoMountHealthChangedPayload}. */
+export const RepoMountHealthChangedPayloadSchema: z.ZodType<
+  RepoMountHealthChangedPayload,
+  RepoMountHealthChangedPayload
+> = z.object({ repoMountId: RepoMountIdSchema, health: RepoMountHealthSchema }).strict();
 
 // One payload shape serves the `workspace.*` and `worktree.*` lifecycle events. The subject is
 // whichever optional id the payload carries, and none is required, because a detach's

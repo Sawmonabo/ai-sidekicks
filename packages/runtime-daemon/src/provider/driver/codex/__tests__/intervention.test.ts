@@ -111,16 +111,6 @@ function interruptParams(): ApplyInterventionParams {
   };
 }
 
-function cancelParams(): ApplyInterventionParams {
-  return {
-    type: "cancel",
-    targetRunId: RUN_ID,
-    expectedRunVersion: 4,
-    clientIdempotencyKey: "idem-3",
-    payload: { reason: "the person canceled the run" },
-  };
-}
-
 describe("CodexInterventionDispatcher native routing", () => {
   it("routes steer onto the provider's native steer", async () => {
     const harness = createHarness();
@@ -146,20 +136,6 @@ describe("CodexInterventionDispatcher native routing", () => {
     expect(harness.interruptRun).toHaveBeenCalledWith({
       runId: RUN_ID,
       reason: "the person paused the run",
-    });
-    expect(result).toEqual({ status: "applied" });
-  });
-
-  it("routes cancel onto the same turn-stopping operation", async () => {
-    const harness = createHarness();
-
-    const result = await harness.dispatcher.applyIntervention(cancelParams());
-
-    // Codex has one turn-stopping operation; interrupt and cancel differ only in what the daemon
-    // does with the run afterwards.
-    expect(harness.interruptRun).toHaveBeenCalledWith({
-      runId: RUN_ID,
-      reason: "the person canceled the run",
     });
     expect(result).toEqual({ status: "applied" });
   });

@@ -7,6 +7,7 @@
 // composes this function.
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -22,23 +23,25 @@ import {
 } from "../event/envelope.fixture.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../session/event/streams.js";
 
+const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
+
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
  *
  * `services/daemon/session/event/streams.ts` owns which names are streams and what each carries;
  * this function does no routing of its own. `session.subscribe` streams the whole log, catch up,
  * then follow, in the frames `event/envelope.fixture.ts` composes; opened with an `afterCursor` it
- * catches up on what follows that change alone, and one this playback never delivered ends the
- * subscription refused, as the daemon refuses a cursor it cannot resolve. A bare event-type name
- * carries only itself, one envelope per beat. The two `run.*` streams are registered projections
- * (`RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary`) built by
- * `projection.fixture.ts`, with no catch-up because they are live; the envelope would teach
- * subscribers a frame the live bridge cannot send. A beat the projection cannot build throws, and
- * `lib/emitter.ts` re-raises after every sink has run, so the authoring error reaches whoever
- * advanced the clock without silencing other subscribers. The presence subscription is not an event
- * feed: the fixture scripts no device, so it is accepted and never delivers. The machine's notice
- * streams deliver the frame the scenario opens them with, then the notices its settled replies
- * push, live, with no catch-up.
+ * catches up on what follows that change alone (on the whole log after the start-of-log cursor),
+ * and one this playback never delivered ends the subscription refused, as the daemon refuses a
+ * cursor it cannot resolve. A bare event-type name carries only itself, one envelope per beat. The
+ * two `run.*` streams are registered projections (`RunStateChangeEvent | RunRolledBackEvent` and
+ * `QueueItemSummary`) built by `projection.fixture.ts`, with no catch-up because they are live; the
+ * envelope would teach subscribers a frame the live bridge cannot send. A beat the projection
+ * cannot build throws, and `lib/emitter.ts` re-raises after every sink has run, so the authoring
+ * error reaches whoever advanced the clock without silencing other subscribers. The presence
+ * subscription is not an event feed: the fixture scripts no device, so it is accepted and never
+ * delivers. The machine's notice streams deliver the frame the scenario opens them with, then the
+ * notices its settled replies push, live, with no catch-up.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -69,12 +72,14 @@ export function subscribeToScenario(
   }
   if (stream?.scope === "whole-session") {
     const afterCursor = isWireRecord(request) ? request["afterCursor"] : undefined;
+    // The start-of-log cursor, which a read hands out as `earliest`, names the position before
+    // the first beat, so it catches up on the whole log as an absent cursor does.
+    const isFromStart = afterCursor === undefined || afterCursor === START_OF_LOG_CURSOR;
     const caughtUp = engine.deliveredEvents();
-    const resumeAt =
-      afterCursor === undefined
-        ? 0
-        : caughtUp.findIndex((event) => event.cursor === afterCursor) + 1;
-    if (resumeAt === 0 && afterCursor !== undefined) {
+    const resumeAt = isFromStart
+      ? 0
+      : caughtUp.findIndex((event) => event.cursor === afterCursor) + 1;
+    if (resumeAt === 0 && !isFromStart) {
       queueMicrotask(() => {
         onEnded?.({
           reason: "refused",

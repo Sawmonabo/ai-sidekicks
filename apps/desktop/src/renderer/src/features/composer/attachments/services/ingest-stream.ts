@@ -9,7 +9,6 @@ import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import { type Clock } from "#renderer/lib/clock.js";
-import type { AttachmentSpoolReclaimer } from "./ingest-abort.js";
 import type { AttachmentIngestPort } from "./ingest-port.js";
 import { AttachmentChunkStream } from "./ingest-chunks.js";
 import { writeIngestRefusal, type AttachmentIngestEntries } from "../ingest-entries.js";
@@ -28,8 +27,6 @@ export interface AttachmentIngestStreamDriverOptions {
   readonly clock: Clock;
   /** The staged list's own record. Written here, owned by the staged list. */
   readonly entries: AttachmentIngestEntries;
-  /** Where a spool this driver opened and could not reach the record with is given back. */
-  readonly reclaimer: AttachmentSpoolReclaimer;
 }
 
 /**
@@ -42,7 +39,6 @@ export class AttachmentIngestStreamDriver {
   readonly #sessionId: SessionId;
   readonly #clock: Clock;
   readonly #entries: AttachmentIngestEntries;
-  readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #chunks: AttachmentChunkStream;
   readonly #runningLocalIds = new Set<string>();
 
@@ -52,7 +48,6 @@ export class AttachmentIngestStreamDriver {
     this.#sessionId = options.sessionId;
     this.#clock = options.clock;
     this.#entries = options.entries;
-    this.#reclaimer = options.reclaimer;
     this.#chunks = new AttachmentChunkStream({
       port,
       clock: options.clock,
@@ -148,9 +143,8 @@ export class AttachmentIngestStreamDriver {
     });
     const settled = this.#entries.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
-      // Abandoned, removed, or disposed while Init was in flight. The daemon opened a stream
-      // whose id never reached the record, so only this path can give its spool back.
-      this.#reclaimer.request(opened.ingestId);
+      // Abandoned, removed, or disposed while Init was in flight; the daemon's reaper claims the
+      // spool of the stream it opened.
       return false;
     }
     this.#entries.write(localId, {
@@ -178,7 +172,12 @@ export class AttachmentIngestStreamDriver {
     this.#entries.write(localId, {
       ...settled,
       state: "complete",
-      derived: completion,
+      derived: {
+        artifactId: completion.artifactId,
+        fileName: completion.normalizedName,
+        mimeType: completion.derivedMediaType,
+        sizeBytes: completion.derivedSizeBytes,
+      },
       lastProgressAtMilliseconds: this.#clock.now(),
     });
   }

@@ -77,10 +77,27 @@ describe("MountCard — the drifted mount and its one control", () => {
     // a path about to answer again.
     const { getByLabelText } = renderCard({
       mount: buildMount({
-        health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
+        health: {
+          status: "identity_mismatch",
+          isRepository: true,
+          checkedAt: "2026-01-01T00:00:00Z",
+        },
       }),
     });
     expect(getByLabelText(`Re-attach ${ENTERED_PATH}`)).toBeDefined();
+  });
+
+  it("offers no re-attach once the drifted root is no longer a git repository", () => {
+    const { queryByLabelText } = renderCard({
+      mount: buildMount({
+        health: {
+          status: "identity_mismatch",
+          isRepository: false,
+          checkedAt: "2026-01-01T00:00:00Z",
+        },
+      }),
+    });
+    expect(queryByLabelText(`Re-attach ${ENTERED_PATH}`)).toBeNull();
   });
 
   it("offers no re-attach on an unreachable mount, which may answer again", () => {

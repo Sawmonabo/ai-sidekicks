@@ -13,7 +13,8 @@ import type {
   ArtifactPayloadEncoding,
   ArtifactReadResponse,
 } from "@ai-sidekicks/contracts/artifacts/operations";
-import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -32,7 +33,7 @@ export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";
 /** The run every served manifest comes from, in the session above. */
 export const ARTIFACT_RUN_ID = "019b7b30-0280-7c11-8420-b1a5c0de2202";
 
-/** The producer every served manifest is drawn as coming from. */
+/** The device every served manifest's publishing request came from. */
 export const ARTIFACT_PRODUCER_ID = "019b7b30-0280-7c11-8420-b1a5c0de2203";
 
 /** A second artifact, so a case can press for bytes the pane is not already fetching. */
@@ -48,7 +49,7 @@ export const SERVED_SUMMARY: ArtifactManifest = {
   id: "019b7b30-0280-7c11-8420-b1a5c0de2201" as ArtifactId,
   sessionId: SESSION_ID as SessionId,
   runId: ARTIFACT_RUN_ID as RunId,
-  createdBy: ARTIFACT_PRODUCER_ID as UserId,
+  createdBy: ARTIFACT_PRODUCER_ID as DeviceId,
   artifactType: "diff",
   digest: "sha256:2b4c",
   size: 4096,

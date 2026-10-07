@@ -34,8 +34,6 @@ export interface ArtifactManifestRow {
   readonly sessionId: string;
   /** The run that produced it, when a run did. */
   readonly runId?: string | undefined;
-  /** The user that produced it. ABSENT means the daemon itself — a producer, not a gap. */
-  readonly createdBy?: string | undefined;
   readonly artifactType: ArtifactType;
   readonly digest: string;
   readonly size: number;
@@ -118,7 +116,6 @@ export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactMan
     id: manifest.id,
     sessionId: manifest.sessionId,
     runId: manifest.runId,
-    createdBy: manifest.createdBy,
     artifactType: manifest.artifactType,
     digest: manifest.digest,
     size: manifest.size,

@@ -26,6 +26,7 @@ import {
   DRIVER_WIRE_TOKEN_MAX_LEN,
 } from "../provider/driver/methods.js";
 import { RecoveryConditionSchema, type RecoveryCondition } from "../provider/driver/recovery.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import {
   ProviderUsageLimitCauseSchema,
   ProviderUsageLimitResetBoundarySchema,
@@ -88,6 +89,7 @@ import {
   wireUncappedFreeFormString,
 } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { InterruptReasonSchema, type InterruptReason } from "../orchestration.js";
 
 /** Identifies one intervention on a run. */
 export type InterventionId = string & { readonly __brand: "InterventionId" };
@@ -103,15 +105,6 @@ export type InterventionState =
   | "rejected"
   | "degraded"
   | "expired";
-/** Parses an {@link InterventionState}. */
-export const InterventionStateSchema: z.ZodType<InterventionState, InterventionState> = z.enum([
-  "requested",
-  "accepted",
-  "applied",
-  "rejected",
-  "degraded",
-  "expired",
-]);
 
 /** Why a run failed. The values carry spaces because they are wire literals, not identifiers. */
 export type RunFailureCategory =
@@ -143,7 +136,7 @@ const filesystemPathSchema: z.ZodString = z
 // outcome.
 
 /**
- * A caller's request to steer, interrupt, cancel or retry a run, one arm per intervention type.
+ * A caller's request to steer, interrupt or retry a run, one arm per intervention type.
  * An interrupt's `pending` sends the waiting messages as the next turn or returns them to the
  * draft, and `deliverFirst` names the message `Send now` puts ahead of the rest.
  * `faster_model_retry` resends a turn Codex holds for a safety check on `model`.
@@ -165,13 +158,6 @@ export type InterventionRequestPayload =
       clientIdempotencyKey: string;
       pending: "nextTurn" | "returnToDraft";
       deliverFirst?: QueueItemId | undefined;
-      reason?: string | undefined;
-    }
-  | {
-      type: "cancel";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
       reason?: string | undefined;
     }
   | {
@@ -219,18 +205,6 @@ export const InterventionRequestPayloadSchema: z.ZodType<
       .strict(),
     z
       .object({
-        type: z.literal("cancel"),
-        targetRunId: RunIdSchema,
-        expectedRunVersion: countSchema,
-        clientIdempotencyKey: z.uuid(),
-        reason: wireFreeFormString(
-          DRIVER_WIRE_REASON_MAX_LEN,
-          "InterventionRequestPayload.reason",
-        ).optional(),
-      })
-      .strict(),
-    z
-      .object({
         type: z.literal("faster_model_retry"),
         targetRunId: RunIdSchema,
         expectedRunVersion: countSchema,
@@ -254,39 +228,59 @@ export const InterventionRequestPayloadSchema: z.ZodType<
     },
   );
 
-/**
- * The common part of the daemon's answer to an intervention. A refused intervention is a normal
- * response with state `rejected` and a machine-readable `rejectionReason`, not a JSON-RPC error.
- */
+/** The part of the daemon's answer every intervention state carries. */
 export interface InterventionResponseBase {
   interventionId: InterventionId;
-  state: InterventionState;
+  interventionType: InterventionType;
   // The run version after the intervention, for the caller's next `expectedRunVersion`. An
   // applied steer advances it with no state change, so this is the only place to read it.
   runVersion: number;
-  rejectionReason?: string | undefined;
 }
 
-/** The daemon's answer to an intervention request: its state, the run version, any result. */
-export type InterventionRequestResponse = InterventionResponseBase & {
-  interventionType: InterventionType;
-  result?: Record<string, unknown> | undefined;
+/**
+ * The daemon's answer to an intervention request. A refused intervention is a normal answer in
+ * state `rejected` with a machine-readable `rejectionReason`, not a JSON-RPC error; no other state
+ * carries a reason.
+ */
+export type InterventionRequestResponse = InterventionResponseBase &
+  (
+    | { state: Extract<InterventionState, "rejected">; rejectionReason: string }
+    | {
+        state: Exclude<InterventionState, "rejected">;
+        rejectionReason?: never;
+      }
+  );
+
+const interventionResponseBaseShape = {
+  interventionId: InterventionIdSchema,
+  interventionType: InterventionTypeSchema,
+  runVersion: countSchema,
 };
 
-/** Parses an {@link InterventionRequestResponse}; closed to unknown keys. */
-export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> = z
-  .object({
-    interventionId: InterventionIdSchema,
-    runVersion: countSchema,
-    rejectionReason: wireFreeFormString(
-      DRIVER_WIRE_HANDLE_MAX_LEN,
-      "InterventionResponseBase.rejectionReason",
-    ).optional(),
-    interventionType: InterventionTypeSchema,
-    state: InterventionStateSchema,
-    result: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict();
+/**
+ * Parses an {@link InterventionRequestResponse}; each arm is closed to the keys its state allows.
+ */
+export const InterventionRequestResponseSchema: z.ZodType<
+  InterventionRequestResponse,
+  InterventionRequestResponse
+> = z.discriminatedUnion("state", [
+  z
+    .object({
+      ...interventionResponseBaseShape,
+      state: z.literal("rejected"),
+      rejectionReason: wireFreeFormString(
+        DRIVER_WIRE_HANDLE_MAX_LEN,
+        "InterventionRequestResponse.rejectionReason",
+      ),
+    })
+    .strict(),
+  z
+    .object({
+      ...interventionResponseBaseShape,
+      state: z.enum(["requested", "accepted", "applied", "degraded", "expired"]),
+    })
+    .strict(),
+]);
 
 const executionPostureSchema: z.ZodType<ExecutionPosture> = z
   .object({
@@ -402,9 +396,8 @@ export interface RunStateChangeEvent {
   intendedClose?: true | undefined;
   // Stamped only on `run.running`, where the workspace root and effective posture are final.
   executionPosture?: ExecutionPosture | undefined;
-  // Why the daemon stopped the run: one of the limits the person set, or its workflow phase
-  // was canceled.
-  trigger?: "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled" | undefined;
+  // Present only when the daemon itself stopped the run.
+  trigger?: InterruptReason | undefined;
   timestamp: string;
 }
 
@@ -426,9 +419,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     completionKind: z.enum(["turn", "task"]).optional(),
     intendedClose: z.literal(true).optional(),
     executionPosture: executionPostureSchema.optional(),
-    trigger: z
-      .enum(["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"])
-      .optional(),
+    trigger: InterruptReasonSchema.optional(),
     timestamp: isoDateTimeSchema,
   })
   .strict()
@@ -565,6 +556,29 @@ export interface RunRecoveryResolvedPayload {
 /** Parses a {@link RunRecoveryResolvedPayload}. */
 export const RunRecoveryResolvedPayloadSchema: z.ZodType<RunRecoveryResolvedPayload> = z
   .object({ sessionId: SessionIdSchema, runId: RunIdSchema, choice: RunRecoveryChoiceSchema })
+  .strict();
+
+/**
+ * The payload of `run.recovery_steps_added`: after a restart, `count` steps from the provider's
+ * own record that only read were added to the transcript as the provider recorded them.
+ */
+export interface RunRecoveryStepsAddedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  count: number;
+  provider: ProviderName;
+}
+/** Parses a {@link RunRecoveryStepsAddedPayload}; `count` is at least one. */
+export const RunRecoveryStepsAddedPayloadSchema: z.ZodType<
+  RunRecoveryStepsAddedPayload,
+  RunRecoveryStepsAddedPayload
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    runId: RunIdSchema,
+    count: z.number().int().positive(),
+    provider: ProviderNameSchema,
+  })
   .strict();
 
 /**

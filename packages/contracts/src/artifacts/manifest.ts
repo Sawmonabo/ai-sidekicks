@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import { ArtifactIdSchema, type ArtifactId } from "./id.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
-import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "../session/id.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
@@ -37,15 +38,16 @@ export const ArtifactStateSchema: z.ZodType<ArtifactState, ArtifactState> = z.en
 /**
  * One artifact as the daemon records it: `id` names the manifest and `digest` the content, so two
  * manifests can share one payload. `metadata` is the artifact's freeform provenance and holds its
- * file name and media type.
+ * file name and media type. A member a newer daemon adds rides along under the index signature.
  */
 export interface ArtifactManifest {
+  [member: string]: unknown;
   id: ArtifactId;
   sessionId: SessionId;
   /** Absent when no run produced the artifact. */
   runId?: RunId | undefined;
-  /** The caller that published the artifact; absent when the daemon produced it itself. */
-  createdBy?: UserId | undefined;
+  /** The device the publishing request came from; absent when the daemon produced it itself. */
+  createdBy?: DeviceId | undefined;
   artifactType: ArtifactType;
   /** The payload's SHA-256 digest. A content-addressed manifest always has one. */
   digest: string;
@@ -55,18 +57,19 @@ export interface ArtifactManifest {
   metadata: Record<string, unknown>;
   createdAt: string;
 }
-/** Parses an {@link ArtifactManifest}; a member not listed on it is refused. */
-export const ArtifactManifestSchema: z.ZodType<ArtifactManifest> = z
-  .object({
-    id: ArtifactIdSchema,
-    sessionId: SessionIdSchema,
-    runId: RunIdSchema.optional(),
-    createdBy: UserIdSchema.optional(),
-    artifactType: ArtifactTypeSchema,
-    digest: z.string(),
-    size: countSchema,
-    state: ArtifactStateSchema,
-    metadata: z.record(z.string(), z.unknown()),
-    createdAt: isoDateTimeSchema,
-  })
-  .strict();
+/**
+ * Parses an {@link ArtifactManifest}. A member not listed on it is kept, not refused, so a reader
+ * older than the daemon passes an added member through instead of failing the whole list.
+ */
+export const ArtifactManifestSchema: z.ZodType<ArtifactManifest, ArtifactManifest> = z.looseObject({
+  id: ArtifactIdSchema,
+  sessionId: SessionIdSchema,
+  runId: RunIdSchema.optional(),
+  createdBy: DeviceIdSchema.optional(),
+  artifactType: ArtifactTypeSchema,
+  digest: z.string(),
+  size: countSchema,
+  state: ArtifactStateSchema,
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: isoDateTimeSchema,
+});

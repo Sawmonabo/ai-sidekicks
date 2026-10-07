@@ -217,15 +217,12 @@ describe("ingest client — abandonment, including mid-call", () => {
 
     // Abandoned before the daemon answered: no stream is named in the record yet.
     client.abandon("attachment-1");
-    expect(port.abortedIngestIds).toStrictEqual([]);
     gate.open();
     await crossMacrotaskBoundary();
 
-    // The continuation asked for the spool of the stream the daemon opened underneath it, since
-    // that id reached no entry for `abandon` to find.
+    // The continuation found the entry moved and sent nothing on the stream opened beneath it.
     expect(client.snapshot[0]?.state).toBe("abandoned");
     expect(port.chunkCalls).toStrictEqual([]);
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
   });
 
   it("sends no further chunk after an abandonment mid-chunk", async () => {
@@ -240,45 +237,9 @@ describe("ingest client — abandonment, including mid-call", () => {
     gate.open();
     await crossMacrotaskBoundary();
 
-    // One chunk in flight, one abandonment, no second chunk. The abort rode the abandonment,
-    // because the stream identity was already in the record.
+    // One chunk in flight, one abandonment, no second chunk.
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("abandoned");
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
-  });
-});
-
-describe("ingest client — disposal gives every open spool back", () => {
-  /** Two streams held open on their chunk call, and one that ran to completion. */
-  async function stagedWithTwoOpenAndOneComplete(): Promise<{
-    readonly port: ScriptedIngestPort;
-    readonly client: ReturnType<typeof clientOver>;
-  }> {
-    const port = new ScriptedIngestPort();
-    const client = clientOver(port);
-    // The completed one first, so its stream identity is `ingest-1`.
-    client.attach(SMALL_SOURCE);
-    await crossMacrotaskBoundary();
-    expect(client.snapshot[0]?.state).toBe("complete");
-
-    port.holdChunks();
-    client.attach(sourceOver("attachment-two", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
-    client.attach(sourceOver("attachment-three", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
-    await crossMacrotaskBoundary();
-    return { port, client };
-  }
-
-  it("aborts every open stream and leaves the completed one alone", async () => {
-    // Ingest ids live only in the record, so disposing it first left these spools and their
-    // capacity reservations standing until the reaper ran.
-    const { port, client } = await stagedWithTwoOpenAndOneComplete();
-
-    client.dispose();
-
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-2", "ingest-3"]);
-    // Terminal: a second disposal does not send a second reclaim request for one spool.
-    client.dispose();
-    expect(port.abortedIngestIds).toStrictEqual(["ingest-2", "ingest-3"]);
   });
 });
 

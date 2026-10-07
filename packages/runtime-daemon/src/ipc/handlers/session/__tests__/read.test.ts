@@ -4,7 +4,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { SessionReadRequest } from "@ai-sidekicks/contracts/session/methods";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/methods";
@@ -38,7 +42,8 @@ function buildSessionLogRead(): SessionLogRead {
       updatedAt: "2026-01-22T19:14:35.000Z",
     },
     transcriptCursors: {
-      latest: "evt-0042" as SessionLogRead["transcriptCursors"]["latest"],
+      earliest: encodeEventCursor(START_OF_LOG_POSITION),
+      latest: encodeEventCursor(42),
     },
   };
 }

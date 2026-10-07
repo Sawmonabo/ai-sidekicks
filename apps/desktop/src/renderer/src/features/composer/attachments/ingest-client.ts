@@ -6,7 +6,6 @@
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { AttachmentSpoolReclaimer } from "./services/ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/ingest-port.js";
 import { AttachmentIngestEntries } from "./ingest-entries.js";
 import { AttachmentIngestStreamDriver } from "./services/ingest-stream.js";
@@ -23,20 +22,17 @@ export interface AttachmentIngestClientOptions {
 /** Every attachment a user has handed this staged list, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #entries = new AttachmentIngestEntries();
-  readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #streams: AttachmentIngestStreamDriver;
 
   #disposed = false;
 
   public constructor(options: AttachmentIngestClientOptions) {
     const clock = options.clock ?? new RealClock();
-    this.#reclaimer = new AttachmentSpoolReclaimer(options.port, clock);
     this.#streams = new AttachmentIngestStreamDriver({
       port: options.port,
       sessionId: options.sessionId,
       clock,
       entries: this.#entries,
-      reclaimer: this.#reclaimer,
     });
   }
 
@@ -85,8 +81,8 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * Stops sending and asks for the spool back. The state moves at once because sending stops at
-   * once; the abort call is best-effort, so the copy names the reaper.
+   * Stops sending. The state moves at once because sending stops at once; the ingest calls have
+   * no abort, so the daemon's reaper claims the spool, and the copy names it.
    */
   public abandon(localId: string): void {
     const entry = this.#entries.current(localId);
@@ -94,7 +90,6 @@ export class AttachmentIngestClient {
       return;
     }
     this.#entries.write(localId, { ...entry, state: "abandoned", disposition: undefined });
-    this.#reclaimer.request(entry.ingestId);
   }
 
   /** Take one attachment out of the staged list entirely, position included. */
@@ -107,10 +102,7 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * Stops the staged list and gives back every spool still held. The aborts go first: an ingest
-   * id lives only in the record, so once it is disposed nothing can name an open stream, and its
-   * spool and capacity reservation would stand until the reaper claimed them. `abandoned` entries
-   * were already asked for and `complete` ones hold nothing. Fired, not awaited. Idempotent: the
+   * Stops the staged list; the daemon's reaper claims every spool still open. Idempotent: the
    * record's snapshot outlives its disposal, and strict-mode React disposes twice.
    */
   public dispose(): void {
@@ -119,11 +111,6 @@ export class AttachmentIngestClient {
     }
     this.#disposed = true;
     this.#streams.forget();
-    for (const entry of this.#entries.snapshot) {
-      if (entry.state !== "complete" && entry.state !== "abandoned") {
-        this.#reclaimer.request(entry.ingestId);
-      }
-    }
     this.#entries.dispose();
   }
 }

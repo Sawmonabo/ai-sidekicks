@@ -19,9 +19,9 @@
 // only `{ subtype, cancel_queued }`, and the transport's `request_id` is per-attempt correlation
 // state. So the key is not sent, and no field is invented for it.
 //
-// A cancel whose success payload still lists surviving queued messages (`still_queued`, sent by
-// builds with `interrupt_receipt_v1`) has not stopped the run's remaining input, so it degrades.
-// A plain interrupt does not: surviving queued messages are what an interrupt leaves by design.
+// An interrupt sent with `cancelQueued` whose success payload still lists surviving queued
+// messages (`still_queued`, sent by builds with `interrupt_receipt_v1`) has not dropped the run's
+// waiting input, so it degrades. One that keeps queued input does not: survivors are its design.
 
 import {
   DriverInterventionResultSchema,
@@ -42,7 +42,7 @@ const CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY = "still_queued";
  * Counts the queued messages the provider reports as having survived an interrupt.
  *
  * Returns 0 for a missing key, null or non-array, because the payload comes from the provider;
- * a build that never promised a receipt must not fail a cancel closed.
+ * a build that never promised a receipt must not fail a queue-dropping interrupt closed.
  */
 function countSurvivingQueuedMessages(payload: Record<string, unknown> | undefined): number {
   const survivors = payload?.[CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY];
@@ -63,8 +63,8 @@ export class ClaudeInterventionDispatcher {
   }
 
   /**
-   * Answers a steer with the queue-and-interrupt fallback and sends interrupt or cancel as the
-   * CLI's interrupt request. Throws `ClaudeSessionUnavailableError` when the run has no channel.
+   * Answers a steer with the queue-and-interrupt fallback and sends an interrupt as the CLI's
+   * interrupt request. Throws `ClaudeSessionUnavailableError` when the run has no channel.
    */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     switch (params.type) {
@@ -78,11 +78,6 @@ export class ClaudeInterventionDispatcher {
       }
       case "interrupt": {
         return await this.#dispatchInterrupt(params.targetRunId, false);
-      }
-      case "cancel": {
-        // Claude has no `cancel` subtype; the interrupt request with `cancelQueued` is the
-        // nearest mechanism and keeps queued messages from resuming a canceled run.
-        return await this.#dispatchInterrupt(params.targetRunId, true);
       }
       default: {
         return degradeUnroutedInterventionType(params);
@@ -106,8 +101,8 @@ export class ClaudeInterventionDispatcher {
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     if (cancelQueued && countSurvivingQueuedMessages(response.response) > 0) {
-      // The provider acknowledged a cancel but reported survivors. No `fallbackAction`: they
-      // are already queued, so `queue_and_interrupt` would re-queue them.
+      // The provider acknowledged dropping queued input but reported survivors. No
+      // `fallbackAction`: they are already queued, so `queue_and_interrupt` would re-queue them.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     return DriverInterventionResultSchema.parse({ status: "applied" });

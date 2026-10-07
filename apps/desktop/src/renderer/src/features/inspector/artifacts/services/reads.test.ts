@@ -15,7 +15,6 @@ describe("artifact list reads — a served list", () => {
         id: "019b7b30-0280-7c11-8420-b1a5c0de2201",
         sessionId: SESSION_ID,
         runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
-        createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203",
         artifactType: "diff",
         digest: "sha256:2b4c",
         size: 4096,

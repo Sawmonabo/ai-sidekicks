@@ -1,9 +1,9 @@
-// Re-attaching one mount's path, offered only for `identity_mismatch`: the root is reachable
-// but holds a different repository from the one the mount was attached as. Not offered for
-// `unreachable`, which is transient and would invite a duplicate mount row. An alert dialog,
-// because re-attach does not repair the mount: it mints a new one and this row stays. It
-// reuses the attach controller and `hooks/useConfirmationLifecycle.ts`, whose discard rule
-// handles the confirm press closing the dialog.
+// Re-attaching one mount's path, offered only for `identity_mismatch` while the root is still a git
+// repository: it is reachable but holds a different repository from the one it was attached as. Not
+// offered for `unreachable`, which is transient and would invite a duplicate mount row. An alert
+// dialog, because re-attach does not repair the mount: it mints a new one and this row stays. It
+// reuses the attach controller and `hooks/useConfirmationLifecycle.ts`, whose discard rule handles
+// the confirm press closing the dialog.
 
 import "./ReattachControl.css";
 

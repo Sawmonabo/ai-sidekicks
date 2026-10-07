@@ -1,12 +1,13 @@
-// The payloads of a session's own events: its creation, its lifecycle moves, its renames and its
-// marks. The event contract composes them into the event union and imports this file at load, so
-// none may import that contract.
+// The payloads of a session's own events: its creation, its lifecycle moves, its renames, its
+// marks and its advisor. The event contract composes them into the event union and imports this
+// file at load, so none may import that contract.
 import { z } from "zod";
 
 import { AgentDefinitionIdSchema, type AgentDefinitionId } from "../agent/definition.js";
 import { AgentListEntrySchema, type AgentListEntry } from "../agent/methods.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { MACHINE_SETTINGS_NAME_MAX_LEN } from "../machine-settings.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
@@ -127,4 +128,29 @@ export interface SessionMarkChangePayload {
 /** Parses a {@link SessionMarkChangePayload}. */
 export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload> = z
   .object({ sessionId: SessionIdSchema, at: isoDateTimeSchema })
+  .strict();
+
+/**
+ * The `session.advisor_changed` payload: a Claude Code session's own advisor, changed by
+ * `/advisor` in that session, with the time it happened. `advisorModel` is `null` when the advisor
+ * is off.
+ */
+export interface SessionAdvisorChangedPayload {
+  sessionId: SessionId;
+  advisorModel: string | null;
+  at: string;
+}
+/** Parses a {@link SessionAdvisorChangedPayload}. */
+export const SessionAdvisorChangedPayloadSchema: z.ZodType<
+  SessionAdvisorChangedPayload,
+  SessionAdvisorChangedPayload
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    advisorModel: wireFreeFormString(
+      MACHINE_SETTINGS_NAME_MAX_LEN,
+      "SessionAdvisorChangedPayload.advisorModel",
+    ).nullable(),
+    at: isoDateTimeSchema,
+  })
   .strict();

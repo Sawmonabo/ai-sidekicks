@@ -94,8 +94,6 @@ describe("RepoMountHealthSchema", () => {
   it.each([
     ["healthy", true],
     ["unreachable", true],
-    // A reachable root whose git common directory no longer equals the attach-time anchor.
-    ["identity_mismatch", true],
     // Every read carries a fresh verdict, so there is no `unknown`; `stale` is a workspace state.
     ["unknown", false],
     ["stale", false],
@@ -104,6 +102,18 @@ describe("RepoMountHealthSchema", () => {
     ["identityMismatch", false],
   ])("status %s -> %s", (status, shouldPass) => {
     expect(RepoMountHealthSchema.safeParse({ ...health, status }).success).toBe(shouldPass);
+  });
+
+  // The banner offers `Re-attach` only while git still answers for the root, so a mismatch that
+  // does not say which would draw the wrong recovery.
+  it("carries `isRepository` on `identity_mismatch` and on no other verdict", () => {
+    const mismatch = { status: "identity_mismatch", checkedAt: CHECKED_AT };
+    expect(RepoMountHealthSchema.safeParse({ ...mismatch, isRepository: true }).success).toBe(true);
+    expect(RepoMountHealthSchema.safeParse({ ...mismatch, isRepository: false }).success).toBe(
+      true,
+    );
+    expect(RepoMountHealthSchema.safeParse(mismatch).success).toBe(false);
+    expect(RepoMountHealthSchema.safeParse({ ...health, isRepository: true }).success).toBe(false);
   });
 
   it("requires `checkedAt`, since a verdict with no probe time cannot be audited", () => {

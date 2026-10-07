@@ -13,7 +13,10 @@
 
 import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
 import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
-import { RunRecoveryResolvedPayloadSchema } from "@ai-sidekicks/contracts/run/control";
+import {
+  RunRecoveryResolvedPayloadSchema,
+  RunRecoveryStepsAddedPayloadSchema,
+} from "@ai-sidekicks/contracts/run/control";
 import {
   RunRefusalChoiceRequestedPayloadSchema,
   RunRefusalChoiceResolvedPayloadSchema,
@@ -113,6 +116,7 @@ const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecyc
     "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
     "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
     "run.token_limit_reached": RunTokenLimitReachedPayloadSchema,
+    "run.recovery_steps_added": RunRecoveryStepsAddedPayloadSchema,
     "run.recovery_resolved": RunRecoveryResolvedPayloadSchema,
     "run.refusal_choice_requested": RunRefusalChoiceRequestedPayloadSchema,
     "run.refusal_choice_resolved": RunRefusalChoiceResolvedPayloadSchema,

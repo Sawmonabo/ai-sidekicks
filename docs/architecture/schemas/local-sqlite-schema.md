@@ -247,8 +247,7 @@ CREATE TABLE interventions (
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
-  result                 TEXT,                       -- JSON: outcome details
-  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the wire contract forbids result on rejected, so a retry that returns the saved result reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
+  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)

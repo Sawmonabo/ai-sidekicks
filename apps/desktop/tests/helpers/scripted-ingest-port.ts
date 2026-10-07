@@ -8,10 +8,10 @@
 // `AttachmentIngestPort`, so a request that drops or invents a member fails to compile here.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { AttachmentIngestChunkResponse } from "@ai-sidekicks/contracts/artifacts/ingest";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { manualGate } from "./held-calls.js";
-import type { ChunkAcknowledgement } from "#renderer/features/composer/attachments/services/ingest-acknowledgement.js";
 import type { AttachmentIngestPort } from "#renderer/features/composer/attachments/services/ingest-port.js";
 import { AttachmentIngestClient } from "#renderer/features/composer/attachments/ingest-client.js";
 import {
@@ -34,12 +34,9 @@ export type RecordedChunk = Parameters<AttachmentIngestPort["writeChunk"]>[0];
 export class ScriptedIngestPort {
   readonly initCalls: RecordedInit[] = [];
   readonly chunkCalls: RecordedChunk[] = [];
-  readonly abortedIngestIds: string[] = [];
   /**
-   * The next stream identity this port hands out: `ingest-1` first.
-   *
-   * One id per opened stream, since a port answering every `begin` with one id could not say which
-   * spool an abort was for.
+   * The next stream identity this port hands out: `ingest-1` first, one id per opened stream, so a
+   * case can tell a restart's new stream from the one it replaced.
    */
   #nextIngestNumber = 1;
   #beginGate: Promise<void> | undefined;
@@ -54,7 +51,7 @@ export class ScriptedIngestPort {
    * contract makes safe: a chunk resent after a lost response is not appended twice.
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();
-  #chunkAcknowledgementOverride: ChunkAcknowledgement | undefined;
+  #chunkAcknowledgementOverride: AttachmentIngestChunkResponse | undefined;
 
   /**
    * Answer every later chunk with this acknowledgement instead of the true one.
@@ -63,7 +60,7 @@ export class ScriptedIngestPort {
    * never sends, so a case must script one to exercise the client's check. `undefined` restores
    * the truthful answer.
    */
-  public acknowledgeChunksWith(acknowledgement: ChunkAcknowledgement | undefined): void {
+  public acknowledgeChunksWith(acknowledgement: AttachmentIngestChunkResponse | undefined): void {
     this.#chunkAcknowledgementOverride = acknowledgement;
   }
 
@@ -103,13 +100,11 @@ export class ScriptedIngestPort {
       },
       complete: async () => ({
         artifactId: "artifact-9" as ArtifactId,
-        fileName: "notes-1.md",
-        mimeType: "text/markdown",
-        sizeBytes: 300,
+        contentHash: "sha256-9",
+        normalizedName: "notes-1.md",
+        derivedMediaType: "text/markdown",
+        derivedSizeBytes: 300,
       }),
-      abort: async (request: { readonly ingestId: string }) => {
-        this.abortedIngestIds.push(request.ingestId);
-      },
     };
   }
 

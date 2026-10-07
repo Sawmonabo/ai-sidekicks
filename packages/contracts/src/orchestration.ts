@@ -1,5 +1,6 @@
-// The session's agent tree as a client reads it, run admission under an agent, and the
-// `orchestration.*` method table.
+// The session's agent tree as a client reads it, run admission under an agent and its refusal
+// record, and the `orchestration.*` method table. The event contract imports the refusal payload
+// from here, so nothing this module imports may reach that contract.
 //
 // The daemon persists one parent-to-child index per session, built from the provider stream,
 // because neither provider lists its children back on a resume. That index is the one source of
@@ -35,6 +36,7 @@ import {
   OrchestrationBudgetStateSchema,
   SessionCostReceiptRequestSchema,
   SessionCostReceiptSchema,
+  TokensPerRunSchema,
   UsdMicrosSchema,
   type OrchestrationBudgetReadRequest,
   type OrchestrationBudgetState,
@@ -44,29 +46,62 @@ import {
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { refuseSelfParentingRun } from "./transcript/child-run-summary.js";
 
+const INTERRUPT_REASONS = [
+  "step_limit",
+  "spend_limit",
+  "token_limit",
+  "workflow_phase_canceled",
+] as const;
+
+/**
+ * Why the daemon itself interrupted a run: a step, spend or token limit the person set was
+ * reached, or the run's workflow phase was canceled. The person's own interrupt has none.
+ */
+export type InterruptReason = (typeof INTERRUPT_REASONS)[number];
+/** Parses an {@link InterruptReason}. */
+export const InterruptReasonSchema: z.ZodType<InterruptReason, InterruptReason> =
+  z.enum(INTERRUPT_REASONS);
+
 // orchestration.runCreate
+
+/**
+ * A run's own limits: `tokenLimit` is its `Tokens per run`, input and output together, absent
+ * meaning unlimited. A request's override, and the value admission resolves and keeps on the run's
+ * creation record.
+ */
+export interface OrchestrationRunConfig {
+  tokenLimit?: number | undefined;
+}
+/** Parses an {@link OrchestrationRunConfig}; an unknown member is refused. */
+export const OrchestrationRunConfigSchema: z.ZodType<
+  OrchestrationRunConfig,
+  OrchestrationRunConfig
+> = z.object({ tokenLimit: TokensPerRunSchema.optional() }).strict();
 
 /**
  * Admits a run under an agent, called by the daemon's own paths and the SDK, never by a screen
  * control. No count limits admission or depth: a refusal is the provider's own or an unresolved
  * target. The target is a live agent in the session, or a saved definition the daemon resolves
- * when it queues the run.
+ * when it queues the run. `config` overrides the session's defaults for this run.
  */
 export type OrchestrationRunCreateRequest =
   | {
       sessionId: SessionId;
       targetAgentId: AgentId;
       parentRunId?: RunId | undefined;
+      config?: OrchestrationRunConfig | undefined;
     }
   | {
       sessionId: SessionId;
       targetDefinitionId: AgentDefinitionId;
       parentRunId?: RunId | undefined;
+      config?: OrchestrationRunConfig | undefined;
     };
 
 const runCreateCommonFields = {
   sessionId: SessionIdSchema,
   parentRunId: RunIdSchema.optional(),
+  config: OrchestrationRunConfigSchema.optional(),
 };
 
 /** Parses an {@link OrchestrationRunCreateRequest}; it names exactly one target. */
@@ -90,6 +125,36 @@ export const OrchestrationRunCreateResponseSchema: z.ZodType<OrchestrationRunCre
     runId: RunIdSchema,
     state: RunStateSchema,
     parentRunId: RunIdSchema.optional(),
+  })
+  .strict();
+
+// orchestration.rejected
+
+/**
+ * The `orchestration.rejected` payload: a run create admission refused. It names no run, because
+ * a refusal leaves none. `reason` is the refusing error code, and `detail` its words.
+ */
+export interface OrchestrationRejectedPayload {
+  sessionId: SessionId;
+  targetAgentId?: AgentId | undefined;
+  parentRunId?: RunId | undefined;
+  reason: string;
+  detail?: string | undefined;
+}
+/** Parses an {@link OrchestrationRejectedPayload}; an unknown member is refused. */
+export const OrchestrationRejectedPayloadSchema: z.ZodType<
+  OrchestrationRejectedPayload,
+  OrchestrationRejectedPayload
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    targetAgentId: AgentIdSchema.optional(),
+    parentRunId: RunIdSchema.optional(),
+    reason: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "OrchestrationRejectedPayload.reason"),
+    detail: wireFreeFormString(
+      DRIVER_WIRE_REASON_MAX_LEN,
+      "OrchestrationRejectedPayload.detail",
+    ).optional(),
   })
   .strict();
 
@@ -192,7 +257,6 @@ export const ChildRunLinkSchema: z.ZodType<ChildRunLink> = z.discriminatedUnion(
 export interface ChildRunRejection {
   parentRunId: RunId;
   targetAgentId?: AgentId | undefined;
-  targetDefinitionId?: AgentDefinitionId | undefined;
   reason: string;
   detail?: string | undefined;
   occurredAt: string;
@@ -202,7 +266,6 @@ export const ChildRunRejectionSchema: z.ZodType<ChildRunRejection> = z
   .object({
     parentRunId: RunIdSchema,
     targetAgentId: AgentIdSchema.optional(),
-    targetDefinitionId: AgentDefinitionIdSchema.optional(),
     reason: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ChildRunRejection.reason"),
     detail: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "ChildRunRejection.detail").optional(),
     occurredAt: isoDateTimeSchema,

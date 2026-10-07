@@ -83,7 +83,7 @@ Lifecycle: an `InterventionRequest` is created by a user or the orchestration la
 
 One `InterventionRequest` produces exactly one `Intervention`, which produces exactly one `InterventionResult`. This is a strict 1:1:1 cardinality.
 
-The `interventions` SQLite table (Plan-002) stores the full lifecycle entity — request fields, current state, and result — in a single row rather than splitting request and result into separate tables. See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
+The `interventions` SQLite table (Plan-002) stores the full lifecycle entity — request fields, current state, and a rejection's reason — in a single row rather than splitting request and outcome into separate tables. See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
 
 ## Intervention Payloads
 

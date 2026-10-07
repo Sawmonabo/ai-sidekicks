@@ -291,19 +291,6 @@ export const ApplyInterventionParamsSchema: z.ZodType<
         .strict(),
     })
     .strict(),
-  z
-    .object({
-      type: z.literal("cancel"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: countSchema,
-      clientIdempotencyKey: z.uuid(),
-      payload: z
-        .object({
-          reason: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "CancelPayload.reason").optional(),
-        })
-        .strict(),
-    })
-    .strict(),
 ]);
 
 /**
