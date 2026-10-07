@@ -68,7 +68,8 @@ const FAILURE_REVEAL: RevealState = { isMaximized: false, isFullScreen: false };
 /**
  * The single owner of the locked `webPreferences` block, and the only `new BaseWindow(...)` and
  * `new WebContentsView(...)` call site under `src/main/`; ESLint refuses a second one. An adopted
- * `webContents` keeps the preferences it was made with, which Chromium copied from its opener's.
+ * `webContents` keeps the preferences it was made with: Chromium copied its opener's security
+ * settings, and Electron left its developer tools on whatever its opener's setting.
  */
 function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
   const baseWindow = new BaseWindow({
@@ -89,9 +90,8 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
       nodeIntegration: false,
       nodeIntegrationInWorker: false,
       webSecurity: true,
-      // Vite's development flag, a literal in the bundle, so outside a development build this
-      // document has no developer tools to open. An adopted `webContents` ignores the block, and
-      // Electron enables a `window.open` child's developer tools whatever its opener's setting.
+      // Vite's development flag, a literal in the bundle: outside a development build this
+      // document has no developer tools to open.
       devTools: import.meta.env.DEV,
       preload: PRELOAD_PATH,
       additionalArguments: [...options.additionalArguments],

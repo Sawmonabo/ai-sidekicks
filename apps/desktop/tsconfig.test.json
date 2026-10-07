@@ -27,8 +27,8 @@
   // under the excluded `src/renderer/**`, while a `files` entry is unconditional. The declaration
   // is needed because exclusion filters only the include globs: a test that imports a renderer
   // module still pulls it into the program, and the bundle tier does exactly that to name the
-  // string it greps for rather than copying it. Those modules read the renderer's build-time
-  // signals, which that file declares.
+  // string it greps for rather than copying it. Those modules need the renderer's ambient
+  // declarations, which that file holds.
   "files": ["src/renderer/src/vite-env.d.ts"],
   // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, the
   // executables' tests under `scripts/`, the smoke and GC launches directly under `tests/`, and the

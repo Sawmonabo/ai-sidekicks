@@ -53,10 +53,12 @@
     "tests/helpers/palette-interaction.ts",
     // These tiers import renderer constants (a database name, a partition, a key) so a rename
     // breaks the test at compile time instead of leaving it reading a record nothing writes. That
-    // pulls the renderer's transitive module graph into this program, and part of it reads the
-    // build-time signals declared in this file. The renderer's own `tsconfig` picks it up by its
-    // `src/**` include; this one has to name it.
+    // pulls the renderer's transitive module graph into this program, and part of it needs the
+    // ambient declarations in this file. The renderer's own `tsconfig` picks it up by its `src/**`
+    // include; this one has to name it.
     "src/renderer/src/vite-env.d.ts",
+    // Vite's build signals that graph reads, declared once for main and the renderer.
+    "src/shared/development-build.d.ts",
     // The other ambient declaration that graph needs: renderer modules this tier reaches read
     // `window.desktopBridge`, so the preload global's declaration is part of this program too.
     "src/renderer/src/desktop-bridge.d.ts"
