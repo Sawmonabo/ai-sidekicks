@@ -195,7 +195,7 @@ beforeEach(async () => {
   );
   const database = await openScratchDatabase();
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer }),
+    sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
   });
 
   // `siblingRoot` exists so the traversal arm fails on containment rather than on absence.

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "../domain-error.js";
@@ -368,6 +369,18 @@ describe("mapJsonRpcError — DaemonDomainError wire projection", () => {
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.error.data?.type).toBe("repo.not_found");
     expect(envelope.error.data?.fields).toEqual({ repoId: "r-7" });
+  });
+});
+
+describe("mapJsonRpcError — an unresolvable event cursor", () => {
+  it("maps to -32602 with data.type event.cursor_unresolvable and the refused cursor", () => {
+    const envelope = mapJsonRpcError(new EventCursorUnresolvableError("007"), 1);
+
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(envelope.error.data).toEqual({
+      type: "event.cursor_unresolvable",
+      fields: { cursor: "007" },
+    });
   });
 });
 

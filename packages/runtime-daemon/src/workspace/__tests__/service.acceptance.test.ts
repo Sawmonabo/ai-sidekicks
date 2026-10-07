@@ -116,7 +116,7 @@ interface DaemonStack {
 
 function buildDaemonStack(database: DatabaseConnections, now: () => string): DaemonStack {
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer }),
+    sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
   });
   // The production id sources run; assertions name ids by identity or set membership.
   const sessions = new SessionService(database.reader);

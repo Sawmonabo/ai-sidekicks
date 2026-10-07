@@ -8,11 +8,22 @@
 // - Content: machine-authored prose is kept in `content_payload` beside the event, and the payload
 //   gains the members that describe it; both are written as a unit.
 // - Dual-write: `transactionalPrelude` holds statements committed in the same write just before the
-//   row. A guarded statement carries the row count it expects, so a moved state refuses the write
-//   and consumes no sequence.
+//   row, then the projection statements the service was built with. A guarded statement carries the
+//   row count it expects, so a moved state refuses the write and consumes no sequence.
+// - Reads and follow: the log is read on the read-only connection after a cursor or over a window,
+//   and each committed event is published to the session's followers in sequence order.
+
+import type { Database } from "better-sqlite3";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import {
+  START_OF_LOG_POSITION,
+  decodeEventCursor,
+  encodeEventCursor,
+  type EventCursor,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
 
 import type { WriteStatement } from "../database/statement.js";
 import type { DatabaseWriter } from "../database/writer.js";
@@ -22,8 +33,11 @@ import {
   assertRegisteredVariantParses,
   composeContentRow,
 } from "./content/append.js";
+import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { sessionAppendLock } from "./session/append-lock.js";
+import { SessionEventFollowers, type SessionEventChange } from "./session/followers.js";
 import type { SessionEventRow } from "./session/insert.js";
+import { prepareSessionEventReads, type SessionEventReads } from "./session/read.js";
 
 /**
  * The append input: an {@link EventEnvelope} without `sequence`, which the writer allocates; the
@@ -85,20 +99,74 @@ export interface EventLogAppendOptions extends ThinkingUpdateAppendOptions {
 export interface EventLogServiceDeps {
   /** The writer every append goes through. */
   readonly writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
+  /** The read-only connection the log's reads and catch-ups run on. */
+  readonly reader: Database;
+  /**
+   * Statements that keep a projection in step with the log, committed in each append's write after
+   * its `transactionalPrelude` and before the row. Receives the envelope as it will be stored. A
+   * thinking update takes none.
+   */
+  readonly projectionStatements?: (envelope: UnsequencedEventEnvelope) => readonly WriteStatement[];
+  /** The most events one catch-up page reads before yielding. Defaults to 100. */
+  readonly catchUpPageSize?: number;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
 }
 
+/** What {@link EventLogService.readAfterCursor} takes. */
+export interface EventReadAfterCursorRequest {
+  readonly sessionId: SessionId;
+  /** The position to read after; absent reads from the start of the log. */
+  readonly afterCursor?: EventCursor | undefined;
+  /** The most events returned. Defaults to 100. */
+  readonly limit?: number | undefined;
+}
+
+/** What {@link EventLogService.readAfterCursor} returns. */
+export interface EventReadAfterCursorResponse {
+  /** The events after the cursor, in sequence order. */
+  readonly events: readonly EventEnvelope[];
+  /** Resumes right after the last event returned; when none was, the position read after. */
+  readonly nextCursor: EventCursor;
+  /** Whether the limit left events beyond `nextCursor`. */
+  readonly hasMore: boolean;
+}
+
+/** What {@link EventLogService.readWindow} takes: both sequences are included. */
+export interface EventReadWindowRequest {
+  readonly sessionId: SessionId;
+  readonly fromSequence: number;
+  readonly toSequence: number;
+}
+
+/** What {@link EventLogService.readWindow} returns. */
+export interface EventReadWindowResponse {
+  /** The window's events, in sequence order. */
+  readonly events: readonly EventEnvelope[];
+}
+
+// The most events a read after a cursor returns when the caller names no limit.
+const DEFAULT_EVENT_READ_LIMIT = 100;
+
 // The writer allocates the real sequence; composition checks the envelope with this one.
 const UNALLOCATED_SEQUENCE = 0;
 
-/** The sole append path for `session_events`; see the file header. */
+/** The sole append path for `session_events`, its reads and its followers; see the file header. */
 export class EventLogService {
   readonly #writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
+  readonly #reads: SessionEventReads;
+  readonly #followers: SessionEventFollowers;
+  readonly #projectionStatements: (envelope: UnsequencedEventEnvelope) => readonly WriteStatement[];
   readonly #monotonicNow: () => bigint;
 
   constructor(deps: EventLogServiceDeps) {
     this.#writer = deps.writer;
+    this.#reads = prepareSessionEventReads(deps.reader);
+    this.#followers = new SessionEventFollowers(
+      this.#reads,
+      deps.catchUpPageSize ?? DEFAULT_EVENT_READ_LIMIT,
+    );
+    this.#projectionStatements = deps.projectionStatements ?? (() => []);
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
   }
 
@@ -115,24 +183,35 @@ export class EventLogService {
   ): Promise<EventLogAppendReceipt> {
     // One clock reading for every event of the write.
     const monotonicNs = options?.monotonicNs ?? this.#monotonicNow();
-    const precedingRows = (options?.precedingEvents ?? []).map((preceding) => {
-      if (preceding.sessionId !== envelope.sessionId) {
+    const preceding = (options?.precedingEvents ?? []).map((precedingEvent) => {
+      if (precedingEvent.sessionId !== envelope.sessionId) {
         throw new Error(
-          `A preceding ${preceding.type} event of session ${preceding.sessionId} cannot share ` +
-            `the write of an event of session ${envelope.sessionId}`,
+          `A preceding ${precedingEvent.type} event of session ${precedingEvent.sessionId} cannot ` +
+            `share the write of an event of session ${envelope.sessionId}`,
         );
       }
-      return this.#composeRow(preceding, { monotonicNs });
+      return this.#composeRow(precedingEvent, { monotonicNs });
     });
-    const row = this.#composeRow(envelope, { ...options, monotonicNs });
+    const composed = this.#composeRow(envelope, { ...options, monotonicNs });
+    const written = [...preceding, composed];
+    const statements = [
+      ...(options?.transactionalPrelude ?? []),
+      ...written.flatMap((event) => this.#projectionStatements(event.storedEnvelope)),
+    ];
     const sequences = await this.#queueInSessionOrder(envelope.sessionId, () =>
-      this.#writer.appendEvents([...precedingRows, row], options?.transactionalPrelude),
+      this.#writer.appendEvents(
+        written.map((event) => event.row),
+        statements,
+      ),
     );
     const sequence = sequences.at(-1);
-    if (sequence === undefined) {
-      throw new Error("The database writer committed the event without a sequence");
+    if (sequence === undefined || sequences.length !== written.length) {
+      throw new Error("The database writer committed the events without their sequences");
     }
-    return { id: row.id, sequence };
+    written.forEach((event, index) => {
+      this.#publishCommitted(event.storedEnvelope, sequences[index] ?? sequence);
+    });
+    return { id: composed.row.id, sequence };
   }
 
   /**
@@ -144,20 +223,103 @@ export class EventLogService {
     envelope: UnsequencedEventEnvelope,
     options?: ThinkingUpdateAppendOptions,
   ): Promise<ThinkingUpdateReceipt> {
-    const row = this.#composeRow(envelope, options);
+    const composed = this.#composeRow(envelope, options);
     const outcome = await this.#queueInSessionOrder(envelope.sessionId, () =>
-      this.#writer.appendThinkingUpdate(row),
+      this.#writer.appendThinkingUpdate(composed.row),
     );
-    return outcome.isStored
-      ? { isStored: true, id: row.id, sequence: outcome.sequence }
-      : { isStored: false, id: row.id };
+    if (!outcome.isStored) {
+      return { isStored: false, id: composed.row.id };
+    }
+    this.#publishCommitted(composed.storedEnvelope, outcome.sequence);
+    return { isStored: true, id: composed.row.id, sequence: outcome.sequence };
   }
 
-  // Composes the row exactly as it will be stored, checked and canonicalized.
+  /**
+   * Reads up to `limit` events with a sequence after the cursor's position, in sequence order.
+   * Throws `EventCursorUnresolvableError` for a cursor that names no position or one past the
+   * session's last event.
+   */
+  async readAfterCursor(
+    request: EventReadAfterCursorRequest,
+  ): Promise<EventReadAfterCursorResponse> {
+    const afterPosition = this.#resolveCursor(
+      request.afterCursor,
+      this.#reads.readHead(request.sessionId),
+    );
+    const limit = request.limit ?? DEFAULT_EVENT_READ_LIMIT;
+    // One row past the limit shows whether more remain.
+    const page = this.#reads.readAfter(request.sessionId, afterPosition, limit + 1);
+    const hasMore = page.length > limit;
+    const events = hasMore ? page.slice(0, limit) : page;
+    const lastEvent = events.at(-1);
+    return {
+      events,
+      nextCursor: encodeEventCursor(lastEvent === undefined ? afterPosition : lastEvent.sequence),
+      hasMore,
+    };
+  }
+
+  /** Reads the events with a sequence from `fromSequence` to `toSequence`, in sequence order. */
+  async readWindow(request: EventReadWindowRequest): Promise<EventReadWindowResponse> {
+    return {
+      events: this.#reads.readWindow(request.sessionId, request.fromSequence, request.toSequence),
+    };
+  }
+
+  /**
+   * Delivers the session's events after `afterCursor` (all of them when absent), then each one
+   * committed afterward, in sequence order with none skipped or repeated. Throws
+   * `SessionNotFoundError` for a session with no events and `EventCursorUnresolvableError` for a
+   * cursor it cannot read, before any change. The first page may be delivered before this returns;
+   * the detach it returns stops delivery at once, from inside `onChange` too.
+   */
+  follow(
+    sessionId: SessionId,
+    afterCursor: EventCursor | undefined,
+    onChange: (change: SessionEventChange) => void,
+  ): () => void {
+    const head = this.#reads.readHead(sessionId);
+    if (head === undefined) {
+      throw new SessionNotFoundError("The session has no events to follow.", { sessionId });
+    }
+    return this.#followers.follow(sessionId, this.#resolveCursor(afterCursor, head), onChange);
+  }
+
+  /**
+   * Delivers every session's events as they commit, each session's in sequence order, until the
+   * returned detach runs.
+   */
+  followAll(onCommitted: (event: EventEnvelope) => void): () => void {
+    return this.#followers.followAll(onCommitted);
+  }
+
+  // The position a cursor names, checked against the session's head; absent is the start of the
+  // log. The head is read before any page, so a cursor past it cannot pass on a later commit.
+  #resolveCursor(cursor: EventCursor | undefined, head: number | undefined): number {
+    if (cursor === undefined) {
+      return START_OF_LOG_POSITION;
+    }
+    const position = decodeEventCursor(cursor);
+    if (position > (head ?? START_OF_LOG_POSITION)) {
+      throw new EventCursorUnresolvableError(cursor);
+    }
+    return position;
+  }
+
+  // Published in a microtask, so the append's outcome reports only the write: a follower's fault
+  // surfaces on its own instead of failing an append that committed.
+  #publishCommitted(storedEnvelope: UnsequencedEventEnvelope, sequence: number): void {
+    queueMicrotask(() => {
+      this.#followers.publish({ ...storedEnvelope, sequence });
+    });
+  }
+
+  // Composes the row exactly as it will be stored, checked and canonicalized, and the envelope it
+  // stores.
   #composeRow(
     envelope: UnsequencedEventEnvelope,
     options: ThinkingUpdateAppendOptions | undefined,
-  ): SessionEventRow {
+  ): StoredEventComposition {
     // Checked before `options.content` picks the branch: seeding `contentLength` without content
     // would otherwise take the plain branch and be stored as given. Runs for tolerant carriers too.
     assertNoSeededContentDescription(envelope.payload, "EventLogService.append");
@@ -177,7 +339,8 @@ export class EventLogService {
 
     // Everything bound comes from `composed`, never the caller's input: its envelope carries the
     // normalized `occurredAt` and the content members measured from the body it stores.
-    return {
+    const { sequence: _unallocated, ...storedEnvelope } = composed.envelope;
+    const row: SessionEventRow = {
       id: composed.envelope.id,
       session_id: envelope.sessionId,
       occurred_at: composed.envelope.occurredAt,
@@ -191,14 +354,16 @@ export class EventLogService {
       version: composed.envelope.version,
       content_payload: composed.storedBody ?? null,
     };
+    return { row, storedEnvelope };
   }
 
   // Hands the write to the writer under the session's append lock and waits for it outside the
   // lock. The result is boxed so the lock's own promise settles before the commit does.
   async #queueInSessionOrder<T>(sessionId: SessionId, queue: () => Promise<T>): Promise<T> {
-    const queued = await sessionAppendLock.run(sessionId, () =>
-      Promise.resolve({ result: queue() }),
-    );
+    const queued = await sessionAppendLock.run(sessionId, () => {
+      this.#followers.trackAppend(sessionId);
+      return Promise.resolve({ result: queue() });
+    });
     return queued.result;
   }
 }
@@ -221,6 +386,12 @@ function composeRow(
   // surrogate, which SQLite would store as U+FFFD. The writer refuses an unsafe sequence.
   canonicalizeEvent(composed.envelope);
   return composed;
+}
+
+/** One append's row and the envelope it stores, without the sequence the writer allocates. */
+interface StoredEventComposition {
+  readonly row: SessionEventRow;
+  readonly storedEnvelope: UnsequencedEventEnvelope;
 }
 
 /** The persistables, whichever path produced them. */

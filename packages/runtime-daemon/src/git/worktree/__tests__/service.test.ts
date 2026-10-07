@@ -150,7 +150,7 @@ beforeEach(async () => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-service-test-"));
   const scratch: ScratchDatabase = await openScratchDatabase();
   const db: DatabaseType = new Database(scratch.databasePath);
-  const eventLog = new EventLogService({ writer: scratch.writer });
+  const eventLog = new EventLogService({ writer: scratch.writer, reader: scratch.reader });
   const executionRootsDirectory: string = join(tmpDir, "execution-roots");
   ctx = {
     scratch,

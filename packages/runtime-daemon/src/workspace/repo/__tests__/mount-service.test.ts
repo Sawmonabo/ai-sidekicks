@@ -220,7 +220,7 @@ function writeRaw(sql: string, bindings: unknown[] | Record<string, unknown>): P
 beforeEach(async () => {
   const database = await openScratchDatabase();
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer }),
+    sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
   });
   const sessions = new SessionService(database.reader);
   const workspaces = new WorkspaceService({
@@ -481,7 +481,10 @@ describe("RepoMountService.detach", () => {
 
   it("announces the remaining dependents if one archived append fails, then rejects", async () => {
     const emitter = new FirstArchiveAppendFailingEmitter({
-      sessionEvents: new EventLogService({ writer: harness.database.writer }),
+      sessionEvents: new EventLogService({
+        writer: harness.database.writer,
+        reader: harness.database.reader,
+      }),
     });
     const service = createService({ events: emitter });
 

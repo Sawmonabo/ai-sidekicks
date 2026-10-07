@@ -1,6 +1,6 @@
 // `EventLogService`, the sole durable append path: per-session sequencing under the append lock,
-// the head read boundary, the stored-variant parse and the terminal-run backstop, each asserted
-// on the stored rows.
+// the head read boundary, the stored-variant parse, the projection statements and the terminal-run
+// backstop, each asserted on the stored rows; and the reads after a cursor.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -10,13 +10,25 @@ import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "@ai-sidekicks/contracts/event/declared-variants";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import {
+  EventCursorSchema,
+  SessionIdSchema,
+  encodeEventCursor,
+  type EventCursor,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
-import { EventLogService, type UnsequencedEventEnvelope } from "../log-service.js";
+import type { WriteStatement } from "../../database/statement.js";
+import {
+  EventLogService,
+  type EventLogServiceDeps,
+  type UnsequencedEventEnvelope,
+} from "../log-service.js";
 import { sessionAppendLock } from "../session/append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
@@ -65,8 +77,10 @@ interface ServiceFixture {
   readonly service: EventLogService;
 }
 
-function buildService(): ServiceFixture {
-  return { service: new EventLogService({ writer: scratch.writer }) };
+function buildService(overrides?: Partial<EventLogServiceDeps>): ServiceFixture {
+  return {
+    service: new EventLogService({ writer: scratch.writer, reader: scratch.reader, ...overrides }),
+  };
 }
 
 let envelopeCounter = 0;
@@ -404,6 +418,95 @@ describe("EventLogService — the append lock", () => {
     });
     expect(readRawRows(SESSION)).toHaveLength(1);
     await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Projection statements: committed with the event, or not at all
+// ----------------------------------------------------------------------------
+
+describe("EventLogService — projection statements", () => {
+  it("commits a projection with its event and rolls it back with a refused prelude", async () => {
+    await scratch.writer.write([
+      { sql: "CREATE TABLE projection_probe (event_id TEXT PRIMARY KEY, occurred_at TEXT)" },
+      { sql: "CREATE TABLE prelude_probe (id TEXT PRIMARY KEY)" },
+    ]);
+    const projectionStatements = (envelope: UnsequencedEventEnvelope): WriteStatement[] => [
+      {
+        sql: "INSERT INTO projection_probe VALUES (?, ?)",
+        bindings: [envelope.id, envelope.occurredAt],
+      },
+    ];
+    const { service } = buildService({ projectionStatements });
+
+    const projected = makeEnvelope({ occurredAt: "2026-08-04T12:00:00Z" });
+    await service.append(projected);
+    await expect(
+      service.append(makeEnvelope(), {
+        // The guard matches no row, so the producer's decision no longer holds.
+        transactionalPrelude: [
+          { sql: "DELETE FROM prelude_probe WHERE id = 'gone'", expectedRowCount: 1 },
+        ],
+      }),
+    ).rejects.toMatchObject({ statementIndex: 0, rowCount: 0 });
+
+    // The projection sees the envelope as stored, with its `occurredAt` normalized.
+    expect(scratch.reader.prepare("SELECT * FROM projection_probe").all()).toEqual([
+      { event_id: projected.id, occurred_at: "2026-08-04T12:00:00.000Z" },
+    ]);
+    expect(readRawRows(SESSION).map((row) => row.id)).toEqual([projected.id]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Reads after a cursor
+// ----------------------------------------------------------------------------
+
+describe("EventLogService.readAfterCursor", () => {
+  it("pages the log with no row skipped or repeated, resuming from each next cursor", async () => {
+    const { service } = buildService();
+    for (let appended = 0; appended < 5; appended += 1) await service.append(makeEnvelope());
+
+    const pages: { sequences: number[]; nextCursor: string; hasMore: boolean }[] = [];
+    let afterCursor: EventCursor | undefined;
+    for (let read = 0; read < 4; read += 1) {
+      const page = await service.readAfterCursor({ sessionId: SESSION, afterCursor, limit: 2 });
+      pages.push({
+        sequences: page.events.map((event) => event.sequence),
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+      });
+      afterCursor = page.nextCursor;
+    }
+
+    expect(pages).toEqual([
+      { sequences: [0, 1], nextCursor: "1", hasMore: true },
+      { sequences: [2, 3], nextCursor: "3", hasMore: true },
+      { sequences: [4], nextCursor: "4", hasMore: false },
+      { sequences: [], nextCursor: "4", hasMore: false },
+    ]);
+  });
+
+  it("reads an empty log from the start, and refuses a cursor it cannot read", async () => {
+    const { service } = buildService();
+    await expect(service.readAfterCursor({ sessionId: SESSION })).resolves.toEqual({
+      events: [],
+      nextCursor: encodeEventCursor(-1),
+      hasMore: false,
+    });
+    await expect(
+      service.readAfterCursor({ sessionId: SESSION, afterCursor: encodeEventCursor(0) }),
+    ).rejects.toThrow(EventCursorUnresolvableError);
+
+    await service.append(makeEnvelope());
+    for (const cursor of ["01", "1.0", "-2", "1"]) {
+      await expect(
+        service.readAfterCursor({
+          sessionId: SESSION,
+          afterCursor: EventCursorSchema.parse(cursor),
+        }),
+      ).rejects.toThrow(EventCursorUnresolvableError);
+    }
   });
 });
 

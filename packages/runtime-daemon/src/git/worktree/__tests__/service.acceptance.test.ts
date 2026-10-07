@@ -289,7 +289,7 @@ beforeEach(async () => {
   const executionRootsDirectory: string = join(fixtureRoot, "execution-roots");
   const scratch: ScratchDatabase = await openScratchDatabase();
   const db: DatabaseType = new Database(scratch.databasePath);
-  const eventLog = new EventLogService({ writer: scratch.writer });
+  const eventLog = new EventLogService({ writer: scratch.writer, reader: scratch.reader });
   const clock = (): string => CLOCK_INSTANT;
 
   const workspaces = new WorkspaceService({

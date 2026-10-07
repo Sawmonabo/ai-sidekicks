@@ -108,7 +108,7 @@ beforeEach(async () => {
   ctx = {
     scratch,
     db: scratch.reader,
-    eventLog: new EventLogService({ writer: scratch.writer }),
+    eventLog: new EventLogService({ writer: scratch.writer, reader: scratch.reader }),
   };
 });
 

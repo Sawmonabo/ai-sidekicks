@@ -197,7 +197,7 @@ beforeEach(async () => {
     workspaces: new WorkspaceService({
       database,
       events: new WorkspaceEventEmitter({
-        sessionEvents: new EventLogService({ writer: database.writer }),
+        sessionEvents: new EventLogService({ writer: database.writer, reader: database.reader }),
       }),
       sessions: KNOWN_SESSIONS,
       probePath,
