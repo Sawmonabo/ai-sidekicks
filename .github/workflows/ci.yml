@@ -193,13 +193,18 @@ jobs:
       - name: Assert better-sqlite3 loads a bundled Node-API prebuild
         uses: ./.github/actions/assert-better-sqlite3-prebuild
 
-      # The daemon repairs a damaged database through the `sqlite3` shell, and its repair tests run
-      # it; the runner image's own shell is not one to rely on.
+      # The daemon repairs a damaged database through the `sqlite3` shell's `.recover`, which needs
+      # the page table Ubuntu's own shell is built without, so sqlite.org's build is installed. The
+      # SHA-256 is of the release zip, which matches the SHA3-256 sqlite.org publishes.
       - name: Install the SQLite shell
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends sqlite3
-          sqlite3 -version
+          curl -sSfLo "${RUNNER_TEMP}/sqlite-tools.zip" \
+            https://sqlite.org/2026/sqlite-tools-linux-x64-3530400.zip
+          echo "7a6f4d1720e4bc13faa3d934bfce37b816a496c0a2480deacd64cfd8be6cf224  ${RUNNER_TEMP}/sqlite-tools.zip" \
+            | sha256sum --check --strict
+          unzip -q -o "${RUNNER_TEMP}/sqlite-tools.zip" sqlite3 -d "${RUNNER_TEMP}/sqlite-tools"
+          echo "${RUNNER_TEMP}/sqlite-tools" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/sqlite-tools/sqlite3" -version
 
       # Backs Turborepo's remote cache with the GitHub Actions cache (no third-party service).
       # SHA-pinned.
@@ -570,14 +575,19 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
-      # The daemon repairs a damaged database through the `sqlite3` shell, and its repair tests run
-      # it; the runner image's own shell is not one to rely on.
+      # The daemon repairs a damaged database through the `sqlite3` shell's `.recover`, which needs
+      # the page table Ubuntu's own shell is built without, so sqlite.org's build is installed. The
+      # SHA-256 is of the release zip, which matches the SHA3-256 sqlite.org publishes.
       - name: Install the SQLite shell
         if: matrix.package == 'runtime-daemon'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends sqlite3
-          sqlite3 -version
+          curl -sSfLo "${RUNNER_TEMP}/sqlite-tools.zip" \
+            https://sqlite.org/2026/sqlite-tools-linux-x64-3530400.zip
+          echo "7a6f4d1720e4bc13faa3d934bfce37b816a496c0a2480deacd64cfd8be6cf224  ${RUNNER_TEMP}/sqlite-tools.zip" \
+            | sha256sum --check --strict
+          unzip -q -o "${RUNNER_TEMP}/sqlite-tools.zip" sqlite3 -d "${RUNNER_TEMP}/sqlite-tools"
+          echo "${RUNNER_TEMP}/sqlite-tools" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/sqlite-tools/sqlite3" -version
 
       - name: Restore mutation results
         uses: actions/cache/restore@v4
