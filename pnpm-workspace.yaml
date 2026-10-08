@@ -103,6 +103,11 @@ allowBuilds:
   "@ibm/plex-sans-variable": false
   "@ibm/plex-mono-variable": false
   "@ibm/telemetry-js": false
+  # The desktop's Sass compiler, which builds KaTeX's sheet with only its `woff2` faces, pulls this
+  # in as an optional dependency for its own `--watch` mode, which the build never uses. Denied: its
+  # install script compiles the addon with `node-gyp` only when `npm_config_build_from_source` is
+  # set, and otherwise does nothing; the prebuilt binary ships in a per-platform package.
+  "@parcel/watcher": false
 
 # Workspace-wide dependency unification via pnpm catalogs. Catalogs eliminate per-package version
 # drift for a dependency several packages declare. Consumers reference the default catalog as

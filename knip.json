@@ -74,9 +74,11 @@
       // Without `vitest/**` in the universe those entries reach a file knip does not analyze, so
       // `unplugin-icons` and `@svgr/core`, imported there and nowhere else, reported as unused
       // dependencies. Measured: adding this glob cleared both and moved no other file into any
-      // report.
+      // report. `scss` and `sass` are there because knip compiles both Sass syntaxes once `sass` is
+      // a dependency and asks for each in the universe; the one Sass sheet, KaTeX's in
+      // `components/Markdown/`, is then followed to the package it builds from.
       "project": [
-        "src/**/*.{ts,tsx}",
+        "src/**/*.{ts,tsx,scss,sass}",
         "fixtures/**/*.ts",
         "build/**/*.{ts,mts,mjs,cjs}",
         "scripts/**/*.{ts,mts,mjs,cjs}",

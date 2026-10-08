@@ -199,6 +199,7 @@ function renderStatusRegion(
                   ? undefined
                   : {
                       figure: formatPercent(reading.status.processor.percent / 100),
+                      exactValue: String(reading.status.processor.percent),
                       readAt: reading.status.processor.readAt,
                     },
                 clockLocale,
@@ -210,6 +211,7 @@ function renderStatusRegion(
                   ? undefined
                   : {
                       figure: formatByteQuantity(reading.status.memory.residentBytes).text,
+                      exactValue: String(reading.status.memory.residentBytes),
                       readAt: reading.status.memory.readAt,
                     },
                 clockLocale,
@@ -231,9 +233,14 @@ function renderStatusRegion(
   }
 }
 
-/** One reading of what the service uses, stamped with when it was taken; none reads as not read. */
+/**
+ * One reading of what the service uses, stamped with when it was taken, each formatted figure
+ * carrying the exact value the service sent in its `title`; none reads as not read.
+ */
 function renderUsageReading(
-  reading: { readonly figure: string; readonly readAt: string } | undefined,
+  reading:
+    | { readonly figure: string; readonly exactValue: string; readonly readAt: string }
+    | undefined,
   clockLocale: string,
 ): ReactNode {
   if (reading === undefined) {
@@ -241,7 +248,7 @@ function renderUsageReading(
   }
   return (
     <span>
-      <WireFigure value={reading.figure} /> · as of{" "}
+      <WireFigure value={reading.figure} title={reading.exactValue} /> · as of{" "}
       <WireFigure value={formatClockTime(reading.readAt, clockLocale)} title={reading.readAt} />
     </span>
   );

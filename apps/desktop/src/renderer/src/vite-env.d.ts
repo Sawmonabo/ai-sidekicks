@@ -34,3 +34,7 @@ declare module "*.js?url" {
 // that a side-effect import resolves, and a stylesheet has no declarations, so the wildcard says
 // every `.css` specifier is a module with no exports.
 declare module "*.css" {}
+
+// The one Sass import, `components/Markdown/typesetter.scss`, KaTeX's sheet built from its source,
+// which Vite compiles to a stylesheet; like a `.css` import it has no exports.
+declare module "*.scss" {}
