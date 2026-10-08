@@ -454,6 +454,44 @@ describe("Codex rewind and re-realization", () => {
     },
   );
 
+  it("starts a yolo thread asking on request to the person, every connector on Codex's approve", async () => {
+    // With approvals off Codex refuses a forced `rm` instead of asking; under its own reviewer a
+    // removal would be answered in the person's place; without the connector default every
+    // connector call would ask.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      executionPosture: { mode: "yolo", credentialPolicyRef: "policy://yolo", writableRoots: [] },
+      subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
+    });
+
+    const params = paramsOf(harness, "thread/start");
+    expect(params["sandbox"]).toBe("danger-full-access");
+    expect(params["approvalPolicy"]).toBe("on-request");
+    expect(params["approvalsReviewer"]).toBe("user");
+    expect(params["config"]).toStrictEqual({
+      "apps._default.default_tools_approval_mode": "approve",
+      "agents.max_concurrent_threads_per_session": 3,
+      "agents.max_depth": 1,
+    });
+  });
+
+  it("starts a sandboxed thread with approvals off and no connector default", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      executionPosture: { ...WORKSPACE_POSTURE, mode: "sandboxed" },
+    });
+
+    const params = paramsOf(harness, "thread/start");
+    expect(params["approvalPolicy"]).toBe("never");
+    expect(params).not.toHaveProperty("config");
+  });
+
   /** A thread reply whose realized sandbox is the workspace one, reporting `networkAccess`. */
   function workspaceThreadReply(
     id: string,

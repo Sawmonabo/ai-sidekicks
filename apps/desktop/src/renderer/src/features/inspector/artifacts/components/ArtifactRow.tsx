@@ -7,7 +7,12 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatByteQuantity, formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import {
+  formatByteQuantity,
+  formatRelativeTime,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type ArtifactManifestRow } from "../model.js";
 import { ARTIFACT_STATE_TONES } from "../copy.js";
 
@@ -26,6 +31,7 @@ export interface ArtifactRowProps {
 export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
   const { row } = props;
   const formattedSize = formatByteQuantity(row.size);
+  const clockLocale = useClockLocale();
 
   return (
     <article className="meridian-artifact-row" aria-label={`Artifact ${row.id}`}>
@@ -39,10 +45,10 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
         </span>
-        <span className="meridian-artifact-row__age" title={row.createdAt}>
+        <span className="meridian-artifact-row__age">
           <WireFigure
             value={formatRelativeTime(row.createdAt, props.nowMilliseconds)}
-            title={row.createdAt}
+            title={formatZonedDateTime(row.createdAt, clockLocale)}
           />
         </span>
       </div>
@@ -69,6 +75,15 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             <dt>Digest</dt>
             <dd>
               <WireFigure value={row.digest} />
+            </dd>
+          </div>
+          <div className="meridian-artifact-row__pair">
+            <dt>Created</dt>
+            <dd>
+              <WireFigure
+                value={row.createdAt}
+                title={formatZonedDateTime(row.createdAt, clockLocale)}
+              />
             </dd>
           </div>
           <div className="meridian-artifact-row__pair">

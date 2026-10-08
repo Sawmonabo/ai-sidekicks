@@ -1,11 +1,13 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /**
  * One entry, one line: a dot (waiting amber, done a hollow ring, failed a red mark), the name, the
- * daemon's state word verbatim and the age. A button when the caller supplied a way to open it,
- * plain text otherwise, so the list never offers a press that goes nowhere.
+ * daemon's state word verbatim and the age, whose hover title is the time it stands for. A button
+ * when the caller supplied a way to open it, plain text otherwise, so the list never offers a
+ * press that goes nowhere.
  */
 export function NotificationEntry(props: {
   readonly item: AttentionItem;
@@ -13,6 +15,7 @@ export function NotificationEntry(props: {
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
   const { item, onOpen } = props;
+  const clockLocale = useClockLocale();
   const body = (
     <>
       <span
@@ -23,7 +26,7 @@ export function NotificationEntry(props: {
       <span className="meridian-attention__state">{item.stateWord}</span>
       <WireFigure
         value={formatRelativeTime(item.createdAt, props.nowMilliseconds)}
-        title={item.createdAt}
+        title={formatZonedDateTime(item.createdAt, clockLocale)}
       />
     </>
   );

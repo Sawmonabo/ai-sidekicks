@@ -7,7 +7,7 @@
 import "./AgentBindingCard.css";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
@@ -36,7 +36,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
           <span className="meridian-form__label">Created</span>{" "}
           <WireFigure
             value={formatDateTime(agent.createdAt, clockLocale)}
-            title={agent.createdAt}
+            title={formatZonedDateTime(agent.createdAt, clockLocale)}
           />
         </span>
       </header>

@@ -111,7 +111,8 @@ const CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL: Readonly<
 
 /**
  * The approval policy each permission level runs under: the three asking levels ask on request,
- * and `sandboxed` and `yolo` never ask. No level sends `untrusted`.
+ * `yolo` asks on request too, so Codex asks before a removal its own check flags rather than
+ * refusing it, and `sandboxed` never asks. No level sends `untrusted`.
  */
 const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   Record<ExecutionPosture["mode"], "on-request" | "never">
@@ -120,20 +121,32 @@ const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   ask: "on-request",
   reviewed: "on-request",
   sandboxed: "never",
-  yolo: "never",
+  yolo: "on-request",
 });
 
-/** Thread-level posture: `sandbox` and `approvalPolicy` on `thread/start`. */
-interface CodexThreadPostureParams {
-  readonly sandbox: CodexSandboxMode;
-  readonly approvalPolicy: string;
+/**
+ * The `config` overrides `yolo` adds: Codex's own `approve` as the default for every ChatGPT
+ * connector, so a connector tool runs unasked unless the person set its app, account or tool.
+ */
+const CODEX_YOLO_CONFIG_OVERRIDES: Readonly<Record<string, unknown>> = Object.freeze({
+  "apps._default.default_tools_approval_mode": "approve",
+});
+
+/** The thread-level posture one permission level runs a conversation under. */
+interface CodexThreadPosture {
+  /** The `sandbox` and `approvalPolicy` thread fields. */
+  readonly params: { readonly sandbox: CodexSandboxMode; readonly approvalPolicy: string };
+  /** The `config` overrides the level adds; empty below `yolo`. */
+  readonly config: Readonly<Record<string, unknown>>;
 }
 
-/** The thread sandbox and approval policy a posture's permission level maps to. */
-export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPostureParams {
+/** The thread sandbox, approval policy and config overrides a posture's level maps to. */
+export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPosture {
+  const sandbox = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode];
+  const approvalPolicy = CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode];
   return {
-    sandbox: CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode],
-    approvalPolicy: CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode],
+    params: { sandbox, approvalPolicy },
+    config: posture.mode === "yolo" ? CODEX_YOLO_CONFIG_OVERRIDES : {},
   };
 }
 

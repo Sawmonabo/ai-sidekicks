@@ -66,7 +66,7 @@ Primary allowed transitions:
 - `starting -> failed`
 - `starting -> interrupted`
 - `running -> waiting_for_approval`
-- `running -> waiting_for_input` (an agent's question recorded: the question handler that holds the provider's request open appends `question.asked` and moves the run in the same step — a Claude Code question, a Codex user-input request or a tool server's MCP elicitation alike; or Claude Code's retry-or-edit choice on a refused turn, recorded as `run.refusal_choice_requested`; or Claude Code's switch-or-credits choice when a Fable turn needs usage credits, recorded as `run.usage_credits_choice_requested`)
+- `running -> waiting_for_input` (an agent's question recorded: the question handler that holds the provider's request open appends `question.asked` and moves the run in the same step — a Claude Code question, a Codex user-input request or a tool server's own MCP elicitation alike, while one marked `_meta.codex_approval_kind: "mcp_tool_call"` is Codex's approval of the call and goes to the approval card; or Claude Code's retry-or-edit choice on a refused turn, recorded as `run.refusal_choice_requested`; or Claude Code's switch-or-credits choice when a Fable turn needs usage credits, recorded as `run.usage_credits_choice_requested`)
 - `running -> pausing` (the pause toggle; the step already in flight is still finishing)
 - `pausing -> paused` (the step in flight landed)
 - `pausing -> running` (the pause toggle pressed again, or a send, before the step in flight landed)

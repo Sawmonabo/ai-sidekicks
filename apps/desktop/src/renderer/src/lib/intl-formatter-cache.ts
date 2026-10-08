@@ -120,6 +120,7 @@ export type DateTimeStyle =
   | "weekdayClockMinute"
   | "monthDayClockMinute"
   | "dateTime"
+  | "zonedDateTime"
   | "date";
 
 /**
@@ -132,6 +133,14 @@ const DATE_TIME_STYLES: Readonly<Record<DateTimeStyle, Intl.DateTimeFormatOption
   weekdayClockMinute: { weekday: "short", hour: "numeric", minute: "2-digit" },
   monthDayClockMinute: { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   dateTime: { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  zonedDateTime: {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  },
   date: { year: "numeric", month: "short", day: "numeric" },
 };
 

@@ -351,6 +351,19 @@ export function formatDateTime(iso: string, locale: string): string {
   return dateTimeFormatFor("dateTime", locale).format(instant.epochMilliseconds);
 }
 
+/**
+ * The time an instant stands for, as a hover title reads it: {@link formatDateTime} on the
+ * machine's own clock with its zone, `Oct 7, 2026, 7:28 PM EDT`. A relative time and every other
+ * timestamp carry it as their `title`; the exact stamp the daemon sent is read in the inspector.
+ */
+export function formatZonedDateTime(iso: string, locale: string): string {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
+    return UNREADABLE_FIGURE;
+  }
+  return dateTimeFormatFor("zonedDateTime", locale).format(instant.epochMilliseconds);
+}
+
 /** A calendar day with no time, with the same day fields as {@link formatDateTime}. */
 export function formatDate(iso: string, locale: string): string {
   const instant = parseInstant(iso);

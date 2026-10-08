@@ -1,11 +1,12 @@
-// Codex inbound frames: an unmapped method lands on a diagnostic, and connection-scoped frames are
-// never quarantined.
+// Codex inbound frames: an unmapped method lands on a diagnostic, connection-scoped frames are
+// never quarantined, and Codex's own tool-server-call approval is told from a server's question.
 
 import { describe, expect, it } from "vitest";
 
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import {
   classifyCodexFrameFamilyForRouting,
+  normalizeCodexElicitationRequest,
   resolveCodexFrameEmissionRoute,
 } from "../event-normalizer.js";
 
@@ -46,5 +47,28 @@ describe("classifyCodexFrameFamilyForRouting", () => {
         scope: "connection",
       });
     }
+  });
+});
+
+describe("normalizeCodexElicitationRequest", () => {
+  it("records Codex's own tool-server-call approval as an approval, and a server's question as a question", () => {
+    // Answered as a question, an approval would be an `accept` with content, which Codex runs.
+    expect(
+      normalizeCodexElicitationRequest({
+        serverName: "probe",
+        mode: "form",
+        message: 'Allow the probe MCP server to run tool "probe_tool"?',
+        requestedSchema: { type: "object", properties: {} },
+        _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+      }),
+    ).toMatchObject({ category: "approval_flow", eventType: "approval.requested" });
+    expect(
+      normalizeCodexElicitationRequest({
+        serverName: "probe",
+        mode: "form",
+        message: "Which region?",
+        requestedSchema: { type: "object", properties: { region: { enum: ["us", "eu"] } } },
+      }),
+    ).toMatchObject({ category: "interactive_request", eventType: "question.asked" });
   });
 });

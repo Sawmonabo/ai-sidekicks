@@ -15,6 +15,14 @@ export function EntityFacetValueView(props: { readonly facet: EntityFacet }): Re
   if (value.form === "derived") {
     return <DerivedFigure text={value.text} />;
   }
+  if (value.form === "instant") {
+    return (
+      <>
+        <WireFigure value={value.clockText} title={value.zonedText} /> ·{" "}
+        <WireFigure value={value.text} title={value.zonedText} />
+      </>
+    );
+  }
   return (
     <Nothing kind="not-checked" placement="inline" title="Not recorded" detail={value.detail} />
   );

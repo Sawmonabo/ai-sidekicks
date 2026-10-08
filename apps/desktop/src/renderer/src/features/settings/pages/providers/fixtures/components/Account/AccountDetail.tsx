@@ -2,7 +2,13 @@ import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/r
 import type { ReactNode } from "react";
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatCount, formatDateTime, formatDayDuration } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import {
+  formatCount,
+  formatDateTime,
+  formatDayDuration,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import {
   DefinitionGrid,
@@ -44,7 +50,12 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
     entries.push({
       key: "loggedInAt",
       term: <span>Signed in</span>,
-      definition: <DerivedFigure text={formatDateTime(account.loggedInAt, clockLocale)} />,
+      definition: (
+        <WireFigure
+          value={formatDateTime(account.loggedInAt, clockLocale)}
+          title={formatZonedDateTime(account.loggedInAt, clockLocale)}
+        />
+      ),
     });
   }
   const horizonInDays =

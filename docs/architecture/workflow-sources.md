@@ -37,7 +37,7 @@ The external primary sources behind [Spec-015: Workflow Authoring And Execution]
 - [LangGraph — Multi-agent handoff](https://langchain-ai.github.io/langgraph/concepts/multi_agent/)
 - [AutoGen — Teams and HandoffMessage](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html)
 - [OpenAI Assistants API — Migration / Threads removal 2026-08-26](https://platform.openai.com/docs/assistants/migration)
-- [Model Context Protocol — Elicitations](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) — an elicitation is a `question.asked` record, never an approval category
+- [Model Context Protocol — Elicitations](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) — a tool server's own elicitation is a `question.asked` record, never an approval category; Codex's approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval
 - [W3C WCAG 2.2 §3.3.7 — Redundant Entry](https://www.w3.org/TR/WCAG22/#redundant-entry) — human-step form-state UX requirement (SA-26)
 - [Argo Workflows — `suspend-template-outputs.yaml` example](https://github.com/argoproj/argo-workflows/blob/main/examples/suspend-template-outputs.yaml) — output-projection-on-resume pattern
 - [argoproj/argo-workflows#8365](https://github.com/argoproj/argo-workflows/discussions/8365) — form-input UX gap (Argo discussion)
