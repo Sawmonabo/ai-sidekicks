@@ -47,7 +47,8 @@ mermaid stalled the main thread by up to 188 ms on one diagram, where a frame at
 4. **Text is measured with the screen's fonts.** Label widths come from the worker's `OffscreenCanvas` `measureText` in the screen's own font, handed to merman as its host text measurer, so boxes fit their labels. merman's own deterministic measurer is the fallback for a request the host cannot measure.
 5. **The picture is safe to copy.** The worker returns merman's resvg-safe SVG, which carries no HTML labels (`foreignObject`), so a mindmap copies as a picture like every other type.
 6. **Finished pictures are bounded by the screen's picture share.** A drawn picture is kept under the pictures' share of the machine's memory (1/64, at most 256 MiB), let go with its row when nothing on screen draws it, and drawn again on return.
-7. **Notices ship with it.** The compiled ELK is EPL-2.0 and the math fonts OFL-1.1; their notices from merman's `THIRD_PARTY_NOTICES.md` go into the app's third-party notices.
+7. **Strict, self-contained pictures.** merman runs at its default strict `securityLevel` (labels and tooltips sanitized, unsafe URL schemes blocked, no script or click hook), every picture passes `assertSelfContainedSvgForDom()` and is prepared with `prepareSelfContainedSvgForDomMount()` before it is drawn, so a diagram never navigates or fetches, and each draw runs under merman's resource budgets.
+8. **Notices ship with it.** The compiled ELK is EPL-2.0 and the math fonts OFL-1.1; their notices from merman's `THIRD_PARTY_NOTICES.md` go into the app's third-party notices.
 
 **Budget:** no diagram draws on the renderer's main thread; merman costs one worker of about 40 to 50 MB above a blank page for the whole app, the same with one session open as with twenty; a picture's memory is counted in the screen's picture share. The build confirms these with its own run.
 
@@ -136,6 +137,7 @@ The runner-up: the reference implementation with every type, but main-thread onl
 | WebAssembly design #1427 | Issue | Shrinking memory; re-creating the instance as the only way to reclaim it | <https://github.com/WebAssembly/design/issues/1427> |
 | memory-control proposal, `memory.discard` | Proposal | Zeroes pages and lets the host release them; Phase 1, prototyped only in SpiderMonkey | <https://github.com/WebAssembly/memory-control/blob/main/proposals/memory-control/discard.md> |
 | WebKit bug 269937 | Issue | WebAssembly memory cannot shrink | <https://www2.webkit.org/show_bug.cgi?id=269937> |
+| merman rendering security guide | Docs | Strict by default: sanitized labels and tooltips, unsafe URL schemes blocked, no `bindFunctions` hook, no network or file lookup for icons; hosts use `assertSelfContainedSvgForDom()` and `prepareSelfContainedSvgForDomMount()` for a closed preview | <https://github.com/Latias94/merman/blob/main/docs/security/RENDERING_SECURITY.md> |
 | MDN, `SharedWorker` | Docs | One worker reachable from several same-origin windows, alive while any of them holds it | <https://developer.mozilla.org/docs/Web/API/SharedWorker> |
 | Electron `protocol` | Docs | A scheme registered as standard and secure resolves like `https`, giving the app's windows one origin | <https://electronjs.org/docs/latest/api/protocol> |
 | reactant, multiple windows | Article | A shared worker as the one owner behind several windows | <https://reactant.js.org/blog/2021/10/03/how-to-make-web-application-support-multiple-browser-windows> |
