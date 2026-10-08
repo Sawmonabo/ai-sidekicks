@@ -10,6 +10,8 @@
 // - Dual-write: `transactionalPrelude` holds statements committed in the same write just before the
 //   row. A guarded statement carries the row count it expects, so a moved state refuses the write
 //   and consumes no sequence.
+// - Refusal: a session that takes no writes, its history damaged, refuses the append before
+//   anything is queued.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -87,6 +89,8 @@ export interface EventLogServiceDeps {
   readonly writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
+  /** Throws when the session takes no event of `eventType`; every append is taken when absent. */
+  readonly refuseSessionWrite?: (sessionId: SessionId, eventType: string) => void;
 }
 
 // The writer allocates the real sequence; composition checks the envelope with this one.
@@ -96,10 +100,12 @@ const UNALLOCATED_SEQUENCE = 0;
 export class EventLogService {
   readonly #writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
   readonly #monotonicNow: () => bigint;
+  readonly #refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
 
   constructor(deps: EventLogServiceDeps) {
     this.#writer = deps.writer;
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
+    this.#refuseSessionWrite = deps.refuseSessionWrite ?? (() => {});
   }
 
   /**
@@ -107,12 +113,14 @@ export class EventLogService {
    * allocated `sequence`. Refuses an assistant's thinking update, which goes through
    * {@link appendThinkingUpdate}, a preceding event of another session, a seeded content
    * description member, a content partition on a type that carries none, a failed strict-variant
-   * parse, or a payload with no canonical form. An event is never refused for its size.
+   * parse, a payload with no canonical form, or an event of a session that takes no writes. An
+   * event is never refused for its size.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
     options?: EventLogAppendOptions,
   ): Promise<EventLogAppendReceipt> {
+    this.#refuseSessionWrite(envelope.sessionId, envelope.type);
     // One clock reading for every event of the write.
     const monotonicNs = options?.monotonicNs ?? this.#monotonicNow();
     const precedingRows = (options?.precedingEvents ?? []).map((preceding) => {
@@ -144,6 +152,7 @@ export class EventLogService {
     envelope: UnsequencedEventEnvelope,
     options?: ThinkingUpdateAppendOptions,
   ): Promise<ThinkingUpdateReceipt> {
+    this.#refuseSessionWrite(envelope.sessionId, envelope.type);
     const row = this.#composeRow(envelope, options);
     const outcome = await this.#queueInSessionOrder(envelope.sessionId, () =>
       this.#writer.appendThinkingUpdate(row),

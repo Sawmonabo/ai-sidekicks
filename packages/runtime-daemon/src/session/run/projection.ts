@@ -1,6 +1,7 @@
 // The `runs` row each run event writes in its own write, so the row always equals a rebuild from
 // the log and every later write can guard against it; the rebuild folds the log through the same
-// statements.
+// statements. A range the session skipped past as damaged still moves each live run's version past
+// every version the range stored, so no later change reuses one.
 
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -13,6 +14,7 @@ import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../../events/session/skipped-ranges.js";
 import {
   ProjectionFailureError,
   type SessionProjection,
@@ -55,6 +57,20 @@ const ADVANCE_RUN_VERSION_SQL = `UPDATE runs
           THEN 0 ELSE 1 END
   WHERE run_id = @run_id
     AND session_id = @session_id`;
+
+// Each live run of the session moves to the highest run version any readable row of the skipped
+// range stored for it, if that is past its own; a damaged row's payload is read only when valid.
+const ADVANCE_PAST_SKIPPED_VERSIONS_SQL = `UPDATE runs
+    SET run_version = MAX(run_version, COALESCE((
+      SELECT MAX(CASE WHEN json_valid(payload) THEN
+               CASE WHEN json_type(payload, '$.runVersion') = 'integer'
+                     AND json_extract(payload, '$.runId') = runs.run_id
+                    THEN json_extract(payload, '$.runVersion') END END)
+        FROM session_events
+       WHERE session_id = @session_id
+         AND sequence BETWEEN @from_sequence AND @to_sequence), run_version))
+  WHERE session_id = @session_id
+    AND state NOT IN (${RUN_TERMINAL_STATES.map((state) => `'${state}'`).join(", ")})`;
 
 /** The statement that creates a run's row from its `run.queued` payload. */
 export function insertQueuedRunStatement(payload: RunQueuedPayload): WriteStatement {
@@ -125,6 +141,18 @@ function foldRuns(): SessionProjectionFold {
       if (event.type === "run.queued") {
         return [insertQueuedRunStatement(event.payload)];
       }
+      if (event.type === DAMAGED_EVENTS_SKIPPED_TYPE) {
+        return [
+          {
+            sql: ADVANCE_PAST_SKIPPED_VERSIONS_SQL,
+            bindings: {
+              session_id: event.payload.sessionId,
+              from_sequence: event.payload.fromSequence,
+              to_sequence: event.payload.toSequence,
+            },
+          },
+        ];
+      }
       if (event.type === "intervention.applied" || event.type === "intervention.degraded") {
         // An interrupt's verdict ends its run in the same write, which the run's own end event
         // moves, or finds the run already ended; neither advances the version.
@@ -167,6 +195,7 @@ export const RUNS_PROJECTION: SessionProjection = {
   name: "runs",
   eventTypes: new Set([
     "run.queued",
+    DAMAGED_EVENTS_SKIPPED_TYPE,
     "intervention.applied",
     "intervention.degraded",
     ...RUN_STATE_CHANGE_EVENT_TYPES,

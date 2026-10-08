@@ -2,6 +2,10 @@
 
 How work lands (branches, squash-merge, what CI and review mean on `develop`, the rules): [AGENTS.md](AGENTS.md). This file holds the mechanics.
 
+## Setup
+
+`pnpm install` compiles the daemon's SQLite shell (`packages/runtime-daemon/sqlite-shell/`) through `node-gyp`, so it needs what `node-gyp` needs: Python 3 and a C compiler, which is Xcode's Command Line Tools on macOS, `make` and `gcc` on Linux, and Visual Studio's C++ build tools on Windows. The first install in a worktree compiles it; later installs reuse it.
+
 ## Commits
 
 Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package nouns (`contracts`, `crypto-paseto`, `client-sdk`, `search-ranking`, `daemon`, `control-plane`, `desktop`, `cli`, `sidecar-rust-pty`, `pty-sidecar-publishing`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.

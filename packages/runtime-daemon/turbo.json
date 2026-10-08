@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The root inputs plus the install script that builds the daemon's SQLite shell.
+    "typecheck": {
+      "inputs": ["src/**", "sqlite-shell/*.ts", "tsconfig*.json", "package.json"]
+    },
+    "lint": {
+      "inputs": ["src/**", "sqlite-shell/*.ts", "*.{ts,tsx,js,mjs,cjs,json}", "eslint.config.mjs"]
+    }
+  }
+}

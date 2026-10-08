@@ -1,6 +1,6 @@
-// The whole-session purge: deletes the event, snapshot, run and projection cursor rows of each
-// session a person deletes, outright, appends one receipt naming every session that lost rows,
-// then truncates the write-ahead log.
+// The whole-session purge: deletes the event, snapshot, run, intervention, command receipt and
+// projection cursor rows of each session a person deletes, outright, appends one receipt naming
+// every session that lost rows, then truncates the write-ahead log.
 //
 // It is the only operation in this package that removes a committed row of the append-only log.
 // Nothing in the background calls it. The caller chooses the sessions and owns the precondition
@@ -55,6 +55,14 @@ const NEVER_PURGED_CATEGORY_SQL_LIST: string = NEVER_PURGED_EVENT_CATEGORIES.map
 ).join(", ");
 
 const PURGEABLE_WHERE = `session_id = ? AND category NOT IN (${NEVER_PURGED_CATEGORY_SQL_LIST})`;
+
+// Every run of the session: the rows the rebuild wrote, and every run its readable events name,
+// so a run the rebuild never reached past a damaged event still loses its interventions and
+// receipts. Read before the events go.
+const SESSION_RUN_IDS_SQL = `SELECT run_id FROM runs WHERE session_id = ?
+  UNION
+  SELECT CASE WHEN json_valid(payload) THEN json_extract(payload, '$.runId') END
+    FROM session_events WHERE session_id = ?`;
 
 // The receipt's envelope category, type and version. The version is parsed through its schema, so
 // a literal that stops satisfying the grammar throws at import rather than at the first receipt.
@@ -215,9 +223,9 @@ export class SessionPurge {
     }
   }
 
-  // One write: the range read, the snapshots and the events commit or roll back together.
+  // One write: the range read and every delete commit or roll back together.
   async #deleteSessionRows(sessionId: SessionId): Promise<SessionPurgeOutcome> {
-    const [rangeResult, , eventsResult] = await this.#writer
+    const [rangeResult, , , , eventsResult] = await this.#writer
       .write(deleteSessionRowsStatements(sessionId))
       .catch((error: unknown) => {
         throw error instanceof WriteRefusedError
@@ -288,7 +296,8 @@ export class SessionPurge {
  * stored sequences are safe integers, so a range the receipt could not name refuses the write
  * before anything is deleted. A snapshot names the event it reflects, so snapshots go first; the
  * run rows and the projection cursor are built from the events, so they go with them, and a
- * restart never settles a run of a purged session.
+ * restart never settles a run of a purged session. Interventions and command receipts name a run
+ * and not the session, so they are found through the session's runs before the runs go.
  */
 function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
   return [
@@ -303,6 +312,14 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
       expectedRowCount: 1,
     },
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
+    {
+      sql: `DELETE FROM interventions WHERE target_run_id IN (${SESSION_RUN_IDS_SQL})`,
+      bindings: [sessionId, sessionId],
+    },
+    {
+      sql: `DELETE FROM command_receipts WHERE run_id IN (${SESSION_RUN_IDS_SQL})`,
+      bindings: [sessionId, sessionId],
+    },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },

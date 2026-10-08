@@ -1,8 +1,10 @@
 // The recovery pass every start runs before the node takes writes: it rebuilds each session's
 // projections the log has moved past, settles every run the restart left live, the person's
-// pending interrupt with it, and records the pass on the service's own session. It never throws:
-// a pass that fails leaves the node blocked, or a session it could not rebuild degraded, and says
-// why in the service log.
+// pending interrupt with it, and records the pass on the service's own session. A session whose
+// rebuild fails is healed first: the store's files are copied aside untouched, once a pass and
+// once for the same damage across starts, and the rebuild runs again; one that still fails opens
+// at its last good point, or reads damaged when none of it can be read. It never throws: a pass
+// that fails leaves the node blocked, or a session damaged, and says why in the service log.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -19,6 +21,7 @@ import type {
 } from "@ai-sidekicks/contracts/daemon/recovery";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { EventLogService } from "../events/log-service.js";
 import { boundFailureDetail } from "../provider/driver/contract.js";
@@ -26,6 +29,7 @@ import type { RunEngine } from "../session/run/engine.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 import { mintUuidV7 } from "../uuid-v7.js";
+import type { DamagedHistory } from "./damaged-history.js";
 import { ProjectionFailureError, type ProjectionRebuildService } from "./projection-rebuild.js";
 import type { RecoveryStatusTracker } from "./status.js";
 
@@ -34,15 +38,37 @@ export interface StartupRecoveryDeps {
   readonly nodeId: NodeId;
   readonly reader: Database;
   readonly sessionEvents: Pick<EventLogService, "append">;
-  readonly projectionRebuild: Pick<
-    ProjectionRebuildService,
-    "listSessionsToRebuild" | "rebuild" | "readLastAppliedSequence"
-  >;
+  readonly projectionRebuild: Pick<ProjectionRebuildService, "listSessionsToRebuild" | "rebuild">;
+  readonly damagedHistory: Pick<DamagedHistory, "rebuildThroughLastGoodPoint" | "readHeadSequence">;
+  /**
+   * The copies of the store's files a heal takes aside, and the damage each was taken for. The
+   * pass copies the store at most once, and never again for damage already copied.
+   */
+  readonly storeAside: {
+    /** Copies the store's files aside untouched and returns where. */
+    readonly copy: () => Promise<string>;
+    /** The copy taken for the session damaged with its head at `headSequence`, if one was. */
+    readonly findCopyOfSession: (
+      sessionId: SessionId,
+      headSequence: number,
+    ) => Promise<string | undefined>;
+    /** Records that the copy at `folder` was taken for the session damaged at that head. */
+    readonly recordSession: (
+      folder: string,
+      sessionId: SessionId,
+      headSequence: number,
+    ) => Promise<void>;
+  };
   readonly runs: Pick<RunStateReader, "listLiveRuns">;
   readonly runEngine: Pick<RunEngine, "settleRunAfterRestart">;
   readonly status: RecoveryStatusTracker;
   readonly now: () => Date;
   readonly writeServiceLog: (line: string) => void;
+}
+
+// Where the pass's heal stands: the folder the store's files were copied to, once they were.
+interface HealState {
+  asideFolder: string | undefined;
 }
 
 // What one pass did; the binding and resume steps are not built, so their counts stay at zero.
@@ -57,8 +83,8 @@ interface RecoveryTally {
 
 const RECOVERY_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
-// What a run the restart left live carries as its failure when nothing resumed it.
-const RESTART_FAILURE_DETAIL = "The service restarted and no provider session was restored";
+/** What a run the restart left live carries as its failure when nothing resumed it. */
+export const RESTART_FAILURE_DETAIL = "The service restarted and no provider session was restored";
 
 // What a failed pass records when what it threw carried no text.
 const UNDESCRIBED_PASS_FAILURE = "The recovery pass failed without a message";
@@ -165,10 +191,11 @@ export class StartupRecovery {
     }
   }
 
-  // A session whose log cannot be folded is degraded and the pass goes on; any other failure ends
+  // A session whose log cannot be folded is healed and the pass goes on; any other failure ends
   // the pass.
   async #rebuildProjections(tally: RecoveryTally): Promise<void> {
     const { projectionRebuild, status } = this.#deps;
+    const heal: HealState = { asideFolder: undefined };
     for (const sessionId of projectionRebuild.listSessionsToRebuild()) {
       status.markSessionRebuilding(sessionId);
       try {
@@ -179,17 +206,64 @@ export class StartupRecovery {
         if (!(error instanceof ProjectionFailureError)) {
           throw error;
         }
-        status.markSessionDegraded(sessionId, projectionRebuild.readLastAppliedSequence(sessionId));
         this.#deps.writeServiceLog(
           `The projections of session ${sessionId} could not be rebuilt: ${describeError(error)}`,
         );
+        await this.#healSession(sessionId, heal, tally);
       }
     }
   }
 
+  // The store's files go aside before anything is repaired, unless they already went for this
+  // damage; then the rebuild runs again, and a session it still cannot rebuild opens at its last
+  // good point.
+  async #healSession(sessionId: SessionId, heal: HealState, tally: RecoveryTally): Promise<void> {
+    const { projectionRebuild, damagedHistory, status, storeAside } = this.#deps;
+    // A damaged session takes no write, so its head names the damage until it is continued.
+    const headSequence = damagedHistory.readHeadSequence(sessionId);
+    const earlierCopy = await storeAside.findCopyOfSession(sessionId, headSequence);
+    // The copy this heal records the damage in; none when an earlier start already copied it.
+    let thisPassCopy: string | undefined;
+    if (earlierCopy !== undefined) {
+      this.#deps.writeServiceLog(`The store's files were already copied aside to ${earlierCopy}`);
+    } else {
+      if (heal.asideFolder === undefined) {
+        heal.asideFolder = await storeAside.copy();
+        this.#deps.writeServiceLog(`The store's files were copied aside to ${heal.asideFolder}`);
+      }
+      thisPassCopy = heal.asideFolder;
+    }
+    let failure: ProjectionFailureError;
+    try {
+      const rebuilt = await projectionRebuild.rebuild({ sessionId, force: true });
+      tally.eventsApplied += rebuilt.eventsApplied;
+      status.markSessionHealthy(sessionId);
+      return;
+    } catch (error) {
+      if (!(error instanceof ProjectionFailureError)) {
+        throw error;
+      }
+      failure = error;
+    }
+    const point = await damagedHistory.rebuildThroughLastGoodPoint(sessionId, failure);
+    if (thisPassCopy !== undefined) {
+      await storeAside.recordSession(thisPassCopy, sessionId, headSequence);
+    }
+    if (point === undefined) {
+      status.markSessionUnreadable(sessionId);
+      this.#deps.writeServiceLog(`No event of session ${sessionId} can be read`);
+      return;
+    }
+    status.markSessionAtLastGoodPoint(sessionId, point);
+    this.#deps.writeServiceLog(
+      `Session ${sessionId} opens at sequence ${String(point.lastSequence)}; its events from ` +
+        `sequence ${String(point.damagedFromSequence)} are damaged and kept in place`,
+    );
+  }
+
   // No driver has any run after a restart, so every live run settles as the run engine decides,
   // which ends a run under the person's pending interrupt and gives that interrupt its outcome. A
-  // degraded session's rows cannot be trusted, so its runs are left as they are.
+  // damaged session takes no writes, so its runs are left as they are.
   async #settleLiveRuns(tally: RecoveryTally, runsLeftInFlight: Set<RunId>): Promise<void> {
     const { runs, runEngine, status } = this.#deps;
     const liveRuns = runs.listLiveRuns().filter((run) => run.state !== "queued");
@@ -197,7 +271,7 @@ export class StartupRecovery {
       runsLeftInFlight.add(run.runId);
     }
     for (const run of liveRuns) {
-      if (status.isSessionDegraded(run.sessionId)) {
+      if (status.readSessionWriteRefusal(run.sessionId) !== undefined) {
         continue;
       }
       const settled = await runEngine.settleRunAfterRestart(run, RESTART_FAILURE_DETAIL);

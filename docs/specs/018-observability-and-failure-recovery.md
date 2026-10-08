@@ -41,7 +41,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 ## Required Behavior
 
 - The daemon must keep health and failure signals for itself, provider drivers, rebuild state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in two places, neither of them a console read: its diagnostic logs and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
-- A failed recovery is never silent. A provider-session recovery that fails leaves the session showing that the provider ended, with `Restart`; a projection rebuild that fails puts the daemon in the degraded read-only mode of §Fallback Behavior.
+- A failed recovery is never silent. A provider-session recovery that fails leaves the session showing that the provider ended, with `Restart`; a projection rebuild that fails is healed first, and a session whose history still cannot be read opens read-only at its last good point, named on Settings › Runtime, per §Fallback Behavior.
 - The person must be able to distinguish:
   - transport failure
   - provider failure
@@ -70,7 +70,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 ## Fallback Behavior
 
-- If projection rebuild fails, the system enters degraded read-only mode instead of accepting unsafe new mutable work.
+- If projection rebuild fails, the daemon repairs the session before giving anything up, and a session whose history still cannot be read opens read-only at its last good point; only that session refuses new mutable work, and every other session keeps working ([Spec-013 §Fallback Behavior](./013-persistence-and-recovery.md#fallback-behavior)).
 - If provider recovery fails, the affected run remains visible in canonical state `failed` with `provider failure` detail and `recovery-needed` condition rather than disappearing.
 - If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events and the run event's failure detail rather than failing closed.
 
@@ -106,13 +106,13 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 ## Example Flows
 
 - `Example: The Codex service for one account dies while one of its three sessions is running a turn. The daemon restarts it at once and resumes its conversations: the session whose turn the crash ended shows Turn ended and then Restarted · Codex is back, and the two idle sessions show nothing. It crashes four more times within three minutes, so the daemon leaves it down: each of its sessions shows that Codex ended, with Restart, and nothing restarts it until the person presses Restart.`
-- `Example: Projection rebuild fails on startup. The daemon enters degraded read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
+- `Example: One session's projection rebuild fails on startup because one of its events cannot be read. The daemon copies its database aside, rebuilds the session again, and opens it at its last good point with History after 3:12 PM is damaged. This session shows everything up to it. at the top of its conversation; that session refuses new work until the person picks Continue from here or Delete session, and every other session keeps working.`
 
 ## Implementation Notes
 
 - Observability is not separate from recovery; it is the mechanism that makes recovery safe to reason about.
 - Failure categories should be enumerable and stable for automation and operations docs.
-- Degraded read-only mode is preferable to silent partial mutation during uncertain recovery state.
+- A session held read-only at its last good point is preferable to silent partial mutation during uncertain recovery state, and holding one session never stops the others.
 - Operational handling for policy and approval blockage is covered by approval-UX surfaces in Spec-010 and is not a separate runbook in V1.
 
 ## Pitfalls To Avoid

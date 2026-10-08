@@ -7,12 +7,18 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ```ts
 // DaemonRecoveryStatus — the `recovery` field on `DaemonStatusReadResult` (local-ipc-payloads.md §Plan-005), which
 // Settings › Runtime and `sidekicks daemon status` already read. There is no recovery method of its own.
+// `overall` is `degraded` while any session's history is damaged; only `rebuilding` (the restart's pass)
+// and `blocked` (the store is unavailable) refuse writes for the whole service.
 interface DaemonRecoveryStatus {
   overall: "healthy" | "rebuilding" | "degraded" | "blocked";
+  // The sessions that are not healthy, each damaged session among them.
   sessions: Array<{
     sessionId: SessionId;
-    state: "healthy" | "rebuilding" | "degraded" | "blocked";
-    lastAppliedSequence?: number;
+    // degraded: open at its last good point, read-only; damaged: no event of it can be read
+    state: "rebuilding" | "degraded" | "damaged" | "blocked";
+    lastAppliedSequence?: number; // on degraded, the last good point's sequence
+    lastAppliedAt?: string; // on degraded, when that event happened: the `<time>` of the conversation's line
+    damagedFromSequence?: number; // on degraded, the first event that cannot be read
     failureCategory?: RunFailureCategory;
     recoveryCondition?: RecoveryCondition; // named type in provider-driver-payloads.md §Plan-003
     // Per-run identities behind a blocked/degraded session entry: names which
@@ -26,6 +32,20 @@ interface DaemonRecoveryStatus {
       failureCategory?: RunFailureCategory; // REQUIRED on a failed-resume entry; absent on a divergence halt
     }>;
   }>;
+}
+
+// session.recoveryContinue (`Continue from here`) and session.recoveryDelete (`Delete session`):
+// both take a damaged session and answer `{}`; each is refused `session.recovery_refused` otherwise.
+interface SessionTargetRequest {
+  sessionId: SessionId;
+}
+
+// recovery.damaged_events_skipped — appended by `Continue from here` at the log's next sequence;
+// every read and rebuild of the session skips the range from then on, and the rows stay stored.
+interface RecoveryDamagedEventsSkippedPayload {
+  sessionId: SessionId;
+  fromSequence: number;
+  toSequence: number; // at least fromSequence
 }
 
 // EventsReadAfterSequence

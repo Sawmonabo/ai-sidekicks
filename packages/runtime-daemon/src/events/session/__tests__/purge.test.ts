@@ -1,6 +1,7 @@
-// The whole-session purge deletes every purgeable row outright, refuses a session whose range the
-// receipt could not name, leaves no copy of the content in the database file or its write-ahead
-// log, and never runs inside an append-lock hold. Rows are seeded raw to sit at an exact sequence.
+// The whole-session purge deletes every purgeable row outright, its runs' interventions and
+// command receipts with it, refuses a session whose range the receipt could not name, leaves no
+// copy of the content in the database file or its write-ahead log, and never runs inside an
+// append-lock hold. Rows are seeded raw to sit at an exact sequence.
 
 import { existsSync, readFileSync } from "node:fs";
 
@@ -137,7 +138,44 @@ async function seedSnapshot(sessionId: SessionId, asOfSequence: number | bigint)
   return id;
 }
 
-function rowExists(table: "session_events" | "session_snapshots", id: string): boolean {
+// A run of `sessionId` with one intervention and one command receipt, each named by the run alone.
+// A run with no `runs` row is one the rebuild never reached, known only from its events.
+async function seedRunRows(
+  sessionId: SessionId,
+  runId = `run-${sessionId.slice(-4)}`,
+  hasRunRow = true,
+): Promise<{ interventionId: string; receiptId: string }> {
+  const interventionId = `intervention-${runId}`;
+  const receiptId = `receipt-${runId}`;
+  await scratch.writer.write([
+    ...(hasRunRow
+      ? [
+          {
+            sql: `INSERT INTO runs (run_id, session_id, state, run_version)
+                  VALUES (?, ?, 'running', 2)`,
+            bindings: [runId, sessionId],
+          },
+        ]
+      : []),
+    {
+      sql: `INSERT INTO interventions
+              (id, target_run_id, type, expected_run_version, client_idempotency_key, created_at)
+            VALUES (?, ?, 'steer', 2, ?, '2026-08-01T00:00:00.000Z')`,
+      bindings: [interventionId, runId, `key-${runId}`],
+    },
+    {
+      sql: `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
+            VALUES (?, ?, ?, 'accepted', '2026-08-01T00:00:00.000Z')`,
+      bindings: [receiptId, `command-${runId}`, runId],
+    },
+  ]);
+  return { interventionId, receiptId };
+}
+
+function rowExists(
+  table: "session_events" | "session_snapshots" | "interventions" | "command_receipts",
+  id: string,
+): boolean {
   return scratch.reader.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id) !== undefined;
 }
 
@@ -165,8 +203,16 @@ function onlyOutcome(result: SessionPurgeResult): SessionPurgeOutcome {
 }
 
 describe("SessionPurge — the whole session", () => {
-  it("deletes every purgeable row and snapshot, sparing maintenance rows and others", async () => {
+  it("deletes every purgeable row, snapshot and run row, sparing maintenance rows and others", async () => {
     const first = await seedMessage("hi");
+    const runRows = await seedRunRows(SESSION);
+    const loggedRun = await seed({
+      category: "run_lifecycle",
+      type: "run.running",
+      payload: { runId: "run-past-the-rebuild" },
+    });
+    const loggedRunRows = await seedRunRows(SESSION, "run-past-the-rebuild", false);
+    const otherRunRows = await seedRunRows(SECOND_SESSION);
     const maintenance = await seed({
       category: "event_maintenance",
       type: "event.compacted",
@@ -183,16 +229,23 @@ describe("SessionPurge — the whole session", () => {
 
     expect(result.refusedReason).toBeUndefined();
     expect(outcome.refusedReason).toBeUndefined();
-    expect(outcome.rowsDeleted).toBe(2);
+    expect(outcome.rowsDeleted).toBe(3);
     expect(outcome.fromSequence).toBe(first.sequence);
     expect(outcome.toSequence).toBe(newest.sequence);
 
     expect(rowExists("session_events", first.id)).toBe(false);
     expect(rowExists("session_events", newest.id)).toBe(false);
+    expect(rowExists("session_events", loggedRun.id)).toBe(false);
     expect(rowExists("session_snapshots", snapshot)).toBe(false);
     expect(rowExists("session_events", maintenance.id)).toBe(true);
     expect(rowExists("session_events", otherSession.id)).toBe(true);
     expect(rowExists("session_snapshots", otherSnapshot)).toBe(true);
+    expect(rowExists("interventions", runRows.interventionId)).toBe(false);
+    expect(rowExists("command_receipts", runRows.receiptId)).toBe(false);
+    expect(rowExists("interventions", loggedRunRows.interventionId)).toBe(false);
+    expect(rowExists("command_receipts", loggedRunRows.receiptId)).toBe(false);
+    expect(rowExists("interventions", otherRunRows.interventionId)).toBe(true);
+    expect(rowExists("command_receipts", otherRunRows.receiptId)).toBe(true);
 
     // One receipt, bound to the sentinel, naming the deleted range.
     expect(eventLog.appended).toHaveLength(1);

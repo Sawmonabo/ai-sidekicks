@@ -1,6 +1,7 @@
 // Session contracts: the session read and subscribe shapes, the frame a session's stream sends,
-// the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart) and the
-// two searches. The events those verbs append are in `./events.ts`.
+// the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart, and the
+// two actions of a session whose history is damaged) and the two searches. The events those verbs
+// append are in `./events.ts`.
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
@@ -148,7 +149,8 @@ export const SESSION_NAME_MAX_LEN = 256;
 
 /**
  * The request of every verb that acts on one session and takes nothing else: archive,
- * reactivate, close, pin, unpin, mute, unmute and restart.
+ * reactivate, close, pin, unpin, mute, unmute, restart, and the damaged history's continue and
+ * delete.
  */
 export interface SessionTargetRequest {
   sessionId: SessionId;
@@ -370,6 +372,24 @@ export interface SessionMethodDescriptors {
     SessionTargetRequest,
     SessionVerbResponse
   >;
+  /**
+   * `Continue from here`: the session's last good point becomes its end, its damaged events are
+   * skipped from then on, and it takes new work again. Refused with `session.recovery_refused`.
+   */
+  readonly "session.recoveryContinue": MethodDescriptor<
+    "session.recoveryContinue",
+    SessionTargetRequest,
+    SessionVerbResponse
+  >;
+  /**
+   * `Delete session` on a session whose history is damaged: every row of it goes, the copy set
+   * aside before the repair stays. Refused with `session.recovery_refused` (`not_damaged`).
+   */
+  readonly "session.recoveryDelete": MethodDescriptor<
+    "session.recoveryDelete",
+    SessionTargetRequest,
+    SessionVerbResponse
+  >;
   readonly "session.search": MethodDescriptor<
     "session.search",
     SessionSearchRequest,
@@ -419,6 +439,8 @@ export const SESSION_METHOD_DESCRIPTORS: SessionMethodDescriptors = defineMethod
   "session.mute": sessionVerb("session.mute"),
   "session.unmute": sessionVerb("session.unmute"),
   "session.restart": sessionVerb("session.restart"),
+  "session.recoveryContinue": sessionVerb("session.recoveryContinue"),
+  "session.recoveryDelete": sessionVerb("session.recoveryDelete"),
   "session.search": {
     method: "session.search",
     procedureType: "query",
