@@ -4,7 +4,7 @@ How work lands (branches, squash-merge, what CI and review mean on `develop`, th
 
 ## Commits
 
-Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package nouns (`contracts`, `crypto-paseto`, `client-sdk`, `search-ranking`, `daemon`, `control-plane`, `desktop`, `cli`, `sidecar-rust-pty`, `pty-sidecar-publishing`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
+Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package nouns (`contracts`, `crypto-paseto`, `client-sdk`, `search-index`, `search-ranking`, `daemon`, `control-plane`, `desktop`, `cli`, `sidecar-rust-pty`, `pty-sidecar-publishing`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
 
 ## Branch names
 
