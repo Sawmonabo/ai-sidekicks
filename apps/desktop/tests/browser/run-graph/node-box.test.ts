@@ -13,6 +13,7 @@ import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run
 import { TEXT_SIZES } from "#shared/appearance.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { fixtureRun, mountRunGraph, type FixtureRun } from "./mount.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 afterEach(() => {
   document.documentElement.style.fontSize = "";
@@ -102,18 +103,23 @@ describe("an edge's item count at the largest text size", () => {
       expect(drawn).toHaveLength(workflowDocument.edges.length);
       return drawn;
     });
-    // The count is drawn short, the whole count is its hover label, and the pointer over the count
-    // reaches the count itself rather than the background drawn behind it.
+    // The count is drawn short, the whole count is its hover label, and the pointer anywhere over
+    // the count's box, its middle and near either end, reaches the count itself rather than the
+    // background drawn behind it.
     for (const label of labels) {
       const count = label.querySelector<SVGTSpanElement>(".react-flow__edge-text tspan");
-      expect(count?.dataset["hoverLabel"]).toBe("123,456,789,012 items");
+      expect(count?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe("123,456,789,012 items");
       expect(count?.textContent).toBe("123B");
       const countBox = count?.getBoundingClientRect();
-      const pointed = document.elementFromPoint(
-        (countBox?.left ?? 0) + (countBox?.width ?? 0) / 2,
-        (countBox?.top ?? 0) + (countBox?.height ?? 0) / 2,
-      );
-      expect(pointed?.closest("[data-hover-label]")).toBe(count);
+      for (const across of [0.05, 0.5, 0.95]) {
+        const pointed = document.elementFromPoint(
+          (countBox?.left ?? 0) + (countBox?.width ?? 0) * across,
+          (countBox?.top ?? 0) + (countBox?.height ?? 0) / 2,
+        );
+        expect(pointed?.closest(`[${HOVER_LABEL_TEXT_ATTRIBUTE}]`), `at ${across} across`).toBe(
+          count,
+        );
+      }
     }
     const nodeBoxes = [...container.querySelectorAll<HTMLElement>(".react-flow__node")].map(
       (node) => ({ id: node.dataset["id"], box: node.getBoundingClientRect() }),

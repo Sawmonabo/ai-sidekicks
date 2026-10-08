@@ -33,6 +33,7 @@ import {
 } from "#renderer/features/workflows/command-target.js";
 import { withCommandTargets } from "#renderer/features/workflows/command-target.test-support.js";
 import { StepBlocker } from "./StepBlocker.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The clock locale the fixture bridge carries, which the screen writes its figures in. */
 const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
@@ -132,9 +133,11 @@ describe("a step's blocker", () => {
       `Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS, CLOCK_LOCALE)}`,
     );
     // Hovering the instant shows the time it stands for, with its zone.
-    expect(receipt()?.querySelector<HTMLElement>("[data-hover-label]")?.dataset["hoverLabel"]).toBe(
-      formatZonedDateTime(step.resolution.at, CLOCK_LOCALE),
-    );
+    expect(
+      receipt()
+        ?.querySelector(`[${HOVER_LABEL_TEXT_ATTRIBUTE}]`)
+        ?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE),
+    ).toBe(formatZonedDateTime(step.resolution.at, CLOCK_LOCALE));
     expect(screen.queryByRole("button")).toBeNull();
   });
 

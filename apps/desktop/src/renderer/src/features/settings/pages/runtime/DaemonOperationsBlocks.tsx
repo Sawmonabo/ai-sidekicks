@@ -35,6 +35,7 @@ import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import {
+  exactPercentLabel,
   formatByteQuantity,
   formatClockTime,
   formatPercent,
@@ -206,7 +207,7 @@ function renderStatusRegion(
                   ? undefined
                   : {
                       figure: formatPercent(reading.status.processor.percent / 100),
-                      exactValue: String(reading.status.processor.percent),
+                      exactValue: exactPercentLabel(reading.status.processor.percent),
                       readAt: reading.status.processor.readAt,
                     },
                 clockLocale,
@@ -218,7 +219,7 @@ function renderStatusRegion(
                   ? undefined
                   : {
                       figure: formatByteQuantity(reading.status.memory.residentBytes).text,
-                      exactValue: String(reading.status.memory.residentBytes),
+                      exactValue: formatByteQuantity(reading.status.memory.residentBytes).exactText,
                       readAt: reading.status.memory.readAt,
                     },
                 clockLocale,
@@ -242,12 +243,16 @@ function renderStatusRegion(
 
 /**
  * One reading of what the service uses, stamped with when it was taken; none reads as not read.
- * The figure's hover label carries the exact value the service sent, and the time's carries the
- * zoned time on the machine's clock.
+ * The figure's hover label carries the exact value the service sent where the figure rounds it,
+ * and the time's carries the zoned time on the machine's clock.
  */
 function renderUsageReading(
   reading:
-    | { readonly figure: string; readonly exactValue: string; readonly readAt: string }
+    | {
+        readonly figure: string;
+        readonly exactValue: string | undefined;
+        readonly readAt: string;
+      }
     | undefined,
   clockLocale: string,
 ): ReactNode {

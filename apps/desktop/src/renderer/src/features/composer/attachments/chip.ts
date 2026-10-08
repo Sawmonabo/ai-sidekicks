@@ -27,8 +27,11 @@ export interface ComposerAttachmentChipModel {
   readonly mediaTypeQualifier: string | undefined;
   /** The size a person reads, from the chokepoint formatter and nowhere else. */
   readonly sizeText: string;
-  /** The raw byte count behind {@link sizeText}, for the size's hover label. */
-  readonly exactSizeText: string;
+  /**
+   * The raw byte count behind {@link sizeText}, for the size's hover label; `undefined` where the
+   * size already shows it whole.
+   */
+  readonly exactSizeText: string | undefined;
   readonly state: AttachmentIngestEntry["state"];
   readonly tone: ChipTone;
   /**
@@ -77,7 +80,7 @@ export function composerAttachmentChip(
         ? ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL
         : undefined,
     sizeText: sizeFigure.text,
-    exactSizeText: String(byteLength),
+    exactSizeText: sizeFigure.exactText,
     state: entry.state,
     tone: entry.state === "refused" ? "failure" : "neutral",
     progressFraction: ingestProgressFraction(entry),

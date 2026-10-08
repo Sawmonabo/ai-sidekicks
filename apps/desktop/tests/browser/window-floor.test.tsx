@@ -47,6 +47,7 @@ import { SESSIONS_ROUTE, frameProps, liveBridgeWrapper } from "../helpers/app/fr
 import { renderAppSettled, renderSettled } from "../helpers/app/harness.js";
 import { describeHorizontalOverflow } from "../helpers/horizontal-overflow.js";
 import { untilInsideAct } from "../helpers/settle.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ? size : largest));
 
@@ -411,16 +412,16 @@ describe("at the window floor", () => {
     expect(longValue?.getBoundingClientRect().height).toBe(
       shortValue?.getBoundingClientRect().height,
     );
-    expect(longValue?.dataset["hoverLabel"]).toBe(UNBREAKABLE_WIRE_VALUE);
+    expect(longValue?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe(UNBREAKABLE_WIRE_VALUE);
     expect(shortValue?.scrollWidth).toBe(shortValue?.clientWidth);
-    expect(shortValue?.dataset["hoverLabel"]).toBe("repo-mount-1");
+    expect(shortValue?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe("repo-mount-1");
     // The head's identifier is cut the same way and labeled with itself.
     const identifier = elementOf<HTMLElement>(
       box,
       ".meridian-entity-record__head .meridian-figure--wire",
     );
     expect(identifier.scrollWidth).toBeGreaterThan(identifier.clientWidth);
-    expect(identifier.dataset["hoverLabel"]).toBe(UNBREAKABLE_WIRE_VALUE);
+    expect(identifier.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe(UNBREAKABLE_WIRE_VALUE);
     expect(describeHorizontalOverflow(box)).toStrictEqual([]);
     expect(describeOverlappingSiblings(box)).toStrictEqual([]);
 

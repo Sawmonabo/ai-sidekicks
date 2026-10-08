@@ -9,6 +9,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The session every sample row belongs to. Opaque on the wire; branded in the contract. */
 const SAMPLE_SESSION_ID = "01J0000000000000000000000A" as SessionId;
@@ -23,7 +24,7 @@ const SAMPLE_RUN_ROW_TIMESTAMP = "2026-09-02T10:00:00.000Z";
  * A sample run row's drawn time under the fixture's machine clock, found by the zoned instant its
  * hover label reads.
  */
-export const SAMPLE_RUN_ROW_TIME_SELECTOR: string = `.meridian-figure--wire[data-hover-label="${formatZonedDateTime(
+export const SAMPLE_RUN_ROW_TIME_SELECTOR: string = `.meridian-figure--wire[${HOVER_LABEL_TEXT_ATTRIBUTE}="${formatZonedDateTime(
   SAMPLE_RUN_ROW_TIMESTAMP,
   clockLocaleFor(FIXTURE_APP_META),
 )}"]`;

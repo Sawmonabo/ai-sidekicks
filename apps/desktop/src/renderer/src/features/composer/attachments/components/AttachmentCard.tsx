@@ -51,7 +51,7 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
           <Chip label={reading.derived.mimeType} mono />
           <WireFigure
             value={formatByteQuantity(reading.derived.sizeBytes).text}
-            hoverLabel={String(reading.derived.sizeBytes)}
+            hoverLabel={formatByteQuantity(reading.derived.sizeBytes).exactText}
           />
           <span className="meridian-attachment__artifact-id">
             <WireFigure value={reading.derived.artifactId} />
@@ -110,9 +110,9 @@ function renderIngesting(
           </Fragment>
         ))}
         <span className="meridian-attachment__bytes">
-          <WireFigure value={receivedFigure.text} hoverLabel={String(entry.receivedBytes)} />
+          <WireFigure value={receivedFigure.text} hoverLabel={receivedFigure.exactText} />
           <span>of</span>
-          <WireFigure value={declaredFigure.text} hoverLabel={String(entry.declared.byteLength)} />
+          <WireFigure value={declaredFigure.text} hoverLabel={declaredFigure.exactText} />
         </span>
         <Chip
           label={codeWords(entry.state)}

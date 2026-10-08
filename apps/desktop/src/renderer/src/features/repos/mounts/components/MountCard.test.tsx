@@ -17,6 +17,7 @@ import {
   buildMount,
   workspaceRow,
 } from "../repo-mounts.test-support.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */
 function withheldLine(container: HTMLElement): string | null {
@@ -55,9 +56,9 @@ describe("MountCard — the resolved root", () => {
     // same string also appears on the row beneath.
     const { container } = renderCard();
     const head = container.querySelector(".meridian-mount-card__head") as HTMLElement;
-    expect(head.querySelector(`[data-hover-label="${CANONICAL_ROOT}"]`)?.textContent).toBe(
-      CANONICAL_ROOT,
-    );
+    expect(
+      head.querySelector(`[${HOVER_LABEL_TEXT_ATTRIBUTE}="${CANONICAL_ROOT}"]`)?.textContent,
+    ).toBe(CANONICAL_ROOT);
   });
 });
 

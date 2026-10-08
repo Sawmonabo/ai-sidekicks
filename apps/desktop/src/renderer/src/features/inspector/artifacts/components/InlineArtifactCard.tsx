@@ -50,7 +50,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
             <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={codeWords(manifest.state)} />
             <WireFigure
               value={formatByteQuantity(manifest.size).text}
-              hoverLabel={String(manifest.size)}
+              hoverLabel={formatByteQuantity(manifest.size).exactText}
             />
           </div>
         </div>

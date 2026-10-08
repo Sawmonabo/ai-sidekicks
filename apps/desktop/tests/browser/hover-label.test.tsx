@@ -8,7 +8,8 @@
 // leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
 // the frame's label. The drawn label is hidden from assistive technology, which reads the words
 // once, from the control. Escape on a focused control puts its label away and nothing else: the
-// page never sees that press, and its default is canceled.
+// page never sees that press, and its default is canceled; once the control scrolls its label out
+// of view, Escape is the page's again.
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
@@ -209,6 +210,53 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Already restarting.");
   });
+});
+
+it("leaves Escape to the page once a focused control scrolls its label out of view", async () => {
+  let pageEscapes = 0;
+  const { getByRole, container } = render(
+    <div
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          pageEscapes += 1;
+        }
+      }}
+    >
+      <button type="button">Before</button>
+      <div className="probe-scroller" style={{ blockSize: "120px", overflow: "auto" }}>
+        <div style={{ paddingBlock: "48px" }}>
+          <HoverLabel text="Color scheme" textRole="name">
+            <button type="button">◐</button>
+          </HoverLabel>
+        </div>
+        <div style={{ blockSize: "600px" }} />
+      </div>
+      <WindowHoverLabel />
+    </div>,
+  );
+  const scroller = container.querySelector<HTMLElement>(".probe-scroller");
+  if (scroller === null) {
+    throw new Error("the scroller was not drawn");
+  }
+  act(() => {
+    getByRole("button", { name: "Before" }).focus();
+  });
+  await act(async () => {
+    await userEvent.tab();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Color scheme");
+  });
+  act(() => {
+    scroller.scrollTop = 400;
+  });
+  await waitFor(() => {
+    expect(document.querySelector("[data-anchor-hidden] > .meridian-hover-label")).not.toBeNull();
+  });
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
+  expect(pageEscapes, "a label out of view took the page's Escape").toBe(1);
 });
 
 it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {

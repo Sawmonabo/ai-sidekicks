@@ -47,6 +47,11 @@ export interface FormattedByteQuantity {
   readonly unit: ByteUnitLabel;
   /** `value` and `unit` joined with a non-breaking space. */
   readonly text: string;
+  /**
+   * The whole byte count as the wire sent it, for a hover label; `undefined` where `text` already
+   * shows it whole, in bytes, or shows no figure.
+   */
+  readonly exactText: string | undefined;
 }
 
 /** One member of a structured wire value, ready to render as a pair. */
@@ -71,7 +76,7 @@ export function clockLocaleFor(clock: MachineClock): string {
  */
 export function formatByteQuantity(byteCount: number, locale?: string): FormattedByteQuantity {
   if (!Number.isFinite(byteCount) || byteCount < 0) {
-    return { value: UNREADABLE_FIGURE, unit: "B", text: UNREADABLE_FIGURE };
+    return { value: UNREADABLE_FIGURE, unit: "B", text: UNREADABLE_FIGURE, exactText: undefined };
   }
   let scaled = byteCount;
   let unitIndex = 0;
@@ -89,7 +94,12 @@ export function formatByteQuantity(byteCount: number, locale?: string): Formatte
   );
   // A no-break space as an escape (the literal is invisible in diffs and banned by
   // `no-irregular-whitespace`) so a figure never wraps away from its unit.
-  return { value, unit, text: `${value}\u00A0${unit}` };
+  return {
+    value,
+    unit,
+    text: `${value}\u00A0${unit}`,
+    exactText: unitIndex === 0 ? undefined : String(byteCount),
+  };
 }
 
 /**

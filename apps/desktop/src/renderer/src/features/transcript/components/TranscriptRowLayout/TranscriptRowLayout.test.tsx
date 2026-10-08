@@ -14,6 +14,7 @@ import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { bridgeWrapper, liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 const OCCURRED_AT = "2026-09-01T13:04:05.123Z";
 
@@ -116,7 +117,7 @@ describe("TranscriptRowLayout — the time on the machine's own clock", () => {
     // The time, found by the zoned instant its hover label reads on `clock`.
     const timeOn = (clock: MachineClock): string | null =>
       container.querySelector(
-        `[data-hover-label="${formatZonedDateTime(occurredAtIso, clockLocaleFor(clock))}"]`,
+        `[${HOVER_LABEL_TEXT_ATTRIBUTE}="${formatZonedDateTime(occurredAtIso, clockLocaleFor(clock))}"]`,
       )?.textContent ?? null;
     expect(timeOn({ regionLocale: "en-US", hourCycle: "h12" })).toBe("2:20:05 PM");
 

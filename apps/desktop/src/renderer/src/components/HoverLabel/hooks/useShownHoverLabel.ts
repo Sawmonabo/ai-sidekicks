@@ -10,7 +10,8 @@
 // drops them drops the label. A label put away stays away until the pointer moves to another
 // trigger or off every trigger, or focus moves. Escape on a focused trigger whose label shows puts
 // the label away and does nothing else: the press reaches no other handler and its default is
-// canceled, so the control's own Escape waits for the next press.
+// canceled, so the control's own Escape waits for the next press. A label hidden because its
+// trigger scrolled out of view takes no Escape.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -101,7 +102,9 @@ export function useShownHoverLabel(
       if (
         event.key === "Escape" &&
         focusTrigger !== undefined &&
-        shownOf(tracked)?.anchor === focusTrigger
+        shownOf(tracked)?.anchor === focusTrigger &&
+        // A trigger scrolled out of view hides its label, so the key is the page's.
+        labelBoxRef.current?.hasAttribute("data-anchor-hidden") !== true
       ) {
         event.preventDefault();
         event.stopPropagation();

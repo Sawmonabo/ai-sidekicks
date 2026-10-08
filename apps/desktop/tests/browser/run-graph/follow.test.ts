@@ -123,26 +123,41 @@ describe("browser — the run graph's follow of the live step", () => {
     expect(viewportTransform(container)).not.toBe(scrolledTransform);
   });
 
-  it("stops when keyboard focus lands on the graph, and holds as the run moves on", async () => {
+  it("stops when keyboard focus lands on a node, not on the canvas's link, and holds", async () => {
     await emulateReducedMotion();
     const { container, showSteps } = await mountRunGraph(RUNNING);
-    const node = container.querySelector<HTMLElement>(".react-flow__node");
-    if (node === null) {
-      throw new Error("the graph drew no node");
+    const link = container.querySelector<HTMLElement>(".react-flow__attribution a");
+    if (link === null) {
+      throw new Error("the graph drew no attribution link");
     }
-    // A key first, away from the canvas, so focus put on the node from code is keyboard focus
-    // and no key reaches the canvas, as Tab from before the canvas lands.
+    // A key first, away from the canvas, so focus put from code is keyboard focus and no key
+    // reaches the canvas, as Tab from before the canvas lands.
     await act(async () => {
       await userEvent.keyboard("{Shift}");
     });
     act(() => {
-      node.focus();
+      link.focus();
     });
-    const focusedTransform = viewportTransform(container);
-
+    const linkTransform = viewportTransform(container);
     await showSteps(stepsOneOn(RUNNING.run.steps));
-    expect(viewportTransform(container), "the view followed the run off the focused node").toBe(
-      focusedTransform,
+    expect(viewportTransform(container), "focus on the link stopped the follow").not.toBe(
+      linkTransform,
     );
+
+    // A second graph, its run not yet moved on, for focus on a node.
+    const second = await mountRunGraph(RUNNING);
+    const secondNode = second.container.querySelector<HTMLElement>(".react-flow__node");
+    if (secondNode === null) {
+      throw new Error("the second graph drew no node");
+    }
+    act(() => {
+      secondNode.focus();
+    });
+    const focusedTransform = viewportTransform(second.container);
+    await second.showSteps(stepsOneOn(RUNNING.run.steps));
+    expect(
+      viewportTransform(second.container),
+      "the view followed the run off the focused node",
+    ).toBe(focusedTransform);
   });
 });

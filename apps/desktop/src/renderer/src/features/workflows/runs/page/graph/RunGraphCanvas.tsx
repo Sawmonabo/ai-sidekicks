@@ -175,12 +175,17 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
 
   // A node or an edge's count reached by keyboard is brought into view, which the library does
   // only with its own keys on, and the follow stops, so the next live step never pulls the view
-  // off it; Tab from outside the canvas lands here with no key on the canvas. Shift+Tab back into
-  // the walk lands on the browser's last node, so focus moves on to the walk's last stop, the last
-  // count leaving that node where it has one; focus code returns to that node stays on it.
+  // off it; focus on the canvas's own controls or links leaves the follow running. Tab from
+  // outside the canvas lands here with no key on the canvas. Shift+Tab back into the walk lands
+  // on the browser's last node, so focus moves on to the walk's last stop, the last count leaving
+  // that node where it has one; focus code returns to that node stays on it.
   const revealFocusedElement = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
-      if (isHandingOffRef.current || !event.target.matches(":focus-visible")) {
+      if (
+        isHandingOffRef.current ||
+        !event.target.matches(":focus-visible") ||
+        graphStopOf(event.target) === undefined
+      ) {
         return;
       }
       stopFollowing();
