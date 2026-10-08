@@ -23,6 +23,7 @@ import {
   type StoredWorkflowStep,
 } from "./record.js";
 import { WorkflowNotFoundError } from "../not-found.js";
+import { InvalidCursorError } from "./invalid-cursor.js";
 import { spentAccountColumns } from "./spent-account.js";
 
 /**
@@ -196,7 +197,7 @@ export class WorkflowRunStore {
 
   /**
    * One page of the runs the request's filters match, newest first, after the run its cursor
-   * names. Throws when the cursor is not one this store wrote.
+   * names. Throws {@link InvalidCursorError} when the cursor is not one this store wrote.
    */
   list(request: WorkflowRunListPageRequest): StoredWorkflowRunListPage {
     const after = request.cursor === undefined ? undefined : readListCursor(request.cursor);
@@ -253,7 +254,7 @@ function chainRootFromColumns(columns: ChainRootColumns): StoredWorkflowChainRoo
 function readListCursor(cursor: string): { createdAt: string; workflowRunId: string } {
   const match = LIST_CURSOR_PATTERN.exec(cursor);
   if (match?.[1] === undefined || match[2] === undefined) {
-    throw new Error(`"${cursor}" is not a runs-list cursor`);
+    throw new InvalidCursorError(`"${cursor}" is not a runs-list cursor`);
   }
   return { createdAt: match[1], workflowRunId: match[2] };
 }

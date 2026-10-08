@@ -16,13 +16,11 @@ import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { WorkflowNotFoundError } from "../not-found.js";
+import { liveDefinitionStatement } from "./library.js";
 
 // The key of the new workflow's draft, which names no definition.
 const NEW_WORKFLOW_DRAFT_KEY = "";
 
-// Returns one row only while the workflow is in the library, so a draft never outlives it.
-const LIVE_DEFINITION_SQL =
-  "SELECT 1 FROM workflow_definitions WHERE id = ? AND deleted_at IS NULL";
 const UPSERT_DRAFT_SQL = `INSERT INTO workflow_drafts
     (definition_id, based_on_version_number, document_json, updated_at)
   VALUES (?, ?, ?, ?)
@@ -110,7 +108,7 @@ export class WorkflowDraftStore {
     // The library check and the upsert are one write, so a delete cannot land between them.
     try {
       await this.#writer.write([
-        { sql: LIVE_DEFINITION_SQL, bindings: [definitionId], expectedRowCount: 1 },
+        liveDefinitionStatement(definitionId),
         {
           sql: UPSERT_DRAFT_SQL,
           bindings: [definitionId, request.basedOnVersionNumber ?? null, documentJson, updatedAt],

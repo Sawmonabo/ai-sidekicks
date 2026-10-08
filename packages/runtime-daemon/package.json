@@ -43,7 +43,7 @@
     "@modelcontextprotocol/sdk": "1.32.0",
     "@modelcontextprotocol/server": "2.3.0",
     "@napi-rs/keyring": "2.1.0",
-    "@noble/hashes": "2.4.0",
+    "@noble/hashes": "catalog:",
     "better-sqlite3": "13.0.3",
     "bun": "1.4.2",
     "canonicalize": "5.1.0",

@@ -1,12 +1,13 @@
 // The workflow tables of the daemon's one schema, appended to it in `session/daemon-schema.ts`.
 //
-// Three kinds of row live here. The versions and the gate answers are truth that never changes
-// once written; a definition's row holds the current document and the settings outside its hash.
-// The runs, the form drafts and the steps are projections the
-// event log can rebuild, except a waiting step's `wait_deadline_at`. The triggers, webhook
-// tokens, node state, secrets and builder drafts are truth that changes: no event history can
-// say what this machine is armed to do next or which secrets it holds, so the row is the truth
-// and any in-process timer is a cache over it, re-armed from the row at start.
+// The versions and the gate answers never change once written. A definition's row is current
+// state that changes in place: its settings outside the hash, and its current body on a save.
+// The runs and the steps are projections the event log can rebuild, except a waiting step's
+// `wait_deadline_at`. The triggers, webhook tokens, node state and secrets are
+// truth that changes: no event history can say what this machine is armed to do next or which
+// secrets it holds, so the row is the truth and any in-process timer is a cache over it, re-armed
+// from the row at start. The form drafts and the builder drafts are durable state with no timer:
+// what the person has typed but not sent is in no event, so the row holds it.
 
 /** The SQL of every workflow table and index, run as part of the daemon schema's one script. */
 export const WORKFLOW_SCHEMA_SQL: string = `
@@ -66,8 +67,11 @@ CREATE TABLE workflow_versions (
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version 1
   parent_content_hash  TEXT,                         -- NULL at version 1
   content_hash         TEXT NOT NULL,
-  -- JSON: this version's whole canonical document, the preimage of content_hash,
-  -- so a read or an export reproduces its bytes.
+  -- The version's own schemaVersion, verbatim; the body holds only the hashed members.
+  schema_version       TEXT NOT NULL
+                       CHECK(schema_version GLOB '[0-9]*'),
+  -- JSON: this version's canonical hashed body, the preimage of content_hash, so a
+  -- read or an export reproduces its bytes.
   definition_body      TEXT NOT NULL,
   -- JSON: this version's layout, outside the hash, so an export of any version
   -- reproduces the file it was written as.
@@ -114,8 +118,11 @@ CREATE TABLE workflow_runs (
                               'sub-workflow'
                             )),
   -- JSON: which trigger node started the run and with what.
-  trigger_json              TEXT NOT NULL DEFAULT '{}',
-  started_by                TEXT NOT NULL,
+  trigger_json              TEXT NOT NULL DEFAULT '{}'
+                            CHECK(json_valid(trigger_json)),
+  -- JSON: who or what started the run.
+  started_by                TEXT NOT NULL
+                            CHECK(json_valid(started_by)),
   started_at                TEXT,                    -- NULL while the run is new
   finished_at               TEXT,
   -- JSON: the run's typed error; NULL unless it failed, was canceled or crashed.
@@ -151,8 +158,8 @@ CREATE INDEX idx_workflow_runs_created ON workflow_runs(created_at, id);
 -- workflow_gate_resolutions: every answer to an approval node or a chain's
 -- question, append-only.
 -- ---------------------------------------------------------------------------
--- The writer only inserts. Each row's id is the gateResolutionId the session's
--- workflow.gate_resolved event carries.
+-- Rows are never updated; they are removed only with their run. Each row's id is
+-- the gateResolutionId the session's workflow.gate_resolved event carries.
 CREATE TABLE workflow_gate_resolutions (
   id                         TEXT PRIMARY KEY,
   workflow_run_id            TEXT NOT NULL REFERENCES workflow_runs(id),
@@ -215,7 +222,7 @@ CREATE TABLE workflow_steps (
   workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id           TEXT NOT NULL,                 -- the node in the pinned version
   attempt           INTEGER NOT NULL,              -- from 1; a retry of the node at one point
-  -- Per run, monotonic: what happened when, whatever the graph's shape.
+  -- Per run, a total order: what happened when, whatever the graph's shape.
   execution_index   INTEGER NOT NULL,
   -- JSON array, one entry per input slot: the edge that fed it and which run of
   -- the source produced it, or null where nothing fed it.
@@ -241,6 +248,9 @@ CREATE TABLE workflow_steps (
   wait_account_id   TEXT,
   -- When a step waiting on a person gives up; set only where its Timeout is.
   wait_deadline_at  TEXT,
+  -- When the step started waiting; set exactly while it waits. The attention list's
+  -- waiting-since and its oldest-first order read it.
+  wait_started_at   TEXT,
   started_at        TEXT NOT NULL,
   finished_at       TEXT,                          -- NULL until the step settles
   -- JSON payload refs: inline items under the 64 KiB bound, an artifact
@@ -264,11 +274,13 @@ CREATE TABLE workflow_steps (
                       OR (json_valid(advisories_json) AND json_type(advisories_json) = 'array')),
   -- The whole step key; it also serves a lookup by run and node.
   PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),
+  UNIQUE(workflow_run_id, execution_index),
   -- A cost always names the account that paid it.
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),
   CHECK((status = 'waiting') = (wait_cause IS NOT NULL)),
   -- The live wait state clears in the same statement that moves the step out of
   -- 'waiting'.
+  CHECK((status = 'waiting') = (wait_started_at IS NOT NULL)),
   CHECK(status = 'waiting'
     OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
   CHECK(wait_cause = 'account' OR (resume_at IS NULL AND wait_account_id IS NULL)),
@@ -338,8 +350,9 @@ CREATE TABLE workflow_node_state (
 -- ---------------------------------------------------------------------------
 -- workflow_secrets: one row per workflow secret, never its value.
 -- ---------------------------------------------------------------------------
--- The value is kept in the operating system's credential store. A step
--- parameter stores only secret://<scope>/<name>, resolved when the step runs.
+-- The value lives in the operating system's credential store, or in the daemon's
+-- secrets.json items file where that store cannot be used. A step parameter
+-- stores only secret://<scope>/<name>, resolved when the step runs.
 CREATE TABLE workflow_secrets (
   id                TEXT PRIMARY KEY,
   scope             TEXT NOT NULL
@@ -352,6 +365,9 @@ CREATE TABLE workflow_secrets (
                       AND name NOT GLOB '*[^a-z0-9-]*'),
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,                 -- the last value replacement
+  -- NULL until a delete starts: the delete records its intent here, removes the
+  -- stored value, then the row.
+  removal_requested_at TEXT,
   CHECK((scope = 'shared') = (scope_ref = '')),
   UNIQUE(scope, scope_ref, name)
 ) STRICT;

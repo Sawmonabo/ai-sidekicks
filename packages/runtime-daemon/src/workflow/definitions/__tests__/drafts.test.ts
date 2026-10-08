@@ -24,12 +24,12 @@ describe("WorkflowDraftStore", () => {
   it("keeps each draft apart until its own save clears it", async () => {
     const { store, drafts } = fixture;
     const first = await store.create({ document: buildWorkflowDocument("First") }, BUILDER_AUTHOR, {
-      savesNewWorkflowDraft: false,
+      isFromNewWorkflowDraft: false,
     });
     const second = await store.create(
       { document: buildWorkflowDocument("Second") },
       BUILDER_AUTHOR,
-      { savesNewWorkflowDraft: false },
+      { isFromNewWorkflowDraft: false },
     );
     const firstDraft = buildWorkflowDocument("First edited", "first-draft.md");
     const secondDraft = buildWorkflowDocument("Second edited", "second-draft.md");
@@ -75,7 +75,7 @@ describe("WorkflowDraftStore", () => {
     expect(drafts.read().draft).not.toBeNull();
 
     await store.create({ document: buildWorkflowDocument("Brand new") }, BUILDER_AUTHOR, {
-      savesNewWorkflowDraft: true,
+      isFromNewWorkflowDraft: true,
     });
     expect(drafts.read().draft).toBeNull();
     expect(drafts.read(second.definitionId).draft).not.toBeNull();

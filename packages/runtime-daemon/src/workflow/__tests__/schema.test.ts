@@ -1,9 +1,10 @@
 // The workflow tables' guards against stored data going wrong: each tier refuses a value of the
 // wrong storage class, a run's and a step's status and a step's wait state hold only what their
-// CHECKs allow, a chain's count sits on its first run alone, one definition never stores the same
-// bytes twice, a live workflow's name is taken once ignoring case, and a secret's row has nowhere
-// to put its value. Statuses and causes are read from the contracts' lists, so a member added
-// there fails here until the CHECK admits it.
+// CHECKs allow, a step's wait start is set exactly while it waits, one run never orders two steps
+// at one execution index, a chain's count sits on its first run alone, one definition never stores
+// the same bytes twice, a live workflow's name is taken once ignoring case, and a secret's row has
+// nowhere to put its value. Statuses and causes are read from the contracts' lists, so a member
+// added there fails here until the CHECK admits it.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,7 +16,7 @@ import {
   WORKFLOW_WAIT_CAUSES,
 } from "@ai-sidekicks/contracts/workflow/run/status";
 
-import { openDatabase } from "../migration-runner.js";
+import { openDatabase } from "../../session/migration-runner.js";
 
 const TIMESTAMP = "2026-10-07T00:00:00.000Z";
 const CHECK_FAILURE = /CHECK constraint failed/;
@@ -51,8 +52,9 @@ describe("workflow tables", () => {
   }): void {
     db.prepare(
       `INSERT INTO workflow_versions
-         (id, definition_id, version_number, content_hash, definition_body, created_at)
-       VALUES (?, ?, ?, ?, '{}', ?)`,
+         (id, definition_id, version_number, content_hash, schema_version, definition_body,
+          created_at)
+       VALUES (?, ?, ?, ?, '2', '{}', ?)`,
     ).run(
       columns.id,
       columns.definitionId,
@@ -74,7 +76,7 @@ describe("workflow tables", () => {
       `INSERT INTO workflow_runs
          (id, workflow_version_id, session_id, status, mode, started_by, chain_root_run_id,
           chain_run_count, chain_kept_going, created_at)
-       VALUES (?, 'version-1', 'session-1', ?, 'manual', 'user', ?, ?, ?, ?)`,
+       VALUES (?, 'version-1', 'session-1', ?, 'manual', '{"kind":"schedule"}', ?, ?, ?, ?)`,
     ).run(
       columns.id,
       columns.status ?? "new",
@@ -85,6 +87,7 @@ describe("workflow tables", () => {
     );
   }
 
+  // A waiting step's wait start defaults to its start; any other step's to none.
   function insertStep(columns: {
     executionIndex: number;
     attempt?: unknown;
@@ -93,12 +96,15 @@ describe("workflow tables", () => {
     resumeAt?: string | null;
     waitAccountId?: string | null;
     waitDeadlineAt?: string | null;
+    waitStartedAt?: string | null;
   }): void {
+    const defaultWaitStartedAt = columns.status === "waiting" ? TIMESTAMP : null;
     db.prepare(
       `INSERT INTO workflow_steps
          (workflow_run_id, node_id, attempt, execution_index, status, wait_cause, resume_at,
-          wait_account_id, wait_deadline_at, started_at, input_ref, output_ref, log_ref)
-       VALUES ('run-1', 'node-1', ?, ?, ?, ?, ?, ?, ?, ?, '{}', '{}', '{}')`,
+          wait_account_id, wait_deadline_at, wait_started_at, started_at, input_ref, output_ref,
+          log_ref)
+       VALUES ('run-1', 'node-1', ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', '{}', '{}')`,
     ).run(
       columns.attempt ?? 1,
       columns.executionIndex,
@@ -107,6 +113,7 @@ describe("workflow tables", () => {
       columns.resumeAt ?? null,
       columns.waitAccountId ?? null,
       columns.waitDeadlineAt ?? null,
+      columns.waitStartedAt === undefined ? defaultWaitStartedAt : columns.waitStartedAt,
       TIMESTAMP,
     );
   }
@@ -161,6 +168,29 @@ describe("workflow tables", () => {
     expect(() => {
       insertStep({ executionIndex: 100, status: "waiting-memory", waitCause: "account" });
     }).toThrow(CHECK_FAILURE);
+    // A wait start without a wait, or a wait without its start.
+    expect(() => {
+      insertStep({ executionIndex: 100, status: "running", waitStartedAt: TIMESTAMP });
+    }).toThrow(CHECK_FAILURE);
+    expect(() => {
+      insertStep({
+        executionIndex: 100,
+        status: "waiting",
+        waitCause: "approval",
+        waitStartedAt: null,
+      });
+    }).toThrow(CHECK_FAILURE);
+  });
+
+  it("orders one run's steps at distinct execution indexes", () => {
+    seedRun();
+    insertStep({ executionIndex: 1, status: "succeeded" });
+    // Another attempt is another step key, so only the run's order can refuse it.
+    expect(() => {
+      insertStep({ executionIndex: 1, attempt: 2, status: "running" });
+    }).toThrow(
+      /UNIQUE constraint failed: workflow_steps\.workflow_run_id, workflow_steps\.execution_index/,
+    );
   });
 
   it("refuses a move out of waiting that leaves a live wait column set", () => {
@@ -178,14 +208,15 @@ describe("workflow tables", () => {
       waitCause: "approval",
       waitDeadlineAt: TIMESTAMP,
     });
-    // Each refused update clears the cause, so only the live-column CHECK can refuse it.
+    // Each refused update clears the cause, so only a live-column CHECK can refuse it.
     const leaveOneSet = [
       { executionIndex: 1, kept: "resume_at" },
       { executionIndex: 1, kept: "wait_account_id" },
       { executionIndex: 2, kept: "wait_deadline_at" },
+      { executionIndex: 2, kept: "wait_started_at" },
     ] as const;
     for (const { executionIndex, kept } of leaveOneSet) {
-      const cleared = ["resume_at", "wait_account_id", "wait_deadline_at"]
+      const cleared = ["resume_at", "wait_account_id", "wait_deadline_at", "wait_started_at"]
         .filter((column) => column !== kept)
         .map((column) => `${column} = NULL`)
         .join(", ");
@@ -199,7 +230,7 @@ describe("workflow tables", () => {
     const settled = db
       .prepare(
         `UPDATE workflow_steps SET status = 'succeeded', wait_cause = NULL, resume_at = NULL,
-           wait_account_id = NULL, wait_deadline_at = NULL
+           wait_account_id = NULL, wait_deadline_at = NULL, wait_started_at = NULL
          WHERE workflow_run_id = 'run-1'`,
       )
       .run();
@@ -275,6 +306,7 @@ describe("workflow tables", () => {
       "name",
       "created_at",
       "updated_at",
+      "removal_requested_at",
     ]);
   });
 });

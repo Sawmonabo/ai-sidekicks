@@ -26,6 +26,8 @@ export interface SpentAccountColumns {
 /**
  * The select-list that reads {@link SpentAccountColumns} from the `provider_accounts` row joined
  * under `accountAlias`.
+ *
+ * @consumedBy the run read and runs list handlers
  */
 export function spentAccountColumns(accountAlias: string): string {
   return [

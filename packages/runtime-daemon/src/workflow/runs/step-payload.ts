@@ -12,6 +12,7 @@ import type {
 
 import type { DatabaseConnections } from "../../database/connections.js";
 import { WorkflowNotFoundError } from "../not-found.js";
+import { InvalidCursorError } from "./invalid-cursor.js";
 
 interface PayloadRow {
   readonly node_id: string;
@@ -43,7 +44,8 @@ export class WorkflowStepPayloadReader {
    * The request's payload of the step it names. An inline payload is paged from the cursor's item,
    * `limit` items at a time or the rest when no limit is given, with a cursor while items remain;
    * an artifact payload is its reference, whole. Throws `workflow.not_found` for a step that is
-   * not stored, and throws for a cursor past the payload's end or not one this reader wrote.
+   * not stored, and {@link InvalidCursorError} for a cursor past the payload's end or not one this
+   * reader wrote.
    */
   read(request: WorkflowStepReadRequest): WorkflowStepReadResponse {
     const row = this.#readPayload.get({
@@ -66,7 +68,7 @@ export class WorkflowStepPayloadReader {
     }
     const start = request.cursor === undefined ? 0 : readItemCursor(request.cursor);
     if (start > payload.items.length) {
-      throw new Error(
+      throw new InvalidCursorError(
         `Cursor ${String(start)} is past the payload's ${String(payload.items.length)} items`,
       );
     }
@@ -84,7 +86,7 @@ export class WorkflowStepPayloadReader {
 
 function readItemCursor(cursor: string): number {
   if (!ITEM_CURSOR_PATTERN.test(cursor)) {
-    throw new Error(`"${cursor}" is not a step payload cursor`);
+    throw new InvalidCursorError(`"${cursor}" is not a step payload cursor`);
   }
   return Number(cursor);
 }

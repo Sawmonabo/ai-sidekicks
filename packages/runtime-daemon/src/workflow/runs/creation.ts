@@ -109,7 +109,6 @@ export function workflowRunCreationStatements(creation: WorkflowRunCreation): Wr
         chainKeptGoing: startsChain ? 0 : null,
         createdAt,
       },
-      expectedRowCount: 1,
     },
   ];
   if (creation.chain.kind === "joins") {
@@ -134,7 +133,6 @@ export function workflowRunCreationStatements(creation: WorkflowRunCreation): Wr
         branchContextId: context.branchContextId,
         createdAt,
       },
-      expectedRowCount: 1,
     });
   }
   return statements;

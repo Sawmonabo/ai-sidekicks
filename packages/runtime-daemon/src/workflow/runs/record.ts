@@ -10,10 +10,11 @@ import type {
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowChainRoot, WorkflowRun } from "@ai-sidekicks/contracts/workflow/run/records";
-import type {
-  WorkflowRunStatus,
-  WorkflowStepStatus,
-  WorkflowWaitCause,
+import {
+  GOING_RUN_STATUSES,
+  type WorkflowRunStatus,
+  type WorkflowStepStatus,
+  type WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
 import type {
   WorkflowPayloadRef,
@@ -32,6 +33,8 @@ import { spentAccountFromColumns, type SpentAccountColumns } from "./spent-accou
 /**
  * One run as its row stores it. `startedAt` is absent while the run is `new`, and `finishedAt`
  * once present is when the run ended; `error` says why a failed, canceled or crashed run ended.
+ *
+ * @consumedBy the run read and runs list handlers
  */
 export type StoredWorkflowRun = Pick<
   WorkflowRun,
@@ -53,6 +56,8 @@ export type StoredWorkflowRun = Pick<
 /**
  * One step as its row stores it. The wait members are present only while the step is `waiting`,
  * because the table clears them in the statement that moves a step out of `waiting`.
+ *
+ * @consumedBy the run read and runs list handlers
  */
 export type StoredWorkflowStep = Pick<
   WorkflowStep,
@@ -83,10 +88,26 @@ export type StoredWorkflowStep = Pick<
 /**
  * The first run of a run's chain, as the rows hold it: its start is absent while it is still
  * `new`, which only a first run reading itself can see.
+ *
+ * @consumedBy the run read and runs list handlers
  */
 export type StoredWorkflowChainRoot = Omit<WorkflowChainRoot, "startedAt"> & {
   startedAt?: string | undefined;
 };
+
+/**
+ * The statuses of a run still going, as a SQL list for `status IN (...)`. Written out rather than
+ * bound, so a read can use the runs table's partial index over the same statuses.
+ */
+export const GOING_RUN_STATUSES_SQL: string = GOING_RUN_STATUSES.map(
+  (status) => `'${status}'`,
+).join(", ");
+
+/**
+ * The SQL condition on `workflow_runs AS run` that holds for a failed run still parked on its
+ * failed step, waiting on Resume: it has not ended, so it can still be resumed or canceled.
+ */
+export const PARKED_FAILED_RUN_CONDITION = "(run.status = 'failed' AND run.finished_at IS NULL)";
 
 /**
  * `instant` in the `toISOString` form every run and step instant is stored in, so the two compare
@@ -96,7 +117,11 @@ export function storedInstant(instant: string): string {
   return new Date(instant).toISOString();
 }
 
-/** The run's columns every run read selects, as {@link RUN_COLUMNS} names them. */
+/**
+ * The run's columns every run read selects, as {@link RUN_COLUMNS} names them.
+ *
+ * @consumedBy the run read and runs list handlers
+ */
 export interface RunColumns {
   readonly run_id: string;
   readonly session_id: string;
@@ -116,13 +141,19 @@ export interface RunColumns {
 /**
  * The select-list that reads {@link RunColumns} from `workflow_runs AS run` joined to its pinned
  * `workflow_versions AS version`.
+ *
+ * @consumedBy the run read and runs list handlers
  */
 export const RUN_COLUMNS = `run.id AS run_id, run.session_id, version.definition_id,
   run.workflow_version_id, run.status, run.mode,
   json_extract(run.trigger_json, '$.kind') AS trigger_kind, run.started_by, run.started_at,
   run.finished_at, run.error_json, run.kept, run.created_at`;
 
-/** The run its columns describe. */
+/**
+ * The run its columns describe.
+ *
+ * @consumedBy the run read and runs list handlers
+ */
 export function storedRunFromColumns(columns: RunColumns): StoredWorkflowRun {
   // Every JSON column here was written by this store from a typed value, so it is read back as one.
   return {
@@ -144,7 +175,11 @@ export function storedRunFromColumns(columns: RunColumns): StoredWorkflowRun {
   };
 }
 
-/** A step's columns, as {@link STEP_COLUMNS} names them, with its spent account's. */
+/**
+ * A step's columns, as {@link STEP_COLUMNS} names them, with its spent account's.
+ *
+ * @consumedBy the run read and runs list handlers
+ */
 export interface StepColumns extends SpentAccountColumns {
   readonly step_node_id: string;
   readonly step_attempt: number;
@@ -166,7 +201,11 @@ export interface StepColumns extends SpentAccountColumns {
   readonly step_advisories_json: string | null;
 }
 
-/** The select-list that reads {@link StepColumns}'s own columns from `workflow_steps AS step`. */
+/**
+ * The select-list that reads {@link StepColumns}'s own columns from `workflow_steps AS step`.
+ *
+ * @consumedBy the run read and runs list handlers
+ */
 export const STEP_COLUMNS = `step.node_id AS step_node_id, step.attempt AS step_attempt,
   step.execution_index AS step_execution_index, step.source_json AS step_source_json,
   step.status AS step_status, step.wait_cause AS step_wait_cause,
@@ -177,7 +216,11 @@ export const STEP_COLUMNS = `step.node_id AS step_node_id, step.attempt AS step_
   step.cost_usd_micros AS step_cost_usd_micros, step.cost_account_id AS step_cost_account_id,
   step.error_json AS step_error_json, step.advisories_json AS step_advisories_json`;
 
-/** The step its columns describe, in the run `workflowRunId`. */
+/**
+ * The step its columns describe, in the run `workflowRunId`.
+ *
+ * @consumedBy the run read and runs list handlers
+ */
 export function storedStepFromColumns(
   workflowRunId: WorkflowRunId,
   columns: StepColumns,

@@ -52,27 +52,30 @@ const INSERT_DEFINITION_SQL = `INSERT INTO workflow_definitions (
     @pin_data_json, @tags, @created_at, @created_by, @created_at
   )`;
 const INSERT_FIRST_VERSION_SQL = `INSERT INTO workflow_versions (
-    id, definition_id, version_number, content_hash, definition_body, layout_json, created_at,
-    created_by, saved_by_agent_id
+    id, definition_id, version_number, content_hash, schema_version, definition_body, layout_json,
+    created_at, created_by, saved_by_agent_id
   ) VALUES (
-    @id, @definition_id, 1, @content_hash, @definition_body, @layout_json, @created_at,
-    @created_by, @saved_by_agent_id
+    @id, @definition_id, 1, @content_hash, @schema_version, @definition_body, @layout_json,
+    @created_at, @created_by, @saved_by_agent_id
   )`;
 // Matches only while the expected version is still the latest, so the staleness check and the
-// save are one write and no second save can slip a version in between.
+// save are one write and no second save can slip a version in between. A layout, tags or pinned
+// data the document leaves out keeps what the definition holds; pinned data with no node clears it.
 const UPDATE_CURRENT_BODY_SQL = `UPDATE workflow_definitions SET
     name = @name, name_folded = @name_folded, content_hash = @content_hash,
     schema_version = @schema_version, definition_body = @definition_body,
+    layout_json = COALESCE(@layout_json, layout_json), tags = COALESCE(@tags, tags),
+    pin_data_json = CASE WHEN @carries_pin_data THEN @pin_data_json ELSE pin_data_json END,
     updated_at = @updated_at
   WHERE id = @id AND deleted_at IS NULL
     AND (SELECT MAX(version_number) FROM workflow_versions WHERE definition_id = @id)
       = @expected_version_number`;
 const INSERT_NEXT_VERSION_SQL = `INSERT INTO workflow_versions (
     id, definition_id, version_number, parent_version_id, parent_content_hash, content_hash,
-    definition_body, layout_json, created_at, created_by, saved_by_agent_id
+    schema_version, definition_body, layout_json, created_at, created_by, saved_by_agent_id
   )
   SELECT @id, definition_id, version_number + 1, id, content_hash, @content_hash,
-    @definition_body, @layout_json, @created_at, @created_by, @saved_by_agent_id
+    @schema_version, @definition_body, @layout_json, @created_at, @created_by, @saved_by_agent_id
   FROM workflow_versions
   WHERE definition_id = @definition_id AND version_number = @expected_version_number`;
 const LATEST_VERSION_SQL = `SELECT deleted_at,
@@ -114,7 +117,7 @@ export interface WorkflowSaveAuthor {
 /** What a create does beside writing the workflow. */
 export interface WorkflowCreateOptions {
   /** True when the builder saves the new workflow's draft, which the save then clears. */
-  readonly savesNewWorkflowDraft: boolean;
+  readonly isFromNewWorkflowDraft: boolean;
 }
 
 interface LatestVersionRow {
@@ -175,7 +178,7 @@ export class WorkflowDefinitionStore {
           schema_version: document.schemaVersion,
           definition_body: canonicalBody,
           layout_json: layoutJson,
-          pin_data_json: document.pinData === undefined ? null : JSON.stringify(document.pinData),
+          pin_data_json: storedPinDataJson(document.pinData),
           tags: JSON.stringify(document.tags ?? []),
           created_at: createdAt,
           created_by: author.deviceId,
@@ -187,6 +190,7 @@ export class WorkflowDefinitionStore {
           id: workflowVersionId,
           definition_id: definitionId,
           content_hash: contentHash,
+          schema_version: document.schemaVersion,
           definition_body: canonicalBody,
           layout_json: layoutJson,
           created_at: createdAt,
@@ -195,7 +199,7 @@ export class WorkflowDefinitionStore {
         },
       },
     ];
-    if (options.savesNewWorkflowDraft) {
+    if (options.isFromNewWorkflowDraft) {
       statements.push(clearWorkflowDraftStatement());
     }
     try {
@@ -211,22 +215,26 @@ export class WorkflowDefinitionStore {
   /**
    * Creates a copy of a workflow's latest document under the first free `<name> copy` name. The
    * copy starts with no kept values and leaves every draft alone. Rejects as {@link create} does,
-   * and with {@link WorkflowNotFoundError} for a workflow never created.
+   * and with {@link WorkflowNotFoundError} for a workflow not in the library.
    */
   async duplicate(
     sourceDefinitionId: WorkflowDefinitionId,
     author: WorkflowSaveAuthor,
   ): Promise<WorkflowDefinitionCreateResponse> {
-    const { document } = this.#library.read({ definitionId: sourceDefinitionId });
+    const { document, deletedAt } = this.#library.read({ definitionId: sourceDefinitionId });
+    if (deletedAt !== undefined) {
+      throw new WorkflowNotFoundError({ definitionId: sourceDefinitionId });
+    }
     const name = this.#library.firstFreeDuplicateName(document.name);
     return this.create({ document: { ...document, name } }, author, {
-      savesNewWorkflowDraft: false,
+      isFromNewWorkflowDraft: false,
     });
   }
 
   /**
    * Saves the document as the workflow's next version, only while `expectedVersionNumber` is still
-   * its latest, and clears the workflow's draft in the same write. Rejects with
+   * its latest, stores the layout, tags and pinned data it carries on the workflow, and clears the
+   * workflow's draft in the same write. Rejects with
    * {@link WorkflowVersionStaleError} when it is not, {@link WorkflowDefinitionRefusedError} for
    * findings or a held name, and {@link WorkflowNotFoundError} for a workflow not in the library;
    * a refused save writes no row.
@@ -240,6 +248,7 @@ export class WorkflowDefinitionStore {
     const { canonicalBody, contentHash } = hashWorkflowDocument(document);
     const workflowVersionId = mintUuidV7();
     const createdAt = this.#now().toISOString();
+    const layoutJson = document.layout === undefined ? null : JSON.stringify(document.layout);
     try {
       await this.#writer.write([
         nameHolderStatement(foldName(document.name), definitionId),
@@ -252,6 +261,10 @@ export class WorkflowDefinitionStore {
             content_hash: contentHash,
             schema_version: document.schemaVersion,
             definition_body: canonicalBody,
+            layout_json: layoutJson,
+            tags: document.tags === undefined ? null : JSON.stringify(document.tags),
+            carries_pin_data: document.pinData === undefined ? 0 : 1,
+            pin_data_json: storedPinDataJson(document.pinData),
             updated_at: createdAt,
             expected_version_number: expectedVersionNumber,
           },
@@ -263,8 +276,9 @@ export class WorkflowDefinitionStore {
             id: workflowVersionId,
             definition_id: definitionId,
             content_hash: contentHash,
+            schema_version: document.schemaVersion,
             definition_body: canonicalBody,
-            layout_json: document.layout === undefined ? null : JSON.stringify(document.layout),
+            layout_json: layoutJson,
             created_at: createdAt,
             created_by: author.deviceId,
             saved_by_agent_id: author.agentId ?? null,
@@ -408,4 +422,11 @@ export class WorkflowDefinitionStore {
       row.latest_version_number,
     );
   }
+}
+
+// Pinned data with no node is stored as nothing pinned, as unpinning the last node leaves it.
+function storedPinDataJson(pinData: WorkflowDocument["pinData"]): string | null {
+  return pinData === undefined || Object.keys(pinData).length === 0
+    ? null
+    : JSON.stringify(pinData);
 }

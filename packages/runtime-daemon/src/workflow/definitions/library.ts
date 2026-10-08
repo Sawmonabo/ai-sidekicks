@@ -26,6 +26,8 @@ import { readStoredWorkflowDocument } from "./stored-document.js";
 const NO_DEFINITION_EXCLUDED = "";
 const NAME_HOLDER_SQL = `SELECT id FROM workflow_definitions
   WHERE name_folded = ? AND deleted_at IS NULL AND id <> ? LIMIT 1`;
+const LIVE_DEFINITION_SQL =
+  "SELECT 1 FROM workflow_definitions WHERE id = ? AND deleted_at IS NULL";
 
 // One statement, so the definition, its version and its token are read from one snapshot. The
 // layout a read serves is the definition's own at the latest version and the snapshot otherwise.
@@ -33,7 +35,7 @@ const READ_DEFINITION_SQL = `SELECT definition.name,
     definition.layout_json AS definition_layout_json, definition.pin_data_json, definition.tags,
     definition.permission_level, definition.created_at, definition.deleted_at,
     version.id AS version_id, version.version_number, version.content_hash,
-    version.definition_body, version.layout_json AS version_layout_json,
+    version.schema_version, version.definition_body, version.layout_json AS version_layout_json,
     version.version_number = (
       SELECT MAX(version_number) FROM workflow_versions WHERE definition_id = definition.id
     ) AS is_latest,
@@ -86,6 +88,7 @@ interface DefinitionReadRow {
   readonly version_id: string;
   readonly version_number: number;
   readonly content_hash: string;
+  readonly schema_version: string;
   readonly definition_body: string;
   readonly version_layout_json: string | null;
   readonly is_latest: 0 | 1;
@@ -141,6 +144,14 @@ export function nameHolderStatement(
     bindings: [nameFolded, exceptDefinitionId ?? NO_DEFINITION_EXCLUDED],
     expectedRowCount: 0,
   };
+}
+
+/**
+ * The statement a write to a saved workflow runs first, inside that write, so a delete cannot land
+ * between the check and the change; it expects the one row a workflow in the library returns.
+ */
+export function liveDefinitionStatement(definitionId: WorkflowDefinitionId): WriteStatement {
+  return { sql: LIVE_DEFINITION_SQL, bindings: [definitionId], expectedRowCount: 1 };
 }
 
 /** Reads the one workflow library from the read-only connection. */
@@ -205,6 +216,7 @@ export class WorkflowLibrary {
       workflowVersionId: row.version_id,
       contentHash: row.content_hash,
       document: readStoredWorkflowDocument({
+        schemaVersion: row.schema_version,
         definitionBody: row.definition_body,
         layoutJson: row.is_latest === 1 ? row.definition_layout_json : row.version_layout_json,
         pinDataJson: row.pin_data_json,

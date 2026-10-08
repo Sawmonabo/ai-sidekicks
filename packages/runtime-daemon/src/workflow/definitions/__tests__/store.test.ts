@@ -1,8 +1,11 @@
 // The workflow library's writes over a real database: a setting beside a version mints none, a
-// stale save writes nothing, and a name is held once in the library ignoring case.
+// save keeps the settings it carries, a stale save writes nothing, a delete keeps what runs pin
+// and drops the rest, and a name is held once in the library ignoring case.
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { createFixtureRun } from "../../runs/__fixtures__/rows.js";
+import { WorkflowKeptValueStore } from "../kept-values.js";
 import { WorkflowLibrary } from "../library.js";
 import { WorkflowDefinitionStore } from "../store.js";
 import {
@@ -12,7 +15,7 @@ import {
   type WorkflowLibraryFixture,
 } from "./store.test-support.js";
 
-const CREATE_OPTIONS = { savesNewWorkflowDraft: false };
+const CREATE_OPTIONS = { isFromNewWorkflowDraft: false };
 const NAME_TAKEN_REFUSAL = {
   code: "workflow.definition_refused",
   findings: [{ rule: "name_taken", nodeIds: [] }],
@@ -107,6 +110,87 @@ describe("WorkflowDefinitionStore.update", () => {
     expect(read.workflowVersionId).toBe(saved.workflowVersionId);
     expect(read.contentHash).toBe(saved.contentHash);
     expect(read.document.nodes[0]?.params).toEqual({ path: "second.md" });
+  });
+
+  it("stores a save's layout and tags and keeps them past a save without them", async () => {
+    const { store, library } = fixture;
+    const { definitionId } = await store.create(
+      { document: buildWorkflowDocument("Nightly") },
+      BUILDER_AUTHOR,
+      CREATE_OPTIONS,
+    );
+    const layout = { nodes: { trigger: { x: 0, y: 0 }, read: { x: 480, y: 120 } } };
+
+    await store.update(
+      {
+        definitionId,
+        expectedVersionNumber: 1,
+        document: { ...buildWorkflowDocument("Nightly", "second.md"), layout, tags: ["ops"] },
+      },
+      BUILDER_AUTHOR,
+    );
+    const saved = library.read({ definitionId });
+    expect(saved.document.layout).toEqual(layout);
+    expect(saved.document.tags).toEqual(["ops"]);
+
+    await store.update(
+      {
+        definitionId,
+        expectedVersionNumber: 2,
+        document: buildWorkflowDocument("Nightly", "third.md"),
+      },
+      BUILDER_AUTHOR,
+    );
+    const resaved = library.read({ definitionId });
+    expect(resaved.versionNumber).toBe(3);
+    expect(resaved.document.layout).toEqual(layout);
+    expect(resaved.document.tags).toEqual(["ops"]);
+  });
+});
+
+describe("WorkflowDefinitionStore.delete", () => {
+  it("keeps versions and their pinned runs, and drops kept values and the draft", async () => {
+    const { store, drafts, library, scratch } = fixture;
+    const keptValues = new WorkflowKeptValueStore(scratch);
+    const created = await store.create(
+      { document: buildWorkflowDocument("Nightly") },
+      BUILDER_AUTHOR,
+      CREATE_OPTIONS,
+    );
+    const { definitionId } = created;
+    const saved = await store.update(
+      {
+        definitionId,
+        expectedVersionNumber: 1,
+        document: buildWorkflowDocument("Nightly", "second.md"),
+      },
+      BUILDER_AUTHOR,
+    );
+    const firstRun = await createFixtureRun(scratch.writer, created.workflowVersionId);
+    const secondRun = await createFixtureRun(scratch.writer, saved.workflowVersionId);
+    await keptValues.keep(definitionId, secondRun, { cursor: 42 });
+    await drafts.update({
+      definitionId,
+      basedOnVersionNumber: 2,
+      document: buildWorkflowDocument("Nightly", "draft.md"),
+    });
+    const storedRuns = scratch.reader.prepare<[string, string], { count: number }>(
+      "SELECT COUNT(*) AS count FROM workflow_runs WHERE id IN (?, ?)",
+    );
+
+    await expect(store.delete(definitionId)).resolves.toEqual({
+      definitionId,
+      deleted: true,
+      retainedRunCount: 2,
+    });
+
+    expect(fixture.countVersions(definitionId)).toBe(2);
+    expect(library.read({ definitionId, version: 1 }).workflowVersionId).toBe(
+      created.workflowVersionId,
+    );
+    expect(storedRuns.get(firstRun, secondRun)?.count).toBe(2);
+    expect(keptValues.read(definitionId)).toEqual([]);
+    expect(drafts.read(definitionId).draft).toBeNull();
   });
 });
 

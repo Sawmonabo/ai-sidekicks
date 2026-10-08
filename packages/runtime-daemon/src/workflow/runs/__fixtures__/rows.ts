@@ -32,15 +32,17 @@ const FIXTURE_NODE_ID = "approve" as WorkflowNodeId;
 
 const EMPTY_PAYLOAD_REF = JSON.stringify({ kind: "inline", items: [] });
 
+const STEP_STARTED_AT = "2026-10-02T00:00:01.000Z";
+
 /**
  * Stores a workflow named `name` with one version whose body holds the fixture node, and resolves
- * with the version's id.
+ * with the version's id. The schema version is stored beside the body, which holds only the
+ * hashed members.
  */
 export async function insertWorkflowVersion(writer: Writer, name: string): Promise<string> {
   const definitionId = mintUuidV7();
   const versionId = mintUuidV7();
   const body = JSON.stringify({
-    schemaVersion: "2",
     name,
     trigger: { id: "start", kind: "trigger.manual", kindVersion: 1, name: "Start", order: 0 },
     nodes: [{ id: FIXTURE_NODE_ID, kind: "human.approval", kindVersion: 1, name: "Approve" }],
@@ -58,8 +60,9 @@ export async function insertWorkflowVersion(writer: Writer, name: string): Promi
     },
     {
       sql: `INSERT INTO workflow_versions (
-          id, definition_id, version_number, content_hash, definition_body, created_at
-        ) VALUES (?, ?, 1, ?, ?, ?)`,
+          id, definition_id, version_number, content_hash, schema_version, definition_body,
+          created_at
+        ) VALUES (?, ?, 1, ?, '2', ?, ?)`,
       bindings: [versionId, definitionId, contentHash, body, createdAt],
     },
   ]);
@@ -107,7 +110,6 @@ export async function insertExecutionContextCheckout(
 interface FixtureRunOptions {
   readonly chain?: WorkflowRunChainPlace;
   readonly executionContext?: WorkflowRunExecutionContext;
-  readonly createdAt?: Date;
 }
 
 /** Creates a run of `workflowVersionId` through the creation statements; resolves with its id. */
@@ -127,7 +129,7 @@ export async function createFixtureRun(
       startedBy: { kind: "schedule" },
       chain: options.chain ?? { kind: "starts" },
       executionContext: options.executionContext,
-      createdAt: options.createdAt ?? new Date("2026-10-02T00:00:00.000Z"),
+      createdAt: new Date("2026-10-02T00:00:00.000Z"),
     }),
   );
   return workflowRunId;
@@ -150,7 +152,10 @@ export async function setFixtureRunStatus(
   ]);
 }
 
-/** A step as a fixture writes it; a waiting step names its cause and its account or deadline. */
+/**
+ * A step as a fixture writes it; a waiting step names its cause and its account or deadline, and
+ * is stored as waiting since it started.
+ */
 export interface FixtureStep {
   readonly executionIndex: number;
   readonly status: WorkflowStepStatus;
@@ -170,8 +175,9 @@ export async function insertFixtureStep(
     {
       sql: `INSERT INTO workflow_steps (
           workflow_run_id, node_id, attempt, execution_index, status, wait_cause, resume_at,
-          wait_account_id, wait_deadline_at, started_at, input_ref, output_ref, log_ref
-        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, '2026-10-02T00:00:01.000Z', ?, ?, ?)`,
+          wait_account_id, wait_deadline_at, wait_started_at, started_at, input_ref, output_ref,
+          log_ref
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       bindings: [
         workflowRunId,
         FIXTURE_NODE_ID,
@@ -181,6 +187,8 @@ export async function insertFixtureStep(
         step.resumeAt ?? null,
         step.waitAccountId ?? null,
         step.waitDeadlineAt ?? null,
+        step.status === "waiting" ? STEP_STARTED_AT : null,
+        STEP_STARTED_AT,
         EMPTY_PAYLOAD_REF,
         EMPTY_PAYLOAD_REF,
         EMPTY_PAYLOAD_REF,

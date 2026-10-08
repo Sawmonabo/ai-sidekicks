@@ -1,15 +1,15 @@
-// A workflow document rebuilt from the columns that store it: the canonical hashed body, and
-// beside it the layout, pinned data and tags that sit outside the hash.
-import {
-  WORKFLOW_DOCUMENT_SCHEMA_VERSION,
-  type WorkflowDocument,
-  type WorkflowDocumentHashedBody,
-  type WorkflowLayout,
-  type WorkflowPinnedItem,
+// A workflow document rebuilt from the columns that store it: its schema version and canonical
+// hashed body, and beside them the layout, pinned data and tags that sit outside the hash.
+import type {
+  WorkflowDocument,
+  WorkflowDocumentHashedBody,
+  WorkflowLayout,
+  WorkflowPinnedItem,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 /** The stored columns a document is rebuilt from; pinned data and tags live on the definition. */
 export interface StoredWorkflowDocumentColumns {
+  readonly schemaVersion: string;
   readonly definitionBody: string;
   readonly layoutJson: string | null;
   readonly pinDataJson?: string | null;
@@ -33,7 +33,8 @@ export function readStoredWorkflowDocument(
   columns: StoredWorkflowDocumentColumns,
 ): WorkflowDocument {
   const document: WorkflowDocument = {
-    schemaVersion: WORKFLOW_DOCUMENT_SCHEMA_VERSION,
+    // The store wrote this column from a checked document's own schema version.
+    schemaVersion: columns.schemaVersion as WorkflowDocument["schemaVersion"],
     ...parseStoredWorkflowBody(columns.definitionBody),
   };
   if (columns.layoutJson !== null) {

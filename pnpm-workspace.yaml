@@ -111,6 +111,9 @@ catalog:
   # One version across every package: the contracts build their schemas with it and every other
   # package parses with those schemas, so two versions would be two schema runtimes.
   zod: 4.6.5
+  # The daemon's workflow content hash and the PASETO primitives both hash with it, so the
+  # workspace resolves one copy.
+  "@noble/hashes": 2.4.0
 catalogs:
   testing:
     # Exact pins, moved in lockstep. `@vitest/coverage-v8` declares an exact peer on its runner

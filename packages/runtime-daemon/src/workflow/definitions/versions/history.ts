@@ -3,6 +3,7 @@
 import type { Statement } from "better-sqlite3";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   WorkflowDefinitionId,
   WorkflowDocumentHashedBody,
@@ -17,19 +18,22 @@ import type {
   WorkflowVersionReadResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
-import type { DatabaseConnections } from "../../database/connections.js";
-import { WorkflowNotFoundError } from "../not-found.js";
-import { parseStoredWorkflowBody, readStoredWorkflowDocument } from "./stored-document.js";
-import { countWorkflowChanges, diffWorkflowBodies } from "./version-diff.js";
+import type { DatabaseConnections } from "../../../database/connections.js";
+import { DaemonDomainError } from "../../../ipc/domain-error.js";
+import type { RegistryDispatchCode } from "../../../ipc/registry.js";
+import { WorkflowNotFoundError } from "../../not-found.js";
+import { parseStoredWorkflowBody, readStoredWorkflowDocument } from "../stored-document.js";
+import { countWorkflowChanges, diffWorkflowBodies } from "./difference.js";
 
-const VERSION_COLUMNS = `id, definition_id, version_number, content_hash, definition_body,
-  layout_json, created_at, saved_by_agent_id`;
+const VERSION_COLUMNS = `id, definition_id, version_number, content_hash, schema_version,
+  definition_body, layout_json, created_at, saved_by_agent_id`;
 
 interface VersionRow {
   readonly id: string;
   readonly definition_id: string;
   readonly version_number: number;
   readonly content_hash: string;
+  readonly schema_version: string;
   readonly definition_body: string;
   readonly layout_json: string | null;
   readonly created_at: string;
@@ -73,6 +77,7 @@ export class WorkflowVersions {
       workflowVersionId: row.id,
       contentHash: row.content_hash,
       document: readStoredWorkflowDocument({
+        schemaVersion: row.schema_version,
         definitionBody: row.definition_body,
         layoutJson: row.layout_json,
       }),
@@ -115,20 +120,31 @@ export class WorkflowVersions {
 
   /**
    * The structural difference from one version to another over the hashed body alone. Throws
-   * {@link WorkflowNotFoundError} for an unknown version.
+   * {@link WorkflowNotFoundError} for an unknown version, and an `invalid_params` refusal for two
+   * versions of different workflows.
    */
   readDiff(request: WorkflowVersionDiffReadRequest): WorkflowVersionDiffReadResponse {
+    const { fromWorkflowVersionId, toWorkflowVersionId } = request;
+    const fromRow = this.#readVersion(fromWorkflowVersionId);
+    const toRow = this.#readVersion(toWorkflowVersionId);
+    if (fromRow.definition_id !== toRow.definition_id) {
+      throw new DaemonDomainError("The two versions belong to different workflows.", {
+        code: "invalid_params" satisfies RegistryDispatchCode,
+        jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+        detail: { fromWorkflowVersionId, toWorkflowVersionId },
+      });
+    }
     return diffWorkflowBodies(
-      this.#readBody(request.fromWorkflowVersionId),
-      this.#readBody(request.toWorkflowVersionId),
+      parseStoredWorkflowBody(fromRow.definition_body),
+      parseStoredWorkflowBody(toRow.definition_body),
     );
   }
 
-  #readBody(workflowVersionId: string): WorkflowDocumentHashedBody {
+  #readVersion(workflowVersionId: string): VersionRow {
     const row = this.#selectById.get(workflowVersionId);
     if (row === undefined) {
       throw new WorkflowNotFoundError({ workflowVersionId });
     }
-    return parseStoredWorkflowBody(row.definition_body);
+    return row;
   }
 }

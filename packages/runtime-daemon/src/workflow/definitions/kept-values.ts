@@ -11,6 +11,7 @@ import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { WorkflowNotFoundError } from "../not-found.js";
+import { liveDefinitionStatement } from "./library.js";
 
 // Returns one row for any workflow ever created, deleted or not.
 const DEFINITION_EXISTS_SQL = "SELECT 1 FROM workflow_definitions WHERE id = ?";
@@ -27,8 +28,6 @@ const DELETE_KEPT_VALUES_SQL =
 
 /**
  * One value a workflow keeps: its name, the value, the run that kept it and when.
- *
- * @consumedBy the step executor, which reads kept values as the run's variables
  */
 export interface WorkflowKeptValue {
   readonly name: string;
@@ -50,10 +49,8 @@ export function clearKeptValuesStatement(definitionId: WorkflowDefinitionId): Wr
 }
 
 /**
- * Keeps, reads and clears a workflow's kept values. A value is stored as the JSON it is given,
- * whatever its size.
- *
- * @consumedBy the step executor's Keep for later runs and the kept values clear handler
+ * Keeps, reads and clears a workflow's kept values. It stores the JSON value it is given, which
+ * for a value over 64 KiB is the reference to the artifact the caller wrote.
  */
 export class WorkflowKeptValueStore {
   readonly #writer: Pick<DatabaseWriter, "write">;
@@ -82,6 +79,7 @@ export class WorkflowKeptValueStore {
   /**
    * Keeps each named value for the workflow from one run, in one write, each replacing the value
    * its name held; resolves with when they were kept. Each value must be JSON-serializable.
+   * Rejects with {@link WorkflowNotFoundError} for a workflow not in the library, keeping nothing.
    */
   async keep(
     definitionId: WorkflowDefinitionId,
@@ -89,12 +87,20 @@ export class WorkflowKeptValueStore {
     values: Readonly<Record<string, unknown>>,
   ): Promise<string> {
     const keptAt = this.#now().toISOString();
-    await this.#writer.write(
-      Object.entries(values).map(([name, value]) => ({
-        sql: UPSERT_KEPT_VALUE_SQL,
-        bindings: [definitionId, name, JSON.stringify(value), runId, keptAt],
-      })),
-    );
+    try {
+      await this.#writer.write([
+        liveDefinitionStatement(definitionId),
+        ...Object.entries(values).map(([name, value]) => ({
+          sql: UPSERT_KEPT_VALUE_SQL,
+          bindings: [definitionId, name, JSON.stringify(value), runId, keptAt],
+        })),
+      ]);
+    } catch (error) {
+      if (error instanceof WriteRefusedError) {
+        throw new WorkflowNotFoundError({ definitionId });
+      }
+      throw error;
+    }
     return keptAt;
   }
 

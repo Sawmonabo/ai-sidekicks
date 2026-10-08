@@ -1,8 +1,10 @@
 // A cancel must leave no live wait behind on any step of the run, however many branches were
-// waiting, or a resume timer or the attention list would act on a run that has ended; and it must
-// touch no other run.
+// waiting, or a resume timer or the attention list would act on a run that has ended; it must
+// touch no other run, and it must never overwrite the end of a run that has already ended.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { WriteRefusedError } from "../../../database/writer.js";
 
 import {
   openScratchDatabase,
@@ -25,6 +27,7 @@ const NO_WAIT = {
   resume_at: null,
   wait_deadline_at: null,
   wait_account_id: null,
+  wait_started_at: null,
 };
 
 let database: ScratchDatabase;
@@ -38,7 +41,7 @@ afterEach(async () => {
 });
 
 describe("applying a cancel to a run's rows", () => {
-  it("cancels both branches waiting on two accounts and clears only that run's waits", async () => {
+  it("cancels both waiting branches, keeps a pending step and clears its waits", async () => {
     const versionId = await insertWorkflowVersion(database.writer, "Fan out");
     const canceledRunId = await createFixtureRun(database.writer, versionId);
     await setFixtureRunStatus(database.writer, canceledRunId, "waiting", STARTED_AT, null);
@@ -58,6 +61,10 @@ describe("applying a cancel to a run's rows", () => {
       status: "waiting",
       waitCause: "account",
       waitAccountId: "account-two",
+    });
+    await insertFixtureStep(database.writer, canceledRunId, {
+      executionIndex: 3,
+      status: "pending",
     });
     const otherRunId = await createFixtureRun(database.writer, versionId);
     await setFixtureRunStatus(database.writer, otherRunId, "waiting", STARTED_AT, null);
@@ -85,7 +92,7 @@ describe("applying a cancel to a run's rows", () => {
       database.reader
         .prepare(
           `SELECT execution_index, status, finished_at, wait_cause, resume_at, wait_deadline_at,
-                  wait_account_id
+                  wait_account_id, wait_started_at
              FROM workflow_steps WHERE workflow_run_id = ? ORDER BY execution_index`,
         )
         .all(canceledRunId),
@@ -93,7 +100,32 @@ describe("applying a cancel to a run's rows", () => {
       { ...NO_WAIT, execution_index: 0, status: "succeeded", finished_at: null },
       { ...NO_WAIT, execution_index: 1, status: "canceled", finished_at: CANCELED_AT_TEXT },
       { ...NO_WAIT, execution_index: 2, status: "canceled", finished_at: CANCELED_AT_TEXT },
+      { ...NO_WAIT, execution_index: 3, status: "pending", finished_at: null },
     ]);
     expect(readRunRows(database.reader, otherRunId)).toEqual(otherRunRows);
+  });
+
+  it("refuses a run that has ended and leaves its rows as they were", async () => {
+    const versionId = await insertWorkflowVersion(database.writer, "Done already");
+    const endedRunId = await createFixtureRun(database.writer, versionId);
+    await setFixtureRunStatus(
+      database.writer,
+      endedRunId,
+      "succeeded",
+      STARTED_AT,
+      "2026-10-02T00:05:00.000Z",
+    );
+    await insertFixtureStep(database.writer, endedRunId, {
+      executionIndex: 0,
+      status: "succeeded",
+    });
+    const endedRunRows = readRunRows(database.reader, endedRunId);
+
+    await expect(
+      database.writer.write(
+        workflowRunCancellationStatements({ workflowRunId: endedRunId, finishedAt: CANCELED_AT }),
+      ),
+    ).rejects.toBeInstanceOf(WriteRefusedError);
+    expect(readRunRows(database.reader, endedRunId)).toEqual(endedRunRows);
   });
 });
