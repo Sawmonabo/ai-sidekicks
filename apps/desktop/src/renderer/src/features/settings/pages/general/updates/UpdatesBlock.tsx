@@ -26,8 +26,8 @@ import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import type { UpdaterCalls, UpdateReading } from "#renderer/store/update/updater-reading.js";
-import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/updater-unreachable.js";
+import type { UpdaterCalls, UpdateReading } from "#renderer/store/update/reading.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
 import { UPDATE_STATE_WORDS } from "./state-words.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 

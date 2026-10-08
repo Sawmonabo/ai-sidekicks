@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { UpdateState, Unsubscribe } from "#shared/preload-api.js";
 
-import { UpdaterReadingHolder, type UpdaterCalls } from "./updater-reading.js";
+import { UpdaterReadingHolder, type UpdaterCalls } from "./reading.js";
 
 /**
  * An updater whose read is settled by hand and whose pushes are delivered by hand.

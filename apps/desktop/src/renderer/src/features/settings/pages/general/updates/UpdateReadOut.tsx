@@ -6,7 +6,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { formatDate, formatPercent } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import type { UpdateReading } from "#renderer/store/update/updater-reading.js";
+import type { UpdateReading } from "#renderer/store/update/reading.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { UPDATE_FAILED_DETAIL, UPDATE_STATE_WORDS } from "./state-words.js";
 

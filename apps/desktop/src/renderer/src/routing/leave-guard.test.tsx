@@ -28,6 +28,7 @@ function guardedEditor(): {
   readonly frameStore: WindowStore;
   readonly ask: () => Promise<boolean>;
   readonly answer: { readonly resolve: (isLeaving: boolean) => void };
+  readonly unregister: () => void;
 } {
   const frameStore = new WindowStore({ initialRoute: EDITOR_ROUTE });
   let resolve: (isLeaving: boolean) => void = () => undefined;
@@ -36,11 +37,11 @@ function guardedEditor(): {
   });
   const ask = vi.fn(() => promise);
   const answer = { resolve: (isLeaving: boolean) => resolve(isLeaving) };
-  frameStore.leaveGuard.register({
+  const unregister = frameStore.leaveGuard.register({
     ask,
     isStayingOn: (route) => routeAgentDefinitionId(route) === "definition-alpha",
   });
-  return { frameStore, ask, answer };
+  return { frameStore, ask, answer, unregister };
 }
 
 function BoundFrame(props: { readonly frameStore: WindowStore }): React.JSX.Element {
@@ -171,5 +172,31 @@ describe("leaving a screen that holds unsaved edits", () => {
 
     expect(frameStore.getState().route).toEqual(SETTINGS_ROUTE);
     expect(window.location.hash).toBe(SETTINGS_HASH);
+  });
+
+  it("follows Back on a yes and leaves no copy of the entry, so the next Back moves", async () => {
+    window.location.hash = SETTINGS_HASH;
+    window.location.hash = SESSIONS_HASH;
+    window.location.hash = EDITOR_HASH;
+    const historyLength = window.history.length;
+    const { frameStore, answer, unregister } = guardedEditor();
+    await act(async () => {
+      render(<BoundFrame frameStore={frameStore} />);
+      await crossMacrotaskBoundary();
+    });
+
+    window.history.back();
+    await settleQueuedBrowserTask();
+    answer.resolve(true);
+    await settleQueuedBrowserTask();
+    expect(frameStore.getState().route).toEqual({ kind: "sessions" });
+    expect(window.location.hash).toBe(SESSIONS_HASH);
+    expect(window.history.length).toBe(historyLength);
+
+    unregister();
+    window.history.back();
+    await settleQueuedBrowserTask();
+    expect(window.location.hash).toBe(SETTINGS_HASH);
+    expect(frameStore.getState().route).toEqual(SETTINGS_ROUTE);
   });
 });

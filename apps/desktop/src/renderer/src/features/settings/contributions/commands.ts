@@ -9,7 +9,7 @@
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
-import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/updater-unreachable.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
 
 /** Why a bridge-backed command could not complete. */
 export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";

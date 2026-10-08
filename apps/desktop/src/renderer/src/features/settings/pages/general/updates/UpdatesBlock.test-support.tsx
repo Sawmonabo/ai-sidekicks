@@ -15,7 +15,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { useMachineSettings } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import { useUpdateReading } from "#renderer/store/update/hooks/useUpdateReading.js";
-import type { UpdaterCalls } from "#renderer/store/update/updater-reading.js";
+import type { UpdaterCalls } from "#renderer/store/update/reading.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 

@@ -16,7 +16,7 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import { READ_FAILED } from "#renderer/lib/reads/failure-codes.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
-import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "./unreachable.js";
 
 /** The updater's calls: the state read, its subscription, and its controls. */
 export type UpdaterCalls = PreloadApi["update"];

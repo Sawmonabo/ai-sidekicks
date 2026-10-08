@@ -22,7 +22,7 @@ import {
   buildRailControlCommands,
 } from "#renderer/layout/NavigationRail/commands.js";
 import { useBridgeCommands } from "#renderer/features/settings/index.js";
-import { discloseUnkeptScheme } from "../unkept-scheme.js";
+import { chooseNextColorScheme } from "../unkept-scheme.js";
 
 /** What the app's commands act through. */
 export interface AppCommandsInput {
@@ -93,7 +93,7 @@ export function useAppCommands(input: AppCommandsInput): number {
         chooseNextColorScheme: () => {
           const windowStore = windowStoreUsedLast();
           if (windowStore !== undefined) {
-            discloseUnkeptScheme(appearance.chooseNextScheme(), windowStore);
+            chooseNextColorScheme(appearance, windowStore);
           }
         },
       }),

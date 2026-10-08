@@ -7,8 +7,8 @@
 import { useId } from "react";
 
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
-import { HOST_CHORD_PLATFORM, formatChordForPlatform } from "#renderer/lib/chord-format.js";
-import { railDestinationFor, type RailDestination } from "#renderer/routing/readers.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
+import { railDestinationFor } from "#renderer/routing/readers.js";
 import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import type { WindowStore } from "#renderer/store/window/store.js";
 import type { WindowSize } from "#shared/window/size.js";
@@ -17,15 +17,15 @@ import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
 import { describePaletteScope } from "../CommandPalette/describe-scope.js";
 import type { CommandPaletteProps } from "../CommandPalette/hooks/useCommandPalette.js";
-import { RAIL_NAVIGATION_DETAILS } from "../NavigationRail/commands.js";
 import {
   RAIL_ENTRIES,
   RAIL_SETTINGS_ENTRY,
   routeForDestination,
   warmDestination,
 } from "../NavigationRail/destinations.js";
-import { RAIL_CONTROL_LABELS } from "../NavigationRail/NavigationRail.js";
+import { RAIL_CONTROL_LABELS } from "../NavigationRail/control-labels.js";
 import { AppFrame } from "./AppFrame.js";
+import { useRailChords } from "./hooks/useRailChords.js";
 
 /** What the window hands `AppShell`: its store, screens, palette and chords, and the screen. */
 export interface AppShellProps {
@@ -64,9 +64,12 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
   const banners = useWindowStore(frameStore, (state) => state.banners);
   // A boolean, so a window with no card up re-renders on nothing.
   const isModalDialogOpen = useWindowStore(frameStore, (state) => state.isModalDialogOpen);
-  const sessionsTrackList = useWindowStore(frameStore, (state) => state.sessionsTrackList);
+  const isNotificationsListOpen = useWindowStore(
+    frameStore,
+    (state) => state.sessionsTrackList === "notifications",
+  );
   const notificationsListId = useId();
-  const isNotificationsListOpen = sessionsTrackList === "notifications";
+  const railChords = useRailChords(props.readBoundChord);
 
   return (
     <AppFrame
@@ -81,7 +84,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
           warmDestination(screenRegistry, destination);
           frameStore.navigate(routeForDestination(destination, lastSettingsPage.pageId));
         },
-        chords: railChords(props.readBoundChord),
+        chords: railChords,
         // No count yet: the window mounts no attention reader, so the bell draws no pip.
         attention: {
           isExpanded: isNotificationsListOpen,
@@ -119,15 +122,4 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       {props.children}
     </AppFrame>
   );
-}
-
-// Sessions is the one rail button that advertises its chord, read fresh on every draw so a
-// rebinding changes the hint.
-function railChords(
-  readBoundChord: (commandId: string) => string | undefined,
-): Partial<Record<RailDestination, string>> {
-  const chord = readBoundChord(RAIL_NAVIGATION_DETAILS.sessions.commandId);
-  return chord === undefined
-    ? {}
-    : { sessions: formatChordForPlatform(chord, HOST_CHORD_PLATFORM) };
 }

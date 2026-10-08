@@ -7,8 +7,8 @@ import type { AppRoute } from "./routes.js";
 
 /**
  * What a screen holding unsaved edits registers: its ask, resolving `true` to leave and drop the
- * edits or `false` to stay with them, and which routes it stays mounted on with those edits (another
- * file of the same skill folder), so a move between them asks nothing.
+ * edits or `false` to stay with them, and which routes it stays mounted on with those edits
+ * (another file of the same skill folder), so a move between them asks nothing.
  */
 export interface LeaveGuardRegistration {
   readonly ask: () => Promise<boolean>;
@@ -22,9 +22,10 @@ export interface LeaveGuardRegistration {
 export class LeaveGuard {
   readonly #reportAskFailure: (failure: unknown) => void;
   #registration: LeaveGuardRegistration | undefined;
-  #isAsking = false;
+  // The registration whose ask is in flight; cleared by its answer or its removal.
+  #askingRegistration: LeaveGuardRegistration | undefined;
 
-  /** `reportAskFailure` hears an ask that rejected; the window stays where it was. */
+  /** `reportAskFailure` hears an ask that threw or rejected; the window stays where it was. */
   public constructor(reportAskFailure: (failure: unknown) => void) {
     this.#reportAskFailure = reportAskFailure;
   }
@@ -44,16 +45,19 @@ export class LeaveGuard {
       if (this.#registration === registration) {
         this.#registration = undefined;
       }
+      if (this.#askingRegistration === registration) {
+        this.#askingRegistration = undefined;
+      }
     };
   }
 
   /**
    * Move to `to`, returning whether `commit` ran now: at once when no screen is registered or the
-   * registered one stays on `to`, after a yes otherwise, never on a no, and never for a move made
-   * while an ask is in flight, which is dropped.
+   * registered one stays on `to`, after a yes otherwise, never on a no, never for a move made
+   * while an ask is in flight, which is dropped, and never once the asking screen unregistered.
    */
   public leave(to: AppRoute, commit: () => void): boolean {
-    if (this.#isAsking) {
+    if (this.#askingRegistration !== undefined) {
       return false;
     }
     const registration = this.#registration;
@@ -61,22 +65,34 @@ export class LeaveGuard {
       commit();
       return true;
     }
-    // Called before the flag is raised, so an ask that throws as it is called reaches the mover
-    // and leaves no ask in flight.
-    const answer = registration.ask();
-    this.#isAsking = true;
+    let answer: Promise<boolean>;
+    try {
+      answer = registration.ask();
+    } catch (failure: unknown) {
+      this.#reportAskFailure(failure);
+      return false;
+    }
+    this.#askingRegistration = registration;
     void answer.then(
       (isLeaving) => {
-        this.#isAsking = false;
-        if (isLeaving) {
+        if (this.#settleAsk(registration) && isLeaving) {
           commit();
         }
       },
       (failure: unknown) => {
-        this.#isAsking = false;
+        this.#settleAsk(registration);
         this.#reportAskFailure(failure);
       },
     );
     return false;
+  }
+
+  /** End the ask in flight if it is `registration`'s; false for an answer from a removed one. */
+  #settleAsk(registration: LeaveGuardRegistration): boolean {
+    if (this.#askingRegistration !== registration) {
+      return false;
+    }
+    this.#askingRegistration = undefined;
+    return true;
   }
 }

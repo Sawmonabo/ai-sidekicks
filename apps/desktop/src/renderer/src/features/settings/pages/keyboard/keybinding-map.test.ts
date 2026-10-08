@@ -59,8 +59,8 @@ describe("composing rows", () => {
     command("bridge.checkForUpdates", "Check for updates", "Help"),
   ];
   const bindings: readonly Keybinding[] = [
-    { chord: "$mod+1", commandId: "frame.goToSessions" },
-    { chord: "$mod+2", commandId: "frame.goToWorkflows", when: WHEN_SESSION_ACTIVE },
+    { chord: "$mod+b", commandId: "frame.goToSessions" },
+    { chord: "$mod+Shift+w", commandId: "frame.goToWorkflows", when: WHEN_SESSION_ACTIVE },
   ];
 
   it("carries each command's chord, and invents none for an unbound command", () => {
@@ -71,7 +71,7 @@ describe("composing rows", () => {
       platform: "darwin",
     });
     const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
-    expect(workflows?.chord).toBe("$mod+2");
+    expect(workflows?.chord).toBe("$mod+Shift+w");
     expect(rows.find((row) => row.commandId === "bridge.checkForUpdates")?.chord).toBeUndefined();
     // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
     // the first.
@@ -101,7 +101,7 @@ describe("composing rows", () => {
       commands,
       bindings,
       shippedBindings: bindings,
-      overrides: { "frame.goToSessions": "$mod+1", "bridge.checkForUpdates": null },
+      overrides: { "frame.goToSessions": "$mod+b", "bridge.checkForUpdates": null },
       platform: "darwin",
     });
     const changed = rows.filter((row) => row.overridden).map((row) => row.commandId);
@@ -120,7 +120,7 @@ describe("composing rows", () => {
     });
     const changed = rows.find((row) => row.commandId === "frame.goToSessions");
     expect(changed?.chord).toBe("$mod+9");
-    expect(changed?.shippedChord).toBe("$mod+1");
+    expect(changed?.shippedChord).toBe("$mod+b");
   });
 });
 
@@ -267,7 +267,7 @@ describe("reading what is held right now", () => {
 
 describe("filtering rows", () => {
   const bindings: readonly Keybinding[] = [
-    { chord: "$mod+1", commandId: "frame.goToSessions", when: WHEN_SESSION_ACTIVE },
+    { chord: "$mod+b", commandId: "frame.goToSessions", when: WHEN_SESSION_ACTIVE },
   ];
   const rows = composeKeybindingRows({
     commands: [
@@ -284,7 +284,7 @@ describe("filtering rows", () => {
     expect(
       matchKeybindingRows(rows, "sessions", "darwin").map((row) => row.commandId),
     ).toStrictEqual(["frame.goToSessions"]);
-    expect(matchKeybindingRows(rows, "⌘1", "darwin").map((row) => row.commandId)).toStrictEqual([
+    expect(matchKeybindingRows(rows, "⌘B", "darwin").map((row) => row.commandId)).toStrictEqual([
       "frame.goToSessions",
     ]);
   });

@@ -167,16 +167,17 @@ export class WindowStore {
   /**
    * Adopt a route parsed from the location hash. Idempotent on an unchanged hash. Returns false
    * while the move waits on the leave guard's ask or was dropped by it, so the hash no longer
-   * names the route shown; a yes later commits the route the hash named.
+   * names the route shown; a yes later commits the route the hash named. `afterCommit` runs only
+   * once the move has happened, never after a no or for an unchanged hash.
    */
-  public adoptHash(hash: string): boolean {
+  public adoptHash(hash: string, afterCommit?: () => void): boolean {
     const route = parseRoute(hash);
     const current = this.#store.getState().route;
     if (routesAreEqual(current, route)) {
       return true;
     }
     // The address change already made its own history entry, so the route writes in place.
-    return this.#moveTo(route, "replace");
+    return this.#moveTo(route, "replace", afterCommit);
   }
 
   /**

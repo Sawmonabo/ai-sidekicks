@@ -358,9 +358,9 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     },
     {
       member: "keyboardMap.write",
-      refused: [{ "frame.goToSessions": 7 }, { "": "Mod+1" }, "Mod+1", [], null],
+      refused: [{ "frame.goToSessions": 7 }, { "": "$mod+b" }, "$mod+b", [], null],
       refusal: SCHEMA_REFUSAL,
-      accepted: { "frame.goToSessions": "Mod+1" },
+      accepted: { "frame.goToSessions": "$mod+b" },
       send: (payload) => invoke(BRIDGE_CHANNELS.writeKeyboardMap, payload),
       acted: async () => ((await bridge.keyboardMap.read()) as { map: object }).map,
     },

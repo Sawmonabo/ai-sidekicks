@@ -1,14 +1,15 @@
 // The icon rail: the destinations, a spacer, the attention and color-scheme controls, then Settings
 // at the foot, always in the same place, so a person builds muscle memory. It renders exactly the
 // entries it is handed and has no availability flag: an unreachable destination is absent, not
-// disabled. It carries no color except the accent on the current destination and two marks: the
-// attention pip and the Settings dot. Each control has one string, its hover title and its spoken
-// name at once.
+// disabled. It carries no color except the accent on the current destination and on the bell while
+// its list is open, and two marks: the attention pip and the Settings dot. Each control has one
+// string, its hover title and its spoken name at once.
 
 import type { GlyphName } from "#renderer/styles/glyphs.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import type { RailDestination } from "#renderer/routing/readers.js";
+import { RAIL_CONTROL_LABELS } from "./control-labels.js";
+import { useRailNames } from "./hooks/useRailNames.js";
 
 import "./NavigationRail.css";
 
@@ -60,15 +61,15 @@ export interface NavigationRailProps {
 /** The app's icon rail: the handed entries, the current one marked, and the two controls. */
 export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
   const { attention, settingsEntry } = props;
-  const attentionName = attentionControlName(attention.count);
+  const names = useRailNames(props);
   return (
     <nav className="meridian-rail" aria-label="Console sections">
       <ul className="meridian-rail__list">
-        {props.entries.map((entry) => (
+        {names.namedEntries.map(({ entry, name }) => (
           <li key={entry.destination} className="meridian-rail__item">
             <RailDestinationButton
               entry={entry}
-              name={nameWithChord(entry.label, props.chords[entry.destination])}
+              name={name}
               isCurrent={entry.destination === props.current}
               onSelect={props.onSelect}
             />
@@ -79,16 +80,18 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
           <button
             type="button"
             className="meridian-rail__button"
-            aria-label={attentionName}
-            title={attentionName}
+            aria-label={names.attentionName}
+            title={names.attentionName}
             aria-expanded={attention.isExpanded}
             aria-controls={attention.controlsId}
             onClick={attention.onToggle}
           >
             <Glyph name="bell" />
-            {isAnythingWaiting(attention.count) ? (
-              <span className="meridian-rail__pip" aria-hidden="true" />
-            ) : null}
+            {names.pipFigure === undefined ? null : (
+              <span className="meridian-rail__pip" aria-hidden="true">
+                {names.pipFigure}
+              </span>
+            )}
           </button>
         </li>
         <li className="meridian-rail__item">
@@ -105,10 +108,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
         <li className="meridian-rail__item">
           <RailDestinationButton
             entry={settingsEntry}
-            name={settingsName(
-              nameWithChord(settingsEntry.label, props.chords[settingsEntry.destination]),
-              props.isUpdateStaged,
-            )}
+            name={names.settingsName}
             isCurrent={settingsEntry.destination === props.current}
             onSelect={props.onSelect}
           >
@@ -136,12 +136,6 @@ export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTem
   workflows: { label: "Workflows", glyph: "workflow" },
   settings: { label: "Settings", glyph: "settings" },
 };
-
-/** The labels of the rail's two controls, which their palette rows share. */
-export const RAIL_CONTROL_LABELS = {
-  notifications: "Notifications",
-  colorScheme: "Color scheme",
-} as const;
 
 interface RailDestinationButtonProps {
   readonly entry: RailEntry;
@@ -174,23 +168,4 @@ function RailDestinationButton(props: RailDestinationButtonProps): React.JSX.Ele
       {props.children}
     </button>
   );
-}
-
-function nameWithChord(label: string, chord: string | undefined): string {
-  return chord === undefined ? label : `${label} ${chord}`;
-}
-
-// The dot is hidden from assistive technology, so the name carries the staged update.
-function settingsName(name: string, isUpdateStaged: boolean): string {
-  return isUpdateStaged ? `${name}, an update is ready` : name;
-}
-
-// A zero is nothing waiting: the pip and the figure are absent rather than reading zero.
-function isAnythingWaiting(count: number | undefined): count is number {
-  return count !== undefined && count > 0;
-}
-
-function attentionControlName(count: number | undefined): string {
-  const label = RAIL_CONTROL_LABELS.notifications;
-  return isAnythingWaiting(count) ? `${label}, ${formatCount(count)} waiting` : label;
 }

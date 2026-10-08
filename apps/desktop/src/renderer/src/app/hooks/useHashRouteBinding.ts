@@ -11,7 +11,8 @@
 //
 // An address change a screen holding unsaved edits has not let go of (its question is open, or
 // it answered no) puts the address back on the route still shown as a new entry, so a refused
-// Back keeps the entry it would have returned to; a yes then writes the address it named.
+// Back keeps the entry it would have returned to. A yes then steps back over that entry to the
+// address the change named, so the window's history holds no copy of it and the next Back moves.
 
 import { useEffect, useRef } from "react";
 
@@ -32,13 +33,21 @@ export function useHashRouteBinding(
 ): void {
   // The hash this binding wrote and has not yet heard back; a ref, since nothing renders from it.
   const unheardWrite = useRef<string | undefined>(undefined);
+  // The hash a refused address change pushed back, once a yes means the next route write steps
+  // back over it.
+  const restoredEntry = useRef<string | undefined>(undefined);
 
   const route = useWindowStore(frameStore, (state) => state.route);
 
   useEffect(() => {
     const echo = unheardWrite.current;
     unheardWrite.current = undefined;
-    if (hash === echo || frameStore.adoptHash(hash)) {
+    // Set only once this change is put back, so a move that commits at once steps over nothing.
+    const putBack: { hash?: string } = {};
+    const stepBackOverRestored = (): void => {
+      restoredEntry.current = putBack.hash;
+    };
+    if (hash === echo || frameStore.adoptHash(hash, stepBackOverRestored)) {
       return;
     }
     // The route did not move, so the route → hash effect below will not run for it.
@@ -46,15 +55,18 @@ export function useHashRouteBinding(
     if (shown.kind === "not-found") {
       return;
     }
-    const restored = formatRoute(shown);
-    unheardWrite.current = restored;
-    ownerWindow.location.hash = restored;
+    putBack.hash = formatRoute(shown);
+    unheardWrite.current = putBack.hash;
+    ownerWindow.location.hash = putBack.hash;
   }, [frameStore, hash, ownerWindow]);
 
   // Route → hash. A `not-found` route is left unpublished: formatting it back would destroy
   // the text the person typed before they could fix it.
   useEffect(() => {
     const { route: current, routeHistoryWrite } = frameStore.getState();
+    // Taken before any return, so it applies to this write alone.
+    const restored = restoredEntry.current;
+    restoredEntry.current = undefined;
     if (current.kind === "not-found") {
       return;
     }
@@ -63,7 +75,10 @@ export function useHashRouteBinding(
       return;
     }
     unheardWrite.current = desired;
-    if (routeHistoryWrite === "replace") {
+    if (restored !== undefined && ownerWindow.location.hash === restored) {
+      // The entry before the restored one is the address the yes followed.
+      ownerWindow.history.back();
+    } else if (routeHistoryWrite === "replace") {
       ownerWindow.location.replace(desired);
     } else {
       ownerWindow.location.hash = desired;

@@ -100,14 +100,6 @@ export function routeSkillId(route: AppRoute): string | undefined {
 }
 
 /**
- * The file a skill folder's address opens, relative to the folder, or `undefined` where the
- * folder opens at its entry file or the address names no folder.
- */
-export function routeSkillFilePath(route: AppRoute): string | undefined {
-  return route.kind === "skills" && route.folder === "existing" ? route.filePath : undefined;
-}
-
-/**
  * The address of one skill folder, opened at the file the caller names, relative to the folder,
  * or at its entry file without one. Omits the `filePath` key when there is none, which the parse
  * round trip depends on.
@@ -207,4 +199,10 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;
   }
+}
+
+// The file a skill folder's address opens, relative to the folder, or `undefined` where the
+// folder opens at its entry file or the address names no folder.
+function routeSkillFilePath(route: AppRoute): string | undefined {
+  return route.kind === "skills" && route.folder === "existing" ? route.filePath : undefined;
 }

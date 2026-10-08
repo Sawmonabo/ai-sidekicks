@@ -11,7 +11,8 @@ import type {
 } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
-import { RAIL_CONTROL_LABELS, RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
+import { RAIL_CONTROL_LABELS } from "./control-labels.js";
+import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./destinations.js";
 
 /** What the rail's two control rows do, each on the window used last. */
@@ -41,7 +42,7 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
   },
   workflows: {
     commandId: "frame.goToWorkflows",
-    chord: "$mod+Shift+KeyW",
+    chord: "$mod+Shift+w",
     keywords: ["builder", "automation", "graph"],
   },
   settings: {

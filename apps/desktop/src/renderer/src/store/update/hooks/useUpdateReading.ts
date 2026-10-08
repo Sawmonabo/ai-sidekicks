@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { UpdaterReadingHolder, type UpdaterCalls, type UpdateReading } from "../updater-reading.js";
+import { UpdaterReadingHolder, type UpdaterCalls, type UpdateReading } from "../reading.js";
 
 /**
  * Bind this window's one reading of the updater; called once per window, which hands the reading
