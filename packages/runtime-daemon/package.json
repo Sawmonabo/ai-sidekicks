@@ -28,7 +28,8 @@
     "typecheck": "tsc -b && tsc -p tsconfig.test.json",
     "lint": "eslint src",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "postinstall": "node --experimental-strip-types sqlite-shell/fetch-source.ts && node-gyp configure build --directory sqlite-shell"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
@@ -73,6 +74,8 @@
     "@types/pidusage": "2.0.5",
     "@types/semver": "^7.8.0",
     "@vitest/coverage-v8": "catalog:testing",
+    "fflate": "0.8.3",
+    "node-gyp": "13.1.0",
     "vitest": "catalog:testing"
   }
 }
