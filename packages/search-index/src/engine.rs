@@ -326,7 +326,8 @@ impl IndexEngine {
     }
 }
 
-fn smallest_candidate(
+/// The merge an idle step runs: the one the policy proposes over the fewest rows, deleted included.
+pub(crate) fn smallest_candidate(
     policy: &CappedMergePolicy,
     segments: &[SegmentMeta],
 ) -> Option<Vec<SegmentId>> {
