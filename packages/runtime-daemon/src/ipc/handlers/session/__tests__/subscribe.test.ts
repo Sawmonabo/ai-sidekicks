@@ -478,18 +478,18 @@ describe("session.subscribe ends a stream whose frame the wire refuses", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 3 * SESSION_STREAM_WINDOW_MS));
   }
 
-  function startRun(): Promise<void> {
-    return log.append(TEST_SESSION_ID, "run.running", "run_lifecycle", {
+  // An event of a type with no payload variant yet: the log stores it, and the wire's event union
+  // refuses it.
+  function appendEventWithoutVariant(): Promise<void> {
+    return log.append(TEST_SESSION_ID, "run.turn_started", "run_lifecycle", {
       sessionId: TEST_SESSION_ID,
-      runId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8fa1",
-      runVersion: 1,
     });
   }
 
   it("catch-up: ends the subscription refused, sends none of the frame and logs it", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await log.createSession(TEST_SESSION_ID, "chat");
-    await startRun();
+    await appendEventWithoutVariant();
 
     const stream = await subscribeToLog();
     await closeWindow();
@@ -526,7 +526,7 @@ describe("session.subscribe ends a stream whose frame the wire refuses", () => {
     expect(sentFrames(stream.send).flatMap((frame) => frame.changes)).toHaveLength(2);
     stream.send.mockClear();
 
-    await startRun();
+    await appendEventWithoutVariant();
     // A throw on the timer's turn would fail the run as an unhandled error.
     await closeWindow();
 

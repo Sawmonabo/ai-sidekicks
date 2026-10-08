@@ -69,6 +69,8 @@ interface SeededSession {
   groupId: string | undefined;
   readonly tags: string[];
   readonly events: SeededEvent[];
+  // The sequence the session's next log row takes, past the rows the index never holds too.
+  nextSequence: number;
 }
 
 const SESSION_START = encodeEventCursor(START_OF_LOG_POSITION);
@@ -95,6 +97,7 @@ export class SeededDirectory {
         groupId: index % 4 === 0 ? undefined : `group-${String(index % GROUP_NAMES.length)}`,
         tags: [],
         events: [],
+        nextSequence: 0,
       };
       insertSession(this.#database, sessionId, {
         ...(session.name === null ? {} : { name: session.name }),
@@ -106,8 +109,8 @@ export class SeededDirectory {
         insertTag(this.#database, sessionId, tag);
         session.tags.push(tag);
       }
-      for (let sequence = 0; sequence < 2 + (index % 6); sequence += 1) {
-        this.#appendEvent(sessionId, session, sequence, index * 31 + sequence * 17);
+      for (let place = 0; place < 2 + (index % 6); place += 1) {
+        this.#appendEvent(sessionId, session, index * 31 + place * 17);
       }
     }
   }
@@ -143,14 +146,21 @@ export class SeededDirectory {
   /** Writes a session with a title and one person's message, in no group and with no tag. */
   addSession(sessionId: SessionId, name: string, message: string): void {
     insertSession(this.#database, sessionId, { name });
-    this.#sessions.set(sessionId, { name, groupId: undefined, tags: [], events: [] });
+    this.#sessions.set(sessionId, {
+      name,
+      groupId: undefined,
+      tags: [],
+      events: [],
+      nextSequence: 0,
+    });
     this.addMessage(sessionId, message);
   }
 
   /** Appends a person's message with `text` to a session. */
   addMessage(sessionId: SessionId, text: string): void {
     const session = this.#sessionOf(sessionId);
-    const sequence = (session.events.at(-1)?.sequence ?? -1) + 1;
+    const sequence = session.nextSequence;
+    session.nextSequence += 1;
     const eventId = insertEvent(this.#database, {
       sessionId,
       sequence,
@@ -219,7 +229,9 @@ export class SeededDirectory {
 
   // One log row of each kind in turn: a person's message, an assistant's, a tool call and a
   // thinking update, which the index never holds and so is not kept.
-  #appendEvent(sessionId: SessionId, session: SeededSession, sequence: number, seed: number): void {
+  #appendEvent(sessionId: SessionId, session: SeededSession, seed: number): void {
+    const sequence = session.nextSequence;
+    session.nextSequence += 1;
     const words = wordsAt(seed, 3 + (seed % 9));
     switch (sequence % 4) {
       case 0: {

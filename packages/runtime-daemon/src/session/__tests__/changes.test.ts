@@ -130,6 +130,8 @@ describe("close", () => {
       sessionId: SESSION_ID,
       runId: RUN_ID,
       runVersion: 1,
+      previousState: "queued",
+      newState: "starting",
     });
     await harness.runtimeBindings.create({
       runId: RUN_ID,
@@ -155,6 +157,8 @@ describe("close", () => {
       sessionId: SESSION_ID,
       runId: RUN_ID,
       runVersion: 1,
+      previousState: "queued",
+      newState: "starting",
     });
     await harness.runtimeBindings.create({
       runId: RUN_ID,
@@ -178,6 +182,8 @@ describe("close", () => {
       sessionId: SESSION_ID,
       runId: RUN_ID,
       runVersion: 1,
+      previousState: "queued",
+      newState: "starting",
     });
     await harness.runtimeBindings.create({
       runId: RUN_ID,

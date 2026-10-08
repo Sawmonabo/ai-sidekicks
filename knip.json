@@ -236,8 +236,10 @@
     "apps/cli": {},
     "packages/crypto-paseto": {},
     "packages/search-index": {
-      // The package's test script runs Cargo, which the Rust toolchain supplies, never a package.
-      "ignoreBinaries": ["cargo"]
+      // The package's loader is the file its addon build writes, not source: its fallbacks name
+      // the per-platform packages napi-rs publishes for other projects, and this one publishes
+      // none. The negation drops it from the entries `exports` adds.
+      "entry": ["!index.js"]
     },
     "packages/search-ranking": {},
     "packages/client-sdk": {},
@@ -267,9 +269,10 @@
       // which knip cannot follow.
       "entry": ["src/database/worker.ts", "src/session/search/thread/worker.ts"],
       // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
-      // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
-      // ship with the operating system, never as a package dependency.
-      "ignoreBinaries": ["scutil", "mkfifo"],
+      // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on;
+      // `footprint` is the macOS tool the session directory's endurance test samples the daemon's
+      // memory footprint with; all ship with the operating system, never as a package dependency.
+      "ignoreBinaries": ["scutil", "mkfifo", "footprint"],
       "ignoreDependencies": [
         // Loaded by `import()` of a specifier held in a variable (`pty/host/node-pty.ts`), which
         // knip cannot follow; it is a hard runtime dependency.

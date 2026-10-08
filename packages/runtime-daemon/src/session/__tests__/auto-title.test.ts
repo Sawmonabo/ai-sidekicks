@@ -62,11 +62,16 @@ async function completeFirstExchange(): Promise<void> {
     sessionId: SESSION_ID,
     runId: RUN_ID,
     runVersion: 1,
+    previousState: "queued",
+    newState: "starting",
   });
   await harness.log.append(SESSION_ID, "run.completed", "run_lifecycle", {
     sessionId: SESSION_ID,
     runId: RUN_ID,
     runVersion: 2,
+    previousState: "starting",
+    newState: "completed",
+    completionKind: "turn",
   });
 }
 

@@ -36,22 +36,30 @@ describe("transcript.search", () => {
       type: "user.message",
       message: "retry",
     });
-    // A row with no match and a thinking update, which the index never holds, among the matches.
-    const matchingRowIds = [1, 2, 3, 5, 6].map((sequence) =>
-      insertEvent(database, {
-        sessionId,
-        sequence,
-        type: "assistant.message",
-        content: `attempt ${String(sequence)}: retry${", then retry".repeat(sequence % 3)}`,
-      }),
-    );
-    insertEvent(database, { sessionId, sequence: 4, type: "user.message", message: "no match" });
-    insertEvent(database, {
-      sessionId,
-      sequence: 7,
-      type: "assistant.thinking_update",
-      content: "retry",
-    });
+    // A row with no match and a thinking update, which the index never holds, among the matches,
+    // each appended at the session's next sequence as the log appends them.
+    const matchingRowIds: string[] = [];
+    for (const sequence of [1, 2, 3, 4, 5, 6, 7]) {
+      if (sequence === 4) {
+        insertEvent(database, { sessionId, sequence, type: "user.message", message: "no match" });
+      } else if (sequence === 7) {
+        insertEvent(database, {
+          sessionId,
+          sequence,
+          type: "assistant.thinking_update",
+          content: "retry",
+        });
+      } else {
+        matchingRowIds.push(
+          insertEvent(database, {
+            sessionId,
+            sequence,
+            type: "assistant.message",
+            content: `attempt ${String(sequence)}: retry${", then retry".repeat(sequence % 3)}`,
+          }),
+        );
+      }
+    }
     await fixture.settle();
     const { transcriptSearch } = fixture.services();
 

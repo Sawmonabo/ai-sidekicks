@@ -12,8 +12,8 @@ import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 
 import { mintUuidV7 } from "../../uuid-v7.js";
 
-/** The sessions of a search with words, by session key, in the order its pages show them. */
-export interface SessionOrder {
+// The sessions of a search with words, by session key, in the order its pages show them.
+interface SessionOrder {
   /** The sessions at places `from` to `from + count - 1`; fewer past the end. */
   sessionsAt(from: number, count: number): number[];
 }
