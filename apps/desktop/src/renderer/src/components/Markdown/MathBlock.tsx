@@ -122,12 +122,12 @@ function useMeasureNaturalWidth(
     // The span's own window paces the rewatch, not the app's clock: it is layout, not time, and
     // the fixture's frozen clock runs no frame until told to, which would leave the formula unfit.
     const clock = new RealClock(getWindow(span));
-    let isMeasured = false;
+    let hasNaturalWidth = false;
     let rewatch: ScheduledHandle | undefined;
     const watch = (): (() => void) =>
       observeElementResize(span, () => {
-        const hasWritten = isMeasured ? raiseNaturalWidthToFit(span) : writeNaturalWidth(span);
-        isMeasured = isMeasured || hasWritten;
+        const hasWritten = hasNaturalWidth ? raiseNaturalWidthToFit(span) : writeNaturalWidth(span);
+        hasNaturalWidth = hasNaturalWidth || hasWritten;
         if (hasWritten) {
           stopWatching();
           rewatch = clock.scheduleFrame(() => {
@@ -151,7 +151,7 @@ function useMeasureNaturalWidth(
 /**
  * Write the width the widest unbreakable piece needs, its equation number's room included, over
  * the formula's font size: a unitless ratio that reads right at whatever size the formula is
- * drawn; false while the span is not laid out yet, and true once it was measured.
+ * drawn. Says whether it wrote: not while the span is not laid out yet or the formula is empty.
  */
 function writeNaturalWidth(span: HTMLSpanElement): boolean {
   const formula = span.querySelector(".katex-display");
@@ -163,10 +163,11 @@ function writeNaturalWidth(span: HTMLSpanElement): boolean {
   // The line is centered and its number pinned right, so the number needs room on both sides.
   const naturalWidth = widestPiece + 2 * Math.ceil(widestWidthOf(span, ".katex-tag"));
   // An empty formula has nothing to fit, and a zero ratio would void the sheet's division.
-  if (widestPiece > 0) {
-    const fontSize = Number.parseFloat(getComputedStyle(formula).fontSize);
-    span.style.setProperty("--math-natural-width", String(naturalWidth / fontSize));
+  if (widestPiece === 0) {
+    return false;
   }
+  const fontSize = Number.parseFloat(getComputedStyle(formula).fontSize);
+  span.style.setProperty("--math-natural-width", String(naturalWidth / fontSize));
   return true;
 }
 

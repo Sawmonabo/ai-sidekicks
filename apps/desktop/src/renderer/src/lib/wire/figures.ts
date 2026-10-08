@@ -48,8 +48,8 @@ export interface FormattedByteQuantity {
   /** `value` and `unit` joined with a non-breaking space. */
   readonly text: string;
   /**
-   * The whole byte count as the wire sent it, for a hover label; `undefined` where `text` already
-   * shows it whole, in bytes, or shows no figure.
+   * The whole byte count in words, `1,234,567 bytes`, for a hover label; `undefined` where `text`
+   * already shows it whole, in bytes, or shows no figure.
    */
   readonly exactText: string | undefined;
 }
@@ -98,7 +98,7 @@ export function formatByteQuantity(byteCount: number, locale?: string): Formatte
     value,
     unit,
     text: `${value}\u00A0${unit}`,
-    exactText: unitIndex === 0 ? undefined : String(byteCount),
+    exactText: unitIndex === 0 ? undefined : numberFormatFor("byteCount", locale).format(byteCount),
   };
 }
 
@@ -237,11 +237,9 @@ const WHOLE_DURATION_STYLES: Readonly<Record<"day" | "minute", NumberStyle>> = {
 };
 
 /**
- * A duration the wire states in whole units, such as a retention window in days or a quota window
- * in minutes, in words: `7 days`, `300 minutes`. The unit is part of the figure, so the whole text
- * comes from `Intl` with `style: "unit"`, which handles the plural and the locale's own word;
- * `formatDuration` would render 7 days as `168:00:00`. A fractional input renders whole.
- * Non-finite and negative inputs render an em dash.
+ * A duration the wire states in whole units, in words through `Intl`'s unit style: `7 days`,
+ * `300 minutes`, where `formatDuration` would render 7 days as `168:00:00`. A fractional input
+ * renders whole, and a non-finite or negative one an em dash.
  */
 export function formatWholeDuration(
   amount: number,

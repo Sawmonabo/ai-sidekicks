@@ -4,9 +4,9 @@ import { Button } from "@base-ui/react/button";
 export type ActionButtonTone = "outline" | "primary" | "raised";
 
 /**
- * The workflows screen's small action button, in the app's shared action-button treatment. It is
- * a plain `type="button"` unless it submits a form; `className` adds the caller's own layout.
- * `focusableWhenDisabled` keeps a disabled button in the tab order, so its reason can be reached.
+ * The workflows screen's small action button in the shared action-button treatment, a plain
+ * `type="button"` unless it submits a form. `focusableWhenDisabled` keeps a disabled button in the
+ * tab order, so its reason can be reached.
  */
 export function ActionButton(
   props: Omit<React.ComponentPropsWithoutRef<"button">, "type"> & {

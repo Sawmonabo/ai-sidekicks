@@ -217,11 +217,7 @@ function renderStatusRegion(
               {renderUsageReading(
                 reading.status.memory === null
                   ? undefined
-                  : {
-                      figure: formatByteQuantity(reading.status.memory.residentBytes).text,
-                      exactValue: formatByteQuantity(reading.status.memory.residentBytes).exactText,
-                      readAt: reading.status.memory.readAt,
-                    },
+                  : memoryUsage(reading.status.memory.residentBytes, reading.status.memory.readAt),
                 clockLocale,
               )}
             </SettingsFact>
@@ -241,21 +237,25 @@ function renderStatusRegion(
   }
 }
 
+// The memory reading as `renderUsageReading` takes it: scaled, its whole byte count where scaled.
+function memoryUsage(residentBytes: number, readAt: string): UsageReading {
+  const size = formatByteQuantity(residentBytes);
+  return { figure: size.text, exactValue: size.exactText, readAt };
+}
+
+/** One reading of what the service uses: its figure, the exact value under it, and when. */
+interface UsageReading {
+  readonly figure: string;
+  readonly exactValue: string | undefined;
+  readonly readAt: string;
+}
+
 /**
  * One reading of what the service uses, stamped with when it was taken; none reads as not read.
  * The figure's hover label carries the exact value the service sent where the figure rounds it,
  * and the time's carries the zoned time on the machine's clock.
  */
-function renderUsageReading(
-  reading:
-    | {
-        readonly figure: string;
-        readonly exactValue: string | undefined;
-        readonly readAt: string;
-      }
-    | undefined,
-  clockLocale: string,
-): ReactNode {
+function renderUsageReading(reading: UsageReading | undefined, clockLocale: string): ReactNode {
   if (reading === undefined) {
     return <span>Not read yet</span>;
   }

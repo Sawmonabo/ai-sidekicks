@@ -154,11 +154,15 @@ describe("a press while the answer is in flight", () => {
     // Three faces and the two arrows.
     expect(buttons).toHaveLength(5);
     // A face is disabled outright; an arrow stays focusable so the keyboard still reaches its
-    // name, and a press on it opens no menu.
+    // name, and neither a press nor a key on it opens a menu.
     for (const button of buttons) {
       if (button.classList.contains("meridian-approval-card__arrow")) {
         expect(button.getAttribute("aria-disabled")).toBe("true");
         fireEvent.click(button);
+        // The keys that open an enabled arrow's menu here.
+        for (const key of ["ArrowDown", "ArrowUp"]) {
+          fireEvent.keyDown(button, { key });
+        }
         expect(screen.queryByRole("menu")).toBeNull();
       } else {
         expect(button.disabled).toBe(true);

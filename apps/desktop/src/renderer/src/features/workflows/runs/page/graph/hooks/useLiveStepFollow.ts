@@ -55,11 +55,10 @@ const FOLLOW_SLIDE_MS = MOTION_DURATIONS_MS["motion-thread"];
 const SLIDE_INTERPOLATION = "linear";
 
 /**
- * Keeps the view on the live step: placed on it when the graph opens, sliding after it as the
- * run moves, and fitting the whole graph while nothing is live. A pan, a zoom, a key or keyboard
- * focus a person puts on the graph stops it, and only `resumeFollowing` starts it again. The
- * slide runs only while the canvas is on screen, as its `data-in-view` mark says, and never under
- * reduced motion; otherwise the view jumps.
+ * Keeps the view on the live step: placed on it when the graph opens, sliding after it as the run
+ * moves (only while the canvas is on screen and never under reduced motion, where it jumps), and
+ * fitting the whole graph while nothing is live. A pan, a zoom, a key or keyboard focus on a node
+ * or count stops it, and only `resumeFollowing` starts it again.
  */
 export function useLiveStepFollow(
   liveCenter: CanvasPoint | undefined,

@@ -22,6 +22,16 @@ import { useNewSessionComposition } from "../hooks/useNewSessionComposition.js";
 const SENDING_FIRST_TURN_REASON =
   "This draft is being sent, so its first message cannot be edited until the send settles.";
 
+/** Why Send is held while this draft is being sent. */
+const SENDING_REASON = "This draft is being sent.";
+
+/** Why Send is held once the create's reply could not be read: a second send could make another. */
+const AMBIGUOUS_CREATE_REASON =
+  "The session may already be made. Check the sessions list before sending again.";
+
+/** Why Send is held while the first message is empty. */
+const EMPTY_DRAFT_REASON = "Write its first message to send it.";
+
 /** The new-session draft and the send that starts a session from it. */
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
   const composition = useNewSessionComposition(props);
@@ -35,6 +45,12 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
   }
 
   const completedCalls = composition.sendResult?.completedCalls ?? [];
+  const sendHeldReason = composition.isSending
+    ? SENDING_REASON
+    : composition.isAmbiguousCreate
+      ? AMBIGUOUS_CREATE_REASON
+      : (composition.unsentEditsSentence ??
+        (composition.draftState.isEmpty ? EMPTY_DRAFT_REASON : undefined));
 
   return (
     <section className="meridian-new-session" aria-label="New session draft">
@@ -87,16 +103,11 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
             Check the sessions list
           </button>
         ) : null}
-        {/* Disabled yet focusable, so the keyboard reaches its hover label where it has one. */}
-        <HoverLabel text={composition.unsentEditsSentence} textRole="description">
+        {/* Disabled yet focusable, so the keyboard reaches the reason it is held. */}
+        <HoverLabel text={sendHeldReason} textRole="description">
           <Button
             className="meridian-new-session__send"
-            disabled={
-              composition.draftState.isEmpty ||
-              composition.isSending ||
-              composition.isAmbiguousCreate ||
-              composition.unsentEditsSentence !== undefined
-            }
+            disabled={sendHeldReason !== undefined}
             focusableWhenDisabled
             onClick={composition.send}
           >

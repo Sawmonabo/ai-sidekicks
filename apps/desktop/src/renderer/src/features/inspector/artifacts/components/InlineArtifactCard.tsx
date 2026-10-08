@@ -43,18 +43,21 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           <span className="meridian-artifact-card__id">{props.card.artifact.id}</span>
         </HoverLabel>
       </header>
-      {manifest === undefined ? null : (
-        <div className="meridian-artifact-card__body">
-          <div className="meridian-artifact-card__face">
-            <Chip label={codeWords(manifest.artifactType)} />
-            <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={codeWords(manifest.state)} />
-            <WireFigure
-              value={formatByteQuantity(manifest.size).text}
-              hoverLabel={formatByteQuantity(manifest.size).exactText}
-            />
-          </div>
-        </div>
-      )}
+      {manifest === undefined ? null : renderManifestFace(manifest)}
     </section>
+  );
+}
+
+/** The card's body: the manifest's type, state and size. */
+function renderManifestFace(manifest: ArtifactManifestRow): React.JSX.Element {
+  const size = formatByteQuantity(manifest.size);
+  return (
+    <div className="meridian-artifact-card__body">
+      <div className="meridian-artifact-card__face">
+        <Chip label={codeWords(manifest.artifactType)} />
+        <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={codeWords(manifest.state)} />
+        <WireFigure value={size.text} hoverLabel={size.exactText} />
+      </div>
+    </div>
   );
 }

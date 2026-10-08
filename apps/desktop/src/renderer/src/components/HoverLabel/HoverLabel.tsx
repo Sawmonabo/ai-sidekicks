@@ -48,7 +48,7 @@ export interface HoverLabelProps {
   readonly children: React.ReactElement<HoverLabelTriggerProps>;
 }
 
-/** The attributes a trigger takes: the words and side the host reads, and the spoken path. */
+/** A trigger's attributes: the words and side the window's label reads, and the spoken path. */
 export interface HoverLabelTriggerProps {
   readonly [HOVER_LABEL_TEXT_ATTRIBUTE]?: string | undefined;
   readonly [HOVER_LABEL_SIDE_ATTRIBUTE]?: HoverLabelSide | undefined;

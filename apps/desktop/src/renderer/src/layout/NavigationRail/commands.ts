@@ -22,10 +22,10 @@ export interface RailControlActs {
 }
 
 /**
- * What the palette and the chord table need to offer one rail destination. Command ids are written
- * out because a person can rebind them on the Keyboard page; Settings takes `$mod+,`, the
- * platform's own chord for it. A command's title is the act's own name, which the palette and the
- * Keyboard page both read; a destination with no act of its own is titled with its rail label.
+ * What the palette and the chord table need to offer one rail destination; its command ids are
+ * written out because a person can rebind them on the Keyboard page, and Settings takes the
+ * platform's own `$mod+,`. A command's title is the act's own name, or the rail label for a
+ * destination with no act of its own.
  */
 export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavigationDetail>> = {
   sessions: {

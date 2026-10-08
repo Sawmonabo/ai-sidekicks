@@ -4,6 +4,7 @@
 // from `features/composer/attachments/provenance.ts`, so a screen reader hears the identity a
 // sighted user sees.
 
+import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 import { Fragment } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -44,20 +45,7 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
   return (
     <article className="meridian-attachment" aria-label={attachmentLabel(reading)}>
       {reading.kind === "ingesting" ? renderIngesting(reading.entry, props) : null}
-      {reading.kind === "resolved" ? (
-        <div className="meridian-attachment__face">
-          <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
-          <WireFigure value={reading.derived.fileName} />
-          <Chip label={reading.derived.mimeType} mono />
-          <WireFigure
-            value={formatByteQuantity(reading.derived.sizeBytes).text}
-            hoverLabel={formatByteQuantity(reading.derived.sizeBytes).exactText}
-          />
-          <span className="meridian-attachment__artifact-id">
-            <WireFigure value={reading.derived.artifactId} />
-          </span>
-        </div>
-      ) : null}
+      {reading.kind === "resolved" ? renderResolved(reading.derived) : null}
       {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId) : null}
     </article>
   );
@@ -182,6 +170,22 @@ function renderIngesting(
         />
       ) : null}
     </>
+  );
+}
+
+/** The resolved arm: the file's name, media type, size and artifact, as the manifest reads them. */
+function renderResolved(derived: SessionAttachmentSummary): React.JSX.Element {
+  const size = formatByteQuantity(derived.sizeBytes);
+  return (
+    <div className="meridian-attachment__face">
+      <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
+      <WireFigure value={derived.fileName} />
+      <Chip label={derived.mimeType} mono />
+      <WireFigure value={size.text} hoverLabel={size.exactText} />
+      <span className="meridian-attachment__artifact-id">
+        <WireFigure value={derived.artifactId} />
+      </span>
+    </div>
   );
 }
 

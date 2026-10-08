@@ -306,9 +306,7 @@ it("centers a count reached by Tab mid-slide in the canvas where the slide ends"
       -50,
     );
   });
-  // Two frames, so the zoom is drawn before the geometry is read.
-  await nextFrame();
-  await nextFrame();
+  await untilViewDrawn(canvas);
   expect(isInside(count, pane), "the zoom took the count out of the canvas").toBe(true);
   expect(isCentered(count, pane), "the zoom left the count centered").toBe(false);
   expect(isInside(firstNode, pane), "the zoom brought the node's center in").toBe(false);
@@ -375,9 +373,7 @@ it("judges a count reached by Tab against the view a person's zoom left, not the
     expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
     expect(pane.scrollLeft + pane.scrollTop).toBe(0);
   });
-  // Two frames, so the zoom is drawn before the geometry is read.
-  await nextFrame();
-  await nextFrame();
+  await untilViewDrawn(canvas);
   expect(zoomOf(canvas), "the person's zoom left the view at its opening zoom").not.toBe(1);
   expect(isInside(count, pane), "the cut-off slide brought the count in").toBe(false);
 
@@ -493,6 +489,25 @@ function isCentered(element: Element, frame: Element): boolean {
   return (
     Math.abs(x - (bounds.left + bounds.right) / 2) < 1 &&
     Math.abs(y - (bounds.top + bounds.bottom) / 2) < 1
+  );
+}
+
+// Waits until the view is drawn at the transform the library last wrote, so geometry read next is
+// the zoom's: the drawn view can trail it by several frames on a loaded host.
+async function untilViewDrawn(canvas: HTMLElement): Promise<void> {
+  const viewport = canvas.querySelector<HTMLElement>(".react-flow__viewport");
+  if (viewport === null) {
+    throw new Error("the graph drew no viewport");
+  }
+  await waitFor(
+    () => {
+      const drawn = new DOMMatrixReadOnly(getComputedStyle(viewport).transform);
+      const written = new DOMMatrixReadOnly(viewport.style.transform);
+      expect(Math.abs(drawn.a - written.a), "the drawn zoom").toBeLessThan(0.001);
+      expect(Math.abs(drawn.e - written.e), "the drawn left offset").toBeLessThan(0.5);
+      expect(Math.abs(drawn.f - written.f), "the drawn top offset").toBeLessThan(0.5);
+    },
+    { timeout: SLIDE_LANDING_TIMEOUT_MS },
   );
 }
 

@@ -8,10 +8,12 @@
 // carries a label, and the label is read off it again whenever a label attribute changes, so a
 // control that gains its words while it is hovered or focused shows them at once, and one that
 // drops them drops the label. A label put away stays away until the pointer moves to another
-// trigger or off every trigger, or focus moves. Escape on a focused trigger whose label shows puts
-// the label away and does nothing else: the press reaches no other handler and its default is
-// canceled, so the control's own Escape waits for the next press. A label hidden because its
-// trigger scrolled out of view takes no Escape.
+// trigger or off every trigger, or focus moves; the pointer's label put away holds the focused
+// trigger's label back only until the pointer leaves. Escape on a focused trigger whose label
+// shows puts the label away and does nothing else: the press reaches no handler below the
+// document and its default is canceled, so the control's own Escape waits for the next press. A
+// label hidden because its trigger scrolled out of view takes no Escape, nor does a press that
+// ends a text composition.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -57,10 +59,21 @@ export function useShownHoverLabel(
     setShown((current) => (isSameLabel(current, next) ? current : next));
   }, []);
 
+  // Puts away the label shown. The pointer's label takes the focused control's with it, but only
+  // until the pointer leaves, so the focused control's label then comes back.
   const close = useCallback(() => {
     const tracked = trackedRef.current;
-    tracked.dismissedPointer = triggerOf(tracked.pointer);
-    tracked.dismissedFocus = triggerOf(tracked.focus);
+    const anchor = shownOf(tracked)?.anchor;
+    if (anchor === undefined) {
+      return;
+    }
+    const focusTrigger = triggerOf(tracked.focus);
+    const isPointerLabel = anchor === triggerOf(tracked.pointer);
+    if (isPointerLabel) {
+      tracked.dismissedPointer = anchor;
+    }
+    tracked.dismissedFocus = focusTrigger;
+    tracked.isFocusHeldByPointer = isPointerLabel && focusTrigger !== anchor;
     readShown();
   }, [readShown]);
 
@@ -77,7 +90,7 @@ export function useShownHoverLabel(
       }
       tracked.pointer = target;
       if (tracked.dismissedPointer !== triggerOf(target)) {
-        tracked.dismissedPointer = undefined;
+        releasePointerDismissal(tracked);
       }
       readShown();
     };
@@ -85,7 +98,7 @@ export function useShownHoverLabel(
     const onPointerOut = (event: PointerEvent): void => {
       if (event.relatedTarget === null) {
         tracked.pointer = undefined;
-        tracked.dismissedPointer = undefined;
+        releasePointerDismissal(tracked);
         readShown();
       }
     };
@@ -94,6 +107,7 @@ export function useShownHoverLabel(
       // Focus from the keyboard only: a click focuses a button too, and the pointer shows it.
       tracked.focus = isElement(target) && target.matches(":focus-visible") ? target : undefined;
       tracked.dismissedFocus = undefined;
+      tracked.isFocusHeldByPointer = false;
       readShown();
     };
     // Captured on the document, ahead of the page's own handlers and the tooltip's.
@@ -101,13 +115,15 @@ export function useShownHoverLabel(
       const focusTrigger = triggerOf(tracked.focus);
       if (
         event.key === "Escape" &&
+        // Escape mid-composition cancels the composition; the label keeps it from no one.
+        !event.isComposing &&
         focusTrigger !== undefined &&
         shownOf(tracked)?.anchor === focusTrigger &&
         // A trigger scrolled out of view hides its label, so the key is the page's.
         labelBoxRef.current?.hasAttribute("data-anchor-hidden") !== true
       ) {
         event.preventDefault();
-        event.stopPropagation();
+        event.stopImmediatePropagation();
         close();
       }
     };
@@ -115,6 +131,7 @@ export function useShownHoverLabel(
       if (tracked.focus === event.target) {
         tracked.focus = undefined;
         tracked.dismissedFocus = undefined;
+        tracked.isFocusHeldByPointer = false;
         readShown();
       }
     };
@@ -155,13 +172,25 @@ export function useShownHoverLabel(
 
 /**
  * The element the pointer is over and the one keyboard focus is on, either absent, with the
- * trigger each showed when its label was put away.
+ * trigger each showed when its label was put away, and whether the focused trigger's label was
+ * put away only along with the pointer's.
  */
 interface TrackedElements {
   pointer?: Element | undefined;
   focus?: Element | undefined;
   dismissedPointer?: Element | undefined;
   dismissedFocus?: Element | undefined;
+  isFocusHeldByPointer?: boolean;
+}
+
+// The pointer left the trigger whose label was put away, so that label may show again, and the
+// focused trigger's label too where it went away only with the pointer's.
+function releasePointerDismissal(tracked: TrackedElements): void {
+  tracked.dismissedPointer = undefined;
+  if (tracked.isFocusHeldByPointer === true) {
+    tracked.dismissedFocus = undefined;
+    tracked.isFocusHeldByPointer = false;
+  }
 }
 
 const TRIGGER_SELECTOR = `[${HOVER_LABEL_TEXT_ATTRIBUTE}]`;
