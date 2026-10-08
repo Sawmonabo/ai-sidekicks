@@ -2,15 +2,15 @@
  * Two button treatments several features share, each a class a control wears beside its own.
  *
  * `meridian-action-button` is a button that does something. The base holds only what every such
- * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer.
- * Sizes: `--regular` is the small text step with roomy side padding; `--compact` is the smallest
- * text step with the same roomy padding; `--small` is the smallest text step with tight padding.
- * `--compact` and `--small` lay a glyph out beside the label. Faces: `--outline` is the
- * page surface under the strong edge; `--raised` is the raised surface under the quiet edge,
- * which strengthens on hover and sinks with its text faded while disabled. `--destructive` marks
- * a face red while it is enabled. A button disabled by `aria-disabled`, which keeps focus so its
- * hover label still shows, wears the disabled face too. A size or face no other control shares stays in that
- * control's class.
+ * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer,
+ * which a disabled button drops. Sizes: `--regular` is the small text step with roomy side
+ * padding; `--compact` is the smallest text step with the same roomy padding; `--small` is the
+ * smallest text step with tight padding. `--compact` and `--small` lay a glyph out beside the
+ * label. Faces: `--outline` is the page surface under the strong edge, its text faded while
+ * disabled; `--raised` is the raised surface under the quiet edge, which strengthens on hover and
+ * sinks with its text faded while disabled. `--destructive` marks a face red while it is enabled.
+ * A button disabled by `aria-disabled`, which keeps focus so its hover label still shows, wears
+ * the disabled face too. A size or face no other control shares stays in that control's class.
  *
  * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
  * it (a details toggle, a message's Copy) and holds the whole treatment.
@@ -57,6 +57,14 @@
   border-color: var(--meridian-edge-strong);
 }
 
+:where(.meridian-action-button:is(:disabled, [aria-disabled="true"])) {
+  cursor: default;
+}
+
+:where(.meridian-action-button--outline:is(:disabled, [aria-disabled="true"])) {
+  color: var(--meridian-text-faint);
+}
+
 :where(.meridian-action-button--raised) {
   color: var(--meridian-text);
   background: var(--meridian-surface-raised);
@@ -70,7 +78,6 @@
 :where(.meridian-action-button--raised:is(:disabled, [aria-disabled="true"])) {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
-  cursor: default;
 }
 
 /*

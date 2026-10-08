@@ -6,8 +6,8 @@
 // sideways; one rem narrower, that pane falls under its floor. A closed track takes no width,
 // where an open one does. At the floor the agent library keeps its two columns and an entity
 // record keeps each label beside its value on one line, a long value truncated with its whole text
-// as its hover label, with nothing overflowing or overlapping; a box planted too wide, one planted over
-// a row, a short value that is not cut, and a record narrower than its label column are the
+// as its hover label, with nothing overflowing or overlapping; a box planted too wide, one planted
+// over a row, a short value that is not cut, and a record narrower than its label column are the
 // negative controls. The whole app held at its floor keeps the conversation in view above the
 // composer with its command list open; on a screen shorter than the floor the conversation keeps
 // its own height floor, and the list gives way and scrolls in what is left.

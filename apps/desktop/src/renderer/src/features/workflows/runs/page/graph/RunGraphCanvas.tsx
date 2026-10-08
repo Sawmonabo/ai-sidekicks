@@ -11,6 +11,7 @@ import {
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type NodeMouseHandler,
   type NodeTypes,
 } from "@xyflow/react";
@@ -21,7 +22,7 @@ import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run
 
 import { tokenReference } from "#renderer/styles/tokens.js";
 import { WORKFLOW_CANVAS_MEASURES } from "#renderer/features/workflows/canvas/measures.js";
-import { RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./elements.js";
+import { EDGE_COUNT_CLASS, RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./elements.js";
 import { RunGraphNode } from "./RunGraphNode.js";
 import { useLiveStepFollow } from "./hooks/useLiveStepFollow.js";
 import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
@@ -101,6 +102,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     [markInView],
   );
   const { stopFollowing, revealPoint } = follow;
+  const { screenToFlowPosition } = useReactFlow();
 
   const selectClickedNode = useCallback<NodeMouseHandler>(
     (_event, node) => onSelectNode(node.id),
@@ -121,17 +123,28 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     [onSelectNode, stopFollowing],
   );
 
-  // A node reached by keyboard is brought into view, which the library does only with its own
-  // keys on.
-  const revealFocusedNode = useCallback(
+  // A node or an edge's count reached by keyboard is brought into view, which the library does
+  // only with its own keys on.
+  const revealFocusedElement = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!event.target.matches(":focus-visible")) {
+        return;
+      }
       const nodeId = focusedNodeId(event.target);
       const node = nodes.find((candidate) => candidate.id === nodeId);
-      if (node !== undefined && event.target.matches(":focus-visible")) {
+      if (node !== undefined) {
         revealPoint(runGraphNodeCenter(node));
+      } else if (event.target.classList.contains(EDGE_COUNT_CLASS)) {
+        const countBox = event.target.getBoundingClientRect();
+        revealPoint(
+          screenToFlowPosition({
+            x: countBox.left + countBox.width / 2,
+            y: countBox.top + countBox.height / 2,
+          }),
+        );
       }
     },
-    [nodes, revealPoint],
+    [nodes, revealPoint, screenToFlowPosition],
   );
 
   return (
@@ -140,7 +153,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
       className="meridian-run-graph__canvas"
       style={WORKFLOW_CANVAS_MEASURES}
       onKeyDown={handleCanvasKey}
-      onFocus={revealFocusedNode}
+      onFocus={revealFocusedElement}
     >
       <ReactFlow
         aria-label="Run graph"

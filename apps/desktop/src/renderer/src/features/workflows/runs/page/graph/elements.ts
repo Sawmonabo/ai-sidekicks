@@ -51,6 +51,9 @@ export const NO_HANDLES: NodeHandleIds = { inputs: [], outputs: [] };
 /** The one node kind this graph draws; the string is the `nodeTypes` key. */
 export const RUN_GRAPH_NODE_TYPE = "run-node" as const;
 
+/** The class on an edge's item count, the element the keyboard focuses to read the whole count. */
+export const EDGE_COUNT_CLASS = "meridian-run-graph__edge-count";
+
 /** A placed node in the library's own shape. */
 export type RunGraphFlowNode = Node<RunGraphNodeData, typeof RUN_GRAPH_NODE_TYPE>;
 
@@ -226,12 +229,17 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
   return isDisabled ? "meridian-run-graph__edge--disabled" : undefined;
 }
 
-// The short count on the edge, with the whole count in its hover label, which a pointer shows and a
-// screen reader names the label by.
+// The short count on the edge, with the whole count in its hover label, which a pointer or the
+// keyboard shows and a screen reader names the count by. It is a tab stop, so the keyboard reaches
+// the whole count as the pointer does.
 function edgeCountLabel(count: number): React.ReactNode {
   return createElement(HoverLabel, {
     text: itemCountWords(count),
     textIs: "name",
-    children: createElement("tspan", null, formatCompactCount(count)),
+    children: createElement(
+      "tspan",
+      { className: EDGE_COUNT_CLASS, tabIndex: 0 },
+      formatCompactCount(count),
+    ),
   });
 }

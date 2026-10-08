@@ -126,7 +126,7 @@
   font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
-/* The count takes the pointer across its whole box, so its hover label opens between the glyphs too. */
+/* The count takes the pointer across its whole box, so its label opens between the glyphs too. */
 .meridian-run-graph .react-flow__edge-text {
   pointer-events: bounding-box;
   fill: var(--meridian-text-muted);

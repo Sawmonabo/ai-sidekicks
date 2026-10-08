@@ -7,8 +7,8 @@ import { ActionButton } from "./ActionButton.js";
 /**
  * One of a run's controls. It keeps its place in every state: where the state does not allow it,
  * it stands disabled, still reachable by Tab, and the reason is its description, read by a screen
- * reader and shown in its hover label, so the control never grows a second line; where the daemon refused a press, the
- * daemon's words stand beside it instead.
+ * reader and shown in its hover label, so the control never grows a second line; where the daemon
+ * refused a press, the daemon's words stand beside it instead.
  */
 export function RunControl(props: {
   readonly label: string;

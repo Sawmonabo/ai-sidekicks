@@ -1,10 +1,12 @@
 // The hover label under a real pointer and keyboard in Chromium, where the label's box lands
 // against its control by real geometry: it shows when the keyboard reaches its control, Escape
 // closes it, and it stays while the pointer crosses from the control onto the label, its box
-// touching the control's so the crossing passes over nothing else. Moving the
-// pointer off both is the negative control: the label closes, so its staying is not a label that
-// never closes.
+// touching the control's so the crossing passes over nothing else. Moving the pointer off both is
+// the negative control: the label closes, so its staying is not a label that never closes. A
+// control that gains its words while focused shows them at once, and a label Escape put away
+// stays away while the pointer moves inside its control, until the pointer leaves and returns.
 
+import { useState } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
@@ -89,6 +91,76 @@ function gapBetween(first: DOMRect, second: DOMRect): number {
     second.top - first.bottom,
   );
 }
+
+it("shows words a focused control gains, and keeps an Escaped label away inside its control", async () => {
+  let giveReason: () => void = () => undefined;
+  function GainsReason(): React.JSX.Element {
+    const [reason, setReason] = useState<string | undefined>(undefined);
+    giveReason = () => {
+      setReason("Already restarting.");
+    };
+    return (
+      <HoverLabel text={reason} textIs="description">
+        <button type="button">
+          <span data-testid="glyph">◐</span> Restart
+        </button>
+      </HoverLabel>
+    );
+  }
+  const { getByRole, getByTestId } = render(
+    <div style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}>
+      <button type="button">Before</button>
+      <GainsReason />
+      <button type="button">After</button>
+      <HoverLabelHost />
+    </div>,
+  );
+  const control = getByRole("button", { name: "◐ Restart" });
+
+  act(() => {
+    getByRole("button", { name: "Before" }).focus();
+  });
+  await act(async () => {
+    await userEvent.tab();
+  });
+  expect(document.activeElement).toBe(control);
+  expect(shownLabel()).toBeNull();
+  act(() => {
+    giveReason();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Already restarting.");
+  });
+
+  act(() => {
+    control.blur();
+  });
+  await act(async () => {
+    await userEvent.hover(control);
+  });
+  await waitFor(() => {
+    expect(shownLabel()).not.toBeNull();
+  });
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
+  await waitFor(() => {
+    expect(shownLabel()).toBeNull();
+  });
+  await act(async () => {
+    await userEvent.hover(getByTestId("glyph"));
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+  });
+  expect(shownLabel()).toBeNull();
+
+  await act(async () => {
+    await userEvent.hover(getByRole("button", { name: "After" }));
+    await userEvent.hover(control);
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Already restarting.");
+  });
+});
 
 function shownLabel(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".meridian-hover-label");

@@ -1,15 +1,20 @@
 // A run graph node's box is derived from its kind's row in canvas units, so at the largest text
 // size every line still fits inside it, its kind's words whole, and every node of a kind is one
 // width, wider where its kind's words are longer. The gap between columns is derived from the
-// widest edge count, so a label never stands on a node. This needs real layout: a DOM shim
+// widest edge count, so a label never stands on a node. A count's whole figure is its hover label,
+// which the pointer opens anywhere on the count and Tab reaches. This needs real layout: a DOM shim
 // measures every box as zero.
 
-import { waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { TEXT_SIZES } from "#shared/appearance.js";
+import { HoverLabelHost } from "#renderer/components/HoverLabel/HoverLabelHost.js";
+import { EDGE_COUNT_CLASS } from "#renderer/features/workflows/runs/page/graph/elements.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { fixtureRun, mountRunGraph, type FixtureRun } from "./mount.js";
 
@@ -87,6 +92,8 @@ describe("an edge's item count at the largest text size", () => {
     const shortCounts = longCounts.map((count) => ({ ...count, itemCount: 9 }));
     const shortGraph = await mountAtLargestTextSize(fixture, shortCounts);
     const shortWidths = nodeWidths(shortGraph);
+    // Unmounted, so the long graph stands at the top of the page where the pointer can reach it.
+    cleanup();
     const container = await mountAtLargestTextSize(fixture, longCounts);
     // A count's length never moves a node: every box is sized for the widest short form.
     expect(nodeWidths(container)).toEqual(shortWidths);
@@ -105,7 +112,6 @@ describe("an edge's item count at the largest text size", () => {
       const count = label.querySelector<SVGTSpanElement>(".react-flow__edge-text tspan");
       expect(count?.dataset["hoverLabel"]).toBe("123,456,789,012 items");
       expect(count?.textContent).toBe("123B");
-      count?.scrollIntoView({ block: "center", inline: "center" });
       const countBox = count?.getBoundingClientRect();
       const pointed = document.elementFromPoint(
         (countBox?.left ?? 0) + (countBox?.width ?? 0) / 2,
@@ -124,7 +130,41 @@ describe("an edge's item count at the largest text size", () => {
     });
     expect(overlaps).toEqual([]);
   });
+
+  it("is reached by Tab, which shows its whole count", async () => {
+    const fixture = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
+    const counts = fixture.workflowDocument.edges.map((edge) => ({
+      edgeId: edge.id,
+      itemCount: 123_456_789_012,
+    }));
+    const container = await mountAtLargestTextSize(fixture, counts);
+    render(createElement(HoverLabelHost));
+    const firstCount = await waitFor(() => {
+      const count = container.querySelector<SVGTSpanElement>(`.${EDGE_COUNT_CLASS}`);
+      expect(count).not.toBeNull();
+      return count!;
+    });
+
+    // Tab walks the page from its start until it lands on the first count, never past it.
+    act(() => {
+      document.body.focus();
+    });
+    for (let step = 0; step < TAB_STEP_LIMIT && document.activeElement !== firstCount; step++) {
+      await act(async () => {
+        await userEvent.tab();
+      });
+    }
+    expect(document.activeElement).toBe(firstCount);
+    await waitFor(() => {
+      expect(document.querySelector(".meridian-hover-label")?.textContent).toBe(
+        "123,456,789,012 items",
+      );
+    });
+  });
 });
+
+/** How many Tab presses the walk to the first count may take; the page has fewer stops. */
+const TAB_STEP_LIMIT = 50;
 
 function nodeWidths(container: HTMLElement): Record<string, number> {
   return Object.fromEntries(
