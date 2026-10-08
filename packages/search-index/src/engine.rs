@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 use tantivy::indexer::IndexWriterOptions;
-use tantivy::merge_policy::{LogMergePolicy, MergePolicy, NoMergePolicy};
+use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::store::Compressor;
 use tantivy::{
     Index, IndexReader, IndexSettings, IndexWriter, ReloadPolicy, SegmentMeta, TantivyError,
@@ -16,6 +16,7 @@ use tantivy::{
 
 use crate::directory::{FolderDirectory, ReadMode};
 use crate::membership::GroupMembership;
+use crate::merge_policy::{CappedMergePolicy, SEGMENT_ROW_CAP};
 use crate::schema::{
     IndexFields, Owner, index_schema, key_term, owner_term, register_tokenizers, row_document,
 };
@@ -254,10 +255,10 @@ impl IndexEngine {
         Ok(())
     }
 
-    /// Runs one merge step, the smallest the log merge policy proposes, off the writer's lock, then
-    /// publishes the merged segments; returns whether more merging remains.
+    /// Runs one merge step, the smallest the capped merge policy proposes, off the writer's lock,
+    /// then publishes the merged segments; returns whether more merging remains.
     pub fn merge_while_idle(&self) -> tantivy::Result<bool> {
-        let policy = idle_merge_policy();
+        let policy = CappedMergePolicy::new(SEGMENT_ROW_CAP);
         let Some(segment_ids) =
             smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
         else {
@@ -298,17 +299,10 @@ impl IndexEngine {
     }
 }
 
-// Merges only when called: segments of a similar size merge together, and a segment with more
-// than one row in a hundred deleted is rewritten alone to expunge them.
-fn idle_merge_policy() -> LogMergePolicy {
-    let mut policy = LogMergePolicy::default();
-    policy.set_min_num_segments(2);
-    policy.set_max_docs_before_merge(usize::MAX);
-    policy.set_del_docs_ratio_before_merge(0.01);
-    policy
-}
-
-fn smallest_candidate(policy: &LogMergePolicy, segments: &[SegmentMeta]) -> Option<Vec<SegmentId>> {
+fn smallest_candidate(
+    policy: &CappedMergePolicy,
+    segments: &[SegmentMeta],
+) -> Option<Vec<SegmentId>> {
     let rows_of = |id: &SegmentId| {
         segments
             .iter()

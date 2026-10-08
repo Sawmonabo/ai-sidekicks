@@ -6,6 +6,7 @@ mod directory;
 mod engine;
 mod find;
 mod membership;
+mod merge_policy;
 mod phrase;
 mod schema;
 mod scorer;
