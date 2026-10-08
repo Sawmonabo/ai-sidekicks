@@ -1,6 +1,6 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /**
@@ -25,7 +25,7 @@ export function NotificationEntry(props: {
       <span className="meridian-attention__name">{item.displayName}</span>
       <span className="meridian-attention__state">{item.stateWord}</span>
       <WireFigure
-        value={formatRelativeTime(item.createdAt, props.nowMilliseconds)}
+        value={formatAge(item.createdAt, props.nowMilliseconds)}
         hoverLabel={formatZonedDateTime(item.createdAt, clockLocale)}
       />
     </>

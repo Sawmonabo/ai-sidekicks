@@ -1,6 +1,7 @@
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { formatCount, formatNumericCode } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 
 /**
@@ -21,12 +22,16 @@ export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Ele
         </p>
       )}
       {error.itemIndex === undefined ? null : (
-        <p className="meridian-workflow-step__error-item">{`Item ${formatCount(error.itemIndex)}`}</p>
+        <p className="meridian-workflow-step__error-item">
+          Item <WireFigure value={formatCount(error.itemIndex)} />
+        </p>
       )}
       <p className="meridian-workflow-step__error-message">{error.message}</p>
       {processExit === undefined ? null : (
         <>
-          <p className="meridian-workflow-step__error-item">{exitWords(processExit)}</p>
+          <p className="meridian-workflow-step__error-item">
+            <ProcessExitWords processExit={processExit} />
+          </p>
           <pre className="meridian-workflow-step__log-tail" aria-label="Last log lines">
             {processExit.outputTail}
           </pre>
@@ -51,8 +56,15 @@ function failureLabel(
 
 // The wire carries exactly one of the exit code and the signal. An exit code is a code, read as
 // it was sent, not a count.
-function exitWords(processExit: NonNullable<WorkflowStep["processExit"]>): string {
-  return processExit.signal === undefined
-    ? `Exit code ${String(processExit.exitCode)}`
-    : `Ended by ${processExit.signal}`;
+function ProcessExitWords(props: {
+  readonly processExit: NonNullable<WorkflowStep["processExit"]>;
+}): React.JSX.Element {
+  const { processExit } = props;
+  return processExit.signal === undefined ? (
+    <>
+      Exit code <WireFigure value={formatNumericCode(processExit.exitCode)} />
+    </>
+  ) : (
+    <>Ended by {processExit.signal}</>
+  );
 }

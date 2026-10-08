@@ -1,6 +1,8 @@
 import { memo } from "react";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { diffFileChangeNotes, type DiffViewMode } from "../model.js";
 import type { DiffRow } from "../rows/model.js";
 import type { DiffRowIndex } from "../rows/flat-index.js";
@@ -85,7 +87,8 @@ export const DiffRowView: React.MemoExoticComponent<
             }}
           >
             <Glyph name="more" size={GLYPH_SIZE_ROW} />
-            {`Expand ${String(row.hiddenLineCount)} hidden lines`}
+            {/* The app's own count of the context lines the hunk holds back. */}
+            Expand <DerivedFigure text={formatCount(row.hiddenLineCount)} /> hidden lines
           </button>
         </span>
       </div>

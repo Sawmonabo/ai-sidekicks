@@ -8,6 +8,9 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReadScope } from "#renderer/hooks/useReadScope.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
@@ -117,7 +120,7 @@ export function StepPanel(props: StepPanelProps): React.JSX.Element {
             </select>
           ) : step === undefined || step.attempt === 1 ? null : (
             <span className="meridian-workflow-step__attempt">
-              {`Attempt ${formatCount(step.attempt)}`}
+              Attempt <WireFigure value={formatCount(step.attempt)} />
             </span>
           )}
           <ActionButton aria-label="Close step panel" onClick={props.onClose}>
@@ -146,7 +149,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
     <>
       {sources.map((source, index) => (
         <p key={index} className="meridian-workflow-step__note">
-          {source}
+          <FigureSentence parts={source} />
         </p>
       ))}
       {childRunId === undefined ? null : (
@@ -207,7 +210,7 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
           {tab === "cost" ? (
             <StepRecordTab stored={step.cost} view={view} label={label}>
               <p className="meridian-workflow-step__note">
-                {costWithPayer(step.cost, props.payerOf)}
+                <FigureSentence parts={costWithPayer(step.cost, props.payerOf)} />
               </p>
             </StepRecordTab>
           ) : null}
@@ -395,20 +398,27 @@ function sourceWords(
   run: WorkflowRunReadResponse,
   step: WorkflowStep,
   nodeName: (nodeId: string) => string,
-): string[] {
+): (readonly FigureSentencePart[])[] {
   return step.source.flatMap((source) => {
     if (source === null) {
       return [];
     }
     const passes = nodePasses(run.steps, source.nodeId);
     const fed = passes.find((entry) => entry.step.executionIndex === source.executionIndex);
-    const pass =
+    // The pass is the app's own count of the source node's runs; the rest is the edge as sent.
+    const pass: readonly FigureSentencePart[] =
       fed !== undefined && passes.some((entry) => entry.pass > 1)
-        ? `, run ${formatCount(fed.pass)}`
-        : "";
+        ? [", run ", { derived: formatCount(fed.pass) }]
+        : [];
     return [
-      `Fed by ${nodeName(source.nodeId)} output ${formatCount(source.outputIndex)}${pass} ` +
-        `(execution ${formatCount(source.executionIndex)})`,
+      [
+        `Fed by ${nodeName(source.nodeId)} output `,
+        { wire: formatCount(source.outputIndex) },
+        ...pass,
+        " (execution ",
+        { wire: formatCount(source.executionIndex) },
+        ")",
+      ],
     ];
   });
 }

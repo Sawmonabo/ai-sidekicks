@@ -210,7 +210,7 @@ describe("AppRouter — the workflows screen across a run's page", () => {
       expect(nextWaitingControl().textContent).toBe("Next waiting (1)");
     });
 
-    await press("Next waiting (1)");
+    await press(nextWaitingControl());
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
     });
@@ -221,7 +221,9 @@ describe("AppRouter — the workflows screen across a run's page", () => {
     await navigate(mounted);
 
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/^Nothing waiting · you answered 1 run this /u)).toBeTruthy();
+      expect(screen.getByText(/^Nothing waiting · you answered/u).textContent).toMatch(
+        /^Nothing waiting · you answered 1 run this /u,
+      );
     });
   });
 });

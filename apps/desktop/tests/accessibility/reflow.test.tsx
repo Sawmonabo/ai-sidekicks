@@ -108,6 +108,7 @@ describe("reflow — the console at 320 CSS px", () => {
             userIds: [],
           }}
           onOpen={() => undefined}
+          nowMilliseconds={0}
         />
       </BridgeHost>,
     );

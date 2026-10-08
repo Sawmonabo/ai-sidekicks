@@ -1,0 +1,30 @@
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index 422889fc98ea26cf4c4b45d6d7b84479550f4728..eedf467af2da514a5f1c50491b1ada853b90154c 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -1284,9 +1284,7 @@ function useResizeHandler(domNode) {
+             resizeObserver.observe(domNode.current);
+             return () => {
+                 window.removeEventListener('resize', updateDimensions);
+-                if (resizeObserver && domNode.current) {
+-                    resizeObserver.unobserve(domNode.current);
+-                }
++                resizeObserver.disconnect();
+             };
+         }
+     }, []);
+diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
+index 422889fc98ea26cf4c4b45d6d7b84479550f4728..eedf467af2da514a5f1c50491b1ada853b90154c 100644
+--- a/dist/esm/index.mjs
++++ b/dist/esm/index.mjs
+@@ -1284,9 +1284,7 @@ function useResizeHandler(domNode) {
+             resizeObserver.observe(domNode.current);
+             return () => {
+                 window.removeEventListener('resize', updateDimensions);
+-                if (resizeObserver && domNode.current) {
+-                    resizeObserver.unobserve(domNode.current);
+-                }
++                resizeObserver.disconnect();
+             };
+         }
+     }, []);

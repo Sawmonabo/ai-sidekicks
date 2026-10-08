@@ -152,7 +152,7 @@ describe("the step panel", () => {
 
     fireEvent.change(picker, { target: { value: "3" } });
     expect(screen.getByRole("tab", { name: "Error" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("Item 1")).toBeDefined();
+    expect(screen.getByText(/^Item/u).textContent).toBe("Item 1");
     expect(screen.getByText("The summary came back empty twice.")).toBeDefined();
   });
 
@@ -183,7 +183,7 @@ describe("the step panel", () => {
     // A failed step opens on Error: its code in words with its reason, then its process's exit
     // code and last lines under the failure.
     expect(screen.getByText("Step thread failed · Out of memory")).toBeDefined();
-    expect(screen.getByText("Exit code 1")).toBeDefined();
+    expect(screen.getByText(/^Exit code/u).textContent).toBe("Exit code 1");
     expect(screen.getByLabelText("Last log lines").textContent).toBe("2 of 40 tests failed");
 
     fireEvent.click(screen.getByRole("button", { name: "JSON" }));

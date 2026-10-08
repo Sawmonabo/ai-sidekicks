@@ -101,7 +101,9 @@ export function lossyStringify(value: unknown): string {
  *   - A wire envelope, or an `Error` carrying a wire `code`, is rebuilt as a fresh `Error` whose
  *     `name` is the wire code. This is checked first.
  *   - Any other `Error` passes through unchanged.
- *   - Anything else is wrapped through {@link lossyStringify}, so this never throws.
+ *   - Any other value with a string `message` keeps that message as its own words.
+ *   - A structure without one reads as {@link UNREPRESENTABLE_VALUE_TEXT}, never
+ *     `[object Object]`; a primitive goes through {@link lossyStringify}. This never throws.
  */
 export function wireRejectionToError(rejection: unknown): Error {
   const envelope = readWireErrorEnvelope(rejection);
@@ -113,5 +115,11 @@ export function wireRejectionToError(rejection: unknown): Error {
   if (isErrorInstance(rejection)) {
     return rejection;
   }
-  return new Error(lossyStringify(rejection));
+  const message = readGuardedProperty(rejection, "message");
+  if (typeof message === "string") {
+    return new Error(message);
+  }
+  return new Error(
+    isPropertyContainer(rejection) ? UNREPRESENTABLE_VALUE_TEXT : lossyStringify(rejection),
+  );
 }

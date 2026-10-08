@@ -15,6 +15,12 @@
 /** An opaque handle for canceling scheduled work. */
 export type ScheduledHandle = number;
 
+/**
+ * The longest delay one platform timeout holds: a longer one overflows its signed 32-bit delay
+ * and fires at once, so `RealClock` waits this long and arms again until the deadline.
+ */
+const LONGEST_PLATFORM_TIMEOUT_MILLISECONDS = 2_147_483_647;
+
 /** The clock and scheduler every app subsystem takes as a dependency. */
 export interface Clock {
   /** Milliseconds since an arbitrary epoch. Monotonic within one clock. */
@@ -85,11 +91,7 @@ export class RealClock implements Clock {
 
   public scheduleTimeout(callback: () => void, delayMs: number): ScheduledHandle {
     const handle = this.#mintHandle();
-    const platformHandle = globalThis.setTimeout(() => {
-      this.#armedWorkByHandle.delete(handle);
-      callback();
-    }, delayMs) as unknown as number;
-    this.#armedWorkByHandle.set(handle, { isFrame: false, platformHandle });
+    this.#armTimeout(handle, callback, this.now() + delayMs);
     return handle;
   }
 
@@ -114,6 +116,25 @@ export class RealClock implements Clock {
   /** Work still armed; the counterpart of `ManualClock.pendingCount`. */
   public get pendingCount(): number {
     return this.#armedWorkByHandle.size;
+  }
+
+  // One platform timeout toward `deadline`, never longer than the platform holds; a capped one
+  // arms the next under the same handle, so a cancel still reaches whichever is armed.
+  #armTimeout(handle: ScheduledHandle, callback: () => void, deadline: number): void {
+    const remaining = deadline - this.now();
+    const isCapped = remaining > LONGEST_PLATFORM_TIMEOUT_MILLISECONDS;
+    const platformHandle = globalThis.setTimeout(
+      () => {
+        if (isCapped) {
+          this.#armTimeout(handle, callback, deadline);
+          return;
+        }
+        this.#armedWorkByHandle.delete(handle);
+        callback();
+      },
+      isCapped ? LONGEST_PLATFORM_TIMEOUT_MILLISECONDS : remaining,
+    ) as unknown as number;
+    this.#armedWorkByHandle.set(handle, { isFrame: false, platformHandle });
   }
 
   #mintHandle(): ScheduledHandle {

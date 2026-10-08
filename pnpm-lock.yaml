@@ -24,6 +24,12 @@ catalogs:
       version: 4.1.11
 
 patchedDependencies:
+  '@xyflow/react@12.12.0':
+    hash: dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85
+    path: patches/@xyflow__react@12.12.0.patch
+  '@xyflow/system@0.0.83':
+    hash: c11ee8a5c80ab59f9d8f2e419d6bde29cac61d64e63cc88aefe787c384fd777c
+    path: patches/@xyflow__system@0.0.83.patch
   signalsmith-stretch@1.3.2:
     hash: 57d4569b9fb9b9f1948d03cb1df3a04d8a52bc27d8d0057761a9c9d387a92fc7
     path: patches/signalsmith-stretch@1.3.2.patch
@@ -213,7 +219,7 @@ importers:
         version: 6.0.0
       '@xyflow/react':
         specifier: 12.12.0
-        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 12.12.0(patch_hash=dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       anser:
         specifier: 2.3.5
         version: 2.3.5
@@ -10281,9 +10287,9 @@ snapshots:
 
   '@xterm/xterm@6.0.0': {}
 
-  '@xyflow/react@12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@xyflow/react@12.12.0(patch_hash=dcfbb662e50e85a3098a8d97041868db13aed36bf36462fc1026870abea63b85)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@xyflow/system': 0.0.83
+      '@xyflow/system': 0.0.83(patch_hash=c11ee8a5c80ab59f9d8f2e419d6bde29cac61d64e63cc88aefe787c384fd777c)
       classcat: 5.0.5
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
@@ -10294,7 +10300,7 @@ snapshots:
     transitivePeerDependencies:
       - immer
 
-  '@xyflow/system@0.0.83':
+  '@xyflow/system@0.0.83(patch_hash=c11ee8a5c80ab59f9d8f2e419d6bde29cac61d64e63cc88aefe787c384fd777c)':
     dependencies:
       '@types/d3-drag': 3.0.7
       '@types/d3-interpolate': 3.0.4

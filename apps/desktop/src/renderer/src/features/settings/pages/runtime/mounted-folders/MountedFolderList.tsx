@@ -7,6 +7,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
@@ -119,8 +120,8 @@ export function MountedFolderList(props: {
       </ul>
       {state.value.unreadMountCount > 0 ? (
         <p className="meridian-settings-page__aside">
-          {formatCount(state.value.unreadMountCount)} further mounts in this session were not read.
-          The inventory opens a bounded number of mounts per visit.
+          <DerivedFigure text={formatCount(state.value.unreadMountCount)} /> further mounts in this
+          session were not read. The inventory opens a bounded number of mounts per visit.
         </p>
       ) : null}
     </>

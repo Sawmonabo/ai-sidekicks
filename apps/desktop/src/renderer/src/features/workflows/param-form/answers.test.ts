@@ -3,7 +3,13 @@
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import { describe, expect, it } from "vitest";
-import { checkParamAnswers, isParamFieldShown, seedParamAnswers } from "./answers.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
+import {
+  checkParamAnswers,
+  isParamFieldShown,
+  seedParamAnswers,
+  type ParamAnswerCheck,
+} from "./answers.js";
 
 const FIELDS: readonly WorkflowParamSpec[] = [
   { id: "summary", label: "Summary", type: "string", required: true },
@@ -43,7 +49,7 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
       reviewers: [{ name: "" }],
     };
 
-    expect(checkParamAnswers(FIELDS, answers)).toEqual({
+    expect(issueWords(checkParamAnswers(FIELDS, answers))).toEqual({
       kind: "invalid",
       issues: {
         summary: "Fill in this field.",
@@ -61,7 +67,7 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
       { id: "reason", label: "Reason", type: "string", required: true, showWhen: { retries: [3] } },
     ];
 
-    expect(checkParamAnswers(fields, { retries: " 3 ", reason: "" })).toEqual({
+    expect(issueWords(checkParamAnswers(fields, { retries: " 3 ", reason: "" }))).toEqual({
       kind: "invalid",
       issues: { reason: "Fill in this field." },
     });
@@ -90,3 +96,15 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
     });
   });
 });
+
+/** A check with each refusal's sentence read as one string. */
+function issueWords(check: ParamAnswerCheck): unknown {
+  return check.kind === "invalid"
+    ? {
+        kind: check.kind,
+        issues: Object.fromEntries(
+          Object.entries(check.issues).map(([place, parts]) => [place, joinFigureSentence(parts)]),
+        ),
+      }
+    : check;
+}

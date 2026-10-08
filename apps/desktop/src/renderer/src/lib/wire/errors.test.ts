@@ -47,4 +47,12 @@ describe("wireRejectionToError — renders the value it is handed, and never thr
     expect(() => String(value)).toThrow();
     expect(wireRejectionToError(value).message).toBe("[unrepresentable value]");
   });
+
+  it("keeps a thrown object's own message, and never reads a structure as `[object Object]`", () => {
+    expect(wireRejectionToError({ message: "The disk is full." }).message).toBe(
+      "The disk is full.",
+    );
+    expect(wireRejectionToError({ reason: "full" }).message).toBe("[unrepresentable value]");
+    expect(wireRejectionToError("The disk is full.").message).toBe("The disk is full.");
+  });
 });

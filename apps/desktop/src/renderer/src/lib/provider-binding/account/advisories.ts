@@ -12,7 +12,8 @@ import {
   accountPlaneRemedySentence,
   PROVIDER_READINESS_STATE_WORDS,
 } from "#renderer/lib/provider-accounts/sentences.js";
-import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { advisoryChoiceIn, type AccountAxisReading, type AccountChoice } from "./axis.js";
 
 /**
@@ -20,18 +21,32 @@ import { advisoryChoiceIn, type AccountAxisReading, type AccountChoice } from ".
  * contract's union; each sentence says what was observed, never that the account will work.
  */
 const OBSERVED_HEALTH_ADVISORIES: Readonly<
-  Record<ProviderAccount["healthState"], (observedAt: string) => string>
+  Record<
+    ProviderAccount["healthState"],
+    (observedAt: FigureSentencePart) => readonly FigureSentencePart[]
+  >
 > = {
-  authenticated: (observedAt) =>
-    `The observation at ${observedAt} found a credential in this ` +
-    "account's home and nothing local reporting it dead. Whether the " +
-    "provider still accepts it is decided when a run starts.",
-  reauth_required: (observedAt) =>
-    `The observation at ${observedAt} found this account's login expired.`,
-  home_missing: (observedAt) =>
-    `The observation at ${observedAt} found no credential home where this account expects one.`,
-  indeterminate: (observedAt) =>
-    `The observation at ${observedAt} did not decide about this account.`,
+  authenticated: (observedAt) => [
+    "The observation at ",
+    observedAt,
+    " found a credential in this account's home and nothing local reporting it dead. Whether " +
+      "the provider still accepts it is decided when a run starts.",
+  ],
+  reauth_required: (observedAt) => [
+    "The observation at ",
+    observedAt,
+    " found this account's login expired.",
+  ],
+  home_missing: (observedAt) => [
+    "The observation at ",
+    observedAt,
+    " found no credential home where this account expects one.",
+  ],
+  indeterminate: (observedAt) => [
+    "The observation at ",
+    observedAt,
+    " did not decide about this account.",
+  ],
 };
 
 /**
@@ -43,19 +58,22 @@ const NEVER_OBSERVED_ADVISORY = "This account has never been observed.";
 
 /**
  * Every advisory line this account carries: what was stored, then its state and the one remedy
- * that applies, in the Providers page's words. Never empty. The stored instant is written in
- * `locale`, the machine's clock locale.
+ * that applies, in the Providers page's words. Never empty. The stored instant is a wire figure
+ * written in `locale`, the machine's clock locale.
  */
-export function accountAdvisoriesFor(choice: AccountChoice, locale: string): readonly string[] {
+export function accountAdvisoriesFor(
+  choice: AccountChoice,
+  locale: string,
+): readonly (readonly FigureSentencePart[])[] {
   const advisories = [storedHealthAdvisoryFor(choice, locale)];
   const { readiness } = choice;
   if (readiness === undefined) {
     return advisories;
   }
-  advisories.push(PROVIDER_READINESS_STATE_WORDS[readiness.state](readiness.provider));
+  advisories.push([PROVIDER_READINESS_STATE_WORDS[readiness.state](readiness.provider)]);
   const remedyAdvisory = remedyAdvisoryFor(readiness);
   if (remedyAdvisory !== undefined) {
-    advisories.push(remedyAdvisory);
+    advisories.push([remedyAdvisory]);
   }
   return advisories;
 }
@@ -76,14 +94,20 @@ export function unresolvedDefaultAdvisoryIn(
 }
 
 /** The stored reading as one sentence: what was found, and when it was found. */
-function storedHealthAdvisoryFor(choice: AccountChoice, locale: string): string {
+function storedHealthAdvisoryFor(
+  choice: AccountChoice,
+  locale: string,
+): readonly FigureSentencePart[] {
   const { healthObservedAt } = choice;
   if (healthObservedAt === null) {
-    return NEVER_OBSERVED_ADVISORY;
+    return [NEVER_OBSERVED_ADVISORY];
   }
   // `formatDateTime` answers an em dash for a stamp it cannot read, so a malformed instant
   // costs the sentence its date, not the field.
-  return OBSERVED_HEALTH_ADVISORIES[choice.healthState](formatDateTime(healthObservedAt, locale));
+  return OBSERVED_HEALTH_ADVISORIES[choice.healthState]({
+    wire: formatDateTime(healthObservedAt, locale),
+    hoverLabel: formatZonedDateTime(healthObservedAt, locale),
+  });
 }
 
 /**

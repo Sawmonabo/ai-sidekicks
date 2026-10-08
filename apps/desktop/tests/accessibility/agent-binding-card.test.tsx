@@ -42,7 +42,7 @@ describe("accessibility — the agent card", () => {
     const BridgeHost = liveBridgeWrapper();
     const { container } = await renderSettled(
       <BridgeHost>
-        <AgentBindingCard agent={AGENT_WITH_FULL_ECHO} />
+        <AgentBindingCard agent={AGENT_WITH_FULL_ECHO} nowMilliseconds={0} />
       </BridgeHost>,
     );
     openEveryDisclosure(container);

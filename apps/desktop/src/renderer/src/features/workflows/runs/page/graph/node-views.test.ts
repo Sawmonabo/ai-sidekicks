@@ -9,6 +9,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "./node-views.js";
@@ -103,7 +104,7 @@ describe("the run graph nests a node's retries under its latest attempt", () => 
     const view = summaryView(steps);
 
     expect(view.status).toBe("running");
-    expect(view.attemptWords).toBe("Attempt 2");
+    expect(joinFigureSentence(view.attemptWords ?? [])).toBe("Attempt 2");
     expect(view.errorLine, "the earlier attempt's failure leaked onto the retry").toBeUndefined();
     expect(view.accessibleName).toBe("Summarize · Running · Attempt 2");
     expect(liveNodeId(steps)).toBe("summary");
@@ -124,7 +125,7 @@ describe("the run graph nests a node's retries under its latest attempt", () => 
 
     const view = summaryView(steps);
 
-    expect(view.errorLine).toBe("Item 1 · The summary came back empty");
+    expect(joinFigureSentence(view.errorLine ?? [])).toBe("Item 1 · The summary came back empty");
     expect(view.accessibleName).toBe(
       "Summarize · Failed · Attempt 2 · Item 1 · The summary came back empty",
     );

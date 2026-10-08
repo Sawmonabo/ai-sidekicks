@@ -13,6 +13,8 @@ import type { ReactNode } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
@@ -70,14 +72,16 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
       {connection.kind === "transient_disconnect" ? (
         <SettingsFact term="Attempt">
           <span>
-            {connection.attempt} of {connection.attemptLimit}
+            <DerivedFigure text={formatCount(connection.attempt)} /> of{" "}
+            <DerivedFigure text={formatCount(connection.attemptLimit)} />
           </span>
         </SettingsFact>
       ) : null}
       {connection.kind === "degraded" ? (
         <SettingsFact term="Attempts spent">
           <span>
-            {connection.attemptLimit} of {connection.attemptLimit}
+            <DerivedFigure text={formatCount(connection.attemptLimit)} /> of{" "}
+            <DerivedFigure text={formatCount(connection.attemptLimit)} />
           </span>
         </SettingsFact>
       ) : null}

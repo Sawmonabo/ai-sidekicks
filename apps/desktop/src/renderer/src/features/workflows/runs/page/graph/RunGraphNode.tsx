@@ -9,9 +9,11 @@ import "./RunGraphNode.css";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
-import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { handleOffset, type RunGraphFlowNode } from "./elements.js";
 import { RUN_GRAPH_RESUME_WORDS } from "./node-views.js";
 
@@ -47,19 +49,25 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
           <span className="meridian-run-graph-node__count">
             <WireFigure
               value={formatCompactCount(view.outputCount)}
-              hoverLabel={itemCountWords(view.outputCount)}
+              hoverLabel={joinFigureSentence(itemCountWords(view.outputCount, "wire"))}
             />
           </span>
         )}
       </span>
       <span className="meridian-run-graph-node__kind">{nodeKindWords(view.node.kind)}</span>
       <span className="meridian-run-graph-node__state">
-        {view.attemptWords === undefined
-          ? view.stateWords
-          : `${view.stateWords} · ${view.attemptWords}`}
+        {view.stateWords}
+        {view.attemptWords === undefined ? null : (
+          <>
+            {" · "}
+            <FigureSentence parts={view.attemptWords} />
+          </>
+        )}
       </span>
       {view.errorLine === undefined ? null : (
-        <span className="meridian-run-graph-node__error">{view.errorLine}</span>
+        <span className="meridian-run-graph-node__error">
+          <FigureSentence parts={view.errorLine} />
+        </span>
       )}
       {view.resumeFigure === undefined ? null : (
         <span className="meridian-run-graph-node__resume">

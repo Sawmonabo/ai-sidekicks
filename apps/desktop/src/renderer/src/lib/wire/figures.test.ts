@@ -3,12 +3,15 @@
 // figure for a span of minutes; and a clock figure carries its day in front unless it is today,
 // counted on the machine's own calendar. A compact count is shortened by the platform's own
 // notation, and its widest form is what the platform prints at a rounding edge. A time's hover
-// title is the time on the machine's own calendar and clock, with its zone.
+// title is the time on the machine's own calendar and clock, with its zone. A row's age reads one
+// count in one unit, and its view wakes exactly when that reading changes.
 
 import { describe, expect, it } from "vitest";
 
 import {
+  ageChangesAt,
   dayClockChangesAt,
+  formatAge,
   formatCompactCount,
   formatDayClock,
   formatMoney,
@@ -79,5 +82,42 @@ describe("formatZonedDateTime", () => {
     // Built on this machine's own calendar, so the case reads the same in every zone.
     const instant = new Date(2026, 9, 7, 19, 28).toISOString();
     expect(formatZonedDateTime(instant, "en-US")).toMatch(/^Oct 7, 2026, 7:28 PM \S+$/u);
+  });
+});
+
+describe("formatAge", () => {
+  const FROM = "2026-10-01T12:00:00.000Z";
+  const FROM_MILLISECONDS = Date.UTC(2026, 9, 1, 12);
+  const MINUTE = 60_000;
+  const DAY = 24 * 60 * MINUTE;
+
+  it("reads now under a minute, then one whole count in one unit with no ago", () => {
+    const ages = [
+      [-5 * MINUTE, "now"],
+      [59_999, "now"],
+      [MINUTE, "1m"],
+      [59 * MINUTE, "59m"],
+      [60 * MINUTE, "1h"],
+      [DAY - 1, "23h"],
+      [DAY, "1d"],
+      [7 * DAY, "1w"],
+      [29 * DAY, "4w"],
+      [30 * DAY, "1mo"],
+      [364 * DAY, "12mo"],
+      [365 * DAY, "1y"],
+      [3 * 365 * DAY, "3y"],
+    ] as const;
+    expect(ages.map(([gap]) => formatAge(FROM, FROM_MILLISECONDS + gap))).toStrictEqual(
+      ages.map(([, reading]) => reading),
+    );
+  });
+
+  it("wakes exactly when the age would next read differently", () => {
+    for (const gap of [0, 30 * MINUTE + 1, 23 * 60 * MINUTE, 6 * DAY, 28 * DAY, 200 * DAY]) {
+      const now = FROM_MILLISECONDS + gap;
+      const changesAt = ageChangesAt(FROM, now);
+      expect(formatAge(FROM, changesAt - 1)).toBe(formatAge(FROM, now));
+      expect(formatAge(FROM, changesAt)).not.toBe(formatAge(FROM, now));
+    }
   });
 });

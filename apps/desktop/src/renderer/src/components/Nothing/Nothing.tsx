@@ -19,6 +19,8 @@ import type { AnnouncementPoliteness } from "../LiveAnnouncer/announcer.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { HoverLabel } from "../HoverLabel/HoverLabel.js";
+import { FigureSentence } from "../FigureSentence/FigureSentence.js";
+import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 
 /** The closed set of empty-state kinds. */
 export type NothingKind = "not-loaded" | "empty" | "error" | "not-checked" | "computing";
@@ -34,14 +36,17 @@ export interface NothingProps {
    * the mount differs, such as a whole pane of `not-checked`, which is `block`.
    */
   readonly placement?: NothingPlacement;
-  /** What is missing, in one sentence. For `error`, the refusal's code as words, or a headline. */
-  readonly title: string;
+  /**
+   * What is missing, in one sentence. For `error`, the refusal's code as words, or a headline. A
+   * sentence that carries figures passes its parts, so each figure draws in its own class.
+   */
+  readonly title: string | readonly FigureSentencePart[];
   /**
    * The second line. For `error` it is the daemon's message text, rendered verbatim; for every
    * other kind it is the app's own prose. A block renders it as prose; a badge carries it in its
-   * hover label.
+   * hover label, as plain words.
    */
-  readonly detail?: string;
+  readonly detail?: string | readonly FigureSentencePart[];
   /** The next step, when there is one. A button, a link, a control. */
   readonly action?: React.ReactNode;
   /**
@@ -148,7 +153,7 @@ function renderBadge(
   if (traits.copy === "skeleton") {
     return (
       <span className={className} aria-busy={traits.busy}>
-        <span className="meridian-visually-hidden">{props.title}</span>
+        <span className="meridian-visually-hidden">{sentenceWords(props.title)}</span>
         <span className="meridian-nothing__skeleton-bar" aria-hidden="true" />
       </span>
     );
@@ -156,8 +161,13 @@ function renderBadge(
   return (
     <span className={className} aria-busy={traits.busy}>
       {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
-      <HoverLabel text={props.detail} textRole="description">
-        <span className="meridian-nothing__badge-label">{props.title}</span>
+      <HoverLabel
+        text={props.detail === undefined ? undefined : sentenceWords(props.detail)}
+        textRole="description"
+      >
+        <span className="meridian-nothing__badge-label">
+          <FigureSentence parts={sentenceParts(props.title)} />
+        </span>
       </HoverLabel>
       {props.action === undefined ? null : (
         <span className="meridian-nothing__action">{props.action}</span>
@@ -175,7 +185,7 @@ function renderBlock(
   if (traits.copy === "skeleton") {
     return (
       <div className={className} aria-busy={traits.busy}>
-        <span className="meridian-visually-hidden">{props.title}</span>
+        <span className="meridian-visually-hidden">{sentenceWords(props.title)}</span>
         {SKELETON_BAR_WIDTHS.map((width) => (
           <span
             key={width}
@@ -191,9 +201,13 @@ function renderBlock(
     <div className={className} aria-busy={traits.busy}>
       <p className="meridian-nothing__title">
         {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
-        {props.title}
+        <FigureSentence parts={sentenceParts(props.title)} />
       </p>
-      {props.detail === undefined ? null : <p className={traits.detailClassName}>{props.detail}</p>}
+      {props.detail === undefined ? null : (
+        <p className={traits.detailClassName}>
+          <FigureSentence parts={sentenceParts(props.detail)} />
+        </p>
+      )}
       {props.action === undefined ? null : (
         <div className="meridian-nothing__action">{props.action}</div>
       )}
@@ -206,10 +220,20 @@ function renderBlock(
  * that line only in its hover label.
  */
 function shownWords(props: NothingProps, placement: NothingPlacement): string {
+  const title = sentenceWords(props.title);
   if (placement === "inline" || props.detail === undefined) {
-    return props.title;
+    return title;
   }
-  return /[.?!…]$/u.test(props.title)
-    ? `${props.title} ${props.detail}`
-    : `${props.title}. ${props.detail}`;
+  const detail = sentenceWords(props.detail);
+  return /[.?!…]$/u.test(title) ? `${title} ${detail}` : `${title}. ${detail}`;
+}
+
+function sentenceWords(sentence: string | readonly FigureSentencePart[]): string {
+  return joinFigureSentence(sentenceParts(sentence));
+}
+
+function sentenceParts(
+  sentence: string | readonly FigureSentencePart[],
+): readonly FigureSentencePart[] {
+  return typeof sentence === "string" ? [sentence] : sentence;
 }

@@ -12,7 +12,8 @@ import type {
 
 import type { MarkdownDocumentRow, ParsedMarkdownDocument } from "./markdown-document-rows.js";
 import type { MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { formatByteQuantity, formatCount } from "#renderer/lib/wire/figures.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { byteFigurePart, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 
 /**
  * Where a value row sits: under a member of an object, naming the member on its first row only,
@@ -24,7 +25,7 @@ export type PayloadValuePlace =
 
 /** One row of the Table view. */
 export type PayloadTableRow =
-  | { readonly kind: "item"; readonly heading: string }
+  | { readonly kind: "item"; readonly heading: readonly FigureSentencePart[] }
   /** A value drawn exactly as stored, its line breaks kept. */
   | { readonly kind: "value"; readonly place: PayloadValuePlace; readonly text: string }
   /**
@@ -43,7 +44,7 @@ export type PayloadTableRow =
       readonly row: MarkdownDocumentRow;
       readonly context: MarkdownRenderContext;
     }
-  | { readonly kind: "file"; readonly line: string };
+  | { readonly kind: "file"; readonly line: readonly FigureSentencePart[] };
 
 /**
  * The Table view's rows, reading each string only once its row is drawn. A string with no
@@ -203,25 +204,45 @@ function valueText(value: unknown): string {
   return typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
 }
 
-/** The item's number and, where it came from input items, which: `Item 2 · from item 0`. */
-function itemHeadWords(index: number, item: WorkflowItem): string {
-  const head = `Item ${formatCount(index)}`;
+/**
+ * The item's number, its place in the payload, and where it came from input items, which the
+ * pairing sent: `Item 2 · from item 0`.
+ */
+function itemHeadWords(index: number, item: WorkflowItem): readonly FigureSentencePart[] {
+  const head: readonly FigureSentencePart[] = ["Item ", { derived: formatCount(index) }];
   if (item.pairedItem === undefined) {
     return head;
   }
   const sources = Array.isArray(item.pairedItem) ? item.pairedItem : [item.pairedItem];
-  return sources.length === 0 ? head : `${head} · from ${sources.map(sourceWords).join(", ")}`;
+  return sources.length === 0
+    ? head
+    : [
+        ...head,
+        " · from ",
+        ...sources.flatMap((source, sourceIndex) => [
+          ...(sourceIndex === 0 ? [] : [", "]),
+          ...sourceWords(source),
+        ]),
+      ];
 }
 
 /** One input item an item came from, naming its input only where the pairing does. */
-function sourceWords(source: WorkflowPairedItem): string {
-  const item = `item ${formatCount(source.item)}`;
-  return source.input === undefined ? item : `${item} of input ${formatCount(source.input)}`;
+function sourceWords(source: WorkflowPairedItem): readonly FigureSentencePart[] {
+  const item: readonly FigureSentencePart[] = ["item ", { wire: formatCount(source.item) }];
+  return source.input === undefined
+    ? item
+    : [...item, " of input ", { wire: formatCount(source.input) }];
 }
 
 /** The file a binary field names, in place of its reference: `name · type · size`. */
-function fileLine(file: WorkflowBinaryRef): string {
-  return [file.fileName, file.mimeType, formatByteQuantity(file.size).text].join(" · ");
+function fileLine(file: WorkflowBinaryRef): readonly FigureSentencePart[] {
+  return [
+    { wire: file.fileName },
+    " · ",
+    { wire: file.mimeType },
+    " · ",
+    byteFigurePart("wire", file.size),
+  ];
 }
 
 function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {

@@ -4,6 +4,7 @@
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { type FindStepDirection, type FindResult } from "../matcher.js";
@@ -105,11 +106,11 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
  */
 function matchCountText(result: FindResult, currentMatchIndex: number): string {
   if (result.query.length === 0) {
-    return `${String(result.searchedRowCount)} rows loaded`;
+    return `${formatCount(result.searchedRowCount)} rows loaded`;
   }
   if (result.totalMatchCount === 0) {
     return "No matches";
   }
   const position = currentMatchIndex < 0 ? 1 : currentMatchIndex + 1;
-  return `${String(position)} of ${String(result.matches.length)}`;
+  return `${formatCount(position)} of ${formatCount(result.matches.length)}`;
 }

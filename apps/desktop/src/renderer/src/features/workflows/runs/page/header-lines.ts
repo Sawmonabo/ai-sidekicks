@@ -111,9 +111,7 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   } else if (run.liveStep !== undefined) {
     parts.push(plain([run.liveStep.nodeName]));
   }
-  // A run nothing was billed for reads `$0.00`, the app's own stand-in rather than the daemon's.
-  const spent = costFigure(run.cost);
-  parts.push(plain([run.cost === undefined ? { derived: spent } : { wire: spent }, " so far"]));
+  parts.push(plain([costFigure(run.cost), " so far"]));
   return parts;
 }
 
