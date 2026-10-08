@@ -3,7 +3,8 @@
 // threw as its own class. It tells the thread each time the database writer commits, so the thread
 // applies the outbox, and deletes the outbox rows each durable index commit holds through the
 // writer. The main thread only waits, so a search, however long it reads, holds no other call, and
-// nothing waits for the index to open but a search.
+// nothing waits for the index to open but a search. A thread that builds the index again ends once
+// the build is done, so the build's memory goes with it, and a fresh thread opens the index.
 
 import { Worker } from "node:worker_threads";
 
@@ -53,6 +54,11 @@ interface PendingReply {
   readonly reject: (error: Error) => void;
 }
 
+interface StartedThread {
+  readonly worker: Worker;
+  readonly exited: Promise<void>;
+}
+
 /**
  * Answers `session.search` and `transcript.search` on a thread of their own. Start it with
  * {@link SearchThread.start}, which returns while the thread still opens its index; a search waits
@@ -62,15 +68,20 @@ export class SearchThread {
   /** Resolves with why the open, an apply or the thread failed; never settles otherwise. */
   readonly whenWorkerFailed: Promise<Error>;
 
-  readonly #worker: Worker;
+  readonly #workerData: SearchThreadWorkerData;
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #writeServiceLog: ServiceLogWriter;
   readonly #workerFailure = Promise.withResolvers<Error>();
   // Settles once the index is open, the open or the thread has failed, or a close came first.
   readonly #openSettled = Promise.withResolvers<void>();
-  readonly #exited: Promise<void>;
   readonly #pendingReplies = new Map<number, PendingReply>();
   readonly #stopFollowingCommits: () => void;
+  // The thread now: the first, or the fresh one that opens the index the first built again.
+  #thread: StartedThread;
+  // Why the first thread built the index again, once it said so.
+  #rebuildReason: SearchIndexRebuildReason | undefined;
+  // Set from the first thread's word that it built the index again until its exit.
+  #isRebuildingThreadEnding = false;
   #nextRequestId = 0;
   // The newest durable commit whose outbox rows are still to delete, and the deletes under way.
   #appliedToDelete: AppliedOutbox | undefined;
@@ -79,49 +90,28 @@ export class SearchThread {
   #failure: Error | undefined;
   #closing: Promise<void> | undefined;
 
-  private constructor(worker: Worker, options: SearchThreadOptions) {
-    this.#worker = worker;
+  private constructor(options: SearchThreadOptions) {
+    this.#workerData = {
+      databasePath: options.databasePath,
+      indexFolderPath: options.indexFolderPath,
+    };
     this.#writer = options.writer;
     this.#writeServiceLog = options.writeServiceLog;
     this.whenWorkerFailed = this.#workerFailure.promise;
-    this.#exited = new Promise<void>((resolve) => {
-      worker.once("exit", () => {
-        resolve();
-      });
-    });
-    worker.on("message", (reply: SearchThreadReply) => {
-      this.#acceptReply(reply);
-    });
-    worker.on("error", (error) => {
-      this.#fail(error);
-    });
-    worker.on("exit", (code) => {
-      if (this.#closing === undefined || this.#pendingReplies.size > 0) {
-        this.#fail(new Error(`The search thread exited with code ${String(code)}`));
-      }
-    });
+    this.#thread = this.#startThread();
     this.#stopFollowingCommits = options.writer.followCommits(() => {
-      this.#worker.postMessage({ type: "writes-committed" } satisfies SearchThreadRequest);
+      this.#thread.worker.postMessage({ type: "writes-committed" } satisfies SearchThreadRequest);
     });
   }
 
   /**
-   * Starts the thread, which opens its own read-only connection to the database and the index,
-   * building the index again when it cannot serve, and returns at once. A failed open resolves
-   * {@link whenWorkerFailed} with what the open threw, and every search rejects with it.
+   * Starts the thread, which opens its own read-only connection to the database and the index, and
+   * returns at once. An index that cannot serve is built again on that thread, which then ends, and
+   * a fresh thread opens it. A failed open resolves {@link whenWorkerFailed} with what the open
+   * threw, and every search rejects with it.
    */
   static start(options: SearchThreadOptions): SearchThread {
-    const workerData: SearchThreadWorkerData = {
-      databasePath: options.databasePath,
-      indexFolderPath: options.indexFolderPath,
-    };
-    return new SearchThread(
-      new Worker(WORKER_URL, {
-        workerData,
-        resourceLimits: { maxYoungGenerationSizeMb: YOUNG_GENERATION_MB },
-      }),
-      options,
-    );
+    return new SearchThread(options);
   }
 
   /** One page of a `session.search`, as the session search answers it on the thread. */
@@ -166,7 +156,7 @@ export class SearchThread {
     this.#stopFollowingCommits();
     if (!this.#isOpen || this.#failure !== undefined) {
       this.#openSettled.resolve();
-      await this.#worker.terminate();
+      await this.#thread.worker.terminate();
     } else {
       const answer = await this.#request({ type: "close" });
       if (answer.type === "failed") {
@@ -175,7 +165,7 @@ export class SearchThread {
       if (answer.type !== "closed") {
         throw unexpectedReply(answer);
       }
-      await this.#exited;
+      await this.#thread.exited;
     }
     await this.#outboxDeletes;
   }
@@ -204,7 +194,7 @@ export class SearchThread {
     const { promise, resolve, reject } = Promise.withResolvers<SearchThreadAnswer>();
     this.#pendingReplies.set(id, { accept: resolve, reject });
     try {
-      this.#worker.postMessage({ ...call, id } satisfies SearchThreadRequest);
+      this.#thread.worker.postMessage({ ...call, id } satisfies SearchThreadRequest);
     } catch (error) {
       this.#pendingReplies.delete(id);
       throw error;
@@ -215,7 +205,10 @@ export class SearchThread {
   #acceptReply(reply: SearchThreadReply): void {
     switch (reply.type) {
       case "opened":
-        this.#acceptOpen(reply.rebuildReason);
+        this.#acceptOpen();
+        return;
+      case "rebuilt":
+        this.#acceptRebuilt(reply.rebuildReason);
         return;
       case "open-failed":
         // The thread ends itself after a failed open.
@@ -241,13 +234,63 @@ export class SearchThread {
     }
   }
 
+  #startThread(): StartedThread {
+    const worker = new Worker(WORKER_URL, {
+      workerData: this.#workerData,
+      resourceLimits: { maxYoungGenerationSizeMb: YOUNG_GENERATION_MB },
+    });
+    const exited = new Promise<void>((resolve) => {
+      worker.once("exit", () => {
+        resolve();
+      });
+    });
+    worker.on("message", (reply: SearchThreadReply) => {
+      this.#acceptReply(reply);
+    });
+    worker.on("error", (error) => {
+      this.#fail(error);
+    });
+    worker.on("exit", (code) => {
+      this.#acceptExit(code);
+    });
+    return { worker, exited };
+  }
+
+  // The thread that built the index again ends itself, and its exit starts the fresh thread that
+  // opens it; any other exit before a close, or with requests waiting, is a failure.
+  #acceptExit(code: number): void {
+    if (this.#isRebuildingThreadEnding) {
+      this.#isRebuildingThreadEnding = false;
+      if (this.#closing === undefined && this.#failure === undefined) {
+        this.#thread = this.#startThread();
+      }
+      return;
+    }
+    if (this.#closing === undefined || this.#pendingReplies.size > 0) {
+      this.#fail(new Error(`The search thread exited with code ${String(code)}`));
+    }
+  }
+
+  // A fresh thread that finds the index it was started to open unfit as well has met a fault
+  // another build would not mend, so it fails rather than build again and again.
+  #acceptRebuilt(rebuildReason: SearchIndexRebuildReason): void {
+    if (this.#rebuildReason !== undefined) {
+      this.#fail(
+        new Error(`The search index was built again and still could not serve: ${rebuildReason}`),
+      );
+      return;
+    }
+    this.#rebuildReason = rebuildReason;
+    this.#isRebuildingThreadEnding = true;
+  }
+
   // A close that came while the thread opened has ended it, so an open reported after is no news.
-  #acceptOpen(rebuildReason: SearchIndexRebuildReason | undefined): void {
+  #acceptOpen(): void {
     if (this.#closing !== undefined) {
       return;
     }
-    if (rebuildReason !== undefined) {
-      this.#writeServiceLog(`search_index_rebuilt: ${rebuildReason}`);
+    if (this.#rebuildReason !== undefined) {
+      this.#writeServiceLog(`search_index_rebuilt: ${this.#rebuildReason}`);
     }
     this.#isOpen = true;
     this.#openSettled.resolve();
@@ -288,7 +331,7 @@ export class SearchThread {
     }
     this.#failure = error;
     this.#stopFollowingCommits();
-    void this.#worker.terminate();
+    void this.#thread.worker.terminate();
     for (const pendingReply of this.#pendingReplies.values()) {
       pendingReply.reject(error);
     }

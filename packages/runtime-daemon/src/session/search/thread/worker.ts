@@ -1,9 +1,10 @@
 // The search thread: a read-only connection of its own to the daemon's database and the search
 // index beside it, on which every session and transcript search runs and every outbox batch is read
 // and applied, so no index call and no search read ever holds the daemon's main thread. It opens
-// the index, building it again when it cannot serve, and brings it in step with the database
-// before it answers its first search. From then on each notice that writes committed has it apply
-// what the outbox holds, and a merge runs on the index's own thread while searches go on.
+// the index and brings it in step with the database before it answers its first search. From then
+// on each notice that writes committed has it apply what the outbox holds, and a merge runs on the
+// index's own thread while searches go on. A thread whose index cannot serve builds it again and
+// ends, so the build's memory goes with the thread, and the daemon starts a fresh one to open it.
 
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
@@ -46,18 +47,25 @@ async function open(): Promise<void> {
   let reader: DatabaseType | undefined;
   try {
     reader = new Database(databasePath, { readonly: true, fileMustExist: true });
-    const services = await openSearchServices({
+    const started = await openSearchServices({
       reader,
       indexFolderPath,
       onApplied: (applied) => {
         post({ type: "index-applied", applied });
       },
     });
+    if ("rebuildReason" in started) {
+      // The fresh thread applies whatever the outbox holds as it opens.
+      reader.close();
+      post({ type: "rebuilt", rebuildReason: started.rebuildReason });
+      port.close();
+      return;
+    }
     port.off("message", noteWritesWhileOpening);
-    serve(reader, services);
-    post({ type: "opened", rebuildReason: services.rebuildReason });
+    serve(reader, started.services);
+    post({ type: "opened" });
     if (isApplyDue) {
-      applyWaiting(services);
+      applyWaiting(started.services);
     }
   } catch (error) {
     const cleanupFailures: unknown[] = [];

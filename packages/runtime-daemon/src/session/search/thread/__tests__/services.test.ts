@@ -61,20 +61,20 @@ describe("the search thread's start", () => {
 
   it("builds a missing, unreadable or foreign index again and answers the same pages", async () => {
     await fixture.settle();
-    expect(fixture.services().rebuildReason).toBe("missing");
-    expect((await fixture.reopen()).rebuildReason).toBeUndefined();
+    expect(fixture.rebuildReason).toBe("missing");
+    expect(await fixture.reopen()).toBeUndefined();
     expectPagesMatchReference();
 
     const unreadable = await fixture.reopen(async () => {
       await writeFile(join(fixture.indexFolderPath, "meta.json"), "not an index");
     });
-    expect(unreadable.rebuildReason).toBe("unreadable");
+    expect(unreadable).toBe("unreadable");
     expectPagesMatchReference();
 
     const missing = await fixture.reopen(async () => {
       await rm(fixture.indexFolderPath, { recursive: true });
     });
-    expect(missing.rebuildReason).toBe("missing");
+    expect(missing).toBe("missing");
     expectPagesMatchReference();
 
     // A database whose outbox never gave the id the index's newest commit records, as a database
@@ -84,7 +84,7 @@ describe("the search thread's start", () => {
         DELETE FROM session_search_outbox;
         UPDATE sqlite_sequence SET seq = 0 WHERE name = 'session_search_outbox'`);
     });
-    expect(foreign.rebuildReason).toBe("another-database");
+    expect(foreign).toBe("another-database");
     expectPagesMatchReference();
     expect(outboxRowCount()).toBe(0);
   });

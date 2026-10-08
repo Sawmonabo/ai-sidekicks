@@ -1,8 +1,8 @@
-// Opens the search index at the search thread's start, and builds it again from the database when
-// it cannot serve: its folder is missing, its files cannot be read as an index, or its newest
-// commit records an outbox id this database never gave, so it was built from another database. A
-// build writes into a folder beside the index's and renames it into place once whole, so a start
-// cut short leaves no half-built index; every commit records the outbox's highest id at the build's
+// Opens the search index at the search thread's start, or says why it must be built again from the
+// database: its folder is missing, its files cannot be read as an index, or its newest commit
+// records an outbox id this database never gave, so it was built from another database. A build
+// writes into a folder beside the index's and renames it into place once whole, so a start cut
+// short leaves no half-built index; every commit records the outbox's highest id at the build's
 // start, and the outbox rows past it are applied after, as at any start.
 
 import { mkdir, rename, rm, stat } from "node:fs/promises";
@@ -24,31 +24,11 @@ const UNREADABLE_INDEX_CODE = "SEARCH_INDEX_UNREADABLE";
 /** Why the index was built again at a start. */
 export type SearchIndexRebuildReason = "missing" | "unreadable" | "another-database";
 
-/** The index opened at a start, and why it was built again if it was. */
-export interface OpenedSearchIndex {
-  readonly index: SearchIndex;
-  readonly rebuildReason: SearchIndexRebuildReason | undefined;
-}
-
 /**
- * Opens the index in `folderPath`, building it again from the database first when it cannot serve.
- * Throws what an open, a read or the build threw.
+ * The index in `folderPath`, or, when it cannot serve, why it must be built again, with any folder
+ * it left removed. Throws what an open or a read threw.
  */
 export async function openSearchIndex(
-  folderPath: string,
-  rows: IndexRowReader,
-  outbox: OutboxReader,
-): Promise<OpenedSearchIndex> {
-  const existing = await openExistingIndex(folderPath, outbox);
-  if (typeof existing !== "string") {
-    return { index: existing, rebuildReason: undefined };
-  }
-  await buildSearchIndex(folderPath, rows, outbox);
-  return { index: SearchIndex.open(folderPath, SEARCH_INDEX_OPTIONS), rebuildReason: existing };
-}
-
-// The index in `folderPath`, or why it must be built again, with any folder it left removed.
-async function openExistingIndex(
   folderPath: string,
   outbox: OutboxReader,
 ): Promise<SearchIndex | SearchIndexRebuildReason> {
@@ -73,8 +53,11 @@ async function openExistingIndex(
   return "another-database";
 }
 
-// Indexes every source row into a folder beside `folderPath`, then renames it into place.
-async function buildSearchIndex(
+/**
+ * Indexes every source row into a folder beside `folderPath`, then renames it into place. Throws
+ * what a read or the index threw, with the index closed.
+ */
+export async function buildSearchIndex(
   folderPath: string,
   rows: IndexRowReader,
   outbox: OutboxReader,

@@ -65,11 +65,13 @@ export type SearchThreadAnswer =
   | { readonly type: "closed" };
 
 /**
- * What the search thread sends: once whether its index opened, then each answer with its
- * request's id, and unasked each durable index commit and a failed apply.
+ * What the search thread sends: once whether its index opened, or was built again, after which the
+ * thread ends; then each answer with its request's id, and unasked each durable index commit and a
+ * failed apply.
  */
 export type SearchThreadReply =
-  | { readonly type: "opened"; readonly rebuildReason: SearchIndexRebuildReason | undefined }
+  | { readonly type: "opened" }
+  | { readonly type: "rebuilt"; readonly rebuildReason: SearchIndexRebuildReason }
   | { readonly type: "open-failed"; readonly error: CarriedSearchError }
   | { readonly type: "index-applied"; readonly applied: AppliedOutbox }
   | { readonly type: "index-failed"; readonly error: CarriedSearchError }
