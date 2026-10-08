@@ -4,7 +4,7 @@
 use tantivy::TERMINATED;
 use tantivy::schema::IndexRecordOption;
 
-use crate::cursor::{CursorPurpose, PhraseCursor, open_phrase_cursor, term_cursor};
+use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_phrase_cursor, term_cursor};
 use crate::phrase::{Phrase, query_phrases};
 use crate::schema::{EVENT_KIND, Owner, owner_term};
 use crate::tokenizer::tokenize;
@@ -43,6 +43,7 @@ pub fn find_in_session(
             if cursors.len() < phrases.len() {
                 continue;
             }
+            let mut filters = RowFilters::open(segment, &version.fields, &phrases)?;
             let columns = &version.segments[ordinal].columns;
             let alive = segment.alive_bitset();
             let mut marked = Vec::new();
@@ -50,6 +51,7 @@ pub fn find_in_session(
             while doc != TERMINATED {
                 if alive.is_none_or(|alive| alive.is_alive(doc))
                     && columns.kind.get_val(doc) == EVENT_KIND
+                    && filters.admit(doc)
                     && cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
                 {
                     let count = row_match_count(&mut cursors, purpose, &mut marked);

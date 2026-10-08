@@ -1,6 +1,7 @@
 //! Block skipping never drops a session that belongs in the top k, after the average row length
 //! has moved far from the one a segment's block bounds were chosen under, among every session or
-//! within a set of them, for a whole word and for a prefix longer than every prefix field.
+//! within a set of them, for a whole word and for a prefix longer than every prefix field; and the
+//! hits read for chosen sessions are the hits a full pass scores.
 
 use crate::collector::{PreparedQuery, SessionSet, score_every_session, top_sessions};
 use crate::phrase::query_phrases;
@@ -16,6 +17,9 @@ use super::support::{ScratchFolder, batch, event, open_engine, query};
 const CUTOFF_SESSIONS: [u64; 4] = [1, 2, 3, 4];
 const SHORT_SESSION: u64 = 5;
 const LONG_SESSION: u64 = 6;
+// Two long rows of one session, ranked far down, whose order turns on each row's summed count: the
+// row with two matches outranks the one with one only when a prefix's words' counts are summed.
+const TWO_ROW_SESSION: u64 = 7;
 const BLOCK: usize = 128;
 const TAIL_ROWS: usize = 44;
 
@@ -77,9 +81,16 @@ fn assert_pruned_rankings_equal_full_rankings(
 
     // A second segment of long rows without "w" raises the average; purging the tail's short rows
     // raises it further.
-    let long_rows = (0..300u64)
+    let mut long_rows: Vec<IndexRow> = (0..300u64)
         .map(|index| event(100_000 + index * 4, 10_000 + index, &repeated("y", 76)))
         .collect();
+    let two_row_texts = [
+        format!("{} {}", matches(1), repeated("x", 21)),
+        format!("{} {}", matches(2), repeated("x", 21)),
+    ];
+    for (index, text) in two_row_texts.iter().enumerate() {
+        long_rows.push(event(200_000 + index as u64 * 4, TWO_ROW_SESSION, text));
+    }
     engine
         .apply(&batch(2, long_rows))
         .expect("segment two applies");
@@ -116,9 +127,15 @@ fn assert_pruned_rankings_equal_full_rankings(
     let prepared = PreparedQuery::prepare(&version, phrases)
         .expect("prepares")
         .expect("the word matches");
-    let full = score_every_session(&version, &prepared, None)
-        .expect("ranks")
-        .order;
+    let scored = score_every_session(&version, &prepared, None).expect("ranks");
+    assert_eq!(scored.hits[&TWO_ROW_SESSION], [200_004, 200_000]);
+    // A session's hits read from its own rows, sought one by one, equal those of the full pass.
+    for session in [LONG_SESSION, CUTOFF_SESSIONS[0], TWO_ROW_SESSION] {
+        let alone = SessionSet::new(&[session], &version.membership);
+        let within = score_every_session(&version, &prepared, Some(&alone)).expect("ranks");
+        assert_eq!(within.hits[&session], scored.hits[&session]);
+    }
+    let full = scored.order;
     assert_eq!(full[0], LONG_SESSION);
     assert_eq!(full[1..5], CUTOFF_SESSIONS);
     // Within a set: two of the cutoff sessions, the short and the long one, and every other filler.

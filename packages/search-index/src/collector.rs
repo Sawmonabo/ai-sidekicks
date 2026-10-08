@@ -8,7 +8,7 @@ use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{DocId, DocSet, Score, Searcher, SegmentReader, TERMINATED, Term};
 
-use crate::cursor::{CursorPurpose, PhraseCursor, open_phrase_cursor};
+use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_phrase_cursor};
 use crate::membership::GroupMembership;
 use crate::phrase::Phrase;
 use crate::schema::{IndexFields, Owner, owner_of, owner_value};
@@ -253,31 +253,45 @@ fn frequencies_into(cursors: &mut [PhraseCursor], frequencies: &mut [u32]) {
     }
 }
 
-/// The rows of `owners` in `segment`, ascending.
-fn owner_docs(
+// The rows of `owners` in `segment`, ascending, when they number fewer than `fewer_than` counted
+// with deleted rows; `None` when they do not.
+fn owner_docs_below(
     segment: &SegmentReader,
     fields: &IndexFields,
     owners: &HashSet<u64>,
-) -> tantivy::Result<Vec<DocId>> {
+    fewer_than: u64,
+) -> tantivy::Result<Option<Vec<DocId>>> {
     let inverted = segment.inverted_index(fields.owner)?;
-    let mut docs = Vec::new();
+    let mut term_infos = Vec::new();
+    let mut rows = 0u64;
     for owner in owners {
         let term = Term::from_field_u64(fields.owner, *owner);
-        if let Some(mut postings) = inverted.read_postings(&term, IndexRecordOption::Basic)? {
-            let mut doc = postings.doc();
-            while doc != TERMINATED {
-                docs.push(doc);
-                doc = postings.advance();
+        if let Some(term_info) = inverted.get_term_info(&term)? {
+            rows += u64::from(term_info.doc_freq);
+            if rows >= fewer_than {
+                return Ok(None);
             }
+            term_infos.push(term_info);
+        }
+    }
+    let mut docs = Vec::with_capacity(rows as usize);
+    for term_info in term_infos {
+        let mut postings =
+            inverted.read_postings_from_terminfo(&term_info, IndexRecordOption::Basic)?;
+        let mut doc = postings.doc();
+        while doc != TERMINATED {
+            docs.push(doc);
+            doc = postings.advance();
         }
     }
     docs.sort_unstable();
-    Ok(docs)
+    Ok(Some(docs))
 }
 
 // Visits every live row of segment `ordinal` that matches every phrase, with its exact score. With
 // `within`, a row's owner is checked before the row is scored, and the walk starts from the set's
-// own rows when they are fewer than the rarest phrase's.
+// own rows when they are fewer than the rarest phrase's, a row the phrases' filters lack turned away
+// before the phrases are sought to it.
 fn visit_matches_in(
     version: &IndexVersion,
     ordinal: usize,
@@ -296,11 +310,14 @@ fn visit_matches_in(
     let lead = (0..cursors.len())
         .min_by_key(|index| cursors[*index].cost())
         .unwrap_or(0);
+    let lead_cost = cursors[lead].cost();
     if let Some(set) = within
-        && set.estimated_rows_in(segment, &version.fields)? < cursors[lead].cost()
+        && set.estimated_rows_in(segment, &version.fields)? < lead_cost
+        && let Some(docs) = owner_docs_below(segment, &version.fields, &set.owners, lead_cost)?
     {
-        for doc in owner_docs(segment, &version.fields, &set.owners)? {
-            if is_alive(doc) && all_on(&mut cursors, doc) {
+        let mut filters = RowFilters::open(segment, &version.fields, &query.phrases)?;
+        for doc in docs {
+            if is_alive(doc) && filters.admit(doc) && all_on(&mut cursors, doc) {
                 frequencies_into(&mut cursors, &mut frequencies);
                 visit(
                     columns,
@@ -565,59 +582,4 @@ fn average_drift(
     let written_tokens = segment.inverted_index(field)?.total_num_tokens();
     let write_average = f64::from(written_tokens as Score / segment.max_doc() as Score);
     Ok(write_average.max(query_average) / write_average.min(query_average))
-}
-
-/// Each named session's hits, best first, in the order the sessions are named: the session's own
-/// rows and its groups' rows, read through the owner key with the phrases sought at each.
-pub fn hits_of(
-    version: &IndexVersion,
-    query: &PreparedQuery,
-    sessions: &[u64],
-) -> tantivy::Result<Vec<Vec<u64>>> {
-    let wanted = SessionSet::new(sessions, &version.membership);
-    let mut rows: HashMap<u64, Vec<RankKey>> = HashMap::new();
-    for (ordinal, segment) in version.searcher.segment_readers().iter().enumerate() {
-        let docs = owner_docs(segment, &version.fields, &wanted.owners)?;
-        if docs.is_empty() {
-            continue;
-        }
-        let Some(mut cursors) = open_cursors(segment, &version.fields, &query.phrases)? else {
-            continue;
-        };
-        let columns = &version.segments[ordinal].columns;
-        let alive = segment.alive_bitset();
-        let mut frequencies = vec![0u32; cursors.len()];
-        for doc in docs {
-            if !alive.is_none_or(|alive| alive.is_alive(doc)) || !all_on(&mut cursors, doc) {
-                continue;
-            }
-            frequencies_into(&mut cursors, &mut frequencies);
-            let score = query.score(&frequencies, columns.length.get_val(doc));
-            let row_key = columns.key.get_val(doc);
-            credit_sessions(
-                &version.membership,
-                columns.owner.get_val(doc),
-                |session, _| {
-                    if wanted.sessions.contains(&session) {
-                        let key = RankKey {
-                            score,
-                            row_key,
-                            member_place: 0,
-                        };
-                        rows.entry(session).or_default().push(key);
-                    }
-                },
-            );
-        }
-    }
-    for keys in rows.values_mut() {
-        keys.sort_unstable();
-    }
-    Ok(sessions
-        .iter()
-        .map(|session| {
-            let keys = rows.get(session).map_or(&[][..], Vec::as_slice);
-            keys.iter().map(|key| key.row_key).collect()
-        })
-        .collect())
 }

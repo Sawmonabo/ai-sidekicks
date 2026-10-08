@@ -5,8 +5,7 @@ use std::sync::Arc;
 
 use crate::SearchQuery;
 use crate::collector::{
-    FULL_PASS_BELOW, PreparedQuery, ScoredSessions, SessionSet, hits_of, score_every_session,
-    top_sessions,
+    FULL_PASS_BELOW, PreparedQuery, ScoredSessions, SessionSet, score_every_session, top_sessions,
 };
 use crate::directory::ReadCache;
 use crate::phrase::query_phrases;
@@ -134,13 +133,21 @@ impl SearchView {
             Search::Words {
                 order: SessionOrder::Whole(scored),
                 ..
-            } => Ok(sessions
-                .iter()
-                .map(|session| scored.hits.get(session).cloned().unwrap_or_default())
-                .collect()),
-            Search::Words { query, .. } => hits_of(&self.version, query, sessions),
+            } => Ok(hits_in_order(scored, sessions)),
+            Search::Words { query, .. } => {
+                let wanted = SessionSet::new(sessions, &self.version.membership);
+                let scored = score_every_session(&self.version, query, Some(&wanted))?;
+                Ok(hits_in_order(&scored, sessions))
+            }
         }
     }
+}
+
+fn hits_in_order(scored: &ScoredSessions, sessions: &[u64]) -> Vec<Vec<u64>> {
+    sessions
+        .iter()
+        .map(|session| scored.hits.get(session).cloned().unwrap_or_default())
+        .collect()
 }
 
 fn page_of(order: &[u64], from: usize, end: usize) -> Vec<u64> {
