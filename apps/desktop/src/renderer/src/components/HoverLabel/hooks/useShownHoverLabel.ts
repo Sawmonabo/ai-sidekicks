@@ -9,11 +9,11 @@
 // control that gains its words while it is hovered or focused shows them at once, and one that
 // drops them drops the label. A label put away stays away until the pointer moves to another
 // trigger or off every trigger, or focus moves; the pointer's label put away holds the focused
-// trigger's label back only until the pointer leaves. Escape on a focused trigger whose label
-// shows puts the label away and does nothing else: the press reaches no handler below the
-// document and its default is canceled, so the control's own Escape waits for the next press. A
-// label hidden because its trigger scrolled out of view takes no Escape, nor does a press that
-// ends a text composition.
+// trigger's label back only until the pointer leaves. A bare Escape while a label shows puts the
+// label away and does nothing else: the press reaches no handler below the document and its
+// default is canceled, so the screen's own Escape waits for the next press. A label hidden
+// because its trigger scrolled out of view takes no Escape, nor does a press that ends a text
+// composition.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -112,13 +112,11 @@ export function useShownHoverLabel(
     };
     // Captured on the document, ahead of the page's own handlers and the tooltip's.
     const onKeyDown = (event: KeyboardEvent): void => {
-      const focusTrigger = triggerOf(tracked.focus);
       if (
-        event.key === "Escape" &&
+        isBareEscape(event) &&
         // Escape mid-composition cancels the composition; the label keeps it from no one.
         !event.isComposing &&
-        focusTrigger !== undefined &&
-        shownOf(tracked)?.anchor === focusTrigger &&
+        shownOf(tracked) !== undefined &&
         // A trigger scrolled out of view hides its label, so the key is the page's.
         labelBoxRef.current?.hasAttribute("data-anchor-hidden") !== true
       ) {
@@ -216,6 +214,12 @@ function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {
     text: anchor.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE) ?? "",
     side: sideOf(anchor.getAttribute(HOVER_LABEL_SIDE_ATTRIBUTE)),
   };
+}
+
+function isBareEscape(event: KeyboardEvent): boolean {
+  return (
+    event.key === "Escape" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+  );
 }
 
 function isSameLabel(

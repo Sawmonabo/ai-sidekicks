@@ -20,14 +20,17 @@ const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
 /** When a sample run row happened, unless a caller gives it another time. */
 const SAMPLE_RUN_ROW_TIMESTAMP = "2026-09-02T10:00:00.000Z";
 
+const SAMPLE_RUN_ROW_ZONED_TIME = formatZonedDateTime(
+  SAMPLE_RUN_ROW_TIMESTAMP,
+  clockLocaleFor(FIXTURE_APP_META),
+);
+
 /**
  * A sample run row's drawn time under the fixture's machine clock, found by the zoned instant its
  * hover label reads.
  */
-export const SAMPLE_RUN_ROW_TIME_SELECTOR: string = `.meridian-figure--wire[${HOVER_LABEL_TEXT_ATTRIBUTE}="${formatZonedDateTime(
-  SAMPLE_RUN_ROW_TIMESTAMP,
-  clockLocaleFor(FIXTURE_APP_META),
-)}"]`;
+export const SAMPLE_RUN_ROW_TIME_SELECTOR: string =
+  ".meridian-figure--wire" + `[${HOVER_LABEL_TEXT_ATTRIBUTE}="${SAMPLE_RUN_ROW_ZONED_TIME}"]`;
 
 /** What a caller may vary about a sample row. Everything else is held fixed. */
 export interface SampleRowOverrides {

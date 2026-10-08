@@ -217,7 +217,10 @@ function renderStatusRegion(
               {renderUsageReading(
                 reading.status.memory === null
                   ? undefined
-                  : memoryUsage(reading.status.memory.residentBytes, reading.status.memory.readAt),
+                  : formatMemoryUsage(
+                      reading.status.memory.residentBytes,
+                      reading.status.memory.readAt,
+                    ),
                 clockLocale,
               )}
             </SettingsFact>
@@ -238,7 +241,7 @@ function renderStatusRegion(
 }
 
 // The memory reading as `renderUsageReading` takes it: scaled, its whole byte count where scaled.
-function memoryUsage(residentBytes: number, readAt: string): UsageReading {
+function formatMemoryUsage(residentBytes: number, readAt: string): UsageReading {
   const size = formatByteQuantity(residentBytes);
   return { figure: size.text, exactValue: size.exactText, readAt };
 }

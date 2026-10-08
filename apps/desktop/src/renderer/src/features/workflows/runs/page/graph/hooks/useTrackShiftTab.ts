@@ -19,11 +19,17 @@ export function useTrackShiftTab(): RefObject<boolean> {
         isShiftTabbingRef.current = false;
       }
     };
+    // A window left mid-press never sees its key come up.
+    const onBlur = (): void => {
+      isShiftTabbingRef.current = false;
+    };
     ownerDocument.addEventListener("keydown", onKeyDown, { capture: true });
     ownerDocument.addEventListener("keyup", onKeyUp, { capture: true });
+    ownerWindow.addEventListener("blur", onBlur);
     return () => {
       ownerDocument.removeEventListener("keydown", onKeyDown, { capture: true });
       ownerDocument.removeEventListener("keyup", onKeyUp, { capture: true });
+      ownerWindow.removeEventListener("blur", onBlur);
     };
   }, [ownerWindow]);
   return isShiftTabbingRef;

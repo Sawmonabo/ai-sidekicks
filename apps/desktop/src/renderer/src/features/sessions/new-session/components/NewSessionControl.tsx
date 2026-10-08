@@ -27,7 +27,7 @@ const SENDING_REASON = "This draft is being sent.";
 
 /** Why Send is held once the create's reply could not be read: a second send could make another. */
 const AMBIGUOUS_CREATE_REASON =
-  "The session may already be made. Check the sessions list before sending again.";
+  "The session may already have been created. Check the sessions list before sending again.";
 
 /** Why Send is held while the first message is empty. */
 const EMPTY_DRAFT_REASON = "Write its first message to send it.";

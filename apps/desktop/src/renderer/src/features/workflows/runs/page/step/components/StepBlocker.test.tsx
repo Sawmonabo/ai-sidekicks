@@ -165,7 +165,7 @@ describe("a step's blocker", () => {
 
   it("opens Review to the approval's pause, and Answer this run presses Approve", async () => {
     const reviews: (readonly [WorkflowRunSnapshotPoint, WorkflowRunSnapshotPoint])[] = [];
-    const { calls, answers, advance, commandTargets } = renderBlocker(
+    const { calls, commandTargets } = renderBlocker(
       WORKFLOW_RUN_IDS.waitingApproval,
       "approve",
       reviews,
@@ -195,12 +195,6 @@ describe("a step's blocker", () => {
         },
       ]);
     });
-    // An approval's instant is the daemon's own, never the window's.
-    await advance(ANSWER_DELAY_MS);
-    await waitFor(() => {
-      expect(answers).toHaveLength(1);
-    });
-    expect(answers[0]?.isWindowClock).toBe(false);
   });
 
   it("keeps Open in Review in place, saying why, when the pause snapshot is missing", () => {

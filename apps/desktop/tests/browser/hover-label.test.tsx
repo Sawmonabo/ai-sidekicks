@@ -10,7 +10,7 @@
 // once, from the control. Escape on a focused control puts its label away and nothing else: the
 // page never sees that press, and its default is canceled; once the control scrolls its label out
 // of view, Escape is the page's again. Escape over a hovered control puts away its label alone,
-// so the focused control's label returns once the pointer leaves.
+// without reaching the page, and the focused control's label returns once the pointer leaves.
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
@@ -214,8 +214,16 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
 });
 
 it("puts away only the hovered control's label, and the focused one's returns", async () => {
+  let pageEscapes = 0;
   const { getByRole } = render(
-    <div style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          pageEscapes += 1;
+        }
+      }}
+    >
       <button type="button">Before</button>
       <HoverLabel text="Label A" textRole="description">
         <button type="button">A</button>
@@ -248,6 +256,7 @@ it("puts away only the hovered control's label, and the focused one's returns", 
   await waitFor(() => {
     expect(shownLabel()).toBeNull();
   });
+  expect(pageEscapes, "the Escape that put the hovered label away reached the page").toBe(0);
   await act(async () => {
     await userEvent.hover(getByRole("button", { name: "After" }));
   });

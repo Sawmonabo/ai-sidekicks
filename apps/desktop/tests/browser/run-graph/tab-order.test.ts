@@ -493,7 +493,8 @@ function isCentered(element: Element, frame: Element): boolean {
 }
 
 // Waits until the view is drawn at the transform the library last wrote, so geometry read next is
-// the zoom's: the drawn view can trail it by several frames on a loaded host.
+// the zoom's. Under reduced motion the token sheet gives every element a 1 ms transition, which
+// holds the drawn view back, and on a loaded host for longer than two frames.
 async function untilViewDrawn(canvas: HTMLElement): Promise<void> {
   const viewport = canvas.querySelector<HTMLElement>(".react-flow__viewport");
   if (viewport === null) {

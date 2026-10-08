@@ -21,7 +21,6 @@ const BASE_UI_ENTRY_POINTS: readonly string[] = [
   BASE_UI_PACKAGE,
   `${BASE_UI_PACKAGE}/alert-dialog`,
   `${BASE_UI_PACKAGE}/button`,
-  `${BASE_UI_PACKAGE}/checkbox`,
   `${BASE_UI_PACKAGE}/collapsible`,
   `${BASE_UI_PACKAGE}/combobox`,
   `${BASE_UI_PACKAGE}/dialog`,
@@ -29,8 +28,8 @@ const BASE_UI_ENTRY_POINTS: readonly string[] = [
   `${BASE_UI_PACKAGE}/popover`,
   `${BASE_UI_PACKAGE}/radio-group`,
   `${BASE_UI_PACKAGE}/radio`,
-  `${BASE_UI_PACKAGE}/select`,
   `${BASE_UI_PACKAGE}/switch`,
+  `${BASE_UI_PACKAGE}/tabs`,
   `${BASE_UI_PACKAGE}/tooltip`,
 ];
 

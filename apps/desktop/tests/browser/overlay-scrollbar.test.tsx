@@ -576,12 +576,22 @@ async function untilDrawn(appWindow: Window, selector: string): Promise<HTMLElem
   return requireElement(appWindow.document, selector);
 }
 
-/** Whether `scroller` has left its top within `timeoutMs`, read every animation frame. */
+/**
+ * Whether `scroller` has left its top within `timeoutMs`, read every animation frame and once more
+ * at the deadline, so a window that stops drawing cannot hold the wait past it.
+ */
 async function isScrolledWithin(scroller: HTMLElement, timeoutMs: number): Promise<boolean> {
   const ownerWindow = viewOf(scroller.ownerDocument);
   const deadline = ownerWindow.performance.now() + timeoutMs;
-  while (scroller.scrollTop === 0 && ownerWindow.performance.now() < deadline) {
-    await nextFrame(ownerWindow);
+  while (scroller.scrollTop === 0) {
+    const remainingMs = deadline - ownerWindow.performance.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+    await Promise.race([
+      nextFrame(ownerWindow),
+      new Promise((resolve) => ownerWindow.setTimeout(resolve, remainingMs)),
+    ]);
   }
   return scroller.scrollTop > 0;
 }

@@ -32,7 +32,7 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
     commandId: "frame.goToSessions",
     title: "Sessions list",
     chord: "$mod+b",
-    keywords: ["list", "home"],
+    keywords: ["home"],
   },
   sidekicks: {
     commandId: "frame.goToSidekicks",
