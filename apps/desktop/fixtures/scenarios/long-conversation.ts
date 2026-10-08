@@ -379,6 +379,16 @@ function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
         );
       }
     }
+    // A history turn is finished: its run ends, so its group is settled rather than live.
+    entries.push(
+      lane.transition(runId, {
+        atMs,
+        runVersion: 4,
+        previousState: "running",
+        newState: "completed",
+        completionKind: "turn",
+      }),
+    );
   }
   return entries;
 }
