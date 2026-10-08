@@ -1,8 +1,11 @@
 //! Rows deleted from an index, still on disk until a merge, never sway a count or a score: the live
-//! counts and rankings equal those of an index built without the deleted rows.
+//! counts and rankings equal those of an index built without the deleted rows, counts a segment
+//! carries from before the deletes included.
 
 use std::collections::{HashMap, HashSet};
 
+use crate::schema::PREFIX_FIELD_COUNT;
+use crate::tokenizer::tokenize;
 use crate::version::IndexVersion;
 use crate::{IndexBatch, IndexRow, IndexRowKind, RemovedOwner, SearchQuery};
 
@@ -64,7 +67,7 @@ fn live_counts_after_deletes_equal_an_index_built_without_the_deleted_rows() {
         .take(40)
         .map(|row| key_of(row))
         .collect();
-    let replacements: HashMap<u64, IndexRow> = events
+    let mut replacements: HashMap<u64, IndexRow> = events
         .iter()
         .skip(4)
         .step_by(9)
@@ -84,7 +87,7 @@ fn live_counts_after_deletes_equal_an_index_built_without_the_deleted_rows() {
             PURGED_SESSIONS.contains(&(row.owner_key as u64)) || removed_keys.contains(&key_of(row))
         }
     };
-    let surviving: Vec<IndexRow> = rows
+    let mut surviving: Vec<IndexRow> = rows
         .iter()
         .filter(|row| !is_removed(row))
         .map(|row| {
@@ -94,6 +97,30 @@ fn live_counts_after_deletes_equal_an_index_built_without_the_deleted_rows() {
                 .unwrap_or_else(|| row.clone())
         })
         .collect();
+    let queries = queries_over(&surviving);
+    // A row a prefix longer than every prefix field matches is rewritten too, so a count a segment
+    // carries from before the removals has a deleted match to leave out.
+    let long_prefix = queries
+        .iter()
+        .find_map(|query| match query.words.as_slice() {
+            [word] if query.last_word_is_prefix && word.chars().count() > PREFIX_FIELD_COUNT => {
+                Some(word.clone())
+            }
+            _ => None,
+        })
+        .expect("the queries hold a long prefix");
+    let rewritten = surviving
+        .iter_mut()
+        .find(|row| {
+            row.kind == IndexRowKind::Event
+                && !replacements.contains_key(&key_of(row))
+                && tokenize(&row.text)
+                    .iter()
+                    .any(|token| token.folded.starts_with(&long_prefix))
+        })
+        .expect("a surviving row holds the long prefix");
+    rewritten.text = format!("{} kalo", rewritten.text);
+    replacements.insert(key_of(rewritten), rewritten.clone());
     let kept_groups: Vec<(u64, Vec<u64>)> = directory
         .group_members
         .iter()
@@ -114,6 +141,12 @@ fn live_counts_after_deletes_equal_an_index_built_without_the_deleted_rows() {
     deleted
         .apply(&batch(2, second_half))
         .expect("the second half applies");
+    // Every query counted before the removals, so the counts after them start from the segments'.
+    let before_removals = deleted.current_version();
+    for query in &queries {
+        live_counts(&before_removals, query);
+    }
+    drop(before_removals);
     let mut removed_owners: Vec<RemovedOwner> = PURGED_SESSIONS
         .iter()
         .map(|session| RemovedOwner {
@@ -135,7 +168,6 @@ fn live_counts_after_deletes_equal_an_index_built_without_the_deleted_rows() {
 
     let rebuilt_folder = ScratchFolder::new("live-counts-rebuilt");
     let rebuilt = open_engine(rebuilt_folder.path());
-    let queries = queries_over(&surviving);
     rebuilt
         .apply(&IndexBatch {
             group_members: members(&kept_groups),

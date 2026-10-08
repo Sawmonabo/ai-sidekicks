@@ -6,17 +6,38 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tantivy::columnar::ColumnValues;
 use tantivy::index::SegmentId;
-use tantivy::schema::IndexRecordOption;
-use tantivy::{DocId, DocSet, Opstamp, Searcher, SegmentReader, TERMINATED};
+use tantivy::{DocId, Opstamp, Searcher, SegmentReader, TERMINATED};
 
 use crate::cursor::{CursorPurpose, open_phrase_cursor};
 use crate::membership::GroupMembership;
 use crate::phrase::Phrase;
 use crate::schema::IndexFields;
 
-/// The most phrases a version keeps live row counts for; past it the counts are dropped and
+/// The most phrases a version, or a segment, keeps counts for; past it the counts are dropped and
 /// counted again when asked.
 const PHRASE_ROWS_CAPACITY: usize = 1024;
+
+// Counts by phrase, all dropped at once past `PHRASE_ROWS_CAPACITY`.
+#[derive(Default)]
+struct PhraseCounts(Mutex<HashMap<Phrase, u64>>);
+
+impl PhraseCounts {
+    fn get(&self, phrase: &Phrase) -> Option<u64> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(phrase)
+            .copied()
+    }
+
+    fn insert(&self, phrase: &Phrase, count: u64) {
+        let mut counts = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if counts.len() >= PHRASE_ROWS_CAPACITY {
+            counts.clear();
+        }
+        counts.insert(phrase.clone(), count);
+    }
+}
 
 /// A segment's columns, read once and carried to every later version that keeps the segment.
 pub struct SegmentColumns {
@@ -78,6 +99,9 @@ pub struct SegmentFacts {
     segment_id: SegmentId,
     pub columns: Arc<SegmentColumns>,
     deletions: Arc<SegmentDeletions>,
+    /// How many rows each phrase of several terms matches, deleted rows included: fixed while the
+    /// segment lives, so carried like its columns.
+    matches: Arc<PhraseCounts>,
 }
 
 /// One published view of the index, shared by every search opened on it.
@@ -92,7 +116,7 @@ pub struct IndexVersion {
     pub membership: Arc<GroupMembership>,
     /// The outbox id the commit under this view records.
     pub last_applied_outbox_id: u64,
-    phrase_rows: Mutex<HashMap<Phrase, u64>>,
+    phrase_rows: PhraseCounts,
 }
 
 impl IndexVersion {
@@ -126,6 +150,9 @@ impl IndexVersion {
                 segment_id: segment.segment_id(),
                 columns,
                 deletions,
+                matches: carried
+                    .map(|facts| facts.matches.clone())
+                    .unwrap_or_default(),
             });
         }
         Ok(IndexVersion {
@@ -136,7 +163,7 @@ impl IndexVersion {
             live_tokens,
             membership,
             last_applied_outbox_id,
-            phrase_rows: Mutex::new(HashMap::new()),
+            phrase_rows: PhraseCounts::default(),
         })
     }
 
@@ -152,13 +179,14 @@ impl IndexVersion {
                     segment_id: facts.segment_id,
                     columns: facts.columns.clone(),
                     deletions: facts.deletions.clone(),
+                    matches: facts.matches.clone(),
                 })
                 .collect(),
             live_rows: self.live_rows,
             live_tokens: self.live_tokens,
             membership,
             last_applied_outbox_id: self.last_applied_outbox_id,
-            phrase_rows: Mutex::new(HashMap::new()),
+            phrase_rows: PhraseCounts::default(),
         }
     }
 
@@ -175,74 +203,60 @@ impl IndexVersion {
 
     /// n: how many live rows `phrase` matches, counted once per view.
     pub fn phrase_rows(&self, phrase: &Phrase) -> tantivy::Result<u64> {
-        let cached = self
-            .phrase_rows
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(phrase)
-            .copied();
-        if let Some(rows) = cached {
+        if let Some(rows) = self.phrase_rows.get(phrase) {
             return Ok(rows);
         }
         let mut rows = 0u64;
         for (segment, facts) in self.searcher.segment_readers().iter().zip(&self.segments) {
             rows += self.phrase_rows_in(segment, facts, phrase)?;
         }
-        let mut cache = self
-            .phrase_rows
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if cache.len() >= PHRASE_ROWS_CAPACITY {
-            cache.clear();
-        }
-        cache.insert(phrase.clone(), rows);
+        self.phrase_rows.insert(phrase, rows);
         Ok(rows)
     }
 
-    // A one-term phrase: Tantivy's row count less the deleted rows holding the term, found by
-    // seeking the term's postings to each deleted row. Any other phrase: its live matches walked.
+    // The rows the phrase matches, deleted rows included, less the deleted rows it matches, found
+    // by seeking its cursor to each one. A one-term phrase's count is Tantivy's; any other phrase's
+    // is walked the first time the segment is asked, counting its live rows on the way.
     fn phrase_rows_in(
         &self,
         segment: &SegmentReader,
         facts: &SegmentFacts,
         phrase: &Phrase,
     ) -> tantivy::Result<u64> {
-        if let Some(term) = phrase.single_term(&self.fields) {
-            let inverted = segment.inverted_index(term.field())?;
-            let Some(mut postings) = inverted.read_postings(&term, IndexRecordOption::Basic)?
-            else {
-                return Ok(0);
-            };
-            let mut deleted_hits = 0u64;
-            for deleted in &facts.deletions.docs {
-                let doc = postings.doc();
-                if doc == TERMINATED {
-                    break;
-                }
-                let doc = if doc >= *deleted {
-                    doc
-                } else {
-                    postings.seek(*deleted)
-                };
-                if doc == *deleted {
-                    deleted_hits += 1;
-                }
-            }
-            return Ok(u64::from(postings.doc_freq()) - deleted_hits);
-        }
         let cursor = open_phrase_cursor(segment, &self.fields, phrase, CursorPurpose::Score)?;
         let Some(mut cursor) = cursor else {
             return Ok(0);
         };
-        let alive = segment.alive_bitset();
-        let mut rows = 0u64;
-        let mut doc = cursor.doc();
-        while doc != TERMINATED {
-            if alive.is_none_or(|alive| alive.is_alive(doc)) {
-                rows += 1;
+        let matches = match phrase.single_term(&self.fields) {
+            Some(term) => u64::from(segment.inverted_index(term.field())?.doc_freq(&term)?),
+            None => match facts.matches.get(phrase) {
+                Some(matches) => matches,
+                None => {
+                    let alive = segment.alive_bitset();
+                    let (mut matches, mut rows) = (0u64, 0u64);
+                    let mut doc = cursor.doc();
+                    while doc != TERMINATED {
+                        matches += 1;
+                        if alive.is_none_or(|alive| alive.is_alive(doc)) {
+                            rows += 1;
+                        }
+                        doc = cursor.advance();
+                    }
+                    facts.matches.insert(phrase, matches);
+                    return Ok(rows);
+                }
+            },
+        };
+        let mut deleted_matches = 0u64;
+        for deleted in &facts.deletions.docs {
+            let doc = cursor.seek(*deleted);
+            if doc == TERMINATED {
+                break;
             }
-            doc = cursor.advance();
+            if doc == *deleted {
+                deleted_matches += 1;
+            }
         }
-        Ok(rows)
+        Ok(matches - deleted_matches)
     }
 }
