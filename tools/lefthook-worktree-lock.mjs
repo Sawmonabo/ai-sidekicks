@@ -7,9 +7,9 @@
 // and the whole-tree `info/lefthook-unstaged-all.patch` in the common git dir (git resolves `info`
 // there, not in the worktree's own dir) and the single `refs/stash`, whose cleanup drops every
 // stash entry matching its message. A linked worktree's overlapping run writes both patches over
-// the main checkout's mid-commit, so the main checkout loses its hunks or applies the other tree's. lefthook has no setting that turns the
-// backup off or scopes it per worktree, and its upstream fix (evilmartians/lefthook#1530) is
-// unreleased.
+// the main checkout's mid-commit, so the main checkout loses its hunks or applies the other tree's.
+// lefthook has no setting that turns the backup off or scopes it per worktree, and its upstream fix
+// (evilmartians/lefthook#1530) is unreleased.
 //
 // The lock is one file in the common git dir, made with link(2) from a fully written temporary
 // file, so a reader never sees a half-written owner record. A holder killed with SIGKILL leaves the
