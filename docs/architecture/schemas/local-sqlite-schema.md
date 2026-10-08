@@ -22,6 +22,7 @@ PRAGMA synchronous = FULL;      -- override better-sqlite3 default (NORMAL) for 
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so a deleted session leaves no readable freed page
+PRAGMA cache_size = -2000;      -- on every connection, read-only ones included: SQLite's own 2,000 KiB page cache, where better-sqlite3 builds with 16,000
 ```
 
 ---

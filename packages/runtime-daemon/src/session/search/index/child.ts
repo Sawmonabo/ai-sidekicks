@@ -4,10 +4,10 @@
 // failure, and the process exits as soon as the daemon is gone, so it never outlives it; a build cut
 // short leaves only its own folder, which the next build clears.
 
-import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
+import { openDatabaseReader } from "../../../database/connections.js";
 import { carryError } from "../../../worker/carried-error.js";
 import { buildSearchIndex, type SearchIndexBuildFailure } from "./rebuild.js";
 import { IndexRowReader } from "./rows.js";
@@ -30,7 +30,7 @@ process.once("disconnect", exitAsDaemonGone);
 
 let reader: DatabaseType | undefined;
 try {
-  reader = new Database(databasePath, { readonly: true, fileMustExist: true });
+  reader = openDatabaseReader(databasePath);
   await buildSearchIndex(indexFolderPath, new IndexRowReader(reader), Number(lastOutboxId));
   reader.close();
   process.off("disconnect", exitAsDaemonGone);

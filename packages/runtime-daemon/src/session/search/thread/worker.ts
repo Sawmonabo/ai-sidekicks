@@ -8,10 +8,10 @@
 
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
-import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
+import { openDatabaseReader } from "../../../database/connections.js";
 import {
   carrySearchError,
   type SearchThreadAnswer,
@@ -46,7 +46,7 @@ void open();
 async function open(): Promise<void> {
   let reader: DatabaseType | undefined;
   try {
-    reader = new Database(databasePath, { readonly: true, fileMustExist: true });
+    reader = openDatabaseReader(databasePath);
     const services = await openSearchServices({
       reader,
       databasePath,
