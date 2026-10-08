@@ -30,8 +30,9 @@ export const INDEXED_EVENT_TYPES_SQL: string = INDEXED_EVENT_TYPES.map((type) =>
 );
 
 /**
- * The most rows one batch handed to the index carries. A durable commit costs about the same
- * whatever its size, so a batch takes as many rows as the search thread's memory comfortably holds.
+ * The most outbox rows one batch handed to the index carries, and the most rows of one kind a build
+ * reads at a time. A durable commit costs about the same whatever its size, so a batch takes as many
+ * rows as the search thread's memory comfortably holds.
  */
 export const INDEX_BATCH_ROW_LIMIT = 50_000;
 
@@ -62,15 +63,25 @@ const EVENT_TEXT_SQL = `CASE event.type
              || coalesce(' ' || event.content_payload, '')
          END`;
 
-// How a read chooses its rows: the rows at some keys, or the next rows past a rowid in order.
-type RowChoice = "keys" | "after";
+// How a read chooses its rows: the rows at some keys, or the next rows in order within a range of
+// rowids.
+type RowChoice = "keys" | "between";
 
 // The condition and order that choose a read's rows by the source table's rowid, `rowidSql`.
 function chosenRowsSql(choice: RowChoice, rowidSql: string): string {
   return choice === "keys"
     ? `AND ${rowidSql} IN (SELECT value FROM json_each(@rowids))`
-    : `AND ${rowidSql} > @afterRowid ORDER BY ${rowidSql} LIMIT ${String(INDEX_BATCH_ROW_LIMIT)}`;
+    : `AND ${rowidSql} > @afterRowid AND ${rowidSql} <= @throughRowid
+       ORDER BY ${rowidSql} LIMIT ${String(INDEX_BATCH_ROW_LIMIT)}`;
 }
+
+// Each kind's source table's highest rowid.
+const LAST_ROWID_SQL_BY_KIND: Readonly<Record<IndexRowKind, string>> = {
+  event: "SELECT max(rowid) FROM session_events",
+  title: "SELECT max(rowid) FROM sessions",
+  group: "SELECT max(rowid) FROM session_groups",
+  tag: "SELECT max(rowid) FROM session_tags",
+};
 
 // The columns a row other than a tag holds none of.
 const NO_TAG_SQL = "NULL AS tag_fold, NULL AS session_last_activity_at";
@@ -135,12 +146,19 @@ function prepareRowStatements<Bindings extends object>(
 
 /** Reads index rows from their source tables on one connection. */
 export class IndexRowReader {
+  readonly #reader: Database;
   readonly #byKeys: RowStatements<{ rowids: string }>;
-  readonly #afterRowid: RowStatements<{ afterRowid: number }>;
+  readonly #between: RowStatements<{ afterRowid: number; throughRowid: number }>;
 
   constructor(reader: Database) {
+    this.#reader = reader;
     this.#byKeys = prepareRowStatements(reader, "keys");
-    this.#afterRowid = prepareRowStatements(reader, "after");
+    this.#between = prepareRowStatements(reader, "between");
+  }
+
+  /** The highest rowid of the `kind` rows' source table, 0 when it holds none. */
+  lastRowid(kind: IndexRowKind): number {
+    return this.#reader.prepare<[], number | null>(LAST_ROWID_SQL_BY_KIND[kind]).pluck().get() ?? 0;
   }
 
   /**
@@ -165,14 +183,14 @@ export class IndexRowReader {
   }
 
   /**
-   * The `kind` rows past the source rowid `afterRowid`, in rowid order: at most
-   * {@link INDEX_BATCH_ROW_LIMIT}, and no more once their text passes
-   * {@link INDEX_BATCH_TEXT_LIMIT}. None once every row has been read.
+   * The `kind` rows past the source rowid `afterRowid` through `throughRowid`, in rowid order: at
+   * most {@link INDEX_BATCH_ROW_LIMIT}, and no more once their text passes
+   * {@link INDEX_BATCH_TEXT_LIMIT}. None once every row in the range has been read.
    */
-  readRowsAfter(kind: IndexRowKind, afterRowid: number): SourceRow[] {
+  readRowsBetween(kind: IndexRowKind, afterRowid: number, throughRowid: number): SourceRow[] {
     const rows: SourceRow[] = [];
     let textLength = 0;
-    for (const columns of this.#afterRowid[kind].iterate({ afterRowid })) {
+    for (const columns of this.#between[kind].iterate({ afterRowid, throughRowid })) {
       rows.push(sourceRowOf(kind, columns));
       textLength += columns.text.length;
       if (textLength > INDEX_BATCH_TEXT_LIMIT) {

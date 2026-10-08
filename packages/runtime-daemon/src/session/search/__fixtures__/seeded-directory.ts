@@ -180,6 +180,18 @@ export class SeededDirectory {
     session.events.push({ eventId, sequence, text });
   }
 
+  /** Appends a thinking update with `text` to a session, which the index never holds. */
+  addThinkingUpdate(sessionId: SessionId, text: string): void {
+    const session = this.#sessionOf(sessionId);
+    insertEvent(this.#database, {
+      sessionId,
+      sequence: session.nextSequence,
+      type: "assistant.thinking_update",
+      content: text,
+    });
+    session.nextSequence += 1;
+  }
+
   /** Purges a session with every row it holds. */
   purge(sessionId: SessionId): void {
     purgeSession(this.#database, sessionId);

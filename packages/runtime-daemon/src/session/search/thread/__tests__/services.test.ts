@@ -64,6 +64,9 @@ describe("the search thread's start", () => {
   });
 
   it("builds a missing, unreadable or foreign index again and answers the same pages", async () => {
+    // The log ends in a row the index never holds, so a build reads the titles, groups and tags
+    // past the share of the log its last log row reached once the log rows are read.
+    directory.addThinkingUpdate(sessionIdOf(24), "weighing the retry worker");
     await fixture.settle();
     expect(fixture.services().rebuildReason).toBe("missing");
     expect((await fixture.reopen()).rebuildReason).toBeUndefined();

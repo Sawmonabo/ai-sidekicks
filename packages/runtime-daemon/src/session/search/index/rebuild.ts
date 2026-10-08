@@ -9,14 +9,18 @@
 import { fork } from "node:child_process";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 
-import { SearchIndex, type SearchIndexOptions } from "@ai-sidekicks/search-index";
+import {
+  SearchIndex,
+  type IndexRowKind,
+  type SearchIndexOptions,
+} from "@ai-sidekicks/search-index";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
 import { rebuildError, type CarriedError } from "../../../worker/carried-error.js";
 import { moduleUrlBeside } from "../../../worker/module-url.js";
 import { INDEX_ROW_KINDS, sourceRowidOf } from "./columns.js";
 import type { OutboxReader } from "./outbox.js";
-import { indexRowOf, type IndexRowReader } from "./rows.js";
+import { indexRowOf, type IndexRowReader, type SourceRow } from "./rows.js";
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
 // flushes and the less merging follows.
@@ -116,6 +120,14 @@ export function buildSearchIndexInChild(request: SearchIndexBuildRequest): Promi
   return promise;
 }
 
+// Where a build has read one kind's rows to, and its table's highest rowid when the build started:
+// a row past it was written after the outbox id the build records, so the outbox carries it.
+interface KindReading {
+  readonly kind: IndexRowKind;
+  readonly lastRowid: number;
+  afterRowid: number;
+}
+
 /**
  * Indexes every source row into a folder beside `folderPath`, each commit recording
  * `lastOutboxId`, merges its segments, then renames it into place. Throws what a read or the index
@@ -132,23 +144,25 @@ export async function buildSearchIndex(
   await mkdir(buildPath, { recursive: true });
   const index = SearchIndex.open(buildPath, SEARCH_INDEX_OPTIONS);
   try {
-    for (const kind of INDEX_ROW_KINDS) {
-      let afterRowid = 0;
-      for (;;) {
-        const batchRows = rows.readRowsAfter(kind, afterRowid);
-        const lastRow = batchRows.at(-1);
-        if (lastRow === undefined) {
-          break;
-        }
-        await index.apply({
-          lastOutboxId,
-          rows: batchRows.map(indexRowOf),
-          removedKeys: [],
-          removedOwners: [],
-          groupMembers: [],
-        });
-        afterRowid = sourceRowidOf(lastRow.key);
+    const readingOf = (kind: IndexRowKind): KindReading => ({
+      kind,
+      lastRowid: rows.lastRowid(kind),
+      afterRowid: 0,
+    });
+    const logReading = readingOf("event");
+    const otherReadings = INDEX_ROW_KINDS.filter((kind) => kind !== "event").map(readingOf);
+    for (;;) {
+      const batchRows = readNextBatch(rows, logReading, otherReadings);
+      if (batchRows.length === 0) {
+        break;
       }
+      await index.apply({
+        lastOutboxId,
+        rows: batchRows.map(indexRowOf),
+        removedKeys: [],
+        removedOwners: [],
+        groupMembers: [],
+      });
     }
     // Merged here, so the daemon opens an index with none of the build's merging left to do.
     let isMoreToMerge = true;
@@ -160,6 +174,37 @@ export async function buildSearchIndex(
   }
   await index.close();
   await rename(buildPath, folderPath);
+}
+
+// A build's next batch: the next log rows, nearly every row the index holds, then each other
+// kind's rows through the same share of its table's rowids, or all its rows left once the log rows
+// are read. Each segment the build writes then mixes the kinds as the whole index does, so the
+// average row length its blocks' score bounds were chosen under is the index's.
+function readNextBatch(
+  rows: IndexRowReader,
+  logReading: KindReading,
+  otherReadings: readonly KindReading[],
+): SourceRow[] {
+  const logRows = readNextRows(rows, logReading, logReading.lastRowid);
+  const share = logRows.length === 0 ? 1 : logReading.afterRowid / logReading.lastRowid;
+  const otherRows = otherReadings.map((reading) =>
+    readNextRows(rows, reading, Math.floor(share * reading.lastRowid)),
+  );
+  return [logRows, ...otherRows].flat();
+}
+
+// The `reading` kind's next rows through `throughRowid`, the reading moved past them.
+function readNextRows(
+  rows: IndexRowReader,
+  reading: KindReading,
+  throughRowid: number,
+): SourceRow[] {
+  const kindRows = rows.readRowsBetween(reading.kind, reading.afterRowid, throughRowid);
+  const lastRow = kindRows.at(-1);
+  if (lastRow !== undefined) {
+    reading.afterRowid = sourceRowidOf(lastRow.key);
+  }
+  return kindRows;
 }
 
 /**
