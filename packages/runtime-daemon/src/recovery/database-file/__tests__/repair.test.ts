@@ -139,7 +139,11 @@ describe("the database file's repair", () => {
 
     const result = await repair();
 
-    expect(result).toMatchObject({ outcome: "repaired", sessionsFromBackup: 1 });
+    // An unrepaired outcome carries why, which the failure names.
+    expect(result, JSON.stringify(result)).toMatchObject({
+      outcome: "repaired",
+      sessionsFromBackup: 1,
+    });
     if (result.outcome !== "repaired") {
       throw new Error("The file was not repaired");
     }
@@ -171,7 +175,11 @@ describe("the database file's repair", () => {
     await writeFile(path.join(backupFolder, "newest", "daemon.db"), Buffer.alloc(PAGE_SIZE, 0xa5));
     await damageIndexPage();
 
-    await expect(repair()).resolves.toMatchObject({ outcome: "repaired", sessionsFromBackup: 0 });
+    const result = await repair();
+    expect(result, JSON.stringify(result)).toMatchObject({
+      outcome: "repaired",
+      sessionsFromBackup: 0,
+    });
     expect(countEvents(KEPT_SESSION)).toBe(4);
     expect(countEvents(BACKED_UP_SESSION)).toBe(2);
   });
