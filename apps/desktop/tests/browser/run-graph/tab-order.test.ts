@@ -156,9 +156,10 @@ it("hands Tab on past its last stop, and Shift+Tab back in starts at that stop",
 
 it("moves no view as Tab passes over the end node on its way out of the graph", async () => {
   // Reduced motion, so a move would be a jump the next read sees. The running run opens at full
-  // size on its live step; narrowed after it opens, the view stays put and leaves most nodes
-  // outside the canvas. Its nodes reversed, so the last node in the library's order is one that
-  // edges leave, and Tab from its last count hands focus to that node on the way out.
+  // size on its live step, and narrowed to a sliver it stays on that step at full size, which
+  // leaves most nodes outside the canvas. Its nodes reversed, so the last node in the library's
+  // order is one that edges leave, and Tab from its last count hands focus to that node on the
+  // way out.
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
   const reversed: FixtureRun = {
@@ -169,20 +170,32 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
     },
   };
   const { canvas } = await mountBetweenButtons(reversed);
-  await act(async () => {
+  const openedTransform = viewportTransform(canvas);
+  act(() => {
     canvas.style.inlineSize = "96px";
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  // The follow centers the live step again at the new width, so the library has seen the resize.
+  await waitFor(() => {
+    expect(viewportTransform(canvas)).not.toBe(openedTransform);
   });
   const lastNode = [...canvas.querySelectorAll<HTMLElement>(".react-flow__node")].at(-1);
   const pane = canvas.querySelector<HTMLElement>(".react-flow");
   const lastLeaving = reversed.workflowDocument.edges.filter(
     (edge) => edge.source === lastNode?.dataset["id"],
   );
-  const lastStop = lastLeaving.length === 0 ? null : countOf(canvas, lastLeaving.at(-1)!.id);
-  if (lastNode === undefined || pane === null || !(lastStop instanceof SVGElement)) {
-    throw new Error("the reversed fixture's last node has no count leaving it");
+  if (lastNode === undefined || pane === null || lastLeaving.length === 0) {
+    throw new Error("the reversed fixture's last node has no edge leaving it");
   }
+  const lastStop = await waitFor(() => {
+    const count = countOf(canvas, lastLeaving.at(-1)!.id);
+    expect(count).toBeInstanceOf(SVGElement);
+    return count as SVGElement;
+  });
+
+  // Focus put on the last count from code reveals the count; the Tab out is measured from there.
+  act(() => {
+    lastStop.focus();
+  });
   const paneBox = pane.getBoundingClientRect();
   const nodeBox = lastNode.getBoundingClientRect();
   const nodeCenterX = nodeBox.left + nodeBox.width / 2;
@@ -192,14 +205,8 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
       nodeCenterX > paneBox.right ||
       nodeCenterY < paneBox.top ||
       nodeCenterY > paneBox.bottom,
-    "the last node starts outside the canvas",
+    "the last node stands outside the canvas as Tab leaves its count",
   ).toBe(true);
-
-  // A press first, so focusing the last count from code is no keyboard focus and moves nothing.
-  await userEvent.click(pane, { position: { x: 4, y: 4 } });
-  act(() => {
-    lastStop.focus();
-  });
   const transform = viewportTransform(canvas);
   await pressTab();
   expect(isGraphStop(document.activeElement)).toBe(false);

@@ -11,10 +11,10 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { figureSentenceText, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
