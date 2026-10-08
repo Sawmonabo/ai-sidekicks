@@ -10,14 +10,17 @@ export const DAMAGED_EVENTS_SKIPPED_TYPE: SessionEventType & "recovery.damaged_e
 
 /**
  * The SQL condition that holds for a `session_events` row, aliased `eventAlias` in the query,
- * unless the row sits in a range its session skipped. It probes the session's skip events
- * through the `(session_id, type)` index.
+ * unless the row sits in a range its session skipped. It reads the sessions holding a skip once
+ * per statement through the partial index of skip events, and probes the ranges of those sessions
+ * alone, through the `(session_id, type)` index.
  */
 export function outsideSkippedRangesSql(eventAlias: string): string {
-  return `NOT EXISTS (
-    SELECT 1 FROM session_events AS skip
-     WHERE skip.session_id = ${eventAlias}.session_id
-       AND skip.type = '${DAMAGED_EVENTS_SKIPPED_TYPE}'
-       AND ${eventAlias}.sequence BETWEEN json_extract(skip.payload, '$.fromSequence')
-                                      AND json_extract(skip.payload, '$.toSequence'))`;
+  return `(${eventAlias}.session_id NOT IN (
+      SELECT session_id FROM session_events WHERE type = '${DAMAGED_EVENTS_SKIPPED_TYPE}')
+    OR NOT EXISTS (
+      SELECT 1 FROM session_events AS skip
+       WHERE skip.session_id = ${eventAlias}.session_id
+         AND skip.type = '${DAMAGED_EVENTS_SKIPPED_TYPE}'
+         AND ${eventAlias}.sequence BETWEEN json_extract(skip.payload, '$.fromSequence')
+                                        AND json_extract(skip.payload, '$.toSequence')))`;
 }

@@ -9,6 +9,7 @@
 // workflow tables, which live in `workflow/schema.ts` and are appended below;
 // there are no numbered migrations.
 
+import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
 
 import { SEARCH_INDEX_SCHEMA_SQL } from "./search/index/schema.js";
@@ -44,6 +45,10 @@ CREATE TABLE session_events (
 ) STRICT;
 
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
+-- The sessions that skipped a damaged range, few or none, so a read over many
+-- sessions' rows probes the skipped ranges of those sessions alone.
+CREATE INDEX idx_session_events_skipped ON session_events(session_id)
+  WHERE type = '${DAMAGED_EVENTS_SKIPPED_TYPE}';
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
 -- At most one terminal event per (runId, runVersion). The key lives in the JSON
