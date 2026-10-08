@@ -24,6 +24,13 @@ use tantivy::{Directory, HasLen};
 pub enum ReadMode {
     /// Each read copies its byte range out of the file with a positioned read, so concurrent reads
     /// share one handle.
+    #[cfg_attr(
+        all(target_os = "macos", not(test)),
+        expect(
+            dead_code,
+            reason = "on macOS only the tests read positioned, as other platforms do"
+        )
+    )]
     Positioned,
     /// Tantivy's memory map, built for macOS alone.
     #[cfg(target_os = "macos")]

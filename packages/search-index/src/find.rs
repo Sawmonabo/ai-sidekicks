@@ -59,7 +59,7 @@ pub fn find_in_session(
             }
         }
     }
-    found.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+    found.sort_unstable_by_key(|(key, _)| std::cmp::Reverse(*key));
     let total_match_count = found.iter().map(|(_, count)| i64::from(*count)).sum();
     Ok(SessionFind {
         row_keys: found.iter().map(|(key, _)| *key as i64).collect(),

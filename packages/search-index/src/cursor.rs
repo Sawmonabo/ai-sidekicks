@@ -64,7 +64,9 @@ pub fn term_cursor(
     record: IndexRecordOption,
 ) -> tantivy::Result<Option<TokenCursor>> {
     let inverted = segment.inverted_index(term.field())?;
-    Ok(inverted.read_postings(term, record)?.map(TokenCursor::Term))
+    Ok(inverted
+        .read_postings(term, record)?
+        .map(|postings| TokenCursor::Term(Box::new(postings))))
 }
 
 // A whole word's text term, or every text term a prefix begins, merged.
@@ -90,14 +92,17 @@ fn text_cursor(
     }
     Ok(match postings.len() {
         0 => None,
-        1 => postings.pop().map(TokenCursor::Term),
+        1 => postings
+            .pop()
+            .map(|postings| TokenCursor::Term(Box::new(postings))),
         _ => Some(TokenCursor::Union(UnionCursor::new(postings))),
     })
 }
 
 /// One token's rows: a single term's postings, or the postings of every term a prefix begins.
 pub enum TokenCursor {
-    Term(SegmentPostings),
+    // Boxed: a term's postings hold a decoded block inline, many times a union's size.
+    Term(Box<SegmentPostings>),
     Union(UnionCursor),
 }
 

@@ -47,7 +47,7 @@ fn find_counts_equal_the_marks_on_every_row() {
         .filter(|row| row.kind == IndexRowKind::Event && row.owner_key as u64 == LARGEST_SESSION)
         .map(|row| (row.key as u64, row.text.clone()))
         .collect();
-    session_rows.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+    session_rows.sort_unstable_by_key(|(key, _)| std::cmp::Reverse(*key));
     let tokens: Vec<String> = tokenize(&session_rows[3].1)
         .into_iter()
         .map(|token| token.folded)

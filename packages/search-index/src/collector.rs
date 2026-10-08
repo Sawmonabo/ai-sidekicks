@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery, Weight};
+use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{DocId, DocSet, Score, Searcher, SegmentReader, TERMINATED, Term};
 

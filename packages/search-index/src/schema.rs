@@ -90,7 +90,7 @@ pub fn owner_value(owner: Owner) -> u64 {
 
 /// The owner an owner field value names.
 pub fn owner_of(value: u64) -> Owner {
-    if value % 2 == 0 {
+    if value.is_multiple_of(2) {
         Owner::Session(value / 2)
     } else {
         Owner::Group(value / 2)
