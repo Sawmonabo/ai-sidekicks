@@ -37,7 +37,7 @@ async function readAt(
 const FLOOR = encodeEventCursor(START_OF_LOG_POSITION);
 
 /** A window opening with no refused position. */
-const RESUME: SessionWindowOpening = { opensAt: "resume", refusedCursor: undefined };
+const RESUME: SessionWindowOpening = { opensAt: "resume", refusedCursors: new Set() };
 
 describe("sessionReadThroughDaemon — the base state a store opens on", () => {
   it("opens at the acknowledged position, which heads the window, and the stream after it", async () => {
@@ -52,20 +52,29 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     });
   });
 
-  it("passes a refused position over for the floor, and a refused floor for the log's start", async () => {
-    const { cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, RESUME);
+  it("passes refused positions over for the floor, and a refused floor for the log's start", async () => {
+    const { acknowledged } = (await readAt(TRANSCRIPT_STATES_SCENARIO, RESUME)).cursors;
+    if (acknowledged === undefined) {
+      throw new Error("The scenario acknowledges a position.");
+    }
     const pastAcknowledged = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       opensAt: "resume",
-      refusedCursor: cursors.acknowledged,
+      refusedCursors: new Set([acknowledged]),
+    });
+    const pastBoth = await readAt(TRANSCRIPT_STATES_SCENARIO, {
+      opensAt: "resume",
+      refusedCursors: new Set([acknowledged, FLOOR]),
     });
     const pastFloor = await readAt(CONCURRENT_STREAMING_SCENARIO, {
       opensAt: "resume",
-      refusedCursor: FLOOR,
+      refusedCursors: new Set([FLOOR]),
     });
 
     expect(pastAcknowledged.cursors.earliest).toBe(FLOOR);
     expect(pastAcknowledged.baseState).toStrictEqual({ entities: [], streamAfterCursor: FLOOR });
-    // No position at all: the stream opens with none, from the log's start.
+    // No position at all: the stream opens with none, from the log's start. Each refusal holds,
+    // so a floor refused after the acknowledged position never sends the read back to it.
+    expect(pastBoth.baseState).toStrictEqual({ entities: [] });
     expect(pastFloor.baseState).toStrictEqual({ entities: [] });
   });
 
@@ -76,31 +85,31 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
       opensAt: "repair",
       resumeAfterRowCursor: lastWholeRow,
       headCursor: head,
-      refusedCursor: undefined,
+      refusedCursors: new Set(),
     });
     const pastRefusedRow = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       opensAt: "repair",
       resumeAfterRowCursor: lastWholeRow,
       headCursor: head,
-      refusedCursor: lastWholeRow,
+      refusedCursors: new Set([lastWholeRow]),
     });
     const atHead = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       opensAt: "repair",
       resumeAfterRowCursor: undefined,
       headCursor: head,
-      refusedCursor: undefined,
+      refusedCursors: new Set(),
     });
     const openedAtFloor = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       opensAt: "repair",
       resumeAfterRowCursor: undefined,
       headCursor: undefined,
-      refusedCursor: undefined,
+      refusedCursors: new Set(),
     });
     const pastRefusedHead = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       opensAt: "repair",
       resumeAfterRowCursor: undefined,
       headCursor: head,
-      refusedCursor: head,
+      refusedCursors: new Set([head]),
     });
 
     // The store holds the window's state at that row, so the stream sends only what follows it.

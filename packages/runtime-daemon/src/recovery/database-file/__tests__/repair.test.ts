@@ -4,7 +4,8 @@
 // file holds more of keeps its own, and the fresh file replaces the damaged one with every
 // projection cursor cleared. A backup that cannot be read is passed over, a file the recovery
 // cannot read stays untouched with one copy aside however often a start meets it, a replacement a
-// crash cut short is finished, and a sound file is left as it is.
+// crash cut short is finished, and a sound file is left as it is. A replaced file takes the search
+// index built from it, a crash cut short included, and a sound file keeps its index.
 
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -27,11 +28,13 @@ const BACKED_UP_SESSION = "11111111-2222-4333-8444-555555555552";
 let dataFolder: string;
 let databasePath: string;
 let backupFolder: string;
+let indexFolderPath: string;
 
 beforeEach(async () => {
   dataFolder = await mkdtemp(path.join(os.tmpdir(), "aisk-repair-"));
   databasePath = path.join(dataFolder, "daemon.db");
   backupFolder = path.join(dataFolder, "backups");
+  indexFolderPath = path.join(dataFolder, "search-index");
 });
 
 afterEach(async () => {
@@ -155,10 +158,17 @@ function countEvents(sessionId: string): number {
   }
 }
 
+// A search index folder holding one file, as an index built from the current file would.
+async function writeIndexFolder(): Promise<void> {
+  await mkdir(indexFolderPath, { recursive: true });
+  await writeFile(path.join(indexFolderPath, "meta.json"), "{}");
+}
+
 function repair() {
   return repairDatabaseFile({
     databasePath,
     dataFolder,
+    indexFolderPath,
     readBackupFolder: () => Promise.resolve(backupFolder),
     now: () => new Date("2026-10-07T13:00:00.000Z"),
     writeServiceLog: () => {},
@@ -175,6 +185,7 @@ describe("the database file's repair", () => {
     });
     await damageIndexPage();
     const damagedBytes = await readFile(databasePath);
+    await writeIndexFolder();
 
     const result = await repair();
 
@@ -199,13 +210,16 @@ describe("the database file's repair", () => {
       repaired.close();
     }
     expect(existsSync(`${databasePath}.recovered`)).toBe(false);
+    expect(existsSync(indexFolderPath)).toBe(false);
     expect((await readdir(path.join(backupFolder, "newest"))).sort()).toStrictEqual([
       "daemon.db",
       BACKUP_MANIFEST_FILE_NAME,
     ]);
 
-    // A sound file is checked and left as it is.
+    // A sound file is checked and left as it is, with its index.
+    await writeIndexFolder();
     await expect(repair()).resolves.toStrictEqual({ outcome: "intact" });
+    expect(existsSync(indexFolderPath)).toBe(true);
   });
 
   it("heals with the recovery alone when the newest backup cannot be read", async () => {
@@ -257,12 +271,14 @@ describe("the database file's repair", () => {
     await writeFile(`${databasePath}-wal`, DAMAGED_LOG);
     writeDatabase(`${databasePath}.recovered`, { [KEPT_SESSION]: 3 });
     await writeFile(`${databasePath}.recovered-ready`, "");
+    await writeIndexFolder();
 
     await expect(repair()).resolves.toStrictEqual({ outcome: "intact" });
     // The damaged file's log is gone; the check of the replaced file may open a log of its own.
     const log = `${databasePath}-wal`;
     expect(existsSync(log) && (await readFile(log, "utf8")) === DAMAGED_LOG).toBe(false);
     expect(existsSync(`${databasePath}.recovered-ready`)).toBe(false);
+    expect(existsSync(indexFolderPath)).toBe(false);
     expect(existsSync(path.join(dataFolder, "damaged"))).toBe(false);
     expect(countEvents(KEPT_SESSION)).toBe(3);
   });

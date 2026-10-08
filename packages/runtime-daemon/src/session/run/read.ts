@@ -8,6 +8,7 @@ import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { sqlListOf } from "../../database/sql-list.js";
 import { RUN_TERMINAL_STATES } from "./transitions.js";
 
 /**
@@ -36,7 +37,7 @@ interface LiveRunRow extends RunRow {
   readonly reached_by: ChildRunProvenance | null;
 }
 
-const TERMINAL_STATES_SQL = RUN_TERMINAL_STATES.map((state) => `'${state}'`).join(", ");
+const TERMINAL_STATES_SQL = sqlListOf(RUN_TERMINAL_STATES);
 
 // Walks down `idx_runs_parent` through live provider subagents only, so the read scales with the
 // one run's tree and a subagent that has ended cuts its branch off.

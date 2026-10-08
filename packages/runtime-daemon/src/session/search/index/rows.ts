@@ -12,6 +12,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { IndexRow, IndexRowKind, IndexRowTag } from "@ai-sidekicks/search-index";
 
 import { outsideSkippedRangesSql } from "../../../events/session/skipped-ranges.js";
+import { sqlListOf } from "../../../database/sql-list.js";
 import { indexKeySql, indexRowKindOf, sourceRowidOf } from "./columns.js";
 
 // The log rows the index holds: a person's message, an assistant's message and a tool call, each
@@ -27,9 +28,7 @@ const INDEXED_EVENT_TYPES: readonly SessionEventType[] = [
  * The log rows the index holds, as a SQL list: a person's message, an assistant's message and a
  * tool call, each stored once settled, never a thinking update or a streamed chunk.
  */
-export const INDEXED_EVENT_TYPES_SQL: string = INDEXED_EVENT_TYPES.map((type) => `'${type}'`).join(
-  ", ",
-);
+export const INDEXED_EVENT_TYPES_SQL: string = sqlListOf(INDEXED_EVENT_TYPES);
 
 /**
  * The most rows one batch handed to the index carries. A durable commit costs about the same
@@ -42,6 +41,18 @@ export const INDEX_BATCH_ROW_LIMIT = 50_000;
  * 16 MiB as JavaScript holds it, so a batch of long messages stays near that on the search thread.
  */
 export const INDEX_BATCH_TEXT_LIMIT: number = 8 * 1024 * 1024;
+
+// What one batch handed to the index may still take: rows, and text in UTF-16 code units. Each read
+// of a batch takes what it reads from the one room, so the reads share its limits.
+interface IndexBatchRoom {
+  rows: number;
+  textLength: number;
+}
+
+/** The room of a batch nothing has been read into yet. */
+export function emptyIndexBatchRoom(): IndexBatchRoom {
+  return { rows: INDEX_BATCH_ROW_LIMIT, textLength: INDEX_BATCH_TEXT_LIMIT };
+}
 
 /** A source row as the index holds it, and where a log row sits in its session's log. */
 export interface SourceRow {
@@ -187,17 +198,31 @@ export class IndexRowReader {
   }
 
   /**
-   * The `kind` rows past the source rowid `afterRowid` through `throughRowid`, in rowid order: at
-   * most {@link INDEX_BATCH_ROW_LIMIT}, and no more once their text passes
-   * {@link INDEX_BATCH_TEXT_LIMIT}. None once every row in the range has been read.
+   * The `kind` rows past the source rowid `afterRowid` through `throughRowid`, in rowid order, each
+   * taken out of `room`, up to the first that `fits` refuses: none once the room holds no row or no
+   * text, and the row whose text passes the room's is the last. None once every row in the range
+   * has been read.
    */
-  readRowsBetween(kind: IndexRowKind, afterRowid: number, throughRowid: number): SourceRow[] {
+  readRowsBetween(
+    kind: IndexRowKind,
+    afterRowid: number,
+    throughRowid: number,
+    room: IndexBatchRoom,
+    fits: (row: SourceRow) => boolean = () => true,
+  ): SourceRow[] {
     const rows: SourceRow[] = [];
-    let textLength = 0;
+    if (room.rows <= 0 || room.textLength <= 0) {
+      return rows;
+    }
     for (const columns of this.#between[kind].iterate({ afterRowid, throughRowid })) {
-      rows.push(sourceRowOf(kind, columns));
-      textLength += columns.text.length;
-      if (textLength > INDEX_BATCH_TEXT_LIMIT) {
+      const row = sourceRowOf(kind, columns);
+      if (!fits(row)) {
+        break;
+      }
+      rows.push(row);
+      room.rows -= 1;
+      room.textLength -= row.text.length;
+      if (room.rows <= 0 || room.textLength <= 0) {
         break;
       }
     }

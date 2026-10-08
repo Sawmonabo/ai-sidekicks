@@ -5,6 +5,8 @@
 
 import { WORKSPACE_LAST_ERROR_MAX_LEN } from "@ai-sidekicks/contracts/repo/workspace";
 
+import { cutToCodeUnits } from "../text-cut.js";
+
 /** Marker appended to a truncated detail; counted inside the cap, which is also the wire cap. */
 export const WORKSPACE_LAST_ERROR_TRUNCATION_MARKER = "...[truncated]";
 
@@ -44,19 +46,14 @@ export function scrubCredentials(rawDetail: string): string {
 }
 
 /**
- * Cut a detail to `WORKSPACE_LAST_ERROR_MAX_LEN` with a marker. The cap counts UTF-16 code units,
- * as Zod's `.max()` does; the cut backs off one unit rather than split a surrogate pair.
+ * Cut a detail to `WORKSPACE_LAST_ERROR_MAX_LEN` with a marker, the marker counted inside the cap.
  */
 function truncateWorkspaceLastError(detail: string): string {
   if (detail.length <= WORKSPACE_LAST_ERROR_MAX_LEN) {
     return detail;
   }
-  let cutAt = WORKSPACE_LAST_ERROR_MAX_LEN - WORKSPACE_LAST_ERROR_TRUNCATION_MARKER.length;
-  const lastRetainedUnit = detail.charCodeAt(cutAt - 1);
-  if (lastRetainedUnit >= 0xd800 && lastRetainedUnit <= 0xdbff) {
-    cutAt -= 1;
-  }
-  return `${detail.slice(0, cutAt)}${WORKSPACE_LAST_ERROR_TRUNCATION_MARKER}`;
+  const kept = WORKSPACE_LAST_ERROR_MAX_LEN - WORKSPACE_LAST_ERROR_TRUNCATION_MARKER.length;
+  return `${cutToCodeUnits(detail, kept)}${WORKSPACE_LAST_ERROR_TRUNCATION_MARKER}`;
 }
 
 /**

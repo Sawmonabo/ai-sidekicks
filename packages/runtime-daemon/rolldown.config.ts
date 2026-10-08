@@ -2,9 +2,9 @@
 // import, are inlined into a few files, since loading them one file at a time was most of its
 // start; every other package it lists, the native ones among them, loads from its node_modules.
 // Each worker thread and child process is an entry written where its source sits, and a module
-// that finds a file from its own URL keeps its source path in a chunk of its own, so the worker
-// beside the module that starts it and the package's manifest are found from the build as from the
-// source. `tsc` writes only the declarations.
+// that finds a file from its own location keeps its source path in a chunk of its own, so the
+// worker beside the module that starts it and the package's manifest are found from the build as
+// from the source. `tsc` writes only the declarations.
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -56,16 +56,16 @@ const ENTRY_PATHS = [
   ...WORKER_ENTRIES.map((entry) => path.join(SOURCE_FOLDER, entry)),
 ];
 
-// A line of code, not of a comment, that reads the module's own URL.
-const OWN_URL_IN_CODE = /^(?!\s*(?:\/\/|\/?\*)).*\bimport\.meta\.url\b/m;
+// A line of code, not of a comment, that reads the module's own URL, folder or file path.
+const OWN_LOCATION_IN_CODE = /^(?!\s*(?:\/\/|\/?\*)).*\bimport\.meta\.(?:url|dirname|filename)\b/m;
 
-// The modules that find a file from their own URL, entries aside, which keep their path already.
-function readsItsOwnUrl(modulePath: string): boolean {
+// The modules that find a file from their own location, entries aside, which keep theirs already.
+function readsItsOwnLocation(modulePath: string): boolean {
   return (
     modulePath.startsWith(SOURCE_FOLDER + path.sep) &&
     modulePath.endsWith(".ts") &&
     !ENTRY_PATHS.includes(modulePath) &&
-    OWN_URL_IN_CODE.test(readFileSync(modulePath, "utf8"))
+    OWN_LOCATION_IN_CODE.test(readFileSync(modulePath, "utf8"))
   );
 }
 
@@ -85,11 +85,11 @@ const config: RolldownOptions = {
     codeSplitting: {
       groups: [
         {
-          debugName: "modules that read their own URL",
+          debugName: "modules that read their own location",
           name: (moduleId) => {
             // An id is the module's absolute path, written with the platform's separators or not.
             const modulePath = path.resolve(moduleId);
-            if (!readsItsOwnUrl(modulePath)) {
+            if (!readsItsOwnLocation(modulePath)) {
               return null;
             }
             const name = buildNameOf(modulePath);

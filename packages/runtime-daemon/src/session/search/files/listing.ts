@@ -1,9 +1,10 @@
 // Lists a working folder's files as paths relative to it, `/`-separated: the repository's own
 // view through `git ls-files` inside a git working tree, and outside one a walk of the folder
 // that honors every `.gitignore` in it as git does. A `.gitignore` that cannot be read counts as
-// holding no rules, as git counts it, and is named in the service log, git's own warning inside a
-// working tree. A read that fails for a reason the system clears on its own is tried once more
-// after a moment.
+// holding no rules, and a folder that cannot be read below the working folder as holding no file,
+// as git counts them, and each is named in the service log, git's own warning inside a working
+// tree. A read that fails for a reason the system clears on its own is tried once more after a
+// moment.
 
 import * as nativeFs from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -108,14 +109,24 @@ async function readWorkingFolder(
 // Every folder's `.gitignore` applies to the paths below it, a deeper one's rules over a
 // shallower one's, and nothing under an ignored folder is listed, as in git. A folder's rules are
 // read with its listing, before the crawl meets any path in it. A rules file that cannot be read
-// holds no rules, as in git, and is logged; one a moment's wait may clear fails the walk, which is
-// tried once more.
+// holds no rules, as in git, and a folder below the working folder that cannot be read lists
+// nothing, as in git; each is logged. A read a moment's wait may clear fails the walk, which is
+// tried once more, and so does a working folder that cannot be read.
 async function walkFolder(folder: string, writeServiceLog: ServiceLogWriter): Promise<string[]> {
   const rulesByFolder = new Map<string, Ignore>();
   const readFolder: ReadFolder = (directoryPath, options, callback) => {
     nativeFs.readdir(directoryPath, options, (readError, entries) => {
       if (readError !== null) {
-        callback(readError, []);
+        // Git lists past a folder below the working folder that it cannot open, and warns.
+        if (isRetryable(readError) || relativePathOf(folder, directoryPath) === "") {
+          callback(readError, []);
+          return;
+        }
+        writeServiceLog(
+          `The file search listed ${folder} past ${directoryPath}, which it could not read: ` +
+            readError.message,
+        );
+        callback(null, []);
         return;
       }
       const rulesEntry = entries.find((entry) => entry.name === IGNORE_FILE_NAME);

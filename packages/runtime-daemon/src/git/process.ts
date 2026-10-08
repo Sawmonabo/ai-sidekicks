@@ -1,21 +1,23 @@
 /**
- * How the daemon runs git: one `execFile` runner, one environment, the shared stdio and time
- * bounds, and the hook-neutralized entry point the worktree, execution-root and snapshot services
- * share. Each caller adds its own argv flags.
+ * How the daemon runs git: the `git` it finds along the login shell's `PATH` at start, one
+ * `execFile` runner, one environment, the shared stdio and time bounds, and the hook-neutralized
+ * entry point the worktree, execution-root and snapshot services share. Each caller adds its own
+ * argv flags.
  */
 
 import { execFile } from "node:child_process";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 
+import { findExecutables, type ExecutableSearchDependencies } from "../executable-search.js";
+import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { GitFilesystem } from "./filesystem.js";
 
-/**
- * The bare name `git`, found by the platform's search. On Windows libuv looks in the daemon's
- * current directory before `PATH`, so a Windows deployment should name an absolute path.
- */
-export const DEFAULT_GIT_EXECUTABLE: string = "git";
+// The bare name, found by the platform's search, for a runner given no path. On Windows libuv
+// looks in the daemon's working folder before `PATH`, so the daemon runs the absolute path it
+// found.
+const DEFAULT_GIT_EXECUTABLE = "git";
 
 /**
  * Cap on captured stdio for every daemon git invocation, sized for the largest one: a `-z` path
@@ -191,6 +193,40 @@ export const runGitWithExecFile: GitRunner = (argv, options) => {
     }
   });
 };
+
+/**
+ * The first absolute `git` along `environment`'s `PATH`, or `undefined` when there is none. A
+ * relative entry is passed over: on Windows it names the daemon's working folder, where a planted
+ * `git.exe` would otherwise run.
+ */
+export async function findGitExecutable(
+  environment: readonly SpawnEnvPair[],
+  dependencies: Partial<ExecutableSearchDependencies> = {},
+): Promise<string | undefined> {
+  for await (const candidate of findExecutables("git", environment, dependencies)) {
+    if (isAbsolute(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The runner for the `git` at `executablePath`. With none found, each call rejects with an
+ * `ENOENT` failure, as a spawn of a missing program does, so a missing git fails where git is
+ * first needed rather than at start.
+ */
+export function createGitRunner(executablePath: string | undefined): GitRunner {
+  if (executablePath === undefined) {
+    return () =>
+      Promise.reject(
+        Object.assign(new Error("No git was found along the login shell's PATH"), {
+          code: "ENOENT",
+        }),
+      );
+  }
+  return (argv, options) => runGitWithExecFile(argv, { ...options, executable: executablePath });
+}
 
 /** The exit status a rejected invocation carries, or `null` when git did not run to an exit. */
 export function readGitExitStatus(rejection: unknown): number | null {

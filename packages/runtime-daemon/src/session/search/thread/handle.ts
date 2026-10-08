@@ -71,6 +71,8 @@ export class SearchThread {
   readonly #exited: Promise<void>;
   readonly #pendingReplies = new Map<number, PendingReply>();
   readonly #stopFollowingCommits: () => void;
+  // Told of each durable index commit, as `followIndexCommits` attached them.
+  readonly #indexCommitFollowers = new Set<{ readonly onCommitted: () => void }>();
   #nextRequestId = 0;
   // The newest durable commit whose outbox rows are still to delete, and the deletes under way.
   #appliedToDelete: AppliedOutbox | undefined;
@@ -134,9 +136,15 @@ export class SearchThread {
     return answer.response;
   }
 
-  /** One page of a `transcript.search`, as the transcript search answers it on the thread. */
-  async searchTranscript(request: TranscriptSearchRequest): Promise<TranscriptSearchResponse> {
-    const answer = await this.#call({ type: "transcript.search", request });
+  /**
+   * One page of a `transcript.search`, as the transcript search answers it on the thread; a
+   * session whose history is damaged from `damagedFromSequence` on is searched before that point.
+   */
+  async searchTranscript(
+    request: TranscriptSearchRequest,
+    damagedFromSequence?: number,
+  ): Promise<TranscriptSearchResponse> {
+    const answer = await this.#call({ type: "transcript.search", request, damagedFromSequence });
     if (answer.type !== "transcript-searched") {
       throw unexpectedReply(answer);
     }
@@ -144,7 +152,7 @@ export class SearchThread {
   }
 
   /** Runs one merge of the index's segments off the main thread; resolves whether more remains. */
-  async mergeWhileIdle(): Promise<boolean> {
+  async mergeSegments(): Promise<boolean> {
     const answer = await this.#call({ type: "merge" });
     if (answer.type !== "merged") {
       throw unexpectedReply(answer);
@@ -153,10 +161,24 @@ export class SearchThread {
   }
 
   /**
+   * Calls `onCommitted` each time a batch of the outbox commits durably to the index, until the
+   * detach it returns runs; a merge is no such commit.
+   */
+  followIndexCommits(onCommitted: () => void): () => void {
+    // A fresh object, so one function attached twice detaches once per attach.
+    const follower = { onCommitted };
+    this.#indexCommitFollowers.add(follower);
+    return () => {
+      this.#indexCommitFollowers.delete(follower);
+    };
+  }
+
+  /**
    * Takes no new request, lets every request taken and the merge under way finish, then closes the
    * index and the thread's connection, ends the thread and waits for the outbox deletes its last
-   * commits started. A thread still opening has answered nothing, so it is ended at once, and the
-   * searches waiting for its open reject. Repeated calls share the first close.
+   * commits started. A thread still opening has answered nothing: the searches waiting for its open
+   * reject, and it ends a build under way and ends once the build's process has exited. A failed
+   * thread is ended at once. Repeated calls share the first close.
    */
   close(): Promise<void> {
     this.#closing ??= this.#runClose();
@@ -165,8 +187,8 @@ export class SearchThread {
 
   async #runClose(): Promise<void> {
     this.#stopFollowingCommits();
-    if (!this.#isOpen || this.#failure !== undefined) {
-      this.#openSettled.resolve();
+    this.#openSettled.resolve();
+    if (this.#failure !== undefined) {
       await this.#worker.terminate();
     } else {
       const answer = await this.#request({ type: "close" });
@@ -224,6 +246,9 @@ export class SearchThread {
         return;
       case "index-applied":
         this.#deleteApplied(reply.applied);
+        for (const follower of this.#indexCommitFollowers) {
+          follower.onCommitted();
+        }
         return;
       case "index-failed":
         this.#fail(rebuildSearchError(reply.error));
@@ -242,7 +267,7 @@ export class SearchThread {
     }
   }
 
-  // A close that came while the thread opened has ended it, so an open reported after is no news.
+  // A close that came while the thread opened ends it, so an open reported after is no news.
   #acceptOpen(rebuildReason: SearchIndexRebuildReason | undefined): void {
     if (this.#closing !== undefined) {
       return;

@@ -3,7 +3,7 @@
 // as a project of the new mount, a folder that cannot be attached is refused with nothing copied,
 // no link is followed out of either folder, every file not copied is read back page by page with
 // its reason, a convert retried with its key answers the conversion it made, and a conversion that
-// stopped part way resumes from what it recorded.
+// stopped part way resumes from what it recorded, a file cut short never under its own name.
 
 import { execFileSync } from "node:child_process";
 import {
@@ -45,6 +45,7 @@ import { RepoMountService } from "../../workspace/repo/mount-service.js";
 import { WorkspaceService } from "../../workspace/service.js";
 import { SessionConversion } from "../convert.js";
 import { openSessionLog, type SessionLog } from "../directory/__fixtures__/event-log.js";
+import { sessionProjectSql } from "../directory/lookups.js";
 
 // More pages than any list here takes, so a cursor that never moves fails instead of hanging.
 const MAX_PAGES_READ = 50;
@@ -64,6 +65,7 @@ beforeEach(async () => {
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
+    archiveUnfinishedCreates: () => Promise.resolve(),
   });
   workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
   managedWorkspaces = new ManagedWorkspaceService({
@@ -86,6 +88,7 @@ function conversionWith(swap: {
     lock: new KeyedLock<SessionId>(),
     repoMounts: mounts,
     workspaces: { bind: swap.bind ?? ((input) => workspaces.bind(input)) },
+    writeServiceLog: () => undefined,
   });
 }
 
@@ -186,17 +189,13 @@ function sessionShape(sessionId: SessionId): string {
   ).shape;
 }
 
-// The project a session belongs to: the attached mount its newest workspace binds.
+// The project a session belongs to, as the sessions list reads it.
 function projectOf(sessionId: SessionId): string | undefined {
-  const row = log.scratch.reader
-    .prepare(
-      `SELECT w.repo_mount_id AS repoMountId
-         FROM workspaces w JOIN repo_mounts m ON m.id = w.repo_mount_id
-        WHERE w.session_id = ? AND m.origin = 'attached'
-        ORDER BY w.created_at DESC, w.id DESC LIMIT 1`,
-    )
-    .get(sessionId) as { repoMountId: string } | undefined;
-  return row?.repoMountId;
+  const repoMountId = log.scratch.reader
+    .prepare(`SELECT ${sessionProjectSql("?")}`)
+    .pluck()
+    .get(sessionId) as string | null;
+  return repoMountId ?? undefined;
 }
 
 function eventsOf(sessionId: SessionId): { id: string; type: string; payload: string }[] {
@@ -232,6 +231,8 @@ describe("SessionConversion", () => {
       "README.md": "the chat's readme",
       "notes/plan.md": "the plan",
       "src/main.ts": "export {};",
+      // A repository the chat made in a subfolder is the chat's work, not the workspace's own.
+      "tools/.git/HEAD": "ref: refs/heads/main",
     });
     const repository = await makeRepository("project", {
       "README.md": "the repository's readme",
@@ -241,7 +242,7 @@ describe("SessionConversion", () => {
 
     const response = await convert(sessionId, repository);
 
-    const outcome = { copiedCount: 2, skippedCount: 1 };
+    const outcome = { copiedCount: 3, skippedCount: 1 };
     expect(response).toStrictEqual(outcome);
     expect(skippedFilesOf(sessionId)).toStrictEqual([
       { path: "README.md", reason: "repository_has_file" },
@@ -251,6 +252,9 @@ describe("SessionConversion", () => {
     );
     expect(await readFile(path.join(repository, "notes/plan.md"), "utf8")).toBe("the plan");
     expect(await readFile(path.join(repository, "src/main.ts"), "utf8")).toBe("export {};");
+    expect(await readFile(path.join(repository, "tools/.git/HEAD"), "utf8")).toBe(
+      "ref: refs/heads/main",
+    );
     // The workspace is kept whole, the file left behind and its history among it.
     expect(await readFile(path.join(workspace, "README.md"), "utf8")).toBe("the chat's readme");
     expect((await lstat(path.join(workspace, ".git"))).isDirectory()).toBe(true);
@@ -420,10 +424,6 @@ describe("SessionConversion", () => {
     expect(first).toStrictEqual({ copiedCount: 1, skippedCount: 1 });
     expect(eventsOf(sessionId)).toStrictEqual(eventsBefore);
     expect((await readdir(repository)).sort()).toStrictEqual([".git", "README.md"]);
-    // Another key is another request, and a project does not convert.
-    await expect(convert(sessionId, repository)).rejects.toMatchObject({
-      code: "session.convert_refused",
-    });
   });
 
   it("converts one of two chats sent at once with one key, refusing the other with nothing attached", async () => {
@@ -508,6 +508,38 @@ describe("SessionConversion", () => {
     expect((await readdir(repository)).sort()).toStrictEqual([".git", "a.md"]);
     expect(sessionShape(sessionId)).toBe("chat");
     expect(projectOf(sessionId)).toBeUndefined();
+  });
+
+  it("leaves a copy cut short only under the daemon's name, which the start and the resume remove", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "README.md": "the chat's readme", "notes/plan.md": "the plan" });
+    const repository = await makeRepository("project", { "README.md": "the repository's" });
+    const failingRecords: Pick<DatabaseWriter, "write"> = {
+      write: (statements) =>
+        statements[0]?.sql.includes("session_convert_files") === true
+          ? Promise.reject(new Error("the disk is full"))
+          : log.scratch.writer.write(statements),
+    };
+    await expect(
+      convert(sessionId, repository, conversionWith({ writer: failingRecords })),
+    ).rejects.toMatchObject({ code: "session.convert_incomplete" });
+    // What a daemon stopped while writing `notes/plan.md` leaves behind.
+    const notes = path.join(repository, "notes");
+    const stoppedCopy = path.join(notes, `.ai-sidekicks-copy-${sessionId}`);
+    await mkdir(notes);
+    await writeFile(stoppedCopy, "the pl");
+
+    await conversion.removeStoppedCopies();
+
+    expect(await readdir(notes)).toStrictEqual([]);
+
+    await writeFile(stoppedCopy, "the pl");
+    const resumed = await convert(sessionId, repository);
+
+    expect(resumed).toStrictEqual({ copiedCount: 1, skippedCount: 1 });
+    expect(await readdir(notes)).toStrictEqual(["plan.md"]);
+    expect(await readFile(path.join(notes, "plan.md"), "utf8")).toBe("the plan");
+    expect((await readdir(repository)).sort()).toStrictEqual([".git", "README.md", "notes"]);
   });
 
   it("keeps copying while file records commit, with a bounded number waiting", async () => {
@@ -618,12 +650,19 @@ describe("SessionConversion", () => {
     );
   });
 
-  it("refuses a chat with no managed workspace, and one being purged, with nothing attached", async () => {
+  it("refuses a chat with no managed workspace, one still provisioning and one being purged, with nothing attached", async () => {
     const bareChatId = mintUuidV7() as SessionId;
     await log.createSession(bareChatId, "chat");
+    const provisioningId = mintUuidV7() as SessionId;
+    await startChat(provisioningId, { "plan.md": "plan" });
     const purgingId = mintUuidV7() as SessionId;
     await startChat(purgingId, { "plan.md": "plan" });
     await log.scratch.writer.write([
+      {
+        sql: "UPDATE sessions SET state = 'provisioning' WHERE id = ?",
+        bindings: [provisioningId],
+        expectedRowCount: 1,
+      },
       {
         sql: "UPDATE sessions SET state = 'purge_requested' WHERE id = ?",
         bindings: [purgingId],
@@ -635,6 +674,10 @@ describe("SessionConversion", () => {
     await expect(convert(bareChatId, repository)).rejects.toMatchObject({
       code: "session.convert_refused",
       detail: { reason: "no_managed_workspace" },
+    });
+    await expect(convert(provisioningId, repository)).rejects.toMatchObject({
+      code: "session.change_refused",
+      detail: { state: "provisioning" },
     });
     await expect(convert(purgingId, repository)).rejects.toMatchObject({
       code: "session.change_refused",

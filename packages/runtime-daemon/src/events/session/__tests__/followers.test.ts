@@ -1,5 +1,5 @@
 // Following a session's log: a follower that catches up while appends land gets every event once
-// and in order, reads its next page only once its receiver has room, and a resume from a delivered
+// and in order, hands its receiver a change only while it has room, and a resume from a delivered
 // cursor gets exactly the rest; a session or cursor the log cannot serve is refused before any
 // change; a page that cannot be read or a follower that throws ends that follower alone; and
 // receipts that arrive out of order still publish in sequence order.
@@ -11,6 +11,7 @@ import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelo
 import {
   EventCursorSchema,
   SessionIdSchema,
+  START_OF_LOG_POSITION,
   encodeEventCursor,
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";
@@ -112,6 +113,7 @@ function recordChanges(): RecordedFollow {
         expect(change.cursor).toBe(encodeEventCursor(change.event.sequence));
         sequences.push(change.event.sequence);
       },
+      onCaughtUp: () => undefined,
       onFailure: (error) => {
         failures.push(error);
       },
@@ -166,7 +168,7 @@ describe("EventLogService.follow — catch-up to follow", () => {
     const service = buildService();
     await appendEvents(service, 6);
     const first = recordChanges();
-    let lastCursor = encodeEventCursor(-1);
+    let lastCursor = encodeEventCursor(START_OF_LOG_POSITION);
     const detachFirst = service.follow(SESSION, undefined, {
       ...first.listener,
       onChange: (change) => {
@@ -208,7 +210,7 @@ describe("EventLogService.follow — catch-up to follow", () => {
     expect(follower.sequences).toEqual([]);
   });
 
-  it("reads no further page while the receiver is full, and the rest once it drains", async () => {
+  it("hands a full receiver nothing, and the rest once it drains", async () => {
     vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
     const service = buildService();
     await appendEvents(service, 6);
@@ -217,10 +219,10 @@ describe("EventLogService.follow — catch-up to follow", () => {
     follower.fill();
     service.follow(SESSION, undefined, follower.listener);
     vi.runAllTimers();
-    expect(follower.sequences).toEqual([0, 1]);
+    expect(follower.sequences).toEqual([]);
 
     follower.drain();
-    expect(follower.sequences).toEqual([0, 1, 2, 3]);
+    expect(follower.sequences).toEqual([0, 1]);
     vi.runAllTimers();
     expect(follower.sequences).toEqual([0, 1, 2, 3, 4, 5]);
   });

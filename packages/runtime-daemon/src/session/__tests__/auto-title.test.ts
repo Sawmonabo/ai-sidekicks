@@ -1,6 +1,9 @@
 // The session's self-naming over a real database: after its first completed exchange an unnamed
 // session takes the first words of its first message, a name the person writes while the title is
-// on its way is the one the session keeps, and a stop waits for a title on its way.
+// on its way is the one the session keeps, a session whose exchange completed before the start is
+// named at the start unless the person cleared its name, and a stop waits for a title on its way.
+
+import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,7 +17,9 @@ import {
 } from "../__fixtures__/changes-harness.js";
 
 const SESSION_ID = "0190fa20-3c4d-7e5f-8a6b-7c8d9e0f1a01" as SessionId;
+const CLEARED_SESSION_ID = "0190fa20-3c4d-7e5f-8a6b-7c8d9e0f1a02" as SessionId;
 const RUN_ID = "0190fa20-3c4d-7e5f-8a6b-7c8d9e0f1b01";
+const CLEARED_RUN_ID = "0190fa20-3c4d-7e5f-8a6b-7c8d9e0f1b02";
 const FIRST_MESSAGE = "  Fix the login redirect after a session expires on the settings page";
 const PERSON_NAME = "Login redirect";
 
@@ -52,22 +57,25 @@ function startTitling(changes: Pick<SessionChanges, "nameUnnamed">): Promise<boo
   return titleWrites;
 }
 
-async function completeFirstExchange(): Promise<void> {
-  await harness.log.append(SESSION_ID, "user.message", "interactive_request", {
-    sessionId: SESSION_ID,
+async function completeFirstExchange(
+  sessionId: SessionId = SESSION_ID,
+  runId: string = RUN_ID,
+): Promise<void> {
+  await harness.log.append(sessionId, "user.message", "interactive_request", {
+    sessionId,
     actor: "person",
     message: FIRST_MESSAGE,
   });
-  await harness.log.append(SESSION_ID, "run.starting", "run_lifecycle", {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
+  await harness.log.append(sessionId, "run.starting", "run_lifecycle", {
+    sessionId,
+    runId,
     runVersion: 1,
     previousState: "queued",
     newState: "starting",
   });
-  await harness.log.append(SESSION_ID, "run.completed", "run_lifecycle", {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
+  await harness.log.append(sessionId, "run.completed", "run_lifecycle", {
+    sessionId,
+    runId,
     runVersion: 2,
     previousState: "starting",
     newState: "completed",
@@ -75,11 +83,9 @@ async function completeFirstExchange(): Promise<void> {
   });
 }
 
-function sessionName(): string | null {
+function sessionName(sessionId: SessionId = SESSION_ID): string | null {
   return (
-    harness.log.scratch.reader
-      .prepare("SELECT name FROM sessions WHERE id = ?")
-      .get(SESSION_ID) as {
+    harness.log.scratch.reader.prepare("SELECT name FROM sessions WHERE id = ?").get(sessionId) as {
       name: string | null;
     }
   ).name;
@@ -125,21 +131,32 @@ describe("SessionAutoTitle", () => {
     ).toHaveLength(1);
   });
 
+  it("at start, names a session that completed earlier, unless the person cleared it", async () => {
+    await harness.log.createSession(CLEARED_SESSION_ID, "chat");
+    await completeFirstExchange();
+    await completeFirstExchange(CLEARED_SESSION_ID, CLEARED_RUN_ID);
+    await harness.changes.rename({ sessionId: CLEARED_SESSION_ID, name: PERSON_NAME });
+    await harness.changes.rename({ sessionId: CLEARED_SESSION_ID, name: null });
+
+    const titleWrites = startTitling(harness.changes);
+    await vi.waitFor(() => expect(titleWrites).toHaveLength(1));
+
+    await expect(titleWrites[0]).resolves.toBe(true);
+    expect(sessionName()).toBe("Fix the login redirect after a session");
+    expect(sessionName(CLEARED_SESSION_ID)).toBeNull();
+  });
+
   it("stops only once the title on its way has been written", async () => {
     const write = Promise.withResolvers<boolean>();
     const titleWrites = startTitling({ nameUnnamed: () => write.promise });
     await completeFirstExchange();
     await vi.waitFor(() => expect(titleWrites).toHaveLength(1));
 
-    let isStopped = false;
-    const stopped = stopTitling?.().then(() => {
-      isStopped = true;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(isStopped).toBe(false);
+    const stopped = stopTitling!().then(() => "stopped" as const);
+    // A stop that did not wait for the title would settle within the microtasks this turn runs.
+    expect(await Promise.race([stopped, nextEventLoopTurn("held" as const)])).toBe("held");
 
     write.resolve(true);
-    await stopped;
-    expect(isStopped).toBe(true);
+    await expect(stopped).resolves.toBe("stopped");
   });
 });

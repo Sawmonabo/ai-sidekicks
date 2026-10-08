@@ -2,6 +2,7 @@
 // `Add tag` suggests.
 import { z } from "zod";
 
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import {
   EmptyPayloadSchema,
   defineMethodDescriptors,
@@ -32,12 +33,15 @@ export const SessionTagRequestSchema: z.ZodType<SessionTagRequest, SessionTagReq
 export interface SessionTagListResponse {
   tags: string[];
 }
-/** Parses a {@link SessionTagListResponse}. */
+/** Parses a {@link SessionTagListResponse}; the tags fit the shared page budget. */
 export const SessionTagListResponseSchema: z.ZodType<SessionTagListResponse> = z
   .object({
     tags: TagListSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((response, issueContext) => {
+    requireMemberToRideOneFrame(response.tags, "tags", issueContext);
+  });
 
 /** The session tag methods, keyed by method name. */
 export interface SessionTagMethodDescriptors {

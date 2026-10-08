@@ -8,14 +8,17 @@
 //   * Batched. The first change opens a window of `SESSION_STREAM_WINDOW_MS`; its changes go out
 //     as one frame when it closes, or at once at `STREAM_FRAME_MAX_CHANGES`. It is a throttle,
 //     not a debounce, so no change waits longer than one window. Every change carries its cursor.
-//   * Never waiting for a screen. When the connection's outbound queue is full, the frame that
-//     would not fit is dropped and the next frame that fits carries the drop mark, so the
-//     screen repairs from the daemon's record by cursor. If nothing new happens after a drop,
-//     one frame with no changes, the drop mark and the newest cursor goes out as soon as the
-//     queue has room, so a session that went quiet still tells the screen it is behind.
-//   * Catching up at the connection's pace. The upstream reads the log a page at a time and reads
-//     the next page only once the outbound queue has room, so a client that reads nothing never
-//     makes the daemon read the whole log for it.
+//   * Never waiting for a screen once caught up. When the connection's outbound queue is full,
+//     the live frame that would not fit is dropped and the next frame that fits carries the drop
+//     mark, so the screen repairs from the daemon's record by cursor. If nothing new happens after
+//     a drop, one frame with no changes, the drop mark and the newest cursor goes out as soon as
+//     the queue has room, so a session that went quiet still tells the screen it is behind.
+//   * Catching up at the connection's pace, dropping nothing. The upstream reads the log a page at
+//     a time and hands over a stored change only while the outbound queue has room, so a client
+//     that reads nothing never makes the daemon read the whole log for it. A catch-up frame that
+//     finds the queue full waits for room instead of being dropped; it holds at most one frame,
+//     since the upstream hands over nothing more until the queue drains. The upstream says when
+//     the catch-up is over, and its last changes go out then rather than at the window's close.
 //   * Ordered after the ack. The upstream may catch up synchronously inside this handler, so
 //     every frame goes through the subscribe-init barrier, which holds it until the response
 //     has been written. An upstream that fails after that ends the subscription with its error.
@@ -32,9 +35,8 @@ import type {
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import {
-  SessionStreamFrameSchema,
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
 } from "@ai-sidekicks/contracts/session/methods";
@@ -46,10 +48,6 @@ import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../../strea
 
 /** How long the first change of a batch waits for others before its frame goes out. */
 export const SESSION_STREAM_WINDOW_MS = 16;
-
-// The stored log holds event types the wire has no payload variant for yet, so each frame is
-// parsed here, on its way out, and one that does not parse ends its subscription unsent.
-const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(SessionEventSchema);
 
 type SessionChange = SessionStreamChange<EventEnvelope>;
 type SessionFrame = SessionStreamFrame<EventEnvelope>;
@@ -73,12 +71,12 @@ export interface SessionSubscribeDeps {
   readonly outboundQueue: OutboundQueue;
   /**
    * Follows a session's stored events (`EventLogService.follow`): catches up with those after
-   * `afterCursor` (all of them when absent) while the listener has room, then follows new ones,
-   * calling `onChange` with each event and its cursor, and `onFailure` once if the follow ends on
-   * an error. Returns the detach the handler runs when the subscription ends. `onChange` may run
-   * synchronously during this call, and the detach may run from inside `onChange`, so the source
-   * must tolerate being detached mid-emit. A session that does not exist, or a cursor it cannot
-   * read, throws.
+   * `afterCursor` (all of them when absent), handing each over only while the listener has room,
+   * calls `onCaughtUp` once they are all delivered, then follows new ones, calling `onChange` with
+   * each event and its cursor, and `onFailure` once if the follow ends on an error. Returns the
+   * detach the handler runs when the subscription ends. `onChange` may run synchronously during
+   * this call, and the detach may run from inside `onChange`, so the source must tolerate being
+   * detached mid-emit. A session that does not exist, or a cursor it cannot read, throws.
    */
   readonly subscribeToSession: (
     sessionId: SessionId,
@@ -96,6 +94,8 @@ interface FrameOutlet {
 
 interface FrameBatcher {
   add(change: SessionChange): void;
+  /** Ends the catch-up: its last changes go out now, and a later frame that does not fit drops. */
+  endCatchUp(): void;
   stop(): void;
 }
 
@@ -104,7 +104,15 @@ function createFrameBatcher(outlet: FrameOutlet): FrameBatcher {
   let windowTimer: ReturnType<typeof setTimeout> | undefined;
   let newestDroppedCursor: EventCursor | undefined;
   let detachDrained: (() => void) | undefined;
+  let isCatchingUp = true;
   let stopped = false;
+
+  const flushWhenDrained = (): void => {
+    detachDrained ??= outlet.onceDrained(() => {
+      detachDrained = undefined;
+      flush();
+    });
+  };
 
   const flush = (): void => {
     if (windowTimer !== undefined) {
@@ -112,16 +120,21 @@ function createFrameBatcher(outlet: FrameOutlet): FrameBatcher {
       windowTimer = undefined;
     }
     if (outlet.isFull()) {
+      if (isCatchingUp) {
+        // A stored change is never dropped: it waits for room, and the upstream hands over no
+        // more until then.
+        if (pending.length > 0) {
+          flushWhenDrained();
+        }
+        return;
+      }
       const newest = pending.at(-1);
       if (newest !== undefined) {
         newestDroppedCursor = newest.cursor;
         pending = [];
       }
-      if (newestDroppedCursor !== undefined && detachDrained === undefined) {
-        detachDrained = outlet.onceDrained(() => {
-          detachDrained = undefined;
-          flush();
-        });
+      if (newestDroppedCursor !== undefined) {
+        flushWhenDrained();
       }
       return;
     }
@@ -155,6 +168,12 @@ function createFrameBatcher(outlet: FrameOutlet): FrameBatcher {
       } else if (windowTimer === undefined) {
         windowTimer = setTimeout(flush, SESSION_STREAM_WINDOW_MS);
       }
+    },
+    endCatchUp(): void {
+      isCatchingUp = false;
+      // The upstream ends its catch-up only while the queue has room, so the stored changes still
+      // pending go out now rather than meet a full queue at the window's close.
+      flush();
     },
     stop(): void {
       stopped = true;
@@ -195,7 +214,7 @@ export function registerSessionSubscribe(
 
     const sub = deps.streamingPrimitive.createSubscription<SessionFrame>(
       transportId,
-      SESSION_STREAM_FRAME_SCHEMA,
+      SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.subscribe"].emissionSchema,
     );
     const barrier = createSubscriptionAckBarrier(sub, "session.subscribe");
     const batcher = createFrameBatcher({
@@ -213,6 +232,9 @@ export function registerSessionSubscribe(
       const unsubscribe = deps.subscribeToSession(params.sessionId, params.afterCursor, {
         onChange: (change) => {
           batcher.add(change);
+        },
+        onCaughtUp: () => {
+          batcher.endCatchUp();
         },
         onFailure: (error) => {
           // Ordered behind the acknowledgment, so the end frame never names an unknown id.

@@ -32,6 +32,11 @@ export interface SearchServicesOptions {
   readonly indexFolderPath: string;
   /** Hears each durable commit, so the daemon deletes the outbox rows it holds. */
   readonly onApplied: (applied: AppliedOutbox) => void;
+  /**
+   * Aborted when the thread closes while the services open: a build under way ends, and the open
+   * rejects with the abort's reason once the build's process has exited.
+   */
+  readonly signal: AbortSignal;
 }
 
 /** The search thread's services, open and in step with the database. */
@@ -43,7 +48,7 @@ export interface SearchServices {
   /** Applies every outbox row waiting; rejects with what a read or an apply threw. */
   applyWaiting(): Promise<void>;
   /** Runs one merge of the index's segments; resolves whether more merging remains. */
-  mergeWhileIdle(): Promise<boolean>;
+  mergeSegments(): Promise<boolean>;
   /**
    * Lets go of every held search, waits for the apply under way, then closes the index. Throws what
    * the close threw.
@@ -54,7 +59,7 @@ export interface SearchServices {
 /**
  * Opens the index in `options.indexFolderPath`, building it again when it cannot serve, and brings
  * it in step with the database. Throws what the open, the build or the first apply threw, with the
- * index closed.
+ * index closed, or the abort's reason once a build its signal ended has exited.
  */
 export async function openSearchServices(options: SearchServicesOptions): Promise<SearchServices> {
   const { reader, onApplied } = options;
@@ -87,13 +92,13 @@ export async function openSearchServices(options: SearchServicesOptions): Promis
       onApplied({ lastOutboxId: lastAppliedOutboxId, keptFloorPosition: 0 });
     }
     await applier.applyWaiting();
-    index.setGroupMembers(outbox.readEveryGroupsMembers());
+    index.setGroupMembers(outbox.readEveryGroupMembers());
     return {
       sessionSearch,
       transcriptSearch: new TranscriptSearchService(reader, index, rows),
       rebuildReason,
       applyWaiting: () => applier.applyWaiting(),
-      mergeWhileIdle: () => index.mergeWhileIdle(),
+      mergeSegments: () => index.mergeSegments(),
       close: async () => {
         sessionSearch.letGoOfHeldSearches();
         await applier.stop();
@@ -110,12 +115,11 @@ async function openBuiltAgain(
   options: SearchServicesOptions,
   outbox: OutboxReader,
 ): Promise<SearchIndex> {
-  const { databasePath, indexFolderPath } = options;
-  await buildSearchIndexInChild({
-    databasePath,
-    indexFolderPath,
-    lastOutboxId: outbox.highestIdGiven(),
-  });
+  const { databasePath, indexFolderPath, signal } = options;
+  await buildSearchIndexInChild(
+    { databasePath, indexFolderPath, lastOutboxId: outbox.highestIdGiven() },
+    signal,
+  );
   const index = await openSearchIndex(indexFolderPath, outbox);
   if (typeof index === "string") {
     throw new Error(`The search index was built again and still could not serve: ${index}`);

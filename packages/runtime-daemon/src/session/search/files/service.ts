@@ -1,7 +1,8 @@
 // `session.fileSearch`, the `@` file search: the session's working folder listed, ranked by the
 // product's one fuzzy scorer with a file's own name before its path, and cut to a fixed count.
 // A path whose real location is outside the working folder is dropped, so no answer follows a
-// link out of it.
+// link out of it. The `@` box searches once a burst of typing pauses, so each search reads the
+// folder once, and searches that arrive while a read of their folder is under way share it.
 
 import { realpath } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
@@ -19,8 +20,9 @@ import {
 import type { ServiceLogWriter } from "../../../daemon/service-log.js";
 import type { GitCommand } from "../../../git/process.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
-import { SessionNotFoundError } from "../../../ipc/session-errors.js";
 import { PROBE_BEARING_WORKSPACE_STATES } from "../../../workspace/projector.js";
+import { sessionNotFound } from "../../not-found.js";
+import { sqlListOf } from "../../../database/sql-list.js";
 import { listWorkingFolder } from "./listing.js";
 
 // The most paths one `@` file search answers.
@@ -30,7 +32,7 @@ const FILE_SEARCH_RESULT_MAX = 50;
 const WORKING_FOLDER_SQL = `
   SELECT fs_root FROM workspaces
    WHERE session_id = ? AND fs_root IS NOT NULL
-     AND state IN (${[...PROBE_BEARING_WORKSPACE_STATES].map((state) => `'${state}'`).join(", ")})
+     AND state IN (${sqlListOf(PROBE_BEARING_WORKSPACE_STATES)})
    ORDER BY created_at DESC, id DESC
    LIMIT 1`;
 
@@ -62,6 +64,8 @@ export class FileSearchService {
   readonly #writeServiceLog: ServiceLogWriter;
   readonly #workingFolder: Statement<[string], { readonly fs_root: string }>;
   readonly #sessionExists: Statement<[string], unknown>;
+  // Each working folder's read under way, which the searches arriving meanwhile share.
+  readonly #listings = new Map<string, Promise<string[]>>();
 
   constructor(deps: FileSearchServiceDeps) {
     this.#git = deps.git;
@@ -71,7 +75,7 @@ export class FileSearchService {
   }
 
   /**
-   * The best matching paths, relative to the working folder. Throws `SessionNotFoundError` for a
+   * The best matching paths, relative to the working folder. Throws `session.not_found` for a
    * session the daemon does not hold, `session.working_folder_unavailable` for a working folder
    * that is not in place, and the listing's own error, with its reason, for one that could not be
    * listed.
@@ -80,21 +84,35 @@ export class FileSearchService {
     const workingFolder = this.#workingFolder.get(request.sessionId)?.fs_root;
     if (workingFolder === undefined) {
       if (this.#sessionExists.get(request.sessionId) === undefined) {
-        throw new SessionNotFoundError("The daemon holds no session with this id.", {
-          sessionId: request.sessionId,
-        });
+        throw sessionNotFound(request.sessionId);
       }
       throw new DaemonDomainError(
         "The session's working folder is not in place, so it cannot be searched.",
         { code: SESSION_WORKING_FOLDER_UNAVAILABLE_CODE, detail: { sessionId: request.sessionId } },
       );
     }
-    const listedPaths = await listWorkingFolder(workingFolder, this.#git, this.#writeServiceLog);
+    const listedPaths = await this.#listingOf(workingFolder);
     const rankedPaths = rankPaths(listedPaths, request.query);
     return {
       paths: await keepContainedPaths(workingFolder, rankedPaths),
       searchedFileCount: listedPaths.length,
     };
+  }
+
+  // The working folder's listing: the read under way when there is one, else a new read, let go
+  // once it settles, so the next search sees the folder as it is then.
+  #listingOf(workingFolder: string): Promise<string[]> {
+    const underWay = this.#listings.get(workingFolder);
+    if (underWay !== undefined) {
+      return underWay;
+    }
+    const listing = listWorkingFolder(workingFolder, this.#git, this.#writeServiceLog).finally(
+      () => {
+        this.#listings.delete(workingFolder);
+      },
+    );
+    this.#listings.set(workingFolder, listing);
+    return listing;
   }
 }
 

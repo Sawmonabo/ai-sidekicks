@@ -17,8 +17,9 @@ import { mapJsonRpcError } from "../../../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { SessionNotFoundError } from "../../../session-errors.js";
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
+import type { SessionLogRead } from "../../../../session/service.js";
 
-import { registerSessionRead, type SessionLogRead, type SessionReadDeps } from "../read.js";
+import { registerSessionRead, type SessionReadDeps } from "../read.js";
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
@@ -40,7 +41,6 @@ function buildSessionLogRead(): SessionLogRead {
       state: "active",
       shape: "chat",
       muted: false,
-      pendingWorkingFolder: null,
       createdAt: "2026-01-22T19:14:35.000Z",
       updatedAt: "2026-01-22T19:14:35.000Z",
       tags: [],

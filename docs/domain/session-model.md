@@ -63,6 +63,7 @@ A session is the durable container that holds:
 Allowed transitions:
 
 - `provisioning -> active`
+- `provisioning -> archived`, when the project's repository is detached before the session's create finished, so the session has nowhere left to run and its create is never finished
 - `active -> archived`
 - `active -> closed`
 - `archived -> active`

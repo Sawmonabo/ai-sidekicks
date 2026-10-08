@@ -12,17 +12,22 @@ use tantivy::indexer::IndexWriterOptions;
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::store::Compressor;
 use tantivy::{
-    Index, IndexReader, IndexSettings, IndexWriter, ReloadPolicy, SegmentMeta, TantivyError,
+    FutureResult, Index, IndexReader, IndexSettings, IndexWriter, ReloadPolicy, Searcher,
+    SegmentMeta, TantivyError,
 };
 
 use crate::directory::{FolderDirectory, ReadMode};
 use crate::membership::GroupMembership;
 use crate::merge_policy::{CappedMergePolicy, SEGMENT_ROW_CAP};
 use crate::schema::{
-    IndexFields, Owner, index_schema, key_term, owner_term, register_tokenizers, row_document,
+    IndexFields, Owner, index_schema, key_term, owner_of, owner_term, owner_value,
+    register_tokenizers, row_document,
 };
 use crate::version::IndexVersion;
-use crate::{IndexBatch, IndexRowKind};
+use crate::{GroupMembers, IndexBatch, IndexRowKind};
+
+/// What every call on a closed index fails with.
+pub const CLOSED_MESSAGE: &str = "the search index is closed";
 
 /// Why an index could not be opened.
 #[derive(Debug)]
@@ -46,13 +51,34 @@ struct CommitPayload {
     /// The segments that held a purged session's or a deleted group's rows, still to be rewritten
     /// without them.
     segments_to_expunge: HashSet<SegmentId>,
+    /// The owner field values of the owners removed while a merge ran. The segment that merge
+    /// writes holds their rows deleted, not expunged, so it is noted by them once the merge ends,
+    /// or at the next open when the daemon stopped first.
+    owners_removed_while_merging: Vec<u64>,
 }
 
 struct Writing {
     writer: IndexWriter,
+    last_applied_outbox_id: u64,
     highest_row_keys: [u64; 4],
     segments_to_expunge: HashSet<SegmentId>,
+    owners_removed_while_merging: Vec<u64>,
+    running_merges: usize,
 }
+
+impl Writing {
+    fn payload(&self) -> CommitPayload {
+        CommitPayload {
+            last_applied_outbox_id: self.last_applied_outbox_id,
+            highest_row_keys: self.highest_row_keys,
+            segments_to_expunge: self.segments_to_expunge.clone(),
+            owners_removed_while_merging: self.owners_removed_while_merging.clone(),
+        }
+    }
+}
+
+/// A merge under way, resolving to the segment it writes, none when every row it took was deleted.
+pub(crate) type RunningMerge = FutureResult<Option<SegmentMeta>>;
 
 /// The index in one folder.
 pub struct IndexEngine {
@@ -97,13 +123,22 @@ impl IndexEngine {
             Index::create(directory, schema, settings).map_err(OpenFailure::Other)?
         };
         register_tokenizers(&index);
-        let payload = read_payload(&index).map_err(OpenFailure::Unreadable)?;
+        let mut payload = read_payload(&index).map_err(OpenFailure::Unreadable)?;
         let reader: IndexReader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .doc_store_cache_num_blocks(0)
             .try_into()
             .map_err(OpenFailure::Unreadable)?;
+        // Owners removed while a merge ran whose segments the daemon stopped before noting: noted
+        // now. The next commit records the notes; until then the payload still holds the owners.
+        note_segments_holding(
+            &reader.searcher(),
+            &fields,
+            &payload.owners_removed_while_merging,
+            &mut payload.segments_to_expunge,
+        )
+        .map_err(OpenFailure::Unreadable)?;
         let version = IndexVersion::build(
             reader.searcher(),
             fields,
@@ -127,8 +162,11 @@ impl IndexEngine {
             reader,
             writing: Mutex::new(Some(Writing {
                 writer,
+                last_applied_outbox_id: payload.last_applied_outbox_id,
                 highest_row_keys: payload.highest_row_keys,
                 segments_to_expunge: payload.segments_to_expunge,
+                owners_removed_while_merging: Vec::new(),
+                running_merges: 0,
             })),
             version: RwLock::new(Arc::new(version)),
         })
@@ -151,46 +189,42 @@ impl IndexEngine {
     }
 
     /// Indexes `batch` and commits it durably with its outbox id, then publishes the commit with
-    /// the batch's group members. A failed batch is rolled back whole, so replaying it is safe.
+    /// the batch's group members. A key out of range fails the batch before anything is staged,
+    /// and a batch whose commit fails is rolled back whole, so replaying it is safe. A failure
+    /// after the commit, while publishing it, leaves the commit durable.
     pub fn apply(&self, batch: &IndexBatch) -> tantivy::Result<()> {
-        let last_applied_outbox_id = non_negative(batch.last_outbox_id)?;
-        let replacements = batch
-            .group_members
-            .iter()
-            .map(|group| {
-                Ok((
-                    non_negative(group.group_key)?,
-                    keys_of(&group.session_keys)?,
-                ))
-            })
-            .collect::<tantivy::Result<Vec<_>>>()?;
+        let batch = CheckedBatch::check(batch)?;
         let mut guard = self.lock_writing()?;
         let writing = guard.as_mut().ok_or_else(closed)?;
         let mut committed = CommitPayload {
-            last_applied_outbox_id,
-            highest_row_keys: writing.highest_row_keys,
-            segments_to_expunge: writing.segments_to_expunge.clone(),
+            last_applied_outbox_id: batch.last_applied_outbox_id,
+            ..writing.payload()
         };
-        let staged = self.stage(&mut writing.writer, batch, &mut committed);
-        if let Err(error) = staged {
-            writing.writer.rollback()?;
-            return Err(error);
+        if writing.running_merges > 0 {
+            committed
+                .owners_removed_while_merging
+                .extend(&batch.removed_owners);
         }
+        if let Err(error) = self.stage(&mut writing.writer, &batch, &mut committed) {
+            return Err(roll_back(&mut writing.writer, error));
+        }
+        writing.last_applied_outbox_id = committed.last_applied_outbox_id;
         writing.highest_row_keys = committed.highest_row_keys;
         writing.segments_to_expunge = committed.segments_to_expunge;
+        writing.owners_removed_while_merging = committed.owners_removed_while_merging;
         self.reader.reload()?;
         let current = self.current_version();
-        let membership = if replacements.is_empty() {
+        let membership = if batch.group_members.is_empty() {
             current.membership.clone()
         } else {
-            Arc::new(current.membership.with_replacements(replacements))
+            Arc::new(current.membership.with_replacements(batch.group_members))
         };
         let version = IndexVersion::build(
             self.reader.searcher(),
             self.fields,
             Some(&current),
             membership,
-            last_applied_outbox_id,
+            batch.last_applied_outbox_id,
         )?;
         self.publish(version);
         Ok(())
@@ -204,33 +238,27 @@ impl IndexEngine {
     fn stage(
         &self,
         writer: &mut IndexWriter,
-        batch: &IndexBatch,
+        batch: &CheckedBatch<'_>,
         committed: &mut CommitPayload,
     ) -> tantivy::Result<()> {
         let searcher = self.reader.searcher();
         let highest_row_keys = &mut committed.highest_row_keys;
         for key in &batch.removed_keys {
-            let key = non_negative(*key)?;
-            if key <= highest_row_keys[(key % 4) as usize] {
-                writer.delete_term(key_term(&self.fields, key));
+            if *key <= highest_row_keys[(key % 4) as usize] {
+                writer.delete_term(key_term(&self.fields, *key));
             }
         }
-        for removed in &batch.removed_owners {
-            let key = non_negative(removed.owner_key)?;
-            let owner = if removed.is_group {
-                Owner::Group(key)
-            } else {
-                Owner::Session(key)
-            };
-            let term = owner_term(&self.fields, owner);
-            for segment in searcher.segment_readers() {
-                if segment.inverted_index(self.fields.owner)?.doc_freq(&term)? > 0 {
-                    committed.segments_to_expunge.insert(segment.segment_id());
-                }
-            }
-            writer.delete_term(term);
+        note_segments_holding(
+            &searcher,
+            &self.fields,
+            &batch.removed_owners,
+            &mut committed.segments_to_expunge,
+        )?;
+        for owner in &batch.removed_owners {
+            writer.delete_term(owner_term(&self.fields, owner_of(*owner)));
         }
-        // A noted segment a merge has since rewritten is gone, and its deleted rows with it.
+        // A noted segment no longer searched is gone, merged away or emptied, and its deleted rows
+        // with it.
         committed.segments_to_expunge.retain(|noted| {
             searcher
                 .segment_readers()
@@ -238,36 +266,23 @@ impl IndexEngine {
                 .any(|segment| segment.segment_id() == *noted)
         });
         for row in &batch.rows {
-            let key = non_negative(row.key)?;
-            let owner_key = non_negative(row.owner_key)?;
-            let owner = match row.kind {
-                IndexRowKind::Group => Owner::Group(owner_key),
-                IndexRowKind::Event | IndexRowKind::Title | IndexRowKind::Tag => {
-                    Owner::Session(owner_key)
-                }
-            };
-            let highest = &mut highest_row_keys[(key % 4) as usize];
-            if key <= *highest {
-                writer.delete_term(key_term(&self.fields, key));
+            let highest = &mut highest_row_keys[(row.key % 4) as usize];
+            if row.key <= *highest {
+                writer.delete_term(key_term(&self.fields, row.key));
             } else {
-                *highest = key;
+                *highest = row.key;
             }
-            let tag = match &row.tag {
-                Some(tag) => Some((
-                    tag.fold.as_str(),
-                    non_negative(tag.session_last_activity_ms)?,
-                )),
-                None => None,
-            };
-            let document = row_document(&self.fields, key, &row.kind, owner, &row.text, tag);
+            let document = row_document(
+                &self.fields,
+                row.key,
+                row.kind,
+                row.owner,
+                row.text,
+                row.tag,
+            );
             writer.add_document(document)?;
         }
-        let payload = serde_json::to_string(committed)
-            .map_err(|error| TantivyError::InternalError(error.to_string()))?;
-        let mut commit = writer.prepare_commit()?;
-        commit.set_payload(&payload);
-        commit.commit()?;
-        Ok(())
+        commit_with_payload(writer, committed)
     }
 
     /// Replaces every group's members, published with the current rows.
@@ -283,34 +298,60 @@ impl IndexEngine {
 
     /// Runs one merge step, the smallest the capped merge policy proposes, off the writer's lock,
     /// then publishes the merged segments; returns whether more merging remains.
-    pub fn merge_while_idle(&self) -> tantivy::Result<bool> {
-        let (policy, merging) = {
-            let mut guard = self.lock_writing()?;
-            let writing = guard.as_mut().ok_or_else(closed)?;
-            let policy =
-                CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.segments_to_expunge.clone());
-            let Some(segment_ids) =
-                smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
-            else {
-                return Ok(false);
-            };
-            (policy, writing.writer.merge(&segment_ids))
-        };
-        merging.wait()?;
-        {
-            let guard = self.lock_writing()?;
-            guard.as_ref().ok_or_else(closed)?;
-            self.reader.reload()?;
-            let current = self.current_version();
-            let version = IndexVersion::build(
-                self.reader.searcher(),
-                self.fields,
-                Some(&current),
-                current.membership.clone(),
-                current.last_applied_outbox_id,
-            )?;
-            self.publish(version);
+    pub fn merge_segments(&self) -> tantivy::Result<bool> {
+        match self.start_merge()? {
+            Some(merge) => self.finish_merge(merge),
+            None => Ok(false),
         }
+    }
+
+    /// Starts the smallest merge the policy proposes, when it proposes one.
+    pub(crate) fn start_merge(&self) -> tantivy::Result<Option<RunningMerge>> {
+        let mut guard = self.lock_writing()?;
+        let writing = guard.as_mut().ok_or_else(closed)?;
+        let policy = CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.segments_to_expunge.clone());
+        let Some(segment_ids) =
+            smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
+        else {
+            return Ok(None);
+        };
+        writing.running_merges += 1;
+        Ok(Some(writing.writer.merge(&segment_ids)))
+    }
+
+    /// Waits for `merge` off the writer's lock. Under it, once no merge runs, the segments holding
+    /// an owner removed meanwhile are noted, the merged one among them, and committed so a restart
+    /// keeps them; then the merged segments are published. Returns whether more merging remains.
+    pub(crate) fn finish_merge(&self, merge: RunningMerge) -> tantivy::Result<bool> {
+        let merged = merge.wait();
+        let mut guard = self.lock_writing()?;
+        let writing = guard.as_mut().ok_or_else(closed)?;
+        writing.running_merges -= 1;
+        merged?;
+        self.reader.reload()?;
+        if writing.running_merges == 0 && !writing.owners_removed_while_merging.is_empty() {
+            note_segments_holding(
+                &self.reader.searcher(),
+                &self.fields,
+                &writing.owners_removed_while_merging,
+                &mut writing.segments_to_expunge,
+            )?;
+            writing.owners_removed_while_merging.clear();
+            let payload = writing.payload();
+            if let Err(error) = commit_with_payload(&mut writing.writer, &payload) {
+                return Err(roll_back(&mut writing.writer, error));
+            }
+        }
+        let current = self.current_version();
+        let version = IndexVersion::build(
+            self.reader.searcher(),
+            self.fields,
+            Some(&current),
+            current.membership.clone(),
+            current.last_applied_outbox_id,
+        )?;
+        self.publish(version);
+        let policy = CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.segments_to_expunge.clone());
         let segments = self.index.searchable_segment_metas()?;
         Ok(!policy.compute_merge_candidates(&segments).is_empty())
     }
@@ -323,6 +364,115 @@ impl IndexEngine {
             writing.writer.wait_merging_threads()?;
         }
         Ok(())
+    }
+}
+
+// A batch with every key, owner and time checked, so a bad one fails it before anything is staged.
+struct CheckedBatch<'a> {
+    last_applied_outbox_id: u64,
+    removed_keys: Vec<u64>,
+    /// The removed owners as the owner field holds them.
+    removed_owners: Vec<u64>,
+    rows: Vec<CheckedRow<'a>>,
+    group_members: Vec<(u64, Vec<u64>)>,
+}
+
+struct CheckedRow<'a> {
+    key: u64,
+    kind: &'a IndexRowKind,
+    owner: Owner,
+    text: &'a str,
+    tag: Option<(&'a str, u64)>,
+}
+
+impl<'a> CheckedBatch<'a> {
+    fn check(batch: &'a IndexBatch) -> tantivy::Result<CheckedBatch<'a>> {
+        let removed_owners = batch
+            .removed_owners
+            .iter()
+            .map(|removed| {
+                let key = key_from_js(removed.owner_key)?;
+                Ok(owner_value(if removed.is_group {
+                    Owner::Group(key)
+                } else {
+                    Owner::Session(key)
+                }))
+            })
+            .collect::<tantivy::Result<Vec<_>>>()?;
+        let rows = batch
+            .rows
+            .iter()
+            .map(|row| {
+                let owner_key = key_from_js(row.owner_key)?;
+                let owner = match row.kind {
+                    IndexRowKind::Group => Owner::Group(owner_key),
+                    IndexRowKind::Event | IndexRowKind::Title | IndexRowKind::Tag => {
+                        Owner::Session(owner_key)
+                    }
+                };
+                let tag = match &row.tag {
+                    Some(tag) => Some((
+                        tag.fold.as_str(),
+                        key_from_js(tag.session_last_activity_ms)?,
+                    )),
+                    None => None,
+                };
+                Ok(CheckedRow {
+                    key: key_from_js(row.key)?,
+                    kind: &row.kind,
+                    owner,
+                    text: &row.text,
+                    tag,
+                })
+            })
+            .collect::<tantivy::Result<Vec<_>>>()?;
+        Ok(CheckedBatch {
+            last_applied_outbox_id: key_from_js(batch.last_outbox_id)?,
+            removed_keys: keys_of(&batch.removed_keys)?,
+            removed_owners,
+            rows,
+            group_members: group_members_from_js(&batch.group_members)?,
+        })
+    }
+}
+
+// Adds to `noted` each segment of `searcher` holding a row of an owner in `owners`, an owner field
+// value each, deleted rows counted, since a rewrite is what expunges those.
+fn note_segments_holding(
+    searcher: &Searcher,
+    fields: &IndexFields,
+    owners: &[u64],
+    noted: &mut HashSet<SegmentId>,
+) -> tantivy::Result<()> {
+    for owner in owners {
+        let term = owner_term(fields, owner_of(*owner));
+        for segment in searcher.segment_readers() {
+            if segment.inverted_index(fields.owner)?.doc_freq(&term)? > 0 {
+                noted.insert(segment.segment_id());
+            }
+        }
+    }
+    Ok(())
+}
+
+// Commits what `writer` holds, `payload` recorded beside it.
+fn commit_with_payload(writer: &mut IndexWriter, payload: &CommitPayload) -> tantivy::Result<()> {
+    let payload = serde_json::to_string(payload)
+        .map_err(|error| TantivyError::InternalError(error.to_string()))?;
+    let mut commit = writer.prepare_commit()?;
+    commit.set_payload(&payload);
+    commit.commit()?;
+    Ok(())
+}
+
+// Drops what `writer` staged since its last commit after `error`; returns `error`, with the
+// rollback's own failure added when it fails too.
+fn roll_back(writer: &mut IndexWriter, error: TantivyError) -> TantivyError {
+    match writer.rollback() {
+        Ok(_) => error,
+        Err(rollback_error) => TantivyError::InternalError(format!(
+            "{error}; rolling back the staged batch then failed: {rollback_error}"
+        )),
     }
 }
 
@@ -354,14 +504,15 @@ fn read_payload(index: &Index) -> tantivy::Result<CommitPayload> {
 }
 
 fn closed() -> TantivyError {
-    TantivyError::SystemError("the search index is closed".to_string())
+    TantivyError::SystemError(CLOSED_MESSAGE.to_string())
 }
 
 /// The largest key or outbox id: JavaScript numbers hold integers exactly up to it.
 const MAX_KEY: u64 = (1 << 53) - 1;
 
-/// `value` as a key or an outbox id, which are integers from 0 to 2^53 - 1.
-pub fn non_negative(value: i64) -> tantivy::Result<u64> {
+/// `value` as a key or an outbox id, which are integers from 0 to 2^53 - 1; any other value fails
+/// as an invalid argument.
+pub fn key_from_js(value: i64) -> tantivy::Result<u64> {
     u64::try_from(value)
         .ok()
         .filter(|key| *key <= MAX_KEY)
@@ -372,5 +523,13 @@ pub fn non_negative(value: i64) -> tantivy::Result<u64> {
 
 /// `values` as keys.
 pub fn keys_of(values: &[i64]) -> tantivy::Result<Vec<u64>> {
-    values.iter().map(|value| non_negative(*value)).collect()
+    values.iter().map(|value| key_from_js(*value)).collect()
+}
+
+/// Each group's key with its sessions' keys, as a batch or a load carries them.
+pub fn group_members_from_js(groups: &[GroupMembers]) -> tantivy::Result<Vec<(u64, Vec<u64>)>> {
+    groups
+        .iter()
+        .map(|group| Ok((key_from_js(group.group_key)?, keys_of(&group.session_keys)?)))
+        .collect()
 }

@@ -177,8 +177,8 @@ fn rank(
         SessionOrder::Top { k, .. } => (k * 2).max(end),
         SessionOrder::NotRanked | SessionOrder::Whole(_) => FIRST_TOP_SESSIONS.max(end),
     };
-    Ok(match top_sessions(version, query, k, within)? {
-        Some(sessions) => SessionOrder::Top { k, sessions },
-        None => SessionOrder::Whole(score_every_session(version, query, within)?),
+    Ok(SessionOrder::Top {
+        k,
+        sessions: top_sessions(version, query, k, within)?,
     })
 }

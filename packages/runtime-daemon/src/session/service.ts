@@ -14,20 +14,26 @@ import {
 } from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionReadRequest,
+  SessionReadResponse,
+  SessionRecord,
   SessionShape,
   SessionState,
 } from "@ai-sidekicks/contracts/session/methods";
-import type { WorktreeId } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import {
   prepareSessionEventReads,
   type DamagedFromSequenceReader,
   type SessionEventReads,
 } from "../events/session/read.js";
-import type { SessionLogRead } from "../ipc/handlers/session/read.js";
-import { SessionNotFoundError } from "../ipc/session-errors.js";
+import { sessionNotFound } from "./not-found.js";
 import { rebuildSession } from "./projector.js";
 import type { DaemonSessionRecord } from "./records.js";
+
+/** A session's read as its row, tags and log answer it: everything but the held draft. */
+export interface SessionLogRead {
+  session: Omit<SessionRecord, "draft">;
+  transcriptCursors: SessionReadResponse["transcriptCursors"];
+}
 
 /** A page of a session's events after a known sequence; with no `limit`, every later event. */
 export interface EventsReadAfterSequenceRequest {
@@ -58,8 +64,6 @@ interface SessionReadRow {
   readonly shape: SessionShape;
   readonly name: string | null;
   readonly muted_at: string | null;
-  readonly pending_move: 0 | 1;
-  readonly pending_worktree_id: WorktreeId | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -79,8 +83,7 @@ export class SessionService {
     this.#reader = reader;
     this.#eventReads = prepareSessionEventReads(reader, readDamagedFromSequence);
     this.#selectRow = reader.prepare(
-      `SELECT state, shape, name, muted_at, pending_move, pending_worktree_id,
-              created_at, updated_at
+      `SELECT state, shape, name, muted_at, created_at, updated_at
          FROM sessions
         WHERE id = ?`,
     );
@@ -91,9 +94,10 @@ export class SessionService {
 
   /**
    * The session's record, without the held draft, and its transcript cursors: `earliest` is the
-   * start of the log, `latest` its newest event. Row, tags and head are read in one snapshot, so
-   * no event the row reflects lies past `latest`. Throws {@link SessionNotFoundError} for a
-   * session this daemon holds no row for.
+   * start of the log, `latest` its newest readable event, or the start of the log too when its
+   * history is damaged before any. Row, tags and head are read in one snapshot, so no event the
+   * row reflects lies past `latest`. Throws `session.not_found` for a session this daemon holds no
+   * row for.
    */
   readSession(request: SessionReadRequest): SessionLogRead {
     const { row, tags, head } = this.#reader.transaction(() => ({
@@ -102,12 +106,7 @@ export class SessionService {
       head: this.#eventReads.readHead(request.sessionId),
     }))();
     if (row === undefined) {
-      throw new SessionNotFoundError("This daemon holds no such session.", {
-        sessionId: request.sessionId,
-      });
-    }
-    if (head === undefined) {
-      throw new Error(`Session ${request.sessionId} has a directory row but no events`);
+      throw sessionNotFound(request.sessionId);
     }
     return {
       session: {
@@ -116,15 +115,13 @@ export class SessionService {
         shape: row.shape,
         ...(row.name === null ? {} : { name: row.name }),
         muted: row.muted_at !== null,
-        pendingWorkingFolder:
-          row.pending_move === 1 ? { worktreeId: row.pending_worktree_id } : null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         tags,
       },
       transcriptCursors: {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),
-        latest: encodeEventCursor(head),
+        latest: encodeEventCursor(head ?? START_OF_LOG_POSITION),
       },
     };
   }

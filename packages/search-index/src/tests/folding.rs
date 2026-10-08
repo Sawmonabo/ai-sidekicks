@@ -1,5 +1,6 @@
-//! Case and diacritics fold away in the index and in the marks, and a typed word that splits into
-//! several tokens matches only where they sit next to each other in order.
+//! Case and diacritics fold away in the index and in the marks, while a mark that spells a sound
+//! stays, and a typed word that splits into several tokens matches only where they sit next to
+//! each other in order.
 
 use crate::find::mark_matches;
 use crate::view::SearchView;
@@ -25,6 +26,7 @@ fn folded_words_match_and_split_words_need_adjacent_tokens() {
         event(20, 5, "foo baz bar"),
         event(24, 6, "bar foo"),
         event(28, 7, "A\u{30A}ngstro\u{308}m, decomposed"),
+        event(32, 8, "काम पूरा"),
     ];
     engine.apply(&batch(1, rows)).expect("the batch applies");
     let sessions = |words: &[&str], last_word_is_prefix: bool| -> Vec<u64> {
@@ -41,6 +43,9 @@ fn folded_words_match_and_split_words_need_adjacent_tokens() {
     assert_eq!(sessions(&["STRASSE"], false), vec![3]);
     assert_eq!(sessions(&["foo-bar"], false), vec![4]);
     assert_eq!(sessions(&["foo.b"], true), vec![4, 5]);
+    // A Devanagari vowel sign is part of its word, not a diacritic.
+    assert_eq!(sessions(&["काम"], false), vec![8]);
+    assert_eq!(sessions(&["कम"], false), Vec::<u64>::new());
 
     assert_eq!(marks("Ångström units", &["angstrom"], false), vec![(0, 8)]);
     assert_eq!(

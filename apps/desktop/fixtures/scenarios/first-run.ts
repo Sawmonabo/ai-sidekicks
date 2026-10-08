@@ -75,7 +75,6 @@ export const FIRST_RUN_SCENARIO: Scenario = {
           state: "provisioning",
           shape: "chat",
           muted: false,
-          pendingWorkingFolder: null,
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
           draft: "",

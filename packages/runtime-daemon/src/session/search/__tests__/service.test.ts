@@ -11,7 +11,7 @@ import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 
 import { insertSession, insertTag, sessionIdOf } from "../__fixtures__/index-rows.js";
 import { hitsByQuery, referenceHitsByQuery } from "../__fixtures__/reference-ranking.js";
-import { SearchFixture } from "../__fixtures__/search-services.js";
+import { SearchFixture } from "../__fixtures__/services.js";
 import { SeededDirectory } from "../__fixtures__/seeded-directory.js";
 
 const SESSION_START = encodeEventCursor(START_OF_LOG_POSITION);

@@ -21,7 +21,8 @@ import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { EventLogService } from "../../events/log-service.js";
-import { SessionNotFoundError } from "../../ipc/session-errors.js";
+import { retryWaitMs } from "../../retry-waits.js";
+import { sessionNotFound } from "../not-found.js";
 import {
   SESSION_LINK_KIND_WEIGHT,
   scoreRelatedSessions,
@@ -54,9 +55,15 @@ const STORED_RELATED_SQL = `
    WHERE related.session_id = ?
    ORDER BY related.score DESC, related.related_session_id`;
 
+// A session purged while its round was scored is gone from `sessions` by the time the round's
+// write runs, so the write stores no list for it and no entry naming it, and the purge leaves no
+// row behind.
 const REPLACE_RELATED_SQL = `
   INSERT INTO session_related (session_id, related_session_id, score)
-  SELECT @sessionId, value ->> '$[0]', value ->> '$[1]' FROM json_each(@scores)`;
+  SELECT @sessionId, scored.value ->> '$[0]', scored.value ->> '$[1]'
+    FROM json_each(@scores) AS scored
+    JOIN sessions AS related ON related.id = scored.value ->> '$[0]'
+   WHERE EXISTS (SELECT 1 FROM sessions WHERE id = @sessionId)`;
 
 interface LinkEndRow {
   readonly otherSessionId: SessionId;
@@ -72,7 +79,7 @@ interface StoredRelatedRow {
 }
 
 /** What the related ranking needs from the daemon. */
-export interface SessionRelatedRankingOptions {
+export interface SessionRelatedRankingDeps {
   readonly reader: DatabaseConnections["reader"];
   readonly writer: Pick<DatabaseWriter, "write">;
   /**
@@ -81,8 +88,8 @@ export interface SessionRelatedRankingOptions {
    */
   readonly events: Pick<EventLogService, "followAll">;
   /**
-   * Where a re-score that failed, or a follower that threw, is reported; the next link change
-   * re-scores again.
+   * Where a re-score round that failed, and is retried after a wait, or a follower that threw, is
+   * reported.
    */
   readonly writeServiceLog: ServiceLogWriter;
   readonly now?: () => Date;
@@ -110,22 +117,24 @@ export class SessionRelatedRanking {
   #isScoring = false;
   #isStopped = false;
   #idle: Promise<void> = Promise.resolve();
+  // Failed rounds in a row, which pick the wait before the next retry.
+  #failedRoundsInRow = 0;
+  #retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(options: SessionRelatedRankingOptions) {
-    this.#writer = options.writer;
-    this.#events = options.events;
-    this.#writeServiceLog = options.writeServiceLog;
-    this.#now = options.now ?? (() => new Date());
-    this.#selectLinks = options.reader.prepare(LINKS_OF_SESSION_SQL);
-    this.#selectStored = options.reader.prepare(STORED_RELATED_SQL);
-    this.#selectSessionExists = options.reader.prepare(
-      "SELECT 1 AS found FROM sessions WHERE id = ?",
-    );
+  constructor(deps: SessionRelatedRankingDeps) {
+    this.#writer = deps.writer;
+    this.#events = deps.events;
+    this.#writeServiceLog = deps.writeServiceLog;
+    this.#now = deps.now ?? (() => new Date());
+    this.#selectLinks = deps.reader.prepare(LINKS_OF_SESSION_SQL);
+    this.#selectStored = deps.reader.prepare(STORED_RELATED_SQL);
+    this.#selectSessionExists = deps.reader.prepare("SELECT 1 AS found FROM sessions WHERE id = ?");
   }
 
   /**
    * Follows every committed rename until the returned stop runs. The stop also ends re-scoring
-   * after the round under way, and resolves once that round's write and sends are done.
+   * after the round under way, drops a retry still waiting, and resolves once that round's write
+   * and sends are done.
    */
   start(): () => Promise<void> {
     const unfollow = this.#events.followAll(
@@ -141,6 +150,8 @@ export class SessionRelatedRanking {
     return () => {
       unfollow();
       this.#isStopped = true;
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = undefined;
       return this.#idle;
     };
   }
@@ -153,15 +164,12 @@ export class SessionRelatedRanking {
     for (const sessionId of sessionIds) {
       this.#changedSessions.add(sessionId);
     }
-    if (!this.#isScoring && !this.#isStopped) {
-      this.#isScoring = true;
-      this.#idle = this.#scoreRounds();
-    }
+    this.#startScoring();
   }
 
   /**
    * Resolves once the re-scoring under way has ended: every queued session stored and sent, or a
-   * failed round reported, or the stop reached.
+   * failed round reported and its retry set, or the stop reached.
    */
   whenIdle(): Promise<void> {
     return this.#idle;
@@ -169,11 +177,11 @@ export class SessionRelatedRanking {
 
   /**
    * The session's related sessions, most relevant first, each with the strongest link the pair
-   * shares. Throws {@link SessionNotFoundError} for a session the daemon has no record of.
+   * shares. Throws `session.not_found` for a session the daemon has no record of.
    */
   read(sessionId: SessionId): SessionRelatedListUpdate {
     if (this.#selectSessionExists.get(sessionId) === undefined) {
-      throw new SessionNotFoundError(`No session ${sessionId}.`, { sessionId });
+      throw sessionNotFound(sessionId);
     }
     return this.#readStored(sessionId);
   }
@@ -203,7 +211,7 @@ export class SessionRelatedRanking {
 
   /**
    * Sends the session's related list to `onUpdate` now and again after each re-score of it;
-   * returns the detach. Throws {@link SessionNotFoundError} for an unknown session.
+   * returns the detach. Throws `session.not_found` for an unknown session.
    */
   follow(sessionId: SessionId, onUpdate: (update: SessionRelatedListUpdate) => void): () => void {
     const first = this.read(sessionId);
@@ -223,8 +231,19 @@ export class SessionRelatedRanking {
     };
   }
 
-  // No caller waits on a round, so a failed one goes to the service log and ends the re-scoring;
-  // its sessions stay queued and are scored with the next link change's.
+  // A change or a due retry starts the rounds now, unless they are under way or stopped.
+  #startScoring(): void {
+    if (this.#isScoring || this.#isStopped) {
+      return;
+    }
+    clearTimeout(this.#retryTimer);
+    this.#retryTimer = undefined;
+    this.#isScoring = true;
+    this.#idle = this.#scoreRounds();
+  }
+
+  // No caller waits on a round, so a failed one goes to the service log and ends the rounds; its
+  // sessions stay queued and are retried after a wait, or sooner with the next link change's.
   async #scoreRounds(): Promise<void> {
     try {
       while (
@@ -241,16 +260,32 @@ export class SessionRelatedRanking {
           }
           throw error;
         }
+        this.#failedRoundsInRow = 0;
         this.#sendToFollowers(round);
       }
     } catch (error) {
+      const waitMs = retryWaitMs(this.#failedRoundsInRow);
+      this.#failedRoundsInRow += 1;
       this.#writeServiceLog(
-        "related sessions: a re-score round failed: " +
+        `related sessions: a re-score round failed, retrying in ${String(waitMs)} ms: ` +
           (error instanceof Error ? error.message : String(error)),
       );
+      this.#retryLater(waitMs);
     } finally {
       this.#isScoring = false;
     }
+  }
+
+  // Unref'd, so a retry still waiting never keeps the process alive.
+  #retryLater(waitMs: number): void {
+    if (this.#isStopped) {
+      return;
+    }
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = undefined;
+      this.#startScoring();
+    }, waitMs);
+    this.#retryTimer.unref();
   }
 
   // At most one round's worth of the queued sessions, after queuing the changed ones' neighbors;

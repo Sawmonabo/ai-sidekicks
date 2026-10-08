@@ -304,15 +304,13 @@ export class WorktreeService {
     );
 
     // Live worktrees on a mount no longer `attached`. They retire through `#emitRetirement`, so the
-    // busy probe applies; a conflict means the tables disagree and propagates fail-closed. A chat's
-    // managed mount is skipped: its folder goes only with its session's purge.
+    // busy probe applies; a conflict means the tables disagree and propagates fail-closed.
     this.#selectSweepableStmt = database.prepare<[], WorktreeRetirementRow>(
       `SELECT worktrees.id, worktrees.repo_mount_id, worktrees.created_by_session_id,
               worktrees.state
          FROM worktrees
          JOIN repo_mounts ON repo_mounts.id = worktrees.repo_mount_id
         WHERE repo_mounts.state <> 'attached'
-          AND repo_mounts.origin <> 'managed'
           AND ${LIVE_WORKTREE_STATE_PREDICATE}
         ORDER BY worktrees.created_at ASC, worktrees.id ASC`,
     );

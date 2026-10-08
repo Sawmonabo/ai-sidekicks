@@ -5,6 +5,7 @@
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { cutToCodeUnits } from "../../../text-cut.js";
 import type { ProviderAskOption } from "./ask-option-sets.js";
 
 /**
@@ -270,13 +271,9 @@ export function readRoutedAskTurnId(params: unknown): CodexRoutedAskTurnIdReadin
       recordedTurnIdTruncated: false,
     };
   }
-  // Cut on a code point boundary: a lone surrogate does not round-trip through a JSON log sink.
-  const boundedPrefix = namedTurnId.slice(0, CODEX_ROUTED_ASK_TURN_ID_MAX_LEN);
-  const lastUnit = boundedPrefix.charCodeAt(boundedPrefix.length - 1);
-  const splitsSurrogatePair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
   return {
     resolvableTurnId: null,
-    recordedTurnId: splitsSurrogatePair ? boundedPrefix.slice(0, -1) : boundedPrefix,
+    recordedTurnId: cutToCodeUnits(namedTurnId, CODEX_ROUTED_ASK_TURN_ID_MAX_LEN),
     recordedTurnIdTruncated: true,
   };
 }

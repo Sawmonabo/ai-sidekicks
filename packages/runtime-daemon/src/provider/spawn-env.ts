@@ -55,12 +55,12 @@ export interface ProviderSpawnEnvRequest {
  * auto-update opt-out and first-wins would drop a pin.
  */
 export class ProviderSpawnEnvConflictError extends Error {
-  constructor(
-    readonly conflictingName: string,
-    message: string,
-  ) {
+  readonly conflictingName: string;
+
+  constructor(conflictingName: string, message: string) {
     super(message);
     this.name = "ProviderSpawnEnvConflictError";
+    this.conflictingName = conflictingName;
   }
 }
 

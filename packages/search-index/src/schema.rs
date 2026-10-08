@@ -67,7 +67,7 @@ pub fn index_schema() -> (Schema, IndexFields) {
     let text_indexing = text_options(IndexRecordOption::WithFreqsAndPositions, TOKENS_TOKENIZER);
     let text = builder.add_text_field("text", text_indexing);
     let prefixes = std::array::from_fn(|index| {
-        let name = format!("p{}", index + 1);
+        let name = format!("prefix{}", index + 1);
         let tokenizer = prefix_tokenizer_name(index + 1);
         builder.add_text_field(
             &name,

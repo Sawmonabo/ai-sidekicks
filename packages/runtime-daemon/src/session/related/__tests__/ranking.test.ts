@@ -3,11 +3,11 @@
 // a session reached only in two steps is left out, and an old link outranks a fresh one of its
 // kind no longer. The scores are stored through the real writer and read back from the stored
 // rows, and a rename reaches the lists that show the renamed session, even a rename the log
-// loses. A round that fails ends the re-scoring and its sessions are scored with the next link
-// change's; the stop ends it after the round under way and waits for that round; a follower that
-// throws costs no other its update.
+// loses. A session purged while its round is scored keeps no row; a round that fails is retried
+// after a wait; the stop ends the re-scoring after the round under way and waits for that round;
+// a follower that throws costs no other its update.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionRelatedListUpdate } from "@ai-sidekicks/contracts/session/links";
@@ -16,10 +16,10 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import { mintSessionId, seedSessionRow } from "../../directory/__fixtures__/directory-rows.js";
 import { buildSessionEvent, openSessionLog } from "../../directory/__fixtures__/event-log.js";
-import { mintSessionId, seedSessionRow } from "../../groups/__fixtures__/directory-rows.js";
 import { recordedSessionLinkStatement } from "../../links/recorded.js";
-import { SessionRelatedRanking, type SessionRelatedRankingOptions } from "../ranking.js";
+import { SessionRelatedRanking, type SessionRelatedRankingDeps } from "../ranking.js";
 
 const NOW = new Date("2026-10-06T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -34,8 +34,8 @@ beforeEach(async () => {
 
 function rankingOn(
   database: ScratchDatabase,
-  events: SessionRelatedRankingOptions["events"] = { followAll: () => () => {} },
-  writeServiceLog: SessionRelatedRankingOptions["writeServiceLog"] = (line) => {
+  events: SessionRelatedRankingDeps["events"] = { followAll: () => () => {} },
+  writeServiceLog: SessionRelatedRankingDeps["writeServiceLog"] = (line) => {
     throw new Error(`unexpected service log line: ${line}`);
   },
 ): SessionRelatedRanking {
@@ -161,31 +161,42 @@ describe("a session's related ranking", () => {
 });
 
 describe("re-scoring in the background", () => {
+  // The round reads the links before the purge commits and writes after it: a session row gone
+  // with its links still read stands for that race.
+  it("stores no list for a session purged during its round, nor an entry naming it", async () => {
+    const [planner, builder] = await seedSessions(2);
+    await recordLink(planner!, builder!);
+    await scratch.writer.write([{ sql: "DELETE FROM sessions WHERE id = ?", bindings: [builder] }]);
+
+    ranking.rescoreAround([planner!, builder!]);
+    await ranking.whenIdle();
+
+    expect(storedScores(builder!).size).toBe(0);
+    expect(storedScores(planner!).size).toBe(0);
+  });
+
   // Moving the links away fails the round as it is taken; moving the stored lists away fails its
   // write.
   it.each(["session_links", "session_related"])(
-    "ends at a round that fails without %s, and scores its sessions with the next change's",
+    "retries a round that fails without %s once the wait has passed, with no new change",
     async (table) => {
       const lines: string[] = [];
       ranking = rankingOn(scratch, undefined, (line) => {
         lines.push(line);
       });
-      const [planner, builder, reviewer, tester] = await seedSessions(4);
+      const [planner, builder] = await seedSessions(2);
       await recordLink(planner!, builder!);
-      await recordLink(reviewer!, tester!);
       await scratch.writer.write([{ sql: `ALTER TABLE ${table} RENAME TO moved_away` }]);
 
       ranking.rescoreAround([planner!, builder!]);
       await ranking.whenIdle();
-      expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain("a re-score round failed");
+      expect(lines).toEqual([expect.stringContaining("a re-score round failed, retrying in")]);
 
       await scratch.writer.write([{ sql: `ALTER TABLE moved_away RENAME TO ${table}` }]);
       expect(scoredSessionCount()).toBe(0);
-      ranking.rescoreAround([reviewer!, tester!]);
-      await ranking.whenIdle();
+      await vi.waitFor(() => expect(scoredSessionCount()).toBe(2), { timeout: 5_000 });
       expect([...storedScores(planner!).keys()]).toEqual([builder]);
-      expect([...storedScores(tester!).keys()]).toEqual([reviewer]);
+      expect([...storedScores(builder!).keys()]).toEqual([planner]);
       expect(lines).toHaveLength(1);
     },
   );

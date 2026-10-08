@@ -1,15 +1,15 @@
-//! The index's tokenizer: splits text on Unicode letters and digits and folds case and every
-//! diacritic, keeping where each token sat in the source text.
+//! The index's tokenizer: splits text on Unicode letters and digits and folds case and diacritics,
+//! keeping where each token sat in the source text.
 
 use caseless::Caseless;
 use tantivy::tokenizer::MAX_TOKEN_LEN;
-use unicode_normalization::char::{decompose_canonical, is_combining_mark};
-use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
+use unicode_normalization::char::{canonical_combining_class, decompose_canonical};
+use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
 
 /// One token of a text: its folded form as the index holds it and where it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextToken {
-    /// The token after canonical decomposition, combining marks removed and full case folding.
+    /// The token after canonical decomposition, diacritics removed and full case folding.
     pub folded: String,
     /// The token's place among the text's tokens; a token too long to index leaves its place empty.
     pub position: u32,
@@ -74,25 +74,40 @@ fn close_token(
     *position += 1;
 }
 
-// Canonical decomposition, combining marks removed, then full case folding; folding can itself
-// produce a letter with a combining mark, which is decomposed and dropped the same way.
+// Canonical decomposition, diacritics removed, then full case folding; folding can itself produce
+// a letter with a diacritic, which is decomposed and dropped the same way.
 fn fold_into(character: char, folded: &mut String) {
     if character.is_ascii() {
         folded.push(character.to_ascii_lowercase());
         return;
     }
     decompose_canonical(character, |part| {
-        if is_combining_mark(part) {
+        if is_dropped_mark(part) {
             return;
         }
         for case_folded in std::iter::once(part).default_case_fold() {
             decompose_canonical(case_folded, |piece| {
-                if !is_combining_mark(piece) {
+                if !is_dropped_mark(piece) {
                     folded.push(piece);
                 }
             });
         }
     });
+}
+
+// A nonspacing mark that is a diacritic or spells nothing: an accent of Latin, Greek or Cyrillic
+// set on its letter (combining classes 200 and up), a Hebrew point or an Arabic vowel mark (10 to
+// 35), or an invisible joiner or variation selector. A mark that spells a sound, an Indic vowel
+// sign or virama, a Thai or Tibetan vowel, or the kana voicing mark, stays: dropped, it would merge
+// different words.
+fn is_dropped_mark(character: char) -> bool {
+    character.general_category() == GeneralCategory::NonspacingMark
+        && (matches!(canonical_combining_class(character), 10..=35 | 200..)
+            || matches!(
+                character,
+                '\u{34F}' | '\u{180B}'..='\u{180D}' | '\u{180F}' | '\u{FE00}'..='\u{FE0F}'
+                    | '\u{E0100}'..='\u{E01EF}'
+            ))
 }
 
 /// The first `length` characters of `token`, or `None` when it is shorter.

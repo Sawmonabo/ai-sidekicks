@@ -83,6 +83,8 @@ export class SearchFixture {
           this.#deletes.push(deleteAppliedOutbox(this.#writer, applied));
         }
       },
+      // A test closes the services only once they have opened.
+      signal: new AbortController().signal,
     });
     this.#services = services;
     await this.#settleDeletes();

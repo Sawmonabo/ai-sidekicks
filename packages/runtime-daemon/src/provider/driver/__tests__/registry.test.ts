@@ -161,7 +161,7 @@ describe("ProviderRegistry — checkCapability gate", () => {
     expect((refusal as DriverCapabilityUnsupportedError).code).toBe(
       "driver.capability_unsupported",
     );
-    expect((refusal as DriverCapabilityUnsupportedError).fields).toEqual({
+    expect((refusal as DriverCapabilityUnsupportedError).detail).toEqual({
       driverId: DRIVER_ID,
       flag: "steer",
     });
@@ -173,7 +173,7 @@ describe("ProviderRegistry — checkCapability gate", () => {
     const refusal = captureThrow(() => registry.checkCapability("codex", "steer"));
     expect(refusal).toBeInstanceOf(DriverUnavailableError);
     expect((refusal as DriverUnavailableError).code).toBe("driver.unavailable");
-    expect((refusal as DriverUnavailableError).fields).toEqual({ driverId: "codex" });
+    expect((refusal as DriverUnavailableError).detail).toEqual({ driverId: "codex" });
   });
 });
 

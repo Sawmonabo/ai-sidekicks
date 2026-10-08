@@ -27,6 +27,7 @@ import type {
   WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 
+import { sqlListOf } from "../../database/sql-list.js";
 import {
   spentAccountNameFromColumns,
   type SpentAccountColumns,
@@ -90,9 +91,7 @@ export type StoredWorkflowStep = Pick<
  * The statuses of a run still going, as a SQL list for `status IN (...)`. Written out rather than
  * bound, so a read can use the runs table's partial index over the same statuses.
  */
-export const GOING_RUN_STATUSES_SQL: string = GOING_RUN_STATUSES.map(
-  (status) => `'${status}'`,
-).join(", ");
+export const GOING_RUN_STATUSES_SQL: string = sqlListOf(GOING_RUN_STATUSES);
 
 /**
  * The SQL condition on the runs table read as `alias` that holds for a failed run still parked on

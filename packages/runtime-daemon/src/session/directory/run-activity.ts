@@ -5,6 +5,7 @@
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
+import { sqlListOf } from "../../database/sql-list.js";
 import type { SessionRunOutcome } from "../records.js";
 
 // The run states a session reads as waiting on the person, and those it reads as working.
@@ -35,7 +36,7 @@ export const RUN_OUTCOME_BY_EVENT_TYPE: Readonly<Partial<Record<SessionEventType
 export function sessionActivitySql(sessionIdSql: string, lastRunOutcomeSql: string): string {
   const isAnyRunIn = (states: readonly RunState[]): string =>
     `EXISTS (SELECT 1 FROM runs WHERE runs.session_id = ${sessionIdSql}
-                AND runs.state IN (${states.map((state) => `'${state}'`).join(", ")}))`;
+                AND runs.state IN (${sqlListOf(states)}))`;
   return `CASE WHEN ${isAnyRunIn(WAITING_RUN_STATES)} THEN 'waiting'
                WHEN ${isAnyRunIn(WORKING_RUN_STATES)} THEN 'running'
                ELSE ${lastRunOutcomeSql} END`;

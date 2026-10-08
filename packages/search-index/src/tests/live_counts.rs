@@ -19,7 +19,6 @@ const SIZE: SeededSetSize = SeededSetSize {
     messages: 3_000,
     groups: 4,
     tags: 60,
-    links: 0,
 };
 // The set's largest session, which every fiftieth message goes to, and another.
 const PURGED_SESSIONS: [u64; 2] = [2, 5];
@@ -186,7 +185,7 @@ fn live_counts_after_deletes_equal_an_index_built_without_the_deleted_rows() {
         "before merging",
     );
 
-    while deleted.merge_while_idle().expect("a merge step runs") {}
+    while deleted.merge_segments().expect("a merge step runs") {}
     let merged_version = deleted.current_version();
     assert_eq!(merged_version.searcher.segment_readers().len(), 1);
     assert_eq!(merged_version.live_tokens, rebuilt_version.live_tokens);

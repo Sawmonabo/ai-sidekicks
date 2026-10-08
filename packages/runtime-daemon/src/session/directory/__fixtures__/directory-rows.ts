@@ -1,8 +1,9 @@
-// Raw-SQL seeding of the directory rows the group, link and related-list tests start from: a
-// session's `sessions` row, and for a project or chat session the mount and workspace it binds.
+// Raw-SQL seeding of the directory rows a session test starts from: a session's `sessions` row,
+// and for a project or chat session the mount and workspace it binds.
 
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import type { DatabaseWriter } from "../../../database/writer.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
@@ -18,7 +19,7 @@ export function mintSessionId(): SessionId {
 export async function seedSessionRow(
   writer: Pick<DatabaseWriter, "write">,
   sessionId: SessionId,
-  shape: "chat" | "project" = "project",
+  shape: SessionShape = "project",
 ): Promise<void> {
   await writer.write([
     {
@@ -86,7 +87,8 @@ export async function seedChatSession(writer: Pick<DatabaseWriter, "write">): Pr
   return sessionId;
 }
 
-async function seedWorkspace(
+/** Seeds a workspace binding the session to the mount. */
+export async function seedWorkspace(
   writer: Pick<DatabaseWriter, "write">,
   sessionId: SessionId,
   repoMountId: string,

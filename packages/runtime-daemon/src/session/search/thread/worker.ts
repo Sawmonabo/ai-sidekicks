@@ -4,7 +4,8 @@
 // the index, building it again in a child process when it cannot serve, and brings it in step with
 // the database before it answers its first search. From then on each notice that writes committed
 // has it apply what the outbox holds, and a merge runs on the index's own thread while searches go
-// on.
+// on. A close that comes while the index opens ends a build under way and answers once the build's
+// process has exited, so no build outlives the thread.
 
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 
@@ -32,14 +33,20 @@ const post = (reply: SearchThreadReply): void => {
 
 const { databasePath, indexFolderPath } = workerData as SearchThreadWorkerData;
 
-// Writes that commit while the index opens are applied once it has.
+// Writes that commit while the index opens are applied once it has. A close while it opens aborts
+// the open and is answered once the open has settled.
 let isApplyDue = false;
-const noteWritesWhileOpening = (request: SearchThreadRequest): void => {
+let closeWhileOpeningId: number | undefined;
+const opening = new AbortController();
+const noteRequestsWhileOpening = (request: SearchThreadRequest): void => {
   if (request.type === "writes-committed") {
     isApplyDue = true;
+  } else if (request.type === "close") {
+    closeWhileOpeningId = request.id;
+    opening.abort(new Error("The search thread closed while its index opened"));
   }
 };
-port.on("message", noteWritesWhileOpening);
+port.on("message", noteRequestsWhileOpening);
 
 void open();
 
@@ -54,8 +61,13 @@ async function open(): Promise<void> {
       onApplied: (applied) => {
         post({ type: "index-applied", applied });
       },
+      signal: opening.signal,
     });
-    port.off("message", noteWritesWhileOpening);
+    port.off("message", noteRequestsWhileOpening);
+    if (closeWhileOpeningId !== undefined) {
+      answerClose(closeWhileOpeningId, closeServices(reader, services));
+      return;
+    }
     serve(reader, services);
     post({ type: "opened", rebuildReason: services.rebuildReason });
     if (isApplyDue) {
@@ -68,14 +80,43 @@ async function open(): Promise<void> {
     } catch (closeError) {
       cleanupFailures.push(closeError);
     }
-    post({
-      type: "open-failed",
-      error: carrySearchError(
-        withCleanupFailures(error, cleanupFailures, "The search thread's open"),
-      ),
-    });
+    const failure = carrySearchError(
+      withCleanupFailures(error, cleanupFailures, "The search thread's open"),
+    );
+    if (closeWhileOpeningId === undefined) {
+      post({ type: "open-failed", error: failure });
+    } else if (error === opening.signal.reason && cleanupFailures.length === 0) {
+      post({ type: "closed", id: closeWhileOpeningId });
+    } else {
+      post({ type: "failed", id: closeWhileOpeningId, error: failure });
+    }
     port.close();
   }
+}
+
+// Closes the index, then the thread's connection, whichever fails.
+async function closeServices(connection: DatabaseType, services: SearchServices): Promise<void> {
+  try {
+    await services.close();
+  } finally {
+    connection.close();
+  }
+}
+
+// Answers the close request `id` once `closing` settles, then ends the thread.
+function answerClose(id: number, closing: Promise<void>): void {
+  void closing
+    .then(
+      () => {
+        post({ type: "closed", id });
+      },
+      (error: unknown) => {
+        post({ type: "failed", id, error: carrySearchError(error) });
+      },
+    )
+    .then(() => {
+      port.close();
+    });
 }
 
 function serve(connection: DatabaseType, services: SearchServices): void {
@@ -84,6 +125,13 @@ function serve(connection: DatabaseType, services: SearchServices): void {
   port.on("message", (request: SearchThreadRequest) => {
     if (request.type === "writes-committed") {
       applyWaiting(services);
+      return;
+    }
+    if (request.type === "close") {
+      answerClose(
+        request.id,
+        Promise.resolve(merging).then(() => closeServices(connection, services)),
+      );
       return;
     }
     const answering = answer(request).then(
@@ -97,32 +145,21 @@ function serve(connection: DatabaseType, services: SearchServices): void {
     if (request.type === "merge") {
       merging = answering;
     }
-    if (request.type === "close") {
-      void answering.then(() => {
-        port.close();
-      });
-    }
   });
 
-  async function answer(call: SearchThreadCall): Promise<SearchThreadAnswer> {
+  async function answer(
+    call: Exclude<SearchThreadCall, { readonly type: "close" }>,
+  ): Promise<SearchThreadAnswer> {
     switch (call.type) {
       case "session.search":
         return { type: "session-searched", response: services.sessionSearch.search(call.request) };
       case "transcript.search":
         return {
           type: "transcript-searched",
-          response: services.transcriptSearch.search(call.request),
+          response: services.transcriptSearch.search(call.request, call.damagedFromSequence),
         };
       case "merge":
-        return { type: "merged", isMoreToMerge: await services.mergeWhileIdle() };
-      case "close":
-        await merging;
-        try {
-          await services.close();
-        } finally {
-          connection.close();
-        }
-        return { type: "closed" };
+        return { type: "merged", isMoreToMerge: await services.mergeSegments() };
     }
   }
 }

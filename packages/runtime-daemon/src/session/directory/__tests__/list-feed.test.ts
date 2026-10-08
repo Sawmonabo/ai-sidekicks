@@ -2,10 +2,12 @@
 // session is renewed on a fake clock, a run waiting on the person outranks one working and the
 // last run's end shows once none is left, the chats count follows a chat's create and its convert,
 // archived and closed sessions stay entries, a purge removes one even when the log loses its
-// receipt, and a group's rename reaches every session in it.
+// receipt, a group's rename reaches every session in it, and a list read across several turns
+// lists every row and misses no change that lands behind the read.
 
 import { randomUUID } from "node:crypto";
 
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,7 +30,11 @@ import {
 } from "../__fixtures__/event-log.js";
 import { SessionGroupService } from "../../groups/service.js";
 import { insertQueuedRunStatement, swapRunStateStatement } from "../../run/projection.js";
-import { SessionListFeed, type SessionListListener } from "../list-feed.js";
+import {
+  SessionListFeed,
+  type SessionListFeedDeps,
+  type SessionListListener,
+} from "../list-feed.js";
 
 const CHAT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10" as SessionId;
 const PROJECT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11" as SessionId;
@@ -104,7 +110,7 @@ describe("the sessions list renews a quiet running session", () => {
     vi.setSystemTime(new Date("2026-10-06T12:00:00.000Z"));
     await log.createSession(CHAT, "chat");
     const listener = recordingListener();
-    feed.open(listener);
+    await feed.open(listener);
     await startRun(CHAT, RUN);
     const started = listener.changes.at(-1);
     expect(started).toMatchObject({ kind: "upsert", entry: { activity: "running" } });
@@ -151,7 +157,7 @@ describe("the sessions list renews a quiet running session", () => {
     await log.createSession(SECOND_CHAT, "chat");
     // The database writer keeps a timer of its own.
     const otherTimers = vi.getTimerCount();
-    const opening = feed.open(recordingListener());
+    const opening = await feed.open(recordingListener());
     expect(vi.getTimerCount()).toBe(otherTimers);
 
     await startRun(CHAT, RUN);
@@ -166,7 +172,7 @@ describe("the sessions list renews a quiet running session", () => {
 describe("the sessions list counts the chats and keeps every session the log holds", () => {
   it("counts a chat from its create and stops counting it once it converts to a project", async () => {
     const listener = recordingListener();
-    expect(feed.open(listener)).toMatchObject({ sessions: [], chatCount: 0 });
+    expect(await feed.open(listener)).toMatchObject({ sessions: [], chatCount: 0 });
 
     await log.createSession(CHAT, "chat");
     await crossEventLoopTurn();
@@ -199,7 +205,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
     await log.createSession(PROJECT, "project");
     const repoMountId = await log.bindToProject(PROJECT);
     const listener = recordingListener();
-    expect(feed.open(listener).chatCount).toBe(2);
+    expect((await feed.open(listener)).chatCount).toBe(2);
 
     await log.append(archivedChat, "session.archived", "session_lifecycle", {
       sessionId: archivedChat,
@@ -217,7 +223,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
       { kind: "upsert", entry: { sessionId: archivedChat, state: "archived" }, chatCount: 1 },
       { kind: "upsert", entry: { sessionId: PROJECT, state: "closed", repoMountId }, chatCount: 1 },
     ]);
-    const reopened = feed.open(recordingListener());
+    const reopened = await feed.open(recordingListener());
     expect(reopened.chatCount).toBe(1);
     expect(reopened.sessions.map((entry) => [entry.sessionId, entry.state]).sort()).toStrictEqual(
       [
@@ -231,13 +237,13 @@ describe("the sessions list counts the chats and keeps every session the log hol
   it("removes a purged session's entry when the purge's receipt commits", async () => {
     await log.createSession(CHAT, "chat");
     const listener = recordingListener();
-    feed.open(listener);
+    await feed.open(listener);
 
     await log.purge(CHAT);
     await crossEventLoopTurn();
 
     expect(listener.changes).toStrictEqual([{ kind: "remove", sessionId: CHAT, chatCount: 0 }]);
-    expect(feed.open(recordingListener()).sessions).toStrictEqual([]);
+    expect((await feed.open(recordingListener())).sessions).toStrictEqual([]);
   });
 
   it("removes a purged session whose receipt the log loses", async () => {
@@ -250,7 +256,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
       writeServiceLog: log.writeServiceLog,
     });
     const listener = recordingListener();
-    lossyFeed.open(listener);
+    await lossyFeed.open(listener);
 
     await log.scratch.writer.write([
       { sql: "DELETE FROM sessions WHERE id = ?", bindings: [CHAT], expectedRowCount: 1 },
@@ -282,7 +288,7 @@ describe("the sessions list names each session's group", () => {
     await groups.move({ sessionId: second, groupId });
     const listener = recordingListener();
     expect(
-      feed.open(listener).sessions.map((entry) => entry.shape === "project" && entry.group),
+      (await feed.open(listener)).sessions.map((entry) => entry.shape === "project" && entry.group),
     ).toStrictEqual([
       { groupId, name: "auth work" },
       { groupId, name: "auth work" },
@@ -301,5 +307,56 @@ describe("the sessions list names each session's group", () => {
       [PROJECT, { groupId, name: "billing" }],
       [second, { groupId, name: "billing" }],
     ]);
+  });
+});
+
+describe("the sessions list reads a long list across turns", () => {
+  it("lists every row and still publishes a row that changed behind the read", async () => {
+    const seeded = await log.seedWideChats(1_200);
+    const renamed = seeded[0];
+    if (renamed === undefined) throw new Error("nothing seeded");
+    const writer = new Database(log.scratch.databasePath);
+    // After the first page is read, a service renames a session that page held, then says so once
+    // its write has committed, as services do.
+    let isFirstRead = true;
+    const reader = {
+      prepare: (sql: string) => {
+        const statement = log.scratch.reader.prepare(sql);
+        return {
+          all: (...bindings: unknown[]) => {
+            const rows = statement.all(...bindings);
+            if (isFirstRead) {
+              isFirstRead = false;
+              writer.prepare("UPDATE sessions SET name = ? WHERE id = ?").run("Login fix", renamed);
+              queueMicrotask(() => {
+                pagedFeed.refresh([renamed]);
+              });
+            }
+            return rows;
+          },
+        };
+      },
+    } as unknown as SessionListFeedDeps["reader"];
+    const pagedFeed = new SessionListFeed({
+      reader,
+      eventLog: log.eventLog,
+      writeServiceLog: log.writeServiceLog,
+    });
+    const listener = recordingListener();
+
+    const opening = await pagedFeed.open(listener);
+    await crossEventLoopTurn();
+
+    expect(opening.sessions.map((entry) => entry.sessionId).sort()).toStrictEqual(
+      [...seeded].sort(),
+    );
+    expect(opening.sessions.find((entry) => entry.sessionId === renamed)?.name).not.toBe(
+      "Login fix",
+    );
+    expect(listener.changes).toMatchObject([
+      { kind: "upsert", entry: { sessionId: renamed, name: "Login fix" } },
+    ]);
+    pagedFeed.close();
+    writer.close();
   });
 });

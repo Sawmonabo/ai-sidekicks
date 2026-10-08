@@ -6,7 +6,6 @@
 
 import type { SearchIndex, SearchQuery } from "@ai-sidekicks/search-index";
 import type { SearchMatchRange } from "@ai-sidekicks/contracts/session/methods";
-import { TRANSCRIPT_SEARCH_TEXT_MAX_LEN } from "@ai-sidekicks/contracts/transcript/search";
 
 import type { IndexRowReader, SourceRow } from "./index/rows.js";
 import { cutMarkedLine, type MarkedLine } from "./marked-line.js";
@@ -20,14 +19,21 @@ export interface HitLine {
 // Where a search matches a row's current text, in order; none once the text holds no match.
 type MatchMarker = (row: SourceRow) => readonly SearchMatchRange[];
 
-/** Reads and marks hits' lines on one connection. */
+/** Reads and marks hits' lines on one connection, each cut to the length its search shows. */
 export class HitLineReader {
   readonly #rows: IndexRowReader;
   readonly #index: Pick<SearchIndex, "markMatches">;
+  readonly #lineMaxLength: number;
 
-  constructor(rows: IndexRowReader, index: Pick<SearchIndex, "markMatches">) {
+  /** `lineMaxLength` is the most UTF-16 code units a line shows. */
+  constructor(
+    rows: IndexRowReader,
+    index: Pick<SearchIndex, "markMatches">,
+    lineMaxLength: number,
+  ) {
     this.#rows = rows;
     this.#index = index;
+    this.#lineMaxLength = lineMaxLength;
   }
 
   /**
@@ -64,11 +70,7 @@ export class HitLineReader {
         if (firstRange !== undefined) {
           lines.push({
             row,
-            marked: cutMarkedLine(
-              row.text,
-              [firstRange, ...laterRanges],
-              TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
-            ),
+            marked: cutMarkedLine(row.text, [firstRange, ...laterRanges], this.#lineMaxLength),
           });
         }
       }

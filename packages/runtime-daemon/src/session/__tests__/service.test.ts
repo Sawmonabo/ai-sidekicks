@@ -174,7 +174,6 @@ describe("SessionService — readSession", () => {
         state: "provisioning",
         shape: "chat",
         muted: true,
-        pendingWorkingFolder: null,
         createdAt: created.occurredAt,
         updatedAt: "2026-04-27T12:05:00.000Z",
         tags: ["Alpha/Refunds", "billing"],
@@ -184,6 +183,36 @@ describe("SessionService — readSession", () => {
         latest: encodeEventCursor(1),
       },
     });
+  });
+
+  it("answers a session whose history is damaged before its first event, its latest at the start", async () => {
+    const events = new EventLogService({
+      writer: ctx.connections.writer,
+      reader: ctx.connections.reader,
+      projectionStatements: directoryStatementsFor,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    });
+    const created = storedCreatedEvent(1n);
+    await events.append({
+      id: randomUUID(),
+      sessionId: SESSION_ID,
+      occurredAt: created.occurredAt,
+      category: "session_lifecycle",
+      type: "session.created",
+      actor: null,
+      payload: created.payload,
+      version: EventEnvelopeVersionSchema.parse("1.0"),
+    });
+    const damagedFromFirst = new SessionService(ctx.connections.reader, () => 0);
+
+    expect(damagedFromFirst.readSession({ sessionId: SESSION_ID }).transcriptCursors).toStrictEqual(
+      {
+        earliest: encodeEventCursor(START_OF_LOG_POSITION),
+        latest: encodeEventCursor(START_OF_LOG_POSITION),
+      },
+    );
   });
 
   it("refuses a session this daemon holds no row for with session.not_found", () => {

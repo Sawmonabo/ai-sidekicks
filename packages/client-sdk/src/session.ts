@@ -25,7 +25,7 @@ import {
   type SessionCreateRequest,
   type SessionCreateResponse,
 } from "@ai-sidekicks/contracts/session/directory";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 
 import {
   callMethod,
@@ -41,7 +41,7 @@ import type { LocalSubscriptionConsumer } from "./transport/subscription-consume
  */
 export interface SessionEventEnvelope {
   readonly eventId: EventCursor;
-  readonly event: SessionEvent;
+  readonly event: EventEnvelope;
 }
 
 /**
@@ -202,7 +202,7 @@ async function* daemonSubscribe(
  * stream no longer wants, and then ends or throws the error.
  */
 async function cancelAndReadFailure(
-  subscription: LocalSubscriptionConsumer<SessionStreamFrame<SessionEvent>>,
+  subscription: LocalSubscriptionConsumer<SessionStreamFrame<EventEnvelope>>,
 ): Promise<unknown> {
   await subscription.cancel();
   try {

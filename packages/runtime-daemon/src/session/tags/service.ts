@@ -12,8 +12,8 @@ import type {
 import type { DatabaseConnections } from "../../database/connections.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
-import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { sessionExistsStatement } from "../directory/lookups.js";
+import { sessionNotFound } from "../not-found.js";
 
 // A tag the session already holds under another casing keeps the casing it was first written in.
 const ADD_TAG_SQL = `INSERT INTO session_tags (session_id, tag, tag_folded)
@@ -39,7 +39,7 @@ export class SessionTagService {
 
   /**
    * Tags the session; a tag it already holds, ignoring case, stays as it is. Rejects with
-   * {@link SessionNotFoundError} for an unknown session.
+   * `session.not_found` for an unknown session.
    */
   async add(request: SessionTagRequest): Promise<void> {
     await this.#writeForSession(request.sessionId, {
@@ -54,7 +54,7 @@ export class SessionTagService {
 
   /**
    * Removes the tag from the session, matched ignoring case; a tag it does not hold is already
-   * gone. Rejects with {@link SessionNotFoundError} for an unknown session.
+   * gone. Rejects with `session.not_found` for an unknown session.
    */
   async remove(request: SessionTagRequest): Promise<void> {
     await this.#writeForSession(request.sessionId, {
@@ -73,7 +73,7 @@ export class SessionTagService {
       await this.#writer.write([sessionExistsStatement(sessionId), change]);
     } catch (error) {
       if (error instanceof WriteRefusedError && error.statementIndex === 0) {
-        throw new SessionNotFoundError(`No session ${sessionId}.`, { sessionId });
+        throw sessionNotFound(sessionId);
       }
       throw error;
     }

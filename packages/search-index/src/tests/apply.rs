@@ -17,7 +17,6 @@ const SIZE: SeededSetSize = SeededSetSize {
     messages: 2_000,
     groups: 3,
     tags: 40,
-    links: 0,
 };
 const REPLAYED_OUTBOX_ID: i64 = 7;
 

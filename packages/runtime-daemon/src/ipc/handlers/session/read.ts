@@ -4,22 +4,13 @@
 // `mutating`, so a read-only client can still read across a protocol version mismatch.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type {
-  SessionReadRequest,
-  SessionReadResponse,
-  SessionRecord,
-} from "@ai-sidekicks/contracts/session/methods";
+import type { SessionReadRequest } from "@ai-sidekicks/contracts/session/methods";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 
 import type { SessionDraftStore } from "../../../session/draft-store.js";
+import type { SessionLogRead } from "../../../session/service.js";
 
 import { registerDescribedMethod } from "../register-described-method.js";
-
-/** A session's read as its row, tags and log answer it: everything but the held draft. */
-export interface SessionLogRead {
-  session: Omit<SessionRecord, "draft">;
-  transcriptCursors: SessionReadResponse["transcriptCursors"];
-}
 
 /** What `session.read`'s handler reads from. */
 export interface SessionReadDeps {

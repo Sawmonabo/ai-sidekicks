@@ -17,15 +17,18 @@ mod tokenizer;
 mod version;
 mod view;
 
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::sync::Arc;
 
-use napi::bindgen_prelude::{AsyncTask, Env, Error, Result, Status, Task};
+use napi::bindgen_prelude::{AsyncTask, Env, Error, Result, Status, Task, panic_to_error};
 use napi_derive::napi;
 use tantivy::TantivyError;
 
 use crate::directory::ReadMode;
-use crate::engine::{IndexEngine, OpenFailure, keys_of, non_negative};
+use crate::engine::{
+    CLOSED_MESSAGE, IndexEngine, OpenFailure, group_members_from_js, key_from_js, keys_of,
+};
 use crate::view::SearchView;
 
 // One indexing thread, so a rebuild or a batch leaves the machine's other cores free.
@@ -48,9 +51,11 @@ pub struct IndexRow {
     /// The row's key, unique across the index: its source row's rowid times four plus its kind's
     /// slot.
     pub key: i64,
+    /// What the row holds, which sets its key's slot and whom it counts toward.
     pub kind: IndexRowKind,
     /// The session key the row belongs to; for a `group` row, the group key whose name it is.
     pub owner_key: i64,
+    /// The row's text as the database holds it; the index keeps its tokens, never the text.
     pub text: String,
     /// What a `tag` row carries besides its text; no other row carries it.
     pub tag: Option<IndexRowTag>,
@@ -70,7 +75,9 @@ pub struct IndexRowTag {
 /// An owner all of whose rows leave the index: a purged session, a deleted group.
 #[napi(object, object_to_js = false)]
 pub struct RemovedOwner {
+    /// The session's key, or the group's when `isGroup`.
     pub owner_key: i64,
+    /// Whether the owner is a group rather than a session.
     pub is_group: bool,
 }
 
@@ -81,7 +88,9 @@ pub struct IndexBatch {
     pub last_outbox_id: i64,
     /// Rows to index; a row already indexed under the same key is replaced.
     pub rows: Vec<IndexRow>,
+    /// Keys of rows to remove; a key the index does not hold is passed over.
     pub removed_keys: Vec<i64>,
+    /// Owners whose every row leaves the index, the files that held them rewritten by the merges.
     pub removed_owners: Vec<RemovedOwner>,
     /// Groups whose members changed, each replaced in this commit; a group with no members is
     /// forgotten.
@@ -91,7 +100,9 @@ pub struct IndexBatch {
 /// The sessions a group's name row counts toward, in session id order (the order ties break in).
 #[napi(object, object_to_js = false)]
 pub struct GroupMembers {
+    /// The group's key.
     pub group_key: i64,
+    /// Its member sessions' keys, in session id order.
     pub session_keys: Vec<i64>,
 }
 
@@ -107,7 +118,9 @@ pub struct SearchQuery {
 /// A matched stretch of a text, in UTF-16 code units, end exclusive.
 #[napi(object, object_from_js = false)]
 pub struct MatchRange {
+    /// The first UTF-16 code unit marked.
     pub start: u32,
+    /// One past the last UTF-16 code unit marked.
     pub end: u32,
 }
 
@@ -125,8 +138,6 @@ pub struct SessionFind {
     pub row_keys: Vec<i64>,
     /// Each row's match count, in `rowKeys` order, counted as `markMatches` marks the row.
     pub match_counts: Vec<u32>,
-    /// Every match in the session: the sum of `matchCounts`.
-    pub total_match_count: i64,
 }
 
 fn failure(error: TantivyError) -> Error {
@@ -138,7 +149,16 @@ fn failure(error: TantivyError) -> Error {
 }
 
 fn closed() -> Error {
-    Error::new(Status::GenericFailure, "the search index is closed")
+    Error::new(Status::GenericFailure, CLOSED_MESSAGE)
+}
+
+// A task's work with a panic turned into its error, as `#[napi(catch_unwind)]` turns a synchronous
+// method's: a panic unwinding out of the thread pool's callback aborts the daemon. A panic under
+// the writer's lock poisons it, so later writes fail rather than read what the panic interrupted.
+fn catch_panic<T>(work: impl FnOnce() -> Result<T>) -> Result<T> {
+    catch_unwind(AssertUnwindSafe(work))
+        .map_err(panic_to_error)
+        .and_then(|result| result)
 }
 
 fn to_js_keys(keys: Vec<u64>) -> Vec<i64> {
@@ -157,8 +177,10 @@ impl Task for ApplyBatch {
     type JsValue = ();
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let engine = self.engine.as_ref().ok_or_else(closed)?;
-        engine.apply(&self.batch).map_err(failure)
+        catch_panic(|| {
+            let engine = self.engine.as_ref().ok_or_else(closed)?;
+            engine.apply(&self.batch).map_err(failure)
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -166,7 +188,7 @@ impl Task for ApplyBatch {
     }
 }
 
-/// `SearchIndex.mergeWhileIdle`'s work on the libuv thread pool: one merge step.
+/// `SearchIndex.mergeSegments`'s work on the libuv thread pool: one merge step.
 pub struct MergeSegments {
     engine: Option<Arc<IndexEngine>>,
 }
@@ -177,8 +199,10 @@ impl Task for MergeSegments {
     type JsValue = bool;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let engine = self.engine.as_ref().ok_or_else(closed)?;
-        engine.merge_while_idle().map_err(failure)
+        catch_panic(|| {
+            let engine = self.engine.as_ref().ok_or_else(closed)?;
+            engine.merge_segments().map_err(failure)
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -197,10 +221,10 @@ impl Task for CloseIndex {
     type JsValue = ();
 
     fn compute(&mut self) -> Result<Self::Output> {
-        match self.engine.take() {
+        catch_panic(|| match self.engine.take() {
             Some(engine) => engine.close().map_err(failure),
             None => Ok(()),
-        }
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -225,7 +249,7 @@ impl SearchIndex {
     /// Opens the index in `folderPath`, creating an empty one when the folder holds none. Throws an
     /// error whose `code` is `"SEARCH_INDEX_UNREADABLE"` when the folder's files cannot be read as
     /// an index; the caller then removes the folder and rebuilds from the database.
-    #[napi(factory)]
+    #[napi(factory, catch_unwind)]
     pub fn open(folder_path: String, options: SearchIndexOptions) -> Result<Self, &'static str> {
         let writer_memory_bytes = usize::try_from(options.writer_memory_bytes)
             .map_err(|_| Error::new("InvalidArg", "writerMemoryBytes must not be negative"))?;
@@ -265,18 +289,9 @@ impl SearchIndex {
 
     /// Loads every group's members once after open, before the first search; later changes arrive
     /// in an `IndexBatch`'s `groupMembers`, so a search sees members and rows from the same commit.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn set_group_members(&self, groups: Vec<GroupMembers>) -> Result<()> {
-        let groups = groups
-            .iter()
-            .map(|group| {
-                Ok((
-                    non_negative(group.group_key)?,
-                    keys_of(&group.session_keys)?,
-                ))
-            })
-            .collect::<tantivy::Result<Vec<_>>>()
-            .map_err(failure)?;
+        let groups = group_members_from_js(&groups).map_err(failure)?;
         self.engine()?.set_group_members(groups).map_err(failure)
     }
 
@@ -284,7 +299,7 @@ impl SearchIndex {
     /// folded as the tag store folds it, only the sessions carrying every one of those tags or one
     /// nested under it count, with their groups' rows: ranked by `query`'s words when it is given,
     /// most recently active first when it is not.
-    #[napi(ts_args_type = "tagFolds: string[], query?: SearchQuery")]
+    #[napi(catch_unwind, ts_args_type = "tagFolds: string[], query?: SearchQuery")]
     pub fn open_search(
         &self,
         tag_folds: Vec<String>,
@@ -296,22 +311,23 @@ impl SearchIndex {
     }
 
     /// One session's matching log rows and every match in them.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn find_in_session(&self, session_key: i64, query: SearchQuery) -> Result<SessionFind> {
-        let session_key = non_negative(session_key).map_err(failure)?;
+        let session_key = key_from_js(session_key).map_err(failure)?;
         let version = self.engine()?.current_version();
         find::find_in_session(&version, session_key, &query).map_err(failure)
     }
 
     /// Where the query's words match in `text`, in order, as the index tokenizes and folds it.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn mark_matches(&self, text: String, query: SearchQuery) -> Vec<MatchRange> {
         find::mark_matches(&text, &query)
     }
 
-    /// Runs one merge of segments; resolves whether more merging remains. Called while idle.
+    /// Runs one merge of segments, the smallest the merge policy proposes; resolves whether more
+    /// merging remains.
     #[napi]
-    pub fn merge_while_idle(&self) -> AsyncTask<MergeSegments> {
+    pub fn merge_segments(&self) -> AsyncTask<MergeSegments> {
         AsyncTask::new(MergeSegments {
             engine: self.engine.clone(),
         })
@@ -339,7 +355,7 @@ fn released() -> Error {
 #[napi]
 impl HeldSearch {
     /// The sessions ranked `from` to `from + count - 1`, best first; fewer past the end.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn sessions_at(&mut self, from: u32, count: u32) -> Result<Vec<i64>> {
         let view = self.view.as_mut().ok_or_else(released)?;
         let sessions = view
@@ -350,7 +366,7 @@ impl HeldSearch {
 
     /// Each named session's matching row keys, best first, in the order the sessions were named; a
     /// search by tags alone gives each session's matching tag rows by key.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn hits_of(&self, session_keys: Vec<i64>) -> Result<Vec<Vec<i64>>> {
         let view = self.view.as_ref().ok_or_else(released)?;
         let sessions = keys_of(&session_keys).map_err(failure)?;

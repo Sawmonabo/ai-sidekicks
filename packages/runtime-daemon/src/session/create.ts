@@ -4,19 +4,12 @@
 // project's mount. The session is born `provisioning` with `session.created`, which brings in its
 // lead and records the request's idempotency key with where the session works, and reads `active`
 // once bound. A create retried with a recorded key answers the session that key made, first
-// finishing it when it was left provisioning; the daemon's start finishes any other such session.
+// finishing it when it was left provisioning; the daemon's start finishes any other such session,
+// and removes the managed workspace of a chat whose create stopped before it was born.
 
 import type { Database, Statement } from "better-sqlite3";
 
-import {
-  AGENT_DEFINITION_UNREADABLE_CODE,
-  AgentIdSchema,
-  type AgentProviderBinding,
-} from "@ai-sidekicks/contracts/agent/definition";
-import {
-  EventEnvelopeVersionSchema,
-  type EventEnvelopeVersion,
-} from "@ai-sidekicks/contracts/event/envelope";
+import { AgentIdSchema, type AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import {
   PROVIDER_ACCOUNT_NO_DEFAULT_CODE,
   PROVIDER_ACCOUNT_NOT_REGISTERED_CODE,
@@ -50,10 +43,10 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import type { ManagedWorkspaceService } from "../workspace/managed/service.js";
+import { RepoMountManagedError, RepoMountNotFoundError } from "../workspace/repo/errors.js";
 import type { WorkspaceService } from "../workspace/service.js";
 import { sessionGroupPlacementStatement } from "./groups/store.js";
-
-const SESSION_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
+import { sessionLifecycleEvent } from "./lifecycle-event.js";
 
 const RECORD_CREATE_REQUEST_SQL = `INSERT INTO session_create_requests
   (client_idempotency_key, session_id, repo_mount_id, execution_mode, group_id)
@@ -72,9 +65,42 @@ const PROVISIONING_CREATES_SQL = `SELECT request.client_idempotency_key AS clien
     JOIN sessions AS session ON session.id = request.session_id
    WHERE session.state = 'provisioning'`;
 
+// The sessions a create left provisioning in a project whose mount has since been detached, so
+// they have nowhere left to bind.
+const UNFINISHED_CREATES_IN_DETACHED_PROJECTS_SQL = `SELECT
+         request.client_idempotency_key AS clientIdempotencyKey, request.session_id AS sessionId
+    FROM session_create_requests AS request
+    JOIN sessions AS session ON session.id = request.session_id
+    JOIN repo_mounts AS mount ON mount.id = request.repo_mount_id
+   WHERE session.state = 'provisioning' AND mount.state = 'detached'`;
+
+// Holds only while the session is still being created.
+const SESSION_PROVISIONING_SQL = "SELECT 1 FROM sessions WHERE id = ? AND state = 'provisioning'";
+
+// Holds for a session whose create never wrote `session.created`: it has no directory row, no
+// recorded create and no event, each of which that write leaves.
+function neverBornSql(sessionIdSql: string): string {
+  return `NOT EXISTS (SELECT 1 FROM sessions WHERE id = ${sessionIdSql})
+     AND NOT EXISTS (SELECT 1 FROM session_create_requests WHERE session_id = ${sessionIdSql})
+     AND NOT EXISTS (SELECT 1 FROM session_events WHERE session_id = ${sessionIdSql})`;
+}
+
+// The chats whose managed workspace was made but whose create stopped before the chat was born.
+const UNBORN_CHATS_SQL = `SELECT managed_session_id AS sessionId FROM repo_mounts AS mount
+   WHERE origin = 'managed' AND ${neverBornSql("mount.managed_session_id")}`;
+
+const SESSION_NEVER_BORN_SQL = `SELECT 1 WHERE ${neverBornSql("@sessionId")}`;
+
 // Holds only while the account the lead was resolved to is still the provider's current one.
 const CURRENT_ACCOUNT_SQL = `SELECT 1 FROM provider_accounts
   WHERE account_id = @accountId AND provider = @provider AND is_default = 1`;
+
+// Hold only while the project's mount is attached, and is a project the person attached rather
+// than a chat's managed workspace.
+const MOUNT_ATTACHED_SQL = `SELECT 1 FROM repo_mounts
+  WHERE id = @repoMountId AND state = 'attached'`;
+const MOUNT_OF_PROJECT_SQL = `SELECT 1 FROM repo_mounts
+  WHERE id = @repoMountId AND origin = 'attached'`;
 
 // Holds only while the group belongs to the project the session is being made in.
 const GROUP_OF_PROJECT_SQL = `SELECT 1 FROM session_groups
@@ -83,9 +109,12 @@ const GROUP_OF_PROJECT_SQL = `SELECT 1 FROM session_groups
 const INSERT_CONSOLE_STATE_SQL = `INSERT INTO session_console_state
   (session_id, advisor_model, updated_at) VALUES (?, ?, ?)`;
 
-// The positions of the guards in the `session.created` write, after the request's record.
+// The positions of the guards in the `session.created` write, after the request's record; a
+// chat's write carries only the account's.
 const ACCOUNT_GUARD_STATEMENT_INDEX = 1;
-const GROUP_GUARD_STATEMENT_INDEX = 2;
+const MOUNT_ATTACHED_GUARD_STATEMENT_INDEX = 2;
+const MOUNT_OF_PROJECT_GUARD_STATEMENT_INDEX = 3;
+const GROUP_GUARD_STATEMENT_INDEX = 4;
 
 // The account a lead runs on, with the guard that keeps it so inside the session's first write.
 interface ResolvedAccount {
@@ -123,7 +152,10 @@ export interface SessionCreationDeps {
   readonly events: Pick<EventLogService, "append">;
   /** Binds the session to the mount it works in. */
   readonly workspaces: Pick<WorkspaceService, "bind">;
-  /** Makes a chat's managed workspace and its mount, and removes them when the chat is not born. */
+  /**
+   * Makes a chat's managed workspace and its mount, and removes them when the chat is not born, at
+   * once or at the daemon's next start.
+   */
   readonly managedWorkspaces: Pick<ManagedWorkspaceService, "create" | "delete">;
   /** The machine's settings file: its advisor default, and where the last lead pick is kept. */
   readonly settingsFile: Pick<MachineSettingsFile, "read" | "update">;
@@ -140,6 +172,9 @@ export interface SessionCreationDeps {
  */
 export class SessionCreation {
   readonly #keyLock = new KeyedLock<string>();
+  // The chats whose workspace is made or being made and whose `session.created` has not settled,
+  // so the start's removal of unborn chats' workspaces never takes one of theirs.
+  readonly #chatsBeingCreated = new Set<SessionId>();
   readonly #events: Pick<EventLogService, "append">;
   readonly #workspaces: Pick<WorkspaceService, "bind">;
   readonly #managedWorkspaces: Pick<ManagedWorkspaceService, "create" | "delete">;
@@ -153,7 +188,13 @@ export class SessionCreation {
     [],
     { readonly clientIdempotencyKey: string; readonly sessionId: SessionId }
   >;
+  readonly #selectUnfinishedCreatesInDetachedProjects: Statement<
+    [],
+    { readonly clientIdempotencyKey: string; readonly sessionId: SessionId }
+  >;
   readonly #selectCreatedPayload: Statement<[string], { readonly payload: string }>;
+  readonly #selectUnbornChats: Statement<[], { readonly sessionId: SessionId }>;
+  readonly #selectSessionNeverBorn: Statement<[{ readonly sessionId: string }]>;
 
   constructor(deps: SessionCreationDeps) {
     this.#events = deps.events;
@@ -170,9 +211,14 @@ export class SessionCreation {
     );
     this.#selectRecordedCreate = deps.reader.prepare(RECORDED_CREATE_SQL);
     this.#selectProvisioningCreates = deps.reader.prepare(PROVISIONING_CREATES_SQL);
+    this.#selectUnfinishedCreatesInDetachedProjects = deps.reader.prepare(
+      UNFINISHED_CREATES_IN_DETACHED_PROJECTS_SQL,
+    );
     this.#selectCreatedPayload = deps.reader.prepare(
       "SELECT payload FROM session_events WHERE session_id = ? AND type = 'session.created'",
     );
+    this.#selectUnbornChats = deps.reader.prepare(UNBORN_CHATS_SQL);
+    this.#selectSessionNeverBorn = deps.reader.prepare(SESSION_NEVER_BORN_SQL);
   }
 
   /**
@@ -183,13 +229,15 @@ export class SessionCreation {
    * logged without failing the create. A request whose `clientIdempotencyKey` already made a
    * session answers that session as it now reads, after binding and activating it when it was left
    * `provisioning`, and makes nothing else; a request sent while its key's create is still under
-   * way waits for it. Throws `agent.definition_unreadable` for a request naming a definition,
-   * `provideraccount.not_registered` or `provideraccount.no_default` for a lead with no account,
-   * and `session.group_refused` for a group outside the session's project, each before anything is
-   * written. A chat whose workspace cannot be made, or whose `session.created` is not written,
-   * leaves neither a session nor a workspace. A failure after `session.created` leaves the session
-   * `provisioning` until a retry or the daemon's next start finishes it. A group removed before
-   * the activation took its sessions out with it, so the session is activated outside any group.
+   * way waits for it. Throws `provideraccount.not_registered` or `provideraccount.no_default` for
+   * a lead with no account, `repo.not_found` for a project whose mount is not attached,
+   * `repo.mount_managed` for a chat's managed workspace named as a project, and
+   * `session.group_refused` for a group outside the session's project, each before anything is
+   * written. A chat whose workspace cannot be made, or
+   * whose `session.created` is not written, leaves neither a session nor a workspace. A failure
+   * after `session.created` leaves the session `provisioning` until a retry or the daemon's next
+   * start finishes it. A group removed before the activation took its sessions out with it, so the
+   * session is activated outside any group.
    */
   async create(request: SessionCreateRequest): Promise<SessionCreateResponse> {
     return this.#keyLock.run(request.clientIdempotencyKey, async () => {
@@ -208,11 +256,23 @@ export class SessionCreation {
   }
 
   /**
-   * Finishes every session a create left `provisioning` when the daemon stopped part way, each
-   * under its key as a retry would. One that cannot be finished is written to the service log and
-   * stays `provisioning`, for a retry of its create or the next start.
+   * Finishes every create the daemon stopped part way. The managed workspace of a chat whose
+   * `session.created` was never written is removed with its mount, as the create would have
+   * removed it; a session left `provisioning` in a project detached since is archived; and every
+   * other session a create left `provisioning` is finished under its key as a retry would. A
+   * failure is written to the service log, and what failed is left for the next start, or for a
+   * retry of the session's create.
    */
-  async finishProvisioningSessions(): Promise<void> {
+  async finishStoppedCreates(): Promise<void> {
+    await this.#removeUnbornChatWorkspaces();
+    try {
+      await this.archiveUnfinishedCreates();
+    } catch (error) {
+      this.#writeServiceLog(
+        "Archiving the sessions whose project was detached before their create finished failed: " +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     for (const { clientIdempotencyKey, sessionId } of this.#selectProvisioningCreates.all()) {
       try {
         await this.#keyLock.run(clientIdempotencyKey, async () => {
@@ -230,8 +290,68 @@ export class SessionCreation {
     }
   }
 
+  /**
+   * Archives each session a create left `provisioning` in a project whose mount has since been
+   * detached, so no retry or start tries to finish it. Each is archived under its key, after any
+   * finish under way; one that finish activated first is left as it is.
+   */
+  async archiveUnfinishedCreates(): Promise<void> {
+    for (const {
+      clientIdempotencyKey,
+      sessionId,
+    } of this.#selectUnfinishedCreatesInDetachedProjects.all()) {
+      await this.#keyLock.run(clientIdempotencyKey, async () => {
+        const payload: SessionLifecycleChangePayload = {
+          sessionId,
+          previousState: "provisioning",
+          newState: "archived",
+        };
+        try {
+          await this.#events.append(
+            sessionLifecycleEvent({
+              sessionId,
+              type: "session.archived",
+              payload: { ...payload },
+              occurredAt: this.#now(),
+            }),
+            {
+              transactionalPrelude: [
+                { sql: SESSION_PROVISIONING_SQL, bindings: [sessionId], expectedRowCount: 1 },
+              ],
+            },
+          );
+        } catch (error) {
+          if (!(error instanceof WriteRefusedError)) {
+            throw error;
+          }
+        }
+      });
+    }
+  }
+
+  // A chat counts as being created from before its workspace is made, and as born once its
+  // `session.created` write lands, which is checked again just before each removal.
+  async #removeUnbornChatWorkspaces(): Promise<void> {
+    for (const { sessionId } of this.#selectUnbornChats.all()) {
+      if (
+        this.#chatsBeingCreated.has(sessionId) ||
+        this.#selectSessionNeverBorn.get({ sessionId }) === undefined
+      ) {
+        continue;
+      }
+      try {
+        await this.#managedWorkspaces.delete({ sessionId });
+      } catch (error) {
+        this.#writeServiceLog(
+          `Removing the managed workspace of chat ${sessionId}, whose create stopped before the ` +
+            `chat was born, failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
   async #createNew(request: SessionCreateRequest): Promise<SessionCreateResponse> {
-    const lead = leadOf(request);
+    const { lead } = request;
     const account = this.#resolveAccount(lead);
     const sessionId = mintUuidV7() as SessionId;
     const { settings } = await this.#settingsFile.read();
@@ -239,13 +359,18 @@ export class SessionCreation {
     let place: SessionPlace;
     let binding: AgentProviderBinding;
     if (request.binding.kind === "chat") {
-      const workspace = await this.#managedWorkspaces.create({ sessionId });
-      place = { repoMountId: workspace.repoMountId, executionMode: "bound-root", groupId: null };
-      binding = await this.#appendCreatedOrRemoveWorkspace(request, sessionId, place, {
-        lead,
-        account,
-        advisorModel: settings.advisorModel,
-      });
+      this.#chatsBeingCreated.add(sessionId);
+      try {
+        const workspace = await this.#managedWorkspaces.create({ sessionId });
+        place = { repoMountId: workspace.repoMountId, executionMode: "bound-root", groupId: null };
+        binding = await this.#appendCreatedOrRemoveWorkspace(request, sessionId, place, {
+          lead,
+          account,
+          advisorModel: settings.advisorModel,
+        });
+      } finally {
+        this.#chatsBeingCreated.delete(sessionId);
+      }
     } else {
       place = {
         repoMountId: request.binding.repoMountId,
@@ -314,30 +439,23 @@ export class SessionCreation {
   }
 
   // Appends `session.created` with the request's record, and answers the binding the lead was born
-  // on. A refused account guard means the current account moved after it was read, so it is
-  // resolved again.
+  // on. A project's write holds its mount attached and its group in the project. A refused account
+  // guard means the current account moved after it was read, so it is resolved again.
   async #appendCreated(
     request: SessionCreateRequest,
     sessionId: SessionId,
     place: SessionPlace,
     { lead, account: firstAccount, advisorModel }: NewLead,
   ): Promise<AgentProviderBinding> {
-    const groupGuard: WriteStatement[] =
-      place.groupId !== null
-        ? [
-            {
-              sql: GROUP_OF_PROJECT_SQL,
-              bindings: { groupId: place.groupId, projectId: place.repoMountId },
-              expectedRowCount: 1,
-            },
-          ]
-        : [];
+    const projectGuards: WriteStatement[] =
+      request.binding.kind === "project" ? projectGuardsOf(place) : [];
     for (let account = firstAccount; ; account = this.#resolveAccount(lead)) {
       const binding: AgentProviderBinding = {
         ...lead,
         providerAccountId: account.providerAccountId,
       };
-      const createdAt = this.#now().toISOString();
+      const createdOn = this.#now();
+      const createdAt = createdOn.toISOString();
       const payload: SessionCreatedPayload = {
         sessionId,
         shape: request.binding.kind,
@@ -356,16 +474,12 @@ export class SessionCreation {
           : [];
       try {
         await this.#events.append(
-          {
-            id: mintUuidV7(),
+          sessionLifecycleEvent({
             sessionId,
-            occurredAt: createdAt,
-            category: "session_lifecycle",
             type: "session.created",
-            actor: null,
             payload: { ...payload },
-            version: SESSION_EVENT_VERSION,
-          },
+            occurredAt: createdOn,
+          }),
           {
             transactionalPrelude: [
               {
@@ -379,7 +493,7 @@ export class SessionCreation {
                 },
               },
               account.guard,
-              ...groupGuard,
+              ...projectGuards,
               ...consoleState,
             ],
           },
@@ -391,6 +505,12 @@ export class SessionCreation {
         }
         if (error.statementIndex === ACCOUNT_GUARD_STATEMENT_INDEX) {
           continue;
+        }
+        if (error.statementIndex === MOUNT_ATTACHED_GUARD_STATEMENT_INDEX) {
+          throw new RepoMountNotFoundError(place.repoMountId);
+        }
+        if (error.statementIndex === MOUNT_OF_PROJECT_GUARD_STATEMENT_INDEX) {
+          throw new RepoMountManagedError(place.repoMountId);
         }
         if (error.statementIndex === GROUP_GUARD_STATEMENT_INDEX) {
           throw groupRefused(place.groupId);
@@ -416,16 +536,12 @@ export class SessionCreation {
       placement.push(placeUnlessUngrouped);
     }
     await this.#events.append(
-      {
-        id: mintUuidV7(),
+      sessionLifecycleEvent({
         sessionId,
-        occurredAt: this.#now().toISOString(),
-        category: "session_lifecycle",
         type: "session.activated",
-        actor: null,
         payload: { ...payload },
-        version: SESSION_EVENT_VERSION,
-      },
+        occurredAt: this.#now(),
+      }),
       { transactionalPrelude: placement },
     );
   }
@@ -472,16 +588,22 @@ export class SessionCreation {
   }
 }
 
-// The lead the request spells out. A saved definition resolves through the definition registry,
-// which this daemon cannot read yet; a request with no lead names one, since the schema refuses a
-// request naming neither.
-function leadOf(request: SessionCreateRequest): SessionLead {
-  if (request.leadDefinitionId === undefined && request.lead !== undefined) {
-    return request.lead;
+// The guards a project's `session.created` write holds, in their statement positions: its mount
+// attached, the mount a project's, and the group, when one was asked for, the project's.
+function projectGuardsOf(place: SessionPlace): WriteStatement[] {
+  const bindings = { repoMountId: place.repoMountId };
+  const guards: WriteStatement[] = [
+    { sql: MOUNT_ATTACHED_SQL, bindings, expectedRowCount: 1 },
+    { sql: MOUNT_OF_PROJECT_SQL, bindings, expectedRowCount: 1 },
+  ];
+  if (place.groupId !== null) {
+    guards.push({
+      sql: GROUP_OF_PROJECT_SQL,
+      bindings: { groupId: place.groupId, projectId: place.repoMountId },
+      expectedRowCount: 1,
+    });
   }
-  throw new DaemonDomainError("Saved sidekicks cannot be read on this machine.", {
-    code: AGENT_DEFINITION_UNREADABLE_CODE,
-  });
+  return guards;
 }
 
 function groupRefused(groupId: SessionGroupId | null): DaemonDomainError {

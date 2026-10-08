@@ -20,6 +20,7 @@ import {
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";
 import {
+  SESSION_SEARCH_HIT_LINE_MAX_LEN,
   SESSION_SEARCH_PAGE_LIMIT_MAX,
   type SessionSearchCursor,
   type SessionSearchHit,
@@ -112,7 +113,7 @@ export class SessionSearchService {
     this.#index = deps.index;
     this.#floorLog = deps.floorLog;
     this.#appliedFloorPosition = deps.appliedFloorPosition;
-    this.#hitLines = new HitLineReader(deps.rows, deps.index);
+    this.#hitLines = new HitLineReader(deps.rows, deps.index, SESSION_SEARCH_HIT_LINE_MAX_LEN);
     this.#sessionsByKey = deps.reader.prepare(SESSIONS_BY_KEY_SQL);
     this.#snapshots = new SearchSnapshots(deps.limits ?? DEFAULT_SEARCH_SNAPSHOT_LIMITS);
   }
@@ -156,7 +157,14 @@ export class SessionSearchService {
     if (snapshot === undefined) {
       return { groups: [], hasMore: false };
     }
-    const page = this.#readHeldPage(snapshot, limit, undefined);
+    let page: SearchPage;
+    try {
+      page = this.#readHeldPage(snapshot, limit, undefined);
+    } catch (error) {
+      // No cursor names a search whose first page failed, so nothing would let its view go.
+      snapshot.view.release();
+      throw error;
+    }
     // A search answered whole on its first page has no later page to hold it for.
     if (page.next === undefined) {
       snapshot.view.release();
@@ -258,13 +266,12 @@ export class SessionSearchService {
         };
       }
       batchStart += sessionKeys.length;
-      // The page took every session offered so far, so its room is the limit less their hits.
-      const hitsPerSession = batchHits / sessionKeys.length;
-      const sessionsTheRoomTakes = Math.ceil((limit - hitsOffered) / hitsPerSession) + 1;
-      batchSize = Math.min(
-        Math.max(sessionsTheRoomTakes, FIRST_READ_BATCH_SIZE),
-        batchSize * READ_BATCH_GROWTH,
-      );
+      batchSize = nextReadBatchSize({
+        room: limit - hitsOffered,
+        batchHits,
+        batchSessionCount: sessionKeys.length,
+        batchSize,
+      });
     }
   }
 
@@ -278,6 +285,29 @@ export class SessionSearchService {
     }
     return sessions;
   }
+}
+
+// How many sessions the next read takes. The page took every session offered so far, so its room
+// is the limit less their hits. A full room needs only the one session that tells where the next
+// page starts, so the read is the smallest. Otherwise the last batch's hits per session tell how
+// many sessions fill the room, and a batch that offered no hit tells nothing, so the read grows by
+// the most it may.
+function nextReadBatchSize(read: {
+  readonly room: number;
+  readonly batchHits: number;
+  readonly batchSessionCount: number;
+  readonly batchSize: number;
+}): number {
+  const { room, batchHits, batchSessionCount, batchSize } = read;
+  const largestBatch = batchSize * READ_BATCH_GROWTH;
+  if (room <= 0) {
+    return FIRST_READ_BATCH_SIZE;
+  }
+  if (batchHits === 0) {
+    return largestBatch;
+  }
+  const sessionsTheRoomTakes = Math.ceil((room * batchSessionCount) / batchHits) + 1;
+  return Math.min(Math.max(sessionsTheRoomTakes, FIRST_READ_BATCH_SIZE), largestBatch);
 }
 
 // A page as the wire carries it; `holdSearch` answers the id of the held search the next page

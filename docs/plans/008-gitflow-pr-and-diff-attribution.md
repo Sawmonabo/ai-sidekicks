@@ -44,7 +44,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - The registered self-hosted hosts: one table in the same schema, each row a host name and the kind of the tool that answered for it.
 - No table for the ship facts, the diff or the hosting reads: the daemon keeps one in-memory cache per working folder (D-008-2), and the durable record of each act is its `git.settled` event.
 - `branch_contexts` is Plan-007's; this plan reads it and never alters it.
-- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions.
+- See [Workspace and Git Tables](../architecture/schemas/local-sqlite-workspace-and-git-tables.md#workspace-and-git-tables-plan-006-plan-007-plan-008) for the column definitions of `branch_contexts`.
 
 ## API And Transport Changes
 

@@ -7,10 +7,10 @@
  * - Attach has no containment check: attaching a path is what admits it to the trust envelope.
  * - A duplicate root is caught by `idx_repo_mounts_active_root` on the INSERT; a pre-read races.
  * - Detach checks for running agents, archives and flips the mount in one write, then appends
- *   `workspace.archived` events, so a crash leaves rows durable and events missing. A managed
- *   mount is never detached.
- * - On Windows bare `git` resolves from the working directory first, so config supplies an
- *   absolute `gitExecutablePath`.
+ *   `workspace.archived` events and archives each session whose create never finished, so a crash
+ *   leaves rows durable and events missing. A managed mount is never detached.
+ * - On Windows bare `git` resolves from the working directory first, so the daemon hands this
+ *   service a resolver whose runner names the absolute `git` it found at start.
  */
 
 import type { Statement } from "better-sqlite3";
@@ -122,18 +122,13 @@ export interface RepoMountServiceDeps {
   readonly events: WorkspaceEventEmitter;
   /** The daemon's own node id, stamped on every mount it attaches. */
   readonly nodeId: NodeId;
-  /** Defaults to a stock `RepoRootResolver`; mutually exclusive with {@link gitExecutablePath}. */
+  /** Defaults to a stock `RepoRootResolver`, which runs bare `git`. */
   readonly resolver?: RepoRootResolver;
   /**
-   * Absolute `git` path for the default resolver. Required on `win32` unless {@link resolver} is
-   * given.
+   * Archives each session a create left `provisioning` in a project since detached, which the
+   * detach cascade runs once the mount is detached.
    */
-  readonly gitExecutablePath?: string;
-  /**
-   * Platform for the win32 `git`-pinning guard; defaults to `process.platform`. The guard catches
-   * an omission by the composition root, not a hostile caller.
-   */
-  readonly platform?: NodeJS.Platform;
+  readonly archiveUnfinishedCreates: () => Promise<void>;
   /**
    * Reachability probe for {@link RepoMountService.read}. The default reads the clock before the
    * probe, so `checkedAt` is never newer than the observation it timestamps.
@@ -284,6 +279,7 @@ const DETACH_MOUNT_SQL = `UPDATE repo_mounts
  */
 export class RepoMountService {
   readonly #events: WorkspaceEventEmitter;
+  readonly #archiveUnfinishedCreates: () => Promise<void>;
   readonly #nodeId: NodeId;
   readonly #resolver: RepoRootResolver;
   readonly #probePath: FilesystemPathProbeFn;
@@ -296,39 +292,10 @@ export class RepoMountService {
   readonly #selectManagedRootStmt: Statement;
 
   constructor(deps: RepoMountServiceDeps) {
-    if (deps.resolver !== undefined && deps.gitExecutablePath !== undefined) {
-      // Loud, not a precedence rule: preferring one would leave a daemon that believes it pinned
-      // an absolute `git` and did not.
-      throw new TypeError(
-        "RepoMountService: supply either a ready-made resolver or a gitExecutablePath, not both. " +
-          "A gitExecutablePath is only honored by the resolver this service constructs, so " +
-          "passing both would silently drop the pinned executable path.",
-      );
-    }
-
-    if (
-      (deps.platform ?? process.platform) === "win32" &&
-      deps.resolver === undefined &&
-      deps.gitExecutablePath === undefined
-    ) {
-      // Fail closed: the stock resolver spawns bare `git`, and a `git.exe` planted in the
-      // working directory would run.
-      throw new TypeError(
-        "RepoMountService: on win32 you must supply either an absolute gitExecutablePath or a " +
-          "ready-made resolver. Spawning bare `git` there lets a git.exe in the daemon's own " +
-          "working directory execute instead of the system one.",
-      );
-    }
-
     this.#events = deps.events;
+    this.#archiveUnfinishedCreates = deps.archiveUnfinishedCreates;
     this.#nodeId = deps.nodeId;
-    this.#resolver =
-      deps.resolver ??
-      new RepoRootResolver(
-        // Conditional spread: under `exactOptionalPropertyTypes` an explicit `undefined` is not an
-        // absent key, and the resolver's own default would be skipped.
-        deps.gitExecutablePath === undefined ? {} : { gitExecutablePath: deps.gitExecutablePath },
-      );
+    this.#resolver = deps.resolver ?? new RepoRootResolver();
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newRepoMountId = deps.newRepoMountId ?? mintUuidV7;
@@ -417,19 +384,12 @@ export class RepoMountService {
   }
 
   /**
-   * The folder at `localPath` resolved the way `attach` resolves it, attaching nothing: its
-   * canonical root, and the attached project mount that holds it, or `undefined` when none does. A
-   * chat's managed workspace is never a project, so its mount is never answered. Throws
-   * `RepoRootResolutionError` for a path that resolves to no repository.
+   * The canonical root of the folder at `localPath`, resolved the way `attach` resolves it,
+   * attaching nothing. Throws `RepoRootResolutionError` for a path that resolves to no repository.
    */
-  async resolveFolder(
-    input: RepoAttachPathRequest,
-  ): Promise<{ readonly canonicalRoot: string; readonly repoMountId: RepoMountId | undefined }> {
-    const { canonicalRoot, mount } = await this.#resolveFolderMount(input);
-    return {
-      canonicalRoot,
-      repoMountId: mount === undefined ? undefined : RepoMountIdSchema.parse(mount.id),
-    };
+  async resolveFolder(input: RepoAttachPathRequest): Promise<{ readonly canonicalRoot: string }> {
+    const { canonicalRoot } = await this.#resolver.resolveCanonicalRoot(input.localPath);
+    return { canonicalRoot };
   }
 
   /** The folder of the chat's managed workspace, or `undefined` when the session has none. */
@@ -533,6 +493,12 @@ export class RepoMountService {
         failures.push(error);
       }
     }
+    // A session its create left provisioning here has nowhere left to bind.
+    try {
+      await this.#archiveUnfinishedCreates();
+    } catch (error) {
+      failures.push(error);
+    }
 
     const archivedWorkspaceIds = archivedWorkspaces.map((workspace) => workspace.id);
     if (failures.length > 0) {
@@ -540,8 +506,8 @@ export class RepoMountService {
       // but the detach committed.
       throw new RepoMountServiceInvariantError(
         `repo mount "${repoMountId}" detached and archived ${archivedWorkspaceIds.length} ` +
-          `workspace(s), but ${failures.length} workspace.archived append(s) failed; the rows ` +
-          `are committed and the log under-reports them`,
+          `workspace(s), but ${failures.length} of the appends after it failed; the rows are ` +
+          `committed and the log under-reports them`,
         {
           kind: "detach_notification_incomplete",
           repoMountId,

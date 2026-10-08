@@ -1,8 +1,9 @@
 // `session.search` page by page: a later page reads the view of the index its first page held, so
 // writes between pages neither repeat nor drop a hit; a hit whose row is gone is passed over, one
 // whose text changed is marked on its text now, and one whose rowid a later row took counts for no
-// session. A search let go refuses its cursor, as does a cursor of another search, and every page
-// fits one message.
+// session, and a full page reads on past sessions left with no hit to tell where the next starts.
+// A search let go refuses its cursor, as does a cursor of another search, and every page fits one
+// message.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -26,7 +27,7 @@ import {
   sessionIdOf,
 } from "../__fixtures__/index-rows.js";
 import { readEveryHit, type ShownHit } from "../__fixtures__/reference-ranking.js";
-import { SearchFixture } from "../__fixtures__/search-services.js";
+import { SearchFixture } from "../__fixtures__/services.js";
 import { DEFAULT_SEARCH_SNAPSHOT_LIMITS } from "../snapshots.js";
 
 // Every page of a search from `request` on, each checked against its contract and the
@@ -151,6 +152,49 @@ describe("session.search paging", () => {
       .flatMap((group) => group.hits)
       .find((hit) => hit.line === "plan doc notes for review deploy");
     expect(renamedTitle?.matchRanges).toEqual([{ start: 26, end: 32 }]);
+  });
+
+  it("reads on past sessions whose hits are all gone once a page is full, and pages to the end", async () => {
+    const { database } = fixture;
+    // Rows no query here finds, so the searched word is rare enough to score above zero.
+    insertSession(database, sessionIdOf(99));
+    for (let sequence = 0; sequence < 60; sequence += 1) {
+      insertEvent(database, {
+        sessionId: sessionIdOf(99),
+        sequence,
+        type: "user.message",
+        message: "unrelated words",
+      });
+    }
+    // Each session's message is longer than the last, so the sessions rank in order.
+    const sessionIndexes = Array.from({ length: 40 }, (_, place) => place + 1);
+    for (const index of sessionIndexes) {
+      insertSession(database, sessionIdOf(index));
+      insertEvent(database, {
+        sessionId: sessionIdOf(index),
+        sequence: 0,
+        type: "user.message",
+        message: `deploy${" pad".repeat(index)}`,
+      });
+    }
+    await fixture.settle();
+    // The first read's sixteen sessions fill a page of sixteen. The next sixteen lost their rows
+    // after the index saw them, so the read after that full page finds no hit at all.
+    const emptiedIndexes = sessionIndexes.slice(16, 32);
+    for (const index of emptiedIndexes) {
+      database.prepare("DELETE FROM session_events WHERE session_id = ?").run(sessionIdOf(index));
+    }
+
+    const hits = readEveryHit((request) => fixture.services().sessionSearch.search(request), {
+      query: "deploy",
+      limit: 16,
+    });
+
+    expect(hits.map((hit) => hit.sessionId)).toEqual(
+      sessionIndexes
+        .filter((index) => !emptiedIndexes.includes(index))
+        .map((index) => sessionIdOf(index)),
+    );
   });
 
   it("lets the least recently paged search go past its bound, refusing a cursor no search holds", async () => {

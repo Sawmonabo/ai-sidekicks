@@ -178,6 +178,7 @@ export class EventLogService {
   readonly #projectionStatements: (envelope: UnsequencedEventEnvelope) => readonly WriteStatement[];
   readonly #monotonicNow: () => bigint;
   readonly #refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
+  readonly #readDamagedFromSequence: DamagedFromSequenceReader;
 
   constructor(deps: EventLogServiceDeps) {
     this.#writer = deps.writer;
@@ -190,6 +191,7 @@ export class EventLogService {
     this.#projectionStatements = deps.projectionStatements ?? (() => []);
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
     this.#refuseSessionWrite = deps.refuseSessionWrite ?? (() => {});
+    this.#readDamagedFromSequence = deps.readDamagedFromSequence ?? (() => undefined);
   }
 
   /**
@@ -298,10 +300,12 @@ export class EventLogService {
   /**
    * Delivers the session's events after `afterCursor` (all of them when absent), then each one
    * committed afterward, in sequence order with none skipped or repeated, catching up only while
-   * the listener has room. Throws `SessionNotFoundError` for a session with no events and
-   * `EventCursorUnresolvableError` for a cursor it cannot read, before any change. The first page
-   * is delivered before this returns and a failure on it is thrown; a later failure ends the follow
-   * through `onFailure`. The detach it returns stops delivery at once, from inside `onChange` too.
+   * the listener has room. A session whose history is damaged before its first readable event is
+   * followed from the start of its log. Throws `SessionNotFoundError` for a session with no events
+   * and `EventCursorUnresolvableError` for a cursor it cannot read, before any change. As much of
+   * the first page as the listener has room for is delivered before this returns, and a failure on
+   * it is thrown; a later failure ends the follow through `onFailure`. The detach it returns stops
+   * delivery at once, from inside `onChange` too.
    */
   follow(
     sessionId: SessionId,
@@ -309,7 +313,7 @@ export class EventLogService {
     listener: SessionEventListener,
   ): () => void {
     const head = this.#reads.readHead(sessionId);
-    if (head === undefined) {
+    if (head === undefined && this.#readDamagedFromSequence(sessionId) === undefined) {
       throw new SessionNotFoundError("The session has no events to follow.", { sessionId });
     }
     return this.#followers.follow(sessionId, this.#resolveCursor(afterCursor, head), listener);

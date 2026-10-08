@@ -43,6 +43,7 @@ import {
 } from "./declared-variants.js";
 import { buildCommonShape, withEpochStamp, type EventCategory } from "./envelope.js";
 import type { SessionEventType } from "./registry.js";
+import { SESSION_EVENT_CATEGORY_RECORD } from "./type-categories.js";
 import type {
   ApprovalReviewerDeniedEvent,
   CommandEndedEvent,
@@ -127,184 +128,24 @@ import {
 } from "../worktree/events.js";
 import { WorktreeLifecyclePayloadSchema } from "../worktree/lifecycle.js";
 
-// The `satisfies` check makes a missing, unregistered or duplicate type a compile error.
-const SESSION_EVENT_CATEGORY_RECORD = {
-  // run_lifecycle
-  "run.queued": "run_lifecycle",
-  "run.starting": "run_lifecycle",
-  "run.running": "run_lifecycle",
-  "run.waiting_for_approval": "run_lifecycle",
-  "run.waiting_for_input": "run_lifecycle",
-  "run.pausing": "run_lifecycle",
-  "run.paused": "run_lifecycle",
-  "run.completed": "run_lifecycle",
-  "run.interrupted": "run_lifecycle",
-  "run.stopped": "run_lifecycle",
-  "run.failed": "run_lifecycle",
-  "run.rolled_back": "run_lifecycle",
-  "run.provider_initialized": "run_lifecycle",
-  "run.turn_started": "run_lifecycle",
-  "run.worker_shutdown": "run_lifecycle",
-  "run.step_limit_reached": "run_lifecycle",
-  "run.token_limit_reached": "run_lifecycle",
-  "run.recovery_steps_added": "run_lifecycle",
-  "run.recovery_resolved": "run_lifecycle",
-  "run.refusal_choice_requested": "run_lifecycle",
-  "run.refusal_choice_resolved": "run_lifecycle",
-  "run.usage_credits_choice_requested": "run_lifecycle",
-  "run.usage_credits_choice_resolved": "run_lifecycle",
-  // assistant_output
-  "assistant.message": "assistant_output",
-  "assistant.thinking_update": "assistant_output",
-  // tool_activity
-  "tool.invoked": "tool_activity",
-  "tool.result": "tool_activity",
-  "tool.error": "tool_activity",
-  "subagent.started": "tool_activity",
-  "subagent.completed": "tool_activity",
-  "command.ended": "tool_activity",
-  // interactive_request
-  "queue_item.created": "interactive_request",
-  "queue_item.admitted": "interactive_request",
-  "queue_item.superseded": "interactive_request",
-  "queue_item.canceled": "interactive_request",
-  "queue_item.not_delivered": "interactive_request",
-  "intervention.requested": "interactive_request",
-  "intervention.accepted": "interactive_request",
-  "intervention.applied": "interactive_request",
-  "intervention.rejected": "interactive_request",
-  "intervention.degraded": "interactive_request",
-  "intervention.expired": "interactive_request",
-  "intervention.failed": "interactive_request",
-  "user.message": "interactive_request",
-  "question.asked": "interactive_request",
-  // artifact_publication
-  "artifact.published": "artifact_publication",
-  "artifact.superseded": "artifact_publication",
-  "git.settled": "artifact_publication",
-  // session_lifecycle
-  "session.created": "session_lifecycle",
-  "session.activated": "session_lifecycle",
-  "session.archived": "session_lifecycle",
-  "session.reactivated": "session_lifecycle",
-  "session.closed": "session_lifecycle",
-  "session.goal_updated": "session_lifecycle",
-  "session.goal_cleared": "session_lifecycle",
-  "session.provider_status": "session_lifecycle",
-  "session.notice": "session_lifecycle",
-  "session.renamed": "session_lifecycle",
-  "session.pinned": "session_lifecycle",
-  "session.unpinned": "session_lifecycle",
-  "session.muted": "session_lifecycle",
-  "session.unmuted": "session_lifecycle",
-  "session.converted": "session_lifecycle",
-  "session.side_question_answered": "session_lifecycle",
-  "session.spend_limit_reached": "session_lifecycle",
-  "session.restore_finished": "session_lifecycle",
-  "session.advisor_changed": "session_lifecycle",
-  "agent.provider_binding_changed": "session_lifecycle",
-  "agent.provider_binding_change_failed": "session_lifecycle",
-  "workspace.preparing": "session_lifecycle",
-  "workspace.ready": "session_lifecycle",
-  "workspace.stale": "session_lifecycle",
-  "workspace.archived": "session_lifecycle",
-  "worktree.created": "session_lifecycle",
-  "worktree.ready": "session_lifecycle",
-  "worktree.dirty": "session_lifecycle",
-  "worktree.merged": "session_lifecycle",
-  "worktree.retired": "session_lifecycle",
-  "repo.mount_health_changed": "session_lifecycle",
-  "session.branch_changed": "session_lifecycle",
-  "session.swept_to_repo_root": "session_lifecycle",
-  "pty.control_changed": "session_lifecycle",
-  "cloud.task_updated": "session_lifecycle",
-  // approval_flow
-  "approval.requested": "approval_flow",
-  "approval.approved": "approval_flow",
-  "approval.rejected": "approval_flow",
-  "approval.canceled": "approval_flow",
-  "approval.remembered": "approval_flow",
-  "approval.rule_revoked": "approval_flow",
-  "approval.reviewer_denied": "approval_flow",
-  "approval.denial_overridden": "approval_flow",
-  "moderation.review_flagged": "approval_flow",
-  "plan.proposed": "approval_flow",
-  "plan.accepted": "approval_flow",
-  "plan.handed_off": "approval_flow",
-  // usage_telemetry
-  "usage.token_count": "usage_telemetry",
-  "usage.cost_update": "usage_telemetry",
-  "usage.context_window_update": "usage_telemetry",
-  "usage.rate_limit_update": "usage_telemetry",
-  "usage.api_retry": "usage_telemetry",
-  "usage.context_compacted": "usage_telemetry",
-  "usage.model_rerouted": "usage_telemetry",
-  // recovery_events
-  "recovery.attempted": "recovery_events",
-  "recovery.succeeded": "recovery_events",
-  "recovery.failed": "recovery_events",
-  "recovery.damaged_events_skipped": "recovery_events",
-  // security_events
-  "relay.pin_refused": "security_events",
-  // event_maintenance
-  "event.compacted": "event_maintenance",
-  "backup.completed": "event_maintenance",
-  "backup.failed": "event_maintenance",
-  "backup.restored": "event_maintenance",
-  // orchestration_admission
-  "orchestration.rejected": "orchestration_admission",
-  // mcp_governance
-  "mcp.server_oauth_completed": "mcp_governance",
-  // workflow_lifecycle
-  "workflow.created": "workflow_lifecycle",
-  "workflow.started": "workflow_lifecycle",
-  "workflow.gated": "workflow_lifecycle",
-  "workflow.failed": "workflow_lifecycle",
-  "workflow.completed": "workflow_lifecycle",
-  "workflow.resumed": "workflow_lifecycle",
-  "workflow.canceled": "workflow_lifecycle",
-  "workflow.run_waiting": "workflow_lifecycle",
-  "workflow.run_deleted": "workflow_lifecycle",
-  "workflow.schedule_armed": "workflow_lifecycle",
-  "workflow.schedule_fired": "workflow_lifecycle",
-  "workflow.trigger_armed": "workflow_lifecycle",
-  "workflow.trigger_fired": "workflow_lifecycle",
-  "workflow.results_posted": "workflow_lifecycle",
-  // workflow_phase_lifecycle
-  "workflow.phase_admitted": "workflow_phase_lifecycle",
-  "workflow.phase_waiting_on_pool": "workflow_phase_lifecycle",
-  "workflow.phase_started": "workflow_phase_lifecycle",
-  "workflow.phase_progressed": "workflow_phase_lifecycle",
-  "workflow.phase_canceling": "workflow_phase_lifecycle",
-  "workflow.phase_failed": "workflow_phase_lifecycle",
-  "workflow.phase_retried": "workflow_phase_lifecycle",
-  "workflow.phase_suspended": "workflow_phase_lifecycle",
-  "workflow.phase_resumed": "workflow_phase_lifecycle",
-  "workflow.phase_completed": "workflow_phase_lifecycle",
-  "workflow.step_started": "workflow_phase_lifecycle",
-  "workflow.step_finished": "workflow_phase_lifecycle",
-  "workflow.step_failed": "workflow_phase_lifecycle",
-  "workflow.step_canceled": "workflow_phase_lifecycle",
-  "workflow.step_skipped": "workflow_phase_lifecycle",
-  // workflow_parallel_coordination
-  "workflow.parallel_join_cancellation": "workflow_parallel_coordination",
-  // workflow_gate_resolution
-  "workflow.gate_resolved": "workflow_gate_resolution",
-} satisfies Record<SessionEventType, EventCategory>;
+// Checked both ways: a registered type with no category, a category outside the closed set, or
+// a category for a type the closed list lacks is a compile error.
+const SESSION_EVENT_CATEGORIES: Readonly<Record<SessionEventType, EventCategory>> &
+  Readonly<Record<Exclude<keyof typeof SESSION_EVENT_CATEGORY_RECORD, SessionEventType>, never>> =
+  SESSION_EVENT_CATEGORY_RECORD;
 
 /**
  * Each registered wire type's category. A `ReadonlyMap`, not an object, so an untrusted
  * `.get(type)` read before parsing cannot walk the prototype chain to `__proto__` or `constructor`.
  */
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
-  // Sound by the `satisfies` check above: the record's keys are exactly the `SessionEventType`
-  // literals.
-  Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,
+  // Sound by the check above: the record's keys are exactly the `SessionEventType` literals.
+  Object.entries(SESSION_EVENT_CATEGORIES) as ReadonlyArray<[SessionEventType, EventCategory]>,
 );
 
 // Builds one union arm. It is not exported, so its inferred return type keeps the literal `type`
-// the discriminated union dispatches on; the category comes from the record above, so an arm filed
-// under another category is a compile error.
+// the discriminated union dispatches on; the category comes from the category record, so an arm
+// filed under another category is a compile error.
 
 const buildSessionEventVariantSchema = <
   TType extends SessionEventType,

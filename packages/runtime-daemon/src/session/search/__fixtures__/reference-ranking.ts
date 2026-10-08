@@ -17,7 +17,6 @@ import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import type { SearchQuery } from "@ai-sidekicks/search-index";
 
 import { indexRowKindOf } from "../index/columns.js";
-import { parseSessionSearchQuery } from "../query.js";
 import type { DirectoryRow } from "./seeded-directory.js";
 
 // A token no query of the tests reaches, standing for the owner the index keeps beside the text.
@@ -87,21 +86,58 @@ function sessionsTagged(
   return new Set([...first].filter((sessionId) => others.every((other) => other.has(sessionId))));
 }
 
+// A query as the search box sends it, and the words and tags it names, written out so the reference
+// never reads a query through the parser under test.
+interface ReferenceQuery {
+  readonly query: string;
+  readonly searchQuery: SearchQuery;
+  readonly tagFolds: readonly string[];
+}
+
 // The seeded directory's query classes: one common word, two words, a word still being typed, a
 // folded accent, a tool call's arguments, a finished word in group names and titles, and words
-// within a tag, nested tags included, written in any case, with a word still being typed, and
-// within two tags.
-const REFERENCE_QUERIES = [
-  "deploy",
-  "billing stripe",
-  "re",
-  "cafe",
-  "git commit",
-  "notes ",
-  "tag:billing deploy",
-  "tag:BILLING re",
-  "tag:deploy git commit",
-  "tag:billing tag:infra worker",
+// within a tag, nested tags included, written in any case, with a word still being typed, within
+// two tags, and finished by the tag typed after it.
+const REFERENCE_QUERIES: readonly ReferenceQuery[] = [
+  { query: "deploy", searchQuery: { words: ["deploy"], lastWordIsPrefix: true }, tagFolds: [] },
+  {
+    query: "billing stripe",
+    searchQuery: { words: ["billing", "stripe"], lastWordIsPrefix: true },
+    tagFolds: [],
+  },
+  { query: "re", searchQuery: { words: ["re"], lastWordIsPrefix: true }, tagFolds: [] },
+  { query: "cafe", searchQuery: { words: ["cafe"], lastWordIsPrefix: true }, tagFolds: [] },
+  {
+    query: "git commit",
+    searchQuery: { words: ["git", "commit"], lastWordIsPrefix: true },
+    tagFolds: [],
+  },
+  { query: "notes ", searchQuery: { words: ["notes"], lastWordIsPrefix: false }, tagFolds: [] },
+  {
+    query: "tag:billing deploy",
+    searchQuery: { words: ["deploy"], lastWordIsPrefix: true },
+    tagFolds: ["billing"],
+  },
+  {
+    query: "tag:BILLING re",
+    searchQuery: { words: ["re"], lastWordIsPrefix: true },
+    tagFolds: ["billing"],
+  },
+  {
+    query: "tag:deploy git commit",
+    searchQuery: { words: ["git", "commit"], lastWordIsPrefix: true },
+    tagFolds: ["deploy"],
+  },
+  {
+    query: "tag:billing tag:infra worker",
+    searchQuery: { words: ["worker"], lastWordIsPrefix: true },
+    tagFolds: ["billing", "infra"],
+  },
+  {
+    query: "deploy tag:billing",
+    searchQuery: { words: ["deploy"], lastWordIsPrefix: false },
+    tagFolds: ["billing"],
+  },
 ];
 // Small pages, so every query pages many times.
 const REFERENCE_PAGE_LIMIT = 3;
@@ -111,7 +147,7 @@ export function hitsByQuery(
   search: (request: SessionSearchRequest) => SessionSearchResponse,
 ): Record<string, ShownHit[]> {
   return Object.fromEntries(
-    REFERENCE_QUERIES.map((query) => [
+    REFERENCE_QUERIES.map(({ query }) => [
       query,
       readEveryHit(search, { query, limit: REFERENCE_PAGE_LIMIT }),
     ]),
@@ -121,11 +157,7 @@ export function hitsByQuery(
 /** Each reference query's hits as an FTS5 index ranks `rows`, by query. */
 export function referenceHitsByQuery(rows: readonly DirectoryRow[]): Record<string, ShownHit[]> {
   return Object.fromEntries(
-    REFERENCE_QUERIES.map((query) => {
-      const { searchQuery, tagFolds } = parseSessionSearchQuery(query);
-      if (searchQuery === undefined) {
-        throw new Error(`The reference query "${query}" names no word.`);
-      }
+    REFERENCE_QUERIES.map(({ query, searchQuery, tagFolds }) => {
       const hits = referenceHits(rows, searchQuery);
       if (tagFolds.length === 0) {
         return [query, hits];

@@ -3,19 +3,35 @@
 // another database is built again from the database in a child process; either way the pages equal
 // an FTS5 index's over the same rows, and the outbox empties once the index holds its rows. A build
 // cut short is started over from an empty folder, and a build that fails fails the start with what
-// it threw.
+// it threw. A start aborted during a build ends the build's process and settles only once it has
+// exited.
 
+import type { ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sessionIdOf } from "../../__fixtures__/index-rows.js";
 import { hitsByQuery, referenceHitsByQuery } from "../../__fixtures__/reference-ranking.js";
-import { SearchFixture } from "../../__fixtures__/search-services.js";
+import { SearchFixture } from "../../__fixtures__/services.js";
 import { SeededDirectory } from "../../__fixtures__/seeded-directory.js";
 import { openSearchServices } from "../services.js";
+
+// Every process this file forks, so a test can watch the build's process end.
+const forkedChildren = vi.hoisted((): ChildProcess[] => []);
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    fork: (...args: Parameters<typeof actual.fork>): ChildProcess => {
+      const child = actual.fork(...args);
+      forkedChildren.push(child);
+      return child;
+    },
+  };
+});
 
 describe("the search thread's start", () => {
   let fixture: SearchFixture;
@@ -117,11 +133,40 @@ describe("the search thread's start", () => {
         databasePath: join(folder, "absent.db"),
         indexFolderPath: join(folder, "search-index"),
         onApplied: () => {},
+        signal: new AbortController().signal,
       });
       await expect(starting).rejects.toMatchObject({
         code: "SQLITE_CANTOPEN",
         message: "unable to open database file",
       });
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("ends the build's process when the start is aborted, and rejects only once it has exited", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "search-build-"));
+    try {
+      const forkedBefore = forkedChildren.length;
+      const opening = new AbortController();
+      const starting = openSearchServices({
+        reader: fixture.database,
+        databasePath: fixture.database.name,
+        indexFolderPath: join(folder, "search-index"),
+        onApplied: () => {},
+        signal: opening.signal,
+      });
+      await vi.waitFor(() => {
+        expect(forkedChildren).toHaveLength(forkedBefore + 1);
+      });
+      const build = forkedChildren.at(-1)!;
+      const closing = new Error("closing");
+
+      opening.abort(closing);
+
+      await expect(starting).rejects.toBe(closing);
+      // No build is left writing beside the index once the start has settled.
+      expect(build.signalCode ?? build.exitCode).not.toBeNull();
     } finally {
       await rm(folder, { recursive: true, force: true });
     }

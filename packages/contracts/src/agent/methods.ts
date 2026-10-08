@@ -8,7 +8,6 @@
 import { z } from "zod";
 
 import {
-  providerTokenSchema,
   AgentDefinitionCreateRequestSchema,
   AgentDefinitionCreateResponseSchema,
   AgentDefinitionDeleteRequestSchema,
@@ -24,6 +23,7 @@ import {
   AgentIdSchema,
   AgentProviderBindingSchema,
   AgentResolvedConfigurationSchema,
+  providerTokenSchema,
   type AgentDefinitionCreateRequest,
   type AgentDefinitionCreateResponse,
   type AgentDefinitionDeleteRequest,

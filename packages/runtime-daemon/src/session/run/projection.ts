@@ -14,6 +14,7 @@ import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { sqlListOf } from "../../database/sql-list.js";
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../../events/session/skipped-ranges.js";
 import {
   ProjectionFailureError,
@@ -53,7 +54,7 @@ const SWAP_RUN_STATE_SQL = `UPDATE runs
 // An ended run keeps its version: nothing moves a run past its end event.
 const ADVANCE_RUN_VERSION_SQL = `UPDATE runs
     SET run_version = run_version
-      + CASE WHEN state IN (${RUN_TERMINAL_STATES.map((state) => `'${state}'`).join(", ")})
+      + CASE WHEN state IN (${sqlListOf(RUN_TERMINAL_STATES)})
           THEN 0 ELSE 1 END
   WHERE run_id = @run_id
     AND session_id = @session_id`;
@@ -70,7 +71,7 @@ const ADVANCE_PAST_SKIPPED_VERSIONS_SQL = `UPDATE runs
        WHERE session_id = @session_id
          AND sequence BETWEEN @from_sequence AND @to_sequence), run_version))
   WHERE session_id = @session_id
-    AND state NOT IN (${RUN_TERMINAL_STATES.map((state) => `'${state}'`).join(", ")})`;
+    AND state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})`;
 
 /** The statement that creates a run's row from its `run.queued` payload. */
 export function insertQueuedRunStatement(payload: RunQueuedPayload): WriteStatement {

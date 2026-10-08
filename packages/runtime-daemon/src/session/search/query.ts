@@ -20,9 +20,10 @@ const TOKEN_CHARACTER = /[\p{L}\p{N}]/u;
 
 /** Parses a `Search all sessions` query: `tag:<tag>` terms are tags, every other term a word. */
 export function parseSessionSearchQuery(query: string): ParsedSearchQuery {
+  const terms = splitTerms(query);
   const words: string[] = [];
   const tagFolds: string[] = [];
-  for (const term of splitTerms(query)) {
+  for (const term of terms) {
     const tag = term.toLowerCase().startsWith(TAG_TERM_PREFIX)
       ? term.slice(TAG_TERM_PREFIX.length).replace(/\/+$/u, "")
       : undefined;
@@ -32,25 +33,31 @@ export function parseSessionSearchQuery(query: string): ParsedSearchQuery {
       tagFolds.push(foldName(tag));
     }
   }
-  return { searchQuery: searchQueryOfWords(words, query), tagFolds };
+  return { searchQuery: searchQueryOfWords(words, terms, query), tagFolds };
 }
 
 /** The words of a find box query inside one session, where every term is a word. */
 export function parseFindQuery(query: string): SearchQuery | undefined {
-  return searchQueryOfWords(splitTerms(query), query);
+  const terms = splitTerms(query);
+  return searchQueryOfWords(terms, terms, query);
 }
 
 function splitTerms(query: string): string[] {
   return query.split(/\s+/u).filter((term) => term.length > 0);
 }
 
-function searchQueryOfWords(terms: readonly string[], query: string): SearchQuery | undefined {
-  const words = terms.filter((term) => TOKEN_CHARACTER.test(term));
+// The query's words that hold a token, from `wordTerms` among every one of its `terms`.
+function searchQueryOfWords(
+  wordTerms: readonly string[],
+  terms: readonly string[],
+  query: string,
+): SearchQuery | undefined {
+  const words = wordTerms.filter((term) => TOKEN_CHARACTER.test(term));
   if (words.length === 0) {
     return undefined;
   }
-  // A query that ends in a space has finished its last word, and so has one whose last term holds
-  // no token.
+  // A query that ends in a space has finished its last word, and so has one whose last term is a
+  // tag or holds no token.
   const lastWordIsPrefix = !/\s$/u.test(query) && words.at(-1) === terms.at(-1);
   return { words, lastWordIsPrefix };
 }

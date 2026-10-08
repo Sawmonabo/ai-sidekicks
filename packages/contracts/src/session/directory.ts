@@ -1,22 +1,12 @@
 // The session directory as a client reads and moves it: the live sessions list and its
 // entries, creating a session (where it works and who leads it), converting a chat to a
 // project (its shapes in `session/convert.ts`), forking a session, moving its working folder,
-// and the `session.*` method table for these verbs and for `session.subscribe`.
-//
-// The subscribe shapes name the session event union, which imports `session/methods.ts` at load,
-// so they cannot live there.
+// and the `session.*` method table for these verbs and for `session.subscribe`, whose frames
+// carry each event as its envelope, so a type the wire has no payload variant for still parses.
 import { z } from "zod";
 
-import {
-  AgentDefinitionIdSchema,
-  AgentProviderBindingSchema,
-  AgentResolvedConfigurationSchema,
-  type AgentDefinitionId,
-  type AgentProviderBinding,
-  type AgentResolvedConfiguration,
-} from "../agent/definition.js";
-import { SessionEventSchema } from "../event/session.js";
-import type { SessionEvent } from "../event/variant-types.js";
+import { AgentProviderBindingSchema, type AgentProviderBinding } from "../agent/definition.js";
+import { EventEnvelopeSchema, type EventEnvelope } from "../event/envelope.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
@@ -308,58 +298,26 @@ const SessionLeadSchema: z.ZodType<SessionLead, SessionLead> = AgentProviderBind
  * What `session.create` takes: where the session works and who leads it.
  *
  * - `lead` is the lead's provider, model and effort, as the app chose them; the daemon resolves
- *   the account.
- * - `leadDefinitionId` names a saved definition the lead runs under; with `lead` beside it,
- *   `lead` is the binding the definition runs on.
- * - At least one of the two is present: a session is born with its lead.
- * - `scratch` asks for the definition's scratch session, which the daemon reuses while one is
- *   open, so it needs `leadDefinitionId` and a chat binding: a scratch session has no repo.
+ *   the account. A session is born with its lead.
  * - `groupId` files the new session in that group of its project, so it needs a project
  *   binding: a chat sits in no group.
  */
 export interface SessionCreateRequest {
   clientIdempotencyKey: string;
   binding: SessionBinding;
-  lead?: SessionLead | undefined;
-  leadDefinitionId?: AgentDefinitionId | undefined;
-  scratch?: true | undefined;
+  lead: SessionLead;
   groupId?: SessionGroupId | undefined;
 }
-/** Parses a {@link SessionCreateRequest}; a session must name a lead binding or a definition. */
+/** Parses a {@link SessionCreateRequest}; a group needs a project. */
 export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
   .object({
     clientIdempotencyKey: z.uuid(),
     binding: SessionBindingSchema,
-    lead: SessionLeadSchema.optional(),
-    leadDefinitionId: AgentDefinitionIdSchema.optional(),
-    scratch: z.literal(true).optional(),
+    lead: SessionLeadSchema,
     groupId: SessionGroupIdSchema.optional(),
   })
   .strict()
   .superRefine((request, context) => {
-    if (request.lead === undefined && request.leadDefinitionId === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["lead"],
-        message: "A session starts with its lead: name a binding, a definition, or both.",
-      });
-    }
-    if (request.scratch === true) {
-      if (request.leadDefinitionId === undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["leadDefinitionId"],
-          message: "A scratch session is led by the definition under test.",
-        });
-      }
-      if (request.binding.kind !== "chat") {
-        context.addIssue({
-          code: "custom",
-          path: ["binding"],
-          message: "A scratch session has no repo.",
-        });
-      }
-    }
     if (request.groupId !== undefined && request.binding.kind !== "project") {
       context.addIssue({
         code: "custom",
@@ -371,16 +329,13 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
 
 /**
  * What `session.create` answers. `lead` is the binding the daemon resolved for the lead, the
- * account among it. `resolvedConfiguration` is present exactly when the request named a
- * definition: what the lead was started with, so the caller shows what it got rather than
- * re-reading the definition.
+ * account among it.
  */
 export interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
   lead: AgentProviderBinding;
-  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
 }
 /** Parses a {@link SessionCreateResponse}. */
 export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
@@ -389,7 +344,6 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
     shape: SessionShapeSchema,
     state: SessionStateSchema,
     lead: AgentProviderBindingSchema,
-    resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
   })
   .strict();
 
@@ -554,7 +508,7 @@ export interface SessionDirectoryMethodDescriptors {
     "session.subscribe",
     SessionSubscribeRequest,
     SessionSubscribeResponse,
-    SessionStreamFrame<SessionEvent>
+    SessionStreamFrame<EventEnvelope>
   >;
   readonly "session.convert": MethodDescriptor<
     "session.convert",
@@ -602,7 +556,7 @@ export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescrip
       mutating: false,
       requestSchema: SessionSubscribeRequestSchema,
       responseSchema: SessionSubscribeResponseSchema,
-      emissionSchema: SessionStreamFrameSchema(SessionEventSchema),
+      emissionSchema: SessionStreamFrameSchema(EventEnvelopeSchema),
     },
     "session.convert": {
       method: "session.convert",

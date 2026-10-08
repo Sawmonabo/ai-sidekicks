@@ -9,14 +9,15 @@ import type { Database, Statement } from "better-sqlite3";
 import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
-import type {
-  TranscriptSearchHit,
-  TranscriptSearchRequest,
-  TranscriptSearchResponse,
+import {
+  TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
+  type TranscriptSearchHit,
+  type TranscriptSearchRequest,
+  type TranscriptSearchResponse,
 } from "@ai-sidekicks/contracts/transcript/search";
 import type { SearchIndex } from "@ai-sidekicks/search-index";
 
-import { SessionNotFoundError } from "../../ipc/session-errors.js";
+import { sessionNotFound } from "../not-found.js";
 import { HitLineReader } from "./hits.js";
 import { indexKeyOf } from "./index/columns.js";
 import type { IndexRowReader } from "./index/rows.js";
@@ -44,7 +45,7 @@ export class TranscriptSearchService {
   ) {
     this.#reader = reader;
     this.#index = index;
-    this.#hitLines = new HitLineReader(rows, index);
+    this.#hitLines = new HitLineReader(rows, index, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
     this.#sessionKey = reader.prepare<[string], number>(SESSION_KEY_SQL).pluck();
     this.#lastRowidBefore = reader
       .prepare<[string, number], number | null>(LAST_ROWID_BEFORE_SQL)
@@ -52,20 +53,23 @@ export class TranscriptSearchService {
   }
 
   /**
-   * One page of the session's hits, newest first, before `beforeCursor` when it is given. Throws
-   * `SessionNotFoundError` for a session the daemon does not hold and
+   * One page of the session's hits, newest first, before `beforeCursor` when it is given. A
+   * session whose history is damaged from `damagedFromSequence` on is searched before that point
+   * alone, its hits and its match count both, as its reads stop there. Throws
+   * `session.not_found` for a session the daemon does not hold and
    * `EventCursorUnresolvableError` for a cursor that names no position.
    */
-  search(request: TranscriptSearchRequest): TranscriptSearchResponse {
-    return this.#reader.transaction(() => this.#answer(request))();
+  search(request: TranscriptSearchRequest, damagedFromSequence?: number): TranscriptSearchResponse {
+    return this.#reader.transaction(() => this.#answer(request, damagedFromSequence))();
   }
 
-  #answer(request: TranscriptSearchRequest): TranscriptSearchResponse {
+  #answer(
+    request: TranscriptSearchRequest,
+    damagedFromSequence: number | undefined,
+  ): TranscriptSearchResponse {
     const sessionKey = this.#sessionKey.get(request.sessionId);
     if (sessionKey === undefined) {
-      throw new SessionNotFoundError("The daemon holds no session with this id.", {
-        sessionId: request.sessionId,
-      });
+      throw sessionNotFound(request.sessionId);
     }
     const beforeSequence =
       request.beforeCursor === undefined ? undefined : decodeEventCursor(request.beforeCursor);
@@ -73,11 +77,17 @@ export class TranscriptSearchService {
     if (searchQuery === undefined) {
       return { matchCount: 0, hits: [], hasMore: false };
     }
-    const { rowKeys, totalMatchCount } = this.#index.findInSession(sessionKey, searchQuery);
-    const firstPlace =
-      beforeSequence === undefined
+    const { rowKeys, matchCounts } = this.#index.findInSession(sessionKey, searchQuery);
+    const placeBefore = (sequence: number | undefined): number =>
+      sequence === undefined
         ? 0
-        : firstPlaceAtOrBelow(rowKeys, this.#highestKeyBefore(request.sessionId, beforeSequence));
+        : firstPlaceAtOrBelow(rowKeys, this.#highestKeyBefore(request.sessionId, sequence));
+    // The rows a damaged session's reads still reach, which the count covers whole.
+    const firstReadablePlace = placeBefore(damagedFromSequence);
+    const firstPlace = Math.max(firstReadablePlace, placeBefore(beforeSequence));
+    const matchCount = matchCounts
+      .slice(firstReadablePlace)
+      .reduce((total, rowMatchCount) => total + rowMatchCount, 0);
     const limit = request.limit ?? TRANSCRIPT_READ_LIMIT_MAX;
     // One candidate past the limit shows whether more remain.
     const candidates = this.#hitLines
@@ -98,8 +108,8 @@ export class TranscriptSearchService {
     const hits = candidates.slice(0, pageSize);
     const lastHit = hits.at(-1);
     return candidates.length > pageSize && lastHit !== undefined
-      ? { matchCount: totalMatchCount, hits, hasMore: true, nextCursor: lastHit.cursor }
-      : { matchCount: totalMatchCount, hits, hasMore: false };
+      ? { matchCount, hits, hasMore: true, nextCursor: lastHit.cursor }
+      : { matchCount, hits, hasMore: false };
   }
 
   // The highest key a row of the session before `beforeSequence` can have; -1 when it has none.

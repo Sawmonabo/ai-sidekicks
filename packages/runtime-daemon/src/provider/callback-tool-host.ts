@@ -21,6 +21,7 @@ import {
   type CallbackToolInvocation,
   type CallbackToolResult,
 } from "./driver/contract.js";
+import { cutToCodeUnits } from "../text-cut.js";
 
 /**
  * One evaluation input, shaped as the `approval.requestCreate` payload the composed `check()`
@@ -640,21 +641,10 @@ function describeBoundedWireIdentifier(
     return { [fieldName]: value, [`${fieldName}Truncated`]: false };
   }
   return {
-    [fieldName]: truncateAtCodePointBoundary(value, maxLength),
+    [fieldName]: cutToCodeUnits(value, maxLength),
     [`${fieldName}Truncated`]: true,
     [`${fieldName}OriginalLength`]: value.length,
   };
-}
-
-/**
- * Cuts a string to at most `maxLength` UTF-16 code units without splitting a surrogate pair, which
- * some sinks cannot serialize.
- */
-function truncateAtCodePointBoundary(value: string, maxLength: number): string {
-  const cut = value.slice(0, maxLength);
-  const lastUnit = cut.charCodeAt(cut.length - 1);
-  const splitsSurrogatePair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
-  return splitsSurrogatePair ? cut.slice(0, -1) : cut;
 }
 
 /**

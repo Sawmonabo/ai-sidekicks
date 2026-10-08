@@ -1,18 +1,10 @@
-// The session directory: how a reader ages a row's activity, the rules `session.create` holds a
-// new session to (born with its lead; a scratch session is a definition's, in a chat; only a
-// project session is filed in a group), and its reply, which echoes the configuration resolved
-// from a definition.
+// The session directory: how a reader ages a row's activity, and the rules `session.create` holds a
+// new session to (its lead names no account; only a project session is filed in a group).
 import { describe, expect, it } from "vitest";
 
-import {
-  SessionCreateRequestSchema,
-  SessionCreateResponseSchema,
-  sessionActivityAsOf,
-} from "../directory.js";
+import { SessionCreateRequestSchema, sessionActivityAsOf } from "../directory.js";
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002";
-const DEFINITION_ID = "990e8400-e29b-41d4-a716-446655440004";
 const GROUP_ID = "aa0e8400-e29b-41d4-a716-446655440005";
 const ACCOUNT_ID = "bb0e8400-e29b-41d4-a716-446655440006";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
@@ -40,7 +32,7 @@ describe("session.create", () => {
   const lead = { driverName: "claude", modelId: "claude-opus-4-5", effort: "high" };
   const resolvedLead = { ...lead, providerAccountId: ACCOUNT_ID };
 
-  it("accepts a lead in a chat or a project, and a definition's scratch chat", () => {
+  it("accepts a lead in a chat or a project", () => {
     expect(
       SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
@@ -55,14 +47,6 @@ describe("session.create", () => {
         lead,
       }).success,
     ).toBe(true);
-    expect(
-      SessionCreateRequestSchema.safeParse({
-        clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "chat" },
-        leadDefinitionId: DEFINITION_ID,
-        scratch: true,
-      }).success,
-    ).toBe(true);
   });
 
   it("refuses a lead that names an account, which the daemon resolves", () => {
@@ -71,34 +55,6 @@ describe("session.create", () => {
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
         lead: resolvedLead,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("refuses a session with no lead", () => {
-    expect(
-      SessionCreateRequestSchema.safeParse({
-        clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "chat" },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("refuses a scratch session with no definition, or with a repo", () => {
-    expect(
-      SessionCreateRequestSchema.safeParse({
-        clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "chat" },
-        lead,
-        scratch: true,
-      }).success,
-    ).toBe(false);
-    expect(
-      SessionCreateRequestSchema.safeParse({
-        clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "provisioned-worktree" },
-        leadDefinitionId: DEFINITION_ID,
-        scratch: true,
       }).success,
     ).toBe(false);
   });
@@ -118,31 +74,6 @@ describe("session.create", () => {
         binding: { kind: "chat" },
         lead,
         groupId: GROUP_ID,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("answers with the session's shape, the lead it resolved, and its definition's configuration", () => {
-    expect(
-      SessionCreateResponseSchema.safeParse({
-        sessionId: SESSION_ID,
-        shape: "chat",
-        state: "provisioning",
-        lead: resolvedLead,
-        resolvedConfiguration: {
-          resolvedFromDefinitionId: DEFINITION_ID,
-          resolvedBinding: resolvedLead,
-          toolAllowlist: null,
-          instructions: "Review the diff.",
-          goal: null,
-        },
-      }).success,
-    ).toBe(true);
-    expect(
-      SessionCreateResponseSchema.safeParse({
-        sessionId: SESSION_ID,
-        shape: "chat",
-        state: "provisioning",
       }).success,
     ).toBe(false);
   });

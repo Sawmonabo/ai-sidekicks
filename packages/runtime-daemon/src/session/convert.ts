@@ -1,9 +1,11 @@
 // Converting a chat to a project in place. The typed folder is attached, or the machine's mount for
 // it reused, and the conversion recorded under the request's idempotency key; the chat's files are
 // copied in without replacing anything the repository holds, each outcome recorded as it lands; the
-// session binds to the project's checkout; and `session.converted` moves its shape. A conversion
-// that stopped part way resumes from its records, and the files not copied are read page by page.
-// The session keeps its id and transcript, and its managed workspace stays with its history.
+// session binds to the project's checkout; and `session.converted` moves its shape. Each file is
+// written under a name of the daemon's own and published under its real name once whole, so a stop
+// part way never leaves half a file under a name the repository's files use. A conversion that
+// stopped part way resumes from its records, and the files not copied are read page by page. The
+// session keeps its id and transcript, and its managed workspace stays with its history.
 
 import { constants as fsConstants, type Dirent } from "node:fs";
 import { mkdir, open, readdir, unlink, type FileHandle } from "node:fs/promises";
@@ -13,10 +15,6 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 
-import {
-  EventEnvelopeVersionSchema,
-  type EventEnvelopeVersion,
-} from "@ai-sidekicks/contracts/event/envelope";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import {
@@ -39,18 +37,26 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import type { EventLogService } from "../events/log-service.js";
+import { publishWithoutReplacing } from "../file/publish-without-replacing.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
-import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { KeyedLock } from "../keyed-lock.js";
-import { mintUuidV7 } from "../uuid-v7.js";
 import type { RepoMountService } from "../workspace/repo/mount-service.js";
 import type { WorkspaceService } from "../workspace/service.js";
-import { refuseUnchangeableSession, type SessionChanges } from "./changes.js";
-
-const SESSION_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
+import {
+  refuseProvisioningSession,
+  refuseUnchangeableSession,
+  type SessionChanges,
+} from "./changes.js";
+import { sessionLifecycleEvent } from "./lifecycle-event.js";
+import { sessionNotFound } from "./not-found.js";
 
 // The workspace's own repository is the daemon's record of the chat, never one of its files.
 const GIT_METADATA_ENTRY_NAME = ".git";
+
+// A file is written under this name, the session's id after it, in the folder it lands in, and
+// published under its own name once whole. Nothing but the session's conversion makes a file so
+// named.
+const COPY_IN_PROGRESS_NAME_PREFIX = ".ai-sidekicks-copy-";
 
 const SESSION_FACTS_SQL = "SELECT shape, state FROM sessions WHERE id = ?";
 
@@ -77,6 +83,16 @@ const CONVERSION_BY_KEY_SQL = `SELECT request.session_id AS sessionId, event.pay
     ON event.session_id = request.session_id AND event.type = 'session.converted'
  WHERE request.client_idempotency_key = ?`;
 
+// Every chat's conversion that has not landed its `session.converted`, with the folder it copies
+// into.
+const UNFINISHED_CONVERSIONS_SQL = `SELECT request.session_id AS sessionId,
+       mount.canonical_root AS canonicalRoot
+  FROM session_convert_requests AS request
+  JOIN repo_mounts AS mount ON mount.id = request.repo_mount_id
+ WHERE NOT EXISTS (SELECT 1 FROM session_events AS event
+                    WHERE event.session_id = request.session_id
+                      AND event.type = 'session.converted')`;
+
 // A chat's conversion that stopped part way, with the folder it copies into.
 const UNFINISHED_CONVERSION_SQL = `SELECT request.client_idempotency_key AS clientIdempotencyKey,
        request.repo_mount_id AS repoMountId, mount.canonical_root AS canonicalRoot
@@ -102,7 +118,7 @@ const SKIPPED_FILES_PAGE_SQL = `SELECT path, outcome AS reason FROM session_conv
 // Every open names its last component exactly: a link there refuses the open instead of being
 // followed. A pipe swapped in opens without waiting for a writer, and is then refused as no file.
 const OPEN_SOURCE_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
-const CREATE_TARGET_FLAGS =
+const CREATE_COPY_FLAGS =
   fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW;
 const OPEN_FOLDER_FLAGS = fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW;
 
@@ -133,6 +149,13 @@ interface ConversionProgress extends SessionConvertResponse {
   readonly isBound: boolean;
 }
 
+// The folders one conversion copies between, and the session whose copies they hold.
+interface ConversionFolders {
+  readonly sessionId: SessionId;
+  readonly workspaceRoot: string;
+  readonly projectRoot: string;
+}
+
 // A chat's conversion that stopped part way.
 interface UnfinishedConversion {
   readonly clientIdempotencyKey: string;
@@ -157,6 +180,8 @@ export interface SessionConversionDeps {
   >;
   /** Binds the session to the project's checkout. */
   readonly workspaces: Pick<WorkspaceService, "bind">;
+  /** Writes one line to the service log. */
+  readonly writeServiceLog: (line: string) => void;
   /** The clock that stamps the event. Defaults to the system clock. */
   readonly now?: () => Date;
 }
@@ -211,6 +236,7 @@ export class SessionConversion {
     "attachOrReuse" | "readManagedRoot" | "resolveFolder"
   >;
   readonly #workspaces: Pick<WorkspaceService, "bind">;
+  readonly #writeServiceLog: (line: string) => void;
   readonly #now: () => Date;
   readonly #selectFacts: Statement<[string], SessionFacts>;
   readonly #selectConversionByKey: Statement<
@@ -218,6 +244,10 @@ export class SessionConversion {
     { readonly sessionId: string; readonly payload: string | null }
   >;
   readonly #selectUnfinishedConversion: Statement<[string], UnfinishedConversion>;
+  readonly #selectUnfinishedConversions: Statement<
+    [],
+    { readonly sessionId: SessionId; readonly canonicalRoot: string }
+  >;
   readonly #selectFilesDealtWith: Statement<[string], { readonly path: string }>;
   readonly #selectFileCounts: Statement<[string], SessionConvertResponse>;
   readonly #selectSessionExists: Statement<[string]>;
@@ -233,10 +263,12 @@ export class SessionConversion {
     this.#lock = deps.lock;
     this.#repoMounts = deps.repoMounts;
     this.#workspaces = deps.workspaces;
+    this.#writeServiceLog = deps.writeServiceLog;
     this.#now = deps.now ?? (() => new Date());
     this.#selectFacts = deps.reader.prepare(SESSION_FACTS_SQL);
     this.#selectConversionByKey = deps.reader.prepare(CONVERSION_BY_KEY_SQL);
     this.#selectUnfinishedConversion = deps.reader.prepare(UNFINISHED_CONVERSION_SQL);
+    this.#selectUnfinishedConversions = deps.reader.prepare(UNFINISHED_CONVERSIONS_SQL);
     this.#selectFilesDealtWith = deps.reader.prepare(FILES_DEALT_WITH_SQL);
     this.#selectFileCounts = deps.reader.prepare(FILE_COUNTS_SQL);
     this.#selectSessionExists = deps.reader.prepare(SESSION_EXISTS_SQL);
@@ -252,8 +284,9 @@ export class SessionConversion {
    * each before anything is attached or copied, a key another session's conversion holds
    * (`reason: idempotency_key_reused`), a path naming another folder than a stopped conversion's
    * (`reason: conversion_unfinished`, with that conversion's `repoMountId`), a session that is not
-   * a chat, or a chat with no managed workspace (`session.convert_refused`); one that takes no
-   * change (`session.already_closed`, `session.change_refused`); and a folder the attach refuses
+   * a chat, or a chat with no managed workspace (`session.convert_refused`); a closed chat
+   * (`session.already_closed`), and one still provisioning or being purged
+   * (`session.change_refused`); and a folder the attach refuses
    * (`repo.root_resolution_failed`, `repo.already_attached` for a chat's own workspace). A failure
    * after the attach throws `session.convert_incomplete` naming what was done, every landed copy
    * counted. A known limit: the few files whose copies landed while their records were still on
@@ -293,9 +326,11 @@ export class SessionConversion {
     let isBound = false;
     try {
       await this.#writer.write([record]);
-      const dealtWith = new Set(this.#selectFilesDealtWith.all(sessionId).map((row) => row.path));
-      await copyWorkspaceFiles(workspaceRoot, project.canonicalRoot, dealtWith, (path, outcome) =>
-        this.#writer.write([{ sql: RECORD_FILE_SQL, bindings: [sessionId, path, outcome] }]),
+      await copyWorkspaceFiles(
+        { sessionId, workspaceRoot, projectRoot: project.canonicalRoot },
+        this.#filesDealtWith(sessionId),
+        (path, outcome) =>
+          this.#writer.write([{ sql: RECORD_FILE_SQL, bindings: [sessionId, path, outcome] }]),
       );
       await this.#workspaces.bind({
         sessionId,
@@ -353,19 +388,47 @@ export class SessionConversion {
     };
   }
 
-  #fileCountsOf(sessionId: SessionId): SessionConvertResponse {
-    const counts = this.#selectFileCounts.get(sessionId);
-    if (counts === undefined) {
-      throw new Error("A count over a conversion's files answered no row");
+  /**
+   * Removes the file each conversion the daemon stopped part way was writing, which sits in the
+   * repository under the daemon's own name for it, never under a name the repository's files use.
+   * Run at the daemon's start; each conversion is held under its session lock meanwhile, and one
+   * whose removal fails is named in the service log, the others' removals going on.
+   */
+  async removeStoppedCopies(): Promise<void> {
+    for (const { sessionId, canonicalRoot } of this.#selectUnfinishedConversions.all()) {
+      try {
+        await this.#lock.run(sessionId, async () => {
+          const workspaceRoot = this.#repoMounts.readManagedRoot(sessionId);
+          if (workspaceRoot !== undefined) {
+            const folders = { sessionId, workspaceRoot, projectRoot: canonicalRoot };
+            await removeStoppedCopy(
+              folders,
+              await listPendingEntries(folders, this.#filesDealtWith(sessionId)),
+            );
+          }
+        });
+      } catch (error) {
+        this.#writeServiceLog(
+          `Removing the copy session ${sessionId}'s stopped conversion left failed: ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
-    return counts;
+  }
+
+  #filesDealtWith(sessionId: SessionId): ReadonlySet<string> {
+    return new Set(this.#selectFilesDealtWith.all(sessionId).map((row) => row.path));
+  }
+
+  // A count with no GROUP BY answers exactly one row.
+  #fileCountsOf(sessionId: SessionId): SessionConvertResponse {
+    return this.#selectFileCounts.get(sessionId) as SessionConvertResponse;
   }
 
   /**
    * One page of the files the session's conversion did not copy, in path order, each with its
    * reason. A session never converted, or one whose conversion copied every file, answers an
-   * empty last page. Throws {@link SessionNotFoundError} for a session this daemon holds no row
-   * for.
+   * empty last page. Throws `session.not_found` for a session this daemon holds no row for.
    */
   listSkippedFiles(
     request: SessionConvertSkippedFileListRequest,
@@ -380,9 +443,7 @@ export class SessionConversion {
       }),
     }))();
     if (!exists) {
-      throw new SessionNotFoundError("This daemon holds no such session.", {
-        sessionId: request.sessionId,
-      });
+      throw sessionNotFound(request.sessionId);
     }
     // A page stops at whichever of the limit and the page budget trips first.
     const files = rows.slice(0, countEntriesFittingOneFrame(rows, limit));
@@ -400,9 +461,10 @@ export class SessionConversion {
   #refuseUnlessOpenChat(sessionId: SessionId): void {
     const facts = this.#selectFacts.get(sessionId);
     if (facts === undefined) {
-      throw new SessionNotFoundError("This daemon holds no such session.", { sessionId });
+      throw sessionNotFound(sessionId);
     }
     refuseUnchangeableSession(sessionId, facts.state);
+    refuseProvisioningSession(sessionId, facts.state);
     if (facts.shape !== "chat") {
       throw new DaemonDomainError("Only a chat converts to a project.", {
         code: SESSION_CONVERT_REFUSED_CODE,
@@ -414,16 +476,12 @@ export class SessionConversion {
   async #appendConverted(payload: SessionConvertedPayload): Promise<void> {
     try {
       await this.#events.append(
-        {
-          id: mintUuidV7(),
+        sessionLifecycleEvent({
           sessionId: payload.sessionId,
-          occurredAt: this.#now().toISOString(),
-          category: "session_lifecycle",
           type: "session.converted",
-          actor: null,
           payload: { ...payload },
-          version: SESSION_EVENT_VERSION,
-        },
+          occurredAt: this.#now(),
+        }),
         {
           transactionalPrelude: [
             { sql: OPEN_CHAT_SQL, bindings: [payload.sessionId], expectedRowCount: 1 },
@@ -455,16 +513,19 @@ function skippedFilePathOf(cursor: SessionConvertSkippedFileCursor): string {
 }
 
 // Copies each of the workspace's files the conversion has not yet dealt with into the project, one
-// at a time, recording each outcome as it lands, every file not copied with its reason. The copy
-// goes on while records commit, so the writer folds many into one batch; at most
-// RECORDS_IN_FLIGHT_MAX wait at once, and every one has committed before this settles, either way,
-// so a stop inside the daemon still counts each landed copy. A failed record stops the copy.
+// at a time, recording each outcome as it lands, every file not copied with its reason, once the
+// file a stop part way was writing is removed. The copy goes on while records commit, so the
+// writer folds many into one batch; at most RECORDS_IN_FLIGHT_MAX wait at once, and every one has
+// committed before this settles, either way, so a stop inside the daemon still counts each landed
+// copy. A failed record stops the copy.
 async function copyWorkspaceFiles(
-  workspaceRoot: string,
-  projectRoot: string,
+  folders: ConversionFolders,
   dealtWith: ReadonlySet<string>,
   record: (relativePath: string, outcome: RecordedOutcome) => Promise<unknown>,
 ): Promise<void> {
+  const pending = await listPendingEntries(folders, dealtWith);
+  await removeStoppedCopy(folders, pending);
+  const copyName = copyNameOf(folders.sessionId);
   const commits: Promise<void>[] = [];
   // A failing writer fails every write after with the same reason, so the first one says it.
   let recordFailure: { readonly error: unknown } | undefined;
@@ -482,14 +543,11 @@ async function copyWorkspaceFiles(
     }
   };
   try {
-    for (const relativePath of await listWorkspaceEntries(workspaceRoot, projectRoot)) {
+    for (const relativePath of pending) {
       if (recordFailure !== undefined) {
         break;
       }
-      if (dealtWith.has(relativePath)) {
-        continue;
-      }
-      const outcome = await copyWorkspaceEntry(workspaceRoot, projectRoot, relativePath);
+      const outcome = await copyWorkspaceEntry(folders, relativePath, copyName);
       if (outcome.kind === "copied") {
         await recordLanded(relativePath, "copied");
       } else if (outcome.kind === "skipped") {
@@ -504,17 +562,52 @@ async function copyWorkspaceFiles(
   }
 }
 
+// The workspace's files, in name order, that the conversion has yet to deal with.
+async function listPendingEntries(
+  folders: ConversionFolders,
+  dealtWith: ReadonlySet<string>,
+): Promise<string[]> {
+  return (await listWorkspaceEntries(folders.workspaceRoot, folders.projectRoot)).filter(
+    (relativePath) => !dealtWith.has(relativePath),
+  );
+}
+
+// Removes the file a conversion that stopped part way was writing under the daemon's name. Its
+// copy never got a record, so it sits in the folder of one of the `pending` files.
+async function removeStoppedCopy(
+  folders: ConversionFolders,
+  pending: readonly string[],
+): Promise<void> {
+  const copyName = copyNameOf(folders.sessionId);
+  for (const folder of new Set(pending.map((relativePath) => path.posix.dirname(relativePath)))) {
+    try {
+      await unlink(path.join(folders.projectRoot, folder, copyName));
+    } catch (error) {
+      const code = errnoOf(error);
+      // Nothing was left there, or the repository holds no folder there to have held it.
+      if (code !== "ENOENT" && code !== "ENOTDIR") {
+        throw error;
+      }
+    }
+  }
+}
+
+function copyNameOf(sessionId: SessionId): string {
+  return `${COPY_IN_PROGRESS_NAME_PREFIX}${sessionId}`;
+}
+
 // Every entry of the workspace but its folders, `/`-separated, in name order: files, links and
 // special files alike, each left to the copy to tell apart on the opened entry. The walk never
 // descends through a link, so nothing outside the workspace is listed, and it leaves out the
-// workspace's own repository and the project's folder when that sits inside the workspace, so the
-// repository is never copied into itself. A folder removed while the walk runs holds nothing.
+// workspace's own repository at its root and the project's folder when that sits inside the
+// workspace, so the repository is never copied into itself; a repository in a subfolder is the
+// chat's files like any other. A folder removed while the walk runs holds nothing.
 async function listWorkspaceEntries(workspaceRoot: string, projectRoot: string): Promise<string[]> {
   const entries: string[] = [];
   const pendingFolders: string[] = [""];
   for (let folder = pendingFolders.pop(); folder !== undefined; folder = pendingFolders.pop()) {
     for (const dirent of await readFolder(path.join(workspaceRoot, folder))) {
-      if (dirent.name === GIT_METADATA_ENTRY_NAME) {
+      if (folder === "" && dirent.name === GIT_METADATA_ENTRY_NAME) {
         continue;
       }
       const relativePath = folder === "" ? dirent.name : `${folder}/${dirent.name}`;
@@ -543,27 +636,31 @@ async function readFolder(folder: string): Promise<Dirent[]> {
 
 // Copies one regular file, never replacing anything and never following a link: the source is
 // opened without following its last component and checked a regular file on the opened handle, so
-// a link or a special file is refused even when it was swapped in after the listing, and the
-// target is created exclusively, so a path the repository already holds, a link there included,
-// is skipped.
+// a link or a special file is refused even when it was swapped in after the listing, and the copy
+// is published under the target's name without replacing, so a path the repository already holds,
+// a link there included, is skipped.
 async function copyWorkspaceEntry(
-  workspaceRoot: string,
-  projectRoot: string,
+  folders: ConversionFolders,
   relativePath: string,
+  copyName: string,
 ): Promise<CopyOutcome> {
-  const opened = await openSourceFile(path.join(workspaceRoot, relativePath));
+  const opened = await openSourceFile(path.join(folders.workspaceRoot, relativePath));
   if (opened.kind !== "opened") {
     return opened;
   }
   try {
-    let folder = projectRoot;
+    let folder = folders.projectRoot;
     for (const segment of relativePath.split("/").slice(0, -1)) {
       folder = path.join(folder, segment);
       if (!(await holdsOwnFolder(folder))) {
         return { kind: "skipped", reason: "repository_path_not_a_folder" };
       }
     }
-    return await copyOpenedFile(opened.handle, path.join(projectRoot, relativePath));
+    return await copyOpenedFile(
+      opened.handle,
+      path.join(folders.projectRoot, relativePath),
+      path.join(folder, copyName),
+    );
   } finally {
     await opened.handle.close();
   }
@@ -597,28 +694,54 @@ async function openSourceFile(
   return { kind: "opened", handle };
 }
 
-// Writes the opened source to a target created for it with the source's permission bits. A copy
-// that fails part way removes its target, so no half-written file is left in the repository.
-async function copyOpenedFile(source: FileHandle, targetPath: string): Promise<CopyOutcome> {
+// Writes the opened source, with its permission bits, to a file created at `copyPath` beside the
+// target, then publishes it under the target's name, which never replaces a file the repository
+// holds, and removes `copyPath` either way. A failure removes it too, so the repository is left
+// with no part of the file; a stop part way leaves it under `copyPath` alone, for the
+// conversion's next run or the daemon's next start to remove.
+async function copyOpenedFile(
+  source: FileHandle,
+  targetPath: string,
+  copyPath: string,
+): Promise<CopyOutcome> {
   const { mode } = await source.stat();
-  let target: FileHandle;
+  const copy = await open(copyPath, CREATE_COPY_FLAGS, mode & 0o777);
   try {
-    target = await open(targetPath, CREATE_TARGET_FLAGS, mode & 0o777);
-  } catch (error) {
-    if (errnoOf(error) === "EEXIST") {
-      return { kind: "skipped", reason: "repository_has_file" };
-    }
-    throw error;
-  }
-  try {
-    await copyBytes(source, target);
+    await copyBytes(source, copy);
   } catch (copyError) {
-    await target.close();
-    await unlink(targetPath);
-    throw copyError;
+    throw await failureAfterCleanups(copyError, [() => copy.close(), () => unlink(copyPath)]);
   }
-  await target.close();
-  return { kind: "copied" };
+  try {
+    await copy.close();
+  } catch (closeError) {
+    throw await failureAfterCleanups(closeError, [() => unlink(copyPath)]);
+  }
+  return (await publishWithoutReplacing(copyPath, targetPath)) === "published"
+    ? { kind: "copied" }
+    : { kind: "skipped", reason: "repository_has_file" };
+}
+
+// Runs every cleanup after `failure`, each whatever the others did, and answers what to throw:
+// `failure`, or an AggregateError of it and each cleanup that failed too.
+async function failureAfterCleanups(
+  failure: unknown,
+  cleanups: readonly (() => Promise<unknown>)[],
+): Promise<unknown> {
+  const cleanupFailures: unknown[] = [];
+  for (const cleanup of cleanups) {
+    try {
+      await cleanup();
+    } catch (cleanupFailure) {
+      cleanupFailures.push(cleanupFailure);
+    }
+  }
+  return cleanupFailures.length === 0
+    ? failure
+    : new AggregateError(
+        [failure, ...cleanupFailures],
+        "Copying a file failed, and removing what it had written failed too",
+        { cause: cleanupFailures[0] },
+      );
 }
 
 async function copyBytes(source: FileHandle, target: FileHandle): Promise<void> {

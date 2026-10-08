@@ -153,13 +153,9 @@ fn assert_pruned_rankings_equal_full_rankings(
     assert!(full_within.iter().all(|session| chosen.contains(session)));
     assert_eq!(full_within[..3], [LONG_SESSION, 2, 4]);
     for k in [1, 2, 4, 8] {
-        let pruned = top_sessions(&version, &prepared, k, None)
-            .expect("ranks")
-            .expect("a word drives");
+        let pruned = top_sessions(&version, &prepared, k, None).expect("ranks");
         assert_eq!(pruned, full[..k], "the best {k} sessions");
-        let pruned_within = top_sessions(&version, &prepared, k, Some(&set))
-            .expect("ranks")
-            .expect("a word drives");
+        let pruned_within = top_sessions(&version, &prepared, k, Some(&set)).expect("ranks");
         assert_eq!(
             pruned_within,
             full_within[..k],

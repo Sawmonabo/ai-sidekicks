@@ -1,7 +1,7 @@
 // Reports each write a chat makes in its managed workspace, as it lands. One recursive watch on the
 // folder holding every chat's workspace serves them all, through the operating system's own change
-// feed (FSEvents on macOS, one stream), so no chat costs a watcher of its own and nothing scans on a
-// timer.
+// feed (FSEvents on macOS, one stream), so no chat costs a watcher of its own and nothing scans on
+// a timer.
 //
 //   * The feed names a path and not what happened to it, and a delete reads like a write, so each
 //     report is checked on disk: a path that is gone was removed, not written.
@@ -51,8 +51,8 @@ export interface ManagedWorkspaceWriteWatcherDeps {
 /** The one watch over every chat's managed workspace, and the listeners its writes go to. */
 export class ManagedWorkspaceWriteWatcher {
   /**
-   * Resolves with the reason if the watch fails; from then on no write is reported. Never settles
-   * otherwise.
+   * Resolves with the reason if the watch cannot start or fails; from then on no write is
+   * reported. Never settles otherwise.
    */
   readonly whenFailed: Promise<Error>;
 
@@ -72,26 +72,28 @@ export class ManagedWorkspaceWriteWatcher {
   }
 
   /**
-   * Creates the workspaces folder when absent and starts the watch. Throws when the watch is
-   * already running or cannot start.
+   * Creates the workspaces folder when absent and starts the watch; a watch that cannot start
+   * resolves {@link whenFailed}. Throws when the watch is already running.
    */
   async start(): Promise<void> {
     if (this.#watcher !== undefined) {
       throw new Error("The managed workspaces watcher is already running");
     }
-    // The change feed cannot watch a folder that does not exist yet.
-    await DEFAULT_GIT_FILESYSTEM.createDirectory(this.#workspacesDirectory);
-    this.#watchedDirectory = realpathSync(this.#workspacesDirectory);
-    const watcher = watch(this.#watchedDirectory, { recursive: true }, (_event, changedPath) => {
-      this.#reportChange(changedPath);
-    });
-    // An unhandled `error` event would end the daemon.
-    watcher.on("error", (error: Error) => {
-      this.#writeServiceLog(`The managed workspaces watcher failed: ${error.message}`);
-      this.close();
-      this.#failure.resolve(error);
-    });
-    this.#watcher = watcher;
+    try {
+      // The change feed cannot watch a folder that does not exist yet.
+      await DEFAULT_GIT_FILESYSTEM.createDirectory(this.#workspacesDirectory);
+      this.#watchedDirectory = realpathSync(this.#workspacesDirectory);
+      const watcher = watch(this.#watchedDirectory, { recursive: true }, (_event, changedPath) => {
+        this.#reportChange(changedPath);
+      });
+      // An unhandled `error` event would end the daemon.
+      watcher.on("error", (error: Error) => {
+        this.#fail("failed", error);
+      });
+      this.#watcher = watcher;
+    } catch (error) {
+      this.#fail("could not start", error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   /** Stops the watch; a repeat does nothing. */
@@ -113,6 +115,12 @@ export class ManagedWorkspaceWriteWatcher {
     return () => {
       this.#listeners.delete(attached);
     };
+  }
+
+  #fail(outcome: "could not start" | "failed", error: Error): void {
+    this.#writeServiceLog(`The managed workspaces watcher ${outcome}: ${error.message}`);
+    this.close();
+    this.#failure.resolve(error);
   }
 
   #reportChange(changedPath: string | null): void {

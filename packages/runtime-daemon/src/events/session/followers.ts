@@ -3,12 +3,14 @@
 // preceded by the missing events read back from the log, and a receipt at or below what was
 // already published is dropped.
 //
-// - A new follower catches up from the log before it goes live, one bounded page at a time, and
-//   reads its next page only on a later turn of the event loop and once its receiver has room, so
-//   a receiver that reads nothing never makes the daemon read the whole log for it. An event
-//   committed while it catches up is in the log before its receipt is published, so the follower
-//   passes the receipt by and reads the event on its next page, holding nothing in memory; it goes
-//   live in the same turn as the page that reports nothing more.
+// - A new follower catches up from the log before it goes live, one bounded page at a time. It
+//   hands its receiver a change only while the receiver has room, stops the page where it fills,
+//   and reads on from its last delivery once it drains, or on a later turn of the event loop, so a
+//   receiver that reads nothing never makes the daemon read the whole log for it and is never
+//   handed more than it has room for. An event committed while it catches up is in the log before
+//   its receipt is published, so the follower passes the receipt by and reads the event on its next
+//   page, holding nothing in memory; it goes live in the same turn as the page that reports nothing
+//   more, once its receiver has room, and tells the receiver so.
 // - Followers never cost each other an event. A session follower that throws, or whose catch-up
 //   page or missing events cannot be read, ends alone and hears why through `onFailure`. A follower
 //   of every session that throws stays attached, and the failure goes to the service log; when a
@@ -18,7 +20,11 @@
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamChange } from "@ai-sidekicks/contracts/session/methods";
-import { encodeEventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import {
+  START_OF_LOG_POSITION,
+  encodeEventCursor,
+  type SessionId,
+} from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
@@ -29,18 +35,23 @@ type SessionEventChange = SessionStreamChange<EventEnvelope>;
 
 /**
  * The receiving side of one session's follow. `isFull` and `onceDrained` pace its catch-up by the
- * receiver's room. Only `onChange` may throw: its throw ends the follow, through `onFailure` after
- * the first page.
+ * receiver's room. Only `onChange` and `onCaughtUp` may throw: a throw ends the follow, through
+ * `onFailure` after the first page.
  */
 export interface SessionEventListener {
   /** One committed event and its cursor, in sequence order with none skipped or repeated. */
   onChange(change: SessionStreamChange<EventEnvelope>): void;
   /**
+   * The catch-up has delivered every stored event, with the receiver having room: each change
+   * after this one is live. Called once, and never after a failure.
+   */
+  onCaughtUp(): void;
+  /**
    * The follow ended on `error`: a catch-up page or the events before a receipt could not be read,
-   * or `onChange` threw. Nothing more arrives.
+   * or `onChange` or `onCaughtUp` threw. Nothing more arrives.
    */
   onFailure(error: unknown): void;
-  /** Whether the receiver has no room now; the catch-up reads its next page only once it has. */
+  /** Whether the receiver has no room now; the catch-up hands it no change until it has. */
   isFull(): boolean;
   /** Calls `listener` once the receiver has room again. Returns a detach. */
   onceDrained(listener: () => void): () => void;
@@ -120,9 +131,10 @@ export class SessionEventFollowers {
 
   /**
    * Delivers the session's events after `afterPosition`, which the caller has checked against the
-   * log, then follows new ones. The first page is delivered before this returns, and a read error
-   * or an `onChange` throw on it is thrown here; a later one reaches `onFailure`. Returns the
-   * detach, which stops delivery at once, from inside `onChange` too.
+   * log, then follows new ones. As much of the first page as the receiver has room for is
+   * delivered before this returns, and a read error or a listener throw on it is thrown here; a
+   * later one reaches `onFailure`. Returns the detach, which stops delivery at once, from inside
+   * `onChange` too.
    */
   follow(sessionId: SessionId, afterPosition: number, listener: SessionEventListener): () => void {
     const publication = this.#publicationOf(sessionId);
@@ -170,7 +182,7 @@ export class SessionEventFollowers {
     if (publication === undefined) {
       publication = {
         key,
-        lastPublished: this.#reads.readHead(sessionId) ?? -1,
+        lastPublished: this.#reads.readHead(sessionId) ?? START_OF_LOG_POSITION,
         followers: new Set(),
         appendsInFlight: 0,
       };
@@ -277,19 +289,25 @@ export class SessionEventFollowers {
     );
   }
 
-  // Reads one page and delivers it, then waits for the next page or goes live.
+  // Reads one page and delivers it while the receiver has room, then waits for room or the next
+  // turn, or goes live. A page cut short by a full receiver is read again from the last delivery.
   #catchUp(sessionId: SessionId, publication: SessionPublication, follower: SessionFollower): void {
     // One row past the page shows whether more remain.
     const page = this.#reads.readAfter(sessionId, follower.lastDelivered, this.#pageSize + 1);
     const hasMore = page.length > this.#pageSize;
     for (const event of hasMore ? page.slice(0, this.#pageSize) : page) {
+      if (follower.listener.isFull()) {
+        break;
+      }
       deliver(follower, changeOf(event));
+      if (follower.isDetached) {
+        return;
+      }
     }
-    if (follower.isDetached) {
-      return;
-    }
-    if (!hasMore) {
+    const isFull = follower.listener.isFull();
+    if (!hasMore && !isFull) {
       follower.isCatchingUp = false;
+      follower.listener.onCaughtUp();
       return;
     }
     const readNextPage = (): void => {
@@ -300,7 +318,7 @@ export class SessionEventFollowers {
         this.#fail(publication, follower, error);
       }
     };
-    if (follower.listener.isFull()) {
+    if (isFull) {
       follower.cancelNextPage = follower.listener.onceDrained(readNextPage);
     } else {
       const nextTurn = setImmediate(readNextPage);

@@ -33,7 +33,7 @@ import {
   requireMountRow,
   requireWorkspaceRow,
 } from "../__fixtures__/rows.js";
-import { seedSessionRow } from "../../session/groups/__fixtures__/directory-rows.js";
+import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
@@ -127,7 +127,13 @@ function buildDaemonStack(database: DatabaseConnections, now: () => string): Dae
   return {
     emitter,
     workspaces,
-    mounts: new RepoMountService({ database, events: emitter, nodeId: NODE_ID, now }),
+    mounts: new RepoMountService({
+      database,
+      events: emitter,
+      nodeId: NODE_ID,
+      now,
+      archiveUnfinishedCreates: () => Promise.resolve(),
+    }),
   };
 }
 

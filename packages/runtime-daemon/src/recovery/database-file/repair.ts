@@ -4,8 +4,10 @@
 // that reads, each session whose events the newest backup holds more of takes them from it. The
 // fresh file must hold every table, index, trigger and view of the schema and pass the full
 // integrity check before it replaces the damaged one; every session's projections are then
-// rebuilt from its events. A marker written once the fresh file is ready lets a start that a crash
-// cut short finish the replacement rather than recover again from a file whose log is gone.
+// rebuilt from its events, and the search index, built from the damaged file's rows, is dropped
+// to be built again from the fresh file's. A marker written once the fresh file is ready lets a
+// start that a crash cut short finish the replacement rather than recover again from a file whose
+// log is gone.
 
 import { access, copyFile, open, rename, rm } from "node:fs/promises";
 import * as path from "node:path";
@@ -25,6 +27,8 @@ import { recoverIntoFreshFile } from "./sqlite-shell.js";
 export interface DatabaseFileRepairOptions {
   readonly databasePath: string;
   readonly dataFolder: string;
+  /** The search index's folder, built from the database's rows; a replaced file drops it. */
+  readonly indexFolderPath: string;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
   readonly now: () => Date;
@@ -75,7 +79,7 @@ export async function repairDatabaseFile(
   const readyMarkerPath = `${freshPath}-ready`;
   if (await fileExists(readyMarkerPath)) {
     options.writeServiceLog("A repaired database file was ready; its replacement is finished now");
-    await replaceDatabaseFile(databasePath, freshPath, readyMarkerPath);
+    await replaceDatabaseFile(options, freshPath, readyMarkerPath);
   }
   if (!(await fileExists(databasePath))) {
     return { outcome: "intact" };
@@ -94,7 +98,7 @@ export async function repairDatabaseFile(
     prepareFreshFile(freshPath, options.writeServiceLog);
     await syncFile(freshPath);
     await writeFileAtomically(readyMarkerPath, "", 0o600);
-    await replaceDatabaseFile(databasePath, freshPath, readyMarkerPath);
+    await replaceDatabaseFile(options, freshPath, readyMarkerPath);
     options.writeServiceLog(
       `The database file was recovered; ${String(sessionsFromBackup)} sessions took their ` +
         "events from the newest backup",
@@ -176,12 +180,14 @@ async function takeRicherSessionsFromBackup(
 }
 
 // A snapshot names the event it reflects, so the session's snapshots go and come with its events.
+// Its events are inserted in sequence order, so their rowids keep the log's order in the session.
 function takeSessionFromBackup(fresh: DatabaseType, sessionId: string): void {
   fresh.prepare("DELETE FROM main.session_snapshots WHERE session_id = ?").run(sessionId);
   fresh.prepare("DELETE FROM main.session_events WHERE session_id = ?").run(sessionId);
   fresh
     .prepare(
-      "INSERT INTO main.session_events SELECT * FROM backup.session_events WHERE session_id = ?",
+      "INSERT INTO main.session_events SELECT * FROM backup.session_events WHERE session_id = ? " +
+        "ORDER BY sequence",
     )
     .run(sessionId);
   fresh
@@ -266,17 +272,20 @@ async function syncFile(filePath: string): Promise<void> {
 }
 
 // The damaged file's log and index go first, so SQLite never replays them into the fresh file;
-// both are in the aside copy. A start a crash cut short after the rename finds the fresh file
-// already in place. The folder is flushed so the rename survives a power loss, and the marker
-// goes last.
+// both are in the aside copy. The search index goes too, before the marker, so no start opens an
+// index of rows the fresh file lost or took from a backup. A start a crash cut short after the
+// rename finds the fresh file already in place. The folder is flushed so the rename survives a
+// power loss, and the marker goes last.
 async function replaceDatabaseFile(
-  databasePath: string,
+  options: Pick<DatabaseFileRepairOptions, "databasePath" | "indexFolderPath">,
   freshPath: string,
   readyMarkerPath: string,
 ): Promise<void> {
+  const { databasePath } = options;
   for (const suffix of DATABASE_COMPANION_FILE_SUFFIXES) {
     await rm(`${databasePath}${suffix}`, { force: true });
   }
+  await rm(options.indexFolderPath, { recursive: true, force: true });
   if (await fileExists(freshPath)) {
     await rename(freshPath, databasePath);
   }

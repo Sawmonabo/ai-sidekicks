@@ -15,7 +15,6 @@ import {
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { TagListSchema } from "../tag.js";
-import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import {
   SessionConvertSkippedFileListRequestSchema,
   SessionConvertSkippedFileListResponseSchema,
@@ -49,19 +48,20 @@ export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum(
 ]);
 
 /**
- * A change the session's state does not take: a `provisioning` session is neither archived nor
- * closed, and a `purge_requested` one, being deleted, takes no change. `data.fields`: `sessionId`,
- * `state`.
+ * A change the session's state does not take: a `provisioning` session is neither archived,
+ * closed nor converted, and a `purge_requested` one, being deleted, takes no change.
+ * `data.fields`: `sessionId`, `state`.
  */
 export const SESSION_CHANGE_REFUSED_CODE = "session.change_refused" as const;
+
+/** A change to a session that has been closed, which takes none. `data.fields`: `sessionId`. */
+export const SESSION_ALREADY_CLOSED_CODE = "session.already_closed" as const;
 
 /**
  * One session as `session.read` answers it.
  *
  * - `name` is absent while the session is untitled; a surface then shows its first message.
  * - `muted` is whether the person muted the session's notifications.
- * - `pendingWorkingFolder` is the working-folder move the session's next run boundary applies,
- *   or `null` when none waits; `worktreeId: null` moves it to the project's checkout.
  * - `draft` is the unsent composer draft the daemon holds, the whole text, and the empty string
  *   when none is held: Send clears it, and a half-typed message reaches the person's other
  *   devices through this read.
@@ -73,13 +73,12 @@ export interface SessionRecord {
   shape: SessionShape;
   name?: string | undefined;
   muted: boolean;
-  pendingWorkingFolder: { worktreeId: WorktreeId | null } | null;
   createdAt: string;
   updatedAt: string;
   draft: string;
   tags: string[];
 }
-/** Parses a {@link SessionRecord}. */
+/** Parses a {@link SessionRecord}; its tags fit the shared page budget. */
 export const SessionRecordSchema: z.ZodType<SessionRecord> = z
   .object({
     id: SessionIdSchema,
@@ -87,13 +86,15 @@ export const SessionRecordSchema: z.ZodType<SessionRecord> = z
     shape: SessionShapeSchema,
     name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRecord.name").optional(),
     muted: z.boolean(),
-    pendingWorkingFolder: z.object({ worktreeId: WorktreeIdSchema.nullable() }).strict().nullable(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
     draft: z.string(),
     tags: TagListSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((record, issueContext) => {
+    requireMemberToRideOneFrame(record.tags, "tags", issueContext);
+  });
 
 /** The session `session.read` answers with. */
 export interface SessionReadRequest {
@@ -235,16 +236,19 @@ export const SESSION_SEARCH_QUERY_MAX_LEN = 256;
 /** The most hits one `session.search` page carries, across all its sessions. */
 export const SESSION_SEARCH_PAGE_LIMIT_MAX = 256;
 
-/** The longest `session.search` cursor accepted; a guard against pathological lengths. */
-export const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
+/** The longest line a `session.search` hit carries: the stretch of a message around its matches. */
+export const SESSION_SEARCH_HIT_LINE_MAX_LEN = 4096;
+
+// The longest `session.search` cursor accepted; a guard against pathological lengths.
+const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
 
 /**
  * Where the next `session.search` page starts. The daemon writes it and owns its format; a client
  * passes it back unchanged with the same query. It continues the search its first page read, so a
  * write between pages neither repeats a hit nor drops one, except a hit whose row, group
  * membership or session has since gone or whose title, group name or tag was renamed so the words
- * no longer match it; a cursor of a search the daemon has let go (over its memory budget or 10
- * minutes unpaged) is refused, and the client searches again.
+ * no longer match it; a cursor of a search the daemon has let go is refused, and the client
+ * searches again.
  */
 export type SessionSearchCursor = string & { readonly __brand: "SessionSearchCursor" };
 /** Parses a {@link SessionSearchCursor}; any bounded non-empty string, which the daemon reads. */
@@ -310,7 +314,7 @@ export interface SessionSearchHit {
 const SessionSearchHitSchema: z.ZodType<SessionSearchHit> = z
   .object({
     cursor: EventCursorSchema,
-    line: z.string(),
+    line: z.string().max(SESSION_SEARCH_HIT_LINE_MAX_LEN),
     matchRanges: z.array(SearchMatchRangeSchema).min(1),
   })
   .strict();

@@ -6,10 +6,6 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import {
-  EventEnvelopeVersionSchema,
-  type EventEnvelopeVersion,
-} from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
@@ -19,6 +15,7 @@ import type {
 } from "@ai-sidekicks/contracts/session/events";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
+  SESSION_ALREADY_CLOSED_CODE,
   SESSION_CHANGE_REFUSED_CODE,
   type SessionRenameRequest,
   type SessionRenameResponse,
@@ -30,15 +27,13 @@ import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError } from "../database/writer.js";
 import type { EventLogService } from "../events/log-service.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
-import { translateDriverError } from "../ipc/handlers/driver/requests.js";
-import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { KeyedLock } from "../keyed-lock.js";
 import type { ProviderDriver } from "../provider/driver/contract.js";
 import { DriverUnavailableError, type ProviderRegistry } from "../provider/driver/registry.js";
 import type { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
-import { mintUuidV7 } from "../uuid-v7.js";
-
-const SESSION_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
+import { sessionLifecycleEvent } from "./lifecycle-event.js";
+import { sessionNotFound } from "./not-found.js";
+import { SESSION_RUN_IDS_SQL } from "./run/ids.js";
 
 // The facts of a session's row a change decides from.
 interface SessionFacts {
@@ -48,13 +43,16 @@ interface SessionFacts {
   readonly mutedAt: string | null;
 }
 
+// The events that move a session between its lifecycle states.
+type SessionLifecycleChangeType = Extract<
+  SessionEventType,
+  "session.archived" | "session.reactivated" | "session.closed"
+>;
+
 // The event a change appends, or nothing when the session already is as the change asks.
 type SessionChangeEvent =
   | {
-      readonly type: Extract<
-        SessionEventType,
-        "session.archived" | "session.reactivated" | "session.closed"
-      >;
+      readonly type: SessionLifecycleChangeType;
       readonly payload: SessionLifecycleChangePayload;
     }
   | {
@@ -90,14 +88,14 @@ export interface SessionChangesDeps {
 
 /**
  * Renames, archives, reactivates, closes, pins and mutes sessions. A session that does not exist
- * is refused with {@link SessionNotFoundError}; a closed one with `session.already_closed`, and
- * one being purged with `session.change_refused`.
+ * is refused with `session.not_found`; a closed one with `session.already_closed`, and one being
+ * purged with `session.change_refused`.
  */
 export class SessionChanges {
   /**
    * The lock every session-wide transition holds for its whole run, keyed by session id: archive,
-   * reactivate, close and convert take it, so one never interleaves with another on the same
-   * session.
+   * reactivate, close, convert and the purge take it, so one never interleaves with another on the
+   * same session.
    */
   readonly lock: KeyedLock<SessionId> = new KeyedLock<SessionId>(canonicalizeUuid);
 
@@ -106,7 +104,7 @@ export class SessionChanges {
   readonly #runtimeBindings: Pick<RuntimeBindingStore, "findByRuns">;
   readonly #now: () => Date;
   readonly #selectFacts: Statement<[string], SessionFacts>;
-  readonly #selectRunIds: Statement<[string], { readonly runId: string }>;
+  readonly #selectRunIds: Statement<[{ readonly sessionId: string }], string>;
 
   constructor(deps: SessionChangesDeps) {
     this.#events = deps.events;
@@ -118,13 +116,9 @@ export class SessionChanges {
          FROM sessions
         WHERE id = ?`,
     );
-    // Every run of the session names itself on its lifecycle events.
-    this.#selectRunIds = deps.reader.prepare(
-      `SELECT DISTINCT json_extract(payload, '$.runId') AS runId
-         FROM session_events
-        WHERE session_id = ? AND category = 'run_lifecycle'
-          AND json_extract(payload, '$.runId') IS NOT NULL`,
-    );
+    this.#selectRunIds = deps.reader
+      .prepare<[{ readonly sessionId: string }], string>(SESSION_RUN_IDS_SQL)
+      .pluck();
   }
 
   /**
@@ -259,16 +253,12 @@ export class SessionChanges {
       }
       try {
         await this.#events.append(
-          {
-            id: mintUuidV7(),
+          sessionLifecycleEvent({
             sessionId,
-            occurredAt: this.#now().toISOString(),
-            category: "session_lifecycle",
             type: change.type,
-            actor: null,
             payload: { ...change.payload },
-            version: SESSION_EVENT_VERSION,
-          },
+            occurredAt: this.#now(),
+          }),
           { transactionalPrelude: [factsUnchangedStatement(sessionId, facts)] },
         );
         return true;
@@ -284,7 +274,7 @@ export class SessionChanges {
   #readFacts(sessionId: SessionId): SessionFacts {
     const facts = this.#selectFacts.get(sessionId);
     if (facts === undefined) {
-      throw new SessionNotFoundError("This daemon holds no such session.", { sessionId });
+      throw sessionNotFound(sessionId);
     }
     return facts;
   }
@@ -293,7 +283,7 @@ export class SessionChanges {
   // session they hold nothing for as already closed. Every driver is looked up before any leg is
   // ended, so a missing one refuses the close with nothing ended.
   async #endProviderLeg(sessionId: SessionId): Promise<void> {
-    const runIds = this.#selectRunIds.all(sessionId).map((row) => row.runId);
+    const runIds = this.#selectRunIds.all({ sessionId });
     const driverNames = new Set(
       this.#runtimeBindings.findByRuns(runIds).map((binding) => binding.driverName),
     );
@@ -309,7 +299,7 @@ export class SessionChanges {
   #registeredDriver(driverName: ProviderName): ProviderDriver {
     const driver = this.#providers.lookup(driverName);
     if (driver === undefined) {
-      translateDriverError(new DriverUnavailableError(driverName));
+      throw new DriverUnavailableError(driverName);
     }
     return driver;
   }
@@ -322,7 +312,7 @@ export class SessionChanges {
 export function refuseUnchangeableSession(sessionId: SessionId, state: SessionState): void {
   if (state === "closed") {
     throw new DaemonDomainError("The session is closed and cannot be changed.", {
-      code: "session.already_closed",
+      code: SESSION_ALREADY_CLOSED_CODE,
       detail: { sessionId },
     });
   }
@@ -331,9 +321,12 @@ export function refuseUnchangeableSession(sessionId: SessionId, state: SessionSt
   }
 }
 
-// Only an active or archived session is archived or closed; a provisioning one is finished
-// by its create instead.
-function refuseProvisioningSession(sessionId: SessionId, state: SessionState): void {
+/**
+ * Refuses, with `session.change_refused`, a session still `provisioning`: only an active or
+ * archived session is archived, closed or converted, and a provisioning one is finished by its
+ * create instead.
+ */
+export function refuseProvisioningSession(sessionId: SessionId, state: SessionState): void {
   if (state === "provisioning") {
     throw changeRefused(sessionId, state);
   }
@@ -351,7 +344,7 @@ function changeRefused(sessionId: SessionId, state: SessionState): DaemonDomainE
 }
 
 function lifecycleEvent(
-  type: "session.archived" | "session.reactivated" | "session.closed",
+  type: SessionLifecycleChangeType,
   sessionId: SessionId,
   previousState: SessionState,
   newState: SessionState,

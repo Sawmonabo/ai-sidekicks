@@ -5,6 +5,8 @@
 // index's outbox, and each session's projection cursor left current, so a daemon can start on it.
 // The same seed and scale write the same set every run.
 
+import { foldName } from "@ai-sidekicks/contracts/name-fold";
+
 import { mintUuidV7 } from "../../src/uuid-v7.js";
 import type { DatabaseConnections } from "../../src/database/connections.js";
 
@@ -138,9 +140,12 @@ export async function seedDirectorySet(database: DatabaseConnections): Promise<S
 
   await writeRows(
     `INSERT INTO session_groups (id, project_id, name, name_folded, created_at)
-     SELECT value ->> '$[0]', 'project', value ->> '$[1]', lower(value ->> '$[1]'), @at
+     SELECT value ->> '$[0]', 'project', value ->> '$[1]', value ->> '$[2]', @at
        FROM json_each(@rows)`,
-    groupIds.map((groupId, index) => [groupId, `${words[pick(2_000)] ?? ""} work ${index}`]),
+    groupIds.map((groupId, index) => {
+      const name = `${words[pick(2_000)] ?? ""} work ${index}`;
+      return [groupId, name, foldName(name)];
+    }),
   );
   await writeRows(
     `INSERT INTO sessions (id, shape, state, name, created_at, updated_at, last_activity_at,
@@ -164,8 +169,8 @@ export async function seedDirectorySet(database: DatabaseConnections): Promise<S
   }
   await writeRows(
     `INSERT INTO session_tags (session_id, tag, tag_folded)
-     SELECT value ->> '$[0]', value ->> '$[1]', lower(value ->> '$[1]') FROM json_each(@rows)`,
-    [...tagRows.values()],
+     SELECT value ->> '$[0]', value ->> '$[1]', value ->> '$[2]' FROM json_each(@rows)`,
+    [...tagRows.values()].map(([sessionId, tag]) => [sessionId, tag, foldName(tag)]),
   );
   const linkRows = new Map<string, readonly unknown[]>();
   while (linkRows.size < SEEDED_SET_SIZE.links) {

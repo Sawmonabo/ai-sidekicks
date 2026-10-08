@@ -1,12 +1,14 @@
 // The session changes over a real database: a mark set twice, even at once, appends one event; a
-// closed session is never reactivated, a session still provisioning is never archived or closed, and one
-// being purged takes no change; and a close ends the provider leg only of a session a driver ran,
-// refusing one whose driver this daemon has not registered.
+// closed session is never reactivated, a session still provisioning takes no archive, close or
+// reactivation, and one being purged takes no change; and a close ends the provider leg only of a
+// session a driver ran, refusing one whose driver this daemon has not registered, and closes one
+// whose history holds a row that is not JSON.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { breakStoredEvent } from "../../events/session/__fixtures__/log-faults.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import type { ProviderDriver } from "../../provider/driver/contract.js";
 import { SessionChanges } from "../changes.js";
@@ -66,7 +68,7 @@ describe("reactivate", () => {
 });
 
 describe("a session's state", () => {
-  it("refuses to archive or close a session still provisioning, so it never leaves provisioning but by activation", async () => {
+  it("takes no archive, close or reactivation for a session still provisioning", async () => {
     await harness.log.append(OTHER_SESSION_ID, "session.created", "session_lifecycle", {
       sessionId: OTHER_SESSION_ID,
       shape: "chat",
@@ -177,6 +179,22 @@ describe("close", () => {
       new SessionService(harness.log.scratch.reader).readSession({ sessionId: SESSION_ID }),
     ).toMatchObject({ session: { state: "active" } });
   });
+  it("closes a session one of whose run rows is not JSON", async () => {
+    await harness.log.append(SESSION_ID, "run.starting", "run_lifecycle", {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      runVersion: 1,
+      previousState: "queued",
+      newState: "starting",
+    });
+    // The session's created and activated events sit at 0 and 1.
+    await breakStoredEvent(harness.log.scratch.writer, SESSION_ID, 2);
+
+    await harness.changes.close(SESSION_ID);
+
+    expect(countOf("session.closed")).toBe(1);
+  });
+
   it("refuses a close a purge overtook while the provider leg was ending", async () => {
     await harness.log.append(SESSION_ID, "run.starting", "run_lifecycle", {
       sessionId: SESSION_ID,

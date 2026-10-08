@@ -16,11 +16,18 @@ import {
 } from "@ai-sidekicks/search-index";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
+import { isMissingFileError } from "../../../file/missing-error.js";
 import { rebuildError, type CarriedError } from "../../../worker/carried-error.js";
 import { moduleUrlBeside } from "../../../worker/module-url.js";
 import { INDEX_ROW_KINDS, sourceRowidOf } from "./columns.js";
 import type { OutboxReader } from "./outbox.js";
-import { INDEX_BATCH_ROW_LIMIT, indexRowOf, type IndexRowReader, type SourceRow } from "./rows.js";
+import {
+  INDEX_BATCH_ROW_LIMIT,
+  emptyIndexBatchRoom,
+  indexRowOf,
+  type IndexRowReader,
+  type SourceRow,
+} from "./rows.js";
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
 // flushes and the less merging follows.
@@ -31,8 +38,8 @@ const UNREADABLE_INDEX_CODE = "SEARCH_INDEX_UNREADABLE";
 
 const CHILD_URL = moduleUrlBeside(import.meta.url, "child");
 
-// V8 set to favor memory over speed, with a young generation the size of the search thread's, keeps
-// the build's heap near what its batches hold, for the lowest peak footprint.
+// V8 set to favor memory over speed, with small semi-spaces, keeps the build's heap near what its
+// batches hold, for the lowest peak footprint.
 const CHILD_NODE_OPTIONS: readonly string[] = ["--max-semi-space-size=2", "--optimize-for-size"];
 
 /** What the build's child process sends before it exits with a failure: what the build threw. */
@@ -87,9 +94,14 @@ export async function openSearchIndex(
 /**
  * Builds the index again from the database in a child process and waits for it to exit; that one
  * extra process exists only while a build runs. Rejects with what the build threw, or with how the
- * process ended when it ended without saying.
+ * process ended when it ended without saying. An abort of `signal` ends the process and rejects
+ * with the abort's reason once it has exited, so no build outlives the wait for it.
  */
-export function buildSearchIndexInChild(request: SearchIndexBuildRequest): Promise<void> {
+export function buildSearchIndexInChild(
+  request: SearchIndexBuildRequest,
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted();
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   const childArguments = [
     request.databasePath,
@@ -99,18 +111,29 @@ export function buildSearchIndexInChild(request: SearchIndexBuildRequest): Promi
   const child = fork(CHILD_URL, childArguments, {
     execArgv: [...process.execArgv, ...CHILD_NODE_OPTIONS],
     stdio: ["ignore", "ignore", "inherit", "ipc"],
+    signal,
   });
   let failure: CarriedError | undefined;
   child.on("message", (message: SearchIndexBuildFailure) => {
     failure = message.error;
   });
-  child.once("error", reject);
-  child.once("exit", (code, signal) => {
+  child.on("error", (error) => {
+    // The abort's own error: the process is ending, and its exit settles the wait.
+    if (signal.aborted && error.name === "AbortError") {
+      return;
+    }
+    reject(error);
+  });
+  child.once("exit", (code, exitSignal) => {
     if (code === 0) {
       resolve();
       return;
     }
-    const ending = signal === null ? `with code ${String(code)}` : `on ${signal}`;
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const ending = exitSignal === null ? `with code ${String(code)}` : `on ${exitSignal}`;
     reject(
       failure === undefined
         ? new Error(`The search index's build ended ${ending} without saying why`)
@@ -167,7 +190,7 @@ export async function buildSearchIndex(
     // Merged here, so the daemon opens an index with none of the build's merging left to do.
     let isMoreToMerge = true;
     while (isMoreToMerge) {
-      isMoreToMerge = await index.mergeWhileIdle();
+      isMoreToMerge = await index.mergeSegments();
     }
   } catch (error) {
     throw await closeAfterFailure(index, error, "The search index's build");
@@ -179,31 +202,53 @@ export async function buildSearchIndex(
 // A build's next batch: the next log rows, nearly every row the index holds, then each other
 // kind's rows through the same share of its table's rowids, or all its rows left once the log rows
 // are read. Each segment the build writes then mixes the kinds as the whole index does, so the
-// average row length its blocks' score bounds were chosen under is the index's. The other kinds'
-// rows take their room from the end of the log rows, which the next batch reads again, so a batch
-// holds at most the batch row limit and a merge of five batches fills the merge cap.
+// average row length its blocks' score bounds were chosen under is the index's. Every read takes
+// from the batch's one room, so a batch holds at most the batch row limit and about the text limit,
+// and a merge of five batches fills the merge cap. The log rows stop where the other kinds' rows
+// through the same share, at most one a rowid, would no longer fit, so the batch keeps every row it
+// takes; the first log row is always taken, so each batch moves on.
 function readNextBatch(
   rows: IndexRowReader,
   logReading: KindReading,
   otherReadings: readonly KindReading[],
 ): SourceRow[] {
-  const logRows = rows.readRowsBetween(
-    logReading.kind,
-    logReading.afterRowid,
-    logReading.lastRowid,
+  const room = emptyIndexBatchRoom();
+  const otherRowsAtMost = (logRowid: number): number =>
+    otherReadings.reduce(
+      (count, reading) =>
+        count + Math.max(0, throughRowidOf(reading, logReading, logRowid) - reading.afterRowid),
+      0,
+    );
+  const logRows = readOn(
+    logReading,
+    rows.readRowsBetween(
+      logReading.kind,
+      logReading.afterRowid,
+      logReading.lastRowid,
+      room,
+      (row) =>
+        room.rows === INDEX_BATCH_ROW_LIMIT ||
+        room.rows - 1 >= otherRowsAtMost(sourceRowidOf(row.key)),
+    ),
   );
   const lastLogRow = logRows.at(-1);
   const otherRows = otherReadings.map((reading) => {
     const throughRowid =
       lastLogRow === undefined
         ? reading.lastRowid
-        : Math.floor((sourceRowidOf(lastLogRow.key) / logReading.lastRowid) * reading.lastRowid);
-    return readOn(reading, rows.readRowsBetween(reading.kind, reading.afterRowid, throughRowid));
+        : throughRowidOf(reading, logReading, sourceRowidOf(lastLogRow.key));
+    return readOn(
+      reading,
+      rows.readRowsBetween(reading.kind, reading.afterRowid, throughRowid, room),
+    );
   });
-  const otherRowCount = otherRows.reduce((count, kindRows) => count + kindRows.length, 0);
-  const logRoom = Math.max(0, INDEX_BATCH_ROW_LIMIT - otherRowCount);
-  const keptLogRows = readOn(logReading, logRows.slice(0, logRoom));
-  return [keptLogRows, ...otherRows].flat();
+  return [logRows, ...otherRows].flat();
+}
+
+// The rowid of `reading`'s table through which the share of the log's rowids up to `logRowid`
+// reaches.
+function throughRowidOf(reading: KindReading, logReading: KindReading, logRowid: number): number {
+  return Math.floor((logRowid / logReading.lastRowid) * reading.lastRowid);
 }
 
 // `kindRows`, with `reading` moved past the last of them.
@@ -233,7 +278,7 @@ async function isFolderPresent(folderPath: string): Promise<boolean> {
     await stat(folderPath);
     return true;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return false;
     }
     throw error;

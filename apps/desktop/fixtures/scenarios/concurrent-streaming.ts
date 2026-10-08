@@ -543,7 +543,6 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           state: "active",
           shape: "project",
           muted: false,
-          pendingWorkingFolder: null,
           createdAt: STARTED_AT_ISO,
           updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
           draft: "",

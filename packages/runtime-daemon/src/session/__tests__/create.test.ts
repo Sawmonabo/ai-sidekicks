@@ -2,8 +2,10 @@
 // lead runs on what the request names, never on the settings file's last pick, which the create
 // then moves to it; a chat's managed workspace is made and bound inside the create; a chat that is
 // not born leaves neither a session nor a workspace behind; a create retried with its key, even
-// while the first is still on its way, answers the first one's session and makes nothing; and a
-// session left provisioning is finished by its create's retry or by the daemon's start.
+// while the first is still on its way, answers the first one's session and makes nothing; a
+// project create names an attached project's mount or writes nothing; and a session left
+// provisioning is finished by its create's retry or by the daemon's start, which also removes the
+// workspace of a chat whose create stopped before it was born.
 
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -79,6 +81,7 @@ beforeEach(async () => {
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
+    archiveUnfinishedCreates: () => creation.archiveUnfinishedCreates(),
   });
   serviceLogLines = [];
   workspacesMade = 0;
@@ -272,24 +275,100 @@ describe("SessionCreation", () => {
     const leftBinding = creationWith({ bind: failingBind });
     await expect(leftBinding.create(chatRequest())).rejects.toThrow("the bind failed");
     const chatId = onlySessionId();
+
+    await leftBinding.finishStoppedCreates();
+    expect(stateOf(chatId)).toBe("provisioning");
+    expect(serviceLogLines).toHaveLength(1);
+    expect(serviceLogLines[0]).toContain(chatId);
+
+    await creation.finishStoppedCreates();
+    expect(stateOf(chatId)).toBe("active");
+  });
+
+  it("archives a session whose project is detached while it provisions, never to finish it", async () => {
     const repoMountId = await attachProject();
-    await expect(leftBinding.create(projectRequest(repoMountId))).rejects.toThrow(
-      "the bind failed",
-    );
-    const projectSessionId = (
-      log.scratch.reader.prepare("SELECT id FROM sessions WHERE shape = 'project'").get() as {
-        id: SessionId;
+    await expect(
+      creationWith({ bind: failingBind }).create(projectRequest(repoMountId)),
+    ).rejects.toThrow("the bind failed");
+    const sessionId = onlySessionId();
+
+    await mounts.detach({ repoMountId: repoMountId as RepoMountId });
+    expect(stateOf(sessionId)).toBe("archived");
+
+    await creation.finishStoppedCreates();
+    expect(eventTypesOf(sessionId)).toStrictEqual(["session.created", "session.archived"]);
+    expect(serviceLogLines).toStrictEqual([]);
+  });
+
+  it("archives at start a session whose project's detach stopped before archiving it", async () => {
+    const repoMountId = await attachProject();
+    await expect(
+      creationWith({ bind: failingBind }).create(projectRequest(repoMountId)),
+    ).rejects.toThrow("the bind failed");
+    const sessionId = onlySessionId();
+    // A daemon stopped after the detach's write and before its cascade reached the session.
+    await new RepoMountService({
+      database: log.scratch,
+      events: emitter,
+      nodeId: mintUuidV7() as NodeId,
+      archiveUnfinishedCreates: () => Promise.resolve(),
+    }).detach({ repoMountId: repoMountId as RepoMountId });
+    expect(stateOf(sessionId)).toBe("provisioning");
+
+    await creation.finishStoppedCreates();
+    await creation.finishStoppedCreates();
+    expect(eventTypesOf(sessionId)).toStrictEqual(["session.created", "session.archived"]);
+    expect(serviceLogLines).toStrictEqual([]);
+  });
+
+  it("removes at start the workspace of a chat never born, keeping one still being created", async () => {
+    const unbornId = mintUuidV7() as SessionId;
+    await new ManagedWorkspaceService({ homeDirectory: home, repoMounts: mounts }).create({
+      sessionId: unbornId,
+    });
+    // The chat being created holds at its session.created, its workspace already made.
+    const createdReached = Promise.withResolvers<void>();
+    const createdReleased = Promise.withResolvers<void>();
+    const holding = creationWith({
+      events: {
+        append: async (envelope, options) => {
+          if (envelope.type === "session.created") {
+            createdReached.resolve();
+            await createdReleased.promise;
+          }
+          return log.eventLog.append(envelope, options);
+        },
+      },
+    });
+    const creating = createChat(holding);
+    await createdReached.promise;
+
+    await holding.finishStoppedCreates();
+    createdReleased.resolve();
+    const { sessionId } = await creating;
+
+    expect(await readdir(managedWorkspacesDirectoryOf(home))).toStrictEqual([sessionId]);
+    expect(countRows("SELECT COUNT(*) AS count FROM repo_mounts")).toBe(1);
+    expect(stateOf(sessionId)).toBe("active");
+  });
+
+  it("refuses a project whose mount is detached or a chat's workspace, with nothing written", async () => {
+    const repoMountId = await attachProject();
+    await mounts.detach({ repoMountId: repoMountId as RepoMountId });
+    await createChat();
+    const chatMountId = (
+      log.scratch.reader.prepare("SELECT id FROM repo_mounts WHERE origin = 'managed'").get() as {
+        id: string;
       }
     ).id;
-    // The project is detached before the start, so its session has nowhere left to bind.
-    await mounts.detach({ repoMountId: repoMountId as RepoMountId });
 
-    await creation.finishProvisioningSessions();
-
-    expect(stateOf(chatId)).toBe("active");
-    expect(stateOf(projectSessionId)).toBe("provisioning");
-    expect(serviceLogLines).toHaveLength(1);
-    expect(serviceLogLines[0]).toContain(projectSessionId);
+    await expect(creation.create(projectRequest(repoMountId))).rejects.toMatchObject({
+      code: "repo.not_found",
+    });
+    await expect(creation.create(projectRequest(chatMountId))).rejects.toMatchObject({
+      code: "repo.mount_managed",
+    });
+    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(1);
   });
 
   it("runs the lead on the account made current while its session.created was on its way", async () => {

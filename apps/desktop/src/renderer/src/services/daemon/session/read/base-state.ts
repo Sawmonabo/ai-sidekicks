@@ -43,7 +43,7 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
 }
 
 /**
- * The empty base state at the position `opening` picks, passing over the refused one. A repair
+ * The empty base state at the position `opening` picks, passing over the refused ones. A repair
  * reopens after the held row the window names, since the store holds the window's state there
  * and the read carries none; else at the held window's head, rows still sitting before it, or at
  * the floor for a window that opened there. A window opening takes the resume rule, an
@@ -55,19 +55,23 @@ function baseStateOpenedAt(
   cursors: SessionReadResponse["transcriptCursors"],
   opening: SessionWindowOpening,
 ): SessionBaseState {
-  const { refusedCursor } = opening;
+  const { refusedCursors } = opening;
   if (opening.opensAt === "repair") {
     const { resumeAfterRowCursor, headCursor } = opening;
-    if (resumeAfterRowCursor !== undefined && resumeAfterRowCursor !== refusedCursor) {
-      return baseStateAfter(heldIdAsWireId(resumeAfterRowCursor));
+    const afterRowCursor =
+      resumeAfterRowCursor === undefined
+        ? undefined
+        : heldIdAsWireId<EventCursor>(resumeAfterRowCursor);
+    if (afterRowCursor !== undefined && !refusedCursors.has(afterRowCursor)) {
+      return baseStateAfter(afterRowCursor);
     }
-    return headCursor !== undefined && headCursor !== refusedCursor
+    return headCursor !== undefined && !refusedCursors.has(headCursor)
       ? { ...baseStateAfter(headCursor), readFromCursor: headCursor }
-      : baseStateAtFloor(cursors, refusedCursor);
+      : baseStateAtFloor(cursors, refusedCursors);
   }
   const decision = resolveTranscriptResume(cursors);
-  if (decision.fromCursor === refusedCursor) {
-    return baseStateAtFloor(cursors, refusedCursor);
+  if (refusedCursors.has(decision.fromCursor)) {
+    return baseStateAtFloor(cursors, refusedCursors);
   }
   return decision.outcome === "resume-acknowledged"
     ? { ...baseStateAfter(decision.fromCursor), readFromCursor: decision.fromCursor }
@@ -77,9 +81,9 @@ function baseStateOpenedAt(
 /** The empty base state at the floor, or at the log's start when the floor was refused. */
 function baseStateAtFloor(
   cursors: SessionReadResponse["transcriptCursors"],
-  refusedCursor: EventCursor | undefined,
+  refusedCursors: ReadonlySet<EventCursor>,
 ): SessionBaseState {
-  return cursors.earliest === refusedCursor ? { entities: [] } : baseStateAfter(cursors.earliest);
+  return refusedCursors.has(cursors.earliest) ? { entities: [] } : baseStateAfter(cursors.earliest);
 }
 
 /** An empty base state at one daemon-issued position, the stream opening after it. */

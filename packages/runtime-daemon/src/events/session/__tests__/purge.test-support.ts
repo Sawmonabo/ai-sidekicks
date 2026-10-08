@@ -178,6 +178,7 @@ export class PurgeFixture {
           }),
         }),
         nodeId: NODE,
+        archiveUnfinishedCreates: () => Promise.resolve(),
       }),
     });
     this.relatedRanking = new SessionRelatedRanking({

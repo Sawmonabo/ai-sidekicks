@@ -10,7 +10,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
-import { mintSessionId, seedSessionRow } from "../../groups/__fixtures__/directory-rows.js";
+import { mintSessionId, seedSessionRow } from "../../directory/__fixtures__/directory-rows.js";
 import { SessionRelatedRanking } from "../../related/ranking.js";
 import { recordedSessionLinkStatement } from "../recorded.js";
 import { SessionLinkService } from "../service.js";

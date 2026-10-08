@@ -28,12 +28,6 @@ import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 /** The longest reason text a refusal or a load failure carries. */
 export const AGENT_REASON_MAX_LEN = 1024;
 
-/**
- * The definition registry could not be read, so a run naming a saved agent is refused rather than
- * started from a definition the registry could not describe.
- */
-export const AGENT_DEFINITION_UNREADABLE_CODE = "agent.definition_unreadable" as const;
-
 // Ids
 
 /**
@@ -79,19 +73,21 @@ export interface AgentProviderBinding {
   outputSpeed?: string | undefined;
 }
 /**
- * Parses an {@link AgentProviderBinding}. Typed as its object schema, so a shape that is part of a
- * binding derives from it with `pick` or `omit`.
+ * Parses an {@link AgentProviderBinding}. Typed as the binding and as its object schema, so the
+ * schema is checked against the binding and a shape that is part of one derives from it with
+ * `pick` or `omit`.
  */
-export const AgentProviderBindingSchema: z.ZodObject<
-  {
-    driverName: z.ZodType<ProviderName, ProviderName>;
-    modelId: z.ZodString;
-    providerAccountId: z.ZodNullable<z.ZodType<ProviderAccountId, ProviderAccountId>>;
-    effort: z.ZodNullable<z.ZodString>;
-    outputSpeed: z.ZodOptional<z.ZodString>;
-  },
-  z.core.$strict
-> = z
+export const AgentProviderBindingSchema: z.ZodType<AgentProviderBinding, AgentProviderBinding> &
+  z.ZodObject<
+    {
+      driverName: z.ZodType<ProviderName, ProviderName>;
+      modelId: z.ZodString;
+      providerAccountId: z.ZodNullable<z.ZodType<ProviderAccountId, ProviderAccountId>>;
+      effort: z.ZodNullable<z.ZodString>;
+      outputSpeed: z.ZodOptional<z.ZodString>;
+    },
+    z.core.$strict
+  > = z
   .object({
     driverName: ProviderNameSchema,
     modelId: providerTokenSchema("AgentProviderBinding.modelId"),

@@ -33,12 +33,6 @@ describe("the settings file", () => {
     expect(parsed.data.voice).toStrictEqual({ mode: "tap", callVoice: null });
   });
 
-  it("reads the last model and effort picked back whole", () => {
-    const lastLeadModel = { driverName: "codex", modelId: "gpt-5.5", effort: null };
-    const parsed = parseMachineSettingsFile({ lastLeadModel });
-    expect(parsed.success && parsed.data.lastLeadModel).toStrictEqual(lastLeadModel);
-  });
-
   it("refuses the whole file for an unknown key, even inside a group", () => {
     expect(parseMachineSettingsFile({ notifications: { sound: true } }).success).toBe(false);
   });

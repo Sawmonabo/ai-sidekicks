@@ -10,7 +10,8 @@
  * `stream-diverged`: the store lost its stream and a read is asked for. `sequence-gap`: named
  * rows are missing and a read is asked for. `sequence-diverged`: a row's sequence could not be
  * reconciled with the store's run. `projection-failed`: a row landed but its entity contribution
- * did not. The last two are raised for a wire that stopped.
+ * did not. `subscription-closed`: the stream could not be opened. `read-failed`: the session's
+ * read failed.
  */
 export const SESSION_DEGRADED_CAUSES = [
   "stream-diverged",

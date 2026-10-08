@@ -17,10 +17,10 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { StatementResult, WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import type { SessionListFeed } from "../directory/list-feed.js";
 import { sessionExistsStatement } from "../directory/lookups.js";
+import { sessionNotFound } from "../not-found.js";
 import {
   deleteGroupStatement,
   groupExistsStatement,
@@ -37,7 +37,7 @@ import {
 } from "./store.js";
 
 /** What the group service needs from the daemon. */
-export interface SessionGroupServiceOptions {
+export interface SessionGroupServiceDeps {
   readonly writer: Pick<DatabaseWriter, "write">;
   /** Told which sessions changed group, or sit in a renamed one, once each write commits. */
   readonly listFeed: Pick<SessionListFeed, "refresh">;
@@ -60,22 +60,25 @@ export class SessionGroupService {
   readonly #listFeed: Pick<SessionListFeed, "refresh">;
   readonly #now: () => Date;
 
-  constructor(options: SessionGroupServiceOptions) {
-    this.#writer = options.writer;
-    this.#listFeed = options.listFeed;
-    this.#now = options.now ?? (() => new Date());
+  constructor(deps: SessionGroupServiceDeps) {
+    this.#writer = deps.writer;
+    this.#listFeed = deps.listFeed;
+    this.#now = deps.now ?? (() => new Date());
   }
 
   /**
    * Makes a group in the session's project with the session moved into it. Rejects with
-   * {@link SessionNotFoundError}, `session.group_refused` for a chat, or
+   * `session.not_found`, `session.group_refused` for a chat, or
    * `session.group_name_taken` when another group of the project holds the name ignoring case.
    */
   async create(request: SessionGroupCreateRequest): Promise<SessionGroupCreateResponse> {
     const groupId = mintUuidV7() as SessionGroupId;
     const nameFolded = foldName(request.name);
     await this.#write([
-      { statement: sessionExistsStatement(request.sessionId), refusal: sessionNotFound(request) },
+      {
+        statement: sessionExistsStatement(request.sessionId),
+        refusal: () => sessionNotFound(request.sessionId),
+      },
       {
         statement: projectSessionStatement(request.sessionId),
         refusal: () => chatHasNoGroup(request.sessionId),
@@ -102,7 +105,7 @@ export class SessionGroupService {
 
   /**
    * Moves the session into a group of its own project, or out of any group with `groupId`
-   * `null`. Rejects with {@link SessionNotFoundError}, or `session.group_refused` for a chat or a
+   * `null`. Rejects with `session.not_found`, or `session.group_refused` for a chat or a
    * group that is not in the session's project.
    */
   async move(request: SessionGroupMoveRequest): Promise<void> {
@@ -121,7 +124,10 @@ export class SessionGroupService {
               }),
           };
     await this.#write([
-      { statement: sessionExistsStatement(request.sessionId), refusal: sessionNotFound(request) },
+      {
+        statement: sessionExistsStatement(request.sessionId),
+        refusal: () => sessionNotFound(request.sessionId),
+      },
       placement,
       { statement: removeEmptyGroupsOfSessionProjectStatement(request.sessionId) },
     ]);
@@ -180,11 +186,6 @@ export class SessionGroupService {
 // The session ids a statement selecting `id` from `sessions` answered.
 function sessionIdsOf(result: StatementResult | undefined): SessionId[] {
   return ((result?.rows ?? []) as readonly { readonly id: SessionId }[]).map((row) => row.id);
-}
-
-function sessionNotFound(request: { readonly sessionId: SessionId }): () => Error {
-  return () =>
-    new SessionNotFoundError(`No session ${request.sessionId}.`, { sessionId: request.sessionId });
 }
 
 function chatHasNoGroup(sessionId: SessionId): Error {

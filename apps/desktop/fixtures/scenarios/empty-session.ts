@@ -33,7 +33,6 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
           state: "active",
           shape: "chat",
           muted: false,
-          pendingWorkingFolder: null,
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
           draft: "",

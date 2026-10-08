@@ -1,6 +1,7 @@
 // A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
 // id>` the daemon makes at the chat's create and registers as the chat's managed mount, kept while
-// the chat is archived, and deleted whole when the chat is purged.
+// the chat is archived, and deleted whole when the chat is purged, or when its create stopped
+// before the chat was born.
 
 import { realpath } from "node:fs/promises";
 import * as path from "node:path";
@@ -10,7 +11,7 @@ import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DEFAULT_GIT_FILESYSTEM } from "../../git/filesystem.js";
-import { DEFAULT_GIT_EXECUTABLE, runGitWithExecFile, type GitRunner } from "../../git/process.js";
+import { runGitWithExecFile, type GitRunner } from "../../git/process.js";
 import type { RepoMountService } from "../repo/mount-service.js";
 
 const MANAGED_WORKSPACES_FOLDER_NAME = "workspaces";
@@ -38,12 +39,6 @@ export interface ManagedWorkspaceServiceDeps {
   readonly repoMounts: Pick<RepoMountService, "attachManaged" | "deleteManaged">;
   /** Defaults to the daemon's shared `execFile` runner. */
   readonly git?: GitRunner;
-  /**
-   * Absolute `git` path; required on `win32`, where bare `git` resolves from the working folder.
-   */
-  readonly gitExecutablePath?: string;
-  /** Platform for the win32 `git`-pinning guard; defaults to `process.platform`. */
-  readonly platform?: NodeJS.Platform;
 }
 
 /** Makes and deletes chats' managed workspaces, each with its managed mount row. */
@@ -51,19 +46,11 @@ export class ManagedWorkspaceService {
   readonly #workspacesDirectory: string;
   readonly #repoMounts: Pick<RepoMountService, "attachManaged" | "deleteManaged">;
   readonly #git: GitRunner;
-  readonly #gitExecutable: string;
 
   constructor(deps: ManagedWorkspaceServiceDeps) {
-    if ((deps.platform ?? process.platform) === "win32" && deps.gitExecutablePath === undefined) {
-      // Fail closed: a git.exe planted in the daemon's working folder would run instead.
-      throw new TypeError(
-        "ManagedWorkspaceService: on win32 you must supply an absolute gitExecutablePath.",
-      );
-    }
     this.#workspacesDirectory = managedWorkspacesDirectoryOf(deps.homeDirectory);
     this.#repoMounts = deps.repoMounts;
     this.#git = deps.git ?? runGitWithExecFile;
-    this.#gitExecutable = deps.gitExecutablePath ?? DEFAULT_GIT_EXECUTABLE;
   }
 
   /**
@@ -132,7 +119,6 @@ export class ManagedWorkspaceService {
   async #initializeRepository(workspacePath: string): Promise<void> {
     await this.#git(["-C", workspacePath, "init", "--quiet", "--template="], {
       timeoutMs: GIT_INIT_TIMEOUT_MS,
-      executable: this.#gitExecutable,
     });
   }
 }

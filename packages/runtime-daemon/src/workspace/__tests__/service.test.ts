@@ -44,7 +44,7 @@ import { type FilesystemPathProbeFn } from "../row-guards.js";
 
 import { bindReadyWorkspace } from "../__fixtures__/bound-root.js";
 import { readWorkspaceRow, requireWorkspaceRow } from "../__fixtures__/rows.js";
-import { seedSessionRow } from "../../session/groups/__fixtures__/directory-rows.js";
+import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // ----------------------------------------------------------------------------

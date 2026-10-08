@@ -257,6 +257,7 @@ impl TokenCursor {
             TokenCursor::Term(postings) if postings.doc() >= target => postings.doc(),
             TokenCursor::Term(postings) => postings.seek(target),
             TokenCursor::Union(union) => union.seek(target),
+            TokenCursor::Occurrences { words, .. } if words.doc() >= target => words.doc(),
             TokenCursor::Occurrences { words, .. } => words.seek(target),
         }
     }

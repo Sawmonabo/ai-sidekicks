@@ -1,7 +1,8 @@
 //! The budgets' measurements on the seeded set. Each is an ignored test, run alone and on demand in
 //! a release build, printing its figures with `uptime` beside them:
 //!
-//! `cargo test --release --lib -- --ignored --exact --nocapture tests::measurements::<name>`
+//! `cargo test --release --lib --features measurements -- --ignored --exact --nocapture
+//! tests::measurements::<name>`
 //!
 //! - `rebuild` builds the set into the folder in batches through `apply`, then merges it while
 //!   idle until no merge remains: the rebuild's time and peak footprint, each merge's time.
@@ -129,8 +130,11 @@ fn report(figure: String) {
 #[cfg(target_os = "macos")]
 fn footprint() -> String {
     let process = std::process::id();
+    // SAFETY: `rusage_info_v4` is a C struct of integers, for which all zero bytes are valid.
     let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
     let buffer = (&mut info as *mut libc::rusage_info_v4).cast::<libc::rusage_info_t>();
+    // SAFETY: `buffer` points at a live `rusage_info_v4`, the struct `RUSAGE_INFO_V4` asks the
+    // call to fill, and nothing else reads it until the call returns.
     let status = unsafe { libc::proc_pid_rusage(process as i32, libc::RUSAGE_INFO_V4, buffer) };
     assert_eq!(status, 0, "proc_pid_rusage failed");
     let tool = match Command::new("footprint")
@@ -200,7 +204,7 @@ fn merge_until_done(engine: &IndexEngine) {
     let mut steps = 0;
     loop {
         let step = Instant::now();
-        let more = engine.merge_while_idle().expect("a merge step runs");
+        let more = engine.merge_segments().expect("a merge step runs");
         steps += 1;
         report(format!(
             "merge step {steps}: {:.0} ms, {} segments, {}",
@@ -421,7 +425,11 @@ fn searches() {
         let started = Instant::now();
         let found = find_in_session(&version, LARGEST_SESSION, &lo).expect("the session finds");
         times.push(elapsed_milliseconds(started));
-        matches = found.total_match_count;
+        matches = found
+            .match_counts
+            .iter()
+            .map(|count| u64::from(*count))
+            .sum();
     }
     times.remove(0);
     let find_times = percentiles(times);

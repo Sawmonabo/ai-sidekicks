@@ -47,6 +47,7 @@ import type {
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { CheckpointResult } from "../../database/checkpoint.js";
+import { sqlListOf } from "../../database/sql-list.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import type {
@@ -56,9 +57,11 @@ import type {
 } from "../log-service.js";
 import { sessionAppendLock } from "./append-lock.js";
 import type { KeyedLock } from "../../keyed-lock.js";
+import { RETRY_WAITS_MS } from "../../retry-waits.js";
 import type { SessionListFeed } from "../../session/directory/list-feed.js";
 import { removeEmptyGroupsOfSessionProjectStatement } from "../../session/groups/store.js";
 import type { SessionRelatedRanking } from "../../session/related/ranking.js";
+import { SESSION_RUN_IDS_SQL } from "../../session/run/ids.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import type { ManagedWorkspaceService } from "../../workspace/managed/service.js";
 import { managedMountDeletionStatements } from "../../workspace/repo/mount-service.js";
@@ -70,16 +73,7 @@ const NEVER_PURGED_EVENT_CATEGORIES: readonly EventCategory[] = ["event_maintena
 // correctness depends on where the shared WHERE fragment sits among positional binds.
 // `EventCategory` is a closed union of bare identifiers, so nothing needs escaping. Derived from
 // the array so the two cannot drift.
-const NEVER_PURGED_CATEGORY_SQL_LIST: string = NEVER_PURGED_EVENT_CATEGORIES.map(
-  (category) => `'${category}'`,
-).join(", ");
-
-// The waits between the truncation's tries while a reader keeps the log busy: seven tries, 63 s of
-// waits between them. The first try, right after the deletes commit, waits out the writer
-// connection's busy timeout for the reader, holding the writer and every write behind it that
-// long; each retry answers busy at once, so a reader that stays open costs the writer only that
-// first wait.
-const CHECKPOINT_RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
+const NEVER_PURGED_CATEGORY_SQL_LIST: string = sqlListOf(NEVER_PURGED_EVENT_CATEGORIES);
 
 const PURGEABLE_WHERE = `session_id = ? AND category NOT IN (${NEVER_PURGED_CATEGORY_SQL_LIST})`;
 
@@ -158,7 +152,7 @@ export interface SessionPurgeDeps {
   readonly newEventId?: () => string;
   /**
    * The waits, in milliseconds, between the truncation's tries while a reader keeps the log busy;
-   * one retry follows each. Defaults to 1, 2, 4, 8, 16 and 32 seconds.
+   * one retry follows each. Defaults to the daemon's retry waits.
    */
   readonly checkpointRetryDelaysMs?: readonly number[];
 }
@@ -210,7 +204,10 @@ export class SessionPurge {
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
-    this.#checkpointRetryDelaysMs = deps.checkpointRetryDelaysMs ?? CHECKPOINT_RETRY_DELAYS_MS;
+    // The truncation's first try, right after the deletes commit, waits out the writer
+    // connection's busy timeout for a reader, holding every write behind it that long; each retry
+    // answers busy at once, so a reader that stays open costs the writer only that first wait.
+    this.#checkpointRetryDelaysMs = deps.checkpointRetryDelaysMs ?? RETRY_WAITS_MS;
   }
 
   /**
@@ -419,8 +416,7 @@ const DELETE_GONE_SESSION_WORKTREES_SQL = `DELETE FROM worktrees
      WHERE created_by_session_id = ?
        AND ((state = 'retired' AND cleaned_at IS NOT NULL) OR state = 'failed')
        AND NOT EXISTS (SELECT 1 FROM branch_contexts WHERE worktree_id = worktrees.id)
-       AND NOT EXISTS (SELECT 1 FROM run_execution_contexts WHERE worktree_id = worktrees.id)
-       AND NOT EXISTS (SELECT 1 FROM sessions WHERE pending_worktree_id = worktrees.id)`;
+       AND NOT EXISTS (SELECT 1 FROM run_execution_contexts WHERE worktree_id = worktrees.id)`;
 
 // The rows keyed by one of the session's runs, each up to the run id it is matched on.
 const DELETE_BY_SESSION_RUN_SQL: readonly string[] = [
@@ -432,17 +428,6 @@ const DELETE_BY_SESSION_RUN_SQL: readonly string[] = [
 // Where the event delete sits in the write: after the range read, the linked sessions' read, the
 // run-keyed deletes and the snapshots.
 const EVENTS_DELETE_INDEX: number = 2 + DELETE_BY_SESSION_RUN_SQL.length + 1;
-
-// The session's runs: the rows the rebuild wrote, every run its readable events name, so a run the
-// rebuild never reached past a damaged event still loses its rows, and those that had an execution
-// root. A damaged row's payload may not be JSON, which `json_extract` would refuse.
-const SESSION_RUN_IDS_SQL = `SELECT run_id FROM runs WHERE session_id = ?
-                             UNION
-                             SELECT CASE WHEN json_valid(payload)
-                                         THEN json_extract(payload, '$.runId') END
-                               FROM session_events WHERE session_id = ?
-                             UNION
-                             SELECT run_id FROM run_execution_contexts WHERE session_id = ?`;
 
 /**
  * The range read, the read of the sessions linked to it, and the deletes of one session. The range
@@ -479,7 +464,7 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     },
     ...DELETE_BY_SESSION_RUN_SQL.map((deleteByRun) => ({
       sql: `${deleteByRun} IN (${SESSION_RUN_IDS_SQL})`,
-      bindings: [sessionId, sessionId, sessionId],
+      bindings: { sessionId },
     })),
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },

@@ -132,7 +132,7 @@ export class OutboxReader {
   }
 
   /** Every group's members as the database holds them now. */
-  readEveryGroupsMembers(): GroupMembers[] {
+  readEveryGroupMembers(): GroupMembers[] {
     const groups: GroupMembers[] = [];
     let group: GroupMembers | undefined;
     for (const row of this.#everyGroupMember.iterate()) {

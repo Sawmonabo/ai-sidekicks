@@ -23,6 +23,7 @@ import {
 } from "../../../events/session/__fixtures__/log-faults.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
 import { directoryStatementsFor } from "../row.js";
+import { mintSessionId, seedProjectMount, seedWorkspace } from "./directory-rows.js";
 
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 const OCCURRED_AT = "2026-10-06T12:00:00.000Z";
@@ -166,36 +167,12 @@ export async function openSessionLog(): Promise<SessionLog> {
       });
     },
     bindToProject: async (sessionId, knownRepoMountId) => {
-      const repoMountId = knownRepoMountId ?? mintUuidV7();
-      await scratch.writer.write([
-        ...(knownRepoMountId === undefined
-          ? [
-              {
-                sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root,
-                                               attached_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?)`,
-                bindings: [
-                  repoMountId,
-                  mintUuidV7(),
-                  `/work/${repoMountId}`,
-                  `/work/${repoMountId}`,
-                  OCCURRED_AT,
-                  OCCURRED_AT,
-                ],
-              },
-            ]
-          : []),
-        {
-          sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at,
-                                        updated_at)
-                VALUES (?, ?, ?, 'bound-root', ?, ?)`,
-          bindings: [mintUuidV7(), sessionId, repoMountId, OCCURRED_AT, OCCURRED_AT],
-        },
-      ]);
+      const repoMountId = knownRepoMountId ?? (await seedProjectMount(scratch.writer));
+      await seedWorkspace(scratch.writer, sessionId, repoMountId);
       return repoMountId;
     },
     seedWideChats: async (count) => {
-      const sessionIds = Array.from({ length: count }, () => mintUuidV7() as SessionId);
+      const sessionIds = Array.from({ length: count }, mintSessionId);
       const wideText = "語".repeat(SESSION_NAME_MAX_LEN);
       await scratch.writer.write(
         sessionIds.map((sessionId) => ({

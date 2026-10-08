@@ -20,7 +20,7 @@ import {
   seedChatSession,
   seedProjectMount,
   seedProjectSession,
-} from "../__fixtures__/directory-rows.js";
+} from "../../directory/__fixtures__/directory-rows.js";
 import { SessionGroupService } from "../service.js";
 import { sessionGroupPlacementStatement } from "../store.js";
 

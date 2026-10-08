@@ -15,6 +15,7 @@ import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import type { SessionConvertSkipReason } from "@ai-sidekicks/contracts/session/convert";
 import type { SessionLinkKind } from "@ai-sidekicks/contracts/session/links";
 import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
@@ -108,6 +109,14 @@ const SESSION_STATES: Record<SessionState, true> = {
 };
 
 const RUN_OUTCOMES: Record<SessionRunOutcome, true> = { done: true, failed: true, idle: true };
+
+const CONVERT_FILE_OUTCOMES: Record<"copied" | SessionConvertSkipReason, true> = {
+  copied: true,
+  repository_has_file: true,
+  repository_path_not_a_folder: true,
+  link: true,
+  special_file: true,
+};
 
 const LINK_KINDS: Record<SessionLinkKind, true> = {
   started: true,
@@ -349,6 +358,16 @@ describe("contract enums against the daemon schema", () => {
     expect(() =>
       insertCreateRequest.run(newId("key"), newId("session"), MOUNT_ID, NON_MEMBER),
     ).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every outcome a conversion records for a file, and refuses any other", () => {
+    const insertConvertFile = db.prepare(
+      `INSERT INTO session_convert_files (session_id, path, outcome) VALUES ('session-1', ?, ?)`,
+    );
+    for (const outcome of membersOf(CONVERT_FILE_OUTCOMES)) {
+      expect(() => insertConvertFile.run(newId("path"), outcome)).not.toThrow();
+    }
+    expect(() => insertConvertFile.run(newId("path"), NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
   it("bounds a session's own step limit from below at one, and lets it be unset", () => {

@@ -17,6 +17,7 @@ import type { WriteStatement } from "../../database/statement.js";
 import { normalizeOccurredAt } from "../../events/canonicalizer.js";
 import type { SessionDirectoryRow, StoredEvent } from "../records.js";
 import { RUN_OUTCOME_BY_EVENT_TYPE } from "./run-activity.js";
+import { cutToCodeUnits } from "../../text-cut.js";
 
 // The members of an event the directory reads, which a stored event and an append's unsequenced
 // envelope both carry. Its payload is trusted as the append path's variant parse left it.
@@ -137,11 +138,7 @@ function markTimeOf(payload: Readonly<Record<string, unknown>>): string {
  */
 function firstMessagePreviewOf(message: string): string | null {
   const opening = message.trimStart();
-  if (opening.length === 0) return null;
-  if (opening.length <= SESSION_NAME_MAX_LEN) return opening;
-  const lastUnit = opening.charCodeAt(SESSION_NAME_MAX_LEN - 1);
-  const splitsPair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
-  return opening.slice(0, splitsPair ? SESSION_NAME_MAX_LEN - 1 : SESSION_NAME_MAX_LEN);
+  return opening.length === 0 ? null : cutToCodeUnits(opening, SESSION_NAME_MAX_LEN);
 }
 
 interface DirectoryUpdate {
@@ -274,4 +271,44 @@ export function directoryStatementsFor(event: DirectoryEvent): WriteStatement[] 
       expectedRowCount: 1,
     },
   ];
+}
+
+/**
+ * The statement that writes a folded row's every event-derived column over the session's row, or
+ * inserts the row when the database lost it; the columns services write and its group are kept.
+ */
+export function directoryRowStatement(row: SessionDirectoryRow): WriteStatement {
+  return {
+    sql: `INSERT INTO sessions
+            (id, shape, state, name, first_message_preview, branch, pinned_at, muted_at,
+             scratch_for_definition_id, parent_session_id, last_run_outcome, created_at,
+             updated_at, last_activity_at)
+          VALUES (@id, @shape, @state, @name, @firstMessagePreview, @branch, @pinnedAt, @mutedAt,
+                  @scratchForDefinitionId, @parentSessionId, @lastRunOutcome, @createdAt,
+                  @updatedAt, @lastActivityAt)
+          ON CONFLICT (id) DO UPDATE SET
+            shape = excluded.shape, state = excluded.state, name = excluded.name,
+            first_message_preview = excluded.first_message_preview, branch = excluded.branch,
+            pinned_at = excluded.pinned_at, muted_at = excluded.muted_at,
+            scratch_for_definition_id = excluded.scratch_for_definition_id,
+            parent_session_id = excluded.parent_session_id,
+            last_run_outcome = excluded.last_run_outcome, created_at = excluded.created_at,
+            updated_at = excluded.updated_at, last_activity_at = excluded.last_activity_at`,
+    bindings: {
+      id: row.sessionId,
+      shape: row.shape,
+      state: row.state,
+      name: row.name,
+      firstMessagePreview: row.firstMessagePreview,
+      branch: row.branch,
+      pinnedAt: row.pinnedAt,
+      mutedAt: row.mutedAt,
+      scratchForDefinitionId: row.scratchForDefinitionId,
+      parentSessionId: row.parentSessionId,
+      lastRunOutcome: row.lastRunOutcome,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      lastActivityAt: row.lastActivityAt,
+    },
+  };
 }

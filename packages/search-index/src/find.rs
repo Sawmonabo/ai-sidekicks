@@ -4,6 +4,7 @@
 use tantivy::TERMINATED;
 use tantivy::schema::IndexRecordOption;
 
+use crate::collector::all_on;
 use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_phrase_cursor, term_cursor};
 use crate::phrase::{Phrase, query_phrases};
 use crate::schema::{EVENT_KIND, Owner, owner_term};
@@ -52,7 +53,7 @@ pub fn find_in_session(
                 if alive.is_none_or(|alive| alive.is_alive(doc))
                     && columns.kind.get_val(doc) == EVENT_KIND
                     && filters.admit(doc)
-                    && cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
+                    && all_on(&mut cursors, doc)
                 {
                     let count = row_match_count(&mut cursors, purpose, &mut marked);
                     found.push((columns.key.get_val(doc), count));
@@ -62,11 +63,9 @@ pub fn find_in_session(
         }
     }
     found.sort_unstable_by_key(|(key, _)| std::cmp::Reverse(*key));
-    let total_match_count = found.iter().map(|(_, count)| i64::from(*count)).sum();
     Ok(SessionFind {
         row_keys: found.iter().map(|(key, _)| *key as i64).collect(),
         match_counts: found.iter().map(|(_, count)| *count).collect(),
-        total_match_count,
     })
 }
 

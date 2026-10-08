@@ -3,7 +3,8 @@
 // directory's statements, so each event's `sessions` row change commits in the event's own write,
 // and the sessions list follows that log from the start, before any append; the daemon's recovery
 // pass and its damaged history append through the same log, which refuses a damaged session's
-// writes, and every session read stops at a damaged session's last good point.
+// writes, and every session read and search stops at a damaged session's last good point. The
+// services' background work starts only once the recovery pass has ended.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
@@ -18,7 +19,7 @@ import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   executionRootsDirectoryOf,
-  runGitWithExecFile,
+  type GitRunner,
 } from "../git/process.js";
 import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
 import { registerSessionCreate } from "../ipc/handlers/session/create.js";
@@ -51,13 +52,15 @@ import { SessionGroupService } from "../session/groups/service.js";
 import { SessionLinkService } from "../session/links/service.js";
 import { SessionRelatedRanking } from "../session/related/ranking.js";
 import { FileSearchService } from "../session/search/files/service.js";
-import { SearchIndexIdleMerge } from "../session/search/idle-merge.js";
+import { SearchIndexMerging } from "../session/search/merging.js";
 import type { SearchThread } from "../session/search/thread/handle.js";
 import { SessionService } from "../session/service.js";
 import { SessionTagService } from "../session/tags/service.js";
 import { WorkspaceEventEmitter } from "../workspace/event-emitter.js";
 import { ManagedWorkspaceService } from "../workspace/managed/service.js";
+import { ManagedWorkspaceWriteWatcher } from "../workspace/managed/write-watcher.js";
 import { RepoMountService } from "../workspace/repo/mount-service.js";
+import { RepoRootResolver } from "../workspace/repo/root-resolver.js";
 import { WorkspaceService } from "../workspace/service.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
 
@@ -68,6 +71,8 @@ export interface SessionMethodsDeps {
   readonly homeDirectory: string;
   /** This machine's id, which every mount row it attaches carries. */
   readonly nodeId: NodeId;
+  /** The runner for the `git` the daemon found along the login shell's `PATH` at start. */
+  readonly git: GitRunner;
   /** The machine settings file, which a create reads and writes the last lead model to. */
   readonly settingsFile: MachineSettingsFile;
   /** The provider drivers, whose close ends a closed session's provider leg. */
@@ -95,10 +100,21 @@ export interface RegisteredSessionServices {
   /** The whole-session purge, which deletes a session a person deletes. */
   readonly purge: SessionPurge;
   /**
-   * Ends the background work the services started: the sessions list, the self-naming, the
-   * related lists' rename follow, the index merge and the pass finishing sessions left
-   * provisioning. It settles once each of them has finished what it had under way: the titles on
-   * their way, the merge step at the writer, the related-list round and that pass.
+   * The one watch over every chat's managed workspace; its `whenFailed` says when it stopped
+   * reporting writes.
+   */
+  readonly managedWorkspaceWrites: Pick<ManagedWorkspaceWriteWatcher, "whenFailed">;
+  /**
+   * Starts the background work, once the recovery pass has ended: the self-naming, the related
+   * lists' rename follow, the index's merging, the passes finishing the creates and removing the
+   * conversions' copies the daemon stopped part way, and the managed workspaces' write watch. Does
+   * nothing once `stop` has been called.
+   */
+  readonly start: () => Promise<void>;
+  /**
+   * Ends the sessions list and the background work `start` began, after a start under way. It
+   * settles once each of them has finished what it had under way: the titles on their way, the
+   * merge step at the writer, the related-list round and the two stopped-work passes.
    */
   readonly stop: () => Promise<void>;
 }
@@ -124,7 +140,7 @@ export function registerSessionMethods(
   });
   const sessions = new SessionService(database.reader, deps.readDamagedFromSequence);
   const git = createHookNeutralizedGitCommand({
-    git: runGitWithExecFile,
+    git: deps.git,
     filesystem: DEFAULT_GIT_FILESYSTEM,
     executionRootsDirectory: executionRootsDirectoryOf(deps.homeDirectory),
     timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
@@ -135,10 +151,14 @@ export function registerSessionMethods(
     database,
     events: workspaceEvents,
     nodeId: deps.nodeId,
+    resolver: new RepoRootResolver({ git: deps.git }),
+    // The create service is built from the mounts below, and a detach comes only through a call.
+    archiveUnfinishedCreates: () => creation.archiveUnfinishedCreates(),
   });
   const managedWorkspaces = new ManagedWorkspaceService({
     homeDirectory: deps.homeDirectory,
     repoMounts,
+    git: deps.git,
   });
   const changes = new SessionChanges({
     reader: database.reader,
@@ -152,6 +172,15 @@ export function registerSessionMethods(
     workspaces,
     managedWorkspaces,
     settingsFile: deps.settingsFile,
+    writeServiceLog: deps.writeServiceLog,
+  });
+  const conversion = new SessionConversion({
+    reader: database.reader,
+    writer: database.writer,
+    events: eventLog,
+    lock: changes.lock,
+    repoMounts,
+    workspaces,
     writeServiceLog: deps.writeServiceLog,
   });
   const draftStore = new SessionDraftStore(database);
@@ -168,16 +197,7 @@ export function registerSessionMethods(
     draftStore,
   });
   registerSessionDraftUpdate(registry, draftStore);
-  registerSessionConvert(registry, {
-    conversion: new SessionConversion({
-      reader: database.reader,
-      writer: database.writer,
-      events: eventLog,
-      lock: changes.lock,
-      repoMounts,
-      workspaces,
-    }),
-  });
+  registerSessionConvert(registry, { conversion });
   registerSessionList(registry, {
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
@@ -205,7 +225,10 @@ export function registerSessionMethods(
     streamingPrimitive: deps.streamingPrimitive,
   });
   registerSessionTagMethods(registry, { tags: new SessionTagService(database) });
-  registerSessionSearch(registry, { sessionSearch: deps.searchThread });
+  registerSessionSearch(registry, {
+    sessionSearch: deps.searchThread,
+    readDamagedFromSequence: deps.readDamagedFromSequence,
+  });
   registerSessionFileSearch(registry, {
     fileSearch: new FileSearchService({
       reader: database.reader,
@@ -213,23 +236,31 @@ export function registerSessionMethods(
       writeServiceLog: deps.writeServiceLog,
     }),
   });
-  registerTranscriptSearch(registry, { transcriptSearch: deps.searchThread });
+  registerTranscriptSearch(registry, {
+    transcriptSearch: {
+      searchTranscript: (request) =>
+        deps.searchThread.searchTranscript(
+          request,
+          deps.readDamagedFromSequence(request.sessionId),
+        ),
+    },
+  });
 
-  const stopAutoTitle = new SessionAutoTitle({
+  const autoTitle = new SessionAutoTitle({
     reader: database.reader,
     events: eventLog,
     changes,
     writeServiceLog: deps.writeServiceLog,
-  }).start();
-  const indexMerge = new SearchIndexIdleMerge({
-    mergeWhileIdle: () => deps.searchThread.mergeWhileIdle(),
-    followAll: (onCommitted) => eventLog.followAll(onCommitted),
+  });
+  const indexMerging = new SearchIndexMerging({
+    mergeSegments: () => deps.searchThread.mergeSegments(),
+    followIndexCommits: (onCommitted) => deps.searchThread.followIndexCommits(onCommitted),
     writeServiceLog: deps.writeServiceLog,
   });
-  indexMerge.start();
-  const stopRelatedRanking = relatedRanking.start();
-  // Finishes, in the background, each session a create left provisioning when the daemon stopped.
-  const finishingProvisioning = creation.finishProvisioningSessions();
+  const writeWatcher = new ManagedWorkspaceWriteWatcher({
+    homeDirectory: deps.homeDirectory,
+    writeServiceLog: deps.writeServiceLog,
+  });
   const purge = new SessionPurge({
     writer: database.writer,
     nodeId: deps.nodeId,
@@ -239,15 +270,46 @@ export function registerSessionMethods(
     sessionList: listFeed,
     relatedRanking,
   });
+  // A stop can come while the recovery pass runs, before any start, or while a start is under way.
+  let isStopped = false;
+  let watchStarting: Promise<void> | undefined;
+  let stopBackgroundWork: (() => Promise<void>) | undefined;
   return {
     eventLog,
     sessions,
     purge,
+    managedWorkspaceWrites: writeWatcher,
+    start: () => {
+      if (isStopped) {
+        return Promise.resolve();
+      }
+      const stopAutoTitle = autoTitle.start();
+      indexMerging.start();
+      const stopRelatedRanking = relatedRanking.start();
+      // Finishes, in the background, each create the daemon stopped part way, and removes the copy
+      // each conversion it stopped part way left.
+      const finishingStoppedCreates = creation.finishStoppedCreates();
+      const removingStoppedCopies = conversion.removeStoppedCopies();
+      stopBackgroundWork = async () => {
+        const mergeStopped = indexMerging.stop();
+        const titlesStopped = stopAutoTitle();
+        writeWatcher.close();
+        await Promise.all([
+          mergeStopped,
+          titlesStopped,
+          stopRelatedRanking(),
+          finishingStoppedCreates,
+          removingStoppedCopies,
+        ]);
+      };
+      watchStarting = writeWatcher.start();
+      return watchStarting;
+    },
     stop: async () => {
-      const mergeStopped = indexMerge.stop();
-      const titlesStopped = stopAutoTitle();
+      isStopped = true;
       listFeed.close();
-      await Promise.all([mergeStopped, titlesStopped, stopRelatedRanking(), finishingProvisioning]);
+      await watchStarting;
+      await stopBackgroundWork?.();
     },
   };
 }

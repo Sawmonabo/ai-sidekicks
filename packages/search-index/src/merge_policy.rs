@@ -1,13 +1,11 @@
-//! Which segments merge while the daemon is idle, on Lucene's tiered model: no merge writes a
-//! segment holding more than a cap of live rows, so a merge's time is bounded whatever the index's
-//! size; segments of a similar size merge, at most ten at once, while their live rows fit the cap,
-//! since merging many segments' term dictionaries costs more per row than rewriting one; and a
-//! segment with more than one row in a hundred deleted, or that held the rows of a purged session
-//! or a deleted group, merges with the segments of its size, or is rewritten alone when none is
-//! left to take it, so their words leave the index's files and only the segments that held them,
-//! or merge with them, are rewritten. Tantivy's own `LogMergePolicy` has no such cap: its
-//! document bound only keeps larger segments out of merges, so many smaller ones still merge past
-//! it, and a segment past it never merges again, its deleted rows never expunged.
+//! Which segments merge, on Lucene's tiered model: no merge writes a segment holding more than a
+//! cap of live rows, so a merge's time is bounded whatever the index's size; segments of a similar
+//! size merge, at most ten at once, while their live rows fit the cap, since merging many
+//! segments' term dictionaries costs more per row than rewriting one; and a segment with more than
+//! one row in a hundred deleted, or that held the rows of a purged session or a deleted group,
+//! merges with the segments of its size, or is rewritten alone when it is over half the cap or none
+//! of its size is left to take it, so their words leave the index's files and only the segments
+//! that held them, or merge with them, are rewritten.
 
 use std::collections::HashSet;
 
@@ -94,9 +92,9 @@ impl MergePolicy for CappedMergePolicy {
             .filter(|segment| !self.is_full(segment))
             .collect();
         let levels = self.levels(&open);
-        // A level of two or more open segments always holds a fitting merge, each being at most half
-        // the cap, and a merge drops its segments' deleted rows, so a small segment's deleted rows
-        // leave with its level's merges and only a full segment or one alone at its size is
+        // A level of two or more open segments always holds a fitting merge, each being at most
+        // half the cap, and a merge drops its segments' deleted rows, so a small segment's deleted
+        // rows leave with its level's merges and only a full segment or one alone at its size is
         // rewritten alone.
         let merging: HashSet<SegmentId> = levels
             .iter()

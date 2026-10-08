@@ -1,5 +1,6 @@
-//! The endurance tier's seeded set, drawn as the daemon's seeder draws it: the same seed, the same
-//! draws in the same order, so scale 1 gives its 10,000 sessions and 1M messages row for row.
+//! A seeded set of sessions shaped like the endurance tier's: titled sessions, some in groups,
+//! nested tags, and messages of words drawn on a Zipf curve, every fiftieth in one session. The
+//! same size always draws the same rows.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -14,19 +15,18 @@ pub struct SeededSetSize {
     pub messages: usize,
     pub groups: usize,
     pub tags: usize,
-    pub links: usize,
 }
 
+#[cfg(feature = "measurements")]
 impl SeededSetSize {
-    /// The endurance tier at `scale`: scale 1 is 10,000 sessions and 1M messages, and every count
-    /// grows with it.
+    /// The endurance tier's sizes at `scale`: scale 1 is 10,000 sessions and 1M messages, and
+    /// every count grows with it.
     pub fn at_scale(scale: usize) -> SeededSetSize {
         SeededSetSize {
             sessions: 10_000 * scale,
             messages: 1_000_000 * scale,
             groups: 1_000 * scale,
             tags: 30_000 * scale,
-            links: 100_000 * scale,
         }
     }
 }
@@ -36,7 +36,7 @@ pub struct SeededDirectory {
     pub group_members: Vec<(u64, Vec<u64>)>,
 }
 
-// The seeder's `seededRandom`: mulberry32.
+// mulberry32: integer arithmetic only, so a seed always draws the same sequence.
 struct Mulberry(u32);
 
 impl Mulberry {
@@ -60,7 +60,7 @@ const TAG_ROOTS: [&str; 10] = [
     "billing", "auth", "infra", "docs", "perf", "ui", "api", "release", "bugs", "research",
 ];
 const VOCABULARY: usize = 20_000;
-// Every session's last activity: the seeder's `SEEDED_AT`, 2026-10-06T12:00:00.000Z.
+// Every session's last activity: 2026-10-06T12:00:00.000Z.
 const SEEDED_AT_MS: i64 = 1_791_288_000_000;
 
 /// The set's word at `index` of its 20,000; low indexes are the common words.
@@ -74,8 +74,8 @@ pub fn word_at(index: usize) -> String {
     word
 }
 
-/// Hands every row of the set to `emit` in the seeder's order (groups, titles, tags, then
-/// messages) and returns the groups' members. Keys follow the daemon's scheme: a message's key is
+/// Hands every row of the set to `emit` in order (groups, titles, tags, then messages) and returns
+/// the groups' members. Keys follow the daemon's scheme: a message's key is
 /// its rowid times four, a title's its session's rowid times four plus one, a group's name its
 /// rowid times four plus two, a tag's its rowid times four plus three.
 pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDirectory {
@@ -100,7 +100,6 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
     let mut members: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
     for index in 0..size.sessions {
         let name = sentence(&mut random, 3);
-        let _archived = random.next() < 0.3;
         let group = if random.next() < 0.5 {
             Some(random.pick(size.groups) + 1)
         } else {
@@ -136,21 +135,6 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
             ..row(key, IndexRowKind::Tag, *session, tag)
         });
     }
-    // Links hold no text, but their draws come before the messages'.
-    let mut links: HashSet<(usize, usize, usize)> = HashSet::new();
-    while links.len() < size.links {
-        let source = random.pick(size.sessions);
-        let target = random.pick(size.sessions);
-        let kind = random.pick(6);
-        if source != target {
-            let _last_used = random.pick(90);
-            if kind == 2 {
-                let _uses = random.pick(40);
-            }
-            links.insert((source, target, kind));
-        }
-    }
-    drop(links);
     for index in 0..size.messages {
         let session = if index % 50 == 0 {
             1

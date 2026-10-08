@@ -1,16 +1,18 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
 // two starts on one data folder only one goes on. It then starts capturing the login shell's
 // environment, which providers are built from, and loading the session services' modules; while
-// those run, it repairs a damaged database file, failing the start, naming why, when it cannot,
-// opens the database, through its writer for writes and a read-only connection for reads, starts
-// the search thread, which opens its own read-only connection and the search index, building the
-// index again when it cannot serve, while the start goes on, kills the terminal children a
-// previous run left running and knows this machine. It builds the terminal host over this run's
-// orphan guard, listens on its socket and writes this start's session token once the bind has
-// succeeded, then runs its recovery pass, refusing writes until that pass has ended and, after it,
-// only the writes of a session whose history is damaged. A client that reads the previous token in
-// the moment between the bind and the write is refused once, and its next read finds this start's
-// token. Its stop, asked for over the socket or by a terminate signal, ends it cleanly.
+// those run, it repairs a damaged database file, dropping the search index built from the file it
+// replaces and failing the start, naming why, when it cannot, opens the database, through its
+// writer for writes and a read-only connection for reads, starts the search thread, which opens its
+// own read-only connection and the search index, building the index again when it cannot serve,
+// while the start goes on, kills the terminal children a previous run left running and knows this
+// machine. It builds the terminal host over this run's orphan guard, listens on its socket and
+// writes this start's session token once the bind has succeeded, then runs its recovery pass,
+// refusing writes until that pass has ended and, after it, only the writes of a session whose
+// history is damaged; the session services' background work starts once the pass has ended. A
+// client that reads the previous token in the moment between the bind and the write is refused
+// once, and its next read finds this start's token. Its stop, asked for over the socket or by a
+// terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -38,6 +40,7 @@ import {
   type DatabaseConnections,
 } from "../database/connections.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
+import { createGitRunner, findGitExecutable, type GitRunner } from "../git/process.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -60,6 +63,7 @@ import { refuseEventOfDamagedSession } from "../recovery/session-write-refusal.j
 import { StartupRecovery } from "../recovery/startup.js";
 import { RecoveryStatusTracker } from "../recovery/status.js";
 import { RecoveryWriteGate } from "../recovery/write-gate.js";
+import { SESSION_DIRECTORY_PROJECTION } from "../session/directory/projection.js";
 import { RunEngine } from "../session/run/engine.js";
 import { RUNS_PROJECTION } from "../session/run/projection.js";
 import { RunStateReader } from "../session/run/read.js";
@@ -153,6 +157,9 @@ export class DaemonProcess {
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
+  // The provider drivers the daemon holds, which a session's close ends its provider leg through.
+  readonly #providers = new ProviderRegistry();
+  readonly #startSessionServices: () => Promise<void>;
   readonly #stopSessionServices: () => Promise<void>;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
   #processState: DaemonProcessState = "starting";
@@ -170,6 +177,8 @@ export class DaemonProcess {
     searchThread: SearchThread;
     localMachine: LocalMachine;
     providerBaseEnvironment: readonly SpawnEnvPair[];
+    /** The runner for the `git` found along the login shell's `PATH`. */
+    git: GitRunner;
     sessionToken: string;
     registerSessionMethods: typeof registerSessionMethods;
   }) {
@@ -222,14 +231,15 @@ export class DaemonProcess {
     registerMachineSettingsMethods(registry, {
       settingsFile: parts.settingsFile,
       streamingPrimitive,
-      findBranchPatternRefusal,
+      findBranchPatternRefusal: (pattern) => findBranchPatternRefusal(pattern, parts.git),
     });
     const sessionServices = parts.registerSessionMethods(registry, {
       database: parts.database,
       homeDirectory: options.homeDirectory,
       nodeId: parts.localMachine.nodeId,
+      git: parts.git,
       settingsFile: parts.settingsFile,
-      providers: new ProviderRegistry(),
+      providers: this.#providers,
       streamingPrimitive,
       // The gateway is built just below; a stream reads its queues only once it listens.
       outboundQueue: {
@@ -244,6 +254,7 @@ export class DaemonProcess {
         this.#recoveryStatus.readDamagedFromSequence(sessionId),
       writeServiceLog: options.writeServiceLog,
     });
+    this.#startSessionServices = sessionServices.start;
     this.#stopSessionServices = sessionServices.stop;
     // The pass and the damaged history append through the daemon's one event log, so what they
     // write reaches the sessions list like any other event, and read through its session reads,
@@ -255,7 +266,7 @@ export class DaemonProcess {
       reader,
       writer,
       sessionEvents: sessionServices.sessions,
-      projections: [RUNS_PROJECTION],
+      projections: [SESSION_DIRECTORY_PROJECTION, RUNS_PROJECTION],
     });
     const damagedHistory = new DamagedHistory({
       reader,
@@ -331,13 +342,19 @@ export class DaemonProcess {
       this.#markDegraded();
       options.writeServiceLog(`The search thread failed: ${describeError(error)}`);
     });
+    // A managed workspaces watch that could not start or failed reports no chat's write from then
+    // on, so the service reads as degraded; the watch has already said why in the service log.
+    void sessionServices.managedWorkspaceWrites.whenFailed.then(() => {
+      this.#markDegraded();
+    });
   }
 
   /**
-   * Starts the daemon and resolves once it listens and its recovery pass has ended; a pass that
-   * fails leaves the node's recovery state saying so and never fails the start. Throws
-   * `DaemonAlreadyRunningError` when another daemon holds the data folder or answers on the
-   * socket; any other failure releases what the start had taken.
+   * Starts the daemon and resolves once it listens, its recovery pass has ended and the session
+   * services' background work has started; a pass that fails leaves the node's recovery state
+   * saying so and never fails the start. Throws `DaemonAlreadyRunningError` when another daemon
+   * holds the data folder or answers on the socket; any other failure releases what the start had
+   * taken.
    */
   static async start(options: DaemonProcessOptions): Promise<DaemonProcess> {
     const startedAt = options.now();
@@ -366,6 +383,7 @@ export class DaemonProcess {
     let isSessionMethodsAndCaptureRead = false;
     try {
       const databasePath = path.join(dataFolder, DATABASE_FILE_NAME);
+      const indexFolderPath = path.join(dataFolder, SEARCH_INDEX_FOLDER_NAME);
       const settingsFile = new MachineSettingsFile({
         filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
         now: options.now,
@@ -374,6 +392,7 @@ export class DaemonProcess {
       const fileRepair = await repairDatabaseFile({
         databasePath,
         dataFolder,
+        indexFolderPath,
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
@@ -396,7 +415,7 @@ export class DaemonProcess {
       // must; the start never waits for it, and a search waits for its open.
       const searchThread = SearchThread.start({
         databasePath,
-        indexFolderPath: path.join(dataFolder, SEARCH_INDEX_FOLDER_NAME),
+        indexFolderPath,
         writer: database.writer,
         writeServiceLog: options.writeServiceLog,
       });
@@ -426,6 +445,8 @@ export class DaemonProcess {
           throw capture.reason;
         }
         const providerBaseEnvironment = capture.value;
+        // Found once, along the login shell's PATH; a missing git fails where git is first used.
+        const git = createGitRunner(await findGitExecutable(providerBaseEnvironment));
 
         await prepareRunFolder(options.runFolder);
         // A new token at every start, so the previous start's token no longer opens a connection.
@@ -441,12 +462,14 @@ export class DaemonProcess {
           searchThread,
           localMachine,
           providerBaseEnvironment,
+          git,
           sessionToken,
           registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });
         await daemon.#listen(options.runFolder, sessionToken);
         daemon.#recoveryPass = daemon.#startupRecovery.run();
         await daemon.#recoveryPass;
+        await daemon.#startSessionServices();
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
@@ -458,10 +481,13 @@ export class DaemonProcess {
             cleanupFailures.push(error);
           }
         }
+        const searchThreadClose = searchThread.close();
         const closes = await Promise.allSettled([
-          searchThread.close(),
+          searchThreadClose,
           orphanGuard?.close(),
-          closeDatabaseConnections(database),
+          // After the search thread's read-only connection, as at a stop, so the writer closes
+          // last and folds the write-ahead log into the database file.
+          Promise.allSettled([searchThreadClose]).then(() => closeDatabaseConnections(database)),
         ]);
         for (const close of closes) {
           if (close.status === "rejected") {

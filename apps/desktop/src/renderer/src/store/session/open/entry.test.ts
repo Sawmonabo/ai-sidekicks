@@ -3,7 +3,7 @@
 // whole. A window that lost only its stream is taken up after its newest row with nothing
 // replayed; one with a hole replays from the row before it, and what the replaced stream left
 // queued never reaches the replay. A replay that loses its stream goes on after the newest row it
-// folded.
+// folded. Every position the stream refused stays out of the next read's reach.
 
 import { encodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
@@ -109,18 +109,18 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     await settle();
     expect(entry.refreshScheduler.performCount).toBe(3);
     expect(openings).toStrictEqual([
-      { opensAt: "resume", refusedCursor: undefined },
+      { opensAt: "resume", refusedCursors: new Set() },
       {
         opensAt: "repair",
         resumeAfterRowCursor: "cursor-at-7",
         headCursor: undefined,
-        refusedCursor: undefined,
+        refusedCursors: new Set(),
       },
       {
         opensAt: "repair",
         resumeAfterRowCursor: "cursor-at-8",
         headCursor: undefined,
-        refusedCursor: undefined,
+        refusedCursors: new Set(),
       },
     ]);
     expect(positions).toStrictEqual([
@@ -201,6 +201,26 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     expect(entry.store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
       6, 7, 8, 9, 10,
     ]);
+
+    entry.dispose();
+  });
+
+  it("never opens the window again at any position the stream refused", async () => {
+    const { entry, openings, settle } = scriptedEntry([baseStateAt(5)], 0);
+    entry.refreshScheduler.request("subscribe");
+    await settle();
+    entry.store.applyBatch([eventAt(6), eventAt(7)]);
+
+    // The row a repair names is refused, then the position the read falls back to.
+    entry.refuseStreamCursor("cursor-at-7" as EventCursor);
+    await settle();
+    entry.refuseStreamCursor(encodeEventCursor(5));
+    await settle();
+
+    expect(openings.at(-1)).toMatchObject({
+      opensAt: "repair",
+      refusedCursors: new Set(["cursor-at-7", encodeEventCursor(5)]),
+    });
 
     entry.dispose();
   });

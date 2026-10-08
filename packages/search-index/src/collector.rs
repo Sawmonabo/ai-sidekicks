@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption};
-use tantivy::{DocId, DocSet, Score, Searcher, SegmentReader, TERMINATED, Term};
+use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
 use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_phrase_cursor};
 use crate::membership::GroupMembership;
@@ -30,13 +30,13 @@ pub struct PreparedQuery {
     phrase_rows: Vec<u64>,
     idfs: Vec<f64>,
     average_length: f64,
-    driver: Option<Driver>,
+    driver: Driver,
 }
 
-// The phrase whose single term Tantivy walks with block-max skipping, and that term: the phrase's
-// own term; or one that holds each of the phrase's rows at least as many times, the longest prefix
-// field's term for a prefix longer than every prefix field and the rarest whole token for a phrase
-// of several tokens.
+// The phrase whose single term Tantivy walks with block-max skipping, the rarest one, and that
+// term: the phrase's own term; or one that holds each of the phrase's rows at least as many times,
+// the longest prefix field's term for a prefix longer than every prefix field and the rarest whole
+// token for a phrase of several tokens.
 struct Driver {
     phrase: usize,
     term: Term,
@@ -83,43 +83,36 @@ impl PreparedQuery {
     }
 }
 
+// `phrases` is never empty, and every phrase has a term to drive: a phrase of several tokens has a
+// whole first token, since only its last can be a prefix.
 fn choose_driver(
     version: &IndexVersion,
     phrases: &[Phrase],
     phrase_rows: &[u64],
-) -> tantivy::Result<Option<Driver>> {
-    let mut chosen: Option<Driver> = None;
-    for (index, phrase) in phrases.iter().enumerate() {
-        let term = match phrase
-            .single_term(&version.fields)
-            .or_else(|| phrase.long_prefix_field_term(&version.fields))
-        {
-            Some(term) => Some(term),
-            None => rarest_term(&version.searcher, phrase.whole_part_terms(&version.fields))?,
-        };
-        let Some(term) = term else { continue };
-        if chosen
-            .as_ref()
-            .is_none_or(|driver| phrase_rows[index] < phrase_rows[driver.phrase])
-        {
-            chosen = Some(Driver {
-                phrase: index,
-                term,
-            });
+) -> tantivy::Result<Driver> {
+    let mut phrase = 0;
+    for (index, rows) in phrase_rows.iter().enumerate() {
+        if *rows < phrase_rows[phrase] {
+            phrase = index;
         }
     }
-    Ok(chosen)
-}
-
-fn rarest_term(searcher: &Searcher, terms: Vec<Term>) -> tantivy::Result<Option<Term>> {
-    let mut rarest: Option<(u64, Term)> = None;
-    for term in terms {
-        let rows = searcher.doc_freq(&term)?;
-        if rarest.as_ref().is_none_or(|(fewest, _)| rows < *fewest) {
-            rarest = Some((rows, term));
+    let fields = &version.fields;
+    let chosen = &phrases[phrase];
+    if let Some(term) = chosen
+        .single_term(fields)
+        .or_else(|| chosen.long_prefix_field_term(fields))
+    {
+        return Ok(Driver { phrase, term });
+    }
+    let mut term = Term::from_field_text(fields.text, &chosen.parts[0]);
+    let mut fewest = version.searcher.doc_freq(&term)?;
+    for other in chosen.whole_part_terms(fields).into_iter().skip(1) {
+        let rows = version.searcher.doc_freq(&other)?;
+        if rows < fewest {
+            (term, fewest) = (other, rows);
         }
     }
-    Ok(rarest.map(|(_, term)| term))
+    Ok(Driver { phrase, term })
 }
 
 /// What ranks a row for a session: higher score first, then lower row key, then the session's
@@ -242,8 +235,8 @@ fn open_cursors(
     Ok(Some(cursors))
 }
 
-// Whether every cursor sits on `doc`, each moved there or past it.
-fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
+/// Whether every cursor sits on `doc`, each moved there or past it.
+pub fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
     cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
 }
 
@@ -290,8 +283,8 @@ fn owner_docs_below(
 
 // Visits every live row of segment `ordinal` that matches every phrase, with its exact score. With
 // `within`, a row's owner is checked before the row is scored, and the walk starts from the set's
-// own rows when they are fewer than the rarest phrase's, a row the phrases' filters lack turned away
-// before the phrases are sought to it.
+// own rows when they are fewer than the rarest phrase's, a row the phrases' filters lack turned
+// away before the phrases are sought to it.
 fn visit_matches_in(
     version: &IndexVersion,
     ordinal: usize,
@@ -497,17 +490,14 @@ fn tantivy_idf(phrase_rows: u64, live_rows: u64) -> f64 {
 }
 
 /// The best `k` sessions in rank order, limited to `within` when given, Tantivy skipping the driver
-/// term's blocks that cannot reach the k-th session's best row; `None` when no phrase has a single
-/// term to drive the skip.
+/// term's blocks that cannot reach the k-th session's best row.
 pub fn top_sessions(
     version: &IndexVersion,
     query: &PreparedQuery,
     k: usize,
     within: Option<&SessionSet>,
-) -> tantivy::Result<Option<Vec<u64>>> {
-    let Some(driver) = &query.driver else {
-        return Ok(None);
-    };
+) -> tantivy::Result<Vec<u64>> {
+    let driver = &query.driver;
     let statistics = LiveStatistics {
         live_rows: version.live_rows,
         live_tokens: version.live_tokens,
@@ -569,7 +559,7 @@ pub fn top_sessions(
         };
         weight.for_each_pruning(first_threshold, segment, &mut callback)?;
     }
-    Ok(Some(top.into_sessions()))
+    Ok(top.into_sessions())
 }
 
 // How far the live average length has moved from the average `segment` chose its block bounds

@@ -42,9 +42,9 @@ import {
   requireMountRow,
   requireWorkspaceRow,
 } from "../../__fixtures__/rows.js";
-import { seedSessionRow } from "../../../session/groups/__fixtures__/directory-rows.js";
+import { seedSessionRow } from "../../../session/directory/__fixtures__/directory-rows.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../../git/__fixtures__/command.js";
-import { captureRejection, captureThrow } from "../../../__fixtures__/capture-failure.js";
+import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 
 const SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000002" as SessionId;
@@ -166,6 +166,7 @@ function createService(overrides: Partial<RepoMountServiceDeps> = {}): RepoMount
     events: harness.emitter,
     nodeId: NODE_ID,
     newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
+    archiveUnfinishedCreates: () => Promise.resolve(),
     ...overrides,
   });
 }
@@ -241,6 +242,7 @@ beforeEach(async () => {
       events: emitter,
       nodeId: NODE_ID,
       newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
+      archiveUnfinishedCreates: () => Promise.resolve(),
     }),
   };
 
@@ -303,37 +305,27 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
 });
 
 describe("RepoMountService.resolveFolder", () => {
-  it("finds the folder's mount from any path inside it, and attaches none it lacks", async () => {
-    const unattached = await harness.service.resolveFolder({
-      localPath: gitFixtures.nestedDirectory,
-    });
-    expect(unattached.repoMountId).toBeUndefined();
+  it("resolves a path inside the folder to the root attach stores, attaching none", async () => {
+    const folder = await harness.service.resolveFolder({ localPath: gitFixtures.nestedDirectory });
     expect(countMountRows()).toBe(0);
 
     const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
 
-    // The root it answers is the one `attach` stores, whichever path inside the folder it is given.
-    expect(unattached.canonicalRoot).toBe(
+    expect(folder.canonicalRoot).toBe(
       requireMountRow(harness.database.reader, attached.repoMountId).canonical_root,
     );
-    expect(await harness.service.resolveFolder({ localPath: gitFixtures.nestedDirectory })).toEqual(
-      { canonicalRoot: unattached.canonicalRoot, repoMountId: attached.repoMountId },
-    );
-    // Attaching the folder again answers the same mount through the same lookup.
+    // Attaching the folder again from inside it answers the same mount.
     const reused = await harness.service.attachOrReuse({ localPath: gitFixtures.nestedDirectory });
     expect(reused.repoMountId).toBe(attached.repoMountId);
     expect(countMountRows()).toBe(1);
   });
 
-  it("never answers a chat's managed mount, and attaching its folder is refused", async () => {
+  it("refuses attaching a chat's managed folder as a project", async () => {
     await harness.service.attachManaged({
       sessionId: SESSION_ID,
       canonicalRoot: gitFixtures.repositoryRoot,
     });
 
-    expect(
-      (await harness.service.resolveFolder({ localPath: gitFixtures.repositoryRoot })).repoMountId,
-    ).toBeUndefined();
     const refusal = await captureRejection(() =>
       harness.service.attachOrReuse({ localPath: gitFixtures.repositoryRoot }),
     );
@@ -680,16 +672,5 @@ describe("RepoMountService.detach", () => {
     // The archive is guarded by the same attached state as the flip, so the lost race archived
     // nothing either.
     expect(requireWorkspaceRow(harness.database.reader, workspaceId).state).toBe("preparing");
-  });
-});
-
-describe("RepoMountService construction", () => {
-  it("refuses to construct a bare-git resolver on win32", () => {
-    // Fail-closed. Driven through the injected platform so it runs on every CI leg, not only on
-    // Windows.
-    const error = captureThrow(() => createService({ platform: "win32" }));
-
-    expect(error).toBeInstanceOf(TypeError);
-    expect((error as TypeError).message).toContain("win32");
   });
 });

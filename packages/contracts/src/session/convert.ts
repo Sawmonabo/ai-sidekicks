@@ -110,11 +110,9 @@ export const SessionConvertedPayloadSchema: z.ZodType<SessionConvertedPayload> =
 /** The most skipped files one `session.convertSkippedFileList` page carries, and its default. */
 export const SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX = 256;
 
-/**
- * The longest skipped-file cursor accepted: the daemon's encoding of a path, at most four
- * characters for each of the path's UTF-16 units.
- */
-export const SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN: number = FILE_PATH_MAX_LEN * 4;
+// The longest skipped-file cursor accepted: the daemon's encoding of a path, at most four
+// characters for each of the path's UTF-16 units.
+const SESSION_CONVERT_SKIPPED_FILE_CURSOR_MAX_LEN = FILE_PATH_MAX_LEN * 4;
 
 /**
  * Where the next `session.convertSkippedFileList` page starts. The daemon writes it and owns its

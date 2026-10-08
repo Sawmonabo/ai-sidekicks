@@ -16,7 +16,7 @@ import * as nodePath from "node:path";
 
 import type { VcsType } from "@ai-sidekicks/contracts/repo/mount";
 
-import { DEFAULT_GIT_EXECUTABLE, runGitWithExecFile, type GitRunner } from "../../git/process.js";
+import { runGitWithExecFile, type GitRunner } from "../../git/process.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 import { RepoRootResolutionError } from "./errors.js";
 import {
@@ -59,8 +59,6 @@ export interface RepoRootResolverDeps {
    * An admission check made once; a root that becomes unreadable later is not a resolution failure.
    */
   readonly probeDirectoryReadable: DirectoryReadabilityProbe;
-  /** Defaults to bare `git`; only an absolute path skips Windows' cwd-first search. */
-  readonly gitExecutablePath: string;
   readonly gitCommandTimeoutMs: number;
   /**
    * Defaults to `node:path`; win32-ness comes from its `sep`, not `process.platform`. Read only by
@@ -91,7 +89,6 @@ function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDe
     git: partial.git ?? runGitWithExecFile,
     realpath: partial.realpath ?? DEFAULT_REALPATH,
     probeDirectoryReadable: partial.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
-    gitExecutablePath: partial.gitExecutablePath ?? DEFAULT_GIT_EXECUTABLE,
     gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_REV_PARSE_TIMEOUT_MS,
     platformPath: partial.platformPath ?? nodePath,
   };
@@ -241,7 +238,6 @@ export class RepoRootResolver {
     try {
       const result = await this.deps.git(["-C", directory, "rev-parse", "--show-toplevel"], {
         timeoutMs: this.deps.gitCommandTimeoutMs,
-        executable: this.deps.gitExecutablePath,
       });
       toplevelOutput = result.stdout.toString("utf8");
     } catch (thrown: unknown) {

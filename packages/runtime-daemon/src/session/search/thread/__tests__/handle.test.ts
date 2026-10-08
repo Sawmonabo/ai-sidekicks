@@ -155,7 +155,7 @@ describe("SearchThread", () => {
     await thread.close();
   });
 
-  it("ends a thread still opening at once when it closes, and fails the search waiting", async () => {
+  it("ends a thread still opening when it closes, before it answers, and fails the search waiting", async () => {
     const thread = startThread(databasePath);
     const worker = startedWorkers.at(-1)!;
     const replies: { readonly type: string }[] = [];

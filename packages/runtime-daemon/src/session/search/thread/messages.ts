@@ -23,7 +23,12 @@ import type { SearchIndexRebuildReason } from "../index/rebuild.js";
 /** A request the main thread makes of the search thread, each answered once. */
 export type SearchThreadCall =
   | { readonly type: "session.search"; readonly request: SessionSearchRequest }
-  | { readonly type: "transcript.search"; readonly request: TranscriptSearchRequest }
+  | {
+      readonly type: "transcript.search";
+      readonly request: TranscriptSearchRequest;
+      /** Where the session's history is damaged from, which its search stops before. */
+      readonly damagedFromSequence: number | undefined;
+    }
   | { readonly type: "merge" }
   | { readonly type: "close" };
 

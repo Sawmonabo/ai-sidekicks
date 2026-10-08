@@ -7,32 +7,24 @@ use crate::tokenizer::tokenize;
 use crate::{IndexRow, IndexRowKind, SearchQuery};
 
 use super::seeded_set::{SeededSetSize, generate};
-use super::support::{ScratchFolder, batch, open_engine};
+use super::support::{ScratchFolder, batch, open_engine, query};
 
 const SIZE: SeededSetSize = SeededSetSize {
     sessions: 20,
     messages: 2_000,
     groups: 2,
     tags: 20,
-    links: 0,
 };
 // Every fiftieth message goes to this session, so it holds the most rows.
 const LARGEST_SESSION: u64 = 2;
 
-fn search(words: Vec<String>, last_word_is_prefix: bool) -> SearchQuery {
-    SearchQuery {
-        words,
-        last_word_is_prefix,
-    }
-}
-
-// Whether every phrase of `query` occurs in `text` on its own.
-fn every_phrase_occurs(text: &str, query: &SearchQuery) -> bool {
-    let last = query.words.len() - 1;
-    query.words.iter().enumerate().all(|(index, word)| {
-        let alone = search(
-            vec![word.clone()],
-            query.last_word_is_prefix && index == last,
+// Whether every phrase of `searched` occurs in `text` on its own.
+fn every_phrase_occurs(text: &str, searched: &SearchQuery) -> bool {
+    let last = searched.words.len() - 1;
+    searched.words.iter().enumerate().all(|(index, word)| {
+        let alone = query(
+            &[word.as_str()],
+            searched.last_word_is_prefix && index == last,
         );
         !mark_matches(text, &alone).is_empty()
     })
@@ -52,14 +44,18 @@ fn find_counts_equal_the_marks_on_every_row() {
         .into_iter()
         .map(|token| token.folded)
         .collect();
-    let first_letter: String = tokens[0].chars().take(1).collect();
+    let first = tokens[0].as_str();
+    let first_letter: String = first.chars().take(1).collect();
+    let first_letter = first_letter.as_str();
+    let joined = format!("{first}-{}", tokens[1]);
+    let joined_prefix = format!("{first}-{}", &tokens[1][..1]);
     let queries = vec![
-        search(vec![tokens[0].clone()], false),
-        search(vec![first_letter.clone()], true),
-        search(vec![tokens[0].clone(), first_letter.clone()], true),
-        search(vec![tokens[0].clone(), tokens[0].clone()], false),
-        search(vec![format!("{}-{}", tokens[0], tokens[1])], false),
-        search(vec![format!("{}-{}", tokens[0], &tokens[1][..1])], true),
+        query(&[first], false),
+        query(&[first_letter], true),
+        query(&[first, first_letter], true),
+        query(&[first, first], false),
+        query(&[joined.as_str()], false),
+        query(&[joined_prefix.as_str()], true),
     ];
 
     let folder = ScratchFolder::new("find");
@@ -85,12 +81,5 @@ fn find_counts_equal_the_marks_on_every_row() {
             .map(|(key, count)| (*key as u64, *count))
             .collect();
         assert_eq!(counted, expected, "{:?}", query.words);
-        let total: u32 = expected.iter().map(|(_, count)| count).sum();
-        assert_eq!(
-            found.total_match_count,
-            i64::from(total),
-            "{:?}",
-            query.words
-        );
     }
 }

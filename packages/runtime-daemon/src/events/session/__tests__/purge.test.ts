@@ -360,7 +360,6 @@ describe("SessionPurge — the worktrees the session made", () => {
       { id: "wt-awaiting-cleanup", createdBy: SESSION, state: "retired" },
       { id: "wt-in-use", createdBy: SESSION, state: "retired", isCleaned: true },
       { id: "wt-run-root", createdBy: SESSION, state: "failed" },
-      { id: "wt-pending-move", createdBy: SESSION, state: "failed" },
       { id: "wt-other", createdBy: SECOND_SESSION, state: "retired", isCleaned: true },
     ];
     for (const worktree of worktrees) {
@@ -385,7 +384,7 @@ describe("SessionPurge — the worktrees the session made", () => {
         },
       ]);
     }
-    // Another session's branch context and run name two of them, and its pending move a third.
+    // Another session's branch context and run name two of them.
     await fixture.scratch.writer.write([
       {
         sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, state,
@@ -407,25 +406,13 @@ describe("SessionPurge — the worktrees the session made", () => {
                       '/root/.git', 'wt-run-root', 'branch-other', ?)`,
         bindings: [SECOND_SESSION, PURGE_INSTANT],
       },
-      {
-        sql: `UPDATE sessions SET pending_move = 1, pending_worktree_id = 'wt-pending-move'
-               WHERE id = ?`,
-        bindings: [SECOND_SESSION],
-      },
     ]);
 
     const outcome = onlyOutcome(await fixture.buildPurge().purge([SESSION]));
 
     expect(outcome.refusedReason).toBeUndefined();
     expect(fixture.readDirectoryRows().worktrees).toEqual(
-      [
-        "wt-awaiting-cleanup",
-        "wt-in-use",
-        "wt-on-disk",
-        "wt-other",
-        "wt-pending-move",
-        "wt-run-root",
-      ].sort(),
+      ["wt-awaiting-cleanup", "wt-in-use", "wt-on-disk", "wt-other", "wt-run-root"].sort(),
     );
     for (const worktree of worktrees) {
       expect(existsSync(join(fixture.homeDirectory, "execution-roots", worktree.id))).toBe(true);

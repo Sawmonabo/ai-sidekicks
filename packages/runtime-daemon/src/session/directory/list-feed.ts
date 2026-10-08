@@ -2,6 +2,10 @@
 // subscription is open, read once from the `sessions` rows and then kept current one session at a
 // time, never by a rescan.
 //
+// - The first open reads the rows a bounded page per turn of the event loop, so a long list never
+//   holds the main thread for one long turn; opens that arrive meanwhile wait for the same read. A
+//   session an event or `refresh` names while the read is under way is read again once it ends,
+//   so a row that changed behind the read reaches the listeners as an upsert or a removal.
 // - Events reach the feed through the log's all-sessions follow, attached for the feed's whole
 //   life so no append in flight at the first open is missed. A service that changes a list fact
 //   without an event calls `refresh` after its write commits. Either way only the named sessions'
@@ -16,6 +20,7 @@
 //   renewal interval, by one timer for the whole list that runs only while such a session and a
 //   subscriber exist, so a reader can tell a live reading from one a stopped daemon left behind.
 
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 
 import type { Database, Statement } from "better-sqlite3";
@@ -80,8 +85,14 @@ const UNCOUNTED_CHAT_STATES: ReadonlySet<SessionState> = new Set([
   "purge_requested",
 ]);
 
-// One session's list facts as one query returns them, its group's name among them.
-const SESSION_LIST_ROW_SQL = `SELECT s.id, s.shape, s.state, s.name, s.first_message_preview,
+// Rows the opening read takes in one turn of the event loop, so one page's read stays well inside
+// a turn's 5 ms of main-thread time.
+const OPENING_READ_PAGE_ROWS = 500;
+
+// One session's list facts as one query returns them, its group's name among them, and the row's
+// position in the table, which the opening read pages by.
+const SESSION_LIST_ROW_SQL = `SELECT s.rowid AS row_position, s.id, s.shape, s.state, s.name,
+       s.first_message_preview,
        s.branch, s.pinned_at, s.muted_at, s.last_activity_at,
        g.id AS group_id, g.name AS group_name,
        ${sessionProjectSql("s.id")} AS repo_mount_id,
@@ -90,6 +101,7 @@ const SESSION_LIST_ROW_SQL = `SELECT s.id, s.shape, s.state, s.name, s.first_mes
 
 // A session's group comes from the join, so its id and name are present or absent together.
 type SessionListRow = {
+  readonly row_position: number;
   readonly id: string;
   readonly shape: SessionShape;
   readonly state: SessionState;
@@ -112,13 +124,17 @@ type SessionListRow = {
  * from the log.
  */
 export class SessionListFeed {
-  readonly #readAll: Statement<[], SessionListRow>;
+  readonly #readPage: Statement<[number, number], SessionListRow>;
   readonly #readSome: Statement<[string], SessionListRow>;
   readonly #listeners = new Set<SessionListListener>();
   readonly #detachFromLog: () => void;
   readonly #writeServiceLog: ServiceLogWriter;
   // Present exactly while a listener is open.
   #entries: Map<string, SessionListEntry> | undefined;
+  // Present while the opening read is under way.
+  #opening: Promise<Map<string, SessionListEntry>> | undefined;
+  // Whether a lost receipt of the machine's own scope may have named rows the opening read took.
+  #isOpeningReadStale = false;
   #chatCount = 0;
   // Sessions whose activity is renewed: those `running` or `waiting`.
   readonly #renewedSessionIds = new Set<string>();
@@ -127,7 +143,9 @@ export class SessionListFeed {
   #renewTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(deps: SessionListFeedDeps) {
-    this.#readAll = deps.reader.prepare(SESSION_LIST_ROW_SQL);
+    this.#readPage = deps.reader.prepare(
+      `${SESSION_LIST_ROW_SQL} WHERE s.rowid > ? ORDER BY s.rowid LIMIT ?`,
+    );
     this.#readSome = deps.reader.prepare(
       `${SESSION_LIST_ROW_SQL} WHERE s.id IN (SELECT value FROM json_each(?))`,
     );
@@ -145,11 +163,11 @@ export class SessionListFeed {
   /**
    * Opens the list for `listener`: every entry as it stands, the chats count, and the detach.
    * Every change the feed publishes from then on reaches the listener, so one still being read
-   * when the snapshot was taken arrives after it as an upsert. Throws what the first read threw,
-   * with nothing opened.
+   * when the snapshot was taken arrives after it as an upsert. Rejects with what the opening read
+   * threw, with nothing opened.
    */
-  open(listener: SessionListListener): SessionListOpening {
-    const entries = this.#entries ?? this.#build();
+  async open(listener: SessionListListener): Promise<SessionListOpening> {
+    const entries = this.#entries ?? (await (this.#opening ?? this.#startOpening()));
     this.#listeners.add(listener);
     this.#syncRenewTimer();
     const renewedAt = new Date().toISOString();
@@ -188,23 +206,63 @@ export class SessionListFeed {
     }
   }
 
-  // Nothing is kept until the whole list is read, so a read that fails leaves the feed closed.
-  #build(): Map<string, SessionListEntry> {
+  // Nothing is kept until the whole list is read, so a read that fails leaves the feed closed. The
+  // promise is held before any of its callbacks can run, so every open that comes meanwhile waits
+  // for this one read.
+  #startOpening(): Promise<Map<string, SessionListEntry>> {
+    const opening = this.#readOpeningList().then(
+      ({ entries, chatCount, renewedSessionIds }) => {
+        this.#opening = undefined;
+        this.#entries = entries;
+        this.#chatCount = chatCount;
+        for (const sessionId of renewedSessionIds) this.#renewedSessionIds.add(sessionId);
+        if (this.#isOpeningReadStale) {
+          this.#isOpeningReadStale = false;
+          for (const sessionId of entries.keys()) this.#changedSessionIds.add(sessionId);
+        }
+        // Sessions named while the read was under way are read again on the next turn.
+        if (this.#changedSessionIds.size > 0) this.#scheduleReadChanged();
+        return entries;
+      },
+      (error: unknown) => {
+        this.#opening = undefined;
+        this.#isOpeningReadStale = false;
+        this.#changedSessionIds.clear();
+        throw error;
+      },
+    );
+    this.#opening = opening;
+    return opening;
+  }
+
+  // Every row, a page per turn of the event loop.
+  async #readOpeningList(): Promise<{
+    entries: Map<string, SessionListEntry>;
+    chatCount: number;
+    renewedSessionIds: string[];
+  }> {
     const entries = new Map<string, SessionListEntry>();
     const renewedSessionIds: string[] = [];
     const renewedAt = new Date().toISOString();
     let chatCount = 0;
-    for (const row of this.#readAll.all()) {
-      const entry = entryOf(row, renewedAt);
-      if (entry === undefined) continue;
-      entries.set(entry.sessionId, entry);
-      chatCount += countsAsChat(entry);
-      if (isRenewed(entry)) renewedSessionIds.push(entry.sessionId);
+    // A table's rowids start at 1.
+    let afterPosition = 0;
+    for (;;) {
+      const rows = this.#readPage.all(afterPosition, OPENING_READ_PAGE_ROWS);
+      for (const row of rows) {
+        const entry = entryOf(row, renewedAt);
+        if (entry === undefined) continue;
+        entries.set(entry.sessionId, entry);
+        chatCount += countsAsChat(entry);
+        if (isRenewed(entry)) renewedSessionIds.push(entry.sessionId);
+      }
+      const lastRow = rows.at(-1);
+      if (lastRow === undefined || rows.length < OPENING_READ_PAGE_ROWS) {
+        return { entries, chatCount, renewedSessionIds };
+      }
+      afterPosition = lastRow.row_position;
+      await yieldToEventLoop();
     }
-    this.#entries = entries;
-    this.#chatCount = chatCount;
-    for (const sessionId of renewedSessionIds) this.#renewedSessionIds.add(sessionId);
-    return entries;
   }
 
   #detach(listener: SessionListListener): void {
@@ -245,16 +303,24 @@ export class SessionListFeed {
     if (sessionId !== DAEMON_SCOPE_SENTINEL_SESSION_ID) {
       return;
     }
+    if (this.#opening !== undefined) {
+      this.#isOpeningReadStale = true;
+      return;
+    }
     for (const listedSessionId of this.#entries?.keys() ?? []) {
       this.#noteChanged(listedSessionId);
     }
   }
 
   // Changes named in one turn are read together on the next, so a burst of events reads each
-  // session's row once.
+  // session's row once. One named while the opening read is under way waits for it to end.
   #noteChanged(sessionId: string): void {
-    if (this.#entries === undefined) return;
+    if (this.#entries === undefined && this.#opening === undefined) return;
     this.#changedSessionIds.add(sessionId);
+    if (this.#entries !== undefined) this.#scheduleReadChanged();
+  }
+
+  #scheduleReadChanged(): void {
     this.#pendingRead ??= setImmediate(() => {
       this.#pendingRead = undefined;
       this.#readChanged();

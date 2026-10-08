@@ -1,6 +1,7 @@
 // `EventLogService`, the sole durable append path: per-session sequencing under the append lock,
 // the head read boundary, the stored-variant parse, the projection statements and the terminal-run
-// backstop, each asserted on the stored rows; and the reads after a cursor.
+// backstop, each asserted on the stored rows; the reads after a cursor; and which sessions a
+// follow takes.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -24,6 +25,7 @@ import {
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import type { WriteStatement } from "../../database/statement.js";
+import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import {
   EventLogService,
   type EventLogServiceDeps,
@@ -514,6 +516,37 @@ describe("EventLogService.readAfterCursor", () => {
         }),
       ).rejects.toThrow(EventCursorUnresolvableError);
     }
+  });
+});
+
+describe("EventLogService.follow", () => {
+  it("follows a session damaged before its first event from the start, refusing one with none", async () => {
+    const { service } = buildService({
+      readDamagedFromSequence: (sessionId) => (sessionId === SESSION ? 0 : undefined),
+    });
+    await service.append(makeEnvelope());
+    const delivered: unknown[] = [];
+
+    const detach = service.follow(SESSION, undefined, {
+      onChange: (change) => delivered.push(change),
+      onCaughtUp: () => {},
+      onFailure: (error) => delivered.push(error),
+      isFull: () => false,
+      onceDrained: () => () => {},
+    });
+    await drainMicrotasks();
+    detach();
+
+    expect(delivered).toStrictEqual([]);
+    expect(() =>
+      service.follow(OTHER_SESSION, undefined, {
+        onChange: () => {},
+        onCaughtUp: () => {},
+        onFailure: () => {},
+        isFull: () => false,
+        onceDrained: () => () => {},
+      }),
+    ).toThrow(SessionNotFoundError);
   });
 });
 

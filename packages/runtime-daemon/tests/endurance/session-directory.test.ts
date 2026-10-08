@@ -1,8 +1,8 @@
 // Tier: endurance. The session directory's budgets, measured on the seeded set through the paths
 // the daemon serves them on: the search index's full build from the database at the built daemon's
-// start and the peak footprint of the daemon and its build process together, the index's merges
-// while idle, every search class's first page and next page on the search thread, the probe
-// queries, a find in the largest session, how long a search holds the daemon's main thread, the
+// start and the peak footprint of the daemon and its build process together, the index's merges,
+// every search class's first page and next page on the search thread, the probe queries, a find
+// in the largest session, how long a search holds the daemon's main thread, the
 // wait from a settled message to its first hit, a stored related list's read, how long a re-score
 // after a new link holds the main thread, and a search right after the largest session's purge.
 // It prints p50 and p95 per class against each budget, with the test process's resident memory
@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { NodeIdSchema } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionSearchCursor,
@@ -35,6 +36,8 @@ import {
   resolveDataFolder,
   SEARCH_INDEX_FOLDER_NAME,
 } from "../../src/daemon/process.js";
+import { SessionPurge } from "../../src/events/session/purge.js";
+import { KeyedLock } from "../../src/keyed-lock.js";
 import { SessionLinkService } from "../../src/session/links/service.js";
 import { SessionRelatedRanking } from "../../src/session/related/ranking.js";
 import { SearchThread } from "../../src/session/search/thread/handle.js";
@@ -52,7 +55,7 @@ const RELATED_LIST_P95_BUDGET_MS = 1;
 // daemon and its build process together stays within this meanwhile.
 const REBUILD_BUDGET_MS = 60_000;
 const REBUILD_FOOTPRINT_BUDGET_MIB = 350;
-// One merge of the index's segments while the daemon is idle finishes within this.
+// One merge of the index's segments finishes within this.
 const MERGE_BUDGET_MS = 3_000;
 // A settled message is found by a search within this of its commit.
 const SETTLED_TO_HIT_BUDGET_MS = 1_000;
@@ -371,7 +374,7 @@ describe("the session directory's budgets on the seeded set", () => {
     );
     expect(searchLogLines).toEqual([]);
     // The build merged what it built, so the daemon has none of its merging left to do.
-    expect(await searchThread.mergeWhileIdle()).toBe(false);
+    expect(await searchThread.mergeSegments()).toBe(false);
     expect(buildMs).toBeLessThanOrEqual(REBUILD_BUDGET_MS);
     expect(childCount).toBeGreaterThan(0);
     expect(peakFootprintMiB).toBeLessThanOrEqual(REBUILD_FOOTPRINT_BUDGET_MIB);
@@ -566,21 +569,25 @@ describe("the session directory's budgets on the seeded set", () => {
     expect(read.p95Ms).toBeLessThanOrEqual(RELATED_LIST_P95_BUDGET_MS);
     expect(turns.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
   });
-  it("answers a search right after the largest session's purge, then merges its rows away while idle", async () => {
+
+  it("answers a search right after the largest session's purge, then merges its rows away", async () => {
     const { largeSessionId } = seeded;
-    // The deletes a purge makes of the rows the seeded set gives a session, in one write.
-    await database.writer.write(
-      [
-        "DELETE FROM session_events WHERE session_id = @sessionId",
-        `DELETE FROM session_links
-          WHERE source_session_id = @sessionId OR target_session_id = @sessionId`,
-        "DELETE FROM session_tags WHERE session_id = @sessionId",
-        `DELETE FROM session_related
-          WHERE session_id = @sessionId OR related_session_id = @sessionId`,
-        "DELETE FROM projection_cursors WHERE session_id = @sessionId",
-        "DELETE FROM sessions WHERE id = @sessionId",
-      ].map((sql) => ({ sql, bindings: { sessionId: largeSessionId } })),
-    );
+    // The daemon's own purge deletes the session's rows. The seeded sessions are projects, with no
+    // managed folder to remove; no list is on screen and no re-score is measured here; and the log
+    // is truncated in one try, so a search's open read holds the purge no longer.
+    const purge = new SessionPurge({
+      writer: database.writer,
+      nodeId: NodeIdSchema.parse("node-endurance"),
+      eventLog: { append: (envelope) => Promise.resolve({ id: envelope.id, sequence: 0 }) },
+      managedWorkspaces: { deleteFolder: () => Promise.resolve() },
+      sessionLock: new KeyedLock<SessionId>(),
+      sessionList: { refresh: () => undefined },
+      relatedRanking: { rescoreAround: () => undefined },
+      checkpointRetryDelaysMs: [],
+    });
+    const { outcomes } = await purge.purge([largeSessionId as SessionId]);
+    expect(outcomes.map((outcome) => outcome.refusedReason)).toEqual([undefined]);
+    expect(outcomes[0]?.rowsDeleted).toBeGreaterThan(0);
     // Searched at once, while the index applies the purge.
     const query = seeded.words[0] ?? "";
     const firstPage = await measure(() => searchThread.searchSessions({ query }));
@@ -592,8 +599,8 @@ describe("the session directory's budgets on the seeded set", () => {
     expect(page.groups.map((group) => group.sessionId)).not.toContain(largeSessionId);
     expect(firstPage.p95Ms).toBeLessThanOrEqual(SEARCH_P95_BUDGET_MS);
     expect(firstPage.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
-    // Once the index holds the purge, the idle merges rewrite each segment that held the session's
-    // rows, one at a time and none past the merge cap: the largest merges an idle daemon runs.
+    // Once the index holds the purge, the merges rewrite each segment that held the session's rows,
+    // one at a time and none past the merge cap: the largest merges the daemon runs.
     const outboxRows = database.reader
       .prepare<[], number>("SELECT count(*) FROM session_search_outbox")
       .pluck();
@@ -602,12 +609,12 @@ describe("the session directory's budgets on the seeded set", () => {
     let isMoreToMerge = true;
     while (isMoreToMerge && mergesMs.length < MERGES_AT_MOST) {
       const start = performance.now();
-      isMoreToMerge = await searchThread.mergeWhileIdle();
+      isMoreToMerge = await searchThread.mergeSegments();
       mergesMs.push(performance.now() - start);
     }
     const longestMergeMs = Math.max(0, ...mergesMs);
     console.log(
-      `Merges while idle after the purge: ${String(mergesMs.length)} calls, longest ` +
+      `Merges after the purge: ${String(mergesMs.length)} calls, longest ` +
         `${longestMergeMs.toFixed(0)} ms (budget ${String(MERGE_BUDGET_MS)} ms); ${residentMemory()}`,
     );
     expect(isMoreToMerge).toBe(false);

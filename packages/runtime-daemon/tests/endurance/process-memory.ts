@@ -4,6 +4,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 
+import { isMissingFileError } from "../../src/file/missing-error.js";
 import { importKoffi } from "../../src/pty/koffi.js";
 
 // A process's memory now and at its peak since it started, in bytes.
@@ -14,7 +15,8 @@ interface ProcessMemory {
 
 /**
  * The reads of one system: a live process's memory, `undefined` once it is gone or while it runs as
- * another user (the setuid `ps` the daemon reads a start time with), and its children.
+ * another user (the setuid `ps` the daemon reads a start time with), and its children, none once
+ * it is gone.
  */
 export interface ProcessMemoryReader {
   readMemory(processId: number): Promise<ProcessMemory | undefined>;
@@ -81,7 +83,9 @@ async function loadDarwinReader(): Promise<ProcessMemoryReader> {
 
 const linuxReader: ProcessMemoryReader = {
   readMemory: async (processId) => {
-    const status = await readUnlessGone(`/proc/${String(processId)}/status`);
+    const status = await readUnlessGone(() =>
+      readFile(`/proc/${String(processId)}/status`, "utf8"),
+    );
     if (status === undefined) {
       return undefined;
     }
@@ -92,21 +96,24 @@ const linuxReader: ProcessMemoryReader = {
   },
   listChildren: async (processId) => {
     const taskFolder = `/proc/${String(processId)}/task`;
+    const threadIds = await readUnlessGone(() => readdir(taskFolder));
     const children: number[] = [];
-    for (const threadId of await readdir(taskFolder)) {
-      const listed = await readUnlessGone(`${taskFolder}/${threadId}/children`);
+    for (const threadId of threadIds ?? []) {
+      const listed = await readUnlessGone(() =>
+        readFile(`${taskFolder}/${threadId}/children`, "utf8"),
+      );
       children.push(...(listed ?? "").split(" ").filter(Boolean).map(Number));
     }
     return children;
   },
 };
 
-// A file under /proc, or `undefined` once its process or thread is gone.
-async function readUnlessGone(path: string): Promise<string | undefined> {
+// A read under /proc, or `undefined` once its process or thread is gone.
+async function readUnlessGone<Read>(read: () => Promise<Read>): Promise<Read | undefined> {
   try {
-    return await readFile(path, "utf8");
+    return await read();
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return undefined;
     }
     throw error;

@@ -4,6 +4,7 @@
 import { z } from "zod";
 
 import { wireFreeFormString } from "../free-form-string.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
@@ -87,10 +88,13 @@ export interface SessionRelatedListUpdate {
   sessionId: SessionId;
   related: SessionRelatedListEntry[];
 }
-/** Parses a {@link SessionRelatedListUpdate}. */
+/** Parses a {@link SessionRelatedListUpdate}; the list fits the shared page budget. */
 export const SessionRelatedListUpdateSchema: z.ZodType<SessionRelatedListUpdate> = z
   .object({ sessionId: SessionIdSchema, related: z.array(SessionRelatedListEntrySchema) })
-  .strict();
+  .strict()
+  .superRefine((update, issueContext) => {
+    requireMemberToRideOneFrame(update.related, "related", issueContext);
+  });
 
 /**
  * Adds a `related` link between two sessions, naming both by id so a rename changes nothing;

@@ -8,12 +8,12 @@
 //   (`ProviderDriverDescriptor.readReportedVersion`).
 // - The transport is an injected seam with no default (each driver's `lifecycle.ts` owns process
 //   talk); its implementer owns the deadline (`driver.timeout`).
-import { constants as filesystemConstants } from "node:fs";
-import { access, realpath as realpathFromFilesystem, stat } from "node:fs/promises";
-import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
+import { realpath as realpathFromFilesystem } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
+import { findExecutables, type ExecutableSearchDependencies } from "../executable-search.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./driver/contract.js";
@@ -47,46 +47,9 @@ export class ProviderExecutableUnresolvableError extends Error {
 /** `fs.promises.realpath` seam. Rejects with a Node `ErrnoException`. */
 type ExecutableRealpathResolver = (candidate: string) => Promise<string>;
 
-/** "Is this path a file this process may execute?" — never rejects. */
-type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
-
-/** The filesystem and platform seams resolution depends on; injected so win32 is testable. */
-export interface ProviderExecutableResolverDependencies {
+/** The search's seams, and the `realpath` that turns a launcher into the exact build path. */
+export interface ProviderExecutableResolverDependencies extends ExecutableSearchDependencies {
   readonly realpath: ExecutableRealpathResolver;
-  readonly isExecutableFile: ExecutableFileProbe;
-  /** `"win32"` selects the `PATHEXT` candidate expansion and case-insensitive name lookup. */
-  readonly platform: NodeJS.Platform;
-  /** Anchor for a relative configured command. */
-  readonly workingDirectory: string;
-}
-
-// `stat` so a symlink probes as its target; `isFile()` because POSIX `X_OK` succeeds on
-// directories. Never rejects.
-const DEFAULT_IS_EXECUTABLE_FILE: ExecutableFileProbe = async (candidate) => {
-  try {
-    const stats = await stat(candidate);
-    if (!stats.isFile()) {
-      return false;
-    }
-    await access(candidate, filesystemConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// Resolves like `fs.realpath.native()`: a launcher symlink becomes the exact build path.
-const DEFAULT_EXECUTABLE_REALPATH: ExecutableRealpathResolver = realpathFromFilesystem;
-
-function resolveExecutableResolverDependencies(
-  partial: Partial<ProviderExecutableResolverDependencies> = {},
-): ProviderExecutableResolverDependencies {
-  return {
-    realpath: partial.realpath ?? DEFAULT_EXECUTABLE_REALPATH,
-    isExecutableFile: partial.isExecutableFile ?? DEFAULT_IS_EXECUTABLE_FILE,
-    platform: partial.platform ?? process.platform,
-    workingDirectory: partial.workingDirectory ?? process.cwd(),
-  };
 }
 
 /** The one executable a spawn and its binding row both name; only the build describes it. */
@@ -95,28 +58,6 @@ export interface ResolvedProviderExecutable {
   readonly requestedCommand: string;
   /** Absolute and symlink-dereferenced; this is what gets spawned and stored. */
   readonly resolvedExecutablePath: string;
-}
-
-// The `PATHEXT` default cmd.exe uses, consulted only when the environment has none.
-const DEFAULT_WINDOWS_PATH_EXTENSIONS: readonly string[] = [".COM", ".EXE", ".BAT", ".CMD"];
-
-function windowsCandidateNames(command: string, pathExtensions: readonly string[]): string[] {
-  const withExtensions = pathExtensions.map((extension) => `${command}${extension}`);
-  // Like the shell: with an extension, as written first; without, through `PATHEXT`, then bare.
-  return extname(command) === "" ? [...withExtensions, command] : [command, ...withExtensions];
-}
-
-// The value of `name` in a spawn environment, matched the way the host matches names.
-function readSpawnEnvValue(
-  spawnEnvironment: readonly SpawnEnvPair[],
-  name: string,
-  platform: NodeJS.Platform,
-): string | undefined {
-  const caseInsensitive = hostEnvNameMatchForPlatform(platform) === "case-insensitive";
-  const entry = spawnEnvironment.find(([entryName]) =>
-    caseInsensitive ? entryName.toUpperCase() === name : entryName === name,
-  );
-  return entry?.[1];
 }
 
 /**
@@ -131,7 +72,6 @@ export async function resolveProviderExecutable(
   spawnEnvironment: readonly SpawnEnvPair[],
   dependencies: Partial<ProviderExecutableResolverDependencies> = {},
 ): Promise<ResolvedProviderExecutable> {
-  const resolvedDependencies = resolveExecutableResolverDependencies(dependencies);
   if (requestedCommand.trim() === "") {
     throw new ProviderExecutableUnresolvableError(
       driverName,
@@ -139,41 +79,12 @@ export async function resolveProviderExecutable(
       "the configured provider command is empty",
     );
   }
-
-  const platform = resolvedDependencies.platform;
-  const isWindows = platform === "win32";
-  const pathExtensions = isWindows
-    ? (readSpawnEnvValue(spawnEnvironment, "PATHEXT", platform) ?? "")
-        .split(";")
-        .map((extension) => extension.trim())
-        .filter((extension) => extension !== "")
-    : [];
-  const effectiveExtensions =
-    isWindows && pathExtensions.length === 0 ? DEFAULT_WINDOWS_PATH_EXTENSIONS : pathExtensions;
-
-  const anchored =
-    isAbsolute(requestedCommand) ||
-    requestedCommand.includes("/") ||
-    (isWindows && requestedCommand.includes("\\"));
-  const searchRoots: string[] = anchored
-    ? [resolve(resolvedDependencies.workingDirectory, requestedCommand)]
-    : (readSpawnEnvValue(spawnEnvironment, "PATH", platform) ?? "")
-        .split(pathDelimiter)
-        .filter((entry) => entry !== "")
-        .map((entry) => join(entry, requestedCommand));
-
-  // win32: `X_OK` acts like `F_OK`, so the `PATHEXT` expansion is what marks an executable.
-  const candidates: string[] = isWindows
-    ? searchRoots.flatMap((root) => windowsCandidateNames(root, effectiveExtensions))
-    : searchRoots;
-
-  for (const candidate of candidates) {
-    if (!(await resolvedDependencies.isExecutableFile(candidate))) {
-      continue;
-    }
+  // Resolves like `fs.realpath.native()`: a launcher symlink becomes the exact build path.
+  const realpath = dependencies.realpath ?? realpathFromFilesystem;
+  for await (const candidate of findExecutables(requestedCommand, spawnEnvironment, dependencies)) {
     let resolvedExecutablePath: string;
     try {
-      resolvedExecutablePath = await resolvedDependencies.realpath(candidate);
+      resolvedExecutablePath = await realpath(candidate);
     } catch {
       // Vanished between probe and dereference: try the next, never the unresolved launcher path.
       continue;
@@ -187,13 +98,10 @@ export async function resolveProviderExecutable(
     }
     return { requestedCommand, resolvedExecutablePath };
   }
-
   throw new ProviderExecutableUnresolvableError(
     driverName,
     requestedCommand,
-    anchored
-      ? "the configured provider executable path is not an executable file"
-      : "no executable named by the configured provider command was found on PATH",
+    "the configured provider command names no executable file",
   );
 }
 

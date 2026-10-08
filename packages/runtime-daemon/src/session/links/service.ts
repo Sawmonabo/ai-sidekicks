@@ -3,7 +3,6 @@
 
 import type { Statement } from "better-sqlite3";
 
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   SESSION_LINK_NOT_REMOVABLE_CODE,
   type SessionLinkRequest,
@@ -12,8 +11,8 @@ import {
 import type { DatabaseConnections } from "../../database/connections.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { sessionExistsStatement } from "../directory/lookups.js";
+import { sessionNotFound } from "../not-found.js";
 import type { SessionRelatedRanking } from "../related/ranking.js";
 
 const ADD_RELATED_LINK_SQL = `INSERT INTO session_links
@@ -40,7 +39,7 @@ const SESSION_GUARD_INDEX = 0;
 const TARGET_GUARD_INDEX = 1;
 
 /** What the link service needs from the daemon. */
-export interface SessionLinkServiceOptions {
+export interface SessionLinkServiceDeps {
   readonly reader: DatabaseConnections["reader"];
   readonly writer: Pick<DatabaseWriter, "write">;
   /** Re-scores the two sessions' related lists once a change commits. */
@@ -55,16 +54,16 @@ export class SessionLinkService {
   readonly #relatedRanking: Pick<SessionRelatedRanking, "rescoreAround">;
   readonly #now: () => Date;
 
-  constructor(options: SessionLinkServiceOptions) {
-    this.#selectPairLink = options.reader.prepare(PAIR_HAS_LINK_SQL);
-    this.#writer = options.writer;
-    this.#relatedRanking = options.relatedRanking;
-    this.#now = options.now ?? (() => new Date());
+  constructor(deps: SessionLinkServiceDeps) {
+    this.#selectPairLink = deps.reader.prepare(PAIR_HAS_LINK_SQL);
+    this.#writer = deps.writer;
+    this.#relatedRanking = deps.relatedRanking;
+    this.#now = deps.now ?? (() => new Date());
   }
 
   /**
    * Links the two sessions as related; a pair already related stays as it is. Rejects with
-   * {@link SessionNotFoundError} when either session is unknown.
+   * `session.not_found` when either session is unknown.
    */
   async add(request: SessionLinkRequest): Promise<void> {
     const now = this.#now().toISOString();
@@ -80,7 +79,7 @@ export class SessionLinkService {
   /**
    * Removes the pair's `related` link, from either side. Rejects with
    * `session.link_not_removable` when the pair is linked only by kinds an event recorded, and with
-   * {@link SessionNotFoundError} for an unknown session; a pair with no link is left as it is.
+   * `session.not_found` for an unknown session; a pair with no link is left as it is.
    */
   async remove(request: SessionLinkRequest): Promise<void> {
     const pair = { sessionId: request.sessionId, targetSessionId: request.targetSessionId };
@@ -124,8 +123,4 @@ export class SessionLinkService {
       throw error;
     }
   }
-}
-
-function sessionNotFound(sessionId: SessionId): Error {
-  return new SessionNotFoundError(`No session ${sessionId}.`, { sessionId });
 }

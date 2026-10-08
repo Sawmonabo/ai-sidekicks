@@ -30,7 +30,7 @@ import { EventLogService } from "../../../events/log-service.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../../git/__fixtures__/command.js";
 import { runGitWithExecFile, type GitRunner } from "../../../git/process.js";
-import { seedSessionRow } from "../../../session/groups/__fixtures__/directory-rows.js";
+import { seedSessionRow } from "../../../session/directory/__fixtures__/directory-rows.js";
 import { WorkspaceEventEmitter } from "../../event-emitter.js";
 import { RepoAlreadyAttachedError } from "../../repo/errors.js";
 import { RepoMountService } from "../../repo/mount-service.js";
@@ -69,6 +69,7 @@ beforeEach(async () => {
       }),
     }),
     nodeId: NODE_ID,
+    archiveUnfinishedCreates: () => Promise.resolve(),
   });
   fixtureGit = gitUnder();
 });
@@ -190,12 +191,6 @@ describe("ManagedWorkspaceService.create", () => {
     expect((failure as Error).message).toBe(SIMULATED_GIT_FAILURE);
     expect(existsSync(workspacePathOf(SESSION_ID))).toBe(false);
     expect(readMountRows()).toEqual([]);
-  });
-
-  it("refuses to start on win32 without an absolute git path", () => {
-    expect(
-      () => new ManagedWorkspaceService({ homeDirectory, repoMounts, platform: "win32" }),
-    ).toThrow(TypeError);
   });
 });
 

@@ -141,8 +141,8 @@ CREATE TABLE session_groups (
 CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
 
 -- The event-derived columns are written in each event's own write, before its
--- row, and equal a rebuild from the log. group_id and the pending working-folder
--- move are written by services and never rebuilt.
+-- row, and equal a rebuild from the log. group_id is written by its service and
+-- never rebuilt.
 CREATE TABLE sessions (
   id                         TEXT NOT NULL PRIMARY KEY,
   shape                      TEXT NOT NULL CHECK(shape IN ('chat', 'project')),
@@ -164,12 +164,7 @@ CREATE TABLE sessions (
   updated_at                 TEXT NOT NULL,
   last_activity_at           TEXT NOT NULL,
   -- The one group of its project the session sits in; NULL for none and for every chat.
-  group_id                   TEXT REFERENCES session_groups(id),
-  -- A requested working-folder move, applied at the active run's next boundary.
-  -- A pending move with no worktree id targets the project's own checkout.
-  pending_move               INTEGER NOT NULL DEFAULT 0 CHECK(pending_move IN (0, 1)),
-  pending_worktree_id        TEXT,
-  CHECK(pending_worktree_id IS NULL OR pending_move = 1)
+  group_id                   TEXT REFERENCES session_groups(id)
 ) STRICT;
 
 CREATE INDEX idx_sessions_group ON sessions(group_id);
@@ -250,7 +245,8 @@ CREATE TABLE session_tags (
   PRIMARY KEY (session_id, tag_folded)
 ) STRICT;
 
-CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, session_id);
+-- Covers the tags-in-use read, which takes one spelling per fold from the index alone.
+CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, tag);
 
 -- Each session's ranked related list, computed ahead so a read is one lookup.
 CREATE TABLE session_related (
@@ -261,6 +257,8 @@ CREATE TABLE session_related (
 ) STRICT;
 
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
+-- A purge deletes the entries naming the purged session from every other session's list.
+CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 
 ${SEARCH_INDEX_SCHEMA_SQL}
 

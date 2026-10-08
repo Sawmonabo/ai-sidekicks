@@ -80,7 +80,7 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
     });
     let opening: SessionListOpening;
     try {
-      opening = deps.listFeed.open({
+      opening = await deps.listFeed.open({
         onChange: (change) => {
           pacer.route(change);
         },
@@ -96,6 +96,7 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
           });
         },
       });
+      // Fires at once for a subscription whose connection closed while the list was read.
       subscription.onCancel(opening.detach);
     } catch (error) {
       // The client never received this id, so the subscription goes without an end frame.
@@ -186,19 +187,11 @@ class SessionListPacer {
     if (this.#isStopped) return;
     const remaining = this.#sessions.slice(this.#sentCount);
     const count = countEntriesFittingOneFrame(remaining, remaining.length);
-    const [firstEntry, ...laterEntries] = remaining.slice(0, count);
     // Pages go out only while entries remain, and a count over any entries is at least one.
-    if (firstEntry === undefined) {
-      throw new Error("A further page of the sessions list had no entries to send.");
-    }
+    const sessions = remaining.slice(0, count) as [SessionListEntry, ...SessionListEntry[]];
     this.#sentCount += count;
     const isComplete = this.#sentCount === this.#sessions.length;
-    this.#outlet.emit({
-      kind: "page",
-      sessions: [firstEntry, ...laterEntries],
-      chatCount: this.#chatCount,
-      isComplete,
-    });
+    this.#outlet.emit({ kind: "page", sessions, chatCount: this.#chatCount, isComplete });
     // A page the subscription's schema refused ends the subscription inside that emit.
     if (this.#isStopped) return;
     if (isComplete) {

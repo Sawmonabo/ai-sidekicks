@@ -58,10 +58,9 @@ pub struct FolderDirectory {
 impl FolderDirectory {
     /// The existing folder `root`, its files read in `read_mode`.
     pub fn open(root: &Path, read_mode: ReadMode) -> io::Result<FolderDirectory> {
+        // Off macOS positioned reads are the only mode, so the mode chooses nothing.
         #[cfg(not(target_os = "macos"))]
-        match read_mode {
-            ReadMode::Positioned => {}
-        }
+        let ReadMode::Positioned = read_mode;
         Ok(FolderDirectory {
             root: root.to_path_buf(),
             #[cfg(target_os = "macos")]
@@ -72,6 +71,9 @@ impl FolderDirectory {
         })
     }
 }
+
+// The file Tantivy records each commit in; Tantivy does not export its name.
+const COMMIT_FILE: &str = "meta.json";
 
 // Tells apart the files a read cache keys by; a file handle lives for one searcher's segment.
 static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -143,7 +145,9 @@ impl Directory for FolderDirectory {
     }
 
     // Written beside the target, flushed to disk, then renamed over it, so a reader sees the old
-    // file or the new one whole.
+    // file or the new one whole. Tantivy syncs the folder before it writes a commit's `meta.json`,
+    // which makes the commit's files and every earlier rename durable, but not after, so the
+    // folder is synced once more here: a commit that has returned survives a crash of the system.
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
         let mut temporary_name = path.as_os_str().to_owned();
         temporary_name.push(".tmp");
@@ -152,7 +156,11 @@ impl Directory for FolderDirectory {
         file.write_all(data)?;
         file.sync_data()?;
         drop(file);
-        fs::rename(&temporary, self.root.join(path))
+        fs::rename(&temporary, self.root.join(path))?;
+        if path == Path::new(COMMIT_FILE) {
+            self.sync_directory()?;
+        }
+        Ok(())
     }
 
     #[cfg(not(windows))]
@@ -264,11 +272,21 @@ fn read_exactly_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::R
 
 type RangeKey = (u64, usize, usize);
 
+// The most bytes one search's read cache holds; a range read past it is read again when asked.
+const READ_CACHE_BYTES_MAX: usize = 16 * 1024 * 1024;
+
 /// The byte ranges one search has read with positioned reads, so a posting list it reads again
-/// (counting, ranking, then a page's hits) is copied out of its file once. Freed with the search.
+/// (counting, ranking, then a page's hits) is copied out of its file once, up to a byte cap.
+/// Freed with the search.
 #[derive(Debug, Default)]
 pub struct ReadCache {
-    ranges: Mutex<HashMap<RangeKey, OwnedBytes>>,
+    ranges: Mutex<CachedRanges>,
+}
+
+#[derive(Debug, Default)]
+struct CachedRanges {
+    by_key: HashMap<RangeKey, OwnedBytes>,
+    bytes: usize,
 }
 
 thread_local! {
@@ -290,7 +308,7 @@ impl ReadCache {
                 .ranges
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            ranges.get(&key).cloned()
+            ranges.by_key.get(&key).cloned()
         })
     }
 
@@ -298,7 +316,11 @@ impl ReadCache {
         CURRENT_READ_CACHE.with(|current| {
             if let Some(cache) = current.borrow().as_ref() {
                 let mut ranges = cache.ranges.lock().unwrap_or_else(PoisonError::into_inner);
-                ranges.insert(key, bytes.clone());
+                if ranges.bytes + bytes.len() <= READ_CACHE_BYTES_MAX
+                    && ranges.by_key.insert(key, bytes.clone()).is_none()
+                {
+                    ranges.bytes += bytes.len();
+                }
             }
         });
     }

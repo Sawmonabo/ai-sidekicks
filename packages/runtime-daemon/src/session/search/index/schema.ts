@@ -4,16 +4,12 @@
 
 import type { IndexRowKind } from "@ai-sidekicks/search-index";
 
+import { sqlListOf } from "../../../database/sql-list.js";
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../../../events/session/skipped-ranges.js";
 import { rowidFloorTriggerSql } from "../rowid-floors.js";
 import { INDEX_ROW_KINDS, indexKeySql } from "./columns.js";
 import { OutboxOperation } from "./outbox.js";
 import { INDEXED_EVENT_TYPES_SQL } from "./rows.js";
-
-// A closed set as the SQL list a CHECK admits.
-function sqlListOf(values: readonly string[]): string {
-  return values.map((value) => `'${value}'`).join(", ");
-}
 
 // The outbox row a trigger writes, from the SQL of each of its columns.
 function outboxInsertSql(entry: {
@@ -68,8 +64,9 @@ CREATE TABLE session_search_outbox (
   operation  TEXT NOT NULL CHECK (operation IN (${sqlListOf(Object.values(OutboxOperation))}))
 ) STRICT;
 
--- Settled rows only, as they are appended. Only a purge deletes a log row, and it deletes the
--- session's directory row in the same write, whose trigger takes every row the session owns out.
+-- Settled rows only, as they are appended. A purge deletes a session's log rows with its directory
+-- row, whose trigger takes every row the session owns out; a repair of the database file rewrites
+-- log rows with no outbox row and drops the whole index, which is built again.
 CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
 WHEN NEW.type IN (${INDEXED_EVENT_TYPES_SQL})
 BEGIN

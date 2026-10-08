@@ -195,15 +195,19 @@ describe("listWorkingFolder", () => {
     ["outside git", false],
     ["inside a git working tree", true],
   ])(
-    "lists past a .gitignore it cannot read, its rules unread as in git, and logs it, %s",
+    "lists past a .gitignore and a folder it cannot read, as git does, and logs each, %s",
     async (_label, isGit) => {
       const folder = await realpath(await mkdtemp(join(tmpdir(), "file-listing-")));
       const rulesPath = join(folder, "locked", ".gitignore");
+      const sealedFolder = join(folder, "sealed");
       try {
         await mkdir(join(folder, "locked"));
         await writeFile(join(folder, "locked", "a.log"), "");
         await writeFile(rulesPath, "*.log\n");
         await chmod(rulesPath, 0o000);
+        await mkdir(sealedFolder);
+        await writeFile(join(sealedFolder, "hidden.ts"), "");
+        await chmod(sealedFolder, 0o000);
         if (isGit) {
           await repositoryGit(["-C", folder, "init", "--quiet"]);
         }
@@ -213,11 +217,14 @@ describe("listWorkingFolder", () => {
           logged.push(line);
         });
 
+        // The rules are unread and the sealed folder lists nothing, and the search goes on.
         expect(listed.sort()).toEqual(["locked/.gitignore", "locked/a.log"]);
-        expect(logged).toHaveLength(1);
-        expect(logged[0]).toContain("locked/.gitignore");
+        expect(logged).toHaveLength(2);
+        expect(logged.some((line) => line.includes("locked/.gitignore"))).toBe(true);
+        expect(logged.some((line) => line.includes("sealed"))).toBe(true);
       } finally {
         await chmod(rulesPath, 0o644);
+        await chmod(sealedFolder, 0o755);
         await rm(folder, { recursive: true, force: true });
       }
     },

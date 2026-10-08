@@ -95,6 +95,7 @@ impl SegmentDeletions {
 }
 
 /// What a version knows of one of its searcher's segments, in the searcher's segment order.
+#[derive(Clone)]
 pub struct SegmentFacts {
     segment_id: SegmentId,
     pub columns: Arc<SegmentColumns>,
@@ -172,16 +173,7 @@ impl IndexVersion {
         IndexVersion {
             searcher: self.searcher.clone(),
             fields: self.fields,
-            segments: self
-                .segments
-                .iter()
-                .map(|facts| SegmentFacts {
-                    segment_id: facts.segment_id,
-                    columns: facts.columns.clone(),
-                    deletions: facts.deletions.clone(),
-                    matches: facts.matches.clone(),
-                })
-                .collect(),
+            segments: self.segments.clone(),
             live_rows: self.live_rows,
             live_tokens: self.live_tokens,
             membership,
