@@ -170,7 +170,7 @@ export function runGraphNodeCenter(node: RunGraphFlowNode): CanvasPoint {
 /**
  * The library's edges for one run. Each joins the two handles the document names and carries
  * the count of items that went through it, summed over every pass, as a short mono figure whose
- * title is the whole count; an edge nothing has gone through yet carries `0`. An edge a run is
+ * hover label is the whole count; an edge nothing has gone through yet carries `0`. An edge a run is
  * flowing through is animated, and an edge into or out of a disabled node is drawn struck
  * through, as the node is grayed.
  */

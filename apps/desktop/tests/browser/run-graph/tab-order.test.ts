@@ -3,21 +3,23 @@
 // so the browser's own order would reach every count first. The walk hands Tab back to the browser
 // at both ends, so the graph is never a trap, and Shift+Tab coming back in reaches the canvas's own
 // controls, then starts the walk at its last stop rather than skipping the counts that leave the
-// last node. This needs real focus and
-// layout, so it runs in Chromium.
+// last node. Tabbing out past an end does not move the view. This needs real focus and layout, so
+// it runs in Chromium.
 
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
+import { clearMediaEmulation, emulateReducedMotion } from "../../helpers/media-emulation.js";
 import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { EDGE_COUNT_CLASS } from "#renderer/features/workflows/runs/page/graph/elements.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { fixtureRun, mountRunGraph, type FixtureRun } from "./mount.js";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await clearMediaEmulation();
 });
 
 /** Every edge's item count, which the hover label reads as `123,456,789,012 items`. */
@@ -151,3 +153,59 @@ it("hands Tab on past its last stop, and Shift+Tab back in starts at that stop",
   await pressTab(true);
   expect(document.activeElement).toBe(lastStop);
 });
+
+it("moves no view as Tab passes over the end node on its way out of the graph", async () => {
+  // Reduced motion, so a move would be a jump the next read sees. The running run opens at full
+  // size on its live step; narrowed after it opens, the view stays put and leaves most nodes
+  // outside the canvas. Its nodes reversed, so the last node in the library's order is one that
+  // edges leave, and Tab from its last count hands focus to that node on the way out.
+  await emulateReducedMotion();
+  const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
+  const reversed: FixtureRun = {
+    ...fixture,
+    workflowDocument: {
+      ...fixture.workflowDocument,
+      nodes: [...fixture.workflowDocument.nodes].reverse(),
+    },
+  };
+  const { canvas } = await mountBetweenButtons(reversed);
+  await act(async () => {
+    canvas.style.inlineSize = "96px";
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  const lastNode = [...canvas.querySelectorAll<HTMLElement>(".react-flow__node")].at(-1);
+  const pane = canvas.querySelector<HTMLElement>(".react-flow");
+  const lastLeaving = reversed.workflowDocument.edges.filter(
+    (edge) => edge.source === lastNode?.dataset["id"],
+  );
+  const lastStop = lastLeaving.length === 0 ? null : countOf(canvas, lastLeaving.at(-1)!.id);
+  if (lastNode === undefined || pane === null || !(lastStop instanceof SVGElement)) {
+    throw new Error("the reversed fixture's last node has no count leaving it");
+  }
+  const paneBox = pane.getBoundingClientRect();
+  const nodeBox = lastNode.getBoundingClientRect();
+  const nodeCenterX = nodeBox.left + nodeBox.width / 2;
+  const nodeCenterY = nodeBox.top + nodeBox.height / 2;
+  expect(
+    nodeCenterX < paneBox.left ||
+      nodeCenterX > paneBox.right ||
+      nodeCenterY < paneBox.top ||
+      nodeCenterY > paneBox.bottom,
+    "the last node starts outside the canvas",
+  ).toBe(true);
+
+  // A press first, so focusing the last count from code is no keyboard focus and moves nothing.
+  await userEvent.click(pane, { position: { x: 4, y: 4 } });
+  act(() => {
+    lastStop.focus();
+  });
+  const transform = viewportTransform(canvas);
+  await pressTab();
+  expect(isGraphStop(document.activeElement)).toBe(false);
+  expect(viewportTransform(canvas)).toBe(transform);
+});
+
+function viewportTransform(canvas: HTMLElement): string {
+  return canvas.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform ?? "";
+}

@@ -130,14 +130,14 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
       ) {
         const move = moveGraphFocus(canvas, graphOrder, event.target, event.shiftKey);
         if (move?.kind === "stop") {
-          move.element.focus();
+          move.element.focus(GRAPH_FOCUS_OPTIONS);
           event.preventDefault();
           return;
         }
         if (move?.kind === "hand-off") {
           // Focus passes over the end node on its way out, which brings nothing into view.
           isHandingOffRef.current = true;
-          move.element.focus();
+          move.element.focus(GRAPH_FOCUS_OPTIONS);
           isHandingOffRef.current = false;
           return;
         }
@@ -160,18 +160,14 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
         return;
       }
       const canvas = canvasRef.current;
-      if (
-        canvas !== null &&
-        focusedNodeId(event.target) !== undefined &&
-        isEnteredFromAfter(event)
-      ) {
+      const nodeId = focusedNodeId(event.target);
+      if (canvas !== null && nodeId !== undefined && isEnteredFromAfter(event)) {
         const lastStop = graphStopElement(canvas, graphOrder.at(-1));
         if (lastStop !== null && lastStop !== event.target) {
-          lastStop.focus();
+          lastStop.focus(GRAPH_FOCUS_OPTIONS);
           return;
         }
       }
-      const nodeId = focusedNodeId(event.target);
       const node = nodes.find((candidate) => candidate.id === nodeId);
       if (node !== undefined) {
         revealPoint(runGraphNodeCenter(node));
@@ -249,6 +245,9 @@ function focusedNodeId(target: EventTarget): string | undefined {
 }
 
 /** One stop of the graph's Tab order: a node, or the item count on an edge. */
+// The walk's focus moves scroll nothing; the canvas brings a stop into view itself.
+const GRAPH_FOCUS_OPTIONS: FocusOptions = { preventScroll: true };
+
 interface GraphFocusStop {
   readonly kind: "node" | "count";
   readonly id: string;

@@ -8,7 +8,7 @@
 // leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
 // the frame's label.
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
@@ -189,8 +189,10 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
 });
 
 it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {
+  // Padding inside the frame, so a label against the text area would stand apart from the frame.
+  const framePadding = { padding: "64px", "--meridian-text-box-padding": "16px" } as CSSProperties;
   const { getByRole, container } = render(
-    <div style={{ padding: "64px" }}>
+    <div style={framePadding}>
       <button type="button">Before</button>
       <HoverLabel text="Read-only while it sends." textIs="description">
         <TextBox className="probe-box" rows={3} aria-label="Draft" readOnly value="" />
@@ -199,21 +201,27 @@ it("shows a text box's label on keyboard focus inside it, against the box's fram
     </div>,
   );
   const frame = container.querySelector<HTMLElement>(".probe-box");
+  if (frame === null) {
+    throw new Error("the text box drew no frame");
+  }
   act(() => {
     getByRole("button", { name: "Before" }).focus();
   });
   await act(async () => {
     await userEvent.tab();
   });
-  expect(document.activeElement).toBe(getByRole("textbox", { name: "Draft" }));
+  const field = getByRole("textbox", { name: "Draft" });
+  expect(document.activeElement).toBe(field);
   // The label belongs to the frame, an element around the focused text area.
   const label = await waitFor(() => {
     const shown = shownLabel();
     expect(shown?.textContent).toBe("Read-only while it sends.");
     return shown!;
   });
-  expect(frame?.dataset["hoverLabel"]).toBe("Read-only while it sends.");
-  expect(gapBetween(label.getBoundingClientRect(), frame!.getBoundingClientRect())).toBeLessThan(1);
+  expect(gapBetween(label.getBoundingClientRect(), frame.getBoundingClientRect())).toBeLessThan(1);
+  expect(gapBetween(label.getBoundingClientRect(), field.getBoundingClientRect())).toBeGreaterThan(
+    8,
+  );
 });
 
 function shownLabel(): HTMLElement | null {

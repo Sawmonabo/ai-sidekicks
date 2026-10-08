@@ -24,7 +24,7 @@ export interface RunHeaderLines {
 
 /** One stretch of the live line; `isAttention` marks the one blocker that needs a person. */
 export interface RunLiveLinePart {
-  /** Its words, with the daemon's counts and cost as wire figures. */
+  /** Its words, with the daemon's counts and any cost it billed as wire figures. */
   readonly words: readonly FigureSentencePart[];
   /** The instant the words end on, the daemon's stamp: `until` it, `resumes itself at` it. */
   readonly at: string | undefined;
@@ -111,7 +111,7 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   } else if (run.liveStep !== undefined) {
     parts.push(plain([run.liveStep.nodeName]));
   }
-  // A run with no cost read yet reads `$0.00`, the app's own stand-in rather than the daemon's.
+  // A run nothing was billed for reads `$0.00`, the app's own stand-in rather than the daemon's.
   const spent = costFigure(run.cost);
   parts.push(plain([run.cost === undefined ? { derived: spent } : { wire: spent }, " so far"]));
   return parts;
