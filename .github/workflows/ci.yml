@@ -62,6 +62,7 @@ jobs:
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
       structure: ${{ steps.filter.outputs.structure || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
+      search-index: ${{ steps.filter.outputs.search-index || 'true' }}
       slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
     steps:
       - uses: actions/checkout@v5
@@ -118,6 +119,13 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
               - '.github/actions/assert-native-prebuild/**'
+            # The session search's addon crate, the Cargo workspace files it builds under, and
+            # this workflow.
+            search-index:
+              - 'packages/search-index/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -826,10 +834,43 @@ jobs:
         with:
           expected-prebuild: ${{ matrix.prebuild }}
 
+  # The session search's addon crate on an Intel Mac: its tests on x64 macOS, which the `test`
+  # job's Linux runner does not cover. It runs when the crate, the Cargo workspace files or this
+  # workflow change, and on every push and scheduled run.
+  search-index-intel-mac:
+    name: search index (macOS x64)
+    needs: [changes]
+    if: needs.changes.outputs.search-index == 'true'
+    runs-on: macos-26-intel
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      # The newest stable Rust; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - name: Test the addon's crate
+        run: cargo test -p search-index --locked
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [changes, node-version, test, desktop, desktop-slow, structure, native-prebuilds]
+    needs:
+      [
+        changes,
+        node-version,
+        test,
+        desktop,
+        desktop-slow,
+        structure,
+        native-prebuilds,
+        search-index-intel-mac,
+      ]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -864,5 +905,6 @@ jobs:
           check desktop-slow "${{ needs.desktop-slow.result }}"
           check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
+          check search-index-intel-mac "${{ needs.search-index-intel-mac.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "ci-gate: all required jobs succeeded or were skipped"
