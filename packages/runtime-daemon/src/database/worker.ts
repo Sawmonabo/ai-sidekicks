@@ -10,7 +10,7 @@ import { LRUCache } from "lru-cache";
 
 import { prepareSessionEventInsert } from "../events/session/insert.js";
 import { openDatabase } from "../session/migration-runner.js";
-import { carryError } from "../worker-thread/carried-error.js";
+import { carryError } from "../worker/carried-error.js";
 import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type {
   WriteJob,

@@ -1,21 +1,21 @@
 // Tier: endurance. The session directory's budgets, measured on the seeded set through the paths
 // the daemon serves them on: the search index's full build from the database at the built daemon's
-// start and the daemon process's peak footprint, the index's merges while idle, every search
-// class's first page and next page on the search thread, the probe queries, a find in the largest
-// session, how long a search holds the daemon's main thread, the wait from a settled message to its
-// first hit, a stored related list's read, how long a re-score after a new link holds the main
-// thread, and a search right after the largest session's purge. It prints p50 and p95 per class
-// against each budget, with the test process's resident memory beside them, and fails on any class
-// over one. The build runs in the built daemon, `dist/main.js`, so `pnpm build` runs first.
+// start and the peak footprint of the daemon and its build process together, the index's merges
+// while idle, every search class's first page and next page on the search thread, the probe
+// queries, a find in the largest session, how long a search holds the daemon's main thread, the
+// wait from a settled message to its first hit, a stored related list's read, how long a re-score
+// after a new link holds the main thread, and a search right after the largest session's purge.
+// It prints p50 and p95 per class against each budget, with the test process's resident memory
+// beside them, and fails on any class over one. The build runs in the built daemon, `dist/main.js`,
+// so `pnpm build` runs first.
 
-import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -39,6 +39,7 @@ import { SessionLinkService } from "../../src/session/links/service.js";
 import { SessionRelatedRanking } from "../../src/session/related/ranking.js";
 import { SearchThread } from "../../src/session/search/thread/handle.js";
 import { mintUuidV7 } from "../../src/uuid-v7.js";
+import { loadProcessMemoryReader } from "./process-memory.js";
 import { SEEDED_SET_SIZE, seedDirectorySet, type SeededSet } from "./seeded-set.js";
 
 // A search, its first page or a later one, answers within this at p95.
@@ -47,8 +48,8 @@ const SEARCH_P95_BUDGET_MS = 50;
 const MAIN_THREAD_TURN_BUDGET_MS = 5;
 // A session's stored related list reads within this at p95.
 const RELATED_LIST_P95_BUDGET_MS = 1;
-// The search index's full build from the database finishes within this, and the daemon process's
-// footprint stays within this meanwhile.
+// The search index's full build from the database finishes within this, and the footprint of the
+// daemon and its build process together stays within this meanwhile.
 const REBUILD_BUDGET_MS = 60_000;
 const REBUILD_FOOTPRINT_BUDGET_MIB = 350;
 // One merge of the index's segments while the daemon is idle finishes within this.
@@ -80,6 +81,8 @@ const PROBE_QUERIES = [
   "tag:billing/mitalo lo",
   "neblegrivo",
 ];
+// How often the daemon's and its children's memory is read while the index builds.
+const MEMORY_SAMPLE_MS = 50;
 // How often a wait for an index change asks again, and when it gives up.
 const POLL_INTERVAL_MS = 5;
 const POLL_LIMIT_MS = 10_000;
@@ -94,12 +97,10 @@ function writeServiceLog(line: string): void {
 // What the test's own search thread reports: nothing, since it opens the index the daemon built.
 const searchLogLines: string[] = [];
 
-// The built daemon, run as a person runs it, so the build's footprint is the daemon process's own.
+// The built daemon, run as a person runs it, so the build's footprint is its processes' own.
 const DAEMON_ENTRY = fileURLToPath(new URL("../../dist/main.js", import.meta.url));
 // What the daemon's search thread logs once it has built the index and answers searches.
 const INDEX_REBUILT_LINE = "search_index_rebuilt: missing";
-
-const execFileAsync = promisify(execFile);
 
 interface Timing {
   readonly p50Ms: number;
@@ -110,6 +111,17 @@ interface Timing {
 interface MainThreadTurns {
   readonly longestTurnMs: number;
   readonly longestLatenessMs: number;
+}
+
+// The index's build at the daemon's start: its time, the daemon's lifetime peak footprint, how many
+// processes it started and the sum of their peaks, and the most the daemon and they held at once
+// in a sample.
+interface DaemonBuild {
+  readonly buildMs: number;
+  readonly daemonPeakMiB: number;
+  readonly childCount: number;
+  readonly childrenPeakMiB: number;
+  readonly sampledPeakMiB: number;
 }
 
 // One line of the printed table, and whether its numbers are inside their budgets.
@@ -187,33 +199,13 @@ async function measure(run: () => Promise<unknown>): Promise<Timing & MainThread
   return { ...timingOf(durationsMs), ...stopFollowingTurns() };
 }
 
-// The process's peak memory footprint since it started, in MiB: on macOS the lifetime peak its
-// own `footprint` reads, on Linux the peak resident memory, that system's own figure.
-async function readPeakFootprintMiB(processId: number): Promise<number> {
-  if (process.platform === "darwin") {
-    const { stdout } = await execFileAsync("footprint", ["-f", "bytes", "-p", String(processId)]);
-    const bytes = /phys_footprint_peak: (\d+) B/u.exec(stdout)?.[1];
-    if (bytes === undefined) {
-      throw new Error(`\`footprint\` printed no peak for process ${String(processId)}:\n${stdout}`);
-    }
-    return Number(bytes) / 2 ** 20;
-  }
-  const status = await readFile(`/proc/${String(processId)}/status`, "utf8");
-  const kibibytes = /^VmHWM:\s+(\d+) kB$/mu.exec(status)?.[1];
-  if (kibibytes === undefined) {
-    throw new Error(`Process ${String(processId)}'s status shows no peak resident memory.`);
-  }
-  return Number(kibibytes) / 2 ** 10;
-}
-
 // The index's build in a daemon started on `homeFolder`, whose data folder holds the database and
-// no index: how long from the spawn until its search thread answers, and the daemon's peak
-// footprint by then. The daemon is stopped before this resolves; throws, with what it printed,
-// when it exits before the build.
-async function buildIndexInDaemon(
-  homeFolder: string,
-  runFolder: string,
-): Promise<{ readonly buildMs: number; readonly peakFootprintMiB: number }> {
+// no index: how long from the spawn until its search thread answers, and the peak footprints by
+// then of the daemon and of the processes it started, each child's read last while it ran. The
+// daemon is stopped before this resolves; throws, with what it printed, when it exits before the
+// build.
+async function buildIndexInDaemon(homeFolder: string, runFolder: string): Promise<DaemonBuild> {
+  const memory = await loadProcessMemoryReader();
   const startedAt = performance.now();
   const daemon = spawn(process.execPath, [DAEMON_ENTRY], {
     env: { ...process.env, HOME: homeFolder, XDG_RUNTIME_DIR: runFolder },
@@ -239,14 +231,43 @@ async function buildIndexInDaemon(
       });
     }
   });
+  const childPeakBytes = new Map<number, number>();
+  let sampledPeakBytes = 0;
+  let isSampling = true;
+  const sampling = (async (): Promise<void> => {
+    const daemonId = daemon.pid;
+    while (isSampling && daemonId !== undefined) {
+      let togetherBytes = (await memory.readMemory(daemonId))?.currentBytes ?? 0;
+      for (const childId of await memory.listChildren(daemonId)) {
+        const child = await memory.readMemory(childId);
+        if (child !== undefined) {
+          togetherBytes += child.currentBytes;
+          childPeakBytes.set(childId, Math.max(child.peakBytes, childPeakBytes.get(childId) ?? 0));
+        }
+      }
+      sampledPeakBytes = Math.max(sampledPeakBytes, togetherBytes);
+      await delay(MEMORY_SAMPLE_MS);
+    }
+  })();
   try {
     const isBuilt = await Promise.race([built.then(() => true), exited.then(() => false)]);
     const buildMs = performance.now() - startedAt;
-    if (!isBuilt || daemon.pid === undefined) {
+    isSampling = false;
+    await sampling;
+    const daemonMemory = daemon.pid === undefined ? undefined : await memory.readMemory(daemon.pid);
+    if (!isBuilt || daemonMemory === undefined) {
       throw new Error(`The daemon exited before it built the index:\n${output}`);
     }
-    return { buildMs, peakFootprintMiB: await readPeakFootprintMiB(daemon.pid) };
+    const childrenPeakBytes = [...childPeakBytes.values()].reduce((sum, bytes) => sum + bytes, 0);
+    return {
+      buildMs,
+      daemonPeakMiB: daemonMemory.peakBytes / 2 ** 20,
+      childCount: childPeakBytes.size,
+      childrenPeakMiB: childrenPeakBytes / 2 ** 20,
+      sampledPeakMiB: sampledPeakBytes / 2 ** 20,
+    };
   } finally {
+    isSampling = false;
     daemon.kill("SIGTERM");
     await exited;
   }
@@ -271,7 +292,7 @@ describe("the session directory's budgets on the seeded set", () => {
   let database: DatabaseConnections;
   let seeded: SeededSet;
   let searchThread: SearchThread;
-  let daemonBuild: { readonly buildMs: number; readonly peakFootprintMiB: number };
+  let daemonBuild: DaemonBuild;
 
   beforeAll(async () => {
     folder = await mkdtemp(join(tmpdir(), "directory-budgets-"));
@@ -314,31 +335,26 @@ describe("the session directory's budgets on the seeded set", () => {
     await rm(runFolder, { recursive: true, force: true });
   });
 
-  it("builds the index from the database at the start and merges it while idle, in budget", async () => {
-    const { buildMs, peakFootprintMiB } = daemonBuild;
+  it("builds the index from the database at the start, merged, in budget", async () => {
+    const { buildMs, daemonPeakMiB, childCount, childrenPeakMiB, sampledPeakMiB } = daemonBuild;
+    // No moment of the build held more than the daemon's peak and its children's together.
+    const peakFootprintMiB = daemonPeakMiB + childrenPeakMiB;
     await searchThread.searchSessions({ query: seeded.words[0] ?? "" });
-    expect(searchLogLines).toEqual([]);
-    // An idle daemon merges the built index's segments one merge at a time until none remains.
-    const mergesMs: number[] = [];
-    let isMoreToMerge = true;
-    while (isMoreToMerge && mergesMs.length < MERGES_AT_MOST) {
-      const start = performance.now();
-      isMoreToMerge = await searchThread.mergeWhileIdle();
-      mergesMs.push(performance.now() - start);
-    }
-    const longestMergeMs = Math.max(0, ...mergesMs);
     console.log(
       `Index build from ${String(SEEDED_SET_SIZE.messages)} messages at the daemon's start: first ` +
         `answer after ${(buildMs / 1000).toFixed(1)} s (budget ${String(REBUILD_BUDGET_MS / 1000)} ` +
-        `s), the daemon's peak footprint ${peakFootprintMiB.toFixed(0)} MiB ` +
-        `(budget ${String(REBUILD_FOOTPRINT_BUDGET_MIB)} MiB); ${String(mergesMs.length)} merges ` +
-        `while idle, longest ${longestMergeMs.toFixed(0)} ms ` +
-        `(budget ${String(MERGE_BUDGET_MS)} ms); ${residentMemory()}`,
+        `s), peak footprint ${peakFootprintMiB.toFixed(0)} MiB for the daemon and its build ` +
+        `process together (budget ${String(REBUILD_FOOTPRINT_BUDGET_MIB)} MiB): the daemon's ` +
+        `${daemonPeakMiB.toFixed(0)} MiB and its ${String(childCount)} children's ` +
+        `${childrenPeakMiB.toFixed(0)} MiB, ${sampledPeakMiB.toFixed(0)} MiB at the highest ` +
+        `sample; ${residentMemory()}`,
     );
-    expect(isMoreToMerge).toBe(false);
+    expect(searchLogLines).toEqual([]);
+    // The build merged what it built, so the daemon has none of its merging left to do.
+    expect(await searchThread.mergeWhileIdle()).toBe(false);
     expect(buildMs).toBeLessThanOrEqual(REBUILD_BUDGET_MS);
+    expect(childCount).toBeGreaterThan(0);
     expect(peakFootprintMiB).toBeLessThanOrEqual(REBUILD_FOOTPRINT_BUDGET_MIB);
-    expect(longestMergeMs).toBeLessThanOrEqual(MERGE_BUDGET_MS);
   });
 
   it("answers each search class within budget without holding the main thread", async () => {
@@ -530,7 +546,7 @@ describe("the session directory's budgets on the seeded set", () => {
     expect(read.p95Ms).toBeLessThanOrEqual(RELATED_LIST_P95_BUDGET_MS);
     expect(turns.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
   });
-  it("answers a search right after the largest session's purge, never showing the session", async () => {
+  it("answers a search right after the largest session's purge, then merges its rows away while idle", async () => {
     const { largeSessionId } = seeded;
     // The deletes a purge makes of the rows the seeded set gives a session, in one write.
     await database.writer.write(
@@ -556,6 +572,27 @@ describe("the session directory's budgets on the seeded set", () => {
     expect(page.groups.map((group) => group.sessionId)).not.toContain(largeSessionId);
     expect(firstPage.p95Ms).toBeLessThanOrEqual(SEARCH_P95_BUDGET_MS);
     expect(firstPage.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
+    // Once the index holds the purge, its deleted rows are over the share past which the idle
+    // merge rewrites the segment holding them: the largest merge a daemon runs on its own thread.
+    const outboxRows = database.reader
+      .prepare<[], number>("SELECT count(*) FROM session_search_outbox")
+      .pluck();
+    await timeUntil(() => Promise.resolve(outboxRows.get() === 0));
+    const mergesMs: number[] = [];
+    let isMoreToMerge = true;
+    while (isMoreToMerge && mergesMs.length < MERGES_AT_MOST) {
+      const start = performance.now();
+      isMoreToMerge = await searchThread.mergeWhileIdle();
+      mergesMs.push(performance.now() - start);
+    }
+    const longestMergeMs = Math.max(0, ...mergesMs);
+    console.log(
+      `Merges while idle after the purge: ${String(mergesMs.length)} calls, longest ` +
+        `${longestMergeMs.toFixed(0)} ms (budget ${String(MERGE_BUDGET_MS)} ms); ${residentMemory()}`,
+    );
+    expect(isMoreToMerge).toBe(false);
+    expect(mergesMs.length).toBeGreaterThan(1);
+    expect(longestMergeMs).toBeLessThanOrEqual(MERGE_BUDGET_MS);
     expect(searchLogLines).toEqual([]);
   });
 });

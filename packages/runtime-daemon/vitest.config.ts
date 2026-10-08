@@ -8,8 +8,9 @@ import {
   WORKSPACE_SOURCE_CONDITIONS,
 } from "../../vitest.shared";
 
-// The database writer's worker thread runs this package's TypeScript under plain Node, outside the
-// test runner's own loading, so each test process registers the source loader its workers inherit.
+// The worker threads and the search index's build process run this package's TypeScript under
+// plain Node, outside the test runner's own loading, so each test process registers the source
+// loader its workers and child processes inherit.
 const SOURCE_LOADER = new URL("./tests/helpers/typescript-source-loader.mjs", import.meta.url).href;
 
 // The endurance tier seeds a database for minutes, so its runs are bounded at ten minutes.

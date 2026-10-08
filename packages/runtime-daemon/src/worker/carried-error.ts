@@ -1,11 +1,11 @@
-// An error thrown on one thread and rethrown on another. A thread boundary keeps only plain data,
-// so an error travels as its message, stack and SQLite code, and a SQLite error comes back as
-// better-sqlite3's own class, so a caller can still test its code. Nothing here loads more than
-// better-sqlite3, so a thread that only reads the database stays small.
+// An error thrown on one thread or process and rethrown on another. A thread or process boundary
+// keeps only plain data, so an error travels as its message, stack and SQLite code, and a SQLite
+// error comes back as better-sqlite3's own class, so a caller can still test its code. Nothing here
+// loads more than better-sqlite3, so a worker that only reads the database stays small.
 
 import Database from "better-sqlite3";
 
-/** An error carried across a thread boundary as plain data. */
+/** An error carried across a thread or process boundary as plain data. */
 export interface CarriedError {
   readonly message: string;
   readonly stack: string | undefined;
@@ -13,7 +13,7 @@ export interface CarriedError {
   readonly sqliteCode: string | undefined;
 }
 
-/** Carries a thrown value across a thread boundary. */
+/** Carries a thrown value across a thread or process boundary. */
 export function carryError(error: unknown): CarriedError {
   if (!(error instanceof Error)) {
     return { message: String(error), stack: undefined, sqliteCode: undefined };

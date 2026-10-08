@@ -2,7 +2,7 @@
 // request is answered once, in the order it was sent.
 
 import type { SessionEventRow } from "../events/session/insert.js";
-import type { CarriedError } from "../worker-thread/carried-error.js";
+import type { CarriedError } from "../worker/carried-error.js";
 import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type { StatementResult, WriteStatement } from "./statement.js";
 

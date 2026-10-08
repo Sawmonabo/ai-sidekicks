@@ -14,8 +14,8 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { waitWithin } from "../bounded-wait.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
-import { rebuildError } from "../worker-thread/carried-error.js";
-import { workerModuleUrlBeside } from "../worker-thread/module-url.js";
+import { rebuildError } from "../worker/carried-error.js";
+import { moduleUrlBeside } from "../worker/module-url.js";
 import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
 import type {
   WriteJob,
@@ -39,7 +39,7 @@ const ALERT_DEPTH = 8_000;
 // The one event type the queue may drop at its cap: narration a later event supersedes.
 const DROPPABLE_EVENT_TYPE = "assistant.thinking_update" satisfies SessionEventType;
 
-const WORKER_URL = workerModuleUrlBeside(import.meta.url);
+const WORKER_URL = moduleUrlBeside(import.meta.url, "worker");
 
 /** A write refused because a statement's row count was not the one it expected. */
 export class WriteRefusedError extends Error {

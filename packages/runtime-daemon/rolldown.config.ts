@@ -1,10 +1,10 @@
 // Bundles the daemon: its modules and the TypeScript workspace packages it imports, with what those
 // import, are inlined into a few files, since loading them one file at a time was most of its
 // start; every other package it lists, the native ones among them, loads from its node_modules.
-// Each worker thread is an entry written where its source sits, and a module that finds a file
-// from its own URL keeps its source path in a chunk of its own, so the worker beside the module
-// that starts it and the package's manifest are found from the build as from the source. `tsc`
-// writes only the declarations.
+// Each worker thread and child process is an entry written where its source sits, and a module
+// that finds a file from its own URL keeps its source path in a chunk of its own, so the worker
+// beside the module that starts it and the package's manifest are found from the build as from the
+// source. `tsc` writes only the declarations.
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -39,8 +39,9 @@ const INSTALLED_PACKAGES = Object.keys(manifest.dependencies).filter((name) => {
   return !namesSourceCondition(dependencyManifest.exports);
 });
 
-// A worker thread's module is `worker.ts` beside the module that starts it.
-const WORKER_ENTRIES = globSync("**/worker.ts", {
+// A worker thread's module is `worker.ts` beside the module that starts it, and a child process's
+// is `child.ts` beside the module that forks it.
+const WORKER_ENTRIES = globSync(["**/worker.ts", "**/child.ts"], {
   cwd: SOURCE_FOLDER,
   exclude: ["**/__tests__/**"],
 });

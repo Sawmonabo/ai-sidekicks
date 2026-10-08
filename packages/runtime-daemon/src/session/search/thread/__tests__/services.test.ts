@@ -1,9 +1,12 @@
 // The search thread's start: an index restarted after a crash applies every write it missed and
 // counts none twice it already held, and an index folder that is missing, unreadable or built from
-// another database is built again from the database; either way the pages equal an FTS5 index's
-// over the same rows, and the outbox empties once the index holds its rows.
+// another database is built again from the database in a child process; either way the pages equal
+// an FTS5 index's over the same rows, and the outbox empties once the index holds its rows. A build
+// cut short is started over from an empty folder, and a build that fails fails the start with what
+// it threw.
 
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,6 +15,7 @@ import { sessionIdOf } from "../../__fixtures__/index-rows.js";
 import { hitsByQuery, referenceHitsByQuery } from "../../__fixtures__/reference-ranking.js";
 import { SearchFixture } from "../../__fixtures__/search-services.js";
 import { SeededDirectory } from "../../__fixtures__/seeded-directory.js";
+import { openSearchServices } from "../services.js";
 
 describe("the search thread's start", () => {
   let fixture: SearchFixture;
@@ -61,20 +65,20 @@ describe("the search thread's start", () => {
 
   it("builds a missing, unreadable or foreign index again and answers the same pages", async () => {
     await fixture.settle();
-    expect(fixture.rebuildReason).toBe("missing");
-    expect(await fixture.reopen()).toBeUndefined();
+    expect(fixture.services().rebuildReason).toBe("missing");
+    expect((await fixture.reopen()).rebuildReason).toBeUndefined();
     expectPagesMatchReference();
 
     const unreadable = await fixture.reopen(async () => {
       await writeFile(join(fixture.indexFolderPath, "meta.json"), "not an index");
     });
-    expect(unreadable).toBe("unreadable");
+    expect(unreadable.rebuildReason).toBe("unreadable");
     expectPagesMatchReference();
 
     const missing = await fixture.reopen(async () => {
       await rm(fixture.indexFolderPath, { recursive: true });
     });
-    expect(missing).toBe("missing");
+    expect(missing.rebuildReason).toBe("missing");
     expectPagesMatchReference();
 
     // A database whose outbox never gave the id the index's newest commit records, as a database
@@ -84,8 +88,39 @@ describe("the search thread's start", () => {
         DELETE FROM session_search_outbox;
         UPDATE sqlite_sequence SET seq = 0 WHERE name = 'session_search_outbox'`);
     });
-    expect(foreign).toBe("another-database");
+    expect(foreign.rebuildReason).toBe("another-database");
     expectPagesMatchReference();
     expect(outboxRowCount()).toBe(0);
+  });
+
+  it("starts a build cut short over from an empty folder", async () => {
+    await fixture.settle();
+    // What a build cut short left in its folder never reaches the next build.
+    const buildFolderPath = `${fixture.indexFolderPath}.building`;
+    const restarted = await fixture.reopen(async () => {
+      await rm(fixture.indexFolderPath, { recursive: true });
+      await mkdir(buildFolderPath);
+      await writeFile(join(buildFolderPath, "meta.json"), "cut short");
+    });
+    expect(restarted.rebuildReason).toBe("missing");
+    expectPagesMatchReference();
+  });
+
+  it("fails the start with what the build's process threw", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "search-build-"));
+    try {
+      const starting = openSearchServices({
+        reader: fixture.database,
+        databasePath: join(folder, "absent.db"),
+        indexFolderPath: join(folder, "search-index"),
+        onApplied: () => {},
+      });
+      await expect(starting).rejects.toMatchObject({
+        code: "SQLITE_CANTOPEN",
+        message: "unable to open database file",
+      });
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 });

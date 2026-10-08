@@ -1,9 +1,8 @@
 // The search thread over a real database file and index folder: searches sent while it still opens
 // answered on the thread once its index is open, pages continued from the search the thread holds,
-// and each error a search throws reaching the wire as the refusal it was thrown as. The thread that
-// builds a missing index ends, and a fresh one opens it; a fresh one that finds it unfit too fails
-// rather than build again. An open that fails is reported, and every search fails with what it
-// threw; a close while the thread opens ends it before it answers.
+// and each error a search throws reaching the wire as the refusal it was thrown as. An open that
+// fails is reported, and every search fails with what it threw; a close while the thread opens
+// ends it before it answers.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -89,17 +88,12 @@ describe("SearchThread", () => {
 
   it("answers on its thread and rejects each refusal as the one it was thrown as", async () => {
     // The first search goes out while the thread still opens, and waits for its open.
-    const workersBefore = startedWorkers.length;
     const thread = startThread(databasePath);
     try {
       const firstPage = await thread.searchSessions({ query: "retry", limit: 1 });
       if (!firstPage.hasMore) {
         throw new Error("The search pages.");
       }
-      // The thread that built the missing index has ended, so its memory went with it.
-      const [building, serving] = startedWorkers.slice(workersBefore);
-      expect(building?.threadId).toBe(-1);
-      expect(serving?.threadId).toBeGreaterThan(0);
       const secondPage = await thread.searchSessions({
         query: "retry",
         limit: 1,
@@ -158,27 +152,6 @@ describe("SearchThread", () => {
     await expect(
       thread.searchTranscript({ sessionId: sessionIdOf(1), query: "again" }),
     ).rejects.toBe(failure);
-    await thread.close();
-  });
-
-  it("fails, rather than build again, when the fresh thread finds the built index unfit", async () => {
-    const workersBefore = startedWorkers.length;
-    const thread = startThread(databasePath);
-    const building = startedWorkers.at(-1)!;
-    // The handle's own exit listener runs first and starts the fresh thread, which then says it
-    // found the index unfit before it can say anything of its own.
-    building.once("exit", () => {
-      startedWorkers.at(-1)!.emit("message", { type: "rebuilt", rebuildReason: "unreadable" });
-    });
-    const waiting = thread.searchSessions({ query: "retry" }).catch((error: unknown) => error);
-
-    const failure = await thread.whenWorkerFailed;
-
-    expect(failure.message).toBe(
-      "The search index was built again and still could not serve: unreadable",
-    );
-    expect(await waiting).toBe(failure);
-    expect(startedWorkers.length - workersBefore).toBe(2);
     await thread.close();
   });
 
