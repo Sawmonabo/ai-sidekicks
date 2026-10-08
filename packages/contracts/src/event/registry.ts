@@ -123,6 +123,7 @@ export type SessionEventType =
   | "recovery.attempted"
   | "recovery.succeeded"
   | "recovery.failed"
+  | "recovery.damaged_events_skipped"
   // security_events
   | "relay.pin_refused"
   // event_maintenance
@@ -143,6 +144,7 @@ export type SessionEventType =
   | "workflow.resumed"
   | "workflow.canceled"
   | "workflow.run_waiting"
+  | "workflow.run_deleted"
   | "workflow.schedule_armed"
   | "workflow.schedule_fired"
   | "workflow.trigger_armed"

@@ -2,13 +2,17 @@
 // answer, plus `transcript.search`. The daemon's one event log is built here with the session
 // directory's statements, so each event's `sessions` row change commits in the event's own write,
 // and the sessions list follows that log from the start, before any append; the daemon's recovery
-// pass appends through the same log.
+// pass and its damaged history append through the same log, which refuses a damaged session's
+// writes, and every session read stops at a damaged session's last good point.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { DatabaseConnections } from "../database/connections.js";
 import { EventLogService } from "../events/log-service.js";
+import type { DamagedFromSequenceReader } from "../events/session/read.js";
+import { SessionPurge } from "../events/session/purge.js";
 import { DEFAULT_GIT_FILESYSTEM } from "../git/filesystem.js";
 import {
   createHookNeutralizedGitCommand,
@@ -74,6 +78,10 @@ export interface SessionMethodsDeps {
   readonly outboundQueue: OutboundQueue;
   /** The thread searches and the search index's merges run on, with its own read connection. */
   readonly searchThread: SearchThread;
+  /** Throws when the session takes no event of `eventType`, its history damaged. */
+  readonly refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
+  /** Where a damaged session's reads stop. */
+  readonly readDamagedFromSequence: DamagedFromSequenceReader;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
 }
@@ -84,6 +92,8 @@ export interface RegisteredSessionServices {
   readonly eventLog: EventLogService;
   /** The session reads, a session's events paged after a sequence among them. */
   readonly sessions: SessionService;
+  /** The whole-session purge, which deletes a session a person deletes. */
+  readonly purge: SessionPurge;
   /**
    * Ends the background work the services started: the sessions list, the self-naming, the
    * related lists' rename follow, the index merge and the pass finishing sessions left
@@ -103,6 +113,8 @@ export function registerSessionMethods(
     writer: database.writer,
     reader: database.reader,
     projectionStatements: directoryStatementsFor,
+    refuseSessionWrite: deps.refuseSessionWrite,
+    readDamagedFromSequence: deps.readDamagedFromSequence,
     writeServiceLog: deps.writeServiceLog,
   });
   const listFeed = new SessionListFeed({
@@ -110,7 +122,7 @@ export function registerSessionMethods(
     eventLog,
     writeServiceLog: deps.writeServiceLog,
   });
-  const sessions = new SessionService(database.reader);
+  const sessions = new SessionService(database.reader, deps.readDamagedFromSequence);
   const git = createHookNeutralizedGitCommand({
     git: runGitWithExecFile,
     filesystem: DEFAULT_GIT_FILESYSTEM,
@@ -218,9 +230,19 @@ export function registerSessionMethods(
   const stopRelatedRanking = relatedRanking.start();
   // Finishes, in the background, each session a create left provisioning when the daemon stopped.
   const finishingProvisioning = creation.finishProvisioningSessions();
+  const purge = new SessionPurge({
+    writer: database.writer,
+    nodeId: deps.nodeId,
+    eventLog,
+    managedWorkspaces,
+    sessionLock: changes.lock,
+    sessionList: listFeed,
+    relatedRanking,
+  });
   return {
     eventLog,
     sessions,
+    purge,
     stop: async () => {
       const mergeStopped = indexMerge.stop();
       const titlesStopped = stopAutoTitle();

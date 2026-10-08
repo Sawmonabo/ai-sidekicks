@@ -5,7 +5,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
-import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
 import {
   listedSessionOf,
@@ -14,6 +14,7 @@ import {
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import { toneForServerStatus } from "../status-tone.js";
 import { SessionName } from "./SessionName.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /**
  * One binding's readings, one line per running session that uses it: the session, its state word
@@ -34,6 +35,7 @@ export function ServerLegs(props: {
 }): ReactNode {
   const { legs, sessionDirectory, nowMilliseconds } = props;
   const scrollerRef = useDrawOverlayScrollbar<HTMLDivElement>();
+  const clockLocale = useClockLocale();
   if (legs === undefined || legs.length === 0) {
     return <Nothing kind="empty" placement="inline" title="No running session uses this server." />;
   }
@@ -59,7 +61,7 @@ export function ServerLegs(props: {
                   <span className="meridian-settings-page__aside">· updated</span>
                   <WireFigure
                     value={formatRelativeTime(leg.observedAt, nowMilliseconds)}
-                    title={leg.observedAt}
+                    title={formatZonedDateTime(leg.observedAt, clockLocale)}
                   />
                 </>
               )}

@@ -11,6 +11,8 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import pLimit, { type LimitFunction } from "p-limit";
+
 import {
   MACHINE_SETTINGS_DEFAULTS,
   MachineSettingsSchema,
@@ -22,7 +24,8 @@ import {
   type SettingsFileRepairCause,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import { writeFileAtomically } from "../../../atomic-file-write.js";
+import { writeFileAtomically } from "../../../file/atomic-write.js";
+import { isMissingFileError } from "../../../file/missing-error.js";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;
@@ -40,10 +43,6 @@ export interface MachineSettingsFileOptions {
 const SETTINGS_FILE_MODE = 0o600;
 const SETTINGS_FOLDER_MODE = 0o700;
 
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
 /**
  * The machine-settings file with its read, write and repair rules. Every operation reads
  * the disk and runs one at a time, so callers never see a half-applied change.
@@ -53,7 +52,8 @@ export class MachineSettingsFile {
   readonly #now: () => Date;
   readonly #listeners = new Set<MachineSettingsListener>();
   #repair: SettingsFileRepair | undefined;
-  #pending: Promise<unknown> = Promise.resolve();
+  // Reads, writes and repairs, one at a time.
+  readonly #oneAtATime: LimitFunction = pLimit(1);
 
   public constructor(options: MachineSettingsFileOptions) {
     this.#filePath = options.filePath;
@@ -89,17 +89,6 @@ export class MachineSettingsFile {
         this.#listeners.delete(listener);
       };
     });
-  }
-
-  #oneAtATime<Result>(work: () => Promise<Result>): Promise<Result> {
-    const result = this.#pending.then(work);
-    // The next piece of work waits for this one to settle, whether it succeeded
-    // or not; its own caller still receives the failure through `result`.
-    this.#pending = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
   }
 
   async #readFromDisk(): Promise<MachineSettingsReading> {

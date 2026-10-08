@@ -17,6 +17,7 @@ import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
@@ -190,7 +191,9 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     transport: "server-request",
     normalizedKind: "user_input_request",
   },
-  // A tool server's question (an MCP elicitation) becomes the same question record.
+  // A tool server's own question (an MCP elicitation) becomes the same question record. Codex's own
+  // approval of a tool-server call arrives on this method too, and is told apart by its marker in
+  // `normalizeCodexElicitationRequest`.
   "mcpServer/elicitation/request": {
     disposition: "normalized",
     nativeMethod: "mcpServer/elicitation/request",
@@ -493,6 +496,45 @@ const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
     Object.freeze(composeCodexFrameNormalization(row)),
   ]),
 );
+
+/**
+ * The value Codex puts in an elicitation's `_meta.codex_approval_kind` when the elicitation is its
+ * own approval of a tool-server call rather than the server's question.
+ */
+const CODEX_TOOL_CALL_APPROVAL_KIND = "mcp_tool_call";
+
+function isCodexToolCallApprovalElicitation(params: unknown): boolean {
+  // `params` is the provider's, so its shape is checked before the marker is read.
+  if (!isPlainObject(params)) {
+    return false;
+  }
+  const meta = params["_meta"];
+  return isPlainObject(meta) && meta["codex_approval_kind"] === CODEX_TOOL_CALL_APPROVAL_KIND;
+}
+
+const CODEX_ELICITATION_QUESTION_NORMALIZATION: CodexFrameNormalization = Object.freeze(
+  composeCodexFrameNormalization(CODEX_FRAME_NORMALIZATION_RECORD["mcpServer/elicitation/request"]),
+);
+
+const CODEX_TOOL_CALL_APPROVAL_NORMALIZATION: CodexFrameNormalization = Object.freeze(
+  composeCodexFrameNormalization({
+    disposition: "normalized",
+    nativeMethod: "mcpServer/elicitation/request",
+    transport: "server-request",
+    normalizedKind: "approval_request",
+  }),
+);
+
+/**
+ * Normalizes an `mcpServer/elicitation/request` by its params: Codex's own approval of a
+ * tool-server call is the approval record, a card the person answers, and any other elicitation
+ * is the server's question record. `params` is untrusted.
+ */
+export function normalizeCodexElicitationRequest(params: unknown): CodexFrameNormalization {
+  return isCodexToolCallApprovalElicitation(params)
+    ? CODEX_TOOL_CALL_APPROVAL_NORMALIZATION
+    : CODEX_ELICITATION_QUESTION_NORMALIZATION;
+}
 
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type CodexFrameEmissionRoute =

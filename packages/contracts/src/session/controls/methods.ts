@@ -71,7 +71,10 @@ export type PermissionLevel = (typeof PERMISSION_LEVEL_VALUES)[number];
 export const PermissionLevelSchema: z.ZodType<PermissionLevel, PermissionLevel> =
   z.enum(PERMISSION_LEVEL_VALUES);
 
-/** Moves the session to a level. Setting the level it already has changes nothing. */
+/**
+ * Moves the session to a level. Setting the level it already has changes nothing, and a move never
+ * answers an open card: the new level decides from the next ask.
+ */
 export interface SessionPermissionLevelUpdateRequest {
   sessionId: SessionId;
   level: PermissionLevel;

@@ -448,11 +448,110 @@ describe("Codex rewind and re-realization", () => {
       const params = paramsOf(harness, method);
       expect(params["sandbox"]).toBe("workspace-write");
       expect(params["config"]).toStrictEqual({
+        "apps._default.default_tools_approval_mode": "writes",
+        "apps._default.approvals_reviewer": "user",
         "agents.max_concurrent_threads_per_session": 3,
         "agents.max_depth": 1,
       });
     },
   );
+
+  it("hands a reviewed thread and its turns to Codex's own reviewer, and moves it per turn", async () => {
+    // A turn's reviewer routes that turn and every later one, so one turn sent to the person would
+    // undo the level for the thread; a run at another level moves the reviewer from its turn on.
+    const reviewed: ExecutionPosture = { ...WORKSPACE_POSTURE, mode: "reviewed" };
+    const created = createHarness();
+    created.server.on("thread/start", () => threadStartResult());
+    await created.driver.createSession({ ...CREATE_PARAMS, executionPosture: reviewed });
+    const harness = createHarness();
+    await resumedWithTurns(harness, { executionPosture: reviewed });
+    harness.server.on("thread/fork", () => FORKED);
+    await harness.driver.forkConversation({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 1,
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "one" },
+    });
+    await harness.driver.startRun({
+      runId: SECOND_RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "two" },
+      executionPosture: WORKSPACE_POSTURE,
+    });
+
+    // A connector ask takes the `apps` table's reviewer before the conversation's.
+    for (const params of [
+      paramsOf(created, "thread/start"),
+      paramsOf(harness, "thread/resume"),
+      paramsOf(harness, "thread/fork"),
+    ]) {
+      expect(params["approvalsReviewer"]).toBe("auto_review");
+      expect(params["config"]).toMatchObject({ "apps._default.approvals_reviewer": "auto_review" });
+    }
+    const turnReviewers = harness.server
+      .framesForMethod("turn/start")
+      .map((frame) => (frame["params"] as Record<string, unknown>)["approvalsReviewer"]);
+    expect(turnReviewers).toStrictEqual(["auto_review", "user"]);
+
+    // A run at reviewed on a session at ask moves its turn to Codex's own reviewer.
+    const asking = createHarness();
+    asking.server.on("thread/start", () => threadStartResult());
+    asking.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await asking.driver.createSession({ ...CREATE_PARAMS, executionPosture: WORKSPACE_POSTURE });
+    await asking.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "one" },
+      executionPosture: reviewed,
+    });
+    expect(paramsOf(asking, "turn/start")["approvalsReviewer"]).toBe("auto_review");
+  });
+
+  it("starts a yolo thread asking on request to the person, every connector on Codex's approve", async () => {
+    // With approvals off Codex refuses a forced `rm` instead of asking; under its own reviewer a
+    // removal would be answered in the person's place; without the connector default every
+    // connector call would ask.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      executionPosture: { mode: "yolo", credentialPolicyRef: "policy://yolo", writableRoots: [] },
+      subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
+    });
+
+    const params = paramsOf(harness, "thread/start");
+    expect(params["sandbox"]).toBe("danger-full-access");
+    expect(params["approvalPolicy"]).toBe("on-request");
+    expect(params["approvalsReviewer"]).toBe("user");
+    expect(params["config"]).toStrictEqual({
+      "apps._default.default_tools_approval_mode": "approve",
+      "apps._default.approvals_reviewer": "user",
+      "agents.max_concurrent_threads_per_session": 3,
+      "agents.max_depth": 1,
+    });
+  });
+
+  it("starts a sandboxed thread with approvals off, every connector write asking", async () => {
+    // The level just below yolo: a connector write not marked read-only asks, which approvals off
+    // refuses, rather than running in place of a write outside the worktree.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      executionPosture: { ...WORKSPACE_POSTURE, mode: "sandboxed" },
+    });
+
+    const params = paramsOf(harness, "thread/start");
+    expect(params["approvalPolicy"]).toBe("never");
+    expect(params["config"]).toStrictEqual({
+      "apps._default.default_tools_approval_mode": "writes",
+      "apps._default.approvals_reviewer": "user",
+    });
+  });
 
   /** A thread reply whose realized sandbox is the workspace one, reporting `networkAccess`. */
   function workspaceThreadReply(
@@ -613,6 +712,7 @@ describe("Codex rewind and re-realization", () => {
       await harness.driver.createSession({ ...CREATE_PARAMS, subagentPolicy });
 
       expect(paramsOf(harness, "thread/start")["config"]).toStrictEqual({
+        "apps._default.approvals_reviewer": "user",
         "agents.max_concurrent_threads_per_session": 1,
         "agents.max_depth": 0,
       });

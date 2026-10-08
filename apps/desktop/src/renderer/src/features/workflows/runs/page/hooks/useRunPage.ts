@@ -3,7 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { type WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import {
+  type WorkflowStep,
+  type WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
@@ -26,18 +29,18 @@ export interface RunPageHold {
   /** The node whose step the panel shows, or `undefined` while the panel is closed. */
   readonly selectedNodeId: string | undefined;
   readonly selectNode: (nodeId: string | undefined) => void;
-  /** The receipts this sitting's answers left, by step. */
-  readonly receipts: ReadonlyMap<string, string>;
+  /** The answers this sitting gave, by step. */
+  readonly answers: ReadonlyMap<string, WorkflowStepResolution>;
   /**
-   * Keep the panel on a step a person just answered, and the answer's receipt until the run reads
-   * back answered.
+   * Keep the panel on a step a person just answered, and the answer, which its receipt reads,
+   * until the run reads back answered.
    */
-  readonly holdAnswered: (step: StepAddress, receipt: string) => void;
+  readonly holdAnswered: (step: StepAddress, answer: WorkflowStepResolution) => void;
 }
 
 /**
  * One run's page: its record, kept current by the frames that name it; the version it pinned;
- * which step the panel shows; and the receipts answers left. A run waiting on a person opens with
+ * which step the panel shows; and the answers given. A run waiting on a person opens with
  * the panel on the step that waits, and a failed run on the step that failed. A run the daemon
  * does not have is reported once, so the screen can open the list with its one line.
  */
@@ -66,7 +69,9 @@ export function useRunPage(options: {
       setOpened({ nodeId: openingNode(run) });
     }
   }, [run, opened]);
-  const [receipts, setReceipts] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [answers, setAnswers] = useState<ReadonlyMap<string, WorkflowStepResolution>>(
+    () => new Map(),
+  );
 
   const isMissing = runState.kind === "failed" && runState.refusal.code === WORKFLOW_NOT_FOUND_CODE;
   useEffect(() => {
@@ -101,8 +106,8 @@ export function useRunPage(options: {
     "fallback",
   );
   const holdAnswered = useCallback(
-    (step: StepAddress, receipt: string) => {
-      setReceipts((held) => new Map(held).set(stepKeyText(step), receipt));
+    (step: StepAddress, answer: WorkflowStepResolution) => {
+      setAnswers((held) => new Map(held).set(stepKeyText(step), answer));
       // Held on the answered step: once it stops waiting, the default would close the panel.
       setPicked({ nodeId: step.nodeId });
       onAnswered();
@@ -117,7 +122,7 @@ export function useRunPage(options: {
     document,
     selectedNodeId: (picked ?? opened ?? { nodeId: openingNode(run) }).nodeId,
     selectNode,
-    receipts,
+    answers,
     holdAnswered,
   };
 }

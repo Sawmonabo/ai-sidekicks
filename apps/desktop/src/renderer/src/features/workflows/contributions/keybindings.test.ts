@@ -97,7 +97,7 @@ describe("the workflows screen's chords", () => {
       mounted.calls.filter((call) => call.method === "workflow.gateResolve").at(-1)?.params,
     ).toMatchObject({ workflowRunId: WORKFLOW_RUN_IDS.waitingApproval, decision: "approved" });
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/^Approved at /u)).toBeDefined();
+      expect(screen.getByText(/^Approved at/u)).toBeDefined();
     });
     expect(approvals()).toBe(1);
   });

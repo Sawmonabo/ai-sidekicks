@@ -4,7 +4,10 @@ import type {
   WorkflowHumanFormPathAnswer,
   WorkflowHumanFormReadResponse,
 } from "@ai-sidekicks/contracts/workflow/run/step/methods";
-import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type {
+  WorkflowStepKey,
+  WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
@@ -12,7 +15,6 @@ import type { ScheduledHandle } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import {
   useWorkflowCall,
@@ -25,7 +27,6 @@ import {
   type ParamAnswers,
   type ParamIssues,
 } from "#renderer/features/workflows/param-form/answers.js";
-import { resolutionReceipt } from "../receipts.js";
 
 /** Where the step's form read stands. */
 export type StepFormRead =
@@ -66,10 +67,9 @@ export const DRAFT_SAVE_REST_MS = 600;
 export function useStepForm(
   bridge: PlatformBridge,
   stepKey: WorkflowStepKey,
-  onAnswered: (receipt: string) => void,
+  onAnswered: (answer: WorkflowStepResolution) => void,
 ): StepFormHold {
   const clock = useClock();
-  const clockLocale = useClockLocale();
   const subject =
     `${stepKey.workflowRunId}/${stepKey.nodeId}/` +
     `${String(stepKey.attempt)}/${String(stepKey.executionIndex)}`;
@@ -182,13 +182,7 @@ export function useStepForm(
       readonly expectedRevision: number;
     }) => callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
     (submitted) => {
-      onAnswered(
-        resolutionReceipt(
-          { kind: "answered", at: submitted.submittedAt },
-          clock.now(),
-          clockLocale,
-        ),
-      );
+      onAnswered({ kind: "answered", at: submitted.submittedAt });
     },
   );
 

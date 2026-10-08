@@ -8,7 +8,7 @@ import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/r
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { costFigure } from "../cost.js";
 import { spentAccountWords, WAIT_CAUSE_WORDS } from "../../words.js";
 import { isGoing } from "../controls.js";
@@ -24,6 +24,8 @@ export interface RunHeaderLines {
 /** One stretch of the live line; `isAttention` marks the one blocker that needs a person. */
 export interface RunLiveLinePart {
   readonly text: string;
+  /** The instant the words end on, the daemon's stamp: `until` it, `resumes itself at` it. */
+  readonly at: string | undefined;
   readonly isAttention: boolean;
 }
 
@@ -80,14 +82,10 @@ export function runHeaderLines(
 
 /**
  * The line at the foot of a going run's header: its live step's place, what it is doing or
- * waiting on, the instant it resumes itself or gives up, its day counted from `nowMs` and written
- * in `locale`, and what it has spent so far. A run that has finished has no live line.
+ * waiting on, the instant it resumes itself or gives up, and what it has spent so far. A run that
+ * has finished has no live line.
  */
-export function runLiveLine(
-  run: WorkflowRunReadResponse,
-  nowMs: number,
-  locale: string,
-): readonly RunLiveLinePart[] | undefined {
+export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLinePart[] | undefined {
   if (!isGoing(run.status)) {
     return undefined;
   }
@@ -100,7 +98,7 @@ export function runLiveLine(
   const waiting = latestStepWith(run.steps, "waiting");
   const holding = latestStepWith(run.steps, "waiting-memory");
   if (waiting?.waitCause !== undefined) {
-    parts.push(...waitingParts(run, waiting, waiting.waitCause, nowMs, locale));
+    parts.push(...waitingParts(run, waiting, waiting.waitCause));
   } else if (holding !== undefined) {
     parts.push(plain("waiting for memory"), plain("starts itself when memory frees up"));
   } else if (run.liveStep !== undefined) {
@@ -229,15 +227,11 @@ function waitingParts(
   run: WorkflowRunReadResponse,
   step: WorkflowStep,
   cause: WorkflowWaitCause,
-  nowMs: number,
-  locale: string,
 ): RunLiveLinePart[] {
-  const deadline =
-    step.waitDeadlineAt === undefined
-      ? ""
-      : ` until ${formatDayClock(step.waitDeadlineAt, nowMs, locale)}`;
+  const deadlineAt = step.waitDeadlineAt;
   const blocker: RunLiveLinePart = {
-    text: `waiting on ${WAIT_CAUSE_WORDS[cause]}${deadline}`,
+    text: `waiting on ${WAIT_CAUSE_WORDS[cause]}${deadlineAt === undefined ? "" : " until"}`,
+    at: deadlineAt,
     isAttention: isPersonWaitCause(cause),
   };
   if (cause === "chain") {
@@ -248,14 +242,12 @@ function waitingParts(
   }
   return [
     blocker,
-    plain(
-      step.resumeAt === undefined
-        ? "awaiting resume — no instant is armed"
-        : `resumes itself at ${formatDayClock(step.resumeAt, nowMs, locale)}`,
-    ),
+    step.resumeAt === undefined
+      ? plain("awaiting resume — no instant is armed")
+      : { text: "resumes itself at", at: step.resumeAt, isAttention: false },
   ];
 }
 
 function plain(text: string): RunLiveLinePart {
-  return { text, isAttention: false };
+  return { text, at: undefined, isAttention: false };
 }

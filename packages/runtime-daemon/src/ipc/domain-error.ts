@@ -34,6 +34,8 @@ export interface DaemonDomainErrorOptions {
    * (path redaction, JSON-safety, depth and width caps).
    */
   readonly detail?: Record<string, unknown>;
+  /** The failure underneath, kept on the error for the service log; never projected. */
+  readonly cause?: unknown;
 }
 
 /**
@@ -55,7 +57,7 @@ export class DaemonDomainError extends Error {
   readonly detail?: Record<string, unknown>;
 
   constructor(message: string, options: DaemonDomainErrorOptions) {
-    super(message);
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = new.target.name;
     this.code = options.code;
     if (options.jsonRpcCode !== undefined) {

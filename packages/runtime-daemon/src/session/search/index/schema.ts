@@ -4,6 +4,7 @@
 
 import type { IndexRowKind } from "@ai-sidekicks/search-index";
 
+import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../../../events/session/skipped-ranges.js";
 import { rowidFloorTriggerSql } from "../rowid-floors.js";
 import { INDEX_ROW_KINDS, indexKeySql } from "./columns.js";
 import { OutboxOperation } from "./outbox.js";
@@ -73,6 +74,21 @@ CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
 WHEN NEW.type IN (${INDEXED_EVENT_TYPES_SQL})
 BEGIN
   ${sessionRowOutboxSql(indexKeySql("NEW.rowid", "event"), "event", "NEW.session_id")}
+END;
+
+-- A damaged session continued from its last good point skips a range of its log that no read takes
+-- again, so each settled row in it is read again, and found gone.
+CREATE TRIGGER trg_session_search_events_skipped AFTER INSERT ON session_events
+WHEN NEW.type = '${DAMAGED_EVENTS_SKIPPED_TYPE}'
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT ${indexKeySql("skipped.rowid", "event")}, 'event', session.rowid, '${OutboxOperation.Row}'
+    FROM session_events AS skipped
+    JOIN sessions AS session ON session.id = skipped.session_id
+   WHERE skipped.session_id = NEW.session_id
+     AND skipped.type IN (${INDEXED_EVENT_TYPES_SQL})
+     AND skipped.sequence BETWEEN json_extract(NEW.payload, '$.fromSequence')
+                              AND json_extract(NEW.payload, '$.toSequence');
 END;
 
 CREATE TRIGGER trg_session_search_session_insert AFTER INSERT ON sessions

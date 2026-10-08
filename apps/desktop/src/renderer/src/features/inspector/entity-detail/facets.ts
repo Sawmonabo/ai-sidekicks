@@ -10,7 +10,7 @@
 import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
 import type { SessionDegradedCause } from "#renderer/store/session/degradation.js";
 import type { SessionStore } from "#renderer/store/session/store.js";
-import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import { formatClockTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { parseInstant } from "#renderer/lib/instant.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 
@@ -40,14 +40,21 @@ export interface EntityDetailProps {
 }
 
 /**
- * What a facet's value is, closed at three forms.
+ * What a facet's value is, closed at four forms.
  *
  * The forms are the console's provenance signature: a value the wire supplied is mono, one the
- * console computed is not, and one that is not there is neither.
+ * console computed is not, and one that is not there is neither. An instant is the wire's too:
+ * its wall-clock reading, the zoned time its hover shows, and the exact stamp the daemon sent.
  */
 export type EntityFacetValue =
   | { readonly form: "wire"; readonly text: string }
   | { readonly form: "derived"; readonly text: string }
+  | {
+      readonly form: "instant";
+      readonly text: string;
+      readonly clockText: string;
+      readonly zonedText: string;
+    }
   | { readonly form: "unrecorded"; readonly detail: string };
 
 /** One labeled row of an entity's record. */
@@ -73,7 +80,8 @@ export function wireFacet(label: string, value: unknown, memberName: string): En
 }
 
 /**
- * An instant, as a wall-clock reading in `locale`, the machine's clock locale.
+ * An instant, as a wall-clock reading in `locale`, the machine's clock locale, beside the exact
+ * stamp the daemon sent, with the zoned time on hover.
  *
  * Wall clock rather than relative: a relative phrase is only true for an instant and the
  * console has no timer. A string that does not parse takes the absent arm, since an em dash
@@ -88,7 +96,15 @@ export function instantFacet(
   if (typeof value !== "string" || parseInstant(value).kind === "malformed") {
     return { label, value: unrecorded(memberName) };
   }
-  return { label, value: { form: "derived", text: formatClockTime(value, locale) } };
+  return {
+    label,
+    value: {
+      form: "instant",
+      text: value,
+      clockText: formatClockTime(value, locale),
+      zonedText: formatZonedDateTime(value, locale),
+    },
+  };
 }
 
 /** The sentence an absent member carries; one generator so the claim cannot drift. */

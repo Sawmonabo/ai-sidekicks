@@ -5,7 +5,7 @@ import type { WorkflowStepError } from "@ai-sidekicks/contracts/workflow/definit
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import type { WriteStatement } from "../../database/statement.js";
-import { GOING_RUN_STATUSES_SQL, PARKED_FAILED_RUN_CONDITION } from "./record.js";
+import { GOING_RUN_STATUSES_SQL, parkedFailedRunCondition } from "./record.js";
 
 /** A cancel as the run's rows record it. */
 export interface WorkflowRunCancellation {
@@ -21,7 +21,7 @@ export interface WorkflowRunCancellation {
 const CANCEL_RUN_SQL = `UPDATE workflow_runs AS run
   SET status = 'canceled', finished_at = @finishedAt, error_json = @errorJson
   WHERE run.id = @workflowRunId
-    AND (run.status IN (${GOING_RUN_STATUSES_SQL}) OR ${PARKED_FAILED_RUN_CONDITION})`;
+    AND (run.status IN (${GOING_RUN_STATUSES_SQL}) OR ${parkedFailedRunCondition("run")})`;
 
 // Run-scoped rather than per waiting step: parallel branches wait independently, so every step
 // row of the run is cleared, and a step still going reads canceled while a pending one stays

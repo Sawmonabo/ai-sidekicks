@@ -1,5 +1,5 @@
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /**
@@ -25,7 +25,12 @@ export function LastCheckedLine(props: {
   }
   return (
     <span className="meridian-settings-page__aside">
-      Last checked <DerivedFigure text={formatDateTime(props.lastCheckedAt, clockLocale)} />.
+      Last checked{" "}
+      <WireFigure
+        value={formatDateTime(props.lastCheckedAt, clockLocale)}
+        title={formatZonedDateTime(props.lastCheckedAt, clockLocale)}
+      />
+      .
     </span>
   );
 }

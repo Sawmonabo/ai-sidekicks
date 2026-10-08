@@ -4,7 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
-import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /** One row: the path, the two axes, and when the mount was last probed. */
@@ -30,7 +30,7 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
         Last probed at{" "}
         <WireFigure
           value={formatDateTime(mount.health.checkedAt, clockLocale)}
-          title={mount.health.checkedAt}
+          title={formatZonedDateTime(mount.health.checkedAt, clockLocale)}
         />
       </span>
     </div>

@@ -433,9 +433,14 @@ const DELETE_BY_SESSION_RUN_SQL: readonly string[] = [
 // run-keyed deletes and the snapshots.
 const EVENTS_DELETE_INDEX: number = 2 + DELETE_BY_SESSION_RUN_SQL.length + 1;
 
-// The session's runs: those its log names and those that had an execution root.
-const SESSION_RUN_IDS_SQL = `SELECT json_extract(payload, '$.runId') FROM session_events
-                              WHERE session_id = ? AND category = 'run_lifecycle'
+// The session's runs: the rows the rebuild wrote, every run its readable events name, so a run the
+// rebuild never reached past a damaged event still loses its rows, and those that had an execution
+// root. A damaged row's payload may not be JSON, which `json_extract` would refuse.
+const SESSION_RUN_IDS_SQL = `SELECT run_id FROM runs WHERE session_id = ?
+                             UNION
+                             SELECT CASE WHEN json_valid(payload)
+                                         THEN json_extract(payload, '$.runId') END
+                               FROM session_events WHERE session_id = ?
                              UNION
                              SELECT run_id FROM run_execution_contexts WHERE session_id = ?`;
 
@@ -443,10 +448,11 @@ const SESSION_RUN_IDS_SQL = `SELECT json_extract(payload, '$.runId') FROM sessio
  * The range read, the read of the sessions linked to it, and the deletes of one session. The range
  * read returns its row only while the stored sequences are safe integers, so a range the receipt
  * could not name refuses the write before anything is deleted. A run's interventions, bindings and
- * command receipts are found through the session's log, so they go before its events; a snapshot
- * names the event it reflects, so snapshots go before the events too. The run rows and the
- * projection cursor are built from the events, so they go with them, and a restart never settles
- * a run of a purged session. A link or a related-list entry goes whichever side names the session.
+ * command receipts are found through the session's runs and log, so they go before the runs and
+ * the events; a snapshot names the event it reflects, so snapshots go before the events too. The
+ * run rows and the projection cursor are built from the events, so they go with them, and a
+ * restart never settles a run of a purged session. A link or a related-list entry goes whichever
+ * side names the session.
  * The group the session leaves empty goes after the session's row and before its workspaces,
  * through which its project is found; no other group is ever empty, because each group write
  * keeps at least one session in it. Every row naming a workspace goes before the workspace, and
@@ -473,7 +479,7 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     },
     ...DELETE_BY_SESSION_RUN_SQL.map((deleteByRun) => ({
       sql: `${deleteByRun} IN (${SESSION_RUN_IDS_SQL})`,
-      bindings: [sessionId, sessionId],
+      bindings: [sessionId, sessionId, sessionId],
     })),
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },

@@ -30,7 +30,7 @@ vi.mock("@napi-rs/keyring", () => ({
   },
 }));
 
-const { OsSecretKeychain } = await import("../os-keychain.js");
+const { OsSecretKeychain } = await import("../os.js");
 
 // The library's errors are plain errors whose message is the keychain's own text.
 function keyringError(message: string): Error {

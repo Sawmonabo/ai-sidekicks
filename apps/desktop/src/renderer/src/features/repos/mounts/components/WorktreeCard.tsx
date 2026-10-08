@@ -1,5 +1,6 @@
 // One worktree row of `repo.worktreeStatusRead`. Every column is the wire's own string but the
-// state, which reads as words, and the age, which is derived, its exact stamp on the `title`.
+// state, which reads as words, and the age, which is derived, with its machine-clock time as its
+// `title`.
 // Secondary facts sit in a native `<details>`, which keeps no per-row state. There is no retire
 // control: its confirm needs an inspection preview this card is not given and must not fabricate.
 
@@ -14,7 +15,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { WORKTREE_STATE_TONES } from "../execution-roots/state-tones.js";
 import {
   WORKTREE_COLUMN_LABELS,
@@ -24,6 +25,7 @@ import {
   type WorktreeSummaryColumnKey,
 } from "../execution-roots/columns.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
@@ -36,6 +38,7 @@ export interface WorktreeCardProps {
 export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   const { record, nowMilliseconds } = props;
   const headingId = useId();
+  const clockLocale = useClockLocale();
 
   return (
     <article className="meridian-root-card" aria-labelledby={headingId}>
@@ -57,7 +60,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         {WORKTREE_SUMMARY_COLUMNS.map((column) => (
           <div className="meridian-root-card__pair" key={column}>
             <dt>{WORKTREE_COLUMN_LABELS[column]}</dt>
-            {summaryCell(record, column, nowMilliseconds)}
+            {summaryCell(record, column, nowMilliseconds, clockLocale)}
           </div>
         ))}
       </dl>
@@ -92,6 +95,7 @@ function summaryCell(
   record: WorktreeStatusRecord,
   column: WorktreeSummaryColumnKey,
   nowMilliseconds: number,
+  clockLocale: string,
 ): React.JSX.Element {
   switch (column) {
     case "fsRoot":
@@ -101,12 +105,11 @@ function summaryCell(
         </dd>
       );
     case "createdAt":
-      // `title` carries the exact stamp beside the derived reading.
       return (
-        <dd title={record.createdAt}>
+        <dd>
           <WireFigure
             value={formatRelativeTime(record.createdAt, nowMilliseconds)}
-            title={record.createdAt}
+            title={formatZonedDateTime(record.createdAt, clockLocale)}
           />
         </dd>
       );

@@ -296,18 +296,7 @@ export function formatDayClock(iso: string, nowMilliseconds: number, locale: str
   if (instant.kind === "malformed") {
     return UNREADABLE_FIGURE;
   }
-  return formatDayClockAt(instant.epochMilliseconds, nowMilliseconds, locale);
-}
-
-/**
- * {@link formatDayClock} for an instant this machine's own clock read, in epoch milliseconds,
- * which has no wire string to parse.
- */
-export function formatDayClockAt(
-  atMilliseconds: number,
-  nowMilliseconds: number,
-  locale: string,
-): string {
+  const atMilliseconds = instant.epochMilliseconds;
   const days = calendarDaysBetween(nowMilliseconds, atMilliseconds);
   if (days === 0) {
     return dateTimeFormatFor("clockMinute", locale).format(atMilliseconds);
@@ -349,6 +338,19 @@ export function formatDateTime(iso: string, locale: string): string {
     return UNREADABLE_FIGURE;
   }
   return dateTimeFormatFor("dateTime", locale).format(instant.epochMilliseconds);
+}
+
+/**
+ * The time an instant stands for, as a hover title reads it: {@link formatDateTime} on the
+ * machine's own clock with its zone, `Oct 7, 2026, 7:28 PM EDT`. A relative time and every other
+ * timestamp carry it as their `title`; the exact stamp the daemon sent is read in the inspector.
+ */
+export function formatZonedDateTime(iso: string, locale: string): string {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
+    return UNREADABLE_FIGURE;
+  }
+  return dateTimeFormatFor("zonedDateTime", locale).format(instant.epochMilliseconds);
 }
 
 /** A calendar day with no time, with the same day fields as {@link formatDateTime}. */

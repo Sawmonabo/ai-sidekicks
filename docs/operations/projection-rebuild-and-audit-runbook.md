@@ -8,14 +8,14 @@ Rebuild session and audit projections when session history appears incomplete, s
 
 - Transcript is missing known events
 - Audit history stops before the current session state
-- The daemon is in its degraded read-only mode after a projection rebuild failed
+- A session reads `degraded` or `damaged` on `daemon.status.read` after its projection rebuild failed and the service's repair could not read every event of it
 - Scope and blast radius: one session projection, or the machine's local event store
 
 ## Detection
 
 - Compare `EventsReadAfterSequence` results with the latest canonical event sequence for the affected session.
-- Read the `recovery` field on `daemon.status.read` (healthy, rebuilding, degraded or blocked, with each session's state) plus projection lag signals for the affected node or session.
-- Verify whether missing history is an expected purge (a session removed by `Delete old data` is deleted with its rows), stale projection state, or true canonical-event loss.
+- Read the `recovery` field on `daemon.status.read` (healthy, rebuilding, degraded or blocked, with each session's state, a damaged session's last good point among them) plus projection lag signals for the affected node or session.
+- Verify whether missing history is an expected purge (a session removed by `Delete old data` or `Delete session` is deleted with its rows), a range skipped by `Continue from here` (named by its `recovery.damaged_events_skipped` event, its rows still stored), stale projection state, or true canonical-event loss.
 
 ## Preconditions
 

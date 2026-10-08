@@ -11,7 +11,7 @@ import * as path from "node:path";
 
 import { z } from "zod";
 
-import { writeFileAtomically, type AtomicWriteFileSystem } from "../../atomic-file-write.js";
+import { writeFileAtomically, type AtomicWriteFileSystem } from "../../file/atomic-write.js";
 
 /** The registry's file name in the data folder. */
 export const ORPHAN_REGISTRY_FILE_NAME = "orphan-registry.json";

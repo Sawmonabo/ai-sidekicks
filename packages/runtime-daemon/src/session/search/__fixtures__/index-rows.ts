@@ -49,6 +49,8 @@ export interface IndexedEventInput {
   /** An assistant's or a tool's body, kept beside the payload. */
   readonly content?: string;
   readonly toolName?: string;
+  /** The payload as stored, in place of the one built from the fields above. */
+  readonly payload?: string;
 }
 
 /** Inserts one log row and answers its id. */
@@ -73,7 +75,7 @@ export function insertEvent(database: Database, input: IndexedEventInput): strin
       input.sequence,
       TIMESTAMP,
       input.type,
-      JSON.stringify(payload),
+      input.payload ?? JSON.stringify(payload),
       input.content ?? null,
     );
   return eventId;

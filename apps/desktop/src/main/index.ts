@@ -23,11 +23,12 @@ import {
   Tray,
   type NativeImage,
 } from "electron";
-import { appFactsSwitches } from "#shared/app-facts.js";
+import { appFactsSwitches, supportedPlatform } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
-import { readAppFacts, watchMachineClock } from "./bridge/app-facts.js";
+import { readAppFacts } from "./bridge/app-facts.js";
+import { machineClockReaderFor } from "./bridge/machine-clock/platform.js";
 import { DaemonForwarding } from "./bridge/daemon.js";
 import { FilePathRefs } from "./bridge/file-path/refs.js";
 import { installBridgeHandlers } from "./bridge/install-handlers.js";
@@ -287,9 +288,11 @@ function startApplication(): void {
 
       // Read after ready because the locales are unknown before it. A fact out of range stops the
       // launch here rather than reaching a page as an unchecked value.
-      const appSwitches = appFactsSwitches(readAppFacts());
+      const platform = supportedPlatform(process.platform);
+      const machineClock = machineClockReaderFor(platform);
+      const appSwitches = appFactsSwitches(readAppFacts(platform, machineClock));
       // Heard from here on, so a region or clock changed while the app runs redraws every figure.
-      watchMachineClock((clock) => {
+      machineClock.watch?.((clock) => {
         openWindows.announceMachineClock(clock);
       }, log);
 

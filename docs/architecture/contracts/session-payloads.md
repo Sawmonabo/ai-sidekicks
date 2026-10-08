@@ -645,6 +645,8 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.unmute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
 | `session.convert` | `mutation` | `SessionConvertRequest` | `SessionConvertResponse` |
 | `session.convertSkippedFileList` | `query` | `SessionConvertSkippedFileListRequest` | `SessionConvertSkippedFileListResponse` |
+| `session.recoveryContinue` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
+| `session.recoveryDelete` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
 | `session.search` | `query` | `SessionSearchRequest` | `SessionSearchResponse` |
 | `session.groupCreate` | `mutation` | `SessionGroupCreateRequest` | `SessionGroupCreateResponse` |
 | `session.groupMove` | `mutation` | `SessionGroupMoveRequest` | `SessionVerbResponse` |
@@ -656,6 +658,8 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.tagAdd` | `mutation` | `SessionTagRequest` | `SessionVerbResponse` |
 | `session.tagRemove` | `mutation` | `SessionTagRequest` | `SessionVerbResponse` |
 | `session.tagList` | `query` | `EmptyPayload` | `SessionTagListResponse` |
+
+`session.recoveryContinue` (`Continue from here`) and `session.recoveryDelete` (`Delete session`) act only on a session whose history is damaged; their event and refusals are in [persistence-payloads.md §Plan-012](./persistence-payloads.md#plan-012--persistence-and-recovery).
 
 `session.goalUpdate` and `session.goalClear` are registered in orchestration-payloads.md §Plan-013's method registry, where the goal's delivery contract lives, and are listed here only so the console's session surface reads whole in one place.
 

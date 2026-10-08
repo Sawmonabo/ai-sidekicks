@@ -4,8 +4,11 @@
 import type { WorkflowSecretId } from "@ai-sidekicks/contracts/workflow/secret";
 import { describe, expect, it } from "vitest";
 
-import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../keychain.js";
-import { WorkflowSecretStore } from "../store.js";
+import {
+  WorkflowSecretStore,
+  WorkflowSecretStoreUnavailableError,
+  type SecretKeychain,
+} from "../store.js";
 
 const SECRET_ID = "44444444-4444-4444-8444-444444444444" as WorkflowSecretId;
 

@@ -77,6 +77,7 @@ import type {
 } from "../session/controls/events.js";
 import type { SessionConvertedPayload } from "../session/convert.js";
 import type { SessionGoalClearedPayload, SessionGoalUpdatedPayload } from "../session/goal.js";
+import type { RecoveryDamagedEventsSkippedPayload } from "../session/recovery.js";
 import type { SessionRestoreFinishedPayload } from "../session/restore.js";
 import type {
   SessionAdvisorChangedPayload,
@@ -88,6 +89,7 @@ import type {
   WorkflowCanceledPayload,
   WorkflowResultsPostedPayload,
   WorkflowResumedPayload,
+  WorkflowRunDeletedPayload,
   WorkflowStartedPayload,
 } from "../workflow/run/control.js";
 import type {
@@ -473,6 +475,12 @@ export type WorkflowCanceledEvent = SessionEventVariant<
   "workflow_lifecycle",
   WorkflowCanceledPayload
 >;
+/** Emitted when the person deletes a workflow run. */
+export type WorkflowRunDeletedEvent = SessionEventVariant<
+  "workflow.run_deleted",
+  "workflow_lifecycle",
+  WorkflowRunDeletedPayload
+>;
 /** Emitted when a finished run's results land as a row in the asking session. */
 export type WorkflowResultsPostedEvent = SessionEventVariant<
   "workflow.results_posted",
@@ -562,6 +570,15 @@ export type RecoveryFailedEvent = SessionEventVariant<
   "recovery.failed",
   "recovery_events",
   RecoveryFailedPayload
+>;
+/**
+ * Emitted on a session with damaged history when it continues from its last good point, naming
+ * the damaged range every read and rebuild skips from then on.
+ */
+export type RecoveryDamagedEventsSkippedEvent = SessionEventVariant<
+  "recovery.damaged_events_skipped",
+  "recovery_events",
+  RecoveryDamagedEventsSkippedPayload
 >;
 
 /** Emitted when the daemon starts preparing a run's provider, workspace or execution state. */
@@ -743,6 +760,7 @@ export type SessionEvent =
   | WorkflowStartedEvent
   | WorkflowResumedEvent
   | WorkflowCanceledEvent
+  | WorkflowRunDeletedEvent
   | WorkflowResultsPostedEvent
   | WorkflowPhaseSuspendedEvent
   | WorkflowStepStartedEvent
@@ -757,6 +775,7 @@ export type SessionEvent =
   | RecoveryAttemptedEvent
   | RecoverySucceededEvent
   | RecoveryFailedEvent
+  | RecoveryDamagedEventsSkippedEvent
   | RunStartingEvent
   | RunRunningEvent
   | RunWaitingForApprovalEvent

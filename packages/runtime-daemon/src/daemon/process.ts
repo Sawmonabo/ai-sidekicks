@@ -1,15 +1,16 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
 // two starts on one data folder only one goes on. It then starts capturing the login shell's
 // environment, which providers are built from, and loading the session services' modules; while
-// those run, it opens the database, through its writer for writes and a read-only connection for
-// reads, starts the search thread, which opens its own read-only connection and the search index,
-// building the index again when it cannot serve, while the start goes on, kills the terminal
-// children a previous run left running and knows this machine. It builds the terminal host over
-// this run's orphan guard, listens on its socket and writes this start's session token once the
-// bind has succeeded, then runs its recovery pass, refusing writes until that pass leaves the node
-// healthy. A client that reads the previous token in the moment between the bind and the write is
-// refused once, and its next read finds this start's token. Its stop, asked for over the socket or
-// by a terminate signal, ends it cleanly.
+// those run, it repairs a damaged database file, failing the start, naming why, when it cannot,
+// opens the database, through its writer for writes and a read-only connection for reads, starts
+// the search thread, which opens its own read-only connection and the search index, building the
+// index again when it cannot serve, while the start goes on, kills the terminal children a
+// previous run left running and knows this machine. It builds the terminal host over this run's
+// orphan guard, listens on its socket and writes this start's session token once the bind has
+// succeeded, then runs its recovery pass, refusing writes until that pass has ended and, after it,
+// only the writes of a session whose history is damaged. A client that reads the previous token in
+// the moment between the bind and the write is refused once, and its next read finds this start's
+// token. Its stop, asked for over the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -20,6 +21,7 @@ import {
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { BACKUP_DEFAULT_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/backup";
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon/status";
@@ -46,7 +48,15 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
+import { DamagedHistory, registerDamagedHistoryMethods } from "../recovery/damaged-history.js";
+import {
+  copyDatabaseFilesAside,
+  findAsideCopyOfSession,
+  recordSessionInAsideCopy,
+} from "../recovery/database-file/aside-copy.js";
+import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
+import { refuseEventOfDamagedSession } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
 import { RecoveryStatusTracker } from "../recovery/status.js";
 import { RecoveryWriteGate } from "../recovery/write-gate.js";
@@ -154,6 +164,8 @@ export class DaemonProcess {
     dataFolder: string;
     dataFolderLock: DataFolderLock;
     database: DatabaseConnections;
+    /** The machine settings file, whose backup folder the start's repair read. */
+    settingsFile: MachineSettingsFile;
     orphanGuard: OrphanGuard;
     searchThread: SearchThread;
     localMachine: LocalMachine;
@@ -175,7 +187,7 @@ export class DaemonProcess {
     // refused call is never recorded.
     this.#inFlightMutations = new InFlightMutations();
     const negotiator = new ProtocolNegotiator(parts.sessionToken);
-    const writeGate = new RecoveryWriteGate(() => this.#recoveryStatus.readOverall());
+    const writeGate = new RecoveryWriteGate(this.#recoveryStatus);
     const registry = negotiator.wrap(
       writeGate.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl())),
     );
@@ -207,12 +219,8 @@ export class DaemonProcess {
         this.#gateway.notify(transportId, notification);
       },
     });
-    const settingsFile = new MachineSettingsFile({
-      filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
-      now: options.now,
-    });
     registerMachineSettingsMethods(registry, {
-      settingsFile,
+      settingsFile: parts.settingsFile,
       streamingPrimitive,
       findBranchPatternRefusal,
     });
@@ -220,7 +228,7 @@ export class DaemonProcess {
       database: parts.database,
       homeDirectory: options.homeDirectory,
       nodeId: parts.localMachine.nodeId,
-      settingsFile,
+      settingsFile: parts.settingsFile,
       providers: new ProviderRegistry(),
       streamingPrimitive,
       // The gateway is built just below; a stream reads its queues only once it listens.
@@ -229,24 +237,61 @@ export class DaemonProcess {
         onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
       },
       searchThread: parts.searchThread,
+      refuseSessionWrite: (sessionId, eventType) => {
+        refuseEventOfDamagedSession(this.#recoveryStatus, sessionId, eventType);
+      },
+      readDamagedFromSequence: (sessionId) =>
+        this.#recoveryStatus.readDamagedFromSequence(sessionId),
       writeServiceLog: options.writeServiceLog,
     });
     this.#stopSessionServices = sessionServices.stop;
-    // The pass appends through the daemon's one event log, so its run endings reach the sessions
-    // list like any other event.
+    // The pass and the damaged history append through the daemon's one event log, so what they
+    // write reaches the sessions list like any other event, and read through its session reads,
+    // which stop at a damaged session's last good point.
     const { reader, writer } = parts.database;
+    const runEngine = new RunEngine({ reader, sessionEvents: sessionServices.eventLog });
+    const runs = new RunStateReader(reader);
+    const projectionRebuild = new ProjectionRebuildService({
+      reader,
+      writer,
+      sessionEvents: sessionServices.sessions,
+      projections: [RUNS_PROJECTION],
+    });
+    const damagedHistory = new DamagedHistory({
+      reader,
+      sessionEvents: sessionServices.sessions,
+      eventLog: sessionServices.eventLog,
+      projectionRebuild,
+      purge: sessionServices.purge,
+      runs,
+      runEngine,
+      status: this.#recoveryStatus,
+    });
+    registerDamagedHistoryMethods(registry, damagedHistory);
+    const asideOptions = {
+      databasePath: path.join(parts.dataFolder, DATABASE_FILE_NAME),
+      dataFolder: parts.dataFolder,
+      now: options.now,
+      writeServiceLog: options.writeServiceLog,
+    };
     this.#startupRecovery = new StartupRecovery({
       nodeId: parts.localMachine.nodeId,
       reader,
       sessionEvents: sessionServices.eventLog,
-      projectionRebuild: new ProjectionRebuildService({
-        reader,
-        writer,
-        sessionEvents: sessionServices.sessions,
-        projections: [RUNS_PROJECTION],
-      }),
-      runs: new RunStateReader(reader),
-      runEngine: new RunEngine({ reader, sessionEvents: sessionServices.eventLog }),
+      projectionRebuild,
+      damagedHistory,
+      storeAside: {
+        // Every write the pass queued commits first, so the copy holds them.
+        copy: async () => {
+          await writer.flush();
+          return copyDatabaseFilesAside(asideOptions);
+        },
+        findCopyOfSession: (sessionId, headSequence) =>
+          findAsideCopyOfSession(asideOptions, sessionId, headSequence),
+        recordSession: recordSessionInAsideCopy,
+      },
+      runs,
+      runEngine,
       status: this.#recoveryStatus,
       now: options.now,
       writeServiceLog: options.writeServiceLog,
@@ -321,6 +366,28 @@ export class DaemonProcess {
     let isSessionMethodsAndCaptureRead = false;
     try {
       const databasePath = path.join(dataFolder, DATABASE_FILE_NAME);
+      const settingsFile = new MachineSettingsFile({
+        filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
+        now: options.now,
+      });
+      // Before anything opens the file for writing, so a repaired file replaces it whole.
+      const fileRepair = await repairDatabaseFile({
+        databasePath,
+        dataFolder,
+        readBackupFolder: async () =>
+          (await settingsFile.read()).settings.backup.folder ??
+          path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
+        now: options.now,
+        writeServiceLog: options.writeServiceLog,
+      });
+      // A file the repair could not heal is left as it is, never opened for writing, and the
+      // service does not start: with no store it has nothing to serve.
+      if (fileRepair.outcome === "unrepaired") {
+        throw new Error(
+          `The database file is damaged and could not be repaired: ${fileRepair.reason}. ` +
+            `Its files are copied aside in ${fileRepair.asideFolder}`,
+        );
+      }
       const database = await openDatabaseConnections({
         databasePath,
         writeServiceLog: options.writeServiceLog,
@@ -369,6 +436,7 @@ export class DaemonProcess {
           dataFolder,
           dataFolderLock,
           database,
+          settingsFile,
           orphanGuard,
           searchThread,
           localMachine,

@@ -1,7 +1,8 @@
 // The session service's reads: one session's record and transcript cursors as `session.read`
 // answers them, from the `sessions` row its events keep in step and its tags; the session's whole
 // log, or a page of it after a known sequence; and a rebuild of the record from that log through
-// the projector, over the same envelope reads the event log serves.
+// the projector, over the same envelope reads the event log serves, which skip a range the session
+// skipped past as damaged and, while its history is damaged, stop at its last good point.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -18,7 +19,11 @@ import type {
 } from "@ai-sidekicks/contracts/session/methods";
 import type { WorktreeId } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
-import { prepareSessionEventReads, type SessionEventReads } from "../events/session/read.js";
+import {
+  prepareSessionEventReads,
+  type DamagedFromSequenceReader,
+  type SessionEventReads,
+} from "../events/session/read.js";
 import type { SessionLogRead } from "../ipc/handlers/session/read.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { rebuildSession } from "./projector.js";
@@ -32,6 +37,8 @@ export interface EventsReadAfterSequenceRequest {
   readonly limit?: number | undefined;
   /** Only events of these types; every type when absent. */
   readonly eventTypes?: readonly string[] | undefined;
+  /** Only events before this sequence; every later event when absent. */
+  readonly beforeSequence?: number | undefined;
 }
 
 /** The page: its events in sequence order, and where the next page starts. */
@@ -67,9 +74,10 @@ export class SessionService {
   readonly #selectRow: Statement<[string], SessionReadRow>;
   readonly #selectTags: Statement<[string], { readonly tag: string }>;
 
-  constructor(reader: Database) {
+  /** `readDamagedFromSequence` says where a damaged session's reads stop; none stop when absent. */
+  constructor(reader: Database, readDamagedFromSequence?: DamagedFromSequenceReader) {
     this.#reader = reader;
-    this.#eventReads = prepareSessionEventReads(reader);
+    this.#eventReads = prepareSessionEventReads(reader, readDamagedFromSequence);
     this.#selectRow = reader.prepare(
       `SELECT state, shape, name, muted_at, pending_move, pending_worktree_id,
               created_at, updated_at
@@ -122,9 +130,9 @@ export class SessionService {
   }
 
   /**
-   * The session's events after `afterSequence`, at most `limit` of them and only of `eventTypes`
-   * when it is given. Throws `MalformedStoredEventError` when a stored row is not a well-formed
-   * envelope.
+   * The session's events after `afterSequence`, at most `limit` of them, only of `eventTypes` and
+   * only before `beforeSequence` when each is given. Throws `MalformedStoredEventError` when a
+   * stored row is not a well-formed envelope.
    */
   readEventsAfterSequence(
     request: EventsReadAfterSequenceRequest,
@@ -134,7 +142,7 @@ export class SessionService {
       request.sessionId,
       request.afterSequence,
       request.limit === undefined ? NO_LIMIT : request.limit + 1,
-      request.eventTypes,
+      { eventTypes: request.eventTypes, beforeSequence: request.beforeSequence },
     );
     const hasMore = request.limit !== undefined && rows.length > request.limit;
     const events = hasMore ? rows.slice(0, request.limit) : rows;

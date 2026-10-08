@@ -52,10 +52,22 @@ export async function writeFileAtomically(
     }
     throw error;
   }
-  if (process.platform !== "win32") {
-    const folder = await fileSystem.open(dirname(filePath), "r");
-    await useThenClose(folder, () => folder.sync());
+  await syncFolder(dirname(filePath), fileSystem);
+}
+
+/**
+ * Flushes `folderPath`'s entries to disk, so a rename or removal in it survives a power loss. On
+ * Windows it does nothing: there is no flush for a folder, and a rename is on disk when it returns.
+ */
+export async function syncFolder(
+  folderPath: string,
+  fileSystem: AtomicWriteFileSystem = NODE_FILE_SYSTEM,
+): Promise<void> {
+  if (process.platform === "win32") {
+    return;
   }
+  const folder = await fileSystem.open(folderPath, "r");
+  await useThenClose(folder, () => folder.sync());
 }
 
 // Closes the file after `use`, whose failure stays the one a caller reads first.

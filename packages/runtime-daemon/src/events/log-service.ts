@@ -10,6 +10,8 @@
 // - Dual-write: `transactionalPrelude` holds statements committed in the same write just before the
 //   row, then the projection statements the service was built with. A guarded statement carries the
 //   row count it expects, so a moved state refuses the write and consumes no sequence.
+// - Refusal: a session that takes no writes, its history damaged, refuses the append before
+//   anything is queued.
 // - Reads and follow: the log is read on the read-only connection after a cursor or over a window,
 //   and each committed event is published to the session's followers in sequence order, after the
 //   append's outcome is settled, so no follower's fault reaches the append or the process.
@@ -39,7 +41,11 @@ import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { sessionAppendLock } from "./session/append-lock.js";
 import { SessionEventFollowers, type SessionEventListener } from "./session/followers.js";
 import type { SessionEventRow } from "./session/insert.js";
-import { prepareSessionEventReads, type SessionEventReads } from "./session/read.js";
+import {
+  prepareSessionEventReads,
+  type DamagedFromSequenceReader,
+  type SessionEventReads,
+} from "./session/read.js";
 
 /**
  * The append input: an {@link EventEnvelope} without `sequence`, which the writer allocates; the
@@ -120,6 +126,10 @@ export interface EventLogServiceDeps {
   readonly catchUpPageSize?: number;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
+  /** Throws when the session takes no event of `eventType`; every append is taken when absent. */
+  readonly refuseSessionWrite?: (sessionId: SessionId, eventType: string) => void;
+  /** Where a damaged session's reads stop; every session reads whole when absent. */
+  readonly readDamagedFromSequence?: DamagedFromSequenceReader;
 }
 
 /** What {@link EventLogService.readAfterCursor} takes. */
@@ -167,10 +177,11 @@ export class EventLogService {
   readonly #followers: SessionEventFollowers;
   readonly #projectionStatements: (envelope: UnsequencedEventEnvelope) => readonly WriteStatement[];
   readonly #monotonicNow: () => bigint;
+  readonly #refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
 
   constructor(deps: EventLogServiceDeps) {
     this.#writer = deps.writer;
-    this.#reads = prepareSessionEventReads(deps.reader);
+    this.#reads = prepareSessionEventReads(deps.reader, deps.readDamagedFromSequence);
     this.#followers = new SessionEventFollowers(
       this.#reads,
       deps.catchUpPageSize ?? DEFAULT_EVENT_READ_LIMIT,
@@ -178,6 +189,7 @@ export class EventLogService {
     );
     this.#projectionStatements = deps.projectionStatements ?? (() => []);
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
+    this.#refuseSessionWrite = deps.refuseSessionWrite ?? (() => {});
   }
 
   /**
@@ -185,12 +197,14 @@ export class EventLogService {
    * allocated `sequence`. Refuses an assistant's thinking update, which goes through
    * {@link appendThinkingUpdate}, a preceding event of another session, a seeded content
    * description member, a content partition on a type that carries none, a failed strict-variant
-   * parse, or a payload with no canonical form. An event is never refused for its size.
+   * parse, a payload with no canonical form, or an event of a session that takes no writes. An
+   * event is never refused for its size.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
     options?: EventLogAppendOptions,
   ): Promise<EventLogAppendReceipt> {
+    this.#refuseSessionWrite(envelope.sessionId, envelope.type);
     // One clock reading for every event of the write.
     const monotonicNs = options?.monotonicNs ?? this.#monotonicNow();
     const preceding = (options?.precedingEvents ?? []).map((precedingEvent) => {
@@ -236,6 +250,7 @@ export class EventLogService {
     envelope: UnsequencedEventEnvelope,
     options?: ThinkingUpdateAppendOptions,
   ): Promise<ThinkingUpdateReceipt> {
+    this.#refuseSessionWrite(envelope.sessionId, envelope.type);
     const composed = this.#composeRow(envelope, options);
     const { outcome, settle } = await this.#queueInSessionOrder(envelope.sessionId, () =>
       this.#writer.appendThinkingUpdate(composed.row),

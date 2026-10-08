@@ -3,11 +3,12 @@ import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/l
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { parseInstant } from "#renderer/lib/instant.js";
-import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { RunStatusChip } from "#renderer/features/workflows/components/RunStatusChip.js";
 import { useRunTimesNow } from "#renderer/features/workflows/hooks/useRunTimesNow.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
@@ -76,10 +77,9 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
     nodeName: props.nodeName,
     workflowName: props.workflowName,
   });
-  const liveLine = runLiveLine(run, nowMs, clockLocale);
+  const liveLine = runLiveLine(run);
   const durationWords = runDurationUntil(run, isTicking, nowMs);
   const waiting = latestStepWith(run.steps, "waiting");
-  const chainStartedAt = formatDayClock(run.chainRoot.startedAt, nowMs, clockLocale);
 
   return (
     <header className="meridian-workflow-run__header">
@@ -99,7 +99,9 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
             <Chip label={`version v${formatCount(props.versionNumber)} pinned`} />
           )}
         </Fact>
-        <Fact term="Started">{formatDayClock(run.startedAt, nowMs, clockLocale)}</Fact>
+        <Fact term="Started">
+          <DayClockFigure at={run.startedAt} nowMs={nowMs} locale={clockLocale} />
+        </Fact>
         {durationWords === undefined ? null : <Fact term="Duration">{durationWords}</Fact>}
         <Fact term="Trigger">{TRIGGER_KIND_WORDS[run.triggerKind]}</Fact>
         <Fact term="Started by">
@@ -114,7 +116,8 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
                   props.onOpenRun(run.chainRoot.runId);
                 }}
               >
-                {`Started by ${run.chainRoot.workflowName} · ${chainStartedAt}`}
+                {`Started by ${run.chainRoot.workflowName} · `}
+                <DayClockFigure at={run.chainRoot.startedAt} nowMs={nowMs} locale={clockLocale} />
               </button>
             </>
           ) : null}
@@ -196,6 +199,12 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
               }
             >
               {part.text}
+              {part.at === undefined ? null : (
+                <>
+                  {" "}
+                  <DayClockFigure at={part.at} nowMs={nowMs} locale={clockLocale} />
+                </>
+              )}
             </span>
           ))}
         </p>

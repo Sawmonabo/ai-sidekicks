@@ -171,7 +171,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
             payerOf={props.payerOf}
             bridge={props.sources.bridge}
             nowMs={dayNowMs}
-            receipts={page.receipts}
+            answers={page.answers}
             onAnswered={page.holdAnswered}
             onOpenRun={props.onOpenRun}
             onOpenReview={openReview}

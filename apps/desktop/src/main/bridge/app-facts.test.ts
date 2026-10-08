@@ -1,9 +1,11 @@
 // Main reads the region and the 12- or 24-hour clock from where each platform keeps them, never
 // from the UI language, and refuses a clock no locale has rather than handing a page a guess.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { SupportedPlatform } from "#shared/app-facts.js";
 import { readAppFacts } from "./app-facts.js";
+import { machineClockReaderFor } from "./machine-clock/platform.js";
 
 /** What the machine under test reports, set by each case. */
 const machine = vi.hoisted(() => ({
@@ -26,26 +28,20 @@ vi.mock("electron", () => ({
   },
 }));
 
-const HOST_PLATFORM = process.platform;
-
-/** Stands the read on `platform` with what that machine reports. */
-function standOn(
-  platform: NodeJS.Platform,
+/** Reads the app's facts through `platform`'s reader on a machine that reports `reported`. */
+function readFactsOn(
+  platform: SupportedPlatform,
   reported: {
     readonly systemLocale: string;
     readonly countryCode: string;
     readonly userDefaults?: Readonly<Record<string, string | boolean>>;
   },
-): void {
-  Object.defineProperty(process, "platform", { value: platform });
+): ReturnType<typeof readAppFacts> {
   machine.systemLocale = reported.systemLocale;
   machine.countryCode = reported.countryCode;
   machine.userDefaults = new Map(Object.entries(reported.userDefaults ?? {}));
+  return readAppFacts(platform, machineClockReaderFor(platform));
 }
-
-afterEach(() => {
-  Object.defineProperty(process, "platform", { value: HOST_PLATFORM });
-});
 
 describe("the machine's clock and region main reads", () => {
   it.each([
@@ -102,9 +98,7 @@ describe("the machine's clock and region main reads", () => {
       expected: { regionLocale: "de-DE", hourCycle: "h23" },
     },
   ] as const)("reads $expected.hourCycle for $machineSays", ({ platform, reported, expected }) => {
-    standOn(platform, reported);
-
-    const facts = readAppFacts();
+    const facts = readFactsOn(platform, reported);
 
     expect(facts.locale).toBe("en-US");
     expect({ regionLocale: facts.regionLocale, hourCycle: facts.hourCycle }).toStrictEqual(
@@ -113,12 +107,12 @@ describe("the machine's clock and region main reads", () => {
   });
 
   it("refuses a clock keyword that names no hour cycle", () => {
-    standOn("darwin", {
-      systemLocale: "en-US@hours=h25",
-      countryCode: "US",
-      userDefaults: { AppleLocale: "en_US@hours=h25" },
-    });
-
-    expect(() => readAppFacts()).toThrow(RangeError);
+    expect(() =>
+      readFactsOn("darwin", {
+        systemLocale: "en-US@hours=h25",
+        countryCode: "US",
+        userDefaults: { AppleLocale: "en_US@hours=h25" },
+      }),
+    ).toThrow(RangeError);
   });
 });

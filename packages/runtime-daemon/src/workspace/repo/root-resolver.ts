@@ -17,6 +17,7 @@ import * as nodePath from "node:path";
 import type { VcsType } from "@ai-sidekicks/contracts/repo/mount";
 
 import { DEFAULT_GIT_EXECUTABLE, runGitWithExecFile, type GitRunner } from "../../git/process.js";
+import { isMissingFileError } from "../../file/missing-error.js";
 import { RepoRootResolutionError } from "./errors.js";
 import {
   componentsEqual,
@@ -114,11 +115,6 @@ function classifyRealpathFailure(thrown: unknown): "path_not_found" | "not_reada
     return "path_not_found";
   }
   return "not_readable";
-}
-
-/** `ENOENT` only: any other rejection means something is there, so it cannot read as absence. */
-function namesMissingEntry(thrown: unknown): boolean {
-  return readProperty(thrown, "code") === "ENOENT";
 }
 
 /**
@@ -276,7 +272,7 @@ export class RepoRootResolver {
     try {
       await this.deps.probeDirectoryReadable(nodePath.join(directory, GIT_METADATA_ENTRY_NAME));
     } catch (thrown: unknown) {
-      return !namesMissingEntry(thrown);
+      return !isMissingFileError(thrown);
     }
     return true;
   }

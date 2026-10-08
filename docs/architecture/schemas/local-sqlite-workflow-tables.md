@@ -73,10 +73,9 @@ CREATE TABLE workflow_versions (
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   saved_by_agent_id    TEXT,                           -- the agent that saved this version through the authoring call; NULL where the person saved it in the builder, so the Versions panel names the user or that agent
-  code_locks_json      TEXT NOT NULL DEFAULT '{}'          -- JSON object: each full-tier Code node's package lock (with the package list the lock was made from), keyed by node id, written when this version is saved and carried forward for a node whose code did not change; '{}' where the version locks none. The step's code itself is a param inside definition_body
+  code_locks_json      TEXT NOT NULL DEFAULT '{}'          -- JSON object: each full-tier Code node's package lock (with the package list the lock was made from), keyed by node id, written when this version is saved and carried forward for a node whose code did not change; a Restore's version carries the locks of the version it repeats whole, and a Duplicate's first version those of the version it copied; '{}' where the version locks none. The step's code itself is a param inside definition_body
                        CHECK(json_valid(code_locks_json) AND json_type(code_locks_json) = 'object'),
-  UNIQUE(definition_id, version_number),
-  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions
+  UNIQUE(definition_id, version_number)                -- two versions may hold the same bytes: Restore saves an older version again as the newest, and history is never rewritten
 ) STRICT;
 
 CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
@@ -105,7 +104,7 @@ CREATE TABLE workflow_runs (
                             CHECK(json_valid(trigger_json)),
   started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
                             CHECK(json_valid(started_by)),
-  started_at                TEXT,                      -- RFC 3339 UTC; NULL while the run is new
+  started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started by the request, fire or call that asked for it, the instant of its `workflow.started`; the run reads `new` from then until the engine admits it
   finished_at               TEXT,
   -- Result
   error_json                TEXT                        -- JSON: the run's typed error, the contracts' WorkflowStepError; NULL unless status in ('failed','canceled','crashed')
@@ -121,7 +120,6 @@ CREATE TABLE workflow_runs (
                             CHECK(chain_kept_going IS NULL OR chain_kept_going IN (0,1)),
   kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: deleting old runs (workflow.runsDelete) leaves a kept run
                             CHECK(kept IN (0,1)),
-  created_at                TEXT NOT NULL,
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
   CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
 ) STRICT;
@@ -131,7 +129,7 @@ CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
   WHERE status IN ('new','running','waiting');
 CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);  -- `Stop them all` cancels every run of the chain still going
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
-CREATE INDEX idx_workflow_runs_created ON workflow_runs(created_at, id);  -- the runs list pages newest first by creation, ties broken by id
+CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);  -- the runs list pages newest first by start, ties broken by id
 
 -- ========================================================================
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5

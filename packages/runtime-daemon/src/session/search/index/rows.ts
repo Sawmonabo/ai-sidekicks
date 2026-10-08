@@ -3,13 +3,15 @@
 // tag, with a tag's fold and its session's last activity beside it. The outbox applier, the rebuild
 // and the hit reader all read rows here, so a hit's line is marked on the same text the index saw.
 // A log row belongs to its session through the session's directory row; a log row of a session
-// with none, which only the daemon's own sentinel session lacks, is no index row.
+// with none, which only the daemon's own sentinel session lacks, is no index row, and neither is a
+// row in a range its session skipped past as damaged or one whose payload damage left unreadable.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { IndexRow, IndexRowKind, IndexRowTag } from "@ai-sidekicks/search-index";
 
+import { outsideSkippedRangesSql } from "../../../events/session/skipped-ranges.js";
 import { indexKeySql, indexRowKindOf, sourceRowidOf } from "./columns.js";
 
 // The log rows the index holds: a person's message, an assistant's message and a tool call, each
@@ -54,11 +56,13 @@ export interface SourceRow {
   readonly tag: { readonly fold: string; readonly sessionLastActivityAt: string } | undefined;
 }
 
-// A log row's text: a person's words, an assistant's reply, or a tool's name then its arguments.
-const EVENT_TEXT_SQL = `CASE event.type
-           WHEN 'user.message' THEN json_extract(event.payload, '$.message')
-           WHEN 'assistant.message' THEN event.content_payload
-           WHEN 'tool.invoked' THEN json_extract(event.payload, '$.toolName')
+// A log row's text: a person's words, an assistant's reply, or a tool's name then its arguments;
+// none for a payload that is not JSON, which `json_extract` would refuse with an error.
+const EVENT_TEXT_SQL = `CASE
+           WHEN NOT json_valid(event.payload) THEN NULL
+           WHEN event.type = 'user.message' THEN json_extract(event.payload, '$.message')
+           WHEN event.type = 'assistant.message' THEN event.content_payload
+           WHEN event.type = 'tool.invoked' THEN json_extract(event.payload, '$.toolName')
              || coalesce(' ' || event.content_payload, '')
          END`;
 
@@ -94,6 +98,7 @@ const ROW_SQL_BY_KIND: Readonly<Record<IndexRowKind, (choice: RowChoice) => stri
       FROM session_events AS event
       JOIN sessions AS session ON session.id = event.session_id
      WHERE event.type IN (${INDEXED_EVENT_TYPES_SQL}) AND (${EVENT_TEXT_SQL}) IS NOT NULL
+       AND ${outsideSkippedRangesSql("event")}
        ${chosenRowsSql(choice, "event.rowid")}`,
   title: (choice) => `
     SELECT ${indexKeySql("rowid", "title")} AS key, rowid AS owner_key, name AS text,

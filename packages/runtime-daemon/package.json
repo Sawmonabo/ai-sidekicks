@@ -25,11 +25,12 @@
   ],
   "scripts": {
     "build": "tsc -b && rolldown -c rolldown.config.ts",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src tests rolldown.config.ts",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.sqlite-shell.json",
+    "lint": "eslint src tests sqlite-shell rolldown.config.ts",
     "test": "vitest run --project=unit",
     "test:coverage": "vitest run --project=unit --coverage",
-    "test:endurance": "vitest run --project=endurance"
+    "test:endurance": "vitest run --project=endurance",
+    "postinstall": "node --experimental-strip-types sqlite-shell/compile.ts"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
@@ -52,12 +53,15 @@
     "canonicalize": "5.1.0",
     "croner": "10.0.1",
     "fdir": "6.5.0",
+    "fflate": "0.8.3",
     "ignore": "7.0.12",
     "jsonata": "2.2.2",
     "koffi": "^3.3.2",
     "lru-cache": "^11.5.3",
+    "node-gyp": "13.1.0",
     "node-pty": "^1.2.0-beta.15",
     "nodemailer": "10.0.13",
+    "p-limit": "7.3.3",
     "picomatch": "4.0.7",
     "pidtree": "1.0.0",
     "pidusage": "4.0.1",

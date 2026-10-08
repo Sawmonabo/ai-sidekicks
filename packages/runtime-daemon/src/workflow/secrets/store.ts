@@ -1,6 +1,11 @@
-// The workflow secrets' values, held in the operating system's keychain under each secret's id.
-// The daemon's table records a secret's place and name; this store holds only the value, which
-// leaves the daemon only into the step that resolves it.
+// The workflow secrets' values, held in a keychain under each secret's id. The daemon's table
+// records a secret's place and name; this store holds only the value, which leaves the daemon
+// only into the step that resolves it.
+//
+// The store takes a `SecretKeychain` and holds no keychain code: `keychain/os.ts` is the
+// operating system's keychain, and `keychain/file.ts` the daemon's items file where that keychain
+// cannot be used. Tests therefore run the store's rules without touching a real keychain, and the
+// native binding stays out of modules that only need the store's shape.
 //
 // Call order is the caller's contract. Seal the value before writing the record, so a refusing
 // keychain leaves no record naming a missing value. To delete, mark the record's removal, remove
@@ -12,9 +17,45 @@
 // back and compares.
 import { timingSafeEqual } from "node:crypto";
 
-import type { WorkflowSecretId } from "@ai-sidekicks/contracts/workflow/secret";
+import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
+import {
+  WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
+  type WorkflowSecretId,
+} from "@ai-sidekicks/contracts/workflow/secret";
 
-import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./keychain.js";
+import { DaemonDomainError } from "../../ipc/domain-error.js";
+
+/**
+ * One keychain service's entries, each addressed by an account name. A keychain that is locked,
+ * missing or silent rejects with {@link WorkflowSecretStoreUnavailableError}; the operating
+ * system's keychain settles in bounded time, and the items file when its file system answers.
+ */
+export interface SecretKeychain {
+  /** Writes `value` under `account`, replacing any value held there. */
+  write(account: string, value: string): Promise<void>;
+  /** The value held under `account`, or `undefined` when none is. */
+  read(account: string): Promise<string | undefined>;
+  /** Removes the value under `account`; `false` when none was held. */
+  remove(account: string): Promise<boolean>;
+}
+
+/**
+ * The keychain could not be used: it is locked, or the machine has none the daemon can use.
+ * Projects to `workflow.secret_store_unavailable` with its cause. The message carries the
+ * keychain's own failure text and never a secret value; `failure` is kept as the error's cause.
+ */
+export class WorkflowSecretStoreUnavailableError extends DaemonDomainError {
+  readonly unavailableCause: KeychainRefusalCause;
+
+  constructor(unavailableCause: KeychainRefusalCause, keychainMessage: string, failure?: unknown) {
+    super(`The keychain is ${unavailableCause}: ${keychainMessage}`, {
+      code: WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
+      detail: { cause: unavailableCause },
+      cause: failure,
+    });
+    this.unavailableCause = unavailableCause;
+  }
+}
 
 /**
  * The keychain service name the workflow secrets' values are filed under.

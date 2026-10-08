@@ -8,6 +8,8 @@ import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import { promisify } from "node:util";
 
+import { isMissingFileError } from "../../file/missing-error.js";
+
 /** Where the name is read from; injected so each platform's form runs on any machine. */
 export interface MachineNameSources {
   readonly platform: NodeJS.Platform;
@@ -58,7 +60,7 @@ export function createNodeMachineNameSources(): MachineNameSources {
       try {
         return await readFile(filePath, "utf8");
       } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        if (isMissingFileError(error)) {
           return undefined;
         }
         throw error;

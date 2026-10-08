@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
-import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import type {
   McpServerInventoryEntry,
   McpWritableBindingRef,
 } from "@ai-sidekicks/contracts/mcp/server";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { toneForServerStatus } from "../status-tone.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 
 // Where a binding a person writes applies, in the words the add form offers for each scope.
 const WHERE_IT_APPLIES: Readonly<Record<McpWritableBindingRef["scope"], string>> = {
@@ -33,6 +34,7 @@ export function ServerListEntry(props: {
   readonly nowMilliseconds: number;
 }): ReactNode {
   const { entry, isSelected, onSelect, nowMilliseconds } = props;
+  const clockLocale = useClockLocale();
   return (
     <li>
       <button
@@ -53,7 +55,7 @@ export function ServerListEntry(props: {
               <span className="meridian-settings-page__aside">· updated</span>
               <WireFigure
                 value={formatRelativeTime(entry.observedAt, nowMilliseconds)}
-                title={entry.observedAt}
+                title={formatZonedDateTime(entry.observedAt, clockLocale)}
               />
             </>
           )}

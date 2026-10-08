@@ -20,12 +20,17 @@ import { ServicePlaceLocationSchema, type ServicePlaceLocation } from "../servic
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
-/**
- * The manifest's file name, beside each backup's database copy.
- *
- * @consumedBy the daemon's backups, which write a manifest beside each copy
- */
+/** The manifest's file name, beside each backup's database copy. */
 export const BACKUP_MANIFEST_FILE_NAME = "manifest.json";
+
+/**
+ * The database copy's file name inside each backup's folder, beside its manifest; a backup's
+ * writer, its restore and the daemon's repair of a damaged store all read it there.
+ */
+export const BACKUP_DATABASE_FILE_NAME = "daemon.db";
+
+/** The folder backups go to inside the service's data folder when the person picked none. */
+export const BACKUP_DEFAULT_FOLDER_NAME = "backups";
 
 /** The longest backup id or computer name accepted. */
 export const BACKUP_LABEL_MAX_LEN = 256;

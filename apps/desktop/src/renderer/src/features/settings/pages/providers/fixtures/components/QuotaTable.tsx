@@ -1,10 +1,15 @@
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatDateTime, formatDuration, formatPercent } from "#renderer/lib/wire/figures.js";
+import {
+  formatDateTime,
+  formatDuration,
+  formatPercent,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { MILLISECONDS_PER_MINUTE } from "#renderer/lib/instant.js";
 import type { AccountQuotaRow } from "../quota-rows.js";
@@ -58,9 +63,9 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
       <tbody>
         {props.rows.map(({ window, behindAccountGeneration }) => (
           <tr key={window.limitId}>
-            <th scope="row">{window.label ?? <DerivedFigure text={windowLength(window)} />}</th>
+            <th scope="row">{window.label ?? <WindowLength window={window} />}</th>
             <td>
-              <DerivedFigure text={windowLength(window)} />
+              <WindowLength window={window} />
             </td>
             <td>
               <progress
@@ -68,17 +73,26 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
                 max={UTILIZATION_BAR_FULL_SCALE}
                 value={Math.min(window.usedPercent / 100, UTILIZATION_BAR_FULL_SCALE)}
               />
-              <DerivedFigure text={formatPercent(window.usedPercent / 100)} />
+              <WireFigure
+                value={formatPercent(window.usedPercent / 100)}
+                title={String(window.usedPercent)}
+              />
             </td>
             <td>
               {window.resetsAt === undefined ? (
                 <span className="meridian-settings-page__aside">Not published</span>
               ) : (
-                <DerivedFigure text={formatDateTime(window.resetsAt, clockLocale)} />
+                <WireFigure
+                  value={formatDateTime(window.resetsAt, clockLocale)}
+                  title={formatZonedDateTime(window.resetsAt, clockLocale)}
+                />
               )}
             </td>
             <td>
-              <DerivedFigure text={formatDateTime(window.observedAt, clockLocale)} />{" "}
+              <WireFigure
+                value={formatDateTime(window.observedAt, clockLocale)}
+                title={formatZonedDateTime(window.observedAt, clockLocale)}
+              />{" "}
               <Chip label={codeWords(window.source)} />
               {behindAccountGeneration ? (
                 <Chip label="Behind this account’s credential" tone="attention" glyph="alert" />
@@ -91,7 +105,13 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
   );
 }
 
-/** How long a window runs, as the table draws it. */
-function windowLength(window: AccountQuotaRow["window"]): string {
-  return formatDuration(window.windowMins * MILLISECONDS_PER_MINUTE);
+/** How long a window runs, as the provider reported it in minutes, which its title carries. */
+function WindowLength(props: { readonly window: AccountQuotaRow["window"] }): React.JSX.Element {
+  const { windowMins } = props.window;
+  return (
+    <WireFigure
+      value={formatDuration(windowMins * MILLISECONDS_PER_MINUTE)}
+      title={String(windowMins)}
+    />
+  );
 }

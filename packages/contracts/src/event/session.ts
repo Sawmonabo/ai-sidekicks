@@ -101,11 +101,13 @@ import {
   SessionGoalClearedPayloadSchema,
   SessionGoalUpdatedPayloadSchema,
 } from "../session/goal.js";
+import { RecoveryDamagedEventsSkippedPayloadSchema } from "../session/recovery.js";
 import { SessionRestoreFinishedPayloadSchema } from "../session/restore.js";
 import {
   WorkflowCanceledPayloadSchema,
   WorkflowResultsPostedPayloadSchema,
   WorkflowResumedPayloadSchema,
+  WorkflowRunDeletedPayloadSchema,
   WorkflowStartedPayloadSchema,
 } from "../workflow/run/control.js";
 import {
@@ -241,6 +243,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.attempted": "recovery_events",
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
+  "recovery.damaged_events_skipped": "recovery_events",
   // security_events
   "relay.pin_refused": "security_events",
   // event_maintenance
@@ -261,6 +264,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "workflow.resumed": "workflow_lifecycle",
   "workflow.canceled": "workflow_lifecycle",
   "workflow.run_waiting": "workflow_lifecycle",
+  "workflow.run_deleted": "workflow_lifecycle",
   "workflow.schedule_armed": "workflow_lifecycle",
   "workflow.schedule_fired": "workflow_lifecycle",
   "workflow.trigger_armed": "workflow_lifecycle",
@@ -625,6 +629,11 @@ const workflowCanceledVariantSchema = buildSessionEventVariantSchema(
   "workflow_lifecycle",
   WorkflowCanceledPayloadSchema,
 );
+const workflowRunDeletedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.run_deleted",
+  "workflow_lifecycle",
+  WorkflowRunDeletedPayloadSchema,
+);
 const workflowResultsPostedVariantSchema = buildSessionEventVariantSchema(
   "workflow.results_posted",
   "workflow_lifecycle",
@@ -694,6 +703,11 @@ const recoveryFailedVariantSchema = buildSessionEventVariantSchema(
   "recovery.failed",
   "recovery_events",
   RecoveryFailedPayloadSchema,
+);
+const recoveryDamagedEventsSkippedVariantSchema = buildSessionEventVariantSchema(
+  "recovery.damaged_events_skipped",
+  "recovery_events",
+  RecoveryDamagedEventsSkippedPayloadSchema,
 );
 
 // A run state change and an intervention event each take their payload from their own state.
@@ -839,6 +853,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   workflowStartedVariantSchema,
   workflowResumedVariantSchema,
   workflowCanceledVariantSchema,
+  workflowRunDeletedVariantSchema,
   workflowResultsPostedVariantSchema,
   workflowPhaseSuspendedVariantSchema,
   workflowStepStartedVariantSchema,
@@ -853,6 +868,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   recoveryAttemptedVariantSchema,
   recoverySucceededVariantSchema,
   recoveryFailedVariantSchema,
+  recoveryDamagedEventsSkippedVariantSchema,
   buildRunStateChangeVariantSchema("starting"),
   buildRunStateChangeVariantSchema("running"),
   buildRunStateChangeVariantSchema("waiting_for_approval"),

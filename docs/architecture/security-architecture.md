@@ -212,7 +212,7 @@ A session has exactly one owner and no other people, so the matrix is not a grid
 | **Read access** |  |
 | Read the transcript, artifacts, and device presence | Owner |
 
-**Actions that ask at the asking levels:** at the session's permission levels that ask, these ask before they run unless an approval rule answers them; at Sandboxed and at YOLO nothing asks, as the person chose ([Spec-010 §Default Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)):
+**Actions that ask at the asking levels:** at the session's permission levels that ask, these ask before they run unless an approval rule answers them; at Sandboxed and at YOLO none of them asks, as the person chose, save at YOLO a removal the provider's own check flags ([Spec-010 §Default Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)):
 
 - `file_write` outside the bound workspace
 - `network_access` unless the active policy explicitly allows it

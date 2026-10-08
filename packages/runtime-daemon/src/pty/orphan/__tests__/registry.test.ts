@@ -8,7 +8,7 @@ import * as path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { AtomicWriteFileSystem } from "../../../atomic-file-write.js";
+import type { AtomicWriteFileSystem } from "../../../file/atomic-write.js";
 import { ORPHAN_REGISTRY_FILE_NAME, OrphanRegistry } from "../registry.js";
 
 let dataFolder: string;

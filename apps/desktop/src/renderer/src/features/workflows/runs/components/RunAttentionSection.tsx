@@ -8,9 +8,9 @@ import type {
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { DayClockFigure } from "../../components/DayClockFigure.js";
 import { runCountWords, spentAccountWords } from "../../words.js";
 import { partOfDayAt } from "../part-of-day.js";
 
@@ -87,11 +87,18 @@ function AttentionLine(props: {
     const verb = entry.affectedRunCount === 1 ? "waits" : "wait";
     const account = spentAccountWords(entry.account);
     // The reset is named only where the daemon armed the instant the runs resume.
-    const until =
-      entry.resumeAt === undefined
-        ? ""
-        : ` until ${formatDayClock(entry.resumeAt, props.nowMs, clockLocale)}`;
-    return <span>{`${runs} ${verb} on the ${account}, which is spent${until}.`}</span>;
+    return (
+      <span>
+        {`${runs} ${verb} on the ${account}, which is spent`}
+        {entry.resumeAt === undefined ? null : (
+          <>
+            {" until "}
+            <DayClockFigure at={entry.resumeAt} nowMs={props.nowMs} locale={clockLocale} />
+          </>
+        )}
+        .
+      </span>
+    );
   }
   return (
     <span>
@@ -105,7 +112,8 @@ function AttentionLine(props: {
         {entry.workflowName}
       </button>
       <span className="meridian-workflows-attention__cause">
-        {` · waiting on ${entry.waitingStepName} · since ${formatDayClock(entry.waitingSince, props.nowMs, clockLocale)}`}
+        {` · waiting on ${entry.waitingStepName} · since `}
+        <DayClockFigure at={entry.waitingSince} nowMs={props.nowMs} locale={clockLocale} />
       </span>
     </span>
   );

@@ -690,7 +690,7 @@ CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(sto
 
 ## Approval Tables (Plan-009)
 
-The 6 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `plan_approval`, `gate`. A question and an MCP elicitation are not approvals: each is one `question.asked` record, answered outside the approval pipeline.
+The 6 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `plan_approval`, `gate`. A question and a tool server's own MCP elicitation are not approvals: each is one `question.asked` record, answered outside the approval pipeline. Codex's own approval of a tool-server call, an elicitation marked `_meta.codex_approval_kind: "mcp_tool_call"`, is a `tool_execution` approval.
 
 ```sql
 -- Owner: Plan-009 (D-009-2)
@@ -714,12 +714,12 @@ CREATE TABLE approval_requests (
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
                                               -- No 'expired' state and no deadline column: a request waits until it is
-                                              -- answered. Moving the session's permission level to one that never asks
-                                              -- answers an open request -- the blocked call runs -- so it lands
-                                              -- 'approved'; only an interrupt or any other end of its run and the
-                                              -- provider process ending land 'canceled'. Nothing on this table is left
-                                              -- for a sweep to settle and silence is never read as either a grant or a
-                                              -- denial (Spec-010 §Required Behavior)
+                                              -- answered. Moving the session's permission level leaves an open
+                                              -- request pending for the person; only the person's answer lands
+                                              -- 'approved' or 'rejected', and only an interrupt or any other end of
+                                              -- its run and the provider process ending land 'canceled'. Nothing on
+                                              -- this table is left for a sweep to settle and silence is never read
+                                              -- as either a grant or a denial (Spec-010 §Required Behavior)
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL         -- last state-transition instant (a cancel carries no resolution row)
 );

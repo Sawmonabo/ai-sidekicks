@@ -4,16 +4,17 @@ import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/re
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
-import { formatCount, formatDayClock, formatUnitDuration } from "#renderer/lib/wire/figures.js";
+import { formatCount, formatUnitDuration } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { DayClockFigure } from "../../components/DayClockFigure.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
 import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflowCall.js";
 import { costWithPayer, type PayerReading } from "../cost.js";
 import { runDurationWords } from "../duration.js";
 import { RunControl } from "../../components/RunControl.js";
-import { isGoing } from "../controls.js";
+import { deleteRunAvailability, isGoing } from "../controls.js";
 import { TRIGGER_KIND_WORDS, startedByWords } from "../../words.js";
 import { useInViewMarks } from "../hooks/useInViewMarks.js";
 import { RunLiveDot } from "./RunLiveDot.js";
@@ -39,8 +40,9 @@ export interface RunsTableProps {
  * chip, the trigger, who or what started it, when, how long it took, how many steps it ran and
  * what it cost with the account that paid, and one act, `Delete run`, beside the `Keep` mark of a
  * kept run. A going run's step cell says where it is — `4 of 9 · run tests` — and its time cell
- * counts the time so far, and both go back to the finished figures when it ends. A run parked on a
- * spent account names the instant it resumes itself, or that none is armed.
+ * counts the time so far, and both go back to the finished figures when it ends; a failed run
+ * parked on its failed step draws no time. A run parked on a spent account names the instant it
+ * resumes itself, or that none is armed.
  */
 export function RunsTable(props: RunsTableProps): React.JSX.Element {
   // One observer holds every going row's live dot still while it is scrolled out of view.
@@ -108,21 +110,24 @@ function RunRow(
           <RunStatusChip status={run.status} waitCause={run.waitCause} />
           {run.waitCause === "account" ? (
             <span className="meridian-workflows-runs__park">
-              {run.resumeAt === undefined
-                ? "parked · awaiting resume"
-                : `parked · resumes ${formatDayClock(run.resumeAt, props.nowMs, clockLocale)}`}
+              {run.resumeAt === undefined ? (
+                "parked · awaiting resume"
+              ) : (
+                <>
+                  parked · resumes{" "}
+                  <DayClockFigure at={run.resumeAt} nowMs={props.nowMs} locale={clockLocale} />
+                </>
+              )}
             </span>
           ) : null}
         </span>
       </td>
       <td>{TRIGGER_KIND_WORDS[run.triggerKind]}</td>
       <td>{startedByWords(run.startedBy)}</td>
-      <td>{formatDayClock(run.startedAt, props.nowMs, clockLocale)}</td>
       <td>
-        {run.durationMs === undefined
-          ? runDurationWords(run.startedAt, props.nowMs)
-          : formatUnitDuration(run.durationMs)}
+        <DayClockFigure at={run.startedAt} nowMs={props.nowMs} locale={clockLocale} />
       </td>
+      <td>{rowDurationWords(run, props.nowMs)}</td>
       <td>
         {run.liveStep === undefined ? formatCount(run.stepCount) : liveStepWords(run.liveStep)}
       </td>
@@ -132,7 +137,9 @@ function RunRow(
         {isConfirming ? (
           <DeleteRunConfirm
             workflowName={run.definitionName}
-            startedAt={formatDayClock(run.startedAt, props.nowMs, clockLocale)}
+            startedAt={run.startedAt}
+            nowMs={props.nowMs}
+            clockLocale={clockLocale}
             isSent={isDeleteSent}
             act={isDeleteSent ? DELETE_SENT : remove.state}
             onCancel={closeConfirm}
@@ -143,11 +150,7 @@ function RunRow(
         ) : (
           <RunControl
             label="Delete run"
-            availability={
-              isGoing(run.status)
-                ? { kind: "refused", reason: "Cancel it first." }
-                : { kind: "allowed" }
-            }
+            availability={deleteRunAvailability(run)}
             act={{ kind: "idle" }}
             onPress={() => {
               setIsConfirming(true);
@@ -165,8 +168,10 @@ function RunRow(
  */
 function DeleteRunConfirm(props: {
   readonly workflowName: string;
-  /** When the run started, as its row reads it. */
+  /** When the run started, the daemon's stamp, drawn as its row draws it. */
   readonly startedAt: string;
+  readonly nowMs: number;
+  readonly clockLocale: string;
   readonly isSent: boolean;
   readonly act: WorkflowCallState<unknown>;
   readonly onCancel: () => void;
@@ -182,8 +187,9 @@ function DeleteRunConfirm(props: {
       onKeyDown={confirm.onKeyDown}
     >
       <span>
-        {`${props.workflowName} · ${props.startedAt}. The row and its step data go. Files it ` +
-          "saved on purpose stay. This cannot be undone."}
+        {`${props.workflowName} · `}
+        <DayClockFigure at={props.startedAt} nowMs={props.nowMs} locale={props.clockLocale} />
+        {". The row and its step data go. Files it saved on purpose stay. This cannot be undone."}
       </span>
       <ActionButton disabled={props.isSent} onClick={props.onCancel}>
         Cancel
@@ -197,6 +203,15 @@ function DeleteRunConfirm(props: {
       />
     </div>
   );
+}
+
+// How long the run took, or while it is going how long so far; nothing for a failed run parked on
+// its failed step, which has neither ended nor kept going.
+function rowDurationWords(run: WorkflowRunSummary, nowMs: number): string | undefined {
+  if (run.durationMs !== undefined) {
+    return formatUnitDuration(run.durationMs);
+  }
+  return isGoing(run.status) ? runDurationWords(run.startedAt, nowMs) : undefined;
 }
 
 /** Where a going run is: `4 of 9 · Review one PR`. */

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-validates `sqlite-shell/`, the install script that builds the daemon's SQLite shell. It
+  // runs through `node --experimental-strip-types`, which maps no `.js` specifier to a `.ts`
+  // source, so its imports name the real file; the package root is its root because it imports a
+  // module from `src/`. Nothing is emitted, and `composite: false` keeps it out of the
+  // project-references graph.
+  "extends": "../../tsconfig.node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["sqlite-shell/**/*.ts"],
+  "exclude": ["sqlite-shell/build"]
+}

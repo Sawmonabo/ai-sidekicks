@@ -422,7 +422,7 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
       GOING_RUN_STATUSES.includes(row.status) === (row.durationMs === undefined),
     {
       path: ["durationMs"],
-      message: "An ended run carries its duration and a going one does not.",
+      message: "An ended run carries its duration and a going or parked one does not.",
     },
   )
   .refine((row) => GOING_RUN_STATUSES.includes(row.status) || row.liveStep === undefined, {
@@ -669,7 +669,11 @@ export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClea
 
 // Refusals
 
-/** `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`). */
+/**
+ * `Delete run` on a new, running or waiting run or a failed run parked on its failed step, or on a
+ * chain's first run while a later run of its chain is one of those; nothing is deleted
+ * (`Cancel it first.`).
+ */
 export const WORKFLOW_RUN_NOT_DELETABLE_CODE = "workflow.run_not_deletable" as const;
 
 // The workflow run records method table

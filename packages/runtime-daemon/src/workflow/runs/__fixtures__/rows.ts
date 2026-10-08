@@ -24,8 +24,8 @@ import {
 
 type Writer = Pick<DatabaseWriter, "write">;
 
-// The session every fixture run lives in.
-const FIXTURE_SESSION_ID = "00000000-0000-7000-8000-000000000001" as SessionId;
+/** The session every fixture run lives in. */
+export const FIXTURE_SESSION_ID: SessionId = "00000000-0000-7000-8000-000000000001" as SessionId;
 
 // The node every fixture step runs, as the fixture version's body names it.
 const FIXTURE_NODE_ID = "approve" as WorkflowNodeId;
@@ -109,7 +109,11 @@ export async function insertExecutionContextCheckout(
 // What a fixture run is created with beyond its version; each member has a default.
 interface FixtureRunOptions {
   readonly chain?: WorkflowRunChainPlace;
+  /** The session the run lives in; the fixture session where absent. */
+  readonly sessionId?: SessionId;
   readonly executionContext?: WorkflowRunExecutionContext;
+  /** When the run was started, as `toISOString` writes it. */
+  readonly startedAt?: string;
 }
 
 /** Creates a run of `workflowVersionId` through the creation statements; resolves with its id. */
@@ -123,30 +127,29 @@ export async function createFixtureRun(
     workflowRunCreationStatements({
       workflowRunId,
       workflowVersionId,
-      sessionId: FIXTURE_SESSION_ID,
+      sessionId: options.sessionId ?? FIXTURE_SESSION_ID,
       mode: "manual",
       trigger: { kind: "trigger.manual", nodeId: "start" as WorkflowNodeId },
       startedBy: { kind: "schedule" },
       chain: options.chain ?? { kind: "starts" },
       executionContext: options.executionContext,
-      createdAt: new Date("2026-10-02T00:00:00.000Z"),
+      startedAt: new Date(options.startedAt ?? "2026-10-02T00:00:00.000Z"),
     }),
   );
   return workflowRunId;
 }
 
-/** Moves a run to `status`, started at `startedAt` and, where given, ended at `finishedAt`. */
+/** Moves a run to `status` and, where given, ended at `finishedAt`. */
 export async function setFixtureRunStatus(
   writer: Writer,
   workflowRunId: WorkflowRunId,
   status: WorkflowRunStatus,
-  startedAt: string,
   finishedAt: string | null,
 ): Promise<void> {
   await writer.write([
     {
-      sql: "UPDATE workflow_runs SET status = ?, started_at = ?, finished_at = ? WHERE id = ?",
-      bindings: [status, startedAt, finishedAt, workflowRunId],
+      sql: "UPDATE workflow_runs SET status = ?, finished_at = ? WHERE id = ?",
+      bindings: [status, finishedAt, workflowRunId],
       expectedRowCount: 1,
     },
   ]);

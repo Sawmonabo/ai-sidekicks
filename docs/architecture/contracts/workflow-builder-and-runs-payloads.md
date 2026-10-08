@@ -9,11 +9,15 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // mutates an existing one, so this operation mints a version rather than editing bytes. It is optimistic
 // on the version the author loaded: a stale expectation is refused with `workflow.version_stale`, never
 // silently rebased onto a version the author never saw. Save, Restore and the `/workflow schedule` verb
-// all ride it. The response names the new version of the definition the request addressed.
+// all ride it. The response names the new version of the definition the request addressed; a document
+// identical to the latest version mints none, and the response names that latest version.
 interface WorkflowDefinitionUpdateRequest {
   definitionId: WorkflowDefinitionId;
   expectedVersionNumber: number;
   document: WorkflowDocument;
+  // Present on a Restore: the older version the document repeats, whose package locks the new version
+  // keeps, so a restored version installs the packages it ran with.
+  restoredVersionNumber?: number;
 }
 interface WorkflowDefinitionUpdateResponse {
   definitionId: WorkflowDefinitionId;
@@ -522,8 +526,11 @@ interface WorkflowVersionDiffReadResponse {
 
 // WorkflowRunDelete — workflow.runDelete. Deletes one run's record, its steps and their data, and its
 // capture folder with the run's snapshot points and their base pins; it is not undoable. A run that is
-// `new`, `running` or `waiting` is refused with `workflow.run_not_deletable`, which reads "Cancel it
-// first.", and nothing is deleted. The removal rides workflow.subscribe.
+// `new`, `running` or `waiting`, a failed run parked on its failed step, and a chain's first run while
+// a later run of its chain is one of those, is refused with `workflow.run_not_deletable`, which reads
+// "Cancel it first.", and nothing is deleted. The write that deletes the run's rows appends
+// `workflow.run_deleted`, so a rebuild of the runs from the session log leaves the run out. The
+// removal rides workflow.subscribe.
 interface WorkflowRunDeleteRequest {
   workflowRunId: WorkflowRunId;
 }
@@ -546,7 +553,8 @@ interface WorkflowRunsDeletePreviewResponse {
 }
 
 // WorkflowRunsDelete — workflow.runsDelete. Deletes the runs older than the instant, each as
-// workflow.runDelete deletes one; runs marked Keep and runs in `waiting` are untouched. The reply's count
+// workflow.runDelete deletes one, with its own `workflow.run_deleted`; runs marked Keep and runs in
+// `waiting` are untouched. The reply's count
 // is the truth, since runs can change between the preview and the delete. It takes
 // `WorkflowRunsDeleteRequest` above.
 interface WorkflowRunsDeleteResponse {

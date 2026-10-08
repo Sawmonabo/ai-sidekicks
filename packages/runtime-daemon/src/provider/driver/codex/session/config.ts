@@ -111,7 +111,8 @@ const CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL: Readonly<
 
 /**
  * The approval policy each permission level runs under: the three asking levels ask on request,
- * and `sandboxed` and `yolo` never ask. No level sends `untrusted`.
+ * `yolo` asks on request too, so Codex asks before a removal its own check flags rather than
+ * refusing it, and `sandboxed` never asks. No level sends `untrusted`.
  */
 const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   Record<ExecutionPosture["mode"], "on-request" | "never">
@@ -120,20 +121,77 @@ const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   ask: "on-request",
   reviewed: "on-request",
   sandboxed: "never",
-  yolo: "never",
+  yolo: "on-request",
 });
 
-/** Thread-level posture: `sandbox` and `approvalPolicy` on `thread/start`. */
-interface CodexThreadPostureParams {
-  readonly sandbox: CodexSandboxMode;
-  readonly approvalPolicy: string;
+/** How Codex approves a ChatGPT connector's tool calls (`AppToolApproval` at the pin). */
+type CodexConnectorApprovalMode = "writes" | "approve";
+
+/**
+ * The default every ChatGPT connector's tool calls take at each permission level, set only as
+ * `apps._default` so an app, account or tool the person set keeps its own: `writes` below `yolo`,
+ * so a tool not marked read-only asks (the reviewer answers at `reviewed`, approvals `never`
+ * refuses it at `sandboxed`), and Codex's own `approve` at `yolo`, so every one runs unasked.
+ */
+const CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexConnectorApprovalMode>
+> = Object.freeze({
+  readonly: "writes",
+  ask: "writes",
+  reviewed: "writes",
+  sandboxed: "writes",
+  yolo: "approve",
+});
+
+/** Who Codex routes an ask to (`ApprovalsReviewer` at the pin). */
+type CodexApprovalsReviewer = "user" | "auto_review";
+
+/**
+ * Who answers Codex's asks at each permission level: Codex's own automatic reviewer at `reviewed`,
+ * which is what that level means, and the person, through the daemon's approval pipeline, at
+ * every other level.
+ */
+const CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexApprovalsReviewer>
+> = Object.freeze({
+  readonly: "user",
+  ask: "user",
+  reviewed: "auto_review",
+  sandboxed: "user",
+  yolo: "user",
+});
+
+/**
+ * The `approvalsReviewer` a thread or turn carries: the posture's level's reviewer, and the person
+ * when no posture is declared, so a config or profile override never picks the reviewer. Sent on
+ * every `turn/start` too, because the turn's value routes that turn and every later one.
+ */
+export function composeCodexApprovalsReviewer(
+  posture: ExecutionPosture | undefined,
+): CodexApprovalsReviewer {
+  return posture === undefined
+    ? "user"
+    : CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL[posture.mode];
 }
 
-/** The thread sandbox and approval policy a posture's permission level maps to. */
-export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPostureParams {
+/** The thread-level posture one permission level runs a conversation under. */
+interface CodexThreadPosture {
+  /** The `sandbox` and `approvalPolicy` thread fields. */
+  readonly params: { readonly sandbox: CodexSandboxMode; readonly approvalPolicy: string };
+  /** The `config` overrides the level adds: the connectors' default approval mode. */
+  readonly config: Readonly<Record<string, unknown>>;
+}
+
+/** The thread sandbox, approval policy and config overrides a posture's level maps to. */
+export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPosture {
+  const sandbox = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode];
+  const approvalPolicy = CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode];
   return {
-    sandbox: CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode],
-    approvalPolicy: CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode],
+    params: { sandbox, approvalPolicy },
+    config: {
+      "apps._default.default_tools_approval_mode":
+        CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL[posture.mode],
+    },
   };
 }
 

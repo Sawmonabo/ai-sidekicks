@@ -14,6 +14,7 @@ import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
+import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { chainReceipt } from "../step/receipts.js";
 
@@ -97,15 +98,22 @@ function OpenChainQuestion(props: {
     // The receipt stands at once; the run reading back answered then draws the same line.
     return <ChainReceipt answered={answered} />;
   }
+  const opening =
+    `${chainRoot.workflowName} has started ` + `${formatCount(chainRoot.runCount)} runs from its `;
+  const closing = " start. Keep going?";
+  // The group's accessible name spells the start out; on screen it is a figure that hovers.
   const sentence =
-    `${chainRoot.workflowName} has started ${formatCount(chainRoot.runCount)} runs from its ` +
-    `${formatDayClock(chainRoot.startedAt, props.nowMs, clockLocale)} start. Keep going?`;
+    opening + formatDayClock(chainRoot.startedAt, props.nowMs, clockLocale) + closing;
   return (
     <div className="meridian-workflow-run__chain-question" role="group" aria-label={sentence}>
       <span className="meridian-workflow-run__eyebrow meridian-workflow-run__eyebrow--attention">
         Waiting on you
       </span>
-      <p className="meridian-workflow-run__chain-sentence">{sentence}</p>
+      <p className="meridian-workflow-run__chain-sentence">
+        {opening}
+        <DayClockFigure at={chainRoot.startedAt} nowMs={props.nowMs} locale={clockLocale} />
+        {closing}
+      </p>
       <div className="meridian-workflow-run__chain-answers">
         {CHAIN_ANSWERS.map(({ label, decision }) => (
           <ActionButton

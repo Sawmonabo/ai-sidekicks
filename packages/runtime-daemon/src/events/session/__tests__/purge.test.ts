@@ -4,7 +4,8 @@
 // could not name, can be run again after any failure to finish, leaves no copy of the content in
 // the database file or its write-ahead log, truncating it every time and trying again a bounded
 // number of times while a reader keeps it busy, keeps every worktree folder and the rows of those
-// still on disk, waits for the session lock, and never runs inside an append-lock hold.
+// still on disk, waits for the session lock, and never runs inside an append-lock hold. A run's
+// rows go whether its log, its `runs` row or its execution root names it.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -101,7 +102,8 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     await fixture.seedSessionRow(SECOND_SESSION, "group-kept");
     await fixture.seedSessionRow(THIRD_SESSION, "group-kept");
     await fixture.seedMessage("hi");
-    // A run the log names and one only its execution root names, each with a steer.
+    // A run the log names, one only its execution root names, and one only its `runs` row names,
+    // as a run the rebuild reached but whose events a damaged row hides, each with a steer.
     await fixture.seed({
       category: "run_lifecycle",
       type: "run.running",
@@ -127,7 +129,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       workspaceId: "workspace-kept",
       runId: "run-kept",
     });
-    await fixture.seedRowsNamingSession(SESSION, ["run-logged", "run-project"]);
+    await fixture.seedRowsNamingSession(SESSION, ["run-logged", "run-project", `run-${SESSION}`]);
     await fixture.seedRowsNamingSession(SECOND_SESSION, ["run-kept"]);
     for (const sessionId of [SESSION, SECOND_SESSION]) {
       await fixture.scratch.writer.write([

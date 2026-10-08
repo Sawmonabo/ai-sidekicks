@@ -9,7 +9,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
-import type { WorkflowChainRoot, WorkflowRun } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRun } from "@ai-sidekicks/contracts/workflow/run/records";
 import {
   GOING_RUN_STATUSES,
   type WorkflowRunStatus,
@@ -18,7 +18,6 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/status";
 import type {
   WorkflowPayloadRef,
-  WorkflowSpentAccount,
   WorkflowStep,
   WorkflowStepSource,
 } from "@ai-sidekicks/contracts/workflow/run/step/record";
@@ -28,13 +27,15 @@ import type {
   WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 
-import { spentAccountFromColumns, type SpentAccountColumns } from "./spent-account.js";
+import {
+  spentAccountNameFromColumns,
+  type SpentAccountColumns,
+  type SpentAccountName,
+} from "./spent-account.js";
 
 /**
- * One run as its row stores it. `startedAt` is absent while the run is `new`, and `finishedAt`
- * once present is when the run ended; `error` says why a failed, canceled or crashed run ended.
- *
- * @consumedBy the run read and runs list handlers
+ * One run as its row stores it. `finishedAt` once present is when the run ended, and `error`
+ * says why a failed, canceled or crashed run ended.
  */
 export type StoredWorkflowRun = Pick<
   WorkflowRun,
@@ -46,9 +47,9 @@ export type StoredWorkflowRun = Pick<
   | "triggerKind"
   | "startedBy"
   | "keep"
+  | "startedAt"
 > & {
   status: WorkflowRunStatus;
-  startedAt?: string | undefined;
   finishedAt?: string | undefined;
   error?: WorkflowStepError | undefined;
 };
@@ -56,8 +57,6 @@ export type StoredWorkflowRun = Pick<
 /**
  * One step as its row stores it. The wait members are present only while the step is `waiting`,
  * because the table clears them in the statement that moves a step out of `waiting`.
- *
- * @consumedBy the run read and runs list handlers
  */
 export type StoredWorkflowStep = Pick<
   WorkflowStep,
@@ -77,22 +76,14 @@ export type StoredWorkflowStep = Pick<
 > & {
   status: WorkflowStepStatus;
   waitCause?: WorkflowWaitCause | undefined;
-  /** The spent account an `account` wait waits on. */
-  waitAccount?: WorkflowSpentAccount | undefined;
+  /** The id of the spent account an `account` wait waits on. */
+  waitAccountId?: ProviderAccountId | undefined;
+  /** That account's name, from its row; absent where the account has been removed. */
+  waitAccountName?: SpentAccountName | undefined;
   /** The instant an `account` wait resumes itself, where one is armed. */
   resumeAt?: string | undefined;
   /** The instant a wait on a person gives up, where its `Timeout` set one. */
   waitDeadlineAt?: string | undefined;
-};
-
-/**
- * The first run of a run's chain, as the rows hold it: its start is absent while it is still
- * `new`, which only a first run reading itself can see.
- *
- * @consumedBy the run read and runs list handlers
- */
-export type StoredWorkflowChainRoot = Omit<WorkflowChainRoot, "startedAt"> & {
-  startedAt?: string | undefined;
 };
 
 /**
@@ -104,10 +95,12 @@ export const GOING_RUN_STATUSES_SQL: string = GOING_RUN_STATUSES.map(
 ).join(", ");
 
 /**
- * The SQL condition on `workflow_runs AS run` that holds for a failed run still parked on its
- * failed step, waiting on Resume: it has not ended, so it can still be resumed or canceled.
+ * The SQL condition on the runs table read as `alias` that holds for a failed run still parked on
+ * its failed step, waiting on Resume: it has not ended, so it can still be resumed or canceled.
  */
-export const PARKED_FAILED_RUN_CONDITION = "(run.status = 'failed' AND run.finished_at IS NULL)";
+export function parkedFailedRunCondition(alias: string): string {
+  return `(${alias}.status = 'failed' AND ${alias}.finished_at IS NULL)`;
+}
 
 /**
  * `instant` in the `toISOString` form every run and step instant is stored in, so the two compare
@@ -119,8 +112,6 @@ export function storedInstant(instant: string): string {
 
 /**
  * The run's columns every run read selects, as {@link RUN_COLUMNS} names them.
- *
- * @consumedBy the run read and runs list handlers
  */
 export interface RunColumns {
   readonly run_id: string;
@@ -131,28 +122,23 @@ export interface RunColumns {
   readonly mode: WorkflowRunMode;
   readonly trigger_kind: WorkflowTriggerKind;
   readonly started_by: string;
-  readonly started_at: string | null;
+  readonly started_at: string;
   readonly finished_at: string | null;
   readonly error_json: string | null;
   readonly kept: 0 | 1;
-  readonly created_at: string;
 }
 
 /**
  * The select-list that reads {@link RunColumns} from `workflow_runs AS run` joined to its pinned
  * `workflow_versions AS version`.
- *
- * @consumedBy the run read and runs list handlers
  */
 export const RUN_COLUMNS = `run.id AS run_id, run.session_id, version.definition_id,
   run.workflow_version_id, run.status, run.mode,
   json_extract(run.trigger_json, '$.kind') AS trigger_kind, run.started_by, run.started_at,
-  run.finished_at, run.error_json, run.kept, run.created_at`;
+  run.finished_at, run.error_json, run.kept`;
 
 /**
  * The run its columns describe.
- *
- * @consumedBy the run read and runs list handlers
  */
 export function storedRunFromColumns(columns: RunColumns): StoredWorkflowRun {
   // Every JSON column here was written by this store from a typed value, so it is read back as one.
@@ -166,7 +152,7 @@ export function storedRunFromColumns(columns: RunColumns): StoredWorkflowRun {
     triggerKind: columns.trigger_kind,
     startedBy: JSON.parse(columns.started_by) as WorkflowStartedBy,
     keep: columns.kept === 1,
-    startedAt: columns.started_at ?? undefined,
+    startedAt: columns.started_at,
     finishedAt: columns.finished_at ?? undefined,
     error:
       columns.error_json === null
@@ -177,8 +163,6 @@ export function storedRunFromColumns(columns: RunColumns): StoredWorkflowRun {
 
 /**
  * A step's columns, as {@link STEP_COLUMNS} names them, with its spent account's.
- *
- * @consumedBy the run read and runs list handlers
  */
 export interface StepColumns extends SpentAccountColumns {
   readonly step_node_id: string;
@@ -203,8 +187,6 @@ export interface StepColumns extends SpentAccountColumns {
 
 /**
  * The select-list that reads {@link StepColumns}'s own columns from `workflow_steps AS step`.
- *
- * @consumedBy the run read and runs list handlers
  */
 export const STEP_COLUMNS = `step.node_id AS step_node_id, step.attempt AS step_attempt,
   step.execution_index AS step_execution_index, step.source_json AS step_source_json,
@@ -218,8 +200,6 @@ export const STEP_COLUMNS = `step.node_id AS step_node_id, step.attempt AS step_
 
 /**
  * The step its columns describe, in the run `workflowRunId`.
- *
- * @consumedBy the run read and runs list handlers
  */
 export function storedStepFromColumns(
   workflowRunId: WorkflowRunId,
@@ -254,10 +234,11 @@ export function storedStepFromColumns(
         ? undefined
         : (JSON.parse(columns.step_advisories_json) as string[]),
     waitCause: columns.step_wait_cause ?? undefined,
-    waitAccount:
+    waitAccountId: (columns.step_wait_account_id ?? undefined) as ProviderAccountId | undefined,
+    waitAccountName:
       columns.step_wait_account_id === null
         ? undefined
-        : spentAccountFromColumns(columns.step_wait_account_id, columns),
+        : spentAccountNameFromColumns(columns.step_wait_account_id, columns),
     resumeAt: columns.step_resume_at ?? undefined,
     waitDeadlineAt: columns.step_wait_deadline_at ?? undefined,
   };

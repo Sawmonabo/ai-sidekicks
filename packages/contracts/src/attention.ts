@@ -12,6 +12,7 @@ import {
   type EmptyPayload,
 } from "./method-descriptor.js";
 import { wireFreeFormString } from "./free-form-string.js";
+import { KeychainRefusalCauseSchema, type KeychainRefusalCause } from "./keychain.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow/definition/document.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
@@ -380,14 +381,12 @@ export type AttentionDeliveryStoreUnavailableCode = "attention.delivery_store_un
 export const ATTENTION_DELIVERY_STORE_UNAVAILABLE_CODE: AttentionDeliveryStoreUnavailableCode =
   "attention.delivery_store_unavailable";
 
-const ATTENTION_DELIVERY_STORE_CAUSE_VALUES = ["locked", "unavailable"] as const;
-
-/** Why: the keychain is locked, or the machine has none the service can use. */
-export type AttentionDeliveryStoreCause = (typeof ATTENTION_DELIVERY_STORE_CAUSE_VALUES)[number];
-
-/** The details {@link ATTENTION_DELIVERY_STORE_UNAVAILABLE_CODE} carries. */
+/**
+ * The details {@link ATTENTION_DELIVERY_STORE_UNAVAILABLE_CODE} carries: why the keychain could
+ * not be used.
+ */
 export interface AttentionDeliveryStoreUnavailableDetails {
-  cause: AttentionDeliveryStoreCause;
+  cause: KeychainRefusalCause;
 }
 /**
  * Parses an {@link AttentionDeliveryStoreUnavailableDetails}.
@@ -395,7 +394,7 @@ export interface AttentionDeliveryStoreUnavailableDetails {
  * @consumedBy the handler that returns the `attention.delivery_store_unavailable` error
  */
 export const AttentionDeliveryStoreUnavailableDetailsSchema: z.ZodType<AttentionDeliveryStoreUnavailableDetails> =
-  z.object({ cause: z.enum(ATTENTION_DELIVERY_STORE_CAUSE_VALUES) }).strict();
+  z.object({ cause: KeychainRefusalCauseSchema }).strict();
 
 /** A test was asked of a channel that is not set up. */
 export type AttentionDeliveryNotConfiguredCode = "attention.delivery_not_configured";

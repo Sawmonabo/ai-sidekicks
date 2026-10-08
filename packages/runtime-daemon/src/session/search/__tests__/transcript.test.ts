@@ -1,6 +1,9 @@
 // `transcript.search` over one session's rows in the search index: paged newest first, one hit per
 // row, every page counting every match in the session, which is the sum of the marks its hits
-// carry.
+// carry; a row whose payload damage left unreadable is never indexed, and a range its session
+// skipped past as damaged leaves the index, whether the index applies the skip or is built again.
+
+import { rm } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -96,5 +99,53 @@ describe("transcript.search", () => {
     const markCount = hits.reduce((count, hit) => count + hit.matchRanges.length, 0);
     expect(markCount).toBe(1 + 3 + 1 + 3 + 2);
     expect(matchCounts).toEqual(matchCounts.map(() => markCount));
+  });
+
+  it("never counts an unreadable row or a skipped range, applied or built again", async () => {
+    const { database } = fixture;
+    const sessionId = sessionIdOf(1);
+    insertSession(database, sessionId);
+    const firstRowId = insertEvent(database, {
+      sessionId,
+      sequence: 0,
+      type: "user.message",
+      message: "retry the deploy",
+    });
+    insertEvent(database, { sessionId, sequence: 1, type: "user.message", payload: "not json" });
+    insertEvent(database, {
+      sessionId,
+      sequence: 2,
+      type: "assistant.message",
+      content: "retry once more",
+    });
+    const lastRowId = insertEvent(database, {
+      sessionId,
+      sequence: 3,
+      type: "assistant.message",
+      content: "retry again",
+    });
+    await fixture.settle();
+    const answer = (): { matchCount: number; rowIds: string[] } => {
+      const page = fixture.services().transcriptSearch.search({ sessionId, query: "retry" });
+      return { matchCount: page.matchCount, rowIds: page.hits.map((hit) => hit.rowId) };
+    };
+    expect(answer().matchCount).toBe(3);
+
+    // The session continues past sequences 1 and 2, the second readable until then.
+    insertEvent(database, {
+      sessionId,
+      sequence: 4,
+      type: "recovery.damaged_events_skipped",
+      payload: JSON.stringify({ sessionId, fromSequence: 1, toSequence: 2 }),
+    });
+    await fixture.settle();
+    const kept = { matchCount: 2, rowIds: [lastRowId, firstRowId] };
+    expect(answer()).toEqual(kept);
+
+    const builtAgain = await fixture.reopen(async () => {
+      await rm(fixture.indexFolderPath, { recursive: true, force: true });
+    });
+    expect(builtAgain.rebuildReason).toBe("missing");
+    expect(answer()).toEqual(kept);
   });
 });
