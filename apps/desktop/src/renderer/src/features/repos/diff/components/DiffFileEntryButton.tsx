@@ -28,7 +28,7 @@ export function DiffFileEntryButton({
   // The path is the button's hover label, so the keyboard on the button shows a truncated path
   // whole, as the pointer anywhere on it does.
   return (
-    <HoverLabel text={selectedPath} textIs="visible-text">
+    <HoverLabel text={selectedPath} textRole="visible-text">
       <button
         type="button"
         className="meridian-diff-files__entry meridian-focus-inset"
@@ -49,7 +49,7 @@ export function DiffFileEntryButton({
             <span className="meridian-diff-files__path">{entry.path}</span>
             {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
             {entry.changeNotes.length === 0 ? null : (
-              <HoverLabel text={entry.changeNotes.join(", ")} textIs="visible-text">
+              <HoverLabel text={entry.changeNotes.join(", ")} textRole="visible-text">
                 <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
               </HoverLabel>
             )}

@@ -42,7 +42,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         <span className="meridian-form__label">Its first message</span>
         <HoverLabel
           text={composition.isSending ? SENDING_FIRST_TURN_REASON : undefined}
-          textIs="description"
+          textRole="description"
         >
           <TextBox
             className="meridian-new-session__first-turn-input meridian-form__input"
@@ -88,7 +88,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
           </button>
         ) : null}
         {/* Disabled yet focusable, so the keyboard reaches its hover label where it has one. */}
-        <HoverLabel text={composition.unsentEditsSentence} textIs="description">
+        <HoverLabel text={composition.unsentEditsSentence} textRole="description">
           <Button
             className="meridian-new-session__send"
             disabled={

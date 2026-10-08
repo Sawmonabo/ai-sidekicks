@@ -156,7 +156,7 @@ function renderBadge(
   return (
     <span className={className} aria-busy={traits.busy}>
       {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
-      <HoverLabel text={props.detail} textIs="description">
+      <HoverLabel text={props.detail} textRole="description">
         <span className="meridian-nothing__badge-label">{props.title}</span>
       </HoverLabel>
       {props.action === undefined ? null : (

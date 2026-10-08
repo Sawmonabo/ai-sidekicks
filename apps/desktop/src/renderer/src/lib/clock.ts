@@ -8,6 +8,10 @@
 //
 // `ManualClock` is that counting instrument and the fixture's frozen clock: nothing advances
 // until a test or scenario advances it.
+//
+// One frame is armed past it: a display formula re-arms its resize watch on its own window's next
+// frame (`MathBlock`). That frame reads no time and only lays out, and under the frozen clock it
+// would never run, leaving the formula drawn past its column.
 
 /** An opaque handle for canceling scheduled work. */
 export type ScheduledHandle = number;

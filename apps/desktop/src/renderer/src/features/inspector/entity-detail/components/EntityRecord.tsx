@@ -96,7 +96,7 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         {props.facets.map((facet) => (
           <div className="meridian-entity-record__facet" key={facet.label}>
             <dt className="meridian-entity-record__label">{facet.label}</dt>
-            <HoverLabel text={fullTextOf(facet)} textIs="visible-text">
+            <HoverLabel text={fullTextOf(facet)} textRole="visible-text">
               <dd className="meridian-entity-record__value">
                 <EntityFacetValueView facet={facet} />
               </dd>

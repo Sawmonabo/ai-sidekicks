@@ -7,7 +7,8 @@
 // and a label Escape put away stays away while the pointer moves inside its control, until it
 // leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
 // the frame's label. The drawn label is hidden from assistive technology, which reads the words
-// once, from the control.
+// once, from the control. Escape on a focused control puts its label away without reaching the
+// page.
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
@@ -29,7 +30,7 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
   const { getByRole } = render(
     <div style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}>
       <button type="button">Before</button>
-      <HoverLabel text="Color scheme" textIs="name">
+      <HoverLabel text="Color scheme" textRole="name">
         <button type="button">◐</button>
       </HoverLabel>
       <button type="button">After</button>
@@ -115,7 +116,7 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
       setReason(undefined);
     };
     return (
-      <HoverLabel text={reason} textIs="description">
+      <HoverLabel text={reason} textRole="description">
         <button type="button">
           <span data-testid="glyph">◐</span> Restart
         </button>
@@ -191,13 +192,60 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
   });
 });
 
+it("takes a focused control's first Escape for its label alone, before the page's", async () => {
+  let pageEscapes = 0;
+  function EscapingPage(): React.JSX.Element {
+    return (
+      <div
+        style={{ padding: "64px" }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            pageEscapes += 1;
+          }
+        }}
+      >
+        <button type="button">Before</button>
+        <HoverLabel text="Color scheme" textRole="name">
+          <button type="button">◐</button>
+        </HoverLabel>
+      </div>
+    );
+  }
+  const { getByRole } = render(
+    <>
+      <EscapingPage />
+      <WindowHoverLabel />
+    </>,
+  );
+  act(() => {
+    getByRole("button", { name: "Before" }).focus();
+  });
+  await act(async () => {
+    await userEvent.tab();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Color scheme");
+  });
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
+  await waitFor(() => {
+    expect(shownLabel()).toBeNull();
+  });
+  expect(pageEscapes, "the Escape that put the label away reached the page").toBe(0);
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
+  expect(pageEscapes).toBe(1);
+});
+
 it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {
   // Padding inside the frame, so a label against the text area would stand apart from the frame.
   const framePadding = { padding: "64px", "--meridian-text-box-padding": "16px" } as CSSProperties;
   const { getByRole, container } = render(
     <div style={framePadding}>
       <button type="button">Before</button>
-      <HoverLabel text="Read-only while it sends." textIs="description">
+      <HoverLabel text="Read-only while it sends." textRole="description">
         <TextBox className="probe-box" rows={3} aria-label="Draft" readOnly value="" />
       </HoverLabel>
       <WindowHoverLabel />

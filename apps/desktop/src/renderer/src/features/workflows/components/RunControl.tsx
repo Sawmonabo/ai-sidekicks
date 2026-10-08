@@ -22,7 +22,7 @@ export function RunControl(props: {
   const reason = availability.kind === "refused" ? availability.reason : undefined;
   return (
     <span className="meridian-workflow-run__control">
-      <HoverLabel text={reason} textIs="description">
+      <HoverLabel text={reason} textRole="description">
         <ActionButton
           disabled={reason !== undefined || act.kind === "sending"}
           focusableWhenDisabled

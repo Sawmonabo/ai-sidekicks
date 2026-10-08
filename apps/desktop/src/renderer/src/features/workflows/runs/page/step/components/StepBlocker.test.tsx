@@ -37,8 +37,8 @@ import { StepBlocker } from "./StepBlocker.js";
 /** The clock locale the fixture bridge carries, which the screen writes its figures in. */
 const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
 
-/** How long the fixture daemon takes to answer `question.resolve`. */
-const QUESTION_RESOLVE_DELAY_MS = 200;
+/** How long the fixture daemon takes to take an answer, through `question.resolve` or a gate's. */
+const ANSWER_DELAY_MS = 200;
 
 function fixtureStep(
   workflowRunId: string,
@@ -162,7 +162,7 @@ describe("a step's blocker", () => {
 
   it("opens Review to the approval's pause, and Answer this run presses Approve", async () => {
     const reviews: (readonly [WorkflowRunSnapshotPoint, WorkflowRunSnapshotPoint])[] = [];
-    const { calls, commandTargets } = renderBlocker(
+    const { calls, answers, advance, commandTargets } = renderBlocker(
       WORKFLOW_RUN_IDS.waitingApproval,
       "approve",
       reviews,
@@ -192,6 +192,12 @@ describe("a step's blocker", () => {
         },
       ]);
     });
+    // An approval's instant is the daemon's own, never the window's.
+    await advance(ANSWER_DELAY_MS);
+    await waitFor(() => {
+      expect(answers).toHaveLength(1);
+    });
+    expect(answers[0]?.isWindowClock).toBe(false);
   });
 
   it("keeps Open in Review in place, saying why, when the pause snapshot is missing", () => {
@@ -238,7 +244,7 @@ describe("a step's blocker", () => {
       ]);
     });
     // The receipt stands as soon as the daemon takes the answer, before the run reads back.
-    await advance(QUESTION_RESOLVE_DELAY_MS);
+    await advance(ANSWER_DELAY_MS);
     await waitFor(() => {
       expect(answers).toHaveLength(1);
     });

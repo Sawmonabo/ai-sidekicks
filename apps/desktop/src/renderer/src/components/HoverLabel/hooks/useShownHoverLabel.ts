@@ -8,7 +8,8 @@
 // carries a label, and the label is read off it again whenever a label attribute changes, so a
 // control that gains its words while it is hovered or focused shows them at once, and one that
 // drops them drops the label. A label put away stays away until the pointer moves to another
-// trigger or off every trigger, or focus moves.
+// trigger or off every trigger, or focus moves. Escape on a focused trigger whose label shows puts
+// the label away and does nothing else, so the control's own Escape waits for the next press.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -49,6 +50,13 @@ export function useShownHoverLabel(
     setShown((current) => (isSameLabel(current, next) ? current : next));
   }, []);
 
+  const close = useCallback(() => {
+    const tracked = trackedRef.current;
+    tracked.dismissedPointer = triggerOf(tracked.pointer);
+    tracked.dismissedFocus = triggerOf(tracked.focus);
+    readShown();
+  }, [readShown]);
+
   useEffect(() => {
     const tracked = trackedRef.current;
     const onPointerOver = (event: PointerEvent): void => {
@@ -81,6 +89,18 @@ export function useShownHoverLabel(
       tracked.dismissedFocus = undefined;
       readShown();
     };
+    // Captured on the document, ahead of the page's own handlers and the tooltip's.
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const focusTrigger = triggerOf(tracked.focus);
+      if (
+        event.key === "Escape" &&
+        focusTrigger !== undefined &&
+        shownOf(tracked)?.anchor === focusTrigger
+      ) {
+        event.stopPropagation();
+        close();
+      }
+    };
     const onFocusOut = (event: FocusEvent): void => {
       if (tracked.focus === event.target) {
         tracked.focus = undefined;
@@ -109,21 +129,16 @@ export function useShownHoverLabel(
     ownerDocument.addEventListener("pointerout", onPointerOut);
     ownerDocument.addEventListener("focusin", onFocusIn);
     ownerDocument.addEventListener("focusout", onFocusOut);
+    ownerDocument.addEventListener("keydown", onKeyDown, { capture: true });
     return () => {
       observer.disconnect();
       ownerDocument.removeEventListener("pointerover", onPointerOver);
       ownerDocument.removeEventListener("pointerout", onPointerOut);
       ownerDocument.removeEventListener("focusin", onFocusIn);
       ownerDocument.removeEventListener("focusout", onFocusOut);
+      ownerDocument.removeEventListener("keydown", onKeyDown, { capture: true });
     };
-  }, [ownerDocument, labelBoxRef, readShown]);
-
-  const close = useCallback(() => {
-    const tracked = trackedRef.current;
-    tracked.dismissedPointer = triggerOf(tracked.pointer);
-    tracked.dismissedFocus = triggerOf(tracked.focus);
-    readShown();
-  }, [readShown]);
+  }, [ownerDocument, labelBoxRef, readShown, close]);
 
   return { shown, close };
 }

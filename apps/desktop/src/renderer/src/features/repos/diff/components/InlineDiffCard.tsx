@@ -51,7 +51,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
         {/* Wire-verbatim, and the diff rather than the run: the run is the row's own subject.
             The manifest id is not shown; it is provenance of the same object, which the
             artifact views read. */}
-        <HoverLabel text={props.card.diffArtifactId} textIs="visible-text">
+        <HoverLabel text={props.card.diffArtifactId} textRole="visible-text">
           <span className="meridian-diff-card__change-set">{props.card.diffArtifactId}</span>
         </HoverLabel>
         <button

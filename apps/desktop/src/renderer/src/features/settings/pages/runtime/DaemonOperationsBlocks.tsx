@@ -285,7 +285,7 @@ function renderControlConfirm(
       {/* The question appears on the press, holding its words, so it says them. */}
       <AnnouncedLine element="p" words={copy.confirmation} politeness="polite" />
       <div className="meridian-settings-page__actions">
-        <HoverLabel text={dispatchedReason} textIs="description">
+        <HoverLabel text={dispatchedReason} textRole="description">
           <Button
             className={
               "meridian-settings-page__action " +
@@ -298,7 +298,7 @@ function renderControlConfirm(
             {copy.verb}
           </Button>
         </HoverLabel>
-        <HoverLabel text={dispatchedReason} textIs="description">
+        <HoverLabel text={dispatchedReason} textRole="description">
           <Button
             className="meridian-settings-page__action meridian-action-button"
             disabled={isDispatched}

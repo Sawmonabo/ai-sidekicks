@@ -11,7 +11,7 @@ export interface DiffStepMarkProps {
 /** The step's name on screen; a screen reader hears `Changed by the <step name> step`. */
 export function DiffStepMark(props: DiffStepMarkProps): React.JSX.Element {
   return (
-    <HoverLabel text={props.stepName} textIs="visible-text">
+    <HoverLabel text={props.stepName} textRole="visible-text">
       <span className="meridian-diff__step-mark">
         <span aria-hidden="true">{props.stepName}</span>
         <span className="meridian-visually-hidden">{`Changed by the ${props.stepName} step`}</span>

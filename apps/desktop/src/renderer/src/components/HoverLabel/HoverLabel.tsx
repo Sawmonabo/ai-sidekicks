@@ -4,7 +4,7 @@
 // tooltips.
 //
 // The drawn label is hidden from assistive technology, so its words are spoken once, by the one
-// path `textIs` names: as the trigger's name, as its description through `aria-describedby`, or
+// path `textRole` names: as the trigger's name, as its description through `aria-describedby`, or
 // not at all where the trigger already shows them. The description is a `hidden` element at the
 // end of the window's body, always there, so it is read on focus and on a disabled control as
 // well, and it adds nothing to the text or the shape of the trigger's own surroundings.
@@ -29,12 +29,12 @@ export type HoverLabelSide = "top" | "right" | "bottom" | "left";
 export interface HoverLabelProps {
   /** The label's words; `undefined` or an empty string draws the trigger with no label. */
   readonly text: string | undefined;
-  readonly textIs: HoverLabelTextRole;
+  readonly textRole: HoverLabelTextRole;
   /** Defaults to `top`. */
   readonly side?: HoverLabelSide;
   /**
    * The one element the label belongs to. It passes the props it is handed onto its own element,
-   * and sets no `aria-label` of its own when `textIs` is `name`.
+   * and sets no `aria-label` of its own when `textRole` is `name`.
    */
   readonly children: React.ReactElement<HoverLabelTriggerProps>;
 }
@@ -47,13 +47,13 @@ export interface HoverLabelTriggerProps {
   readonly "aria-describedby"?: string | undefined;
 }
 
-/** Draws `children` with the app's hover label of `text`, spoken once as `textIs` says. */
+/** Draws `children` with the app's hover label of `text`, spoken once as `textRole` says. */
 export function HoverLabel(props: HoverLabelProps): React.JSX.Element {
   const ownerWindow = useOwnerWindow();
   const descriptionId = useId();
   // An empty string draws no label: there are no words to show.
   const text = props.text === "" ? undefined : props.text;
-  const isDescription = props.textIs === "description" && text !== undefined;
+  const isDescription = props.textRole === "description" && text !== undefined;
   // Only the keys this label sets: one it leaves unset keeps the trigger's own value, and one it
   // sets replaces it.
   const labelProps: HoverLabelTriggerProps =
@@ -62,7 +62,7 @@ export function HoverLabel(props: HoverLabelProps): React.JSX.Element {
       : {
           "data-hover-label": text,
           ...(props.side === undefined ? {} : { "data-hover-label-side": props.side }),
-          ...(props.textIs === "name" ? { "aria-label": text } : {}),
+          ...(props.textRole === "name" ? { "aria-label": text } : {}),
           ...(isDescription ? { "aria-describedby": descriptionId } : {}),
         };
   return (

@@ -89,11 +89,12 @@ function renderIngesting(
     <>
       <div className="meridian-attachment__face">
         <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
-        {nameReading.provenance === "declared" ? (
-          <WireFigure value={nameReading.name} hoverLabel={ATTACHMENT_DECLARED_NAME_ORIGIN} />
-        ) : (
-          <WireFigure value={nameReading.name} />
-        )}
+        <WireFigure
+          value={nameReading.name}
+          hoverLabel={
+            nameReading.provenance === "declared" ? ATTACHMENT_DECLARED_NAME_ORIGIN : undefined
+          }
+        />
         {/* Either reading earns the chip; where they disagree both show, derived first. Labeled
             by provenance because color cannot say whose claim a media type is. */}
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
@@ -160,7 +161,7 @@ function renderIngesting(
         {props.onAbandon === undefined ||
         entry.state === "complete" ||
         entry.state === "abandoned" ? null : (
-          <HoverLabel text={INGEST_ABANDON_COPY} textIs="description">
+          <HoverLabel text={INGEST_ABANDON_COPY} textRole="description">
             <button
               type="button"
               className="meridian-attachment__act"

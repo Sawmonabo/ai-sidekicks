@@ -78,7 +78,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
         ))}
         <li className="meridian-rail__spacer" aria-hidden="true" />
         <li className="meridian-rail__item">
-          <HoverLabel text={names.attentionName} textIs="name" side="right">
+          <HoverLabel text={names.attentionName} textRole="name" side="right">
             <button
               type="button"
               className="meridian-rail__button"
@@ -96,7 +96,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
           </HoverLabel>
         </li>
         <li className="meridian-rail__item">
-          <HoverLabel text={RAIL_CONTROL_LABELS.colorScheme} textIs="name" side="right">
+          <HoverLabel text={RAIL_CONTROL_LABELS.colorScheme} textRole="name" side="right">
             <button
               type="button"
               className="meridian-rail__button"
@@ -151,7 +151,7 @@ interface RailDestinationButtonProps {
 function RailDestinationButton(props: RailDestinationButtonProps): React.JSX.Element {
   const { entry } = props;
   return (
-    <HoverLabel text={props.name} textIs="name" side="right">
+    <HoverLabel text={props.name} textRole="name" side="right">
       <button
         type="button"
         className={

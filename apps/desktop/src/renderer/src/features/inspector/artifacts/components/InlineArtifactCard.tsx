@@ -39,7 +39,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
         </h4>
         {/* Wire-verbatim; the hover label keeps the full string since the id is how a user finds
             the artifact elsewhere. */}
-        <HoverLabel text={props.card.artifact.id} textIs="visible-text">
+        <HoverLabel text={props.card.artifact.id} textRole="visible-text">
           <span className="meridian-artifact-card__id">{props.card.artifact.id}</span>
         </HoverLabel>
       </header>

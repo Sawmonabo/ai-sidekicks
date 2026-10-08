@@ -42,7 +42,7 @@ export function WireFigure(props: WireFigureProps): React.JSX.Element {
   return (
     <HoverLabel
       text={props.hoverLabel}
-      textIs={props.hoverLabel === props.value ? "visible-text" : "description"}
+      textRole={props.hoverLabel === props.value ? "visible-text" : "description"}
     >
       <span className={className}>{formatWireString(props.value)}</span>
     </HoverLabel>

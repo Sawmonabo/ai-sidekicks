@@ -17,7 +17,7 @@ export type ChangedFromDefaultMarkProps =
  */
 export function ChangedFromDefaultMark(props: ChangedFromDefaultMarkProps): React.JSX.Element {
   return (
-    <HoverLabel text={describeDefault(props)} textIs="description">
+    <HoverLabel text={describeDefault(props)} textRole="description">
       <span
         className="meridian-settings-changed-mark"
         role="img"

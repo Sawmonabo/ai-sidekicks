@@ -3,10 +3,10 @@
 // so the browser's own order would reach every count first. The walk hands Tab back to the browser
 // at both ends, so the graph is never a trap, and Shift+Tab coming back in reaches the canvas's own
 // controls, then starts the walk at its last stop rather than skipping the counts that leave the
-// last node. Tabbing out past an end does not move the view, and a count Tab reaches is centered
-// in the canvas, even while the view is still sliding, and judged against the view a person's zoom
-// left rather than a slide that zoom cut off. This needs real focus and layout, so it runs in
-// Chromium.
+// last node, while focus code hands back to that node stays there. Tabbing out past an end moves
+// neither the view nor the page, and a count Tab reaches is centered in the canvas, even while the
+// view is still sliding, and judged against the view a person's zoom left rather than a slide that
+// zoom cut off. This needs real focus and layout, so it runs in Chromium.
 
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -27,6 +27,12 @@ afterEach(async () => {
 
 /** Every edge's item count, which the hover label reads as `123,456,789,012 items`. */
 const WHOLE_COUNT = 123_456_789_012;
+
+/**
+ * How long a slide may take to land before the wait gives up: a ceiling, not a wait. A slide runs
+ * a fraction of a second, but a loaded host draws its frames late.
+ */
+const SLIDE_LANDING_TIMEOUT_MS = 5000;
 
 /** `fixture`'s graph between two buttons, so focus has somewhere to go on either side. */
 async function mountBetweenButtons(fixture: FixtureRun): Promise<{
@@ -155,9 +161,22 @@ it("hands Tab on past its last stop, and Shift+Tab back in starts at that stop",
   expect(document.activeElement).not.toBe(document.body);
   await pressTab(true);
   expect(document.activeElement).toBe(lastStop);
+
+  // Focus that code hands back to the last node, as a closing panel does after a key, stays on it.
+  const lastNode = nodes.at(-1)!;
+  act(() => {
+    after.focus();
+  });
+  await act(async () => {
+    await userEvent.keyboard("{Shift}");
+  });
+  act(() => {
+    lastNode.focus();
+  });
+  expect(document.activeElement).toBe(lastNode);
 });
 
-it("moves no view as Tab passes over the end node on its way out of the graph", async () => {
+it("moves neither the view nor the page as Tab passes over the end node on its way out", async () => {
   // Reduced motion, so a move would be a jump the next read sees. Its nodes reversed, so the last
   // node in the library's order is one that edges leave, and Tab from its last count hands focus
   // to that node on the way out.
@@ -171,6 +190,20 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
     },
   };
   const { canvas, pane } = await mountNarrowed(reversed);
+  // Taller than the window, so the row the walk ends on stands below it once the page is at its
+  // top, where Tab lands on the canvas's own controls.
+  const shortTransform = viewportTransform(canvas);
+  act(() => {
+    canvas
+      .querySelector<HTMLElement>(".meridian-run-graph")
+      ?.style.setProperty("--meridian-run-graph-canvas-block-size", "300vh");
+  });
+  await waitFor(() => {
+    expect(viewportTransform(canvas)).not.toBe(shortTransform);
+  });
+  onTestFinished(() => {
+    window.scrollTo(0, 0);
+  });
   const lastNode = [...canvas.querySelectorAll<HTMLElement>(".react-flow__node")].at(-1);
   if (lastNode === undefined) {
     throw new Error("the reversed fixture drew no node");
@@ -193,10 +226,31 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
     isInside(lastNode, pane),
     "the last node stands outside the canvas as Tab leaves its count",
   ).toBe(false);
+  // The page back at its top, the last node below the window: focus on that node would scroll the
+  // page down to it.
+  window.scrollTo(0, 0);
+  // That scroll is announced on the next frame, so two pass before the page's scrolls are counted.
+  await nextFrame();
+  await nextFrame();
+  expect(
+    lastNode.getBoundingClientRect().top,
+    "the last node stands in the window as Tab leaves its count",
+  ).toBeGreaterThan(window.innerHeight);
+  let pageScrolls = 0;
+  const countPageScroll = (): void => {
+    pageScrolls += 1;
+  };
+  window.addEventListener("scroll", countPageScroll);
+  onTestFinished(() => {
+    window.removeEventListener("scroll", countPageScroll);
+  });
   const transform = viewportTransform(canvas);
   await pressTab();
+  await nextFrame();
+  await nextFrame();
   expect(isGraphStop(document.activeElement)).toBe(false);
   expect(viewportTransform(canvas)).toBe(transform);
+  expect(pageScrolls, "the page scrolled to the node Tab passed over").toBe(0);
 });
 
 it("centers a count reached by Tab in the canvas", async () => {
@@ -278,9 +332,12 @@ it("centers a count reached by Tab mid-slide in the canvas where the slide ends"
   });
   expect(document.activeElement).toBe(count);
   expect(isCountInViewAsFocusLands).toBe(true);
-  await waitFor(() => {
-    expect(isCentered(count, pane)).toBe(true);
-  });
+  await waitFor(
+    () => {
+      expect(isCentered(count, pane)).toBe(true);
+    },
+    { timeout: SLIDE_LANDING_TIMEOUT_MS },
+  );
   const countBox = count.getBoundingClientRect();
   const nodeBox = firstNode.getBoundingClientRect();
   expect(
@@ -345,10 +402,12 @@ it("judges a count reached by Tab against the view a person's zoom left, not the
  * `fixture`'s graph, narrowed to a sliver once it opens: the running run opens at full size on its
  * live step and stays on it at full size, which leaves most nodes outside the canvas.
  */
-async function mountNarrowed(
-  fixture: FixtureRun,
-): Promise<{ readonly canvas: HTMLElement; readonly pane: HTMLElement }> {
-  const { canvas } = await mountBetweenButtons(fixture);
+async function mountNarrowed(fixture: FixtureRun): Promise<{
+  readonly canvas: HTMLElement;
+  readonly pane: HTMLElement;
+  readonly after: HTMLElement;
+}> {
+  const { canvas, after } = await mountBetweenButtons(fixture);
   const openedTransform = viewportTransform(canvas);
   act(() => {
     canvas.style.inlineSize = "96px";
@@ -361,7 +420,7 @@ async function mountNarrowed(
   if (pane === null) {
     throw new Error("the graph drew no frame");
   }
-  return { canvas, pane };
+  return { canvas, pane, after };
 }
 
 function firstNodeOf(canvas: HTMLElement): HTMLElement {

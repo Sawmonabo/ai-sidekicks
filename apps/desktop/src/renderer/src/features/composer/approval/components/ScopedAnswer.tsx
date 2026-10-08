@@ -60,7 +60,7 @@ export function ScopedAnswer(props: ScopedAnswerProps): React.JSX.Element {
     <span className="meridian-approval-card__split">
       {face}
       <Menu.Root>
-        <HoverLabel text={arrow.label} textIs="name">
+        <HoverLabel text={arrow.label} textRole="name">
           <Menu.Trigger
             className={`meridian-approval-card__arrow ${props.faceClassName}`}
             disabled={props.isDisabled}

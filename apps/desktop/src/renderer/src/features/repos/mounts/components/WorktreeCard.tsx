@@ -101,7 +101,7 @@ function summaryCell(
   switch (column) {
     case "fsRoot":
       return (
-        <HoverLabel text={record.fsRoot} textIs="visible-text">
+        <HoverLabel text={record.fsRoot} textRole="visible-text">
           <dd className="meridian-root-card__path">
             <WireFigure value={record.fsRoot} />
           </dd>

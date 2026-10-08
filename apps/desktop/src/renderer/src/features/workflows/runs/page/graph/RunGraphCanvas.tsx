@@ -6,7 +6,7 @@ import "@xyflow/react/dist/base.css";
 import "./RunGraphCanvas.css";
 
 import { isElement, isHTMLElement } from "@floating-ui/utils/dom";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Panel,
   ReactFlow,
@@ -19,6 +19,7 @@ import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definiti
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { tokenReference } from "#renderer/styles/tokens.js";
 import { WORKFLOW_CANVAS_MEASURES } from "#renderer/features/workflows/canvas/measures.js";
 import { EDGE_COUNT_CLASS, RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./elements.js";
@@ -111,6 +112,27 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
   const graphOrder = useMemo(() => graphFocusOrder(nodes, edges), [nodes, edges]);
   // True only while the walk hands focus to an end node for the browser's own Tab to carry on.
   const isHandingOffRef = useRef(false);
+  // True from a Shift+Tab press until its key comes up, while the browser moves focus by it, so
+  // focus code hands back to a node is never taken for Shift+Tab coming in.
+  const isShiftTabbingRef = useRef(false);
+  const ownerWindow = useOwnerWindow();
+  useEffect(() => {
+    const { document: ownerDocument } = ownerWindow;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      isShiftTabbingRef.current = event.key === "Tab" && event.shiftKey;
+    };
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.key === "Tab") {
+        isShiftTabbingRef.current = false;
+      }
+    };
+    ownerDocument.addEventListener("keydown", onKeyDown, { capture: true });
+    ownerDocument.addEventListener("keyup", onKeyUp, { capture: true });
+    return () => {
+      ownerDocument.removeEventListener("keydown", onKeyDown, { capture: true });
+      ownerDocument.removeEventListener("keyup", onKeyUp, { capture: true });
+    };
+  }, [ownerWindow]);
 
   // Any key on the canvas stops the follow; Enter or Space on a node also selects it, since the
   // library's own node keys are off along with its second live region. Tab walks the graph's own
@@ -155,7 +177,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
   // only with its own keys on, and the follow stops, so the next live step never pulls the view
   // off it; Tab from outside the canvas lands here with no key on the canvas. Shift+Tab back into
   // the walk lands on the browser's last node, so focus moves on to the walk's last stop, the last
-  // count leaving that node where it has one.
+  // count leaving that node where it has one; focus code returns to that node stays on it.
   const revealFocusedElement = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
       if (isHandingOffRef.current || !event.target.matches(":focus-visible")) {
@@ -164,7 +186,12 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
       stopFollowing();
       const canvas = canvasRef.current;
       const nodeId = focusedNodeId(event.target);
-      if (canvas !== null && nodeId !== undefined && isEnteredFromAfter(event)) {
+      if (
+        canvas !== null &&
+        nodeId !== undefined &&
+        isShiftTabbingRef.current &&
+        isEnteredFromAfter(event)
+      ) {
         const lastStop = graphStopElement(canvas, graphOrder.at(-1));
         if (lastStop !== null && lastStop !== event.target) {
           lastStop.focus();

@@ -108,6 +108,12 @@ const BUSY_WINDOW_START_TIMEOUT_MS = 3000;
 /** How long a bar may take to start: the library's load plus its window's idle time. */
 const OVERLAY_START_TIMEOUT_MS = 5000;
 
+/**
+ * How long a key's smooth scroll may take to move a scroller before the wait gives up: a ceiling,
+ * not a wait, since a loaded host draws the scroll's first frame late.
+ */
+const KEYBOARD_SCROLL_TIMEOUT_MS = 5000;
+
 const SESSION_ROUTE = formatRoute({ kind: "session", sessionId: SESSION_ID });
 
 /** A state a screen opens into once it has drawn, with a scroller only that state shows. */
@@ -337,9 +343,12 @@ describe("the overlay scrollbar", () => {
 
     // It still scrolls from the keyboard.
     conversation.focus();
+    expect(appWindow.document.activeElement, "the conversation took no focus").toBe(conversation);
     await untilInsideAct(async () => {
       await userEvent.keyboard("{PageDown}");
-      await expect.poll(() => conversation.scrollTop).toBeGreaterThan(0);
+      await expect
+        .poll(() => conversation.scrollTop, { timeout: KEYBOARD_SCROLL_TIMEOUT_MS })
+        .toBeGreaterThan(0);
     });
     await untilInsideAct(() =>
       expect

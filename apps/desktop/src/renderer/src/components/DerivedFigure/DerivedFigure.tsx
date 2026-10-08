@@ -20,7 +20,7 @@ export function DerivedFigure(props: DerivedFigureProps): React.JSX.Element {
   return (
     <HoverLabel
       text={props.hoverLabel}
-      textIs={props.hoverLabel === props.text ? "visible-text" : "description"}
+      textRole={props.hoverLabel === props.text ? "visible-text" : "description"}
     >
       <span className="meridian-figure meridian-figure--derived">{props.text}</span>
     </HoverLabel>

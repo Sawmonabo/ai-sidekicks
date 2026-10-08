@@ -102,10 +102,10 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
  * A ref for a display formula's span, on which `--math-natural-width` is written when the span
  * first has a width; the sheet does the fitting from it. Where glyph widths round to whole pixels,
  * as on Linux, a piece's width does not scale exactly with its font size, so each later resize
- * checks the fit and raises the width where the drawn piece overran its column. A
- * write resizes the span it watches, so the watch stops right after it, in the same report, and
- * starts again on the next frame: a report of the size the write made would otherwise land in the
- * same pass, which the browser refuses with a window error.
+ * checks the fit and raises the width where the drawn piece overran its column. A write resizes
+ * the span it watches, so the watch stops right after it, in the same report, and starts again on
+ * the next frame: a report of the size the write made would otherwise land in the same pass, which
+ * the browser refuses with a window error.
  */
 function useMeasureNaturalWidth(
   displayMarkup: string | undefined,
