@@ -29,7 +29,7 @@ We will use SQLite for node-local execution state and Postgres for shared contro
 
 Damaged history is repaired before anything is given up, and it never stops the rest of the app.
 
-1. **Heal first.** The daemon copies the database file and its `-wal` and `-shm` files aside untouched, then rebuilds the damaged session's projection again from its events. Where the file itself is damaged, it recovers the file into a fresh one with SQLite's recovery API (`sqlite3_recover`), or reads the session's events from the newest daily backup ([Spec-013](../specs/013-persistence-and-recovery.md)), and runs `PRAGMA integrity_check` on the result before using it.
+1. **Heal first.** The daemon copies the database file and its `-wal` and `-shm` files aside untouched, then rebuilds the damaged session's projection again from its events. Where the file itself is damaged, it recovers the file into a fresh one with SQLite's recovery API (`sqlite3_recover`), or, where the person keeps backups (`Back up automatically` or `Back up now`, [Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)), reads the session's missing events from the newest backup, taking whichever source holds more of them, and runs `PRAGMA integrity_check` on the result before using it.
 2. **Last good point.** Where an event still cannot be read, the session opens read-only at every event before the first damaged one, with `Continue from here` and `Delete session`. `Continue from here` appends one event naming the damaged range, which every reader and rebuild skips, so the log is never truncated or rewritten ([ADR-016](./016-shared-event-sourcing-scope.md)). The damaged rows stay where they are, kept for the person to inspect.
 3. **Unreadable session.** A session with no readable event reads `Damaged` and offers only `Delete session`.
 4. **One session, not the node.** Only the damaged session refuses writes. Every other session and the rest of the daemon keep working, and `daemon.status.read` names each damaged session.
@@ -78,7 +78,7 @@ JSON files are too weak for rebuild-heavy, event-oriented runtime truth. A singl
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| Local SQLite store is corrupted or unavailable | Low | High | A session's rebuild fails at restart, or `PRAGMA integrity_check` does not read `ok` | Heal first (copy aside, rebuild, `sqlite3_recover` or the daily backup); else open the session at its last good point; else mark it `Damaged`; only that session refuses writes (§Damaged local state) |
+| Local SQLite store is corrupted or unavailable | Low | High | A session's rebuild fails at restart, or `PRAGMA integrity_check` does not read `ok` | Heal first (copy aside, rebuild, `sqlite3_recover` or the newest backup, where one exists); else open the session at its last good point; else mark it `Damaged`; only that session refuses writes (§Damaged local state) |
 | Shared Postgres is unavailable | Med | High | Device linking, machine registration, or statement-chain reads fail | Preserve explicit `local-only` degraded mode |
 | Artifact or metadata is written to the wrong boundary | Med | High | Visibility or audit anomalies appear | Enforce policy-aware manifest classification and tests |
 
