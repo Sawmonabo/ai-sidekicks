@@ -70,11 +70,11 @@ describe("the workflows screen — `Next waiting`", () => {
       expect(nextWaitingControl().textContent).toBe("Next waiting (2)");
     });
 
-    await press("Next waiting (2)");
+    await press(nextWaitingControl());
     expect(openRunId(mounted)).toBe(WORKFLOW_RUN_IDS.waitingApproval);
     // From a run's own page the count is of the others, and the open run is never next.
     expect(nextWaitingControl().textContent).toBe("Next waiting (1)");
-    await press("Next waiting (1)");
+    await press(nextWaitingControl());
     expect(openRunId(mounted)).toBe(WORKFLOW_RUN_IDS.waitingForm);
 
     owed = [];

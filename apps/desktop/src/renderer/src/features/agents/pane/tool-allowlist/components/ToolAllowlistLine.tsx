@@ -6,6 +6,7 @@
 // cannot disagree.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,
   namedToolAllowlistSentence,
@@ -33,7 +34,7 @@ function positionSentence(position: AgentToolAllowlistPosition): React.JSX.Eleme
   if (position.kind === "named") {
     return (
       <ToolAllowlistReading weight="derived">
-        {namedToolAllowlistSentence(position.toolNames)}
+        <FigureSentence parts={namedToolAllowlistSentence(position.toolNames)} />
       </ToolAllowlistReading>
     );
   }

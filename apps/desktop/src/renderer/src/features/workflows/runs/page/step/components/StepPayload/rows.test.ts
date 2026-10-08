@@ -9,6 +9,7 @@ import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/d
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { parseMarkdownDocument } from "./markdown-document-rows.js";
 import { PayloadTableRows } from "./rows.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 
 const NO_SPANS: CodeSpanReader = {
   heldSpans: () => undefined,
@@ -33,7 +34,7 @@ function drawn(model: PayloadTableRows): readonly string[] {
   return model.rows.map((row) => {
     switch (row.kind) {
       case "item":
-        return `item ${row.heading}`;
+        return `item ${joinFigureSentence(row.heading)}`;
       case "value":
         return `value ${row.text}`;
       case "unread":
@@ -41,7 +42,7 @@ function drawn(model: PayloadTableRows): readonly string[] {
       case "markdown":
         return `markdown ${row.place.kind === "member" ? String(row.place.key) : "whole"}`;
       case "file":
-        return `file ${row.line}`;
+        return `file ${joinFigureSentence(row.line)}`;
     }
   });
 }

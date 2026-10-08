@@ -3,6 +3,8 @@ import { useCallback, useState } from "react";
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
 import { formatCount, formatUnitDuration } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -127,11 +129,21 @@ function RunRow(
       <td>
         <DayClockFigure at={run.startedAt} nowMs={props.nowMs} locale={clockLocale} />
       </td>
-      <td>{rowDurationWords(run, props.nowMs)}</td>
       <td>
-        {run.liveStep === undefined ? formatCount(run.stepCount) : liveStepWords(run.liveStep)}
+        <FigureSentence parts={rowDuration(run, props.nowMs)} />
       </td>
-      <td>{costWithPayer(run.cost, props.payerOf)}</td>
+      <td>
+        <FigureSentence
+          parts={
+            run.liveStep === undefined
+              ? [{ wire: formatCount(run.stepCount) }]
+              : liveStepWords(run.liveStep)
+          }
+        />
+      </td>
+      <td>
+        <FigureSentence parts={costWithPayer(run.cost, props.payerOf)} />
+      </td>
       <td>
         {run.keep ? <Chip label="Keep" /> : null}
         {isConfirming ? (
@@ -205,18 +217,26 @@ function DeleteRunConfirm(props: {
   );
 }
 
-// How long the run took, or while it is going how long so far; nothing for a failed run parked on
-// its failed step, which has neither ended nor kept going.
-function rowDurationWords(run: WorkflowRunSummary, nowMs: number): string | undefined {
+// How long the run took, as the daemon sent it, or while it is going how long so far, which the app
+// counts on the window's clock; nothing for a failed run parked on its failed step, which has
+// neither ended nor kept going.
+function rowDuration(run: WorkflowRunSummary, nowMs: number): readonly FigureSentencePart[] {
   if (run.durationMs !== undefined) {
-    return formatUnitDuration(run.durationMs);
+    return [{ wire: formatUnitDuration(run.durationMs) }];
   }
-  return isGoing(run.status) ? runDurationWords(run.startedAt, nowMs) : undefined;
+  return isGoing(run.status) ? [{ derived: runDurationWords(run.startedAt, nowMs) }] : [];
 }
 
 /** Where a going run is: `4 of 9 · Review one PR`. */
-function liveStepWords(liveStep: NonNullable<WorkflowRunSummary["liveStep"]>): string {
-  return `${formatCount(liveStep.index)} of ${formatCount(liveStep.total)} · ${liveStep.nodeName}`;
+function liveStepWords(
+  liveStep: NonNullable<WorkflowRunSummary["liveStep"]>,
+): readonly FigureSentencePart[] {
+  return [
+    { wire: formatCount(liveStep.index) },
+    " of ",
+    { wire: formatCount(liveStep.total) },
+    ` · ${liveStep.nodeName}`,
+  ];
 }
 
 /** The act state a sent delete holds its confirm in, from the send until the row goes. */

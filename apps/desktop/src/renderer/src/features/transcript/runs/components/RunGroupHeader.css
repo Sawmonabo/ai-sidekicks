@@ -34,8 +34,7 @@
   color: var(--meridian-text);
 }
 
-.meridian-run-group-header__state,
-.meridian-run-group-header__figure {
+.meridian-run-group-header__state {
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text);

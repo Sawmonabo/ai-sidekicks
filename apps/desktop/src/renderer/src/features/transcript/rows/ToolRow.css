@@ -32,7 +32,6 @@
 .meridian-tool-card__elapsed {
   flex: none;
   color: var(--meridian-text-faint);
-  font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
 }
 

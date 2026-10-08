@@ -1,6 +1,7 @@
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 
 /**
@@ -21,7 +22,9 @@ export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Ele
         </p>
       )}
       {error.itemIndex === undefined ? null : (
-        <p className="meridian-workflow-step__error-item">{`Item ${formatCount(error.itemIndex)}`}</p>
+        <p className="meridian-workflow-step__error-item">
+          Item <WireFigure value={formatCount(error.itemIndex)} />
+        </p>
       )}
       <p className="meridian-workflow-step__error-message">{error.message}</p>
       {processExit === undefined ? null : (

@@ -17,6 +17,7 @@ import { ActionButton } from "#renderer/features/workflows/components/ActionButt
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { chainReceipt } from "../step/receipts.js";
 
 /** The chain question's two answers, in the order they stand, and the approval each one is. */
@@ -103,19 +104,24 @@ function OpenChainQuestion(props: {
     // The receipt stands at once; the run reading back answered then draws the same line.
     return <ChainReceipt answered={answered} />;
   }
-  const opening =
-    `${chainRoot.workflowName} has started ` + `${formatCount(chainRoot.runCount)} runs from its `;
+  const opening: readonly FigureSentencePart[] = [
+    `${chainRoot.workflowName} has started `,
+    { wire: formatCount(chainRoot.runCount) },
+    " runs from its ",
+  ];
   const closing = " start. Keep going?";
   // The group's accessible name spells the start out; on screen it is a figure that hovers.
   const sentence =
-    opening + formatDayClock(chainRoot.startedAt, props.nowMs, clockLocale) + closing;
+    joinFigureSentence(opening) +
+    formatDayClock(chainRoot.startedAt, props.nowMs, clockLocale) +
+    closing;
   return (
     <div className="meridian-workflow-run__chain-question" role="group" aria-label={sentence}>
       <span className="meridian-workflow-run__eyebrow meridian-workflow-run__eyebrow--attention">
         Waiting on you
       </span>
       <p className="meridian-workflow-run__chain-sentence">
-        {opening}
+        <FigureSentence parts={opening} />
         <DayClockFigure at={chainRoot.startedAt} nowMs={props.nowMs} locale={clockLocale} />
         {closing}
       </p>

@@ -9,6 +9,8 @@ import { useMemo, useState } from "react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import {
   listClippedHeadRowIds,
@@ -81,7 +83,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
       </div>
       {contents.unheldRowCount === 0 ? null : (
         <p className="meridian-run-group-body__unheld">
-          {String(contents.unheldRowCount)}
+          <DerivedFigure text={formatCount(contents.unheldRowCount)} />
           {contents.unheldRowCount === 1
             ? " earlier entry is outside this window."
             : " earlier entries are outside this window."}

@@ -48,13 +48,12 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         kind="error"
         placement="block"
         title="Standing permissions could not be read."
-        detail={
-          "The background service answered, and all " +
-          `${formatCount(props.unreadableCount)} of the rows it carried ` +
-          "were shaped in a way this build cannot read. Whether any " +
-          "permission is in force is unknown from here — it is not known " +
-          "to be none."
-        }
+        detail={[
+          "The background service answered, and all ",
+          { derived: formatCount(props.unreadableCount) },
+          " of the rows it carried were shaped in a way this build cannot read. Whether any " +
+            "permission is in force is unknown from here — it is not known to be none.",
+        ]}
       />
     ) : (
       <Nothing kind="empty" placement="block" title="No rules yet" />

@@ -9,6 +9,7 @@ import type {
 import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import { describe, expect, it } from "vitest";
 
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { costWithPayer, readPayer } from "./cost.js";
 
 const COST: WorkflowCost = {
@@ -37,7 +38,9 @@ const PAYER: ProviderAccount = {
 };
 
 function costRead(accounts: readonly ProviderAccount[] | undefined): string {
-  return costWithPayer(COST, (providerAccountId) => readPayer(accounts, providerAccountId));
+  return joinFigureSentence(
+    costWithPayer(COST, (providerAccountId) => readPayer(accounts, providerAccountId)),
+  );
 }
 
 describe("costWithPayer over the registry as read", () => {

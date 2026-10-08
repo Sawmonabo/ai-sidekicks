@@ -17,6 +17,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import type { DayClockFigureProps } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { isLaterStep, isPersonWaitCause } from "../../steps.js";
 import {
@@ -37,14 +38,14 @@ export interface RunGraphNodeView {
   /** True on a node the document disables, whose input the engine passes straight through. */
   readonly isDisabled: boolean;
   /** `Attempt 2` on a node whose latest step is a retry; absent on a first attempt. */
-  readonly attemptWords: string | undefined;
+  readonly attemptWords: readonly FigureSentencePart[] | undefined;
   /** How many items left the node's first output, once its latest step ran through. */
   readonly outputCount: number | undefined;
   /**
    * The failure's first line, verbatim, after the failing item where the error names one
    * (`Item 2 · The summary came back empty`); present only on a failed node that carries either.
    */
-  readonly errorLine: string | undefined;
+  readonly errorLine: readonly FigureSentencePart[] | undefined;
   /**
    * The instant a waiting step resumes itself, drawn `Resumes at 6:00 AM` or `Resumes at Tomorrow
    * 6:00 AM`, where one is armed.
@@ -198,7 +199,9 @@ function nodeView(
       : `${STEP_STATUS_WORDS[status]} on ${WAIT_CAUSE_WORDS[waitCause]}`;
   const isDisabled = node.disabled === true;
   const attemptWords =
-    step === undefined || step.attempt === 1 ? undefined : `Attempt ${formatCount(step.attempt)}`;
+    step === undefined || step.attempt === 1
+      ? undefined
+      : ["Attempt ", { wire: formatCount(step.attempt) }];
   const outputCount = step === undefined ? undefined : ownOutputCount(step, firstOutputEdgeCount);
   const errorLine = status === "failed" ? failureLine(step) : undefined;
   return {
@@ -216,9 +219,11 @@ function nodeView(
       node.name,
       isDisabled ? "Disabled" : undefined,
       stateWords,
-      attemptWords,
-      outputCount === undefined ? undefined : itemCountWords(outputCount),
-      errorLine,
+      attemptWords === undefined ? undefined : joinFigureSentence(attemptWords),
+      outputCount === undefined
+        ? undefined
+        : joinFigureSentence(itemCountWords(outputCount, "wire")),
+      errorLine === undefined ? undefined : joinFigureSentence(errorLine),
       resumeFigure === undefined
         ? undefined
         : `${RUN_GRAPH_RESUME_WORDS} ${formatDayClock(resumeFigure.at, nowMs, locale)}`,
@@ -249,13 +254,15 @@ function ownOutputCount(
  * The failing item, numbered from 0 as `$itemIndex` and the payload table number it, then the
  * error's first line.
  */
-function failureLine(step: WorkflowStep | undefined): string | undefined {
+function failureLine(step: WorkflowStep | undefined): readonly FigureSentencePart[] | undefined {
   const itemIndex = step?.error?.itemIndex;
-  const parts = [
-    itemIndex === undefined ? undefined : `Item ${formatCount(itemIndex)}`,
-    firstLine(step?.error?.message),
-  ].filter(isPresent);
-  return parts.length === 0 ? undefined : parts.join(" · ");
+  const message = firstLine(step?.error?.message);
+  const item: readonly FigureSentencePart[] =
+    itemIndex === undefined ? [] : ["Item ", { wire: formatCount(itemIndex) }];
+  if (message === undefined) {
+    return item.length === 0 ? undefined : item;
+  }
+  return item.length === 0 ? [message] : [...item, ` · ${message}`];
 }
 
 function isPresent(part: string | undefined): part is string {

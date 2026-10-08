@@ -8,6 +8,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
@@ -56,7 +57,7 @@ export function QueueRow(props: {
         <div className="meridian-queue__figure">
           <dt>Priority</dt>
           <dd>
-            <WireFigure value={String(item.priority)} />
+            <WireFigure value={formatCount(item.priority)} />
           </dd>
         </div>
         <div className="meridian-queue__figure">

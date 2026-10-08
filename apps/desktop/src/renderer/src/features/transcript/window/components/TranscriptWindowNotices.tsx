@@ -22,7 +22,10 @@ export function TranscriptWindowNotices(
       kind="empty"
       placement="block"
       title="Older entries are no longer in this window."
-      detail={`${formatCount(props.droppedRowCount)} left the window as the session grew.`}
+      detail={[
+        { derived: formatCount(props.droppedRowCount) },
+        " left the window as the session grew.",
+      ]}
     />
   );
 }

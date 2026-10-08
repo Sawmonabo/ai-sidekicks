@@ -1,4 +1,5 @@
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { TOOL_ALLOWLIST_NAMED_CAP } from "#renderer/features/agents/caps.js";
 import { NAMELESS_TOOL_ALLOWLIST_WORDING, type AgentToolAllowlistPosition } from "../position.js";
@@ -23,7 +24,13 @@ export function ToolAllowlist(props: {
       {position.toolNames.slice(0, TOOL_ALLOWLIST_NAMED_CAP).map((toolName) => (
         <WireFigure key={toolName} value={toolName} />
       ))}
-      {unnamedCount > 0 ? ` and ${formatCount(unnamedCount)} more` : null}
+      {unnamedCount > 0 ? (
+        <>
+          {" and "}
+          <DerivedFigure text={formatCount(unnamedCount)} />
+          {" more"}
+        </>
+      ) : null}
     </>
   );
 }

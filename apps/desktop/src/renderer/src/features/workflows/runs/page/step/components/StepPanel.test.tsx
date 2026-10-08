@@ -152,7 +152,7 @@ describe("the step panel", () => {
 
     fireEvent.change(picker, { target: { value: "3" } });
     expect(screen.getByRole("tab", { name: "Error" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("Item 1")).toBeDefined();
+    expect(screen.getByText(/^Item/u).textContent).toBe("Item 1");
     expect(screen.getByText("The summary came back empty twice.")).toBeDefined();
   });
 

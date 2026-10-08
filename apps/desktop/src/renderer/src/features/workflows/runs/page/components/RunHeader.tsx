@@ -6,6 +6,7 @@ import { parseInstant } from "#renderer/lib/instant.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -105,7 +106,11 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
         <Fact term="Started">
           <DayClockFigure at={run.startedAt} nowMs={nowMs} locale={clockLocale} />
         </Fact>
-        {durationWords === undefined ? null : <Fact term="Duration">{durationWords}</Fact>}
+        {durationWords === undefined ? null : (
+          <Fact term="Duration">
+            <DerivedFigure text={durationWords} />
+          </Fact>
+        )}
         <Fact term="Trigger">{TRIGGER_KIND_WORDS[run.triggerKind]}</Fact>
         <Fact term="Started by">
           {startedByWords(run.startedBy)}
@@ -125,7 +130,9 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
             </>
           ) : null}
         </Fact>
-        <Fact term="Cost">{costWithPayer(run.cost, props.payerOf)}</Fact>
+        <Fact term="Cost">
+          <FigureSentence parts={costWithPayer(run.cost, props.payerOf)} />
+        </Fact>
       </dl>
       <div className="meridian-workflow-run__links">
         <HeaderLink
@@ -254,8 +261,9 @@ function fixSessionLinkWords(
 }
 
 /**
- * How long the run took, or while it is going how long it has taken so far; `undefined` for a
- * failed run parked on its step, which has neither ended nor kept going.
+ * How long the run took, or while it is going how long it has taken so far, the app's own span
+ * between the daemon's instants or to the window's clock; `undefined` for a failed run parked on
+ * its step, which has neither ended nor kept going.
  */
 function runDurationUntil(
   run: WorkflowRunReadResponse,

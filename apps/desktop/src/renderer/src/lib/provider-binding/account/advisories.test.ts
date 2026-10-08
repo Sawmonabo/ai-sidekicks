@@ -6,6 +6,7 @@ import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account
 import { describe, expect, it } from "vitest";
 
 import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/provider-accounts/sentences.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { accountAdvisoriesFor } from "./advisories.js";
 import type { AccountChoice } from "./axis.js";
 import { OBSERVED_AT, registryAccountId } from "./reading.test-support.js";
@@ -33,9 +34,14 @@ function resolvedChoice(
   };
 }
 
+/** The advisories as the words they read. */
+function advisoryWords(...args: Parameters<typeof accountAdvisoriesFor>): string[] {
+  return accountAdvisoriesFor(...args).map(joinFigureSentence);
+}
+
 describe("the account picker's advisories", () => {
   it("names the token remedy on an expired token account, and never the sign-in", () => {
-    const advisories = accountAdvisoriesFor(
+    const advisories = advisoryWords(
       resolvedChoice("reauth_required", { kind: "paste_token", accountId: ACCOUNT_ID }),
       "en-US",
     );
@@ -46,14 +52,14 @@ describe("the account picker's advisories", () => {
   });
 
   it("words a sign-in into an empty folder apart from renewing a login", () => {
-    const emptyFolder = accountAdvisoriesFor(
+    const emptyFolder = advisoryWords(
       resolvedChoice("home_missing", { kind: "sign_in", accountId: ACCOUNT_ID }),
       "en-US",
     );
     expect(emptyFolder).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in_to_empty_folder("claude"));
     expect(emptyFolder).not.toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in("claude"));
 
-    const expired = accountAdvisoriesFor(
+    const expired = advisoryWords(
       resolvedChoice("reauth_required", { kind: "sign_in", accountId: ACCOUNT_ID }),
       "en-US",
     );
@@ -61,7 +67,7 @@ describe("the account picker's advisories", () => {
   });
 
   it("never collapses an undecided reading into an expired login", () => {
-    const advisories = accountAdvisoriesFor(
+    const advisories = advisoryWords(
       resolvedChoice("indeterminate", { kind: "look_again", accountId: ACCOUNT_ID }),
       "en-US",
     );

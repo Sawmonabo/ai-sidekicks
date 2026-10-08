@@ -127,10 +127,12 @@ export async function navigate(
   });
 }
 
-/** Press a button by its accessible name, and let React finish reacting. */
-export async function press(name: string | RegExp): Promise<void> {
+/** Press a button, given or found by its accessible name, and let React finish reacting. */
+export async function press(button: string | RegExp | HTMLButtonElement): Promise<void> {
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name }));
+    fireEvent.click(
+      button instanceof HTMLButtonElement ? button : screen.getByRole("button", { name: button }),
+    );
     await crossMacrotaskBoundary();
   });
 }
