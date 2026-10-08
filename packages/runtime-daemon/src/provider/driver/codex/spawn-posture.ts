@@ -150,32 +150,22 @@ export class CodexSpawnPosture {
 
   /**
    * The thread-establishment legs one posture and one subagent policy realize: the posture's
-   * `sandbox` and `approvalPolicy`, and the subagent caps as `config` overrides. Used by
-   * `thread/start`, `thread/resume` and `thread/fork`.
+   * `sandbox` and `approvalPolicy`, and the posture's and the subagent caps' `config` overrides in
+   * one map. Used by `thread/start`, `thread/resume` and `thread/fork`.
    */
   composeThreadEstablishmentLegs(
     posture: ExecutionPosture | undefined,
     subagentPolicy: SubagentPolicy | undefined,
   ): Record<string, unknown> {
     this.#reportWithheldSubagentDefinitions(subagentPolicy);
-    return {
-      ...this.#composeSpawnPostureParams(posture),
-      ...(subagentPolicy === undefined
-        ? {}
-        : { config: composeCodexSubagentConfigOverrides(subagentPolicy) }),
+    // The credential deny-list is realized in the child environment, so no credential axis is
+    // read here.
+    const threadPosture = posture === undefined ? undefined : composeCodexThreadPosture(posture);
+    const config = {
+      ...threadPosture?.config,
+      ...(subagentPolicy === undefined ? {} : composeCodexSubagentConfigOverrides(subagentPolicy)),
     };
-  }
-
-  /**
-   * The spawn-time posture legs (`sandbox`, `approvalPolicy`). The credential deny-list is realized
-   * in the child environment, so no credential axis is read here.
-   */
-  #composeSpawnPostureParams(posture: ExecutionPosture | undefined): Record<string, unknown> {
-    if (posture === undefined) {
-      return {};
-    }
-    const { sandbox, approvalPolicy } = composeCodexThreadPosture(posture);
-    return { sandbox, approvalPolicy };
+    return { ...threadPosture?.params, ...(Object.keys(config).length === 0 ? {} : { config }) };
   }
 
   /**

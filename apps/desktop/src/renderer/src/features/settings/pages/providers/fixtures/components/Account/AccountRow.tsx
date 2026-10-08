@@ -2,8 +2,8 @@ import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import {
   BILLING_MODE_WORDS,
@@ -72,7 +72,10 @@ export function AccountRow(props: {
           ) : (
             <>
               <span className="meridian-settings-page__aside">Observed </span>
-              <DerivedFigure text={formatDateTime(account.healthObservedAt, clockLocale)} />
+              <WireFigure
+                value={formatDateTime(account.healthObservedAt, clockLocale)}
+                title={formatZonedDateTime(account.healthObservedAt, clockLocale)}
+              />
             </>
           )}
         </span>

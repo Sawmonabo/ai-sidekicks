@@ -3,7 +3,8 @@ import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/l
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { parseInstant } from "#renderer/lib/instant.js";
-import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount, formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -99,7 +100,12 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
             <Chip label={`version v${formatCount(props.versionNumber)} pinned`} />
           )}
         </Fact>
-        <Fact term="Started">{formatDayClock(run.startedAt, nowMs, clockLocale)}</Fact>
+        <Fact term="Started">
+          <WireFigure
+            value={formatDayClock(run.startedAt, nowMs, clockLocale)}
+            title={formatZonedDateTime(run.startedAt, clockLocale)}
+          />
+        </Fact>
         {durationWords === undefined ? null : <Fact term="Duration">{durationWords}</Fact>}
         <Fact term="Trigger">{TRIGGER_KIND_WORDS[run.triggerKind]}</Fact>
         <Fact term="Started by">

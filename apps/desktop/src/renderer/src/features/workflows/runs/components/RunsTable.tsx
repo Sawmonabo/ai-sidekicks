@@ -4,7 +4,13 @@ import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/re
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
-import { formatCount, formatDayClock, formatUnitDuration } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import {
+  formatCount,
+  formatDayClock,
+  formatUnitDuration,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -117,7 +123,12 @@ function RunRow(
       </td>
       <td>{TRIGGER_KIND_WORDS[run.triggerKind]}</td>
       <td>{startedByWords(run.startedBy)}</td>
-      <td>{formatDayClock(run.startedAt, props.nowMs, clockLocale)}</td>
+      <td>
+        <WireFigure
+          value={formatDayClock(run.startedAt, props.nowMs, clockLocale)}
+          title={formatZonedDateTime(run.startedAt, clockLocale)}
+        />
+      </td>
       <td>
         {run.durationMs === undefined
           ? runDurationWords(run.startedAt, props.nowMs)

@@ -32,7 +32,12 @@ import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
-import { formatByteQuantity, formatClockTime, formatPercent } from "#renderer/lib/wire/figures.js";
+import {
+  formatByteQuantity,
+  formatClockTime,
+  formatPercent,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
@@ -234,8 +239,9 @@ function renderStatusRegion(
 }
 
 /**
- * One reading of what the service uses, stamped with when it was taken, each formatted figure
- * carrying the exact value the service sent in its `title`; none reads as not read.
+ * One reading of what the service uses, stamped with when it was taken; none reads as not read.
+ * The figure's `title` carries the exact value the service sent, and the time's `title` carries
+ * the zoned time on the machine's clock.
  */
 function renderUsageReading(
   reading:
@@ -249,7 +255,10 @@ function renderUsageReading(
   return (
     <span>
       <WireFigure value={reading.figure} title={reading.exactValue} /> · as of{" "}
-      <WireFigure value={formatClockTime(reading.readAt, clockLocale)} title={reading.readAt} />
+      <WireFigure
+        value={formatClockTime(reading.readAt, clockLocale)}
+        title={formatZonedDateTime(reading.readAt, clockLocale)}
+      />
     </span>
   );
 }

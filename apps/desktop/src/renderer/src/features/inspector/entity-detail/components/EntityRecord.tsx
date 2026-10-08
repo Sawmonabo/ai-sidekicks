@@ -112,7 +112,11 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   );
 }
 
-// The whole value, for the hover title of a value cut short; an unrecorded one carries its own.
+// The whole value, for the hover title of a value cut short; an unrecorded one carries its own,
+// and an instant its zoned time.
 function fullTextOf(facet: EntityFacet): string | undefined {
-  return facet.value.form === "unrecorded" ? undefined : facet.value.text;
+  if (facet.value.form === "unrecorded") {
+    return undefined;
+  }
+  return facet.value.form === "instant" ? facet.value.zonedText : facet.value.text;
 }

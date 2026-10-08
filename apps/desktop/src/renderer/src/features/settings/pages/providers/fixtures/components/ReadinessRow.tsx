@@ -6,8 +6,8 @@ import type { ReactNode } from "react";
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatDateTime } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { PROVIDER_READINESS_STATE_WORDS } from "#renderer/lib/provider-accounts/sentences.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
@@ -56,7 +56,10 @@ export function ReadinessRow(props: {
         ) : (
           <>
             <span className="meridian-settings-page__aside">from the observation taken </span>
-            <DerivedFigure text={formatDateTime(readiness.observedAt, clockLocale)} />
+            <WireFigure
+              value={formatDateTime(readiness.observedAt, clockLocale)}
+              title={formatZonedDateTime(readiness.observedAt, clockLocale)}
+            />
           </>
         )}
       </span>

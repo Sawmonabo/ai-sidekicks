@@ -19,6 +19,7 @@ import type { McpMutationOutcome } from "./mutation.js";
 import { MutationOutcomeLine } from "./components/MutationOutcomeLine.js";
 import { ServerLegs } from "./components/ServerLegs.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { liveBridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
 
 afterEach(() => {
   cleanup();
@@ -66,7 +67,7 @@ describe("the two lists that render a live leg", () => {
           sessionDirectory={{ status: "reading" }}
           nowMilliseconds={0}
         />,
-        { wrapper: LiveAnnouncerProvider },
+        { wrapper: withAnnouncer(liveBridgeWrapper()) },
       ),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);

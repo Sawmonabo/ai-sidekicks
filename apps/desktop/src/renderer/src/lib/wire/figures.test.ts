@@ -2,7 +2,8 @@
 // never reads as nothing spent; a finished duration reads in units, never as a raw millisecond
 // figure for a span of minutes; and a clock figure carries its day in front unless it is today,
 // counted on the machine's own calendar. A compact count is shortened by the platform's own
-// notation, and its widest form is what the platform prints at a rounding edge.
+// notation, and its widest form is what the platform prints at a rounding edge. A time's hover
+// title is the time on the machine's own calendar and clock, with its zone.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +13,7 @@ import {
   formatDayClock,
   formatMoney,
   formatUnitDuration,
+  formatZonedDateTime,
   widestCompactCount,
 } from "./figures.js";
 
@@ -69,5 +71,13 @@ describe("formatDayClock", () => {
     const midnight = new Date(2026, 9, 1).getTime();
     expect(dayClockChangesAt(now)).toBe(midnight);
     expect(formatDayClock(at(8, 30, 8, 30), midnight, "en-US")).toBe("Yesterday 8:30 AM");
+  });
+});
+
+describe("formatZonedDateTime", () => {
+  it("writes the instant on the machine's own calendar and clock and names the zone", () => {
+    // Built on this machine's own calendar, so the case reads the same in every zone.
+    const instant = new Date(2026, 9, 7, 19, 28).toISOString();
+    expect(formatZonedDateTime(instant, "en-US")).toMatch(/^Oct 7, 2026, 7:28 PM \S+$/u);
   });
 });
