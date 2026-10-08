@@ -44,6 +44,9 @@ const AMBIGUOUS_CREATE_REASON =
 /** Why Send is held while the first message is empty. */
 const EMPTY_DRAFT_REASON = "Write its first message to send it.";
 
+/** Why Send is held once this draft's session exists; the line under the field says the rest. */
+const ALREADY_CREATED_REASON = "This draft's session was already created.";
+
 /** Everything the control renders and every act it offers, in one hook. */
 export interface NewSessionComposition {
   /** `undefined` while no draft is open — the state the "+ New" button is in. */
@@ -67,8 +70,8 @@ export interface NewSessionComposition {
   readonly isAmbiguousCreate: boolean;
   /**
    * Present once a completed send settled over a composition that had moved on. A sentence,
-   * so the announcer, the line under the field and Send's disabled reason share one wording.
-   * Send is closed while it stands: every leg has landed, so a second press would answer
+   * so the announcer and the line under the field share one wording. Send is closed while it
+   * stands: every leg has landed, so a second press would answer
    * `sent` over a matching composition and close the draft, discarding the words this state
    * keeps.
    */
@@ -226,7 +229,11 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     ? SENDING_REASON
     : isAmbiguousCreate
       ? AMBIGUOUS_CREATE_REASON
-      : (unsentEditsSentence ?? (draftState?.isEmpty === true ? EMPTY_DRAFT_REASON : undefined));
+      : hasUnsentLaterEdits
+        ? ALREADY_CREATED_REASON
+        : draftState?.isEmpty === true
+          ? EMPTY_DRAFT_REASON
+          : undefined;
 
   return {
     draftState,

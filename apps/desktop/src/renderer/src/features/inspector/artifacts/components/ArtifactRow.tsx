@@ -42,7 +42,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         />
         <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={codeWords(row.state)} />
         <span>
-          {/* The hover label keeps the exact byte count the daemon sent. */}
+          {/* A scaled size's hover label gives the whole byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} hoverLabel={formattedSize.exactText} />
         </span>
         <span className="meridian-artifact-row__age">

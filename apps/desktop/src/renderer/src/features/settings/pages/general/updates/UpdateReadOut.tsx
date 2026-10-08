@@ -2,13 +2,9 @@ import { useId } from "react";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { WirePercentFigure } from "#renderer/components/WireFigure/WirePercentFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import {
-  formatExactPercent,
-  formatDate,
-  formatPercent,
-  formatZonedDateTime,
-} from "#renderer/lib/wire/figures.js";
+import { formatDate, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { UpdateReading } from "#renderer/store/update/reading.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
@@ -73,10 +69,7 @@ export function UpdateReadOut(props: {
             max={100}
             value={state.percent}
           />
-          <WireFigure
-            value={formatPercent(state.percent / 100)}
-            hoverLabel={formatExactPercent(state.percent)}
-          />
+          <WirePercentFigure percent={state.percent} />
         </div>
       );
     case "verifying":

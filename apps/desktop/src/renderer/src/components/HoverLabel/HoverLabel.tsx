@@ -35,10 +35,7 @@ export const HOVER_LABEL_TEXT_ATTRIBUTE = "data-hover-label";
 export const HOVER_LABEL_SIDE_ATTRIBUTE = "data-hover-label-side";
 
 /** Props for `HoverLabel`. */
-export interface HoverLabelProps {
-  /** The label's words; `undefined` or an empty string draws the trigger with no label. */
-  readonly text: string | undefined;
-  readonly textRole: HoverLabelTextRole;
+export type HoverLabelProps = HoverLabelWords & {
   /** Defaults to `top`. */
   readonly side?: HoverLabelSide;
   /**
@@ -46,7 +43,7 @@ export interface HoverLabelProps {
    * and sets no `aria-label` of its own when `textRole` is `name`.
    */
   readonly children: React.ReactElement<HoverLabelTriggerProps>;
-}
+};
 
 /** A trigger's attributes: the words and side the window's label reads, and the spoken path. */
 export interface HoverLabelTriggerProps {
@@ -88,3 +85,14 @@ export function HoverLabel(props: HoverLabelProps): React.JSX.Element {
     </>
   );
 }
+
+/**
+ * The label's words and how they are spoken. Words that name the trigger are required, since the
+ * trigger has no other name; others may be `undefined` or empty, which draws no label.
+ */
+type HoverLabelWords =
+  | { readonly text: string; readonly textRole: "name" }
+  | {
+      readonly text: string | undefined;
+      readonly textRole: Exclude<HoverLabelTextRole, "name">;
+    };

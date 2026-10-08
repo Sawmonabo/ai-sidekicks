@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { type WindowedRowTargetProps } from "#renderer/components/WindowedListRow/WindowedListRow.js";
@@ -25,6 +27,7 @@ export function DiffFileEntryButton({
   ...targetProps
 }: DiffFileEntryButtonProps): React.JSX.Element {
   const selectedPath = entry.kind === "all-files" ? undefined : entry.path;
+  const entryFace = useMemo(() => renderEntryFace(entry), [entry]);
   // The path is the button's hover label, so the keyboard on the button shows a truncated path
   // whole, as the pointer anywhere on it does.
   return (
@@ -38,28 +41,33 @@ export function DiffFileEntryButton({
           onSelectFilePath(selectedPath);
         }}
       >
-        {entry.kind === "all-files" ? (
-          <>
-            <span className="meridian-diff-files__path">All files</span>
-            <DerivedFigure text={formatCount(entry.fileCount)} />
-          </>
-        ) : (
-          <>
-            {/* Wire-verbatim path, truncated at the measure. */}
-            <span className="meridian-diff-files__path">{entry.path}</span>
-            {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
-            {entry.changeNotes.length === 0 ? null : (
-              <HoverLabel text={entry.changeNotes.join(", ")} textRole="visible-text">
-                <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
-              </HoverLabel>
-            )}
-            <span className="meridian-diff-files__counts">
-              <DerivedFigure text={`+${formatCount(entry.counts.insertions)}`} />
-              <DerivedFigure text={`−${formatCount(entry.counts.deletions)}`} />
-            </span>
-          </>
-        )}
+        {entryFace}
       </button>
     </HoverLabel>
+  );
+}
+
+/** A row's words and figures: the reset's file count, or one file's path, notes and counts. */
+function renderEntryFace(entry: DiffFileListEntry): React.JSX.Element {
+  return entry.kind === "all-files" ? (
+    <>
+      <span className="meridian-diff-files__path">All files</span>
+      <DerivedFigure text={formatCount(entry.fileCount)} />
+    </>
+  ) : (
+    <>
+      {/* Wire-verbatim path, truncated at the measure. */}
+      <span className="meridian-diff-files__path">{entry.path}</span>
+      {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
+      {entry.changeNotes.length === 0 ? null : (
+        <HoverLabel text={entry.changeNotes.join(", ")} textRole="visible-text">
+          <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
+        </HoverLabel>
+      )}
+      <span className="meridian-diff-files__counts">
+        <DerivedFigure text={`+${formatCount(entry.counts.insertions)}`} />
+        <DerivedFigure text={`−${formatCount(entry.counts.deletions)}`} />
+      </span>
+    </>
   );
 }

@@ -28,8 +28,8 @@ export interface ComposerAttachmentChipModel {
   /** The size a person reads, from the chokepoint formatter and nowhere else. */
   readonly sizeText: string;
   /**
-   * The raw byte count behind {@link sizeText}, for the size's hover label; `undefined` where the
-   * size already shows it whole.
+   * The whole byte count in words, `1,234,567 bytes`, for the size's hover label where
+   * {@link sizeText} is scaled; `undefined` where the size is already in bytes.
    */
   readonly exactSizeText: string | undefined;
   readonly state: AttachmentIngestEntry["state"];

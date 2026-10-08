@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -14,6 +16,17 @@ import { type SessionListRow } from "../rows/list-row.js";
 export function SessionRowFacts(props: { readonly row: SessionListRow }): React.JSX.Element {
   const clockLocale = useClockLocale();
   const { row } = props;
+  const { touchedAtIso } = row;
+  const touchedAt = useMemo(
+    () =>
+      touchedAtIso === undefined
+        ? undefined
+        : {
+            reading: formatDateTime(touchedAtIso, clockLocale),
+            zoned: formatZonedDateTime(touchedAtIso, clockLocale),
+          },
+    [clockLocale, touchedAtIso],
+  );
   return (
     <div className="meridian-session-row__facts">
       {row.state === undefined ? (
@@ -25,11 +38,8 @@ export function SessionRowFacts(props: { readonly row: SessionListRow }): React.
       ) : (
         <Chip label={codeWords(row.state)} />
       )}
-      {row.touchedAtIso === undefined ? null : (
-        <WireFigure
-          value={formatDateTime(row.touchedAtIso, clockLocale)}
-          hoverLabel={formatZonedDateTime(row.touchedAtIso, clockLocale)}
-        />
+      {touchedAt === undefined ? null : (
+        <WireFigure value={touchedAt.reading} hoverLabel={touchedAt.zoned} />
       )}
       {row.userIds.length === 0 ? null : (
         <span className="meridian-session-row__users">

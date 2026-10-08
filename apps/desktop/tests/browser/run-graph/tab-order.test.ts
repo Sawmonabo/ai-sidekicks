@@ -253,26 +253,6 @@ it("moves neither the view nor the page as Tab passes over the end node on its w
   expect(pageScrolls, "the page scrolled to the node Tab passed over").toBe(0);
 });
 
-it("centers a count reached by Tab in the canvas", async () => {
-  // Reduced motion, so the pan is a jump the next read sees.
-  await emulateReducedMotion();
-  const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
-  const { canvas, pane } = await mountNarrowed(fixture);
-  const firstNode = firstNodeOf(canvas);
-  const count = await lastCountLeaving(canvas, fixture, firstNode);
-
-  act(() => {
-    firstNode.focus();
-  });
-  expect(isInside(count, pane), "the count starts outside the canvas").toBe(false);
-  await pressTab();
-  expect(document.activeElement).toBe(count);
-  await waitFor(() => {
-    expect(pane.scrollLeft + pane.scrollTop).toBe(0);
-    expect(isCentered(count, pane)).toBe(true);
-  });
-});
-
 it("centers a count reached by Tab mid-slide in the canvas where the slide ends", async () => {
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);

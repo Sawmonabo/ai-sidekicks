@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useMemo } from "react";
 
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type {
@@ -29,16 +29,17 @@ export function useStepAnswer(
   answer: HeldStepAnswer | undefined,
   onAnswered: (answer: HeldStepAnswer) => void,
 ): StepAnswer {
-  const holdDaemonAnswer = useCallback(
-    (answered: WorkflowStepResolution) => {
-      onAnswered({ resolution: answered, isWindowClock: false });
-    },
-    [onAnswered],
-  );
-  const resolution = step.resolution ?? answer?.resolution;
+  const holdDaemonAnswer = (answered: WorkflowStepResolution): void => {
+    onAnswered({ resolution: answered, isWindowClock: false });
+  };
+  const receipt = useMemo(() => {
+    const resolution = step.resolution ?? answer?.resolution;
+    return resolution === undefined
+      ? timedOutReceipt(step, nodeKind)
+      : resolutionReceipt(resolution);
+  }, [answer, nodeKind, step]);
   return {
-    receipt:
-      resolution === undefined ? timedOutReceipt(step, nodeKind) : resolutionReceipt(resolution),
+    receipt,
     isWindowClock: step.resolution === undefined && answer?.isWindowClock === true,
     holdDaemonAnswer,
   };
