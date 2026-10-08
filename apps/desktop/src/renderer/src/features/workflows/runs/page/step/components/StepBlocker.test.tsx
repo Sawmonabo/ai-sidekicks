@@ -204,7 +204,7 @@ describe("a step's blocker", () => {
     }));
 
     const openInReview = screen.getByRole("button", { name: "Open in Review" });
-    expect(openInReview).toHaveProperty("disabled", true);
+    expect(openInReview.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText(reason)).toBeDefined();
     fireEvent.click(openInReview);
     expect(reviews).toStrictEqual([]);

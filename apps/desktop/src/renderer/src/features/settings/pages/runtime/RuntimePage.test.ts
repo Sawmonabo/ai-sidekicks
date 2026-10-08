@@ -174,10 +174,10 @@ describe("RuntimePage — the two controls", () => {
     fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Restart"));
 
-    expect(getButton(container, "Restart").disabled).toBe(true);
+    expect(getButton(container, "Restart").getAttribute("aria-disabled")).toBe("true");
     // Cancel goes with it: nothing behind the bridge is cancelable, so a live Cancel
     // here would read as retracting a call that has already gone out.
-    expect(getButton(container, "Cancel").disabled).toBe(true);
+    expect(getButton(container, "Cancel").getAttribute("aria-disabled")).toBe("true");
     expect(drawnText(container)).toContain("It cannot be taken back");
   });
 
