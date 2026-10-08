@@ -711,7 +711,8 @@ describe("Codex rewind and re-realization", () => {
 
       await harness.driver.createSession({ ...CREATE_PARAMS, subagentPolicy });
 
-      expect(paramsOf(harness, "thread/start")["config"]).toMatchObject({
+      expect(paramsOf(harness, "thread/start")["config"]).toStrictEqual({
+        "apps._default.approvals_reviewer": "user",
         "agents.max_concurrent_threads_per_session": 1,
         "agents.max_depth": 0,
       });

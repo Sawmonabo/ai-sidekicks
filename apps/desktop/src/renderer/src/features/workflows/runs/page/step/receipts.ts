@@ -26,6 +26,7 @@ const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {
  */
 export interface HeldStepAnswer {
   readonly resolution: WorkflowStepResolution;
+  /** True when the stamp is this window's clock reading, not the daemon's. */
   readonly isWindowClockStamp: boolean;
 }
 

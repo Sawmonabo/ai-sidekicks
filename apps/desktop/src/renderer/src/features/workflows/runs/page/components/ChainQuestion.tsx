@@ -99,7 +99,7 @@ function OpenChainQuestion(props: {
     return <ChainReceipt answered={answered} />;
   }
   const opening =
-    `${chainRoot.workflowName} has started ${formatCount(chainRoot.runCount)} runs ` + "from its ";
+    `${chainRoot.workflowName} has started ` + `${formatCount(chainRoot.runCount)} runs from its `;
   const closing = " start. Keep going?";
   // The group's accessible name spells the start out; on screen it is a figure that hovers.
   const sentence =
