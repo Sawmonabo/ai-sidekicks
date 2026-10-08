@@ -155,17 +155,11 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
           <dl className="meridian-repo-attach__minted">
             <dt>Mount</dt>
             <dd>
-              <WireFigure
-                value={reading.response.repoMountId}
-                hoverLabel={reading.response.repoMountId}
-              />
+              <WireFigure value={reading.response.repoMountId} />
             </dd>
             <dt>Resolved root</dt>
             <dd>
-              <WireFigure
-                value={reading.response.canonicalRoot}
-                hoverLabel={reading.response.canonicalRoot}
-              />
+              <WireFigure value={reading.response.canonicalRoot} />
             </dd>
           </dl>
         </AnnouncedLine>

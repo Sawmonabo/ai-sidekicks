@@ -9,7 +9,8 @@
 // control that gains its words while it is hovered or focused shows them at once, and one that
 // drops them drops the label. A label put away stays away until the pointer moves to another
 // trigger or off every trigger, or focus moves. Escape on a focused trigger whose label shows puts
-// the label away and does nothing else, so the control's own Escape waits for the next press.
+// the label away and does nothing else: the press reaches no other handler and its default is
+// canceled, so the control's own Escape waits for the next press.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -18,7 +19,12 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { isElement } from "@floating-ui/utils/dom";
 
-import type { HoverLabelSide } from "../HoverLabel.js";
+import {
+  HOVER_LABEL_SIDE_ATTRIBUTE,
+  HOVER_LABEL_SIDES,
+  HOVER_LABEL_TEXT_ATTRIBUTE,
+  type HoverLabelSide,
+} from "../HoverLabel.js";
 
 /** The label a window shows: its trigger, its words and the side it prefers. */
 export interface ShownHoverLabel {
@@ -97,6 +103,7 @@ export function useShownHoverLabel(
         focusTrigger !== undefined &&
         shownOf(tracked)?.anchor === focusTrigger
       ) {
+        event.preventDefault();
         event.stopPropagation();
         close();
       }
@@ -123,7 +130,7 @@ export function useShownHoverLabel(
     });
     observer.observe(ownerDocument, {
       subtree: true,
-      attributeFilter: [TEXT_ATTRIBUTE, SIDE_ATTRIBUTE],
+      attributeFilter: [HOVER_LABEL_TEXT_ATTRIBUTE, HOVER_LABEL_SIDE_ATTRIBUTE],
     });
     ownerDocument.addEventListener("pointerover", onPointerOver);
     ownerDocument.addEventListener("pointerout", onPointerOut);
@@ -154,11 +161,7 @@ interface TrackedElements {
   dismissedFocus?: Element | undefined;
 }
 
-const TEXT_ATTRIBUTE = "data-hover-label";
-
-const SIDE_ATTRIBUTE = "data-hover-label-side";
-
-const TRIGGER_SELECTOR = `[${TEXT_ATTRIBUTE}]`;
+const TRIGGER_SELECTOR = `[${HOVER_LABEL_TEXT_ATTRIBUTE}]`;
 
 // The trigger an element is on: itself or the trigger around it, as a glyph the pointer is over
 // or a field focused inside a labeled frame.
@@ -178,8 +181,8 @@ function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {
   return {
     anchor,
     // Present: the trigger selector matched this element.
-    text: anchor.getAttribute(TEXT_ATTRIBUTE) ?? "",
-    side: sideOf(anchor.getAttribute(SIDE_ATTRIBUTE)),
+    text: anchor.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE) ?? "",
+    side: sideOf(anchor.getAttribute(HOVER_LABEL_SIDE_ATTRIBUTE)),
   };
 }
 
@@ -193,10 +196,5 @@ function isSameLabel(
 }
 
 function sideOf(attribute: string | null): HoverLabelSide | undefined {
-  return attribute === "top" ||
-    attribute === "right" ||
-    attribute === "bottom" ||
-    attribute === "left"
-    ? attribute
-    : undefined;
+  return HOVER_LABEL_SIDES.find((side) => side === attribute);
 }

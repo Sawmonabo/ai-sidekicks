@@ -7,8 +7,8 @@
 // and a label Escape put away stays away while the pointer moves inside its control, until it
 // leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
 // the frame's label. The drawn label is hidden from assistive technology, which reads the words
-// once, from the control. Escape on a focused control puts its label away without reaching the
-// page.
+// once, from the control. Escape on a focused control puts its label away and nothing else: the
+// page never sees that press, and its default is canceled.
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
@@ -27,8 +27,16 @@ afterEach(() => {
 });
 
 it("shows on keyboard focus, closes on Escape, and stays while the pointer moves onto it", async () => {
+  let pageEscapes = 0;
   const { getByRole } = render(
-    <div style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          pageEscapes += 1;
+        }
+      }}
+    >
       <button type="button">Before</button>
       <HoverLabel text="Color scheme" textRole="name">
         <button type="button">◐</button>
@@ -57,13 +65,24 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
   });
   expect(document.activeElement).toBe(control);
 
-  await act(async () => {
-    await userEvent.keyboard("{Escape}");
+  // Dispatched by hand so its return value says whether the default survived.
+  let isDefaultKept = true;
+  act(() => {
+    isDefaultKept = control.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
   });
   await waitFor(() => {
     expect(shownLabel()).toBeNull();
   });
   expect(document.activeElement).toBe(control);
+  expect(pageEscapes, "the Escape that put the label away reached the page").toBe(0);
+  expect(isDefaultKept, "the Escape that put the label away kept its default").toBe(false);
+  // The next Escape is the page's.
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
+  expect(pageEscapes).toBe(1);
 
   act(() => {
     control.blur();
@@ -190,53 +209,6 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Already restarting.");
   });
-});
-
-it("takes a focused control's first Escape for its label alone, before the page's", async () => {
-  let pageEscapes = 0;
-  function EscapingPage(): React.JSX.Element {
-    return (
-      <div
-        style={{ padding: "64px" }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            pageEscapes += 1;
-          }
-        }}
-      >
-        <button type="button">Before</button>
-        <HoverLabel text="Color scheme" textRole="name">
-          <button type="button">◐</button>
-        </HoverLabel>
-      </div>
-    );
-  }
-  const { getByRole } = render(
-    <>
-      <EscapingPage />
-      <WindowHoverLabel />
-    </>,
-  );
-  act(() => {
-    getByRole("button", { name: "Before" }).focus();
-  });
-  await act(async () => {
-    await userEvent.tab();
-  });
-  await waitFor(() => {
-    expect(shownLabel()?.textContent).toBe("Color scheme");
-  });
-  await act(async () => {
-    await userEvent.keyboard("{Escape}");
-  });
-  await waitFor(() => {
-    expect(shownLabel()).toBeNull();
-  });
-  expect(pageEscapes, "the Escape that put the label away reached the page").toBe(0);
-  await act(async () => {
-    await userEvent.keyboard("{Escape}");
-  });
-  expect(pageEscapes).toBe(1);
 });
 
 it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {

@@ -5,7 +5,7 @@
 import "@xyflow/react/dist/base.css";
 import "./RunGraphCanvas.css";
 
-import { isElement, isHTMLElement } from "@floating-ui/utils/dom";
+import { getWindow, isElement, isHTMLElement } from "@floating-ui/utils/dom";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Panel,
@@ -280,11 +280,15 @@ function graphFocusOrder(
   nodes: readonly { readonly id: string }[],
   edges: readonly { readonly id: string; readonly source: string }[],
 ): readonly GraphFocusStop[] {
+  const countsBySource = new Map<string, GraphFocusStop[]>();
+  for (const edge of edges) {
+    const counts = countsBySource.get(edge.source) ?? [];
+    counts.push({ kind: "count", id: edge.id });
+    countsBySource.set(edge.source, counts);
+  }
   return nodes.flatMap((node) => [
     { kind: "node" as const, id: node.id },
-    ...edges
-      .filter((edge) => edge.source === node.id)
-      .map((edge) => ({ kind: "count" as const, id: edge.id })),
+    ...(countsBySource.get(node.id) ?? []),
   ]);
 }
 
@@ -333,7 +337,9 @@ function drawnGraphPoint(element: Element): CanvasPoint {
     throw new Error("A focused run graph element is drawn outside the graph's viewport.");
   }
   const origin = graph.getBoundingClientRect();
-  const scale = new DOMMatrixReadOnly(getComputedStyle(graph).transform).a;
+  // The graph's own window, which may be another than this script's.
+  const graphWindow = getWindow(graph);
+  const scale = new graphWindow.DOMMatrixReadOnly(graphWindow.getComputedStyle(graph).transform).a;
   const box = element.getBoundingClientRect();
   return {
     x: (box.left + box.width / 2 - origin.left) / scale,

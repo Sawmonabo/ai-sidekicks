@@ -122,7 +122,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         <dl className="meridian-mount-card__provenance-list">
           <dt>Entered path</dt>
           <dd>
-            <WireFigure value={mount.localPath} hoverLabel={mount.localPath} />
+            <WireFigure value={mount.localPath} />
           </dd>
           <dt>Attached</dt>
           <dd>

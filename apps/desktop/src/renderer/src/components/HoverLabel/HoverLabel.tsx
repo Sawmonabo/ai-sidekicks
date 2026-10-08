@@ -22,8 +22,17 @@ import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
  */
 export type HoverLabelTextRole = "name" | "description" | "visible-text";
 
+/** The sides of its trigger a hover label can prefer. */
+export const HOVER_LABEL_SIDES = ["top", "right", "bottom", "left"] as const;
+
 /** The side of its trigger a hover label prefers; it flips when that side has no room. */
-export type HoverLabelSide = "top" | "right" | "bottom" | "left";
+export type HoverLabelSide = (typeof HOVER_LABEL_SIDES)[number];
+
+/** The trigger attribute holding a hover label's words, which the window's label reads. */
+export const HOVER_LABEL_TEXT_ATTRIBUTE = "data-hover-label";
+
+/** The trigger attribute holding the side a hover label prefers. */
+export const HOVER_LABEL_SIDE_ATTRIBUTE = "data-hover-label-side";
 
 /** Props for `HoverLabel`. */
 export interface HoverLabelProps {
@@ -41,8 +50,8 @@ export interface HoverLabelProps {
 
 /** The attributes a trigger takes: the words and side the host reads, and the spoken path. */
 export interface HoverLabelTriggerProps {
-  readonly "data-hover-label"?: string | undefined;
-  readonly "data-hover-label-side"?: HoverLabelSide | undefined;
+  readonly [HOVER_LABEL_TEXT_ATTRIBUTE]?: string | undefined;
+  readonly [HOVER_LABEL_SIDE_ATTRIBUTE]?: HoverLabelSide | undefined;
   readonly "aria-label"?: string | undefined;
   readonly "aria-describedby"?: string | undefined;
 }
@@ -60,8 +69,8 @@ export function HoverLabel(props: HoverLabelProps): React.JSX.Element {
     text === undefined
       ? {}
       : {
-          "data-hover-label": text,
-          ...(props.side === undefined ? {} : { "data-hover-label-side": props.side }),
+          [HOVER_LABEL_TEXT_ATTRIBUTE]: text,
+          ...(props.side === undefined ? {} : { [HOVER_LABEL_SIDE_ATTRIBUTE]: props.side }),
           ...(props.textRole === "name" ? { "aria-label": text } : {}),
           ...(isDescription ? { "aria-describedby": descriptionId } : {}),
         };
