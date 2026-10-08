@@ -51,12 +51,15 @@ const INSERT_DEFINITION_SQL = `INSERT INTO workflow_definitions (
     @id, @name, @name_folded, @content_hash, @schema_version, @definition_body, @layout_json,
     @pin_data_json, @tags, @created_at, @created_by, @created_at
   )`;
+// A copy's Code nodes hold the code of the version it was copied from, so each keeps that
+// version's package lock.
 const INSERT_FIRST_VERSION_SQL = `INSERT INTO workflow_versions (
     id, definition_id, version_number, content_hash, schema_version, definition_body, layout_json,
-    created_at, created_by, saved_by_agent_id
+    created_at, created_by, saved_by_agent_id, code_locks_json
   ) VALUES (
     @id, @definition_id, 1, @content_hash, @schema_version, @definition_body, @layout_json,
-    @created_at, @created_by, @saved_by_agent_id
+    @created_at, @created_by, @saved_by_agent_id,
+    COALESCE((SELECT code_locks_json FROM workflow_versions WHERE id = @copied_version_id), '{}')
   )`;
 // Matches only while the expected version is still the latest, so the staleness check and the
 // save are one write and no second save can slip a version in between. A layout, tags or pinned
@@ -70,12 +73,20 @@ const UPDATE_CURRENT_BODY_SQL = `UPDATE workflow_definitions SET
   WHERE id = @id AND deleted_at IS NULL
     AND (SELECT MAX(version_number) FROM workflow_versions WHERE definition_id = @id)
       = @expected_version_number`;
+// A version holding the same bytes as an earlier one, as Restore writes, holds the same code in
+// every Code node, so it carries the newest such version's package locks and installs the packages
+// that version ran with. A version with new bytes starts with none, for the package lock writer.
 const INSERT_NEXT_VERSION_SQL = `INSERT INTO workflow_versions (
     id, definition_id, version_number, parent_version_id, parent_content_hash, content_hash,
-    schema_version, definition_body, layout_json, created_at, created_by, saved_by_agent_id
+    schema_version, definition_body, layout_json, created_at, created_by, saved_by_agent_id,
+    code_locks_json
   )
   SELECT @id, definition_id, version_number + 1, id, content_hash, @content_hash,
-    @schema_version, @definition_body, @layout_json, @created_at, @created_by, @saved_by_agent_id
+    @schema_version, @definition_body, @layout_json, @created_at, @created_by, @saved_by_agent_id,
+    COALESCE((SELECT same_bytes.code_locks_json FROM workflow_versions AS same_bytes
+              WHERE same_bytes.definition_id = @definition_id
+                AND same_bytes.content_hash = @content_hash
+              ORDER BY same_bytes.version_number DESC LIMIT 1), '{}')
   FROM workflow_versions
   WHERE definition_id = @definition_id AND version_number = @expected_version_number`;
 const LATEST_VERSION_SQL = `SELECT deleted_at,
@@ -159,7 +170,42 @@ export class WorkflowDefinitionStore {
     author: WorkflowSaveAuthor,
     options: WorkflowCreateOptions,
   ): Promise<WorkflowDefinitionCreateResponse> {
-    const { document } = request;
+    return this.#insertWorkflow(request.document, author, options, null);
+  }
+
+  /**
+   * Creates a copy of a workflow's latest document under the first free `<name> copy` name,
+   * keeping that version's package locks. The copy starts with no kept values and leaves every
+   * draft alone. Rejects as {@link create} does, and with {@link WorkflowNotFoundError} for a
+   * workflow not in the library.
+   */
+  async duplicate(
+    sourceDefinitionId: WorkflowDefinitionId,
+    author: WorkflowSaveAuthor,
+  ): Promise<WorkflowDefinitionCreateResponse> {
+    const { document, deletedAt, workflowVersionId } = this.#library.read({
+      definitionId: sourceDefinitionId,
+    });
+    if (deletedAt !== undefined) {
+      throw new WorkflowNotFoundError({ definitionId: sourceDefinitionId });
+    }
+    const name = this.#library.firstFreeDuplicateName(document.name);
+    return this.#insertWorkflow(
+      { ...document, name },
+      author,
+      { isFromNewWorkflowDraft: false },
+      workflowVersionId,
+    );
+  }
+
+  // Writes a workflow and its first version; `copiedVersionId` names the version a copy came
+  // from, whose package locks the first version keeps, or is null for a new workflow.
+  async #insertWorkflow(
+    document: WorkflowDocument,
+    author: WorkflowSaveAuthor,
+    options: WorkflowCreateOptions,
+    copiedVersionId: string | null,
+  ): Promise<WorkflowDefinitionCreateResponse> {
     this.#refuseFindings(document);
     const { canonicalBody, contentHash } = hashWorkflowDocument(document);
     const definitionId = mintUuidV7() as WorkflowDefinitionId;
@@ -196,6 +242,7 @@ export class WorkflowDefinitionStore {
           created_at: createdAt,
           created_by: author.deviceId,
           saved_by_agent_id: author.agentId ?? null,
+          copied_version_id: copiedVersionId,
         },
       },
     ];
@@ -213,27 +260,8 @@ export class WorkflowDefinitionStore {
   }
 
   /**
-   * Creates a copy of a workflow's latest document under the first free `<name> copy` name. The
-   * copy starts with no kept values and leaves every draft alone. Rejects as {@link create} does,
-   * and with {@link WorkflowNotFoundError} for a workflow not in the library.
-   */
-  async duplicate(
-    sourceDefinitionId: WorkflowDefinitionId,
-    author: WorkflowSaveAuthor,
-  ): Promise<WorkflowDefinitionCreateResponse> {
-    const { document, deletedAt } = this.#library.read({ definitionId: sourceDefinitionId });
-    if (deletedAt !== undefined) {
-      throw new WorkflowNotFoundError({ definitionId: sourceDefinitionId });
-    }
-    const name = this.#library.firstFreeDuplicateName(document.name);
-    return this.create({ document: { ...document, name } }, author, {
-      isFromNewWorkflowDraft: false,
-    });
-  }
-
-  /**
    * Saves the document as the workflow's next version, only while `expectedVersionNumber` is still
-   * its latest, stores the layout, tags and pinned data it carries on the workflow, and clears the
+   * its latest, even where it holds an earlier version's bytes, as Restore does, stores the layout, tags and pinned data it carries on the workflow, and clears the
    * workflow's draft in the same write. Rejects with
    * {@link WorkflowVersionStaleError} when it is not, {@link WorkflowDefinitionRefusedError} for
    * findings or a held name, and {@link WorkflowNotFoundError} for a workflow not in the library;

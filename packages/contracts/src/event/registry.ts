@@ -143,6 +143,7 @@ export type SessionEventType =
   | "workflow.resumed"
   | "workflow.canceled"
   | "workflow.run_waiting"
+  | "workflow.run_deleted"
   | "workflow.schedule_armed"
   | "workflow.schedule_fired"
   | "workflow.trigger_armed"

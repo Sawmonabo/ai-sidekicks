@@ -85,9 +85,8 @@ CREATE TABLE workflow_versions (
   -- version was saved; '{}' where the version locks none.
   code_locks_json      TEXT NOT NULL DEFAULT '{}'
                        CHECK(json_valid(code_locks_json) AND json_type(code_locks_json) = 'object'),
-  UNIQUE(definition_id, version_number),
-  -- One definition never stores the same bytes as two versions.
-  UNIQUE(definition_id, content_hash)
+  -- Two versions may hold the same bytes: Restore saves an older version again as the newest.
+  UNIQUE(definition_id, version_number)
 ) STRICT;
 
 CREATE INDEX idx_workflow_versions_definition
@@ -123,7 +122,9 @@ CREATE TABLE workflow_runs (
   -- JSON: who or what started the run.
   started_by                TEXT NOT NULL
                             CHECK(json_valid(started_by)),
-  started_at                TEXT,                    -- NULL while the run is new
+  -- When the run was started: the request, fire or call that started it. A run reads 'new'
+  -- from then until the engine admits it.
+  started_at                TEXT NOT NULL,
   finished_at               TEXT,
   -- JSON: the run's typed error; NULL unless it failed, was canceled or crashed.
   error_json                TEXT
@@ -140,7 +141,6 @@ CREATE TABLE workflow_runs (
   -- The run's Keep mark: deleting old runs leaves a kept run.
   kept                      INTEGER NOT NULL DEFAULT 0
                             CHECK(kept IN (0, 1)),
-  created_at                TEXT NOT NULL,
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
   CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
 ) STRICT;
@@ -151,8 +151,8 @@ CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
 -- Stop them all cancels every run of the chain still going.
 CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
--- The runs list pages newest first by creation, ties broken by id.
-CREATE INDEX idx_workflow_runs_created ON workflow_runs(created_at, id);
+-- The runs list pages newest first by start, ties broken by id.
+CREATE INDEX idx_workflow_runs_started ON workflow_runs(started_at, id);
 
 -- ---------------------------------------------------------------------------
 -- workflow_gate_resolutions: every answer to an approval node or a chain's

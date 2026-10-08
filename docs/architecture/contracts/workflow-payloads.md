@@ -543,6 +543,9 @@ type WorkflowResumedPayload = WorkflowRunEventPayload & {
 interface WorkflowCanceledPayload extends WorkflowRunEventPayload {
   reason?: string;
 }
+// workflow.run_deleted — appended in the same unit of work as the delete of the run's rows, so a
+// projection rebuild leaves out a run the person deleted, whose earlier events the log keeps.
+type WorkflowRunDeletedPayload = WorkflowRunEventPayload;
 // workflow.phase_failed — non-null exactly where a sibling branch's failure ended the run and
 // so canceled this phase, rather than the phase failing on its own work.
 interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {

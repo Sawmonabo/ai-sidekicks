@@ -24,8 +24,8 @@ import {
 
 type Writer = Pick<DatabaseWriter, "write">;
 
-// The session every fixture run lives in.
-const FIXTURE_SESSION_ID = "00000000-0000-7000-8000-000000000001" as SessionId;
+/** The session every fixture run lives in. */
+export const FIXTURE_SESSION_ID: SessionId = "00000000-0000-7000-8000-000000000001" as SessionId;
 
 // The node every fixture step runs, as the fixture version's body names it.
 const FIXTURE_NODE_ID = "approve" as WorkflowNodeId;
@@ -129,7 +129,7 @@ export async function createFixtureRun(
       startedBy: { kind: "schedule" },
       chain: options.chain ?? { kind: "starts" },
       executionContext: options.executionContext,
-      createdAt: new Date("2026-10-02T00:00:00.000Z"),
+      startedAt: new Date("2026-10-02T00:00:00.000Z"),
     }),
   );
   return workflowRunId;

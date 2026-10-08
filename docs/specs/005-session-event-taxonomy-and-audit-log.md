@@ -448,6 +448,7 @@ Payload shape: `{sessionId, workflowRunId, definitionId, workflowVersionId}` —
 | `workflow.resumed` | A parked run resumed. The payload carries the structured resumption point — the phase runs that became active again and the gates still pending — and, where the person resuming it re-pinned the run to the definition's current version, the version the run left and the one it joined; an ordinary resume carries no version pair. |
 | `workflow.canceled` | The person canceled a run. This is the canonical record of that cancellation, carrying the `reason` the person gave, at most 8 KiB counted as the UTF-8 bytes of its JSON encoding, and it is appended in the same unit of work as the status write: without that, a projection rebuild would apply the last `workflow.phase_suspended` payload and resurrect a canceled run. |
 | `workflow.run_waiting` | A run entered `waiting` — on a person, on its chain's question or on a spent provider account. |
+| `workflow.run_deleted` | The person deleted a run, which no longer runs. It is appended in the same unit of work as the delete of the run's rows: the log keeps the run's earlier events, so without it a projection rebuild would bring the deleted run back. |
 | `workflow.schedule_armed` | A schedule trigger was armed, the next fire instant recorded with it. |
 | `workflow.schedule_fired` | An armed schedule fired, starting a run. |
 | `workflow.trigger_armed` | A non-schedule trigger — a file watch, a webhook, a session-event filter — was armed. |

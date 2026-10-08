@@ -67,7 +67,7 @@ const LIST_DEFINITIONS_SQL = `SELECT definition.id, definition.name, definition.
   LEFT JOIN workflow_runs last_run ON last_run.id = (
     SELECT run.id FROM workflow_runs run
       JOIN workflow_versions run_version ON run_version.id = run.workflow_version_id
-      WHERE run_version.definition_id = definition.id AND run.started_at IS NOT NULL
+      WHERE run_version.definition_id = definition.id
       ORDER BY run.started_at DESC, run.id DESC LIMIT 1
   )
   WHERE definition.deleted_at IS NULL AND (@cursor IS NULL OR definition.id > @cursor)

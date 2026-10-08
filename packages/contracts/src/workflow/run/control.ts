@@ -592,6 +592,16 @@ export const WorkflowCanceledPayloadSchema: z.ZodType<WorkflowCanceledPayload> =
   })
   .strict();
 
+/**
+ * `workflow.run_deleted`, written with the delete of the run's rows in one step, so rebuilding the
+ * runs from the log leaves out a run the person deleted, whose earlier events the log keeps.
+ */
+export type WorkflowRunDeletedPayload = WorkflowRunEventPayload;
+/** Wire schema for {@link WorkflowRunDeletedPayload}. */
+export const WorkflowRunDeletedPayloadSchema: z.ZodType<WorkflowRunDeletedPayload> = z
+  .object(workflowRunEventFields)
+  .strict();
+
 /** One step a resumed run picks up, by its node, its attempt and which execution of the node. */
 export type WorkflowResumedStep = Omit<WorkflowStepKey, "workflowRunId">;
 

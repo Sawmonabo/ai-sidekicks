@@ -106,6 +106,7 @@ import {
   WorkflowCanceledPayloadSchema,
   WorkflowResultsPostedPayloadSchema,
   WorkflowResumedPayloadSchema,
+  WorkflowRunDeletedPayloadSchema,
   WorkflowStartedPayloadSchema,
 } from "../workflow/run/control.js";
 import {
@@ -261,6 +262,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "workflow.resumed": "workflow_lifecycle",
   "workflow.canceled": "workflow_lifecycle",
   "workflow.run_waiting": "workflow_lifecycle",
+  "workflow.run_deleted": "workflow_lifecycle",
   "workflow.schedule_armed": "workflow_lifecycle",
   "workflow.schedule_fired": "workflow_lifecycle",
   "workflow.trigger_armed": "workflow_lifecycle",
@@ -620,6 +622,11 @@ const workflowCanceledVariantSchema = buildSessionEventVariantSchema(
   "workflow_lifecycle",
   WorkflowCanceledPayloadSchema,
 );
+const workflowRunDeletedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.run_deleted",
+  "workflow_lifecycle",
+  WorkflowRunDeletedPayloadSchema,
+);
 const workflowResultsPostedVariantSchema = buildSessionEventVariantSchema(
   "workflow.results_posted",
   "workflow_lifecycle",
@@ -833,6 +840,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   workflowStartedVariantSchema,
   workflowResumedVariantSchema,
   workflowCanceledVariantSchema,
+  workflowRunDeletedVariantSchema,
   workflowResultsPostedVariantSchema,
   workflowPhaseSuspendedVariantSchema,
   workflowStepStartedVariantSchema,

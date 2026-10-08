@@ -146,6 +146,55 @@ describe("WorkflowDefinitionStore.update", () => {
     expect(resaved.document.layout).toEqual(layout);
     expect(resaved.document.tags).toEqual(["ops"]);
   });
+
+  it("restores an older version as a new one with its package locks, and a copy keeps them", async () => {
+    const { store, scratch } = fixture;
+    const first = await store.create(
+      { document: buildWorkflowDocument("Nightly") },
+      BUILDER_AUTHOR,
+      CREATE_OPTIONS,
+    );
+    const locks = JSON.stringify({ read: { lockfile: "bun.lock v1" } });
+    await scratch.writer.write([
+      {
+        sql: "UPDATE workflow_versions SET code_locks_json = ? WHERE id = ?",
+        bindings: [locks, first.workflowVersionId],
+      },
+    ]);
+    const { definitionId } = first;
+    await store.update(
+      {
+        definitionId,
+        expectedVersionNumber: 1,
+        document: buildWorkflowDocument("Nightly", "second.md"),
+      },
+      BUILDER_AUTHOR,
+    );
+
+    const restored = await store.update(
+      { definitionId, expectedVersionNumber: 2, document: buildWorkflowDocument("Nightly") },
+      BUILDER_AUTHOR,
+    );
+    const copy = await store.duplicate(definitionId, BUILDER_AUTHOR);
+
+    const versions = scratch.reader
+      .prepare<[], { version_number: number; content_hash: string; code_locks_json: string }>(
+        `SELECT version_number, content_hash, code_locks_json FROM workflow_versions
+         WHERE definition_id = '${definitionId}' ORDER BY version_number`,
+      )
+      .all();
+    expect(restored.versionNumber).toBe(3);
+    expect(restored.contentHash).toBe(first.contentHash);
+    expect(versions.map((version) => version.version_number)).toEqual([1, 2, 3]);
+    expect(versions.map((version) => version.code_locks_json)).toEqual([locks, "{}", locks]);
+    const copyLocks = scratch.reader
+      .prepare<
+        [string],
+        { code_locks_json: string }
+      >("SELECT code_locks_json FROM workflow_versions WHERE id = ?")
+      .get(copy.workflowVersionId);
+    expect(copyLocks?.code_locks_json).toBe(locks);
+  });
 });
 
 describe("WorkflowDefinitionStore.delete", () => {
