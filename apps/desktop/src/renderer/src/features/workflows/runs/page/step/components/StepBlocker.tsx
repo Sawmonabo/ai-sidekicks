@@ -1,11 +1,15 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type {
+  WorkflowStep,
+  WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
@@ -23,11 +27,11 @@ export interface StepBlockerProps {
   readonly nodeKind: WorkflowNodeKindId | undefined;
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
-  /** The receipt this sitting's answer left on the step, before the run reads back answered. */
-  readonly receipt: string | undefined;
+  /** The answer this sitting gave the step, held until the run reads back answered. */
+  readonly answer: WorkflowStepResolution | undefined;
   readonly bridge: PlatformBridge;
-  /** Called with the answer's receipt once the daemon has taken it. */
-  readonly onAnswered: (receipt: string) => void;
+  /** Called with the answer once the daemon has taken it. */
+  readonly onAnswered: (answer: WorkflowStepResolution) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
 }
 
@@ -40,12 +44,17 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
+  const resolution = step.resolution ?? props.answer;
   const receipt =
-    step.resolution === undefined
-      ? (props.receipt ?? timedOutReceipt(step, props.nodeKind, props.nowMs, clockLocale))
-      : resolutionReceipt(step.resolution, props.nowMs, clockLocale);
+    resolution === undefined
+      ? timedOutReceipt(step, props.nodeKind)
+      : resolutionReceipt(resolution);
   if (receipt !== undefined) {
-    return <p className="meridian-workflow-step__receipt">{receipt}</p>;
+    return (
+      <p className="meridian-workflow-step__receipt">
+        {receipt.words} <DayClockFigure at={receipt.at} nowMs={props.nowMs} locale={clockLocale} />
+      </p>
+    );
   }
   if (step.status !== "waiting") {
     return null;

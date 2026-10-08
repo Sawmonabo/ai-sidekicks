@@ -124,19 +124,61 @@ const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   yolo: "on-request",
 });
 
+/** How Codex approves a ChatGPT connector's tool calls (`AppToolApproval` at the pin). */
+type CodexConnectorApprovalMode = "writes" | "approve";
+
 /**
- * The `config` overrides `yolo` adds: Codex's own `approve` as the default for every ChatGPT
- * connector, so a connector tool runs unasked unless the person set its app, account or tool.
+ * The default every ChatGPT connector's tool calls take at each permission level, set only as
+ * `apps._default` so an app, account or tool the person set keeps its own: `writes` below `yolo`,
+ * so a tool not marked read-only asks (the reviewer answers at `reviewed`, approvals `never`
+ * refuses it at `sandboxed`), and Codex's own `approve` at `yolo`, so every one runs unasked.
  */
-const CODEX_YOLO_CONFIG_OVERRIDES: Readonly<Record<string, unknown>> = Object.freeze({
-  "apps._default.default_tools_approval_mode": "approve",
+const CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexConnectorApprovalMode>
+> = Object.freeze({
+  readonly: "writes",
+  ask: "writes",
+  reviewed: "writes",
+  sandboxed: "writes",
+  yolo: "approve",
 });
+
+/** Who Codex routes an ask to (`ApprovalsReviewer` at the pin). */
+type CodexApprovalsReviewer = "user" | "auto_review";
+
+/**
+ * Who answers Codex's asks at each permission level: Codex's own automatic reviewer at `reviewed`,
+ * which is what that level means, and the person, through the daemon's approval pipeline, at
+ * every other level.
+ */
+const CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexApprovalsReviewer>
+> = Object.freeze({
+  readonly: "user",
+  ask: "user",
+  reviewed: "auto_review",
+  sandboxed: "user",
+  yolo: "user",
+});
+
+/**
+ * The `approvalsReviewer` a thread or turn carries: the posture's level's reviewer, and the person
+ * when no posture is declared, so a config or profile override never picks the reviewer. Sent on
+ * every `turn/start` too, because the turn's value routes that turn and every later one.
+ */
+export function composeCodexApprovalsReviewer(
+  posture: ExecutionPosture | undefined,
+): CodexApprovalsReviewer {
+  return posture === undefined
+    ? "user"
+    : CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL[posture.mode];
+}
 
 /** The thread-level posture one permission level runs a conversation under. */
 interface CodexThreadPosture {
   /** The `sandbox` and `approvalPolicy` thread fields. */
   readonly params: { readonly sandbox: CodexSandboxMode; readonly approvalPolicy: string };
-  /** The `config` overrides the level adds; empty below `yolo`. */
+  /** The `config` overrides the level adds: the connectors' default approval mode. */
   readonly config: Readonly<Record<string, unknown>>;
 }
 
@@ -146,7 +188,10 @@ export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThrea
   const approvalPolicy = CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode];
   return {
     params: { sandbox, approvalPolicy },
-    config: posture.mode === "yolo" ? CODEX_YOLO_CONFIG_OVERRIDES : {},
+    config: {
+      "apps._default.default_tools_approval_mode":
+        CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL[posture.mode],
+    },
   };
 }
 

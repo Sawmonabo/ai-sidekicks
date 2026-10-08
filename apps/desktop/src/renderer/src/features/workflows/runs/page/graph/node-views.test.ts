@@ -149,7 +149,7 @@ describe("the run graph names when a parked node resumes", () => {
       resumeAt,
     });
 
-    expect(summaryView([TRIGGERED, parked]).resumeLine).toBe(
+    expect(summaryView([TRIGGERED, parked]).accessibleName).toContain(
       `Resumes at ${formatDayClock(resumeAt, GRAPH_NOW_MS, CLOCK_LOCALE)}`,
     );
   });

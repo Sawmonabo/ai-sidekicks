@@ -104,7 +104,7 @@ function renderPanel(
         payerOf={() => ({ kind: "unread" })}
         bridge={bridge}
         nowMs={WORKFLOW_FIXTURE_NOW_MS}
-        receipts={new Map()}
+        answers={new Map()}
         onAnswered={() => undefined}
         onOpenRun={() => undefined}
         onOpenReview={() => undefined}

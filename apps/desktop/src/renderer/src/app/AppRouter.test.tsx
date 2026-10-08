@@ -216,7 +216,7 @@ describe("AppRouter — the workflows screen across a run's page", () => {
     });
     await press("Approve");
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/^Approved at /u)).toBeTruthy();
+      expect(screen.getByText(/^Approved at/u)).toBeTruthy();
     });
     await navigate(mounted);
 

@@ -123,8 +123,12 @@ describe("a run's page", () => {
     });
     await press("Answer");
     await advanceScenarioUntil(answeredHere.engine, () => {
-      expect(screen.getByText(/^Answered at /u)).toBeDefined();
+      expect(screen.getByText(/^Answered at/u)).toBeDefined();
     });
+    // The receipt's instant reads as a clock time, never the unreadable placeholder.
+    expect(document.querySelector(".meridian-workflow-step__receipt")?.textContent).toMatch(
+      /^Answered at \S*\d/u,
+    );
     expect(answeredHere.calls.filter((call) => call.method === "question.resolve")).toStrictEqual([
       {
         method: "question.resolve",
@@ -152,7 +156,7 @@ describe("a run's page", () => {
       await crossMacrotaskBoundary();
     });
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/^Answered at /u)).toBeDefined();
+      expect(screen.getByText(/^Answered at/u)).toBeDefined();
     });
     expect(screen.queryByLabelText(WORKFLOW_REPLY_QUESTION.prompt)).toBeNull();
     expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();

@@ -99,6 +99,13 @@ function control(name: string): HTMLElement {
   return screen.getByRole("button", { name });
 }
 
+/** The live line's parts as drawn, each with the instant it ends on. */
+function liveLineParts(): (string | null)[] {
+  return [...document.querySelectorAll(".meridian-workflow-run__live-part")].map(
+    (part) => part.textContent,
+  );
+}
+
 describe("a run's header", () => {
   it("says what a waiting run waits on and when it resumes or gives up, with its day", () => {
     const run = fixtureRun(WORKFLOW_RUN_IDS.waitingAccount);
@@ -115,7 +122,7 @@ describe("a run's header", () => {
     );
     expect(screen.getByText("Nothing until the account can run again.")).toBeDefined();
     const resumes = formatDayClock(waiting.resumeAt, dayBeforeMs, CLOCK_LOCALE);
-    expect(screen.getByText(`resumes itself at ${resumes}`)).toBeDefined();
+    expect(liveLineParts()).toContain(`resumes itself at ${resumes}`);
     cleanup();
 
     // With no instant armed the park says so, rather than inventing a time.
@@ -124,7 +131,7 @@ describe("a run's header", () => {
       ...run,
       steps: run.steps.map((step) => (step === waiting ? unarmed : step)),
     });
-    expect(screen.getByText("awaiting resume — no instant is armed")).toBeDefined();
+    expect(liveLineParts()).toContain("awaiting resume — no instant is armed");
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
       "The Claude Code account sam@example.com · Max is spent.",
     );
@@ -137,11 +144,9 @@ describe("a run's header", () => {
       throw new Error("the fixture's approval wait carries no time limit");
     }
     renderHeader(approval, [], [], undefined, new ManualClock(dayBeforeMs));
-    expect(
-      screen.getByText(
-        `waiting on an approval until ${formatDayClock(deadline, dayBeforeMs, CLOCK_LOCALE)}`,
-      ),
-    ).toBeDefined();
+    expect(liveLineParts()).toContain(
+      `waiting on an approval until ${formatDayClock(deadline, dayBeforeMs, CLOCK_LOCALE)}`,
+    );
   });
 
   it("names the stopped step by its node's kind, and no kind before the version is read", () => {

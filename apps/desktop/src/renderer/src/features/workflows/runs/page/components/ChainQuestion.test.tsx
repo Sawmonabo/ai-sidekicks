@@ -59,12 +59,10 @@ describe("the chain's question", () => {
       },
     );
 
-    expect(
-      screen.getByText(
-        `Folder sweep has started 100 runs from its ` +
-          `${formatDayClock(run.chainRoot.startedAt, NEXT_DAY_MS, CLOCK_LOCALE)} start. Keep going?`,
-      ),
-    ).toBeDefined();
+    expect(document.querySelector(".meridian-workflow-run__chain-sentence")?.textContent).toBe(
+      `Folder sweep has started 100 runs from its ` +
+        `${formatDayClock(run.chainRoot.startedAt, NEXT_DAY_MS, CLOCK_LOCALE)} start. Keep going?`,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Keep going" }));
     await waitFor(() => {
       expect(calls).toStrictEqual([

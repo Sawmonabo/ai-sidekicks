@@ -146,7 +146,7 @@ describe("the workflows screen — what this sitting answered", () => {
     owed = [];
     await press("Approve");
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/^Approved at /u)).toBeTruthy();
+      expect(screen.getByText(/^Approved at/u)).toBeTruthy();
     });
     await navigate(mounted);
 
