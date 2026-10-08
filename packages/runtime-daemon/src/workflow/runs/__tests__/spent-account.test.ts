@@ -33,13 +33,7 @@ describe("a wait on a provider account that was removed", () => {
   it("reads in the run and in the runs-needing-you section, named by its id alone", async () => {
     const versionId = await insertWorkflowVersion(database.writer, "Nightly review");
     const workflowRunId = await createFixtureRun(database.writer, versionId);
-    await setFixtureRunStatus(
-      database.writer,
-      workflowRunId,
-      "waiting",
-      "2026-10-02T00:00:00.000Z",
-      null,
-    );
+    await setFixtureRunStatus(database.writer, workflowRunId, "waiting", null);
     await insertFixtureStep(database.writer, workflowRunId, {
       executionIndex: 0,
       status: "waiting",
@@ -50,14 +44,14 @@ describe("a wait on a provider account that was removed", () => {
     const [step] = new WorkflowRunStore(database).read(workflowRunId).steps;
     expect(step?.waitCause).toBe("account");
     expect(step?.waitAccountId).toBe(REMOVED_ACCOUNT_ID);
-    expect(step?.waitAccount).toBeUndefined();
+    expect(step?.waitAccountName).toBeUndefined();
 
     const section = new WorkflowRunAttentionList(database).read();
     expect(section.entries).toEqual([
       {
         kind: "account",
         providerAccountId: REMOVED_ACCOUNT_ID,
-        account: undefined,
+        accountName: undefined,
         affectedRunCount: 1,
         waitingSince: expect.any(String),
         resumeAt: undefined,

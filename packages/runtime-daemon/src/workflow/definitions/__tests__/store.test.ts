@@ -147,7 +147,7 @@ describe("WorkflowDefinitionStore.update", () => {
     expect(resaved.document.tags).toEqual(["ops"]);
   });
 
-  it("restores an older version as a new one with its package locks, and a copy keeps them", async () => {
+  it("restores an older version with its locks, and mints no version for no change", async () => {
     const { store, scratch } = fixture;
     const first = await store.create(
       { document: buildWorkflowDocument("Nightly") },
@@ -162,31 +162,46 @@ describe("WorkflowDefinitionStore.update", () => {
       },
     ]);
     const { definitionId } = first;
-    await store.update(
-      {
-        definitionId,
-        expectedVersionNumber: 1,
-        document: buildWorkflowDocument("Nightly", "second.md"),
-      },
-      BUILDER_AUTHOR,
-    );
+    const save = (
+      expectedVersionNumber: number,
+      readPath?: string,
+      restoredVersionNumber?: number,
+    ) =>
+      store.update(
+        {
+          definitionId,
+          expectedVersionNumber,
+          document: buildWorkflowDocument("Nightly", readPath),
+          restoredVersionNumber,
+        },
+        BUILDER_AUTHOR,
+      );
+    const readVersions = () =>
+      scratch.reader
+        .prepare<[string], { version_number: number; code_locks_json: string }>(
+          `SELECT version_number, code_locks_json FROM workflow_versions
+           WHERE definition_id = ? ORDER BY version_number`,
+        )
+        .all(definitionId);
 
-    const restored = await store.update(
-      { definitionId, expectedVersionNumber: 2, document: buildWorkflowDocument("Nightly") },
-      BUILDER_AUTHOR,
-    );
+    await save(1, "second.md");
+    const restored = await save(2, undefined, 1);
+    const unchanged = await save(3);
     const copy = await store.duplicate(definitionId, BUILDER_AUTHOR);
+    await save(3, "fourth.md");
+    // The same bytes saved with no Restore named are locked afresh, as any changed code is.
+    await save(4);
 
-    const versions = scratch.reader
-      .prepare<[], { version_number: number; content_hash: string; code_locks_json: string }>(
-        `SELECT version_number, content_hash, code_locks_json FROM workflow_versions
-         WHERE definition_id = '${definitionId}' ORDER BY version_number`,
-      )
-      .all();
     expect(restored.versionNumber).toBe(3);
     expect(restored.contentHash).toBe(first.contentHash);
-    expect(versions.map((version) => version.version_number)).toEqual([1, 2, 3]);
-    expect(versions.map((version) => version.code_locks_json)).toEqual([locks, "{}", locks]);
+    expect(unchanged).toEqual(restored);
+    expect(readVersions()).toEqual([
+      { version_number: 1, code_locks_json: locks },
+      { version_number: 2, code_locks_json: "{}" },
+      { version_number: 3, code_locks_json: locks },
+      { version_number: 4, code_locks_json: "{}" },
+      { version_number: 5, code_locks_json: "{}" },
+    ]);
     const copyLocks = scratch.reader
       .prepare<
         [string],

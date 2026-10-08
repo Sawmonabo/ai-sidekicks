@@ -73,9 +73,10 @@ const UPDATE_CURRENT_BODY_SQL = `UPDATE workflow_definitions SET
   WHERE id = @id AND deleted_at IS NULL
     AND (SELECT MAX(version_number) FROM workflow_versions WHERE definition_id = @id)
       = @expected_version_number`;
-// A version holding the same bytes as an earlier one, as Restore writes, holds the same code in
-// every Code node, so it carries the newest such version's package locks and installs the packages
-// that version ran with. A version with new bytes starts with none, for the package lock writer.
+// Writes nothing for a document identical to the expected version, which stays the latest. A
+// Restore repeats the older version it names, so the new version keeps that version's package
+// locks, provided it holds that version's bytes; any other save starts with none, for the package
+// lock writer to fill.
 const INSERT_NEXT_VERSION_SQL = `INSERT INTO workflow_versions (
     id, definition_id, version_number, parent_version_id, parent_content_hash, content_hash,
     schema_version, definition_body, layout_json, created_at, created_by, saved_by_agent_id,
@@ -83,12 +84,16 @@ const INSERT_NEXT_VERSION_SQL = `INSERT INTO workflow_versions (
   )
   SELECT @id, definition_id, version_number + 1, id, content_hash, @content_hash,
     @schema_version, @definition_body, @layout_json, @created_at, @created_by, @saved_by_agent_id,
-    COALESCE((SELECT same_bytes.code_locks_json FROM workflow_versions AS same_bytes
-              WHERE same_bytes.definition_id = @definition_id
-                AND same_bytes.content_hash = @content_hash
-              ORDER BY same_bytes.version_number DESC LIMIT 1), '{}')
+    COALESCE((SELECT restored.code_locks_json FROM workflow_versions AS restored
+              WHERE restored.definition_id = @definition_id
+                AND restored.version_number = @restored_version_number
+                AND restored.content_hash = @content_hash), '{}')
   FROM workflow_versions
-  WHERE definition_id = @definition_id AND version_number = @expected_version_number`;
+  WHERE definition_id = @definition_id AND version_number = @expected_version_number
+    AND content_hash <> @content_hash`;
+// The latest version once a save has run: the one it wrote, or the expected one it left latest.
+const SAVED_VERSION_SQL = `SELECT id, version_number, created_at FROM workflow_versions
+  WHERE definition_id = ? ORDER BY version_number DESC LIMIT 1`;
 const LATEST_VERSION_SQL = `SELECT deleted_at,
     (SELECT MAX(version_number) FROM workflow_versions WHERE definition_id = @id)
       AS latest_version_number
@@ -115,8 +120,9 @@ const SET_PIN_DATA_SQL = `UPDATE workflow_definitions SET pin_data_json = NULLIF
   ), updated_at = ?
   WHERE id = ? AND deleted_at IS NULL`;
 
-// The position of the name check among a save's statements.
+// The positions of the name check and the read of the saved version among a save's statements.
 const NAME_CHECK_INDEX = 0;
+const SAVED_VERSION_INDEX = 3;
 const NAME_TAKEN_FINDING: WorkflowDefinitionFinding = { rule: "name_taken", nodeIds: [] };
 
 /** Who saved a version: the device the save came from, and the agent that saved it, if one did. */
@@ -129,6 +135,12 @@ export interface WorkflowSaveAuthor {
 export interface WorkflowCreateOptions {
   /** True when the builder saves the new workflow's draft, which the save then clears. */
   readonly isFromNewWorkflowDraft: boolean;
+}
+
+interface SavedVersionRow {
+  readonly id: string;
+  readonly version_number: number;
+  readonly created_at: string;
 }
 
 interface LatestVersionRow {
@@ -261,24 +273,26 @@ export class WorkflowDefinitionStore {
 
   /**
    * Saves the document as the workflow's next version, only while `expectedVersionNumber` is still
-   * its latest, even where it holds an earlier version's bytes, as Restore does, stores the layout, tags and pinned data it carries on the workflow, and clears the
-   * workflow's draft in the same write. Rejects with
-   * {@link WorkflowVersionStaleError} when it is not, {@link WorkflowDefinitionRefusedError} for
-   * findings or a held name, and {@link WorkflowNotFoundError} for a workflow not in the library;
-   * a refused save writes no row.
+   * its latest, even where it repeats an older version's bytes as Restore does; a document
+   * identical to the latest writes no version and answers with the latest. It stores the layout,
+   * tags and pinned data the document carries on the workflow and clears the workflow's draft in
+   * the same write. Rejects with {@link WorkflowVersionStaleError} when the expected version is
+   * not the latest, {@link WorkflowDefinitionRefusedError} for findings or a held name, and
+   * {@link WorkflowNotFoundError} for a workflow not in the library; a refused save writes no row.
    */
   async update(
     request: WorkflowDefinitionUpdateRequest,
     author: WorkflowSaveAuthor,
   ): Promise<WorkflowDefinitionUpdateResponse> {
-    const { definitionId, expectedVersionNumber, document } = request;
+    const { definitionId, expectedVersionNumber, document, restoredVersionNumber } = request;
     this.#refuseFindings(document, definitionId);
     const { canonicalBody, contentHash } = hashWorkflowDocument(document);
     const workflowVersionId = mintUuidV7();
     const createdAt = this.#now().toISOString();
     const layoutJson = document.layout === undefined ? null : JSON.stringify(document.layout);
+    let results;
     try {
-      await this.#writer.write([
+      results = await this.#writer.write([
         nameHolderStatement(foldName(document.name), definitionId),
         {
           sql: UPDATE_CURRENT_BODY_SQL,
@@ -311,8 +325,10 @@ export class WorkflowDefinitionStore {
             created_by: author.deviceId,
             saved_by_agent_id: author.agentId ?? null,
             expected_version_number: expectedVersionNumber,
+            restored_version_number: restoredVersionNumber ?? null,
           },
         },
+        { sql: SAVED_VERSION_SQL, bindings: [definitionId], expectedRowCount: 1 },
         clearWorkflowDraftStatement(definitionId),
       ]);
     } catch (error) {
@@ -324,12 +340,16 @@ export class WorkflowDefinitionStore {
       }
       throw this.#refusalForMissedVersion(definitionId, expectedVersionNumber);
     }
+    const saved = results[SAVED_VERSION_INDEX]?.rows[0] as SavedVersionRow | undefined;
+    if (saved === undefined) {
+      throw new Error(`The save of workflow ${definitionId} read back no version`);
+    }
     return {
       definitionId,
-      versionNumber: expectedVersionNumber + 1,
-      workflowVersionId,
+      versionNumber: saved.version_number,
+      workflowVersionId: saved.id,
       contentHash,
-      createdAt,
+      createdAt: saved.created_at,
     };
   }
 

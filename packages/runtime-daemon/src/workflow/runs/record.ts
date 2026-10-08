@@ -18,7 +18,6 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/status";
 import type {
   WorkflowPayloadRef,
-  WorkflowSpentAccount,
   WorkflowStep,
   WorkflowStepSource,
 } from "@ai-sidekicks/contracts/workflow/run/step/record";
@@ -28,7 +27,11 @@ import type {
   WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 
-import { spentAccountFromColumns, type SpentAccountColumns } from "./spent-account.js";
+import {
+  spentAccountNameFromColumns,
+  type SpentAccountColumns,
+  type SpentAccountName,
+} from "./spent-account.js";
 
 /**
  * One run as its row stores it. `finishedAt` once present is when the run ended, and `error`
@@ -75,8 +78,8 @@ export type StoredWorkflowStep = Pick<
   waitCause?: WorkflowWaitCause | undefined;
   /** The id of the spent account an `account` wait waits on. */
   waitAccountId?: ProviderAccountId | undefined;
-  /** That account as its row names it; absent where the account has been removed. */
-  waitAccount?: WorkflowSpentAccount | undefined;
+  /** That account's name, from its row; absent where the account has been removed. */
+  waitAccountName?: SpentAccountName | undefined;
   /** The instant an `account` wait resumes itself, where one is armed. */
   resumeAt?: string | undefined;
   /** The instant a wait on a person gives up, where its `Timeout` set one. */
@@ -230,10 +233,10 @@ export function storedStepFromColumns(
         : (JSON.parse(columns.step_advisories_json) as string[]),
     waitCause: columns.step_wait_cause ?? undefined,
     waitAccountId: (columns.step_wait_account_id ?? undefined) as ProviderAccountId | undefined,
-    waitAccount:
+    waitAccountName:
       columns.step_wait_account_id === null
         ? undefined
-        : spentAccountFromColumns(columns.step_wait_account_id, columns),
+        : spentAccountNameFromColumns(columns.step_wait_account_id, columns),
     resumeAt: columns.step_resume_at ?? undefined,
     waitDeadlineAt: columns.step_wait_deadline_at ?? undefined,
   };

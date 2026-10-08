@@ -73,7 +73,7 @@ CREATE TABLE workflow_versions (
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   saved_by_agent_id    TEXT,                           -- the agent that saved this version through the authoring call; NULL where the person saved it in the builder, so the Versions panel names the user or that agent
-  code_locks_json      TEXT NOT NULL DEFAULT '{}'          -- JSON object: each full-tier Code node's package lock (with the package list the lock was made from), keyed by node id, written when this version is saved and carried forward for a node whose code did not change; a version holding the same bytes as an earlier one, as Restore writes, carries the newest such version's locks whole, and a Duplicate's first version carries the locks of the version it copied; '{}' where the version locks none. The step's code itself is a param inside definition_body
+  code_locks_json      TEXT NOT NULL DEFAULT '{}'          -- JSON object: each full-tier Code node's package lock (with the package list the lock was made from), keyed by node id, written when this version is saved and carried forward for a node whose code did not change; a Restore's version carries the locks of the version it repeats whole, and a Duplicate's first version those of the version it copied; '{}' where the version locks none. The step's code itself is a param inside definition_body
                        CHECK(json_valid(code_locks_json) AND json_type(code_locks_json) = 'object'),
   UNIQUE(definition_id, version_number)                -- two versions may hold the same bytes: Restore saves an older version again as the newest, and history is never rewritten
 ) STRICT;
@@ -104,7 +104,7 @@ CREATE TABLE workflow_runs (
                             CHECK(json_valid(trigger_json)),
   started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
                             CHECK(json_valid(started_by)),
-  started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started, by the request, fire or call that started it; the run reads `new` from then until the engine admits it
+  started_at                TEXT NOT NULL,             -- RFC 3339 UTC: when the run was started by the request, fire or call that asked for it, the instant of its `workflow.started`; the run reads `new` from then until the engine admits it
   finished_at               TEXT,
   -- Result
   error_json                TEXT                        -- JSON: the run's typed error, the contracts' WorkflowStepError; NULL unless status in ('failed','canceled','crashed')

@@ -8,20 +8,19 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowRunAttentionEntry } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowSpentAccount } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import type { DatabaseConnections } from "../../database/connections.js";
 import { GOING_RUN_STATUSES_SQL } from "./record.js";
 import {
   spentAccountColumns,
-  spentAccountFromColumns,
+  spentAccountNameFromColumns,
   type SpentAccountColumns,
+  type SpentAccountName,
 } from "./spent-account.js";
 
 /**
  * One line of the runs-needing-you section as the rows hold it. An account line names its account
- * by id, and by its row while the account is stored; the account of a step parked on an account
- * since removed has no row left to name it.
+ * by id, and by name while the account's row is stored.
  *
  * @consumedBy the run attention list handler
  */
@@ -29,7 +28,7 @@ export type StoredWorkflowRunAttentionEntry =
   | Extract<WorkflowRunAttentionEntry, { kind: "run" }>
   | (Omit<Extract<WorkflowRunAttentionEntry, { kind: "account" }>, "account"> & {
       providerAccountId: ProviderAccountId;
-      account?: WorkflowSpentAccount | undefined;
+      accountName?: SpentAccountName | undefined;
     });
 
 /**
@@ -111,7 +110,7 @@ export class WorkflowRunAttentionList {
       .map((row) => ({
         kind: "account",
         providerAccountId: row.wait_account_id as ProviderAccountId,
-        account: spentAccountFromColumns(row.wait_account_id, row),
+        accountName: spentAccountNameFromColumns(row.wait_account_id, row),
         affectedRunCount: row.affected_run_count,
         waitingSince: row.waiting_since,
         resumeAt: row.resume_at ?? undefined,

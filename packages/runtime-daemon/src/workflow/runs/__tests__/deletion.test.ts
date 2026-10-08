@@ -67,26 +67,56 @@ async function storeRun(
   chainRootRunId?: WorkflowRunId,
 ): Promise<WorkflowRunId> {
   const workflowRunId = await createFixtureRun(database.writer, versionId, {
+    startedAt,
     executionContext: checkout,
     chain:
       chainRootRunId === undefined
         ? { kind: "starts" }
         : { kind: "joins", chainRootRunId, isFromError: false },
   });
-  await setFixtureRunStatus(database.writer, workflowRunId, status, startedAt, finishedAt);
+  await setFixtureRunStatus(database.writer, workflowRunId, status, finishedAt);
   await insertFixtureStep(database.writer, workflowRunId, step);
   await insertFixtureFormDraft(database.writer, workflowRunId);
   return workflowRunId;
 }
 
-// Each `workflow.run_deleted` in the log, as the session it was appended to and the run it names.
-function readDeletedEvents(): { sessionId: string; workflowRunId: string }[] {
+interface DeletedEvent {
+  readonly appendedTo: string;
+  readonly payload: Record<string, string>;
+}
+
+// Each `workflow.run_deleted` in the log: the session it was appended to and its payload, in the
+// order of the runs it names.
+function readDeletedEvents(): DeletedEvent[] {
   return database.reader
-    .prepare<[], { sessionId: string; workflowRunId: string }>(
-      `SELECT session_id AS sessionId, json_extract(payload, '$.workflowRunId') AS workflowRunId
-       FROM session_events WHERE type = 'workflow.run_deleted' ORDER BY workflowRunId`,
+    .prepare<[], { session_id: string; payload: string }>(
+      `SELECT session_id, payload FROM session_events WHERE type = 'workflow.run_deleted'
+       ORDER BY json_extract(payload, '$.workflowRunId')`,
     )
-    .all();
+    .all()
+    .map((row) => ({
+      appendedTo: row.session_id,
+      payload: JSON.parse(row.payload) as Record<string, string>,
+    }));
+}
+
+// The event a delete of `workflowRunId`, a run of the fixture version, appends.
+function deletedEventOf(workflowRunId: WorkflowRunId): DeletedEvent {
+  const version = database.reader
+    .prepare<
+      [string],
+      { definition_id: string }
+    >("SELECT definition_id FROM workflow_versions WHERE id = ?")
+    .get(versionId);
+  return {
+    appendedTo: FIXTURE_SESSION_ID,
+    payload: {
+      sessionId: FIXTURE_SESSION_ID,
+      workflowRunId,
+      definitionId: version?.definition_id ?? "",
+      workflowVersionId: versionId,
+    },
+  };
 }
 
 const SETTLED_STEP: FixtureStep = { executionIndex: 0, status: "succeeded" };
@@ -125,9 +155,7 @@ describe("deleting one run", () => {
       gitCommonDir: checkout.gitCommonDir,
     });
     expect(readRunRows(database.reader, finishedRunId)).toEqual(NO_ROWS);
-    expect(readDeletedEvents()).toEqual([
-      { sessionId: FIXTURE_SESSION_ID, workflowRunId: finishedRunId },
-    ]);
+    expect(readDeletedEvents()).toEqual([deletedEventOf(finishedRunId)]);
     for (const refused of refusedRows) {
       expect(readRunRows(database.reader, refused.workflowRunId)).toEqual(refused.rows);
     }
@@ -161,11 +189,26 @@ describe("deleting runs older than an instant", () => {
     for (const workflowRunId of oldFinishedRunIds) {
       expect(readRunRows(database.reader, workflowRunId)).toEqual(NO_ROWS);
     }
-    expect(readDeletedEvents().map((event) => event.workflowRunId)).toEqual(
-      [...oldFinishedRunIds].sort(),
-    );
+    expect(readDeletedEvents()).toEqual([...oldFinishedRunIds].sort().map(deletedEventOf));
     for (const survivor of survivors) {
       expect(readRunRows(database.reader, survivor.workflowRunId)).toEqual(survivor.rows);
     }
+  });
+
+  it("leaves a run kept after it was read as deletable, with no deleted event", async () => {
+    const keptLateRunId = await storeRun("succeeded", OLD_START, OLD_FINISH, SETTLED_STEP);
+
+    // The Keep write is queued first, so it commits before the delete's guard reads the run, while
+    // the delete reads the run before the Keep has committed.
+    const keeping = deletion.setKeep({ workflowRunId: keptLateRunId, keep: true });
+    const deleted = await deletion.deleteOlderThan(CUTOFF);
+    await keeping;
+
+    expect(deleted).toEqual([]);
+    expect(readRunRows(database.reader, keptLateRunId)).toMatchObject({
+      run: [{ id: keptLateRunId, kept: 1 }],
+      steps: [{ status: "succeeded" }],
+    });
+    expect(readDeletedEvents()).toEqual([]);
   });
 });

@@ -43,6 +43,22 @@ export interface DeletedWorkflowRun {
   readonly gitCommonDir: string | null;
 }
 
+/**
+ * A bulk delete whose write failed for some run: `deleted` holds every run it did delete, whose
+ * snapshot refs still need pruning, and `cause` the first failure.
+ *
+ * @consumedBy the runs delete handler
+ */
+export class WorkflowRunsDeleteIncompleteError extends Error {
+  readonly deleted: readonly DeletedWorkflowRun[];
+
+  constructor(deleted: readonly DeletedWorkflowRun[], cause: unknown) {
+    super(`Deleting old runs failed after ${String(deleted.length)} were deleted`, { cause });
+    this.name = "WorkflowRunsDeleteIncompleteError";
+    this.deleted = deleted;
+  }
+}
+
 // A chain's first run holds the chain's count and its answer, which a later run still going,
 // or parked on a failed step can still resume, needs, so the first run is not deleted while one is.
 const LATER_CHAIN_RUN_GOING = `EXISTS (SELECT 1 FROM workflow_runs AS later
@@ -91,6 +107,9 @@ const STILL_REMOVABLE_RUN_SQL = `SELECT run.id FROM workflow_runs AS run
 const RUN_STATUS_SQL = "SELECT status FROM workflow_runs WHERE id = ?";
 
 const KEEP_SQL = "UPDATE workflow_runs SET kept = ? WHERE id = ?";
+
+// How many runs' writes a bulk delete keeps queued at once: ten of the writer's batches.
+const RUNS_DELETED_AT_ONCE = 500;
 
 // Envelope version of the run's deleted event, parsed at load so a bad literal throws at import.
 const RUN_DELETED_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
@@ -146,10 +165,10 @@ export class WorkflowRunDeletion {
   }
 
   /**
-   * Deletes one run with its steps, form drafts, gate answers and execution context, and appends its
-   * `workflow.run_deleted` in the same write. Refuses a `new`, `running` or `waiting` run, and a
-   * chain's first run while a later run of its chain is one, with `workflow.run_not_deletable`, and
-   * a run there is none of with `workflow.not_found`, writing nothing either way.
+   * Deletes one run with its steps, form drafts, gate answers and execution context, and appends
+   * its `workflow.run_deleted` in the same write. Refuses a `new`, `running` or `waiting` run, and
+   * a chain's first run while a later run of its chain is one, with `workflow.run_not_deletable`,
+   * and a run there is none of with `workflow.not_found`, writing nothing either way.
    */
   async delete(workflowRunId: WorkflowRunId): Promise<DeletedWorkflowRun> {
     const run = this.#readRunToDelete.get(workflowRunId);
@@ -185,27 +204,39 @@ export class WorkflowRunDeletion {
 
   /**
    * Deletes every run the preview counts for deletion, each with all its rows and its own
-   * `workflow.run_deleted`, and resolves with each one deleted. A run that started, ended or was
-   * kept since the preview is judged as it is at its own write.
+   * `workflow.run_deleted`, and resolves with each one deleted. A run read as deletable that its
+   * guard no longer matches at its write, such as one kept since, is left. Rejects with
+   * {@link WorkflowRunsDeleteIncompleteError} when a run's write fails, once every other run's
+   * write has settled.
    */
   async deleteOlderThan(olderThan: string): Promise<DeletedWorkflowRun[]> {
     const bindings = { olderThan: storedInstant(olderThan) };
     const runs = this.#readRemovableRuns.all(bindings);
-    // Every run's write is queued at once, so the writer commits them in shared batches.
-    const outcomes = await Promise.all(
-      runs.map(async (run) => {
-        try {
-          return await this.#deleteRun(run, STILL_REMOVABLE_RUN_SQL, bindings);
-        } catch (error) {
-          // A run its guard no longer matches is one bulk delete now leaves.
-          if (error instanceof WriteRefusedError) {
-            return undefined;
-          }
-          throw error;
-        }
-      }),
-    );
-    return outcomes.filter((deleted) => deleted !== undefined);
+    const outcomes: PromiseSettledResult<DeletedWorkflowRun>[] = [];
+    // A slice of runs' writes is queued at once, so the writer commits them in shared batches
+    // while the writes in flight stay bounded however many runs go.
+    for (let start = 0; start < runs.length; start += RUNS_DELETED_AT_ONCE) {
+      const slice = runs.slice(start, start + RUNS_DELETED_AT_ONCE);
+      outcomes.push(
+        ...(await Promise.allSettled(
+          slice.map((run) => this.#deleteRun(run, STILL_REMOVABLE_RUN_SQL, bindings)),
+        )),
+      );
+    }
+    const deleted: DeletedWorkflowRun[] = [];
+    let failure: unknown;
+    for (const outcome of outcomes) {
+      if (outcome.status === "fulfilled") {
+        deleted.push(outcome.value);
+      } else if (!(outcome.reason instanceof WriteRefusedError) && failure === undefined) {
+        // A refusal is a run its guard no longer matches, which bulk delete leaves.
+        failure = outcome.reason;
+      }
+    }
+    if (failure !== undefined) {
+      throw new WorkflowRunsDeleteIncompleteError(deleted, failure);
+    }
+    return deleted;
   }
 
   /** Sets or clears the run's Keep mark; throws `workflow.not_found` for a run there is none of. */

@@ -1,13 +1,10 @@
 // A spent provider account as a waiting step and the runs-needing-you section name it: read from
 // `provider_accounts` beside the step that waits on it, and labeled the way every surface labels
-// an account. A step's wait outlives the account's row when the account is removed while the step
-// is parked on it, so a read names the account only while its row is stored.
+// an account. A removal that commits just before a step's park on that account lands leaves the
+// wait with no account row, so a read names the account only while its row is stored.
 
 import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
-import type {
-  ProviderAccountId,
-  ProviderAuthMode,
-} from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderAuthMode } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { WorkflowSpentAccount } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
@@ -39,15 +36,18 @@ export function spentAccountColumns(accountAlias: string): string {
   ].join(", ");
 }
 
+/** A spent account's provider and the label every surface names it by. */
+export type SpentAccountName = Omit<WorkflowSpentAccount, "providerAccountId">;
+
 /**
- * The spent account `providerAccountId` names, from its joined columns, or undefined where no
- * account row matched because the account was removed. Throws when a stored account has no label,
- * which a provider account that has run a step always has.
+ * The name of the spent account `providerAccountId`, from its joined columns, or undefined where
+ * no account row matched because the account was removed. Throws when a stored account has no
+ * label, which a provider account that has run a step always has.
  */
-export function spentAccountFromColumns(
+export function spentAccountNameFromColumns(
   providerAccountId: string,
   columns: SpentAccountColumns,
-): WorkflowSpentAccount | undefined {
+): SpentAccountName | undefined {
   if (columns.account_provider === null) {
     return undefined;
   }
@@ -62,9 +62,5 @@ export function spentAccountFromColumns(
   if (label === undefined) {
     throw new Error(`A step waits on provider account ${providerAccountId}, which has no label`);
   }
-  return {
-    providerAccountId: providerAccountId as ProviderAccountId,
-    provider: columns.account_provider,
-    label,
-  };
+  return { provider: columns.account_provider, label };
 }

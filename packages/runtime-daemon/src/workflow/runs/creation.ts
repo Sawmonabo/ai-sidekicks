@@ -1,5 +1,6 @@
-// Creating a run's row: the statements the engine's run start writes in one unit of work, so a run, its place in its chain and its execution context are stored
-// together or not at all.
+// Creating a run's row: the statements the engine's run start writes in one unit of work with the
+// run's `workflow.started`, whose instant is the run's start, so a run, its place in its chain and
+// its execution context are stored together or not at all.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";

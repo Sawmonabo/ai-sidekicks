@@ -122,8 +122,8 @@ CREATE TABLE workflow_runs (
   -- JSON: who or what started the run.
   started_by                TEXT NOT NULL
                             CHECK(json_valid(started_by)),
-  -- When the run was started: the request, fire or call that started it. A run reads 'new'
-  -- from then until the engine admits it.
+  -- When the request, fire or call that asked for the run started it: its workflow.started.
+  -- A run reads 'new' from then until the engine admits it.
   started_at                TEXT NOT NULL,
   finished_at               TEXT,
   -- JSON: the run's typed error; NULL unless it failed, was canceled or crashed.

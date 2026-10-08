@@ -110,6 +110,8 @@ export async function insertExecutionContextCheckout(
 interface FixtureRunOptions {
   readonly chain?: WorkflowRunChainPlace;
   readonly executionContext?: WorkflowRunExecutionContext;
+  /** When the run was started, as `toISOString` writes it. */
+  readonly startedAt?: string;
 }
 
 /** Creates a run of `workflowVersionId` through the creation statements; resolves with its id. */
@@ -129,24 +131,23 @@ export async function createFixtureRun(
       startedBy: { kind: "schedule" },
       chain: options.chain ?? { kind: "starts" },
       executionContext: options.executionContext,
-      startedAt: new Date("2026-10-02T00:00:00.000Z"),
+      startedAt: new Date(options.startedAt ?? "2026-10-02T00:00:00.000Z"),
     }),
   );
   return workflowRunId;
 }
 
-/** Moves a run to `status`, started at `startedAt` and, where given, ended at `finishedAt`. */
+/** Moves a run to `status` and, where given, ended at `finishedAt`. */
 export async function setFixtureRunStatus(
   writer: Writer,
   workflowRunId: WorkflowRunId,
   status: WorkflowRunStatus,
-  startedAt: string,
   finishedAt: string | null,
 ): Promise<void> {
   await writer.write([
     {
-      sql: "UPDATE workflow_runs SET status = ?, started_at = ?, finished_at = ? WHERE id = ?",
-      bindings: [status, startedAt, finishedAt, workflowRunId],
+      sql: "UPDATE workflow_runs SET status = ?, finished_at = ? WHERE id = ?",
+      bindings: [status, finishedAt, workflowRunId],
       expectedRowCount: 1,
     },
   ]);

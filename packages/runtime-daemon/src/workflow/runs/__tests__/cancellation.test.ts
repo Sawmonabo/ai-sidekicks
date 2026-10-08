@@ -19,7 +19,6 @@ import {
 } from "../__fixtures__/rows.js";
 import { workflowRunCancellationStatements } from "../cancellation.js";
 
-const STARTED_AT = "2026-10-02T00:00:00.000Z";
 const CANCELED_AT = new Date("2026-10-02T00:10:00.000Z");
 const CANCELED_AT_TEXT = CANCELED_AT.toISOString();
 const NO_WAIT = {
@@ -44,7 +43,7 @@ describe("applying a cancel to a run's rows", () => {
   it("cancels both waiting branches, keeps a pending step and clears its waits", async () => {
     const versionId = await insertWorkflowVersion(database.writer, "Fan out");
     const canceledRunId = await createFixtureRun(database.writer, versionId);
-    await setFixtureRunStatus(database.writer, canceledRunId, "waiting", STARTED_AT, null);
+    await setFixtureRunStatus(database.writer, canceledRunId, "waiting", null);
     await insertFixtureStep(database.writer, canceledRunId, {
       executionIndex: 0,
       status: "succeeded",
@@ -67,7 +66,7 @@ describe("applying a cancel to a run's rows", () => {
       status: "pending",
     });
     const otherRunId = await createFixtureRun(database.writer, versionId);
-    await setFixtureRunStatus(database.writer, otherRunId, "waiting", STARTED_AT, null);
+    await setFixtureRunStatus(database.writer, otherRunId, "waiting", null);
     await insertFixtureStep(database.writer, otherRunId, {
       executionIndex: 0,
       status: "waiting",
@@ -108,13 +107,7 @@ describe("applying a cancel to a run's rows", () => {
   it("refuses a run that has ended and leaves its rows as they were", async () => {
     const versionId = await insertWorkflowVersion(database.writer, "Done already");
     const endedRunId = await createFixtureRun(database.writer, versionId);
-    await setFixtureRunStatus(
-      database.writer,
-      endedRunId,
-      "succeeded",
-      STARTED_AT,
-      "2026-10-02T00:05:00.000Z",
-    );
+    await setFixtureRunStatus(database.writer, endedRunId, "succeeded", "2026-10-02T00:05:00.000Z");
     await insertFixtureStep(database.writer, endedRunId, {
       executionIndex: 0,
       status: "succeeded",

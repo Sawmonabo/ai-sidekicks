@@ -434,21 +434,21 @@ MCP server sign-in events, governed by [Spec-024](./024-mcp-server-configuration
 
 ### Workflow Lifecycle (`workflow_lifecycle`)
 
-Durable records of one workflow run's own life, emitted by the workflow engine ([Spec-015 §Event envelope and category split](./015-workflow-authoring-and-execution.md#event-envelope-and-category-split-sa-18) owns the emission points and payload semantics; this section owns the event-type registration). The `workflow_*` categories registered here and below are separate rather than one so a reader can query a run's life, its steps, its parallel coordination and its gates separately, the way `run_lifecycle` and `approval_flow` already separate a run's life from its approvals. All of them land as payloads inside this spec's existing `EventEnvelope` — no second envelope schema — with `causationId` carrying the parent-event relationship and `workflowRunId` / `stepRunId` riding the payload.
+Durable records of one workflow run's own life, emitted by the workflow engine and, for a deleted run, by the daemon's run store ([Spec-015 §Event envelope and category split](./015-workflow-authoring-and-execution.md#event-envelope-and-category-split-sa-18) owns the emission points and payload semantics; this section owns the event-type registration). The `workflow_*` categories registered here and below are separate rather than one so a reader can query a run's life, its steps, its parallel coordination and its gates separately, the way `run_lifecycle` and `approval_flow` already separate a run's life from its approvals. All of them land as payloads inside this spec's existing `EventEnvelope` — no second envelope schema — with `causationId` carrying the parent-event relationship and `workflowRunId` / `stepRunId` riding the payload.
 
 Payload shape: `{sessionId, workflowRunId, definitionId, workflowVersionId}` — the run, and the immutable definition version it is pinned to. `workflow.created` names a definition rather than a run and carries `{sessionId, definitionId, workflowVersionId}`. The four trigger and schedule types are armed and fire before any run exists and carry `{sessionId, definitionId, nodeId}` instead, the two fired types adding the `scheduledInstant` that, with the workflow and the node, is the occurrence's dedup key — so neither a restart nor a double-arm fires the same occurrence twice.
 
 | Type | Description |
 | --- | --- |
 | `workflow.created` | A workflow definition was authored or a new immutable version of one was written. |
-| `workflow.started` | A run of a pinned definition version was admitted and began executing. |
+| `workflow.started` | A run of a pinned definition version was started by the request, fire or call that asked for it, and its row written; the event's instant is the run's start. The run reads `new` until the engine admits it. |
 | `workflow.gated` | A run reached a gate that must resolve before it continues. |
 | `workflow.failed` | A run ended on a failure, the failing step's cause recorded with it. |
 | `workflow.completed` | A run reached its terminal steps and succeeded. |
 | `workflow.resumed` | A parked run resumed. The payload carries the structured resumption point — the phase runs that became active again and the gates still pending — and, where the person resuming it re-pinned the run to the definition's current version, the version the run left and the one it joined; an ordinary resume carries no version pair. |
 | `workflow.canceled` | The person canceled a run. This is the canonical record of that cancellation, carrying the `reason` the person gave, at most 8 KiB counted as the UTF-8 bytes of its JSON encoding, and it is appended in the same unit of work as the status write: without that, a projection rebuild would apply the last `workflow.phase_suspended` payload and resurrect a canceled run. |
 | `workflow.run_waiting` | A run entered `waiting` — on a person, on its chain's question or on a spent provider account. |
-| `workflow.run_deleted` | The person deleted a run, which no longer runs. It is appended in the same unit of work as the delete of the run's rows: the log keeps the run's earlier events, so without it a projection rebuild would bring the deleted run back. |
+| `workflow.run_deleted` | The person deleted an ended run. It is appended in the same unit of work as the delete of the run's rows: the log keeps the run's earlier events, so without it a projection rebuild would bring the deleted run back. |
 | `workflow.schedule_armed` | A schedule trigger was armed, the next fire instant recorded with it. |
 | `workflow.schedule_fired` | An armed schedule fired, starting a run. |
 | `workflow.trigger_armed` | A non-schedule trigger — a file watch, a webhook, a session-event filter — was armed. |

@@ -469,14 +469,17 @@ export const WorkflowVersionChainReadResponseSchema: z.ZodType<WorkflowVersionCh
 /**
  * The `workflow.definitionUpdate` input: Save, Restore, and a schedule change. It writes
  * a new version and never changes one, and only when `expectedVersionNumber` is still the latest;
- * otherwise it is refused with {@link WORKFLOW_VERSION_STALE_CODE}. A name another workflow in
- * the one library holds, compared ignoring case by the shared name fold (`foldName`), is refused
- * with `workflow.definition_refused`, finding `name_taken`.
+ * otherwise it is refused with {@link WORKFLOW_VERSION_STALE_CODE}. A document identical to the
+ * latest version writes none and answers with that version. A Restore names the older version it
+ * repeats in `restoredVersionNumber`, whose package locks the new version keeps. A name another
+ * workflow in the one library holds, compared ignoring case by the shared name fold (`foldName`),
+ * is refused with `workflow.definition_refused`, finding `name_taken`.
  */
 export interface WorkflowDefinitionUpdateRequest {
   definitionId: WorkflowDefinitionId;
   expectedVersionNumber: number;
   document: WorkflowDocument;
+  restoredVersionNumber?: number | undefined;
 }
 /** Wire schema for {@link WorkflowDefinitionUpdateRequest}. */
 export const WorkflowDefinitionUpdateRequestSchema: z.ZodType<
@@ -487,10 +490,14 @@ export const WorkflowDefinitionUpdateRequestSchema: z.ZodType<
     definitionId: WorkflowDefinitionIdSchema,
     expectedVersionNumber: z.number().int().positive(),
     document: WorkflowDocumentSchema,
+    restoredVersionNumber: z.number().int().positive().optional(),
   })
   .strict();
 
-/** The `workflow.definitionUpdate` result: the new version of the requested definition. */
+/**
+ * The `workflow.definitionUpdate` result: the new version of the requested definition, or its
+ * latest where the document was identical to it.
+ */
 export interface WorkflowDefinitionUpdateResponse {
   definitionId: WorkflowDefinitionId;
   versionNumber: number;
