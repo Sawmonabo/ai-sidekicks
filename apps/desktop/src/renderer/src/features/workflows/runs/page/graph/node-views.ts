@@ -18,7 +18,7 @@ import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
-import type { DayClockFigureProps } from "#renderer/features/workflows/components/DayClockFigure.js";
+import type { DayClockFigureProps } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { isLaterStep, isPersonWaitCause } from "../../steps.js";
 import {
   STEP_STATUS_WORDS,

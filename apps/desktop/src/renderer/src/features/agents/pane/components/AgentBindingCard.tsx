@@ -6,8 +6,7 @@
 
 import "./AgentBindingCard.css";
 
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
@@ -19,6 +18,8 @@ import { agentToolAllowlistPosition } from "../tool-allowlist/position.js";
 /** What one agent card shows. */
 export interface AgentBindingCardProps {
   readonly agent: AgentListEntry;
+  /** The instant the card's day words are counted from, moved at local midnight. */
+  readonly nowMilliseconds: number;
 }
 
 /** One agent: its identity, the binding it runs under, and the tool allowlist it holds. */
@@ -34,10 +35,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
         <h4 className="meridian-agent-card__name">{agent.name}</h4>
         <span className="meridian-agent-card__created">
           <span className="meridian-form__label">Created</span>{" "}
-          <WireFigure
-            value={formatDateTime(agent.createdAt, clockLocale)}
-            hoverLabel={formatZonedDateTime(agent.createdAt, clockLocale)}
-          />
+          <DayClockFigure at={agent.createdAt} nowMs={props.nowMilliseconds} locale={clockLocale} />
         </span>
       </header>
 

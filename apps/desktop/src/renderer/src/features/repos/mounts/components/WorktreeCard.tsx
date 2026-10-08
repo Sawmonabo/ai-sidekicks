@@ -15,7 +15,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { WORKTREE_STATE_TONES } from "../execution-roots/state-tones.js";
 import {
   WORKTREE_COLUMN_LABELS,
@@ -31,7 +31,7 @@ import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
   readonly record: WorktreeStatusRecord;
-  /** The instant the section read at; the age moves when the section re-reads, never on a timer. */
+  /** The instant the card's age is drawn against, on the screen's one beat. */
   readonly nowMilliseconds: number;
 }
 
@@ -91,7 +91,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   );
 }
 
-/** One summary row's value: the root verbatim, or the age read relatively. */
+/** One summary row's value: the root verbatim, or the age as `formatAge` reads it. */
 function summaryCell(
   record: WorktreeStatusRecord,
   column: WorktreeSummaryColumnKey,
@@ -111,7 +111,7 @@ function summaryCell(
       return (
         <dd>
           <WireFigure
-            value={formatRelativeTime(record.createdAt, nowMilliseconds)}
+            value={formatAge(record.createdAt, nowMilliseconds)}
             hoverLabel={formatZonedDateTime(record.createdAt, clockLocale)}
           />
         </dd>

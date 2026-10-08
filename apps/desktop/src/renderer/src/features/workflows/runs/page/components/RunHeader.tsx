@@ -10,7 +10,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { RunStatusChip } from "#renderer/features/workflows/components/RunStatusChip.js";
 import { useRunTimesNow } from "#renderer/features/workflows/hooks/useRunTimesNow.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";

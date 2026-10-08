@@ -4,7 +4,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type AgentLibraryView } from "../view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
@@ -24,6 +24,8 @@ export function SavedDefinitionRow(props: {
   readonly isOpenInEditor: boolean;
   readonly refusal: Refusal | undefined;
   readonly view: AgentLibraryView;
+  /** The instant the row's ages are drawn against, on the list's one beat. */
+  readonly nowMilliseconds: number;
 }): React.JSX.Element {
   const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;
   const clockLocale = useClockLocale();
@@ -51,7 +53,7 @@ export function SavedDefinitionRow(props: {
                 <WireFigure value={axis.reading} />
               ) : axis.source === "instant" ? (
                 <WireFigure
-                  value={axis.reading}
+                  value={formatAge(axis.reading, props.nowMilliseconds)}
                   hoverLabel={formatZonedDateTime(axis.reading, clockLocale)}
                 />
               ) : (

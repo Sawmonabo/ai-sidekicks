@@ -13,7 +13,7 @@ import { FigureSentence } from "#renderer/components/FigureSentence/FigureSenten
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
 import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
-import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { handleOffset, type RunGraphFlowNode } from "./elements.js";
 import { RUN_GRAPH_RESUME_WORDS } from "./node-views.js";
 

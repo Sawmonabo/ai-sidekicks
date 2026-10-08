@@ -29,7 +29,7 @@ import {
 /** The artifacts panel's state and the re-read wiring. */
 export interface ArtifactsSectionProps {
   readonly state: ArtifactsSectionState;
-  /** The instant the section read at; ages move when it re-reads, never on a timer. */
+  /** The instant the rows' ages are drawn against, on the screen's one beat. */
   readonly nowMilliseconds: number;
   /**
    * Re-read one row's manifest.

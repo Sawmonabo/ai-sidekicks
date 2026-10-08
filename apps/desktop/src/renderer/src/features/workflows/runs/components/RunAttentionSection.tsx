@@ -10,7 +10,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { DayClockFigure } from "../../components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { runCountWords, spentAccountWords } from "../../words.js";

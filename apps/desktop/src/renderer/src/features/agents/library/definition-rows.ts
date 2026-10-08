@@ -1,7 +1,7 @@
 // The saved-definition registry projected into rows a page can render: no React, no bridge
 // call, no state. Each axis carries its source so the page shows a wire string verbatim in
 // mono and the app's own sentence (an inherit `null` rephrased) in the derived style. A saved
-// record's instants stay as the registry wrote them, with the zoned time as their hover.
+// record's instants are drawn as ages, with the zoned time as their hover.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
@@ -11,7 +11,7 @@ import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/position
 
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
- * mono; `instant` is a registry timestamp, shown the same way with its zoned time on hover;
+ * mono; `instant` is a registry timestamp, shown as its age with its zoned time on hover;
  * `composed` is a word, sentence or count this module composed, which mono would misattribute.
  */
 export const AGENT_AXIS_SOURCES = ["wire", "instant", "composed"] as const;

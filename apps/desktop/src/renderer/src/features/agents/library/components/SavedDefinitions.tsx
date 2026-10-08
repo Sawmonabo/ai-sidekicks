@@ -1,6 +1,8 @@
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useAgesNow } from "#renderer/hooks/useAgesNow.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type AgentLibrarySnapshot, type AgentLibraryView } from "../view.js";
-import { NO_SAVED_DEFINITIONS } from "../definition-rows.js";
+import { NO_SAVED_DEFINITIONS, type AgentDefinitionRow } from "../definition-rows.js";
 import { SavedDefinitionRow } from "./SavedDefinitionRow.js";
 
 /** The saved column's three answers, one per arm of the reading. */
@@ -10,6 +12,10 @@ export function SavedDefinitions(props: {
 }): React.JSX.Element {
   const { snapshot, view } = props;
   const { reading } = snapshot;
+  const nowMilliseconds = useAgesNow(
+    useClock(),
+    reading.kind === "rows" ? reading.rows.flatMap(instantReadings) : [],
+  );
   if (reading.kind === "not-loaded") {
     return (
       <Nothing
@@ -38,10 +44,15 @@ export function SavedDefinitions(props: {
               }
               refusal={snapshot.refusalByDefinitionId.get(row.definitionId)}
               view={view}
+              nowMilliseconds={nowMilliseconds}
             />
           </li>
         ))}
       </ul>
     </>
   );
+}
+
+function instantReadings(row: AgentDefinitionRow): string[] {
+  return row.axes.filter((axis) => axis.source === "instant").map((axis) => axis.reading);
 }

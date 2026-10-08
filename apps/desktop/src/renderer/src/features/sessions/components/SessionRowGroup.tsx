@@ -6,12 +6,14 @@ export function SessionRowGroup(props: {
   readonly label: string;
   readonly rows: readonly SessionListRow[];
   readonly onOpen: (sessionId: string) => void;
+  /** The instant the rows' ages are drawn against, on the list's one beat. */
+  readonly nowMilliseconds: number;
 }): React.JSX.Element {
   return (
     <ul className="meridian-session-list__rows" aria-label={props.label}>
       {props.rows.map((row) => (
         <li key={row.sessionId}>
-          <SessionRow row={row} onOpen={props.onOpen} />
+          <SessionRow row={row} onOpen={props.onOpen} nowMilliseconds={props.nowMilliseconds} />
         </li>
       ))}
     </ul>

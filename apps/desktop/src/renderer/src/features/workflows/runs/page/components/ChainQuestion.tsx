@@ -14,7 +14,7 @@ import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
-import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";

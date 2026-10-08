@@ -10,7 +10,7 @@ import { formatCount, formatUnitDuration } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import { DayClockFigure } from "../../components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
 import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflowCall.js";
 import { costWithPayer, type PayerReading } from "../cost.js";
