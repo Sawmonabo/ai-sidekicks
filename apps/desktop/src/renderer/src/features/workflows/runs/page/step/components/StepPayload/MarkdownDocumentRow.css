@@ -15,6 +15,9 @@
   color: var(--meridian-accent-text);
 }
 
+/* The row's remaining width, not its content's: a size container has no content width, so a
+   formula alone in a footnote would otherwise draw at width 0. */
 .meridian-workflow-payload__footnote-body {
+  flex: 1 1 0;
   min-width: 0;
 }

@@ -58,8 +58,8 @@ const SHIPPED_TEXT_EXTENSIONS = /\.(?:js|cjs|mjs|html?|css)$/iu;
 /** The extensions of the initial graph's code: scripts and stylesheets. */
 const CODE_EXTENSIONS = /\.(?:js|mjs|css)$/iu;
 
-/** The extensions of the initial graph's fonts. */
-const FONT_EXTENSIONS = /\.(?:woff2?|ttf|otf)$/iu;
+/** A font file by its extension: a face the renderer's sheets reference, and its built copy. */
+export const FONT_EXTENSIONS: RegExp = /\.(?:woff2?|ttf|otf)$/iu;
 
 /** Every text file the renderer build ships, or a failure naming what to run. */
 export function readBuiltTextOrFailLoudly(): readonly BuiltFile[] {

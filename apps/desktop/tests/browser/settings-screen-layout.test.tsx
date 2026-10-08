@@ -13,6 +13,7 @@ import {
   windowAt,
 } from "#renderer/features/settings/SettingsScreen.test-support.js";
 import { SettingsPageRegistry } from "#renderer/features/settings/pages/registry.js";
+import { changeLayout } from "#test/helpers/animation-frame.js";
 // Imported for its side effect: the settings chunk root imports the sheets measured here.
 import "#renderer/features/settings/screen-body.js";
 
@@ -33,23 +34,6 @@ function pagesWithKnownWidth(): SettingsPageRegistry {
     render: () => <div style={{ inlineSize: `${String(PAGE_CONTENT_WIDTH_REM)}rem` }} />,
   });
   return pages;
-}
-
-/**
- * Make a change the screen weighs through its resize and style observers, inside `act`: the
- * observers answer on the next frame, so two frames pass before the change is done.
- */
-async function changeLayout(change: () => void): Promise<void> {
-  await act(async () => {
-    change();
-    for (let frame = 0; frame < 2; frame += 1) {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          resolve();
-        });
-      });
-    }
-  });
 }
 
 function elementIn(container: HTMLElement, selector: string): HTMLElement {

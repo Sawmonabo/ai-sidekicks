@@ -15,6 +15,8 @@ export class MemoizedLoad<TValue> {
   readonly #onRelease: (() => void) | undefined;
   /** The one in-flight or fulfilled load; `undefined` until asked, and again after a rejection. */
   #pending: Promise<TValue> | undefined;
+  /** The fulfilled value, kept so a caller can draw it without waiting a turn for the promise. */
+  #loadedValue: TValue | undefined;
 
   /**
    * `fetch` starts one load. `onRelease`, when given, runs each time a rejected load drops the
@@ -30,6 +32,11 @@ export class MemoizedLoad<TValue> {
     return this.#pending !== undefined;
   }
 
+  /** The value once a load has fulfilled, or `undefined` before then and after a rejection. */
+  public get loadedValue(): TValue | undefined {
+    return this.#loadedValue;
+  }
+
   /** The value, fetched on the first ask; every later ask gets the same promise. */
   public load(): Promise<TValue> {
     this.#pending ??= this.#startLoad();
@@ -37,19 +44,26 @@ export class MemoizedLoad<TValue> {
   }
 
   /**
-   * Starts one load and releases the memo if it rejects. The release is attached here, ahead of
-   * every caller's own reaction, so it runs once and first; only the load that is still the memo
-   * may clear it.
+   * Starts one load, keeps its value once it fulfills, and releases the memo if it rejects. The
+   * release is attached here, ahead of every caller's own reaction, so it runs once and first;
+   * only the load that is still the memo may clear it.
    */
   #startLoad(): Promise<TValue> {
     const pending = this.#fetch();
-    void pending.catch(() => {
-      if (this.#pending !== pending) {
-        return;
-      }
-      this.#pending = undefined;
-      this.#onRelease?.();
-    });
+    void pending.then(
+      (value) => {
+        if (this.#pending === pending) {
+          this.#loadedValue = value;
+        }
+      },
+      () => {
+        if (this.#pending !== pending) {
+          return;
+        }
+        this.#pending = undefined;
+        this.#onRelease?.();
+      },
+    );
     return pending;
   }
 }

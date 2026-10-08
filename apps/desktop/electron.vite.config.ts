@@ -37,6 +37,7 @@ import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/services/renderer/scheme.js";
+import { FONT_EXTENSIONS } from "./tests/budget/built-renderer-tree.ts";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
 import { overlayScrollbarBundlePlugin } from "./vitest/overlay-scrollbar-bundle.js";
 
@@ -212,6 +213,9 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
+        // A font is always its own file: the policy's `font-src 'self'` blocks a `data:` face, and
+        // Vite inlines any asset under 4 KiB (one of KaTeX's faces is).
+        assetsInlineLimit: (filePath) => (FONT_EXTENSIONS.test(filePath) ? false : undefined),
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
         // "esbuild"`; electron-vite overrides it to `false` for every target on the reasoning that
         // a desktop bundle loads from disk. Unminified, the bundle carries the renderer's source

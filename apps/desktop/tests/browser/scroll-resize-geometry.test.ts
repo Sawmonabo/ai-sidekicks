@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { nextFrame } from "#test/helpers/animation-frame.js";
 
 /**
  * Wait for the platform to deliver a resize observation, then run the frame it armed. Bounded;
@@ -17,11 +18,7 @@ async function runObservedResizeFrame(clock: ManualClock): Promise<boolean> {
       clock.runFrame();
       return true;
     }
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        resolve();
-      });
-    });
+    await nextFrame();
   }
   return false;
 }
