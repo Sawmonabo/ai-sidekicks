@@ -364,7 +364,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `command.background` | `Move to background` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.28 |
 | `command.list` (subscription) | The running commands | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.28 |
 | `command.stop` | Stop a running command; `Stop all commands` sends it once per command | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.28 |
-| `command.write {sessionId, commandId, text?, endOfInput?}` | Typed input to a command that is waiting for it, and `End input` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.28 |
+| `command.write {sessionId, commandId, text?, endOfInput?}` | Typed input to a command that takes input, waiting or not, or the answer to its open prompt, and `End input` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.28 |
 
 ### `controlPlane.*`
 

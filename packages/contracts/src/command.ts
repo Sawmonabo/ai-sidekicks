@@ -34,18 +34,27 @@ export const CommandIdSchema: z.ZodType<CommandId, CommandId> = z
 
 // command.list — the running set, and each command's output as it prints
 
-/**
- * One running command. `name` is the command as the agent ran it. `waitingInForeground` is
- * true only while the provider holds the agent's turn on this command, the one state
- * `command.background` applies to; `waitingForInput` is true while it is blocked reading input.
- */
+/** One running command in a session, as every device draws its row. */
 export interface RunningCommand {
   commandId: CommandId;
   runId: RunId;
+  /** The command as the agent ran it. */
   name: string;
   startedAt: string;
+  /** True only while the provider holds the agent's turn on this command. */
   waitingInForeground: boolean;
+  /** True when the command can take typed input for its whole run, so its row has an input line. */
+  acceptsInput: boolean;
+  /** True while the daemon reads from the system that the command is blocked reading its input. */
   waitingForInput: boolean;
+  /**
+   * True while the command's terminal has echo off, as at a password prompt, so the input line
+   * masks what is typed; read from the terminal's settings, a Windows console's input mode, or an
+   * open prompt's kind, whether or not the command is waiting.
+   */
+  echoOff: boolean;
+  /** A git or ssh prompt open on the command, in the prompt's own words; absent otherwise. */
+  prompt?: { text: string } | undefined;
 }
 const RunningCommandSchema: z.ZodType<RunningCommand> = z
   .object({
@@ -54,7 +63,13 @@ const RunningCommandSchema: z.ZodType<RunningCommand> = z
     name: z.string().min(1),
     startedAt: isoDateTimeSchema,
     waitingInForeground: z.boolean(),
+    acceptsInput: z.boolean(),
     waitingForInput: z.boolean(),
+    echoOff: z.boolean(),
+    prompt: z
+      .object({ text: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -151,9 +166,9 @@ export const CommandBackgroundResponseSchema: z.ZodType<CommandBackgroundRespons
   .strict();
 
 /**
- * Typed input for a command that is waiting on its input, `End input`, or both:
- * `text` is sent to the command, and `endOfInput` then ends its input, as end of
- * file does on a terminal.
+ * Typed input, `End input`, or both, for a command that takes input or has a prompt open, whether
+ * or not it is waiting: `text` goes to the command or answers its prompt, and `endOfInput` then
+ * ends its input as end of file does on a terminal, or answers an open prompt with nothing.
  */
 export interface CommandWriteRequest {
   sessionId: SessionId;

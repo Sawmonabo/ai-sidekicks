@@ -16,7 +16,9 @@ describe("command.list frames", () => {
     name: "pnpm test",
     startedAt: "2026-09-29T18:00:00Z",
     waitingInForeground: false,
+    acceptsInput: true,
     waitingForInput: true,
+    echoOff: false,
   };
 
   it("accepts the whole set and a piece of one command's output", () => {
