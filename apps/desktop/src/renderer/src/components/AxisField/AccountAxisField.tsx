@@ -17,7 +17,6 @@ import {
   registryCarriesAccount,
   type AccountRegistryReading,
 } from "#renderer/lib/provider-binding/account/axis.js";
-import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { AccountChoiceEmptyState } from "./AccountChoiceEmptyState.js";
 import { AccountChoiceList } from "./AccountChoiceList.js";
 
@@ -43,6 +42,8 @@ export interface AccountAxisFieldProps {
   readonly isOverridden: boolean;
   /** Where popups portal. The frame's overlay root; `undefined` is its own window's body. */
   readonly overlayContainer?: HTMLElement | null | undefined;
+  /** The machine's clock locale, which the advisories write their times and dates in. */
+  readonly clockLocale: string;
 }
 
 /** The provider-account axis: a picker over the registry, or why there is none. */
@@ -59,7 +60,6 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   // The root is a `div`, not a `<label>`, and `role="combobox"` takes no name from its content,
   // so the trigger is named explicitly. Minted because two fields can share a window.
   const labelId = useId();
-  const clockLocale = useClockLocale();
 
   return (
     <div className="meridian-axis-field meridian-form__field">
@@ -103,7 +103,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
                 "reading, and the request still names no account."}
           </span>
           <ul className="meridian-axis-field__advisories">
-            {accountAdvisoriesFor(advisoryChoice, clockLocale).map((advisory) => (
+            {accountAdvisoriesFor(advisoryChoice, props.clockLocale).map((advisory) => (
               <li key={advisory} className="meridian-axis-field__advisory">
                 {advisory}
               </li>

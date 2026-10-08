@@ -2,7 +2,7 @@
 // rides this chunk, and the module settles only once every KaTeX face has loaded, so a formula is
 // first laid out in its own fonts and its block's height never changes when they arrive.
 
-import "katex/dist/katex.min.css";
+import "./typesetter.scss";
 
 import { ParseError, renderToString } from "katex";
 

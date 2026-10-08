@@ -1,0 +1,8 @@
+// KaTeX's sheet built from its own Sass source with only the `woff2` faces, the format Chromium
+// picks first, so the other two were never fetched and the build now carries no `woff` or `ttf`
+// copy. The font folder points at the faces the package ships beside its built sheet.
+@use "katex/src/styles/katex.scss" with (
+  $font-folder: "katex/dist/fonts",
+  $use-woff: false,
+  $use-ttf: false
+);

@@ -38,6 +38,55 @@ const WORKFLOW_NODE_KIND_CATEGORIES = [
 export type WorkflowNodeKindCategory = (typeof WORKFLOW_NODE_KIND_CATEGORIES)[number];
 
 /**
+ * The name a person reads for each node kind the catalog ships, keyed by the kind's key: the
+ * `displayName` that kind's spec carries, and the word a run graph's box reads.
+ */
+export const WORKFLOW_NODE_KIND_NAMES: Readonly<Record<WorkflowNodeKindId, string>> = {
+  "trigger.manual": "Run manually",
+  "trigger.schedule": "On a schedule",
+  "trigger.file-watch": "On a file change",
+  "trigger.webhook": "On a webhook",
+  "trigger.session-event": "On a session event",
+  "trigger.chat": "From chat",
+  "trigger.sub-workflow": "Called by a workflow",
+  "trigger.error": "When a workflow fails",
+  "agent.run": "Run a sidekick",
+  "agent.multi-agent": "Run a sidekick team",
+  "agent.ask-question": "Ask a question",
+  "human.approval": "Ask for approval",
+  "human.form": "Ask for a form",
+  "human.wait-for-chat-reply": "Wait for a chat reply",
+  "files.read": "Read files",
+  "files.write": "Write files",
+  "files.ingest-artifacts": "Ingest as artifacts",
+  "files.parse": "Parse",
+  "files.template": "Render a template",
+  "browser.open": "Open a page",
+  "browser.extract": "Extract from a page",
+  "browser.screenshot": "Screenshot",
+  "browser.act": "Act on a page",
+  "developer.shell": "Run a command",
+  "developer.git": "Git",
+  "developer.run-tests": "Run tests",
+  "developer.http": "HTTP request",
+  "developer.mcp-tool": "MCP tool",
+  "developer.callback-tool": "App tool",
+  "developer.repo-diff": "Read a repo diff",
+  "developer.code": "Code",
+  "flow.if": "If",
+  "flow.switch": "Switch",
+  "flow.loop-items": "Loop over items",
+  "flow.merge": "Merge",
+  "flow.set-vars": "Set variables",
+  "flow.wait": "Wait",
+  "flow.stop-error": "Stop with error",
+  "flow.execute-workflow": "Execute workflow",
+  "output.notify": "Notify",
+  "output.save-artifact": "Save as artifact",
+  "output.write-summary": "Write a summary",
+};
+
+/**
  * One handle a kind declares on one side. Its id reads `<mode>/<type>/<index>` and says the
  * side and type the handle declares, so a handle is addressable from a stored edge alone.
  * `maxConnections` absent means the handle takes any number of edges.
