@@ -13,7 +13,7 @@ The console's window onto the shell commands an agent started. The provider deci
 | `command.background` | `mutation` | `CommandBackgroundRequest` | `CommandBackgroundResponse` |
 | `command.write` | `mutation` | `CommandWriteRequest` | `CommandWriteResponse` |
 
-`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` is capability-gated: exactly one pinned provider can move a waited-on command to the background, and on the other the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` answers a command that is waiting for its input: text the person typed, or `End input`, which ends the command's input as end of file does on a terminal; a git or ssh prompt that would open the terminal raises the same input line with the prompt's own words.
+`command.list` is a subscription and not a read, because the set changes without anyone asking and a command can outlive the turn that started it. `command.background` is capability-gated: exactly one pinned provider can move a waited-on command to the background, and on the other the control does not exist — absent rather than disabled — so the verb is never dispatched there and a word typed for it is answered by the console with one row rather than a refused call. `command.write` carries what the person typed on a command's input line, or `End input`. A command that can take input, a Codex command given a terminal or one an agent ran with `shell_run`, carries that line for its whole run, so a write is taken whether or not the command is waiting; the waiting signal only brings the line forward and marks the session waiting. `End input` ends the command's input as end of file does on a terminal. A git or ssh prompt that would open the terminal raises the same input line with the prompt's own words, on any command, and there `End input` answers the prompt with nothing, as closing the prompt would.
 
 ```ts
 // One running command, in the order the commands started. `name` is the command as the agent ran it,
@@ -27,15 +27,25 @@ interface RunningCommand {
   name: string;
   startedAt: string;
   waitingInForeground: boolean;
+  // True for a command that can take typed input for its whole run, a Codex command given a terminal
+  // or one an agent ran with `shell_run`, so its row carries the input line from start to end; false
+  // for a Claude Code Bash command and a Codex command started without a terminal, whose input the
+  // provider closed.
+  acceptsInput: boolean;
   // True while the command is waiting on its own input, read from the system (the kernel's state,
-  // or on macOS the innermost call `sample` shows) by the daemon's command wrapper, or by the shell
-  // table for a command typed into a session's shell; kept with the session, so every device shows
-  // the same input line.
+  // or on macOS the innermost call `sample` shows) by the daemon, through its command wrapper for a
+  // Codex command and through the shell table for a command in a session's shell. It brings the
+  // input line forward and marks the session waiting, and the waiting mark is kept with the session,
+  // so every device shows it.
   waitingForInput: boolean;
-  // True while the command waits with the terminal's echo off, as a password prompt does, so the
-  // input line masks what is typed: read from the terminal's settings on macOS and Linux, from the
-  // console's input mode on Windows, and from the askpass prompt's kind for git and ssh.
+  // The command's terminal echo state while it takes input or has a prompt open, whether or not it is
+  // waiting: true while echo is off, as at a password prompt, so the input line masks what is typed.
+  // Read from the terminal's settings through its master side on macOS and Linux, from the console's
+  // input mode on Windows, and from an open askpass prompt's kind for git and ssh.
   echoOff: boolean;
+  // Set only while a git or ssh prompt is open on the command through the askpass variables: the
+  // prompt's own words, which the line shows, since the prompt prints nothing to the command's output.
+  prompt?: { text: string };
 }
 interface CommandListSubscribeRequest {
   sessionId: SessionId;
@@ -73,11 +83,15 @@ interface CommandBackgroundResponse {
   waitingInForeground: false;
 }
 
-// Typed input to a command that is waiting for it, or `End input`. A Codex command in a terminal
-// takes `text` through Codex's `process/write`, which the daemon's command wrapper copies into the
-// command's terminal; a command typed into a session's shell takes it written into that shell. Either
-// way `endOfInput` writes the terminal's end-of-file character. A read waits for the person or
-// `End input`, bounded only by the provider's and the runtime's own limits.
+// Typed input, or `End input`, for a command that takes input or has a prompt open, taken whether or
+// not `waitingForInput` is true; a write to a command that does neither is refused. It goes one of
+// three ways. A Codex command in a terminal takes `text` through Codex's `process/write`, which the
+// daemon's command wrapper copies into the command's terminal; a command an agent ran with
+// `shell_run` takes it written into that session's shell; either way `endOfInput` writes the
+// terminal's end-of-file character. An open askpass prompt takes `text` as its answer, which the
+// daemon seals to the askpass program's own key and leaves in the command channel for that program
+// alone, and there `endOfInput` answers it with nothing, as closing the prompt would. A read waits
+// for the person or `End input`, bounded only by the provider's and the runtime's own limits.
 interface CommandWriteRequest {
   sessionId: SessionId;
   commandId: string;
