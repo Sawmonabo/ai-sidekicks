@@ -1,11 +1,12 @@
 // Deleting runs and keeping them: one run's delete, `Delete runs older than…` with the preview its
 // confirm reads, and the Keep mark that bulk delete leaves. Neither delete touches a run still
-// going or parked on its failed step, which a person can still resume. A run's delete removes its steps, its
-// form drafts, its gate answers and its execution context with the run, in the write that appends
-// the run's `workflow.run_deleted`: the session log keeps the run's earlier events, so a rebuild of
-// the runs from the log needs that record to leave the run out. Bulk delete writes a session's runs
-// in chunks, one write each, every run in it guarded and its event appended in that write. Each
-// deleted run's git common folder is answered, so its snapshot refs can be pruned.
+// going or parked on its failed step, which a person can still cancel. A run's delete removes its
+// steps, its form drafts, its gate answers and its execution context with the run, in the write
+// that appends the run's `workflow.run_deleted`: the session log keeps the run's earlier events,
+// so a rebuild of the runs from the log needs that record to leave the run out. Bulk delete writes
+// a session's runs in chunks, one write each, every run in it guarded and its event appended in
+// that write. Each deleted run's git common folder is answered, so its snapshot refs can be
+// pruned.
 
 import type { Statement } from "better-sqlite3";
 
@@ -33,7 +34,7 @@ import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
 import { SessionEventAppender, type SessionEventLog } from "../../events/session/appender.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import { GOING_RUN_STATUSES_SQL, PARKED_FAILED_RUN_CONDITION, storedInstant } from "./record.js";
+import { GOING_RUN_STATUSES_SQL, parkedFailedRunCondition, storedInstant } from "./record.js";
 import { WorkflowNotFoundError } from "../not-found.js";
 
 /**
@@ -59,12 +60,13 @@ export class WorkflowRunsDeleteIncompleteError extends Error {
   }
 }
 
-// A chain's first run holds the chain's count and its answer, which a later run still going,
-// or parked on a failed step can still resume, needs, so the first run is not deleted while one is.
+// A chain's first run holds the chain's count and its answer, which a later run of the chain needs
+// while it is going or parked on its failed step, so the first run is not deleted while one is.
 const LATER_CHAIN_RUN_GOING = `EXISTS (SELECT 1 FROM workflow_runs AS later
     WHERE later.chain_root_run_id = run.id AND later.id <> run.id
-      AND (later.status IN (${GOING_RUN_STATUSES_SQL})
-        OR (later.status = 'failed' AND later.finished_at IS NULL)))`;
+      AND (later.status IN (${GOING_RUN_STATUSES_SQL}) OR ${parkedFailedRunCondition("later")}))`;
+
+const PARKED_FAILED_RUN = parkedFailedRunCondition("run");
 
 const OLD_RUN = "run.started_at < @olderThan";
 
@@ -72,7 +74,7 @@ const OLD_RUN = "run.started_at < @olderThan";
 // run while a later run of the chain is going; nor a kept run. The preview counts with these same
 // conditions, so it counts what the delete removes.
 const REMOVABLE_BUT_FOR_KEEP = `${OLD_RUN} AND run.status NOT IN (${GOING_RUN_STATUSES_SQL})
-  AND NOT ${PARKED_FAILED_RUN_CONDITION} AND NOT ${LATER_CHAIN_RUN_GOING}`;
+  AND NOT ${PARKED_FAILED_RUN} AND NOT ${LATER_CHAIN_RUN_GOING}`;
 const REMOVABLE = `${REMOVABLE_BUT_FOR_KEEP} AND run.kept = 0`;
 
 const PREVIEW_SQL = `SELECT
@@ -80,7 +82,7 @@ const PREVIEW_SQL = `SELECT
     COALESCE(SUM(CASE WHEN ${REMOVABLE_BUT_FOR_KEEP} AND run.kept = 1 THEN 1 ELSE 0 END), 0)
       AS kept_count,
     COALESCE(SUM(CASE WHEN ${OLD_RUN}
-                       AND (run.status = 'waiting' OR ${PARKED_FAILED_RUN_CONDITION})
+                       AND (run.status = 'waiting' OR ${PARKED_FAILED_RUN})
                       THEN 1 ELSE 0 END), 0) AS waiting_count
   FROM workflow_runs AS run`;
 
@@ -100,7 +102,7 @@ const REMOVABLE_RUNS_SQL = `${SELECT_DELETED_RUN} WHERE ${REMOVABLE} ORDER BY ru
 // going or parked on its failed step, and a chain's first run while a later run is either.
 const DELETABLE_RUN_SQL = `SELECT run.id FROM workflow_runs AS run
   WHERE run.id = @workflowRunId AND run.status NOT IN (${GOING_RUN_STATUSES_SQL})
-    AND NOT ${PARKED_FAILED_RUN_CONDITION} AND NOT ${LATER_CHAIN_RUN_GOING}`;
+    AND NOT ${PARKED_FAILED_RUN} AND NOT ${LATER_CHAIN_RUN_GOING}`;
 // Matches the run only while bulk delete would still remove it.
 const STILL_REMOVABLE_RUN_SQL = `SELECT run.id FROM workflow_runs AS run
   WHERE run.id = @workflowRunId AND ${REMOVABLE}`;

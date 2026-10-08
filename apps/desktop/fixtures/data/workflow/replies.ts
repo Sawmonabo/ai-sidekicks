@@ -69,7 +69,6 @@ import {
   WORKFLOW_OWN_SESSION,
   WORKFLOW_SPENT_ACCOUNT,
   WORKFLOW_RUN_RECORDS,
-  isGoing,
   isParked,
   summaryOfRun,
   type WorkflowRunRecord,
@@ -78,6 +77,7 @@ import {
   NOW,
   currentRuns,
   isBulkDeletable,
+  isDeleteRefused,
   mintedRunId,
   runsBeforeBulkDeletes,
   startedAtMs,
@@ -547,7 +547,7 @@ function answerRerun(request: unknown, playback: WorkflowPlayback): WorkflowRunS
 
 function answerRunDelete(request: unknown, playback: WorkflowPlayback): WorkflowRunDeleteResponse {
   const run = requireRun(request, playback);
-  if (isGoing(run) || isParked(run)) {
+  if (isDeleteRefused(run, currentRuns(playback))) {
     throw refusal(WORKFLOW_RUN_NOT_DELETABLE_CODE, "Cancel it first.");
   }
   return { workflowRunId: run.read.workflowRunId, deleted: true };
@@ -558,10 +558,11 @@ function answerDeletePreview(
   playback: WorkflowPlayback,
 ): WorkflowRunsDeletePreviewResponse {
   const cutoffMs = playback.readStamp(readString(request, "olderThan"));
-  const older = currentRuns(playback).filter((run) => startedAtMs(run) < cutoffMs);
+  const runs = currentRuns(playback);
+  const older = runs.filter((run) => startedAtMs(run) < cutoffMs);
   return {
     deleteCount: runsOlderThan(request, playback).length,
-    keptCount: older.filter((run) => run.read.keep).length,
+    keptCount: older.filter((run) => run.read.keep && !isDeleteRefused(run, runs)).length,
     waitingCount: older.filter(isParked).length,
   };
 }
@@ -579,7 +580,8 @@ function answerFixSession(
 
 function runsOlderThan(request: unknown, playback: WorkflowPlayback): readonly WorkflowRunRecord[] {
   const cutoffMs = playback.readStamp(readString(request, "olderThan"));
-  return currentRuns(playback).filter((run) => isBulkDeletable(run, cutoffMs));
+  const runs = currentRuns(playback);
+  return runs.filter((run) => isBulkDeletable(run, cutoffMs, runs));
 }
 
 function requireRun(request: unknown, playback: WorkflowPlayback): WorkflowRunRecord {
@@ -679,7 +681,7 @@ function runsRemoved(workflowRunId: WorkflowRunId): readonly ScenarioNotice[] {
 
 /**
  * The removal a bulk delete pushes, naming each run it took: the runs older than its cutoff that
- * were neither kept nor going once every other write had landed.
+ * were neither kept nor refused a delete once every other write had landed.
  */
 function bulkRunsRemoved(request: unknown): readonly ScenarioNotice[] {
   return [
@@ -688,8 +690,9 @@ function bulkRunsRemoved(request: unknown): readonly ScenarioNotice[] {
       afterMs: 0,
       payloadAtDelivery: (answered, readStamp): WorkflowSubscribeNotification | undefined => {
         const cutoffMs = readStamp(readString(request, "olderThan"));
-        const [first, ...rest] = runsBeforeBulkDeletes(answered)
-          .filter((run) => isBulkDeletable(run, cutoffMs))
+        const runs = runsBeforeBulkDeletes(answered);
+        const [first, ...rest] = runs
+          .filter((run) => isBulkDeletable(run, cutoffMs, runs))
           .map((run) => run.read.workflowRunId);
         return first === undefined
           ? undefined

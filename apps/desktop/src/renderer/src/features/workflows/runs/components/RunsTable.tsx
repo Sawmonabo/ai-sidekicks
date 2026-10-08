@@ -203,7 +203,6 @@ function DeleteRunConfirm(props: {
   );
 }
 
-/** Where a going run is: `4 of 9 · Review one PR`. */
 // How long the run took, or while it is going how long so far; nothing for a failed run parked on
 // its failed step, which has neither ended nor kept going.
 function rowDurationWords(run: WorkflowRunSummary, nowMs: number): string | undefined {
@@ -213,6 +212,7 @@ function rowDurationWords(run: WorkflowRunSummary, nowMs: number): string | unde
   return isGoing(run.status) ? runDurationWords(run.startedAt, nowMs) : undefined;
 }
 
+/** Where a going run is: `4 of 9 · Review one PR`. */
 function liveStepWords(liveStep: NonNullable<WorkflowRunSummary["liveStep"]>): string {
   return `${formatCount(liveStep.index)} of ${formatCount(liveStep.total)} · ${liveStep.nodeName}`;
 }

@@ -422,7 +422,7 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
       GOING_RUN_STATUSES.includes(row.status) === (row.durationMs === undefined),
     {
       path: ["durationMs"],
-      message: "An ended run carries its duration and a going one does not.",
+      message: "An ended run carries its duration and a going or parked one does not.",
     },
   )
   .refine((row) => GOING_RUN_STATUSES.includes(row.status) || row.liveStep === undefined, {

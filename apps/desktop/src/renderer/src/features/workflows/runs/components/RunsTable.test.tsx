@@ -1,7 +1,8 @@
 // `Delete run` on a run still going or parked on its failed step is refused in place with
-// `Cancel it first.`, and pressing it asks nothing: no confirm opens and nothing is sent, so a run's steps and their data are not
-// deleted from under it. The same press on a finished run opens the confirm, and a delete the
-// daemon served reads the list again, so the confirm never waits on a stream that may be down.
+// `Cancel it first.`, and pressing it asks nothing: no confirm opens and nothing is sent, so a
+// run's steps and their data are not deleted from under it. The same press on a finished run opens
+// the confirm, and a delete the daemon served reads the list again, so the confirm never waits on a
+// stream that may be down.
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

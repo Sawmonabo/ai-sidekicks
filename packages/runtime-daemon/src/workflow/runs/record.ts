@@ -95,10 +95,12 @@ export const GOING_RUN_STATUSES_SQL: string = GOING_RUN_STATUSES.map(
 ).join(", ");
 
 /**
- * The SQL condition on `workflow_runs AS run` that holds for a failed run still parked on its
- * failed step, waiting on Resume: it has not ended, so it can still be resumed or canceled.
+ * The SQL condition on the runs table read as `alias` that holds for a failed run still parked on
+ * its failed step, waiting on Resume: it has not ended, so it can still be resumed or canceled.
  */
-export const PARKED_FAILED_RUN_CONDITION = "(run.status = 'failed' AND run.finished_at IS NULL)";
+export function parkedFailedRunCondition(alias: string): string {
+  return `(${alias}.status = 'failed' AND ${alias}.finished_at IS NULL)`;
+}
 
 /**
  * `instant` in the `toISOString` form every run and step instant is stored in, so the two compare

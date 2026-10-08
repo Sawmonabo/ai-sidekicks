@@ -62,7 +62,8 @@ export function retryAvailability(
 
 /**
  * Whether a row's `Delete run` may act: a run still going, or a failed run parked on its failed
- * step, which carries no duration because it has not ended, is refused until it is canceled.
+ * step, which carries no duration because it has not ended, is refused until it ends or is
+ * canceled.
  */
 export function deleteRunAvailability(run: WorkflowRunSummary): RunControlAvailability {
   const isParkedOnFailure = run.status === "failed" && run.durationMs === undefined;
