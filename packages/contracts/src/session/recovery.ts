@@ -23,7 +23,7 @@ export interface SessionWriteRefusedDetails {
   recovery: Extract<DaemonRecoverySessionState, "degraded" | "damaged">;
 }
 
-/** `session.recoveryContinue` or `session.recoveryDelete` asked of a session they do not apply to. */
+/** `session.recoveryContinue` or `session.recoveryDelete` asked of a session they do not fit. */
 export type SessionRecoveryRefusedCode = "session.recovery_refused";
 /** The error code of a recovery action the session does not offer; nothing is written. */
 export const SESSION_RECOVERY_REFUSED_CODE: SessionRecoveryRefusedCode = "session.recovery_refused";

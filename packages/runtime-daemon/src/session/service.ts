@@ -1,6 +1,7 @@
 // Reads a session's events back in `sequence ASC` order, whole or a page after a known sequence,
 // and rebuilds its record from the stored events on every call; no snapshot is persisted. A range
-// the session skipped past as damaged is never read.
+// the session skipped past as damaged is never read, and while its history is damaged no read
+// goes past its last good point.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -68,19 +69,29 @@ export class MalformedStoredEventError extends Error {
   }
 }
 
+/**
+ * The sequence a session's reads stop before while its history is damaged, `undefined` while it
+ * reads whole.
+ */
+export type DamagedFromSequenceReader = (sessionId: SessionId) => number | undefined;
+
 /** Reads a session's events and rebuilds its record from them. */
 export class SessionService {
   // Only the statements are kept: each one references its database, which keeps the connection
   // alive.
   readonly #readEventsStatement: Statement;
   readonly #readEventsAfterSequenceStatement: Statement;
+  readonly #readDamagedFromSequence: DamagedFromSequenceReader;
 
-  constructor(db: Database) {
+  constructor(db: Database, readDamagedFromSequence: DamagedFromSequenceReader = () => undefined) {
+    this.#readDamagedFromSequence = readDamagedFromSequence;
     this.#readEventsStatement = db
       .prepare(
         `SELECT ${EVENT_COLUMNS_SQL}
          FROM session_events AS event
-         WHERE session_id = ? AND ${outsideSkippedRangesSql("event")}
+         WHERE session_id = @session_id
+           AND (@before_sequence IS NULL OR sequence < @before_sequence)
+           AND ${outsideSkippedRangesSql("event")}
          ORDER BY sequence ASC`,
       )
       // Returns integer columns as bigint so a `monotonic_ns` above 2^53 round-trips exactly.
@@ -101,8 +112,8 @@ export class SessionService {
 
   /**
    * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them,
-   * only of `eventTypes` and only before `beforeSequence` when each is given. Throws {@link MalformedStoredEventError} when a stored
-   * row is not a well-formed envelope.
+   * only of `eventTypes` and only before `beforeSequence` when each is given. Throws
+   * {@link MalformedStoredEventError} when a stored row is not a well-formed envelope.
    */
   readEventsAfterSequence(
     request: EventsReadAfterSequenceRequest,
@@ -112,7 +123,7 @@ export class SessionService {
       session_id: request.sessionId,
       after_sequence: request.afterSequence,
       event_types: request.eventTypes === undefined ? null : JSON.stringify(request.eventTypes),
-      before_sequence: request.beforeSequence ?? null,
+      before_sequence: this.#readBefore(request.sessionId, request.beforeSequence) ?? null,
       limit: request.limit === undefined ? NO_LIMIT : request.limit + 1,
     }) as ReadonlyArray<SessionEventRow>;
     const hasMore = request.limit !== undefined && rows.length > request.limit;
@@ -128,10 +139,22 @@ export class SessionService {
 
   /** Returns a session's events ordered by `sequence ASC`, or `[]` for an unknown session. */
   readEvents(sessionId: string): ReadonlyArray<StoredEvent> {
-    const rows: ReadonlyArray<SessionEventRow> = this.#readEventsStatement.all(
-      sessionId,
-    ) as ReadonlyArray<SessionEventRow>;
+    const rows: ReadonlyArray<SessionEventRow> = this.#readEventsStatement.all({
+      session_id: sessionId,
+      before_sequence: this.#readBefore(sessionId as SessionId, undefined) ?? null,
+    }) as ReadonlyArray<SessionEventRow>;
     return rows.map((row) => hydrateRow(row));
+  }
+
+  // The earlier of the request's own bound and the session's last good point.
+  #readBefore(sessionId: SessionId, beforeSequence: number | undefined): number | undefined {
+    const damagedFromSequence = this.#readDamagedFromSequence(sessionId);
+    if (damagedFromSequence === undefined) {
+      return beforeSequence;
+    }
+    return beforeSequence === undefined
+      ? damagedFromSequence
+      : Math.min(beforeSequence, damagedFromSequence);
   }
 
   /** Rebuilds a session's record from its events, or `null` when it has no events. */

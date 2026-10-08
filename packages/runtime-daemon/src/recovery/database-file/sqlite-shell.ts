@@ -2,9 +2,15 @@
 // shell reads the damaged file read-only and writes the SQL that rebuilds every row it can reach,
 // and a second shell runs that SQL into a fresh file. The binding the daemon links is built
 // without the page virtual table the recovery reads through and exposes no recovery call, so the
-// shell, which is built with both, is the way in.
+// shell, which is built with both, is the way in. A shell too old to read the schema's strict
+// tables is refused before it runs, and a recovery that runs far past its expected time is
+// stopped.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { stat } from "node:fs/promises";
+import { promisify } from "node:util";
+
+import semver from "semver";
 
 /** The shell, found on the search path. */
 const SQLITE_SHELL_PROGRAM = "sqlite3";
@@ -12,11 +18,23 @@ const SQLITE_SHELL_PROGRAM = "sqlite3";
 // The tail of a shell's error output kept for the failure's message.
 const ERROR_OUTPUT_KEPT_BYTES = 4_096;
 
+// The first release whose shell reads a strict table.
+const OLDEST_SHELL_VERSION = "3.37.0";
+
+// A 401 MB file recovered in about 10 seconds; the bound allows ten times that rate, after a
+// minute for any file.
+const RECOVERY_BOUND_FLOOR_MS = 60_000;
+const RECOVERY_BOUND_BYTES_PER_MS = 4_000;
+
 /**
- * Recovers what `damagedPath` holds into `freshPath`, which must not exist. Rejects when either
- * shell cannot start or exits with a failure, naming its error output.
+ * Recovers what `damagedPath` holds into `freshPath`, which must not exist. Rejects when the shell
+ * is missing or too old, when either shell cannot start or exits with a failure, naming its error
+ * output, and when the recovery outlasts its bound, which stops both shells.
  */
 export async function recoverIntoFreshFile(damagedPath: string, freshPath: string): Promise<void> {
+  await refuseOldShell();
+  const boundMs =
+    RECOVERY_BOUND_FLOOR_MS + (await stat(damagedPath)).size / RECOVERY_BOUND_BYTES_PER_MS;
   const reader = spawn(SQLITE_SHELL_PROGRAM, ["-readonly", damagedPath, ".recover"], {
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -24,10 +42,48 @@ export async function recoverIntoFreshFile(damagedPath: string, freshPath: strin
     stdio: ["pipe", "ignore", "pipe"],
   });
   reader.stdout.pipe(writer.stdin);
-  await Promise.all([
-    waitForSuccess(reader, "reading the damaged file"),
-    waitForSuccess(writer, "writing the fresh file"),
-  ]);
+  let isPastBound = false;
+  const bound = setTimeout(() => {
+    isPastBound = true;
+    reader.kill("SIGKILL");
+    writer.kill("SIGKILL");
+  }, boundMs);
+  try {
+    await Promise.all([
+      waitForSuccess(reader, "reading the damaged file"),
+      waitForSuccess(writer, "writing the fresh file"),
+    ]);
+  } catch (error) {
+    throw isPastBound
+      ? new Error(
+          `The SQLite shell's recovery ran past ${String(Math.round(boundMs / 1_000))} seconds ` +
+            "and was stopped",
+          { cause: error },
+        )
+      : error;
+  } finally {
+    clearTimeout(bound);
+  }
+}
+
+async function refuseOldShell(): Promise<void> {
+  let versionOutput: string;
+  try {
+    versionOutput = (await promisify(execFile)(SQLITE_SHELL_PROGRAM, ["-version"])).stdout;
+  } catch (error) {
+    throw new Error(
+      `The SQLite shell (${SQLITE_SHELL_PROGRAM}) could not be run: ` +
+        (error instanceof Error ? error.message : String(error)),
+      { cause: error },
+    );
+  }
+  const version = semver.coerce(versionOutput);
+  if (version === null || semver.lt(version, OLDEST_SHELL_VERSION)) {
+    throw new Error(
+      `The SQLite shell is ${versionOutput.trim()}; recovering this store needs ` +
+        `${OLDEST_SHELL_VERSION} or later`,
+    );
+  }
 }
 
 function waitForSuccess(child: ChildProcess, step: string): Promise<void> {

@@ -2,8 +2,9 @@
 // are copied aside byte for byte, the rows are recovered into a fresh file through the SQLite
 // shell, a session the newest backup holds more events of takes them from it while a session the
 // file holds more of keeps its own, and the fresh file replaces the damaged one with every
-// projection cursor cleared. A backup that cannot be read is passed over, and a sound file is
-// left as it is.
+// projection cursor cleared. A backup that cannot be read is passed over, a file the recovery
+// cannot read stays untouched with one copy aside however often a start meets it, a replacement a
+// crash cut short is finished, and a sound file is left as it is.
 
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -19,6 +20,7 @@ import { openDatabase } from "../../../session/migration-runner.js";
 import { repairDatabaseFile } from "../repair.js";
 
 const PAGE_SIZE = 4096;
+const DAMAGED_LOG = "the damaged file's log";
 const KEPT_SESSION = "11111111-2222-4333-8444-555555555551";
 const BACKED_UP_SESSION = "11111111-2222-4333-8444-555555555552";
 
@@ -172,5 +174,37 @@ describe("the database file's repair", () => {
     await expect(repair()).resolves.toMatchObject({ outcome: "repaired", sessionsFromBackup: 0 });
     expect(countEvents(KEPT_SESSION)).toBe(4);
     expect(countEvents(BACKED_UP_SESSION)).toBe(2);
+  });
+
+  it("leaves a file it cannot recover untouched, copied aside once across starts", async () => {
+    writeDatabase(databasePath, { [KEPT_SESSION]: 4 });
+    const file = await readFile(databasePath);
+    // A header no SQLite reads.
+    file.fill(0xa5, 0, 100);
+    await writeFile(databasePath, file);
+
+    const first = await repair();
+    const second = await repair();
+
+    expect(first).toMatchObject({ outcome: "unrepaired" });
+    expect(second).toStrictEqual(first);
+    expect(await readFile(databasePath)).toStrictEqual(file);
+    expect(await readdir(path.join(dataFolder, "damaged"))).toHaveLength(1);
+  });
+
+  it("finishes a replacement a crash cut short instead of recovering again", async () => {
+    writeDatabase(databasePath, { [KEPT_SESSION]: 4 });
+    await damageIndexPage();
+    await writeFile(`${databasePath}-wal`, DAMAGED_LOG);
+    writeDatabase(`${databasePath}.recovered`, { [KEPT_SESSION]: 3 });
+    await writeFile(`${databasePath}.recovered-ready`, "");
+
+    await expect(repair()).resolves.toStrictEqual({ outcome: "intact" });
+    // The damaged file's log is gone; the check of the replaced file may open a log of its own.
+    const log = `${databasePath}-wal`;
+    expect(existsSync(log) && (await readFile(log, "utf8")) === DAMAGED_LOG).toBe(false);
+    expect(existsSync(`${databasePath}.recovered-ready`)).toBe(false);
+    expect(existsSync(path.join(dataFolder, "damaged"))).toBe(false);
+    expect(countEvents(KEPT_SESSION)).toBe(3);
   });
 });

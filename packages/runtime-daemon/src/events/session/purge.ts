@@ -56,6 +56,14 @@ const NEVER_PURGED_CATEGORY_SQL_LIST: string = NEVER_PURGED_EVENT_CATEGORIES.map
 
 const PURGEABLE_WHERE = `session_id = ? AND category NOT IN (${NEVER_PURGED_CATEGORY_SQL_LIST})`;
 
+// Every run of the session: the rows the rebuild wrote, and every run its readable events name,
+// so a run the rebuild never reached past a damaged event still loses its interventions and
+// receipts. Read before the events go.
+const SESSION_RUN_IDS_SQL = `SELECT run_id FROM runs WHERE session_id = ?
+  UNION
+  SELECT CASE WHEN json_valid(payload) THEN json_extract(payload, '$.runId') END
+    FROM session_events WHERE session_id = ?`;
+
 // The receipt's envelope category, type and version. The version is parsed through its schema, so
 // a literal that stops satisfying the grammar throws at import rather than at the first receipt.
 const EVENT_MAINTENANCE_CATEGORY: EventCategory = "event_maintenance";
@@ -215,9 +223,9 @@ export class SessionPurge {
     }
   }
 
-  // One write: the range read, the snapshots and the events commit or roll back together.
+  // One write: the range read and every delete commit or roll back together.
   async #deleteSessionRows(sessionId: SessionId): Promise<SessionPurgeOutcome> {
-    const [rangeResult, , eventsResult] = await this.#writer
+    const [rangeResult, , , , eventsResult] = await this.#writer
       .write(deleteSessionRowsStatements(sessionId))
       .catch((error: unknown) => {
         throw error instanceof WriteRefusedError
@@ -304,17 +312,15 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
       expectedRowCount: 1,
     },
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
+    {
+      sql: `DELETE FROM interventions WHERE target_run_id IN (${SESSION_RUN_IDS_SQL})`,
+      bindings: [sessionId, sessionId],
+    },
+    {
+      sql: `DELETE FROM command_receipts WHERE run_id IN (${SESSION_RUN_IDS_SQL})`,
+      bindings: [sessionId, sessionId],
+    },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
-    {
-      sql: `DELETE FROM interventions
-             WHERE target_run_id IN (SELECT run_id FROM runs WHERE session_id = ?)`,
-      bindings: [sessionId],
-    },
-    {
-      sql: `DELETE FROM command_receipts
-             WHERE run_id IN (SELECT run_id FROM runs WHERE session_id = ?)`,
-      bindings: [sessionId],
-    },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
   ];

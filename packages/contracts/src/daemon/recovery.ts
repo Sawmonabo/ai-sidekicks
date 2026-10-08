@@ -43,8 +43,9 @@ const DAEMON_RECOVERY_SESSION_STATE_VALUES = [
 /**
  * Where one session that is not healthy stands: `rebuilding` while its projections are rebuilt,
  * `degraded` when its history is damaged after a readable start, so it opens read-only at its
- * last good point, `damaged` when no event of it can be read, and `blocked` when a run of it needs
- * the person.
+ * last good point, `damaged` when no event of it can be read, and `blocked` when a run of it
+ * halted after the restart on a question for the person, named in its `haltedRuns`, which the
+ * restart's question will set.
  */
 export type DaemonRecoverySessionState = (typeof DAEMON_RECOVERY_SESSION_STATE_VALUES)[number];
 /** Parses a {@link DaemonRecoverySessionState}. */

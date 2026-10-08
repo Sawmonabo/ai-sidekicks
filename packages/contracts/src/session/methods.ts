@@ -1,6 +1,7 @@
 // Session contracts: the session read and subscribe shapes, the frame a session's stream sends,
 // the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart, and the
-// two actions of a session whose history is damaged) and the two searches. The events those verbs append are in `./events.ts`.
+// two actions of a session whose history is damaged) and the two searches. The events those verbs
+// append are in `./events.ts`.
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";

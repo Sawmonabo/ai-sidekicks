@@ -5,9 +5,10 @@
 // the environment providers are built from, listens on its socket and writes this start's session
 // token once the bind has succeeded, then runs its recovery pass, refusing writes until that pass
 // has ended and, after it, only the writes of a session whose history is damaged. Before the
-// database opens, a damaged file is repaired. A client that reads the previous token in the moment between the bind
-// and the write is refused once, and its next read finds this start's token. Its stop, asked for
-// over the socket or by a terminate signal, ends it cleanly.
+// database opens, a damaged file is repaired; one that cannot be is left untouched and the start
+// fails, naming why. A client that reads the previous token in the moment between the bind and
+// the write is refused once, and its next read finds this start's token. Its stop, asked for over
+// the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -47,7 +48,11 @@ import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
 import { DamagedHistory, registerDamagedHistoryMethods } from "../recovery/damaged-history.js";
-import { copyDatabaseFilesAside } from "../recovery/database-file/aside-copy.js";
+import {
+  copyDatabaseFilesAside,
+  findAsideCopyOfSession,
+  recordSessionInAsideCopy,
+} from "../recovery/database-file/aside-copy.js";
 import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
 import { refuseEventOfDamagedSession } from "../recovery/session-write-refusal.js";
@@ -147,7 +152,6 @@ export class DaemonProcess {
     dataFolderLock: DataFolderLock;
     database: DatabaseConnections;
     /** Whether the start found the database file damaged and could not repair it. */
-    isDatabaseFileUnrepaired: boolean;
     settingsFile: MachineSettingsFile;
     orphanGuard: OrphanGuard;
     localMachine: LocalMachine;
@@ -164,9 +168,6 @@ export class DaemonProcess {
     this.#writeServiceLog = options.writeServiceLog;
 
     const { reader, writer } = parts.database;
-    if (parts.isDatabaseFileUnrepaired) {
-      this.#recoveryStatus.markStoreFailed();
-    }
     const sessionEvents = new EventLogService({
       writer,
       refuseSessionWrite: (sessionId, eventType) => {
@@ -174,7 +175,10 @@ export class DaemonProcess {
       },
     });
     const runEngine = new RunEngine({ reader, sessionEvents });
-    const sessionReads = new SessionService(reader);
+    const sessionReads = new SessionService(reader, (sessionId) =>
+      this.#recoveryStatus.readDamagedFromSequence(sessionId),
+    );
+    const runs = new RunStateReader(reader);
     const projectionRebuild = new ProjectionRebuildService({
       reader,
       writer,
@@ -192,24 +196,33 @@ export class DaemonProcess {
         eventLog: sessionEvents,
         now: options.now,
       }),
+      runs,
+      runEngine,
       status: this.#recoveryStatus,
     });
+    const asideOptions = {
+      databasePath: path.join(parts.dataFolder, DATABASE_FILE_NAME),
+      dataFolder: parts.dataFolder,
+      now: options.now,
+      writeServiceLog: options.writeServiceLog,
+    };
     this.#startupRecovery = new StartupRecovery({
       nodeId: parts.localMachine.nodeId,
       reader,
       sessionEvents,
       projectionRebuild,
       damagedHistory,
-      // Every write the pass queued commits first, so the copy holds them.
-      copyStoreAside: async () => {
-        await writer.flush();
-        return copyDatabaseFilesAside({
-          databasePath: path.join(parts.dataFolder, DATABASE_FILE_NAME),
-          dataFolder: parts.dataFolder,
-          now: options.now,
-        });
+      storeAside: {
+        // Every write the pass queued commits first, so the copy holds them.
+        copy: async () => {
+          await writer.flush();
+          return copyDatabaseFilesAside(asideOptions);
+        },
+        findCopyOfSession: (sessionId, headSequence) =>
+          findAsideCopyOfSession(asideOptions, sessionId, headSequence),
+        recordSession: recordSessionInAsideCopy,
       },
-      runs: new RunStateReader(reader),
+      runs,
       runEngine,
       status: this.#recoveryStatus,
       now: options.now,
@@ -322,6 +335,14 @@ export class DaemonProcess {
         now: options.now,
         writeServiceLog: options.writeServiceLog,
       });
+      // A file the repair could not heal is left as it is, never opened for writing, and the
+      // service does not start: with no store it has nothing to serve.
+      if (fileRepair.outcome === "unrepaired") {
+        throw new Error(
+          `The database file is damaged and could not be repaired: ${fileRepair.reason}. ` +
+            `Its files are copied aside in ${fileRepair.asideFolder}`,
+        );
+      }
       const database = await openDatabaseConnections({
         databasePath,
         writeServiceLog: options.writeServiceLog,
@@ -347,7 +368,6 @@ export class DaemonProcess {
           dataFolder,
           dataFolderLock,
           database,
-          isDatabaseFileUnrepaired: fileRepair.outcome === "unrepaired",
           settingsFile,
           orphanGuard,
           localMachine,

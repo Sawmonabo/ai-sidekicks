@@ -1,49 +1,184 @@
 // The store's files copied aside, untouched, before anything repairs them: the database, its
 // write-ahead log and its shared-memory index, each as it stands, into a folder of its own under
-// the data folder. Nothing the repair does ever deletes the copy.
+// the data folder. Nothing the repair does ever deletes a copy. Each copy's folder keeps a record
+// of the files' sizes and times as they were copied and of the damaged sessions healed after it,
+// so a start that meets the same damage again finds that copy rather than making another.
 
 import { constants } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, stat } from "node:fs/promises";
 import * as path from "node:path";
 
-/** The folder inside the data folder that holds each copy, one folder per copy. */
+import { z } from "zod";
+
+import { writeFileAtomically } from "../../atomic-file-write.js";
+import { isMissingFileError } from "../../missing-file-error.js";
+
+/** The two files SQLite keeps beside a database in write-ahead-log mode. */
+export const DATABASE_COMPANION_FILE_SUFFIXES = ["-wal", "-shm"] as const;
+
+// The folder inside the data folder that holds each copy, one folder per copy.
 const ASIDE_FOLDER_NAME = "damaged";
 
-// The two files SQLite keeps beside a database in write-ahead-log mode.
-const COMPANION_FILE_SUFFIXES = ["-wal", "-shm"] as const;
+// The record beside each copy's files.
+const RECORD_FILE_NAME = "copy.json";
 
-/** Where the copy goes and the clock that names its folder. */
+const StoredFileSchema = z
+  .object({ name: z.string(), size: z.number(), modifiedAtMs: z.number() })
+  .strict();
+type StoredFile = z.infer<typeof StoredFileSchema>;
+
+const AsideCopyRecordSchema = z
+  .object({
+    files: z.array(StoredFileSchema),
+    sessions: z.array(z.object({ sessionId: z.string(), headSequence: z.number() }).strict()),
+  })
+  .strict();
+type AsideCopyRecord = z.infer<typeof AsideCopyRecordSchema>;
+
+/** Where the store's files are, where copies go, and the clock that names a copy's folder. */
 export interface DatabaseFilesAsideOptions {
   readonly databasePath: string;
   readonly dataFolder: string;
   readonly now: () => Date;
+  readonly writeServiceLog: (line: string) => void;
 }
 
 /**
- * Copies the database and the companion files that exist into a new folder named for the moment,
- * readable by the person alone, and returns the folder. Throws the file system's error; a copy
- * never overwrites an earlier one.
+ * Returns the folder of a copy of the database and its companion files as they stand now: an
+ * earlier copy whose record matches them, or a new one, readable by the person alone. Throws the
+ * file system's error; a copy never overwrites another.
  */
 export async function copyDatabaseFilesAside(options: DatabaseFilesAsideOptions): Promise<string> {
-  // A colon is no part of a Windows file name.
-  const folderName = options.now().toISOString().replaceAll(":", "-");
-  const folder = path.join(options.dataFolder, ASIDE_FOLDER_NAME, folderName);
-  await mkdir(folder, { recursive: true, mode: 0o700 });
-  const fileName = path.basename(options.databasePath);
-  await copyFile(options.databasePath, path.join(folder, fileName), constants.COPYFILE_EXCL);
-  for (const suffix of COMPANION_FILE_SUFFIXES) {
+  const files = await describeDatabaseFiles(options.databasePath);
+  for (const copy of await readAsideCopies(options)) {
+    if (isSameFiles(copy.record.files, files)) {
+      return copy.folder;
+    }
+  }
+  const asideRoot = path.join(options.dataFolder, ASIDE_FOLDER_NAME);
+  await mkdir(asideRoot, { recursive: true, mode: 0o700 });
+  // A colon is no part of a Windows file name; the random tail keeps two copies apart.
+  const folder = await mkdtemp(
+    path.join(asideRoot, `${options.now().toISOString().replaceAll(":", "-")}-`),
+  );
+  for (const file of files) {
+    await copyFile(
+      path.join(path.dirname(options.databasePath), file.name),
+      path.join(folder, file.name),
+      constants.COPYFILE_EXCL,
+    );
+  }
+  await writeRecord(folder, { files, sessions: [] });
+  return folder;
+}
+
+/**
+ * The folder of a copy taken while the session was damaged with its head at `headSequence`, so
+ * the same damage needs no second copy; `undefined` when there is none.
+ */
+export async function findAsideCopyOfSession(
+  options: Pick<DatabaseFilesAsideOptions, "dataFolder" | "writeServiceLog">,
+  sessionId: string,
+  headSequence: number,
+): Promise<string | undefined> {
+  for (const copy of await readAsideCopies(options)) {
+    if (
+      copy.record.sessions.some(
+        (session) => session.sessionId === sessionId && session.headSequence === headSequence,
+      )
+    ) {
+      return copy.folder;
+    }
+  }
+  return undefined;
+}
+
+/** Records in the copy at `folder` that it holds the session damaged with its head there. */
+export async function recordSessionInAsideCopy(
+  folder: string,
+  sessionId: string,
+  headSequence: number,
+): Promise<void> {
+  const record = AsideCopyRecordSchema.parse(
+    JSON.parse(await readFile(path.join(folder, RECORD_FILE_NAME), "utf8")),
+  );
+  await writeRecord(folder, {
+    ...record,
+    sessions: [...record.sessions, { sessionId, headSequence }],
+  });
+}
+
+// The database and the companion files that exist, with their sizes and times.
+async function describeDatabaseFiles(databasePath: string): Promise<StoredFile[]> {
+  const databaseName = path.basename(databasePath);
+  const files: StoredFile[] = [];
+  for (const name of [
+    databaseName,
+    ...DATABASE_COMPANION_FILE_SUFFIXES.map((suffix) => `${databaseName}${suffix}`),
+  ]) {
     try {
-      await copyFile(
-        `${options.databasePath}${suffix}`,
-        path.join(folder, `${fileName}${suffix}`),
-        constants.COPYFILE_EXCL,
-      );
+      const stats = await stat(path.join(path.dirname(databasePath), name));
+      files.push({ name, size: stats.size, modifiedAtMs: stats.mtimeMs });
     } catch (error) {
       // A database closed cleanly keeps no log beside it.
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      if (name === databaseName || !isMissingFileError(error)) {
         throw error;
       }
     }
   }
-  return folder;
+  return files;
+}
+
+function isSameFiles(recorded: readonly StoredFile[], current: readonly StoredFile[]): boolean {
+  return (
+    recorded.length === current.length &&
+    current.every((file) =>
+      recorded.some(
+        (copied) =>
+          copied.name === file.name &&
+          copied.size === file.size &&
+          copied.modifiedAtMs === file.modifiedAtMs,
+      ),
+    )
+  );
+}
+
+// Every earlier copy with a record that reads; one whose record does not is named in the log and
+// never reused.
+async function readAsideCopies(
+  options: Pick<DatabaseFilesAsideOptions, "dataFolder" | "writeServiceLog">,
+): Promise<{ folder: string; record: AsideCopyRecord }[]> {
+  const asideRoot = path.join(options.dataFolder, ASIDE_FOLDER_NAME);
+  let entries;
+  try {
+    entries = await readdir(asideRoot, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return [];
+    }
+    throw error;
+  }
+  const copies: { folder: string; record: AsideCopyRecord }[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const folder = path.join(asideRoot, entry.name);
+    try {
+      const record = AsideCopyRecordSchema.parse(
+        JSON.parse(await readFile(path.join(folder, RECORD_FILE_NAME), "utf8")),
+      );
+      copies.push({ folder, record });
+    } catch (error) {
+      options.writeServiceLog(
+        `The copy aside in ${folder} has no record that reads and is not reused: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+  return copies;
+}
+
+async function writeRecord(folder: string, record: AsideCopyRecord): Promise<void> {
+  await writeFileAtomically(path.join(folder, RECORD_FILE_NAME), JSON.stringify(record), 0o600);
 }

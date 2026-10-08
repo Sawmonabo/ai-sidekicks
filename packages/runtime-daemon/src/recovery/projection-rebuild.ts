@@ -17,7 +17,7 @@ import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DATABASE_NOW_SQL, type WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
@@ -94,9 +94,6 @@ export interface ProjectionRebuildServiceDeps {
   readonly projections: readonly SessionProjection[];
 }
 
-// The `afterSequence` that reads a session from its first event.
-const BEFORE_FIRST_SEQUENCE = -1;
-
 /** The most events one page of a rebuild reads and writes. */
 export const REBUILD_PAGE_SIZE = 1_000;
 
@@ -131,7 +128,7 @@ const SELECT_HEAD_SEQUENCE_SQL = `SELECT MAX(sequence) AS head_sequence FROM ses
 // Goes with the clear, so the cursor reflects no event until a page lands.
 const MARK_REBUILDING_SQL = `INSERT INTO projection_cursors
     (id, session_id, last_sequence, state, updated_at)
-  VALUES (@id, @session_id, ${String(BEFORE_FIRST_SEQUENCE)}, 'rebuilding', ${DATABASE_NOW_SQL})
+  VALUES (@id, @session_id, ${String(START_OF_LOG_POSITION)}, 'rebuilding', ${DATABASE_NOW_SQL})
   ON CONFLICT (session_id) DO UPDATE
     SET last_sequence = excluded.last_sequence, state = 'rebuilding',
         updated_at = excluded.updated_at`;
@@ -226,7 +223,7 @@ export class ProjectionRebuildService {
         this.#selectHeadSequence.get({
           session_id: sessionId,
           before_sequence: request.beforeSequence ?? null,
-        })?.head_sequence ?? BEFORE_FIRST_SEQUENCE;
+        })?.head_sequence ?? START_OF_LOG_POSITION;
       const cursor = this.#selectCursor.get(sessionId);
       if (
         request.force !== true &&
@@ -301,7 +298,7 @@ export class ProjectionRebuildService {
       eventTypes: projection.eventTypes,
       fold: projection.createFold(sessionId),
     }));
-    let afterSequence = BEFORE_FIRST_SEQUENCE;
+    let afterSequence = START_OF_LOG_POSITION;
     let eventsRead = 0;
     let hasMore = true;
     while (hasMore) {

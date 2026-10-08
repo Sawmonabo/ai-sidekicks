@@ -1,19 +1,23 @@
 // The database file's repair at a start, before anything opens it for writing. A quick structural
 // check reads the file; a damaged one is copied aside untouched with its write-ahead log, its rows
-// are recovered into a fresh file with SQLite's own recovery, and where the person keeps backups,
-// each session whose events the newest backup holds more of takes them from the backup. The fresh
-// file must hold every table of the schema and pass the full integrity check before it replaces
-// the damaged one; every session's projections are then rebuilt from its events.
+// are recovered into a fresh file with SQLite's own recovery, and where the person keeps a backup
+// that reads, each session whose events the newest backup holds more of takes them from it. The
+// fresh file must hold every table, index, trigger and view of the schema and pass the full
+// integrity check before it replaces the damaged one; every session's projections are then
+// rebuilt from its events. A marker written once the fresh file is ready lets a start that a crash
+// cut short finish the replacement rather than recover again from a file whose log is gone.
 
-import { access, open, rename, rm } from "node:fs/promises";
+import { access, copyFile, open, rename, rm } from "node:fs/promises";
 import * as path from "node:path";
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
+import { writeFileAtomically } from "../../atomic-file-write.js";
+import { isMissingFileError } from "../../missing-file-error.js";
 import { DAEMON_SCHEMA_SQL } from "../../session/daemon-schema.js";
 import { hasSqliteErrorCode } from "../../session/sqlite-error-code.js";
-import { copyDatabaseFilesAside } from "./aside-copy.js";
+import { copyDatabaseFilesAside, DATABASE_COMPANION_FILE_SUFFIXES } from "./aside-copy.js";
 import { findNewestBackupDatabase } from "./newest-backup.js";
 import { recoverIntoFreshFile } from "./sqlite-shell.js";
 
@@ -42,9 +46,8 @@ export type DatabaseFileRepair =
     }
   | { readonly outcome: "unrepaired"; readonly asideFolder: string; readonly reason: string };
 
-// The companion files SQLite keeps beside a database in write-ahead-log mode; the damaged file's
-// would be replayed into the fresh one.
-const COMPANION_FILE_SUFFIXES = ["-wal", "-shm"] as const;
+// The table `.recover` puts rows in that it found no table for; the aside copy keeps their bytes.
+const LOST_AND_FOUND_TABLE_PATTERN = "lost_and_found%";
 
 // Each session whose readable events the backup holds more of than the fresh file.
 const SELECT_SESSIONS_RICHER_IN_BACKUP_SQL = `SELECT backup_counts.session_id AS session_id
@@ -55,6 +58,10 @@ const SELECT_SESSIONS_RICHER_IN_BACKUP_SQL = `SELECT backup_counts.session_id AS
     ON fresh_counts.session_id = backup_counts.session_id
  WHERE backup_counts.readable > COALESCE(fresh_counts.readable, 0)`;
 
+// Every table, index, trigger and view of a database but SQLite's own and the recovery's.
+const SELECT_SCHEMA_OBJECTS_SQL = `SELECT type || ' ' || name AS object FROM main.sqlite_schema
+  WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '${LOST_AND_FOUND_TABLE_PATTERN}'`;
+
 /**
  * Checks the database file and repairs it when it is damaged. Never throws for a damaged file:
  * one it could not repair comes back `unrepaired` and stays in place. Throws when the file cannot
@@ -64,6 +71,12 @@ export async function repairDatabaseFile(
   options: DatabaseFileRepairOptions,
 ): Promise<DatabaseFileRepair> {
   const { databasePath } = options;
+  const freshPath = `${databasePath}.recovered`;
+  const readyMarkerPath = `${freshPath}-ready`;
+  if (await fileExists(readyMarkerPath)) {
+    options.writeServiceLog("A repaired database file was ready; its replacement is finished now");
+    await replaceDatabaseFile(databasePath, freshPath, readyMarkerPath);
+  }
   if (!(await fileExists(databasePath))) {
     return { outcome: "intact" };
   }
@@ -73,17 +86,15 @@ export async function repairDatabaseFile(
   }
   options.writeServiceLog(`The database file is damaged: ${damage}`);
   const asideFolder = await copyDatabaseFilesAside(options);
-  options.writeServiceLog(`The damaged database's files were copied aside to ${asideFolder}`);
-  const freshPath = `${databasePath}.recovered`;
+  options.writeServiceLog(`The damaged database's files are copied aside in ${asideFolder}`);
   await rm(freshPath, { force: true });
   try {
     await recoverIntoFreshFile(databasePath, freshPath);
-    const backupDatabase = await findNewestBackupDatabase(
-      await options.readBackupFolder(),
-      options.writeServiceLog,
-    );
-    const sessionsFromBackup = prepareFreshFile(freshPath, backupDatabase, options.writeServiceLog);
-    await replaceDatabaseFile(databasePath, freshPath);
+    const sessionsFromBackup = await takeRicherSessionsFromBackup(freshPath, options);
+    prepareFreshFile(freshPath, options.writeServiceLog);
+    await syncFile(freshPath);
+    await writeFileAtomically(readyMarkerPath, "", 0o600);
+    await replaceDatabaseFile(databasePath, freshPath, readyMarkerPath);
     options.writeServiceLog(
       `The database file was recovered; ${String(sessionsFromBackup)} sessions took their ` +
         "events from the newest backup",
@@ -117,86 +128,51 @@ function findStructuralDamage(databasePath: string): string | undefined {
   }
 }
 
-// Takes each session the newest backup holds more readable events of from the backup, clears
-// every projection cursor so every session is rebuilt from its events, then refuses a file that
-// lacks a table of the schema or fails the full integrity check. Returns the sessions taken from
-// the backup.
-function prepareFreshFile(
+// Takes each session the newest backup holds more readable events of from it, and returns how
+// many. The backup's database is read from a copy in the data folder, so nothing is written
+// beside the person's backups. A backup that cannot be found or read heals nothing, like no
+// backup: the recovery alone heals the file, and the log says why the backup was passed over.
+async function takeRicherSessionsFromBackup(
   freshPath: string,
-  backupDatabase: string | undefined,
-  writeServiceLog: (line: string) => void,
-): number {
-  const fresh = new Database(freshPath, { fileMustExist: true });
+  options: DatabaseFileRepairOptions,
+): Promise<number> {
+  const backupCopyPath = `${options.databasePath}.backup-read`;
   try {
-    const sessionsFromBackup =
-      backupDatabase === undefined
-        ? 0
-        : takeRicherSessionsFromBackup(fresh, backupDatabase, writeServiceLog);
-    fresh.exec("DELETE FROM projection_cursors");
-    const missingTables = listMissingSchemaTables(fresh);
-    if (missingTables.length > 0) {
-      throw new Error(`The recovered file lacks the tables ${missingTables.join(", ")}`);
+    const backupDatabase = await findNewestBackupDatabase(
+      await options.readBackupFolder(),
+      options.writeServiceLog,
+    );
+    if (backupDatabase === undefined) {
+      return 0;
     }
-    const integrity = fresh.pragma("integrity_check") as { integrity_check: string }[];
-    if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
-      throw new Error(
-        `The recovered file fails its integrity check: ${integrity
-          .map((row) => row.integrity_check)
-          .join("; ")}`,
-      );
+    await copyFile(backupDatabase, backupCopyPath);
+    const fresh = new Database(freshPath, { fileMustExist: true });
+    try {
+      fresh.prepare("ATTACH DATABASE ? AS backup").run(backupCopyPath);
+      const sessionIds = fresh
+        .prepare<[], { session_id: string }>(SELECT_SESSIONS_RICHER_IN_BACKUP_SQL)
+        .all()
+        .map((row) => row.session_id);
+      fresh.transaction(() => {
+        for (const sessionId of sessionIds) {
+          takeSessionFromBackup(fresh, sessionId);
+        }
+      })();
+      return sessionIds.length;
+    } finally {
+      fresh.close();
     }
-    return sessionsFromBackup;
-  } finally {
-    fresh.close();
-  }
-}
-
-// A backup SQLite cannot read (a drive that is gone, a damaged copy) heals nothing, like no backup:
-// the recovery alone heals the file, and the log says why the backup was passed over.
-function takeRicherSessionsFromBackup(
-  fresh: DatabaseType,
-  backupDatabase: string,
-  writeServiceLog: (line: string) => void,
-): number {
-  try {
-    // Only read: every write below names `main`. The binding is built without URI file names,
-    // so a read-only open cannot be asked for here.
-    fresh.prepare("ATTACH DATABASE ? AS backup").run(backupDatabase);
   } catch (error) {
-    return passOverBackup(error, backupDatabase, writeServiceLog);
-  }
-  try {
-    const sessionIds = fresh
-      .prepare<[], { session_id: string }>(SELECT_SESSIONS_RICHER_IN_BACKUP_SQL)
-      .all()
-      .map((row) => row.session_id);
-    fresh.transaction(() => {
-      for (const sessionId of sessionIds) {
-        takeSessionFromBackup(fresh, sessionId);
-      }
-    })();
-    return sessionIds.length;
-  } catch (error) {
-    return passOverBackup(error, backupDatabase, writeServiceLog);
+    options.writeServiceLog(
+      "The newest backup could not be read and was passed over: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
+    return 0;
   } finally {
-    fresh.exec("DETACH DATABASE backup");
+    for (const suffix of ["", ...DATABASE_COMPANION_FILE_SUFFIXES]) {
+      await rm(`${backupCopyPath}${suffix}`, { force: true });
+    }
   }
-}
-
-// Rethrows anything but SQLite's own refusal to read the backup.
-function passOverBackup(
-  error: unknown,
-  backupDatabase: string,
-  writeServiceLog: (line: string) => void,
-): 0 {
-  if (!hasSqliteErrorCode(error, "SQLITE_")) {
-    throw error;
-  }
-  const reason = error instanceof Error ? error.message : String(error);
-  writeServiceLog(
-    `The newest backup ${backupDatabase} could not be read and was passed over: ${reason}`,
-  );
-  return 0;
 }
 
 // A snapshot names the event it reflects, so the session's snapshots go and come with its events.
@@ -215,42 +191,104 @@ function takeSessionFromBackup(fresh: DatabaseType, sessionId: string): void {
     .run(sessionId);
 }
 
-// The tables the schema creates that the file does not hold.
-function listMissingSchemaTables(database: DatabaseType): string[] {
+// Refuses a fresh file that lacks an object of the schema, drops the recovery's table of rows it
+// could place nowhere, clears every projection cursor so every session is rebuilt from its
+// events, and refuses a file that fails the full integrity check.
+function prepareFreshFile(freshPath: string, writeServiceLog: (line: string) => void): void {
+  const fresh = new Database(freshPath, { fileMustExist: true });
+  try {
+    const missingObjects = listMissingSchemaObjects(fresh);
+    if (missingObjects.length > 0) {
+      throw new Error(`The recovered file lacks ${missingObjects.join(", ")}`);
+    }
+    dropLostAndFound(fresh, writeServiceLog);
+    fresh.exec("DELETE FROM projection_cursors");
+    const integrity = fresh.pragma("integrity_check") as { integrity_check: string }[];
+    if (integrity.length !== 1 || integrity[0]?.integrity_check !== "ok") {
+      throw new Error(
+        `The recovered file fails its integrity check: ${integrity
+          .map((row) => row.integrity_check)
+          .join("; ")}`,
+      );
+    }
+  } finally {
+    fresh.close();
+  }
+}
+
+// The schema's objects the file does not hold, each as its type and name.
+function listMissingSchemaObjects(database: DatabaseType): string[] {
   const schema = new Database(":memory:");
   try {
     schema.exec(DAEMON_SCHEMA_SQL);
-    const held = new Set(listTables(database));
-    return listTables(schema).filter((table) => !held.has(table));
+    const held = new Set(listSchemaObjects(database));
+    return listSchemaObjects(schema).filter((object) => !held.has(object));
   } finally {
     schema.close();
   }
 }
 
-function listTables(database: DatabaseType): string[] {
+function listSchemaObjects(database: DatabaseType): string[] {
   return database
-    .prepare<[], { name: string }>(
-      "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-    )
+    .prepare<[], { object: string }>(SELECT_SCHEMA_OBJECTS_SQL)
     .all()
+    .map((row) => row.object);
+}
+
+// The rows stay in the aside copy, so the live file keeps no table the schema does not name.
+function dropLostAndFound(fresh: DatabaseType, writeServiceLog: (line: string) => void): void {
+  const tables = fresh
+    .prepare<[string], { name: string }>(
+      "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name LIKE ?",
+    )
+    .all(LOST_AND_FOUND_TABLE_PATTERN)
     .map((row) => row.name);
+  for (const table of tables) {
+    const { count } = fresh.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).get() as {
+      count: number;
+    };
+    writeServiceLog(
+      `The recovery found ${String(count)} rows it could place in no table; they stay in the ` +
+        "copy aside",
+    );
+    fresh.exec(`DROP TABLE "${table}"`);
+  }
+}
+
+async function syncFile(filePath: string): Promise<void> {
+  const file = await open(filePath, "r");
+  try {
+    await file.sync();
+  } finally {
+    await file.close();
+  }
 }
 
 // The damaged file's log and index go first, so SQLite never replays them into the fresh file;
-// both are in the aside copy. The folder is flushed so the rename survives a power loss.
-async function replaceDatabaseFile(databasePath: string, freshPath: string): Promise<void> {
-  for (const suffix of COMPANION_FILE_SUFFIXES) {
+// both are in the aside copy. A start a crash cut short after the rename finds the fresh file
+// already in place. The folder is flushed so the rename survives a power loss, and the marker
+// goes last.
+async function replaceDatabaseFile(
+  databasePath: string,
+  freshPath: string,
+  readyMarkerPath: string,
+): Promise<void> {
+  for (const suffix of DATABASE_COMPANION_FILE_SUFFIXES) {
     await rm(`${databasePath}${suffix}`, { force: true });
   }
-  await rename(freshPath, databasePath);
-  if (process.platform !== "win32") {
-    const folder = await open(path.dirname(databasePath), "r");
-    try {
-      await folder.sync();
-    } finally {
-      await folder.close();
-    }
+  if (await fileExists(freshPath)) {
+    await rename(freshPath, databasePath);
   }
+  await syncFolder(path.dirname(databasePath));
+  await rm(readyMarkerPath);
+  await syncFolder(path.dirname(databasePath));
+}
+
+async function syncFolder(folderPath: string): Promise<void> {
+  if (process.platform === "win32") {
+    return;
+  }
+  await syncFile(folderPath);
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -258,7 +296,7 @@ async function fileExists(filePath: string): Promise<boolean> {
     await access(filePath);
     return true;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return false;
     }
     throw error;

@@ -139,27 +139,34 @@ async function seedSnapshot(sessionId: SessionId, asOfSequence: number | bigint)
 }
 
 // A run of `sessionId` with one intervention and one command receipt, each named by the run alone.
+// A run with no `runs` row is one the rebuild never reached, known only from its events.
 async function seedRunRows(
   sessionId: SessionId,
+  runId = `run-${sessionId.slice(-4)}`,
+  hasRunRow = true,
 ): Promise<{ interventionId: string; receiptId: string }> {
-  const runId = `run-${sessionId.slice(-4)}`;
-  const interventionId = `intervention-${sessionId.slice(-4)}`;
-  const receiptId = `receipt-${sessionId.slice(-4)}`;
+  const interventionId = `intervention-${runId}`;
+  const receiptId = `receipt-${runId}`;
   await scratch.writer.write([
-    {
-      sql: `INSERT INTO runs (run_id, session_id, state, run_version) VALUES (?, ?, 'running', 2)`,
-      bindings: [runId, sessionId],
-    },
+    ...(hasRunRow
+      ? [
+          {
+            sql: `INSERT INTO runs (run_id, session_id, state, run_version)
+                  VALUES (?, ?, 'running', 2)`,
+            bindings: [runId, sessionId],
+          },
+        ]
+      : []),
     {
       sql: `INSERT INTO interventions
               (id, target_run_id, type, expected_run_version, client_idempotency_key, created_at)
             VALUES (?, ?, 'steer', 2, ?, '2026-08-01T00:00:00.000Z')`,
-      bindings: [interventionId, runId, `key-${sessionId.slice(-4)}`],
+      bindings: [interventionId, runId, `key-${runId}`],
     },
     {
       sql: `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
             VALUES (?, ?, ?, 'accepted', '2026-08-01T00:00:00.000Z')`,
-      bindings: [receiptId, `command-${sessionId.slice(-4)}`, runId],
+      bindings: [receiptId, `command-${runId}`, runId],
     },
   ]);
   return { interventionId, receiptId };
@@ -199,6 +206,12 @@ describe("SessionPurge — the whole session", () => {
   it("deletes every purgeable row, snapshot and run row, sparing maintenance rows and others", async () => {
     const first = await seedMessage("hi");
     const runRows = await seedRunRows(SESSION);
+    const loggedRun = await seed({
+      category: "run_lifecycle",
+      type: "run.running",
+      payload: { runId: "run-past-the-rebuild" },
+    });
+    const loggedRunRows = await seedRunRows(SESSION, "run-past-the-rebuild", false);
     const otherRunRows = await seedRunRows(SECOND_SESSION);
     const maintenance = await seed({
       category: "event_maintenance",
@@ -216,18 +229,21 @@ describe("SessionPurge — the whole session", () => {
 
     expect(result.refusedReason).toBeUndefined();
     expect(outcome.refusedReason).toBeUndefined();
-    expect(outcome.rowsDeleted).toBe(2);
+    expect(outcome.rowsDeleted).toBe(3);
     expect(outcome.fromSequence).toBe(first.sequence);
     expect(outcome.toSequence).toBe(newest.sequence);
 
     expect(rowExists("session_events", first.id)).toBe(false);
     expect(rowExists("session_events", newest.id)).toBe(false);
+    expect(rowExists("session_events", loggedRun.id)).toBe(false);
     expect(rowExists("session_snapshots", snapshot)).toBe(false);
     expect(rowExists("session_events", maintenance.id)).toBe(true);
     expect(rowExists("session_events", otherSession.id)).toBe(true);
     expect(rowExists("session_snapshots", otherSnapshot)).toBe(true);
     expect(rowExists("interventions", runRows.interventionId)).toBe(false);
     expect(rowExists("command_receipts", runRows.receiptId)).toBe(false);
+    expect(rowExists("interventions", loggedRunRows.interventionId)).toBe(false);
+    expect(rowExists("command_receipts", loggedRunRows.receiptId)).toBe(false);
     expect(rowExists("interventions", otherRunRows.interventionId)).toBe(true);
     expect(rowExists("command_receipts", otherRunRows.receiptId)).toBe(true);
 

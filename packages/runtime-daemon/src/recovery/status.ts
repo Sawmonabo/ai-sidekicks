@@ -1,7 +1,8 @@
 // The node's recovery state as the status read serves it: `rebuilding` while the restart's pass
 // runs, `blocked` once the local store has failed, and `degraded` while a session's history is
 // damaged. A damaged session is listed, open at its last good point or unreadable, and only it
-// refuses writes.
+// refuses writes. Sessions are keyed by their canonical id, so a call that spells one in capitals
+// meets the same refusal.
 
 import {
   DAEMON_RECOVERY_STATES,
@@ -9,8 +10,9 @@ import {
   type DaemonRecoveryState,
   type DaemonRecoveryStatus,
 } from "@ai-sidekicks/contracts/daemon/recovery";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionWriteRefusedDetails } from "@ai-sidekicks/contracts/session/recovery";
+import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 /** A session's last good point: the last event it opens at, and the first one that is damaged. */
 export interface LastGoodPoint {
@@ -45,22 +47,22 @@ export class RecoveryStatusTracker {
 
   /** Marks a session's projections as being rebuilt. */
   markSessionRebuilding(sessionId: SessionId): void {
-    this.#sessions.set(sessionId, { state: "rebuilding" });
+    this.#sessions.set(canonicalizeUuid(sessionId), { state: "rebuilding" });
   }
 
   /** Marks a session's projections current, or the session deleted, so it is no longer listed. */
   markSessionHealthy(sessionId: SessionId): void {
-    this.#sessions.delete(sessionId);
+    this.#sessions.delete(canonicalizeUuid(sessionId));
   }
 
   /** Marks a session whose history is damaged after `point`, which it opens at read-only. */
   markSessionAtLastGoodPoint(sessionId: SessionId, point: LastGoodPoint): void {
-    this.#sessions.set(sessionId, { state: "degraded", point });
+    this.#sessions.set(canonicalizeUuid(sessionId), { state: "degraded", point });
   }
 
   /** Marks a session none of whose events can be read. */
   markSessionUnreadable(sessionId: SessionId): void {
-    this.#sessions.set(sessionId, { state: "damaged" });
+    this.#sessions.set(canonicalizeUuid(sessionId), { state: "damaged" });
   }
 
   /**
@@ -68,14 +70,27 @@ export class RecoveryStatusTracker {
    * unreadable; `undefined` when it takes writes.
    */
   readSessionWriteRefusal(sessionId: SessionId): SessionWriteRefusedDetails | undefined {
-    const state = this.#sessions.get(sessionId)?.state;
+    const state = this.#sessions.get(canonicalizeUuid(sessionId))?.state;
     return state === "degraded" || state === "damaged" ? { sessionId, recovery: state } : undefined;
   }
 
   /** The session's last good point while it opens read-only at one, `undefined` otherwise. */
   readLastGoodPoint(sessionId: SessionId): LastGoodPoint | undefined {
-    const session = this.#sessions.get(sessionId);
+    const session = this.#sessions.get(canonicalizeUuid(sessionId));
     return session?.state === "degraded" ? session.point : undefined;
+  }
+
+  /**
+   * The sequence a read of the session stops before while its history is damaged: its first
+   * damaged event, or the start of its log when none can be read; `undefined` when it reads
+   * whole.
+   */
+  readDamagedFromSequence(sessionId: SessionId): number | undefined {
+    const session = this.#sessions.get(canonicalizeUuid(sessionId));
+    if (session?.state === "degraded") {
+      return session.point.damagedFromSequence;
+    }
+    return session?.state === "damaged" ? START_OF_LOG_POSITION : undefined;
   }
 
   /**

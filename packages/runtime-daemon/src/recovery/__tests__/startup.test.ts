@@ -1,11 +1,12 @@
 // A restart's recovery pass over a real database. A run the restart left running ends failed and
 // needing recovery, a run whose interrupt was accepted ends interrupted with the interrupt applied,
 // and a pass with nothing damaged records its counts as succeeded. A session whose history cannot
-// be rebuilt whole is copied aside and opens at its last good point, its damaged events kept in
-// place and its runs left as they are, while every other session takes its writes; `Continue
-// from here` skips the damaged events and the session takes new work, and a session with no
-// readable event can only be deleted. While the pass runs, every mutating call but the restart is
-// refused.
+// be rebuilt whole is copied aside, once for the same damage across restarts, and opens at its
+// last good point, read no further, its damaged events kept in place and its runs left as they
+// are, while every other session takes its writes; `Continue from here` skips the damaged events,
+// settles the run the restart left live past every version the skipped rows hold, and the session
+// takes new work; a session with no readable event can only be deleted. While the pass runs, every
+// mutating call but the restart is refused.
 
 import { randomUUID } from "node:crypto";
 
@@ -123,24 +124,25 @@ describe("the recovery pass at a restart", () => {
     return { sessionId, liveRunId };
   }
 
-  // A session whose fourth row is not JSON, with a well-formed event after it.
-  async function writeSessionWithUnreadableRow(): Promise<SessionId> {
+  // A session whose running run's fourth row is not JSON, with the run's end stored after it.
+  async function writeSessionWithUnreadableRow(): Promise<{ sessionId: SessionId; runId: RunId }> {
     const sessionId = SessionIdSchema.parse(randomUUID());
     const runId = RunIdSchema.parse(randomUUID());
     await writeLog(sessionId, [
       ...runEvents(sessionId, runId),
       { type: "run.running", payload: "{not json" },
       {
-        type: "run.queued",
+        type: "run.completed",
         payload: JSON.stringify({
           sessionId,
-          runId: RunIdSchema.parse(randomUUID()),
-          runVersion: 0,
-          newState: "queued",
+          runId,
+          runVersion: 3,
+          previousState: "running",
+          newState: "completed",
         }),
       },
     ]);
-    return sessionId;
+    return { sessionId, runId };
   }
 
   interface PassParts {
@@ -149,12 +151,19 @@ describe("the recovery pass at a restart", () => {
     /** The event log every write of the daemon goes through, refusing a damaged session's. */
     readonly sessionEvents: EventLogService;
     readonly pass: StartupRecovery;
-    /** How many times the pass copied the store aside. */
-    readonly asideCopies: () => number;
+  }
+
+  // The copies taken aside, kept across the restarts of one test as the data folder keeps them.
+  interface AsideCopies {
+    count: number;
+    readonly sessions: Set<string>;
   }
 
   // The pass as the daemon builds it, with the sessions it rebuilds pushed onto `rebuiltSessions`.
-  function buildPass(rebuiltSessions: SessionId[] = []): PassParts {
+  function buildPass(
+    rebuiltSessions: SessionId[] = [],
+    asideCopies: AsideCopies = { count: 0, sessions: new Set() },
+  ): PassParts {
     const { reader, writer } = fixture.database;
     const status = new RecoveryStatusTracker();
     const sessionEvents = new EventLogService({
@@ -176,9 +185,10 @@ describe("the recovery pass at a restart", () => {
       eventLog: sessionEvents,
       projectionRebuild,
       purge: new SessionPurge({ writer, nodeId, eventLog: sessionEvents }),
+      runs: fixture.runs,
+      runEngine: fixture.restartEngine(),
       status,
     });
-    let asideCopies = 0;
     const pass = new StartupRecovery({
       nodeId,
       reader,
@@ -191,9 +201,19 @@ describe("the recovery pass at a restart", () => {
         },
       },
       damagedHistory,
-      copyStoreAside: () => {
-        asideCopies += 1;
-        return Promise.resolve("/aside");
+      storeAside: {
+        copy: () => {
+          asideCopies.count += 1;
+          return Promise.resolve(`/aside/${String(asideCopies.count)}`);
+        },
+        findCopyOfSession: (sessionId, headSequence) =>
+          Promise.resolve(
+            asideCopies.sessions.has(`${sessionId} ${String(headSequence)}`) ? "/aside" : undefined,
+          ),
+        recordSession: (_folder, sessionId, headSequence) => {
+          asideCopies.sessions.add(`${sessionId} ${String(headSequence)}`);
+          return Promise.resolve();
+        },
       },
       runs: fixture.runs,
       runEngine: fixture.restartEngine(),
@@ -201,7 +221,7 @@ describe("the recovery pass at a restart", () => {
       now: () => new Date(OCCURRED_AT),
       writeServiceLog: () => {},
     });
-    return { status, damagedHistory, sessionEvents, pass, asideCopies: () => asideCopies };
+    return { status, damagedHistory, sessionEvents, pass };
   }
 
   function readRecoveryEvents(): { type: string; payload: Record<string, unknown> }[] {
@@ -286,11 +306,12 @@ describe("the recovery pass at a restart", () => {
 
   it("opens a session it cannot rebuild at its last good point and keeps its damaged events", async () => {
     const unfoldable = await writeUnfoldableSession();
-    const { status, pass, asideCopies } = buildPass();
+    const asideCopies: AsideCopies = { count: 0, sessions: new Set() };
+    const { status, pass } = buildPass([], asideCopies);
 
     await pass.run();
 
-    expect(asideCopies()).toBe(1);
+    expect(asideCopies.count).toBe(1);
     expect(status.read()).toStrictEqual({
       overall: "degraded",
       sessions: [
@@ -313,11 +334,13 @@ describe("the recovery pass at a restart", () => {
         .get(unfoldable.sessionId),
     ).toStrictEqual({ last_sequence: REBUILD_PAGE_SIZE - 1 });
 
-    // A restart heals it again first, and rebuilds no other session.
+    // A restart heals it again first with no second copy of the same damage, and rebuilds no
+    // other session.
     const rebuiltOnRestart: SessionId[] = [];
-    await buildPass(rebuiltOnRestart).pass.run();
+    await buildPass(rebuiltOnRestart, asideCopies).pass.run();
 
     expect(new Set(rebuiltOnRestart)).toStrictEqual(new Set([unfoldable.sessionId]));
+    expect(asideCopies.count).toBe(1);
     expect(readRecoveryEvents()).toMatchObject([
       { type: "recovery.attempted", payload: { attemptNumber: 1, priorFailureCount: 0 } },
       {
@@ -365,6 +388,10 @@ describe("the recovery pass at a restart", () => {
       code: "session.write_refused",
       detail: { sessionId: unfoldable.sessionId, recovery: "degraded" },
     });
+    // The same session spelled in capitals meets the same refusal.
+    await expect(
+      registry.dispatch("session.rename", { sessionId: unfoldable.sessionId.toUpperCase() }, {}),
+    ).rejects.toMatchObject({ code: "session.write_refused" });
     // Whoever writes, the append itself refuses the damaged session and takes the other.
     const queued = await queueRunThrough(sessionEvents, fixture.sessionId);
     expect(fixture.runs.getRun(queued)?.state).toBe("queued");
@@ -375,30 +402,38 @@ describe("the recovery pass at a restart", () => {
   });
 
   it("continues a damaged session from its last good point, and it takes new work", async () => {
-    const sessionId = await writeSessionWithUnreadableRow();
+    const { sessionId, runId } = await writeSessionWithUnreadableRow();
     const { status, damagedHistory, sessionEvents, pass } = buildPass();
     await pass.run();
     expect(status.read().sessions).toMatchObject([
       { sessionId, state: "degraded", lastAppliedSequence: 2, damagedFromSequence: 3 },
     ]);
+    // Until it is continued, a read of the session stops at its last good point.
+    const boundedReads = new SessionService(fixture.database.reader, (id) =>
+      status.readDamagedFromSequence(id),
+    );
+    expect(boundedReads.readEvents(sessionId).map((event) => event.sequence)).toStrictEqual([
+      0, 1, 2,
+    ]);
 
     await damagedHistory.continueFromLastGoodPoint(sessionId);
 
     expect(status.read()).toStrictEqual({ overall: "healthy", sessions: [] });
+    // The run the restart left live ends past the version its skipped end holds.
+    expect(fixture.runs.getRun(runId)).toMatchObject({ state: "failed", version: 4 });
     const queued = await queueRunThrough(sessionEvents, sessionId);
     expect(fixture.runs.getRun(queued)?.state).toBe("queued");
     // The damaged rows stay stored, every read skips them, and a restart rebuilds past them.
-    expect(countStoredRows(sessionId)).toBe(7);
+    expect(countStoredRows(sessionId)).toBe(8);
     expect(
-      new SessionService(fixture.database.reader)
-        .readEvents(sessionId)
-        .map((event) => [event.sequence, event.type]),
+      boundedReads.readEvents(sessionId).map((event) => [event.sequence, event.type]),
     ).toStrictEqual([
       [0, "run.queued"],
       [1, "run.starting"],
       [2, "run.running"],
       [5, "recovery.damaged_events_skipped"],
-      [6, "run.queued"],
+      [6, "run.failed"],
+      [7, "run.queued"],
     ]);
     const restarted = buildPass();
     await fixture.database.writer.write([{ sql: "DELETE FROM projection_cursors" }]);

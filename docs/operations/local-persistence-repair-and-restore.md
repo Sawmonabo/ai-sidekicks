@@ -4,11 +4,12 @@
 
 Repair or restore the Local Runtime Daemon SQLite store when the service's own repair at a start could not heal it, or when a session's history stays damaged after that repair.
 
-The service heals first, on its own, at every start ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)): a damaged file is copied aside untouched into `~/.ai-sidekicks/damaged/<time>/` with its write-ahead log, recovered into a fresh file with SQLite's own recovery (`sqlite3_recover`) and checked with `PRAGMA integrity_check` before it is used, a session the newest backup holds more events of taking them from that backup; a session whose events still cannot be read opens at its last good point, read-only, with `Continue from here` and `Delete session`, and only that session refuses writes. This runbook starts where that repair ends.
+The service heals first, on its own, at every start ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)): a damaged file is copied aside untouched into a folder under `~/.ai-sidekicks/damaged/` with its write-ahead log, recovered into a fresh file with SQLite's own recovery (`sqlite3_recover`) and checked with `PRAGMA integrity_check` before it is used, a session the newest backup holds more events of taking them from that backup; a session whose events still cannot be read opens at its last good point, read-only, with `Continue from here` and `Delete session`, and only that session refuses writes. This runbook starts where that repair ends.
 
 ## Symptoms
 
-- The `recovery` field on `daemon.status.read` stays `blocked` because local persistence is unavailable: the service's repair could not heal the file
+- The service does not start, and its log reads `The database file is damaged and could not be repaired` with the reason and the folder its files were copied aside to
+- The `recovery` field on `daemon.status.read` stays `blocked` because local persistence failed during the restart's recovery pass
 - A session reads `degraded` (at its last good point) or `damaged` (no readable event) in that field's session list, and Settings › Runtime names it
 - Local Runtime Daemon logs show SQLite open, lock, integrity, or WAL-related failure
 - Projection rebuild fails before projections become queryable
@@ -42,8 +43,8 @@ A backup is a plain copy of what it lists — the service's database, copied onl
 ## Recovery Steps
 
 1. For one damaged session, choose in the session: `Continue from here` makes the last good point the session's end so it takes new work again, the damaged events staying stored and skipped; `Delete session` removes the session. A session with no readable event offers `Delete session` only. Nothing else on the machine needs to stop.
-2. For a store that stays `blocked`, stop the Local Runtime Daemon before modifying any SQLite, WAL, or SHM files. The service already copied the damaged files aside into `~/.ai-sidekicks/damaged/<time>/` before its repair; keep that folder.
-3. Start the service and read `sidekicks daemon status`: the service checks the file's structure at every start and repairs a damaged one before it opens it, and the status names a file it could not repair. A store it opens is structurally healthy.
+2. For a service that does not start on a damaged file, or a store that stays `blocked`, stop the Local Runtime Daemon before modifying any SQLite, WAL, or SHM files. The service already copied the damaged files aside into a folder under `~/.ai-sidekicks/damaged/` before its repair; keep that folder. A file the repair failed on because no `sqlite3` shell, or none from 3.37 on, was found heals at the next start once one is on the search path.
+3. Start the service and read `sidekicks daemon status`: the service checks the file's structure at every start and repairs a damaged one before it opens it, and a start on a file it could not repair fails with the reason in its log. A store it opens is structurally healthy.
 4. If integrity is healthy, restart the daemon: every session's projections rebuild from canonical events, so the database is not replaced.
 5. If the repair failed, restore the latest backup with `sidekicks db restore <backup>` (or `Restore…` on Settings › Runtime) from the backup folder — `~/.ai-sidekicks/backups` by default, or the folder the person picked — per [Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy); the restore replaces the database, the settings file, the workspaces, the checkpoint copies, the conversation files and the agent memory folder, starts the service again, and the projection rebuild runs.
 6. If integrity fails AND there is no backup — backups are off until the person turns them on ([Spec-013 §Backup Policy](../specs/013-persistence-and-recovery.md#backup-policy)) — or the backup folder is itself unreadable, preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.

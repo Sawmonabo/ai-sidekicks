@@ -1,10 +1,10 @@
 // The recovery pass every start runs before the node takes writes: it rebuilds each session's
 // projections the log has moved past, settles every run the restart left live, the person's
 // pending interrupt with it, and records the pass on the service's own session. A session whose
-// rebuild fails is healed first: the store's files are copied aside untouched, once a pass, and
-// the rebuild runs again; one that still fails opens at its last good point, or reads damaged
-// when none of it can be read. It never throws: a pass that fails leaves the node blocked, or a
-// session damaged, and says why in the service log.
+// rebuild fails is healed first: the store's files are copied aside untouched, once a pass and
+// once for the same damage across starts, and the rebuild runs again; one that still fails opens
+// at its last good point, or reads damaged when none of it can be read. It never throws: a pass
+// that fails leaves the node blocked, or a session damaged, and says why in the service log.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -39,9 +39,26 @@ export interface StartupRecoveryDeps {
   readonly reader: Database;
   readonly sessionEvents: Pick<EventLogService, "append">;
   readonly projectionRebuild: Pick<ProjectionRebuildService, "listSessionsToRebuild" | "rebuild">;
-  readonly damagedHistory: Pick<DamagedHistory, "rebuildThroughLastGoodPoint">;
-  /** Copies the store's files aside untouched and returns where; the pass calls it at most once. */
-  readonly copyStoreAside: () => Promise<string>;
+  readonly damagedHistory: Pick<DamagedHistory, "rebuildThroughLastGoodPoint" | "readHeadSequence">;
+  /**
+   * The copies of the store's files a heal takes aside, and the damage each was taken for. The
+   * pass copies the store at most once, and never again for damage already copied.
+   */
+  readonly storeAside: {
+    /** Copies the store's files aside untouched and returns where. */
+    readonly copy: () => Promise<string>;
+    /** The copy taken for the session damaged with its head at `headSequence`, if one was. */
+    readonly findCopyOfSession: (
+      sessionId: SessionId,
+      headSequence: number,
+    ) => Promise<string | undefined>;
+    /** Records that the copy at `folder` was taken for the session damaged at that head. */
+    readonly recordSession: (
+      folder: string,
+      sessionId: SessionId,
+      headSequence: number,
+    ) => Promise<void>;
+  };
   readonly runs: Pick<RunStateReader, "listLiveRuns">;
   readonly runEngine: Pick<RunEngine, "settleRunAfterRestart">;
   readonly status: RecoveryStatusTracker;
@@ -66,8 +83,8 @@ interface RecoveryTally {
 
 const RECOVERY_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
-// What a run the restart left live carries as its failure when nothing resumed it.
-const RESTART_FAILURE_DETAIL = "The service restarted and no provider session was restored";
+/** What a run the restart left live carries as its failure when nothing resumed it. */
+export const RESTART_FAILURE_DETAIL = "The service restarted and no provider session was restored";
 
 // What a failed pass records when what it threw carried no text.
 const UNDESCRIBED_PASS_FAILURE = "The recovery pass failed without a message";
@@ -197,13 +214,24 @@ export class StartupRecovery {
     }
   }
 
-  // The store's files go aside before anything is repaired; then the rebuild runs again, and a
-  // session it still cannot rebuild opens at its last good point.
+  // The store's files go aside before anything is repaired, unless they already went for this
+  // damage; then the rebuild runs again, and a session it still cannot rebuild opens at its last
+  // good point.
   async #healSession(sessionId: SessionId, heal: HealState, tally: RecoveryTally): Promise<void> {
-    const { projectionRebuild, damagedHistory, status } = this.#deps;
-    if (heal.asideFolder === undefined) {
-      heal.asideFolder = await this.#deps.copyStoreAside();
-      this.#deps.writeServiceLog(`The store's files were copied aside to ${heal.asideFolder}`);
+    const { projectionRebuild, damagedHistory, status, storeAside } = this.#deps;
+    // A damaged session takes no write, so its head names the damage until it is continued.
+    const headSequence = damagedHistory.readHeadSequence(sessionId);
+    const earlierCopy = await storeAside.findCopyOfSession(sessionId, headSequence);
+    // The copy this heal records the damage in; none when an earlier start already copied it.
+    let thisPassCopy: string | undefined;
+    if (earlierCopy !== undefined) {
+      this.#deps.writeServiceLog(`The store's files were already copied aside to ${earlierCopy}`);
+    } else {
+      if (heal.asideFolder === undefined) {
+        heal.asideFolder = await storeAside.copy();
+        this.#deps.writeServiceLog(`The store's files were copied aside to ${heal.asideFolder}`);
+      }
+      thisPassCopy = heal.asideFolder;
     }
     let failure: ProjectionFailureError;
     try {
@@ -218,6 +246,9 @@ export class StartupRecovery {
       failure = error;
     }
     const point = await damagedHistory.rebuildThroughLastGoodPoint(sessionId, failure);
+    if (thisPassCopy !== undefined) {
+      await storeAside.recordSession(thisPassCopy, sessionId, headSequence);
+    }
     if (point === undefined) {
       status.markSessionUnreadable(sessionId);
       this.#deps.writeServiceLog(`No event of session ${sessionId} can be read`);
