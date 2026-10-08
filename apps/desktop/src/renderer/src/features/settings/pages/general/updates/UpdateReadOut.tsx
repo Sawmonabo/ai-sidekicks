@@ -1,5 +1,4 @@
 import { useId } from "react";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -69,7 +68,10 @@ export function UpdateReadOut(props: {
             max={100}
             value={state.percent}
           />
-          <DerivedFigure text={formatPercent(state.percent / 100)} />
+          <WireFigure
+            value={formatPercent(state.percent / 100)}
+            hoverLabel={String(state.percent)}
+          />
         </div>
       );
     case "verifying":

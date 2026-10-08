@@ -2,14 +2,16 @@
 //
 // While an import runs the row counts what it has read and carries `Stop`, over a bar that moves
 // but measures nothing; once it ends the row says how it ended, and where conversations failed
-// or files could not be read, pressing the row unfolds them. Nothing is computed from the
-// messages: the counts and the refusal are the service's own, and a filled bar or percentage
-// would invent a denominator nobody sent.
+// or files could not be read, pressing the row unfolds them. The counts and the refusal are the
+// service's own, drawn as wire figures, but for the failed and unreadable counts, which the row
+// tallies from the lists the service sent and draws as its own; a filled bar or percentage would
+// invent a denominator nobody sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
@@ -38,7 +40,9 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   // new press is, even where its words match the last press's.
   const sentence = rowSentence(model, providerLabel);
   useAnnounceWhenChanged(
-    model.isUnderway && progress.status !== "failed" ? importingWords(providerLabel) : sentence,
+    model.isUnderway && progress.status !== "failed"
+      ? importingWords(providerLabel)
+      : sentence && sentenceText(sentence),
     "polite",
     { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },
   );
@@ -56,7 +60,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   if (model.isUnderway) {
     return (
       <div className={PROGRESS_CLASS}>
-        <span>{sentence}</span>
+        <span>{sentence === undefined ? null : <Sentence parts={sentence} />}</span>
         {model.isReading ? (
           <button
             type="button"
@@ -101,6 +105,36 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   return <SettledLine settlement={settlement} providerLabel={providerLabel} />;
 }
 
+/**
+ * One stretch of a row's sentence: words, a count or name the service sent, drawn as a wire
+ * figure, or a count the row made by counting what the service sent, drawn as the app's own.
+ */
+type SentencePart = string | { readonly wire: string } | { readonly derived: string };
+
+/** A sentence's words as one string, for the announcer. */
+function sentenceText(parts: readonly SentencePart[]): string {
+  return parts
+    .map((part) => (typeof part === "string" ? part : "wire" in part ? part.wire : part.derived))
+    .join("");
+}
+
+/** A sentence drawn with each figure in its own figure class. */
+function Sentence(props: { readonly parts: readonly SentencePart[] }): React.JSX.Element {
+  return (
+    <>
+      {props.parts.map((part, index) =>
+        typeof part === "string" ? (
+          part
+        ) : "wire" in part ? (
+          <WireFigure key={index} value={part.wire} />
+        ) : (
+          <DerivedFigure key={index} text={part.derived} />
+        ),
+      )}
+    </>
+  );
+}
+
 /** What a stopped import's row says. */
 const IMPORT_STOPPED_SENTENCE =
   "Import stopped. The sessions already read are in the sessions list.";
@@ -113,21 +147,26 @@ function importingWords(providerLabel: string): string {
  * The words the row shows where they are the row's own: while an import runs, once it stopped,
  * and once it settled. `undefined` where the row is a refusal or draws nothing.
  */
-function rowSentence(model: ProviderImportModel, providerLabel: string): string | undefined {
+function rowSentence(
+  model: ProviderImportModel,
+  providerLabel: string,
+): readonly SentencePart[] | undefined {
   const { progress } = model;
   if (progress.status === "failed") {
     return undefined;
   }
   const { newest } = progress;
   if (model.isUnderway) {
-    const count = newest?.kind === "progress" ? ` ${formatCount(newest.read)} read.` : "";
-    return `${importingWords(providerLabel)}${count}`;
+    const words = importingWords(providerLabel);
+    return newest?.kind === "progress"
+      ? [`${words} `, { wire: formatCount(newest.read) }, " read."]
+      : [words];
   }
   if (newest?.kind !== "settled" || newest.settlement.outcome === "refused") {
     return undefined;
   }
   if (newest.settlement.outcome === "stopped") {
-    return IMPORT_STOPPED_SENTENCE;
+    return [IMPORT_STOPPED_SENTENCE];
   }
   return settledSentence(newest.settlement, providerLabel);
 }
@@ -142,7 +181,7 @@ function SettledLine(props: {
 }): React.JSX.Element {
   const { settlement, providerLabel } = props;
   const failures = settlement.outcome === "finished" ? settlement.failures : [];
-  const line = settledSentence(settlement, providerLabel);
+  const line = <Sentence parts={settledSentence(settlement, providerLabel)} />;
   if (failures.length === 0 && settlement.unreadableFiles.length === 0) {
     return <p className={PROGRESS_CLASS}>{line}</p>;
   }
@@ -174,36 +213,57 @@ function SettledLine(props: {
 function settledSentence(
   settlement: Extract<ProviderImportOutcome, { outcome: "finished" | "nothingNew" }>,
   providerLabel: string,
-): string {
-  const head =
+): readonly SentencePart[] {
+  const head: readonly SentencePart[] =
     settlement.outcome === "nothingNew"
-      ? `Nothing new to import from ${providerLabel}`
-      : `Imported ${importedCount(settlement.imported, settlement.total)} from ${providerLabel}`;
+      ? [`Nothing new to import from ${providerLabel}`]
+      : [
+          "Imported ",
+          ...importedCount(settlement.imported, settlement.total),
+          ` from ${providerLabel}`,
+        ];
   const failureCount = settlement.outcome === "finished" ? settlement.failures.length : 0;
   const attachedProjects = settlement.outcome === "finished" ? settlement.attachedProjects : [];
-  const clauses = [
+  const unreadableCount = settlement.unreadableFiles.length;
+  const clauses: (readonly SentencePart[])[] = [
     ...(settlement.alreadyHere === 0
       ? []
-      : [`${formatCount(settlement.alreadyHere)} already here`]),
-    ...(failureCount === 0 ? [] : [`${formatCount(failureCount)} failed`]),
-    ...(settlement.unreadableFiles.length === 0
+      : [[{ wire: formatCount(settlement.alreadyHere) }, " already here"]]),
+    ...(failureCount === 0 ? [] : [[{ derived: formatCount(failureCount) }, " failed"]]),
+    ...(unreadableCount === 0
       ? []
-      : [`${countOf(settlement.unreadableFiles.length, "file", "files")} could not be read`]),
+      : [
+          [
+            { derived: formatCount(unreadableCount) },
+            ` ${unreadableCount === 1 ? "file" : "files"} could not be read`,
+          ],
+        ]),
     ...(attachedProjects.length === 0
       ? []
-      : [`attached ${attachedProjects.map(formatWireString).join(", ")}`]),
+      : [
+          [
+            "attached ",
+            ...attachedProjects.flatMap((project, index) => [
+              ...(index === 0 ? [] : [", "]),
+              { wire: project },
+            ]),
+          ],
+        ]),
   ];
-  return `${[head, ...clauses].join(" · ")}.`;
+  return [
+    ...[head, ...clauses].flatMap((clause, index) => [...(index === 0 ? [] : [" · "]), ...clause]),
+    ".",
+  ];
 }
 
 /** `125 of 128 sessions`, or `12 sessions` where every session read was imported. */
-function importedCount(imported: number, total: number): string {
+function importedCount(imported: number, total: number): readonly SentencePart[] {
   return imported === total
-    ? countOf(imported, "session", "sessions")
-    : `${formatCount(imported)} of ${countOf(total, "session", "sessions")}`;
+    ? sessionCount(imported)
+    : [{ wire: formatCount(imported) }, " of ", ...sessionCount(total)];
 }
 
-/** A figure and its noun, agreeing. */
-function countOf(count: number, singular: string, plural: string): string {
-  return `${formatCount(count)} ${count === 1 ? singular : plural}`;
+/** A count the service sent and `session` agreeing with it. */
+function sessionCount(count: number): readonly SentencePart[] {
+  return [{ wire: formatCount(count) }, count === 1 ? " session" : " sessions"];
 }

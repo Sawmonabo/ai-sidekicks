@@ -2,6 +2,7 @@
 // same answer, each row saying how far it reaches. With no arrow the answer stands alone. The face
 // and its arrow are one control, so a card that withholds the answer removes both.
 
+import { Button } from "@base-ui/react/button";
 import { Menu } from "@base-ui/react/menu";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
@@ -63,6 +64,8 @@ export function ScopedAnswer(props: ScopedAnswerProps): React.JSX.Element {
           <Menu.Trigger
             className={`meridian-approval-card__arrow ${props.faceClassName}`}
             disabled={props.isDisabled}
+            // Disabled yet focusable, so the keyboard still reaches the arrow's name.
+            render={<Button focusableWhenDisabled />}
           >
             <Glyph name="chevron-down" size={GLYPH_SIZE_ROW} />
           </Menu.Trigger>

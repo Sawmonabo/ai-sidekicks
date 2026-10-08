@@ -35,7 +35,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       definition: (
         <WireFigure
           value={formatCount(account.credentialGeneration)}
-          title={String(account.credentialGeneration)}
+          hoverLabel={String(account.credentialGeneration)}
         />
       ),
     },

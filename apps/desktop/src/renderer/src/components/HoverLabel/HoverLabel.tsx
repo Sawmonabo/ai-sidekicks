@@ -1,5 +1,5 @@
 // The app's one hover label, used for every hover text in place of the browser's title tooltip.
-// This component only marks its trigger with the words; the window's one `HoverLabelHost` draws
+// This component only marks its trigger with the words; the window's one `WindowHoverLabel` draws
 // the label, so a list of a thousand figures carries a thousand attributes, not a thousand
 // tooltips.
 //
@@ -51,7 +51,7 @@ export interface HoverLabelTriggerProps {
 export function HoverLabel(props: HoverLabelProps): React.JSX.Element {
   const ownerWindow = useOwnerWindow();
   const descriptionId = useId();
-  // An empty string draws no label, as an empty `title` showed nothing.
+  // An empty string draws no label: there are no words to show.
   const text = props.text === "" ? undefined : props.text;
   const isDescription = props.textIs === "description" && text !== undefined;
   // Only the keys this label sets: one it leaves unset keeps the trigger's own value, and one it

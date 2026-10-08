@@ -75,7 +75,7 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
               />
               <WireFigure
                 value={formatPercent(window.usedPercent / 100)}
-                title={String(window.usedPercent)}
+                hoverLabel={String(window.usedPercent)}
               />
             </td>
             <td>
@@ -111,7 +111,7 @@ function WindowLength(props: { readonly window: AccountQuotaRow["window"] }): Re
   return (
     <WireFigure
       value={formatDuration(windowMins * MILLISECONDS_PER_MINUTE)}
-      title={String(windowMins)}
+      hoverLabel={String(windowMins)}
     />
   );
 }

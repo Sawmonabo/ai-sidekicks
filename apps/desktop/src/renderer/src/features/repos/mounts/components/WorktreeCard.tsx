@@ -1,6 +1,6 @@
 // One worktree row of `repo.worktreeStatusRead`. Every column is the wire's own string but the
 // state, which reads as words, and the age, which is derived, with its machine-clock time as its
-// `title`.
+// hover label.
 // Secondary facts sit in a native `<details>`, which keeps no per-row state. There is no retire
 // control: its confirm needs an inspection preview this card is not given and must not fabricate.
 

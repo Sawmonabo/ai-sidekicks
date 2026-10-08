@@ -13,7 +13,7 @@ import { userEvent } from "vitest/browser";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { TEXT_SIZES } from "#shared/appearance.js";
-import { HoverLabelHost } from "#renderer/components/HoverLabel/HoverLabelHost.js";
+import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { EDGE_COUNT_CLASS } from "#renderer/features/workflows/runs/page/graph/elements.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { fixtureRun, mountRunGraph, type FixtureRun } from "./mount.js";
@@ -138,7 +138,7 @@ describe("an edge's item count at the largest text size", () => {
       itemCount: 123_456_789_012,
     }));
     const container = await mountAtLargestTextSize(fixture, counts);
-    render(createElement(HoverLabelHost));
+    render(createElement(WindowHoverLabel));
     const firstCount = await waitFor(() => {
       const count = container.querySelector<SVGTSpanElement>(`.${EDGE_COUNT_CLASS}`);
       expect(count).not.toBeNull();

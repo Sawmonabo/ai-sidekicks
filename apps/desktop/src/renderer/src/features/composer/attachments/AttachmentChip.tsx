@@ -39,7 +39,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         {chip.mediaTypeQualifier === undefined ? null : (
           <span className="meridian-composer-attachment__qualifier">{chip.mediaTypeQualifier}</span>
         )}
-        <WireFigure value={chip.sizeText} hoverLabel={chip.sizeTitle} />
+        <WireFigure value={chip.sizeText} hoverLabel={chip.exactSizeText} />
         <Chip label={codeWords(chip.state)} tone={chip.tone} />
         {chip.progressFraction === undefined ? null : (
           // Named for the file it measures so several bars announce distinctly.

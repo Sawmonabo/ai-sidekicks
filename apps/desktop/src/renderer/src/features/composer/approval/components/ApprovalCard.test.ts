@@ -153,8 +153,16 @@ describe("a press while the answer is in flight", () => {
     const buttons = [...actions.querySelectorAll("button")];
     // Three faces and the two arrows.
     expect(buttons).toHaveLength(5);
+    // A face is disabled outright; an arrow stays focusable so the keyboard still reaches its
+    // name, and a press on it opens no menu.
     for (const button of buttons) {
-      expect(button.disabled).toBe(true);
+      if (button.classList.contains("meridian-approval-card__arrow")) {
+        expect(button.getAttribute("aria-disabled")).toBe("true");
+        fireEvent.click(button);
+        expect(screen.queryByRole("menu")).toBeNull();
+      } else {
+        expect(button.disabled).toBe(true);
+      }
     }
   });
 });

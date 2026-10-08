@@ -7,7 +7,7 @@
 import { useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { HoverLabelHost } from "#renderer/components/HoverLabel/HoverLabelHost.js";
+import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
@@ -71,7 +71,7 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
     <OwnerWindowProvider window={ownerWindow}>
       <WindowClockProvider frames={ownerWindow}>
         <WindowContents {...props} />
-        <HoverLabelHost />
+        <WindowHoverLabel />
       </WindowClockProvider>
     </OwnerWindowProvider>,
     windowMountPoint(ownerWindow.document),

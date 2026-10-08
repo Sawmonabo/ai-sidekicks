@@ -45,6 +45,10 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
   const resolution = step.resolution ?? props.answer;
+  // A reply's answer carries no instant, so until the daemon's record arrives its receipt's time
+  // is the window's own clock, which the reply stamped.
+  const isWindowClock =
+    step.resolution === undefined && props.answer !== undefined && step.waitCause === "reply";
   const receipt =
     resolution === undefined
       ? timedOutReceipt(step, props.nodeKind)
@@ -52,7 +56,13 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   if (receipt !== undefined) {
     return (
       <p className="meridian-workflow-step__receipt">
-        {receipt.words} <DayClockFigure at={receipt.at} nowMs={props.nowMs} locale={clockLocale} />
+        {receipt.words}{" "}
+        <DayClockFigure
+          at={receipt.at}
+          nowMs={props.nowMs}
+          locale={clockLocale}
+          isWindowClock={isWindowClock}
+        />
       </p>
     );
   }

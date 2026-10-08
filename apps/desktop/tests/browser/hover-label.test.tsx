@@ -3,8 +3,8 @@
 // closes it, and it stays while the pointer crosses from the control onto the label, its box
 // touching the control's so the crossing passes over nothing else. Moving the pointer off both is
 // the negative control: the label closes, so its staying is not a label that never closes. A
-// control that gains its words while focused shows them at once, and a label Escape put away
-// stays away while the pointer moves inside its control, until the pointer leaves and returns.
+// control that gains its words while focused or hovered shows them at once, and a label Escape
+// put away stays away while the pointer moves inside its control, until it leaves and returns.
 
 import { useState } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -12,7 +12,7 @@ import { afterEach, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
-import { HoverLabelHost } from "#renderer/components/HoverLabel/HoverLabelHost.js";
+import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 
 /** How long the label is watched once the pointer is on it, for a close the crossing set off. */
 const SETTLE_MS = 300;
@@ -29,7 +29,7 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
         <button type="button">◐</button>
       </HoverLabel>
       <button type="button">After</button>
-      <HoverLabelHost />
+      <WindowHoverLabel />
     </div>,
   );
   const control = getByRole("button", { name: "Color scheme" });
@@ -92,12 +92,16 @@ function gapBetween(first: DOMRect, second: DOMRect): number {
   );
 }
 
-it("shows words a focused control gains, and keeps an Escaped label away inside its control", async () => {
+it("shows words a focused or hovered control gains, and keeps an Escaped label away inside its control", async () => {
   let giveReason: () => void = () => undefined;
+  let takeReason: () => void = () => undefined;
   function GainsReason(): React.JSX.Element {
     const [reason, setReason] = useState<string | undefined>(undefined);
     giveReason = () => {
       setReason("Already restarting.");
+    };
+    takeReason = () => {
+      setReason(undefined);
     };
     return (
       <HoverLabel text={reason} textIs="description">
@@ -112,7 +116,7 @@ it("shows words a focused control gains, and keeps an Escaped label away inside 
       <button type="button">Before</button>
       <GainsReason />
       <button type="button">After</button>
-      <HoverLabelHost />
+      <WindowHoverLabel />
     </div>,
   );
   const control = getByRole("button", { name: "◐ Restart" });
@@ -156,6 +160,20 @@ it("shows words a focused control gains, and keeps an Escaped label away inside 
   await act(async () => {
     await userEvent.hover(getByRole("button", { name: "After" }));
     await userEvent.hover(control);
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Already restarting.");
+  });
+
+  // Under the pointer, the label goes with the words and comes back with them.
+  act(() => {
+    takeReason();
+  });
+  await waitFor(() => {
+    expect(shownLabel()).toBeNull();
+  });
+  act(() => {
+    giveReason();
   });
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Already restarting.");

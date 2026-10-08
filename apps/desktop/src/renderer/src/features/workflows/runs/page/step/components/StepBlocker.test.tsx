@@ -133,7 +133,7 @@ describe("a step's blocker", () => {
       `Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS, CLOCK_LOCALE)}`,
     );
     // Hovering the instant shows the time it stands for, with its zone.
-    expect(receipt()?.querySelector("[title]")?.getAttribute("title")).toBe(
+    expect(receipt()?.querySelector<HTMLElement>("[data-hover-label]")?.dataset["hoverLabel"]).toBe(
       formatZonedDateTime(step.resolution.at, CLOCK_LOCALE),
     );
     expect(screen.queryByRole("button")).toBeNull();

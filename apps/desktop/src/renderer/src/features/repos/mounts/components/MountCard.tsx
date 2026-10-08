@@ -1,5 +1,5 @@
 // One repo mount, with lifecycle and health as separate chips. `canonicalRoot` is shown
-// verbatim (the stylesheet truncates it; the title and copy control recover it) and never
+// verbatim (the stylesheet truncates it; the hover label and copy control recover it) and never
 // resolved or compared here, because containment and symlink rules belong to the daemon.
 // Re-attach shows only on `identity_mismatch`, the permanent verdict, and only while git still
 // answers for the root; `unreachable` is transient.
@@ -68,7 +68,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
     >
       <header className="meridian-mount-card__head">
         <Glyph name="repo" size={GLYPH_SIZE_CHROME} />
-        {/* The title carries the whole string the stylesheet truncates. */}
+        {/* The hover label carries the whole string the stylesheet truncates. */}
         <WireFigure value={mount.canonicalRoot} hoverLabel={mount.canonicalRoot} truncate />
         <button
           type="button"

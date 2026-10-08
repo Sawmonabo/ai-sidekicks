@@ -4,11 +4,16 @@
 // the focused trigger's label until focus leaves it, and the pointer's label stands in front of it
 // only while the pointer is on another trigger. A touch never shows one, since a touch has no
 // hover to end it. The element the pointer and focus are on is kept whether or not it carries a
-// label, and the label is read off it at each render, so a control that gains its words while it
-// is hovered or focused shows them at once, and one that drops them drops the label. A label put
-// away stays away until the pointer moves to another trigger or off every trigger, or focus moves.
+// label, and the label is read off it again whenever a label attribute changes, so a control that
+// gains its words while it is hovered or focused shows them at once, and one that drops them drops
+// the label. A label put away stays away until the pointer moves to another trigger or off every
+// trigger, or focus moves.
+//
+// The elements are kept in refs and the shown label in state that changes only when the trigger,
+// its words or its side do, so a pointer sweeping across a page re-renders nothing until it
+// reaches a label.
 
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { isElement } from "@floating-ui/utils/dom";
 
 import type { HoverLabelSide } from "../HoverLabel.js";
@@ -28,110 +33,95 @@ export interface ShownHoverLabelReading {
 
 /**
  * Follows the pointer and keyboard focus over `ownerDocument`'s triggers. `labelBoxRef` is the
- * drawn label's outermost box, which the pointer and focus may move onto without the label closing.
+ * drawn label's outermost box, which the pointer may move onto without the label closing.
  */
 export function useShownHoverLabel(
   ownerDocument: Document,
   labelBoxRef: RefObject<Element | null>,
 ): ShownHoverLabelReading {
-  const [tracked, setTracked] = useState<TrackedElements>(NOTHING_TRACKED);
-  // Bumped when a label attribute changes on or above a tracked element, so it is read again.
-  const [, setWordsRevision] = useState(0);
+  const trackedRef = useRef<TrackedElements>({});
+  const [shown, setShown] = useState<ShownHoverLabel | undefined>(undefined);
+
+  // Reads the label off the tracked elements, keeping the state as it was when nothing changed.
+  const readShown = useCallback(() => {
+    const next = shownOf(trackedRef.current);
+    setShown((current) => (isSameLabel(current, next) ? current : next));
+  }, []);
 
   useEffect(() => {
-    const isInLabel = (node: EventTarget | null): boolean =>
-      isElement(node) && labelBoxRef.current?.contains(node) === true;
+    const tracked = trackedRef.current;
     const onPointerOver = (event: PointerEvent): void => {
-      if (event.pointerType === "touch" || !isElement(event.target) || isInLabel(event.target)) {
+      const { target } = event;
+      if (
+        event.pointerType === "touch" ||
+        !isElement(target) ||
+        labelBoxRef.current?.contains(target) === true
+      ) {
         return;
       }
-      const pointer = event.target;
-      setTracked((current) => ({
-        ...current,
-        pointer,
-        dismissedPointer:
-          current.dismissedPointer === pointerTriggerOf(pointer)
-            ? current.dismissedPointer
-            : undefined,
-      }));
+      tracked.pointer = target;
+      if (tracked.dismissedPointer !== pointerTriggerOf(target)) {
+        tracked.dismissedPointer = undefined;
+      }
+      readShown();
     };
     // A pointer leaving the window is over nothing of it.
     const onPointerOut = (event: PointerEvent): void => {
       if (event.relatedTarget === null) {
-        setTracked((current) => ({ ...current, pointer: undefined, dismissedPointer: undefined }));
+        tracked.pointer = undefined;
+        tracked.dismissedPointer = undefined;
+        readShown();
       }
     };
     const onFocusIn = (event: FocusEvent): void => {
-      if (isInLabel(event.target)) {
-        return;
-      }
+      const { target } = event;
       // Focus from the keyboard only: a click focuses a button too, and the pointer shows it.
-      const focus =
-        isElement(event.target) && event.target.matches(":focus-visible")
-          ? event.target
-          : undefined;
-      setTracked((current) => ({ ...current, focus, dismissedFocus: undefined }));
+      tracked.focus = isElement(target) && target.matches(":focus-visible") ? target : undefined;
+      tracked.dismissedFocus = undefined;
+      readShown();
     };
     const onFocusOut = (event: FocusEvent): void => {
-      if (isInLabel(event.relatedTarget)) {
-        return;
+      if (tracked.focus === event.target) {
+        tracked.focus = undefined;
+        tracked.dismissedFocus = undefined;
+        readShown();
       }
-      setTracked((current) =>
-        current.focus === event.target
-          ? { ...current, focus: undefined, dismissedFocus: undefined }
-          : current,
-      );
     };
-    ownerDocument.addEventListener("pointerover", onPointerOver);
-    ownerDocument.addEventListener("pointerout", onPointerOut);
-    ownerDocument.addEventListener("focusin", onFocusIn);
-    ownerDocument.addEventListener("focusout", onFocusOut);
-    return () => {
-      ownerDocument.removeEventListener("pointerover", onPointerOver);
-      ownerDocument.removeEventListener("pointerout", onPointerOut);
-      ownerDocument.removeEventListener("focusin", onFocusIn);
-      ownerDocument.removeEventListener("focusout", onFocusOut);
-    };
-  }, [ownerDocument, labelBoxRef]);
-
-  const { pointer, focus } = tracked;
-  useEffect(() => {
-    if (pointer === undefined && focus === undefined) {
-      return undefined;
-    }
-    // One observer over the document while anything is tracked: the pointer's trigger may be any
-    // element above it, so a label can appear on an element no listener has seen.
+    // A label can appear on any element above the pointer, which no listener has seen, so one
+    // observer watches the document's label attributes for the hook's whole life.
     const observer = new MutationObserver((records) => {
-      const isTrackedChange = records.some(
-        (record) => record.target === focus || record.target.contains(pointer ?? null),
-      );
-      if (isTrackedChange) {
-        setWordsRevision((revision) => revision + 1);
+      const { pointer, focus } = tracked;
+      if (
+        records.some((record) => record.target === focus || record.target.contains(pointer ?? null))
+      ) {
+        readShown();
       }
     });
     observer.observe(ownerDocument, {
       subtree: true,
       attributeFilter: [TEXT_ATTRIBUTE, SIDE_ATTRIBUTE],
     });
+    ownerDocument.addEventListener("pointerover", onPointerOver);
+    ownerDocument.addEventListener("pointerout", onPointerOut);
+    ownerDocument.addEventListener("focusin", onFocusIn);
+    ownerDocument.addEventListener("focusout", onFocusOut);
     return () => {
       observer.disconnect();
+      ownerDocument.removeEventListener("pointerover", onPointerOver);
+      ownerDocument.removeEventListener("pointerout", onPointerOut);
+      ownerDocument.removeEventListener("focusin", onFocusIn);
+      ownerDocument.removeEventListener("focusout", onFocusOut);
     };
-  }, [ownerDocument, pointer, focus]);
+  }, [ownerDocument, labelBoxRef, readShown]);
 
   const close = useCallback(() => {
-    setTracked((current) => ({
-      ...current,
-      dismissedPointer: pointerTriggerOf(current.pointer),
-      dismissedFocus: focusTriggerOf(current.focus),
-    }));
-  }, []);
+    const tracked = trackedRef.current;
+    tracked.dismissedPointer = pointerTriggerOf(tracked.pointer);
+    tracked.dismissedFocus = focusTriggerOf(tracked.focus);
+    readShown();
+  }, [readShown]);
 
-  const pointerTrigger = pointerTriggerOf(pointer);
-  const focusTrigger = focusTriggerOf(focus);
-  const anchor =
-    (pointerTrigger === tracked.dismissedPointer ? undefined : pointerTrigger) ??
-    (focusTrigger === tracked.dismissedFocus ? undefined : focusTrigger);
-  return { shown: anchor === undefined ? undefined : labelOf(anchor), close };
+  return { shown, close };
 }
 
 /**
@@ -139,13 +129,11 @@ export function useShownHoverLabel(
  * trigger each showed when its label was put away.
  */
 interface TrackedElements {
-  readonly pointer?: Element | undefined;
-  readonly focus?: Element | undefined;
-  readonly dismissedPointer?: Element | undefined;
-  readonly dismissedFocus?: Element | undefined;
+  pointer?: Element | undefined;
+  focus?: Element | undefined;
+  dismissedPointer?: Element | undefined;
+  dismissedFocus?: Element | undefined;
 }
-
-const NOTHING_TRACKED: TrackedElements = {};
 
 const TEXT_ATTRIBUTE = "data-hover-label";
 
@@ -162,13 +150,30 @@ function focusTriggerOf(focus: Element | undefined): Element | undefined {
   return focus?.matches(TRIGGER_SELECTOR) === true ? focus : undefined;
 }
 
-// Called only on an element the trigger selector matched, so the words attribute is present.
-function labelOf(anchor: Element): ShownHoverLabel {
+function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {
+  const pointerTrigger = pointerTriggerOf(tracked.pointer);
+  const focusTrigger = focusTriggerOf(tracked.focus);
+  const anchor =
+    (pointerTrigger === tracked.dismissedPointer ? undefined : pointerTrigger) ??
+    (focusTrigger === tracked.dismissedFocus ? undefined : focusTrigger);
+  if (anchor === undefined) {
+    return undefined;
+  }
   return {
     anchor,
+    // Present: the trigger selector matched this element.
     text: anchor.getAttribute(TEXT_ATTRIBUTE) ?? "",
     side: sideOf(anchor.getAttribute(SIDE_ATTRIBUTE)),
   };
+}
+
+function isSameLabel(
+  current: ShownHoverLabel | undefined,
+  next: ShownHoverLabel | undefined,
+): boolean {
+  return (
+    current?.anchor === next?.anchor && current?.text === next?.text && current?.side === next?.side
+  );
 }
 
 function sideOf(attribute: string | null): HoverLabelSide | undefined {

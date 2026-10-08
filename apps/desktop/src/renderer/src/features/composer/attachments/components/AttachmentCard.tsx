@@ -28,7 +28,7 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** Whose claim a name is, where the name shown is still the caller's own. */
-const DECLARED_NAME_TITLE = "Declared by the sender";
+const DECLARED_NAME_ORIGIN = "Declared by the sender";
 
 /** Props for one attachment card. */
 export interface AttachmentCardProps {
@@ -93,7 +93,7 @@ function renderIngesting(
       <div className="meridian-attachment__face">
         <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
         {nameReading.provenance === "declared" ? (
-          <WireFigure value={nameReading.name} hoverLabel={DECLARED_NAME_TITLE} />
+          <WireFigure value={nameReading.name} hoverLabel={DECLARED_NAME_ORIGIN} />
         ) : (
           <WireFigure value={nameReading.name} />
         )}

@@ -1,6 +1,6 @@
 // The one hover label a window draws, for whichever trigger `HoverLabel` marked that the pointer or
 // the keyboard is on. Base UI's tooltip places it against that trigger, flips it where its side
-// has no room, and closes it on Escape or a press anywhere; which trigger it belongs to is read
+// has no room, and closes it on Escape or a press anywhere else; which trigger it belongs to is read
 // from the document. The label sits flush against its trigger, its gap drawn inside its own
 // transparent edge, so the pointer crosses straight from the trigger onto it without closing it.
 
@@ -12,10 +12,10 @@ import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useShownHoverLabel } from "./hooks/useShownHoverLabel.js";
 
-import "./HoverLabelHost.css";
+import "./WindowHoverLabel.css";
 
 /** Draws the window's hover label; mounted once in each window's tree. */
-export function HoverLabelHost(): React.JSX.Element {
+export function WindowHoverLabel(): React.JSX.Element {
   const ownerWindow = useOwnerWindow();
   const airspaceRef = useAirspaceRegistration();
   const labelBoxRef = useRef<HTMLDivElement>(null);
@@ -41,6 +41,10 @@ export function HoverLabelHost(): React.JSX.Element {
             ref={airspaceRef}
             className={overlayClassName("meridian-hover-label")}
             aria-hidden="true"
+            // A press on the label keeps focus where it was: the label is never a place to be.
+            onPointerDown={(event) => {
+              event.preventDefault();
+            }}
           >
             <span className="meridian-hover-label__box">{shown?.text}</span>
           </Tooltip.Popup>

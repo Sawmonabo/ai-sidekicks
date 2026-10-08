@@ -1,4 +1,6 @@
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { type WindowedRowTargetProps } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { type DiffFileListEntry } from "../file-entries.js";
 import { DiffStepMark } from "./DiffStepMark.js";
@@ -24,40 +26,41 @@ export function DiffFileEntryButton({
   ...targetProps
 }: DiffFileEntryButtonProps): React.JSX.Element {
   const selectedPath = entry.kind === "all-files" ? undefined : entry.path;
+  // The path is the button's hover label, so the keyboard on the button shows a truncated path
+  // whole, as the pointer anywhere on it does.
   return (
-    <button
-      type="button"
-      className="meridian-diff-files__entry meridian-focus-inset"
-      aria-current={isSelected}
-      {...targetProps}
-      onClick={() => {
-        onSelectFilePath(selectedPath);
-      }}
-    >
-      {entry.kind === "all-files" ? (
-        <>
-          <span className="meridian-diff-files__path">All files</span>
-          <DerivedFigure text={String(entry.fileCount)} />
-        </>
-      ) : (
-        <>
-          {/* Wire-verbatim path, truncated at the measure; the full string stays in the hover
-              label. */}
-          <HoverLabel text={entry.path} textIs="visible-text">
+    <HoverLabel text={selectedPath} textIs="visible-text">
+      <button
+        type="button"
+        className="meridian-diff-files__entry meridian-focus-inset"
+        aria-current={isSelected}
+        {...targetProps}
+        onClick={() => {
+          onSelectFilePath(selectedPath);
+        }}
+      >
+        {entry.kind === "all-files" ? (
+          <>
+            <span className="meridian-diff-files__path">All files</span>
+            <DerivedFigure text={String(entry.fileCount)} />
+          </>
+        ) : (
+          <>
+            {/* Wire-verbatim path, truncated at the measure. */}
             <span className="meridian-diff-files__path">{entry.path}</span>
-          </HoverLabel>
-          {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
-          {entry.changeNotes.length === 0 ? null : (
-            <HoverLabel text={entry.changeNotes.join(", ")} textIs="visible-text">
-              <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
-            </HoverLabel>
-          )}
-          <span className="meridian-diff-files__counts">
-            <DerivedFigure text={`+${String(entry.counts.insertions)}`} />
-            <DerivedFigure text={`−${String(entry.counts.deletions)}`} />
-          </span>
-        </>
-      )}
-    </button>
+            {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
+            {entry.changeNotes.length === 0 ? null : (
+              <HoverLabel text={entry.changeNotes.join(", ")} textIs="visible-text">
+                <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
+              </HoverLabel>
+            )}
+            <span className="meridian-diff-files__counts">
+              <WireFigure value={`+${formatCount(entry.counts.insertions)}`} />
+              <WireFigure value={`−${formatCount(entry.counts.deletions)}`} />
+            </span>
+          </>
+        )}
+      </button>
+    </HoverLabel>
   );
 }
