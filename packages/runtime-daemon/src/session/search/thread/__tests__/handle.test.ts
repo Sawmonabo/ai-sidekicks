@@ -113,7 +113,7 @@ describe("SearchThread", () => {
         await refusalOf(
           thread.searchSessions({
             query: "retry",
-            afterCursor: `r:${sessionIdOf(1)}:0` as SessionSearchCursor,
+            afterCursor: "00000000-0000-4000-8000-000000000000:0" as SessionSearchCursor,
           }),
         ),
       ).toEqual({
