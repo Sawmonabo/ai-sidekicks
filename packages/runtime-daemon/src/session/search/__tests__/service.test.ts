@@ -1,18 +1,16 @@
 // `session.search` over the search index the outbox feeds: every page holds the hits an FTS5 index
-// ranks over the same rows, in its order, after every write a searchable row takes and after a
-// purge, whose rows leave the other sessions' scores as an index built without them gives; and a
-// tag keeps the sessions carrying it or one nested under it.
+// ranks over the same rows, in its order, within the sessions a tag keeps when the query names
+// one, after every write a searchable row takes and after a purge, whose rows leave the other
+// sessions' scores as an index built without them gives; and a search by tag alone orders the
+// tagged sessions most recently active first as their activity moves.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { START_OF_LOG_POSITION, encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 
-import { insertEvent, insertSession, insertTag, sessionIdOf } from "../__fixtures__/index-rows.js";
-import {
-  hitsByQuery,
-  readEveryHit,
-  referenceHitsByQuery,
-} from "../__fixtures__/reference-ranking.js";
+import { insertSession, insertTag, sessionIdOf } from "../__fixtures__/index-rows.js";
+import { hitsByQuery, referenceHitsByQuery } from "../__fixtures__/reference-ranking.js";
 import { SearchFixture } from "../__fixtures__/search-services.js";
 import { SeededDirectory } from "../__fixtures__/seeded-directory.js";
 
@@ -59,70 +57,43 @@ describe("session.search", () => {
     );
   });
 
-  it("keeps the sessions carrying a tag or one nested under it, alone or ranked with words", async () => {
-    // Shorter text ranks better; a tag ranks the most recently active first. Each order differs.
+  it("orders a search by tag alone most recently active first, as each session's activity moves", async () => {
     const sessions = [
-      { index: 1, message: "auth", lastActivityAt: "2026-10-02T00:00:00.000Z", tag: "billing" },
-      {
-        index: 2,
-        message: "auth x y",
-        lastActivityAt: "2026-10-01T00:00:00.000Z",
-        tag: "Billing/Stripe",
-      },
-      {
-        index: 3,
-        message: "auth x y z w v",
-        lastActivityAt: "2026-10-03T00:00:00.000Z",
-        tag: "billing/stripe",
-      },
-      { index: 4, message: "auth", lastActivityAt: "2026-10-04T00:00:00.000Z", tag: "billingx" },
+      { index: 1, lastActivityAt: "2026-10-02T00:00:00.000Z", tag: "billing" },
+      { index: 2, lastActivityAt: "2026-10-01T00:00:00.000Z", tag: "Billing/Stripe" },
+      { index: 3, lastActivityAt: "2026-10-03T00:00:00.000Z", tag: "billing/stripe" },
+      { index: 4, lastActivityAt: "2026-10-04T00:00:00.000Z", tag: "billingx" },
     ];
-    for (const { index, message, lastActivityAt, tag } of sessions) {
+    for (const { index, lastActivityAt, tag } of sessions) {
       insertSession(fixture.database, sessionIdOf(index), { lastActivityAt });
-      insertEvent(fixture.database, {
-        sessionId: sessionIdOf(index),
-        sequence: 1,
-        type: "user.message",
-        message,
-      });
       insertTag(fixture.database, sessionIdOf(index), tag);
     }
     await fixture.settle();
     const search = fixture.services().sessionSearch;
+    const tagHit = (line: string): SessionSearchHit => ({
+      cursor: SESSION_START,
+      line,
+      matchRanges: [{ start: 0, end: 7 }],
+    });
 
-    // By tag alone, most recently active first, ignoring case and never a longer tag.
+    // Ignoring case, nested tags included and never a longer tag.
     expect(search.search({ query: "tag:BILLING" })).toEqual({
       groups: [
-        {
-          sessionId: sessionIdOf(3),
-          hits: [
-            { cursor: SESSION_START, line: "billing/stripe", matchRanges: [{ start: 0, end: 7 }] },
-          ],
-        },
-        {
-          sessionId: sessionIdOf(1),
-          hits: [{ cursor: SESSION_START, line: "billing", matchRanges: [{ start: 0, end: 7 }] }],
-        },
-        {
-          sessionId: sessionIdOf(2),
-          hits: [
-            { cursor: SESSION_START, line: "Billing/Stripe", matchRanges: [{ start: 0, end: 7 }] },
-          ],
-        },
+        { sessionId: sessionIdOf(3), hits: [tagHit("billing/stripe")] },
+        { sessionId: sessionIdOf(1), hits: [tagHit("billing")] },
+        { sessionId: sessionIdOf(2), hits: [tagHit("Billing/Stripe")] },
       ],
       hasMore: false,
     });
-    // With words, only the tagged sessions' rows rank: text rank 1, 2, 3 and tag rank 2, 3, 1 fuse
-    // to 1, 3, 2, and each session's hits are its words' hits, a page at a time.
-    const byTagAndWords = readEveryHit((request) => search.search(request), {
-      query: "tag:billing auth",
-      limit: 1,
-    });
-    expect(byTagAndWords.map((hit) => hit.sessionId)).toEqual([
-      sessionIdOf(1),
-      sessionIdOf(3),
+
+    fixture.database
+      .prepare("UPDATE sessions SET last_activity_at = ? WHERE id = ?")
+      .run("2026-10-05T00:00:00.000Z", sessionIdOf(2));
+    await fixture.settle();
+    expect(search.search({ query: "tag:billing" }).groups.map((group) => group.sessionId)).toEqual([
       sessionIdOf(2),
+      sessionIdOf(3),
+      sessionIdOf(1),
     ]);
-    expect(byTagAndWords.map((hit) => hit.line)).toEqual(["auth", "auth x y z w v", "auth x y"]);
   });
 });

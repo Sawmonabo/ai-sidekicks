@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::{IndexRow, IndexRowKind};
+use crate::{IndexRow, IndexRowKind, IndexRowTag};
 
 use super::support::row;
 
@@ -31,27 +31,9 @@ impl SeededSetSize {
     }
 }
 
-/// What the set says besides its rows: each group's members in session id order, and each tag
-/// with the session carrying it.
+/// What the set says besides its rows: each group's members in session id order.
 pub struct SeededDirectory {
     pub group_members: Vec<(u64, Vec<u64>)>,
-    pub session_tags: Vec<(u64, String)>,
-}
-
-impl SeededDirectory {
-    /// The sessions carrying `tag` or a tag nested under it.
-    pub fn sessions_tagged(&self, tag: &str) -> Vec<u64> {
-        let nested = format!("{tag}/");
-        let mut sessions: Vec<u64> = self
-            .session_tags
-            .iter()
-            .filter(|(_, carried)| carried == tag || carried.starts_with(&nested))
-            .map(|(session, _)| *session)
-            .collect();
-        sessions.sort_unstable();
-        sessions.dedup();
-        sessions
-    }
 }
 
 // The seeder's `seededRandom`: mulberry32.
@@ -78,6 +60,8 @@ const TAG_ROOTS: [&str; 10] = [
     "billing", "auth", "infra", "docs", "perf", "ui", "api", "release", "bugs", "research",
 ];
 const VOCABULARY: usize = 20_000;
+// Every session's last activity: the seeder's `SEEDED_AT`, 2026-10-06T12:00:00.000Z.
+const SEEDED_AT_MS: i64 = 1_791_288_000_000;
 
 /// The set's word at `index` of its 20,000; low indexes are the common words.
 pub fn word_at(index: usize) -> String {
@@ -91,9 +75,9 @@ pub fn word_at(index: usize) -> String {
 }
 
 /// Hands every row of the set to `emit` in the seeder's order (groups, titles, tags, then
-/// messages) and returns the groups' members and the sessions' tags. Keys follow the daemon's
-/// scheme: a message's key is its rowid times four, a title's its session's rowid times four plus
-/// one, a group's name its rowid times four plus two, a tag's its rowid times four plus three.
+/// messages) and returns the groups' members. Keys follow the daemon's scheme: a message's key is
+/// its rowid times four, a title's its session's rowid times four plus one, a group's name its
+/// rowid times four plus two, a tag's its rowid times four plus three.
 pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDirectory {
     let mut random = Mulberry(7);
     let words: Vec<String> = (0..VOCABULARY).map(word_at).collect();
@@ -143,12 +127,14 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
         }
     }
     for (index, (session, tag)) in session_tags.iter().enumerate() {
-        emit(row(
-            (index as u64 + 1) * 4 + 3,
-            IndexRowKind::Tag,
-            *session,
-            tag,
-        ));
+        let key = (index as u64 + 1) * 4 + 3;
+        emit(IndexRow {
+            tag: Some(IndexRowTag {
+                fold: tag.clone(),
+                session_last_activity_ms: SEEDED_AT_MS,
+            }),
+            ..row(key, IndexRowKind::Tag, *session, tag)
+        });
     }
     // Links hold no text, but their draws come before the messages'.
     let mut links: HashSet<(usize, usize, usize)> = HashSet::new();
@@ -183,6 +169,5 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
     }
     SeededDirectory {
         group_members: members.into_iter().collect(),
-        session_tags,
     }
 }

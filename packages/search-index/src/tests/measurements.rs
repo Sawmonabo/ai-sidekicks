@@ -7,8 +7,8 @@
 //!   idle until no merge remains: the rebuild's time and peak footprint, each merge's time.
 //! - `steady_batches` applies small batches of new messages: each commit's time and the peak.
 //! - `searches` times the probe queries' first and next pages, prefixes of five or more
-//!   characters, the tag search within sessions and the find box on the largest session, with
-//!   the footprint before and after the run.
+//!   characters, tag searches with and without words and the find box on the largest session,
+//!   with the footprint before and after the run.
 //! - `visibility` times a one-row `apply` until a search opened afterward finds the row.
 //! - `purge_and_merge` purges the largest session, times the counts a search reads after it, and
 //!   merges until the purge is expunged. It changes the index, so it runs last.
@@ -325,15 +325,20 @@ fn steady_batches() {
 
 struct Probe {
     name: &'static str,
-    query: SearchQuery,
-    within: Option<Vec<u64>>,
+    query: Option<SearchQuery>,
+    tag_folds: Vec<String>,
 }
 
-fn probes(directory: &SeededDirectory) -> Vec<Probe> {
+fn probes() -> Vec<Probe> {
     let typed = |name: &'static str, words: &[&str]| Probe {
         name,
-        query: query(words, true),
-        within: None,
+        query: Some(query(words, true)),
+        tag_folds: Vec::new(),
+    };
+    let tagged = |name: &'static str, words: &[&str]| Probe {
+        name,
+        query: (!words.is_empty()).then(|| query(words, true)),
+        tag_folds: vec!["billing".to_string()],
     };
     let rare = word_at(19_000);
     vec![
@@ -346,11 +351,11 @@ fn probes(directory: &SeededDirectory) -> Vec<Probe> {
         typed("lopek", &["lopek"]),
         typed("nezin", &["nezin"]),
         typed("blemi", &["blemi"]),
-        Probe {
-            name: "tag:billing nezi",
-            query: query(&["nezi"], true),
-            within: Some(directory.sessions_tagged("billing")),
-        },
+        typed("blemido", &["blemido"]),
+        tagged("tag:billing", &[]),
+        tagged("tag:billing nezi", &["nezi"]),
+        tagged("tag:billing lo", &["lo"]),
+        tagged("tag:billing blemido", &["blemido"]),
     ]
 }
 
@@ -359,8 +364,8 @@ fn probes(directory: &SeededDirectory) -> Vec<Probe> {
 fn time_pages(engine: &IndexEngine, probe: &Probe) -> (f64, f64, usize) {
     let started = Instant::now();
     let version = engine.current_version();
-    let mut view =
-        SearchView::open(version, &probe.query, probe.within.as_deref()).expect("the search opens");
+    let mut view = SearchView::open(version, probe.query.as_ref(), probe.tag_folds.clone())
+        .expect("the search opens");
     let first = view
         .sessions_at(0, PAGE_SESSIONS)
         .expect("the first page ranks");
@@ -383,16 +388,15 @@ fn time_pages(engine: &IndexEngine, probe: &Probe) -> (f64, f64, usize) {
 fn searches() {
     let settings = Settings::from_environment();
     let engine = settings.open();
-    let directory = settings.directory();
     engine
-        .set_group_members(directory.group_members.clone())
+        .set_group_members(settings.directory().group_members)
         .expect("the members load");
     report(format!(
         "searches on {}: before, {}",
         settings.describe(),
         footprint()
     ));
-    for probe in probes(&directory) {
+    for probe in probes() {
         time_pages(&engine, &probe);
         let (mut first, mut next) = (Vec::new(), Vec::new());
         let mut sessions = 0;
@@ -448,8 +452,8 @@ fn visibility() {
             .apply(&batch(outbox_id, vec![row]))
             .expect("the row applies");
         let search = query(&[word.as_str()], false);
-        let mut view =
-            SearchView::open(engine.current_version(), &search, None).expect("the search opens");
+        let mut view = SearchView::open(engine.current_version(), Some(&search), Vec::new())
+            .expect("the search opens");
         let sessions = view.sessions_at(0, 1).expect("the search ranks");
         times.push(elapsed_milliseconds(started));
         assert_eq!(sessions, vec![1], "the new row is found");
@@ -478,12 +482,13 @@ fn purge_and_merge() {
         .expect("the members load");
     let lo = Probe {
         name: "lo",
-        query: query(&["lo"], true),
-        within: None,
+        query: Some(query(&["lo"], true)),
+        tag_folds: Vec::new(),
     };
     let time_counts = |when: &str| {
         let started = Instant::now();
-        SearchView::open(engine.current_version(), &lo.query, None).expect("the search opens");
+        SearchView::open(engine.current_version(), lo.query.as_ref(), Vec::new())
+            .expect("the search opens");
         let counting = elapsed_milliseconds(started);
         let (first_page, _, _) = time_pages(&engine, &lo);
         report(format!(

@@ -24,6 +24,8 @@ pub struct SegmentColumns {
     pub owner: Arc<dyn ColumnValues<u64>>,
     pub kind: Arc<dyn ColumnValues<u64>>,
     pub length: Arc<dyn ColumnValues<u64>>,
+    /// A tag row's session's last activity; 0 on every other row.
+    pub activity: Arc<dyn ColumnValues<u64>>,
     /// Every row's length summed, deleted rows included. Tantivy's own token total is an estimate
     /// once a merge has expunged deleted rows, so the live total is summed from the length column.
     total_length: u64,
@@ -39,6 +41,7 @@ impl SegmentColumns {
             owner: columns.u64("owner")?.first_or_default_col(0),
             kind: columns.u64("kind")?.first_or_default_col(0),
             length,
+            activity: columns.u64("activity")?.first_or_default_col(0),
             total_length,
         })
     }

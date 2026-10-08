@@ -64,6 +64,17 @@ impl Phrase {
             .then(|| Term::from_field_text(fields.prefixes[length - 1], part))
     }
 
+    /// For a one-token prefix longer than every prefix field, the longest prefix field's term for
+    /// its first characters: it holds every row the prefix matches, at least as many times.
+    pub fn long_prefix_field_term(&self, fields: &IndexFields) -> Option<Term> {
+        let [part] = self.parts.as_slice() else {
+            return None;
+        };
+        let start: String = part.chars().take(PREFIX_FIELD_COUNT).collect();
+        (self.ends_in_prefix && start.len() < part.len())
+            .then(|| Term::from_field_text(fields.prefixes[PREFIX_FIELD_COUNT - 1], &start))
+    }
+
     /// The whole-word text terms of a several-token phrase: each one holds every row the phrase
     /// matches, at least as many times.
     pub fn whole_part_terms(&self, fields: &IndexFields) -> Vec<Term> {

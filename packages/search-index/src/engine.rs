@@ -254,7 +254,15 @@ impl IndexEngine {
             } else {
                 *highest = key;
             }
-            writer.add_document(row_document(&self.fields, key, &row.kind, owner, &row.text))?;
+            let tag = match &row.tag {
+                Some(tag) => Some((
+                    tag.fold.as_str(),
+                    non_negative(tag.session_last_activity_ms)?,
+                )),
+                None => None,
+            };
+            let document = row_document(&self.fields, key, &row.kind, owner, &row.text, tag);
+            writer.add_document(document)?;
         }
         let payload = serde_json::to_string(committed)
             .map_err(|error| TantivyError::InternalError(error.to_string()))?;

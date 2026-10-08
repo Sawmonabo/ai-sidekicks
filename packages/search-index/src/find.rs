@@ -83,7 +83,7 @@ fn row_match_count(
     marked: &mut Vec<u32>,
 ) -> u32 {
     if purpose == CursorPurpose::Score {
-        return cursors.iter().map(PhraseCursor::frequency).sum();
+        return cursors.iter_mut().map(PhraseCursor::frequency).sum();
     }
     let mut every_marked: Vec<u32> = Vec::new();
     for cursor in cursors.iter_mut() {

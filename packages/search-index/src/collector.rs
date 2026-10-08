@@ -34,8 +34,9 @@ pub struct PreparedQuery {
 }
 
 // The phrase whose single term Tantivy walks with block-max skipping, and that term: the phrase's
-// own term, or for a phrase of several tokens its rarest whole token, which holds each of the
-// phrase's rows at least as many times.
+// own term; or one that holds each of the phrase's rows at least as many times, the longest prefix
+// field's term for a prefix longer than every prefix field and the rarest whole token for a phrase
+// of several tokens.
 struct Driver {
     phrase: usize,
     term: Term,
@@ -89,7 +90,10 @@ fn choose_driver(
 ) -> tantivy::Result<Option<Driver>> {
     let mut chosen: Option<Driver> = None;
     for (index, phrase) in phrases.iter().enumerate() {
-        let term = match phrase.single_term(&version.fields) {
+        let term = match phrase
+            .single_term(&version.fields)
+            .or_else(|| phrase.long_prefix_field_term(&version.fields))
+        {
             Some(term) => Some(term),
             None => rarest_term(&version.searcher, phrase.whole_part_terms(&version.fields))?,
         };
@@ -172,6 +176,42 @@ impl SessionSet {
             owners,
         }
     }
+
+    /// About how many rows of `segment` the set's owners hold: their share of its owners' rows.
+    fn estimated_rows_in(
+        &self,
+        segment: &SegmentReader,
+        fields: &IndexFields,
+    ) -> tantivy::Result<u64> {
+        let owner_terms = segment
+            .inverted_index(fields.owner)?
+            .terms()
+            .num_terms()
+            .max(1);
+        Ok(self.owners.len() as u64 * u64::from(segment.max_doc()) / owner_terms as u64)
+    }
+
+    /// About how many rows of `version` the set's owners hold.
+    pub fn estimated_rows(&self, version: &IndexVersion) -> tantivy::Result<u64> {
+        let mut rows = 0;
+        for segment in version.searcher.segment_readers() {
+            rows += self.estimated_rows_in(segment, &version.fields)?;
+        }
+        Ok(rows)
+    }
+
+    /// Whether the set holds no session.
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
+
+    fn holds_owner(&self, owner: u64) -> bool {
+        self.owners.contains(&owner)
+    }
+
+    fn holds_session(&self, session: u64) -> bool {
+        self.sessions.contains(&session)
+    }
 }
 
 // The sessions a row counts toward, each with its place: the owning session, or each member of
@@ -207,7 +247,7 @@ fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
     cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
 }
 
-fn frequencies_into(cursors: &[PhraseCursor], frequencies: &mut [u32]) {
+fn frequencies_into(cursors: &mut [PhraseCursor], frequencies: &mut [u32]) {
     for (frequency, cursor) in frequencies.iter_mut().zip(cursors) {
         *frequency = cursor.frequency();
     }
@@ -256,31 +296,24 @@ fn visit_matches_in(
     let lead = (0..cursors.len())
         .min_by_key(|index| cursors[*index].cost())
         .unwrap_or(0);
-    if let Some(set) = within {
-        let owner_terms = segment
-            .inverted_index(version.fields.owner)?
-            .terms()
-            .num_terms()
-            .max(1);
-        let set_rows = set.owners.len() as u64 * u64::from(segment.max_doc()) / owner_terms as u64;
-        if set_rows < u64::from(cursors[lead].cost()) {
-            for doc in owner_docs(segment, &version.fields, &set.owners)? {
-                if is_alive(doc) && all_on(&mut cursors, doc) {
-                    frequencies_into(&cursors, &mut frequencies);
-                    visit(
-                        columns,
-                        doc,
-                        query.score(&frequencies, columns.length.get_val(doc)),
-                    );
-                }
+    if let Some(set) = within
+        && set.estimated_rows_in(segment, &version.fields)? < cursors[lead].cost()
+    {
+        for doc in owner_docs(segment, &version.fields, &set.owners)? {
+            if is_alive(doc) && all_on(&mut cursors, doc) {
+                frequencies_into(&mut cursors, &mut frequencies);
+                visit(
+                    columns,
+                    doc,
+                    query.score(&frequencies, columns.length.get_val(doc)),
+                );
             }
-            return Ok(());
         }
+        return Ok(());
     }
     let mut doc = cursors[lead].doc();
     'rows: while doc != TERMINATED {
-        let owner_allowed =
-            within.is_none_or(|set| set.owners.contains(&columns.owner.get_val(doc)));
+        let owner_allowed = within.is_none_or(|set| set.holds_owner(columns.owner.get_val(doc)));
         if !is_alive(doc) || !owner_allowed {
             doc = cursors[lead].advance();
             continue;
@@ -292,7 +325,7 @@ fn visit_matches_in(
                 continue 'rows;
             }
         }
-        frequencies_into(&cursors, &mut frequencies);
+        frequencies_into(&mut cursors, &mut frequencies);
         visit(
             columns,
             doc,
@@ -325,7 +358,7 @@ pub fn score_every_session(
                 &version.membership,
                 columns.owner.get_val(doc),
                 |session, place| {
-                    if within.is_some_and(|set| !set.sessions.contains(&session)) {
+                    if within.is_some_and(|set| !set.holds_session(session)) {
                         return;
                     }
                     let key = RankKey {
@@ -446,12 +479,14 @@ fn tantivy_idf(phrase_rows: u64, live_rows: u64) -> f64 {
     f64::from((1.0 as Score + ratio).ln())
 }
 
-/// The best `k` sessions in rank order, Tantivy skipping the driver term's blocks that cannot reach
-/// the k-th session's best row; `None` when no phrase has a single term to drive the skip.
+/// The best `k` sessions in rank order, limited to `within` when given, Tantivy skipping the driver
+/// term's blocks that cannot reach the k-th session's best row; `None` when no phrase has a single
+/// term to drive the skip.
 pub fn top_sessions(
     version: &IndexVersion,
     query: &PreparedQuery,
     k: usize,
+    within: Option<&SessionSet>,
 ) -> tantivy::Result<Option<Vec<u64>>> {
     let Some(driver) = &query.driver else {
         return Ok(None);
@@ -492,14 +527,16 @@ pub fn top_sessions(
         let mut frequencies = vec![0u32; cursors.len()];
         let first_threshold = driver_threshold(top.cutoff());
         let mut callback = |doc: DocId, _: Score| -> Score {
-            if alive.is_none_or(|alive| alive.is_alive(doc)) && all_on(&mut cursors, doc) {
-                frequencies_into(&cursors, &mut frequencies);
+            let owner = columns.owner.get_val(doc);
+            if within.is_none_or(|set| set.holds_owner(owner))
+                && alive.is_none_or(|alive| alive.is_alive(doc))
+                && all_on(&mut cursors, doc)
+            {
+                frequencies_into(&mut cursors, &mut frequencies);
                 let score = query.score(&frequencies, columns.length.get_val(doc));
                 let row_key = columns.key.get_val(doc);
-                credit_sessions(
-                    &version.membership,
-                    columns.owner.get_val(doc),
-                    |session, place| {
+                credit_sessions(&version.membership, owner, |session, place| {
+                    if within.is_none_or(|set| set.holds_session(session)) {
                         top.offer(
                             session,
                             RankKey {
@@ -508,8 +545,8 @@ pub fn top_sessions(
                                 member_place: place,
                             },
                         );
-                    },
-                );
+                    }
+                });
             }
             driver_threshold(top.cutoff())
         };
@@ -554,7 +591,7 @@ pub fn hits_of(
             if !alive.is_none_or(|alive| alive.is_alive(doc)) || !all_on(&mut cursors, doc) {
                 continue;
             }
-            frequencies_into(&cursors, &mut frequencies);
+            frequencies_into(&mut cursors, &mut frequencies);
             let score = query.score(&frequencies, columns.length.get_val(doc));
             let row_key = columns.key.get_val(doc);
             credit_sessions(

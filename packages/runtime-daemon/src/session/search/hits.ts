@@ -1,9 +1,11 @@
 // The line each hit shows, read from the database by the hit's key: the row's text as it is now,
-// marked where the index finds the query's words in it. The index stores no text, so a hit whose
-// row is gone since the index saw it is passed over, and one whose text changed is marked on its
-// current text, or passed over once that text no longer holds a match.
+// marked where the search matches it. The index stores no text, so a hit whose row is gone since
+// the index saw it is passed over, and one whose text changed is marked on its current text, or
+// passed over once that text no longer holds a match. A search with words marks them as the index
+// finds them; a search by tags alone marks each tag's levels the queried tag names.
 
 import type { SearchIndex, SearchQuery } from "@ai-sidekicks/search-index";
+import type { SearchMatchRange } from "@ai-sidekicks/contracts/session/methods";
 import { TRANSCRIPT_SEARCH_TEXT_MAX_LEN } from "@ai-sidekicks/contracts/transcript/search";
 
 import type { IndexRowReader, SourceRow } from "./index/rows.js";
@@ -15,7 +17,10 @@ export interface HitLine {
   readonly marked: MarkedLine;
 }
 
-/** Reads and marks hits' lines on one connection, as the index marks matches. */
+// Where a search matches a row's current text, in order; none once the text holds no match.
+type MatchMarker = (row: SourceRow) => readonly SearchMatchRange[];
+
+/** Reads and marks hits' lines on one connection. */
 export class HitLineReader {
   readonly #rows: IndexRowReader;
   readonly #index: Pick<SearchIndex, "markMatches">;
@@ -26,10 +31,24 @@ export class HitLineReader {
   }
 
   /**
-   * The lines of the first `count` of these keys' rows that still hold a match, in the keys'
-   * order. Rows are read only as far as that takes.
+   * The lines of the first `count` of these keys' rows that still hold a match of the query's
+   * words, marked as the index marks them, in the keys' order. Rows are read only as far as that
+   * takes.
    */
   readLines(keys: readonly number[], query: SearchQuery, count: number): HitLine[] {
+    return this.#readMarkedLines(keys, (row) => this.#index.markMatches(row.text, query), count);
+  }
+
+  /**
+   * The lines of the first `count` of these keys' tag rows that a queried tag, each a tag fold,
+   * still matches, in the keys' order: each tag marked through as many levels as the longest
+   * queried tag it is or is nested under has.
+   */
+  readTagLines(keys: readonly number[], tagFolds: readonly string[], count: number): HitLine[] {
+    return this.#readMarkedLines(keys, (row) => tagMatchRanges(row, tagFolds), count);
+  }
+
+  #readMarkedLines(keys: readonly number[], marker: MatchMarker, count: number): HitLine[] {
     const lines: HitLine[] = [];
     let next = 0;
     while (lines.length < count && next < keys.length) {
@@ -41,7 +60,7 @@ export class HitLineReader {
         if (row === undefined) {
           continue;
         }
-        const [firstRange, ...laterRanges] = this.#index.markMatches(row.text, query);
+        const [firstRange, ...laterRanges] = marker(row);
         if (firstRange !== undefined) {
           lines.push({
             row,
@@ -56,4 +75,30 @@ export class HitLineReader {
     }
     return lines;
   }
+}
+
+function tagMatchRanges(row: SourceRow, tagFolds: readonly string[]): SearchMatchRange[] {
+  if (row.tag === undefined) {
+    return [];
+  }
+  const { fold } = row.tag;
+  let levelCount = 0;
+  for (const tagFold of tagFolds) {
+    if (fold === tagFold || fold.startsWith(`${tagFold}/`)) {
+      levelCount = Math.max(levelCount, tagFold.split("/").length);
+    }
+  }
+  return levelCount === 0 ? [] : [leadingLevelsRange(row.text, levelCount)];
+}
+
+// The stretch of a tag holding its first `levelCount` levels.
+function leadingLevelsRange(tag: string, levelCount: number): SearchMatchRange {
+  let end = -1;
+  for (let level = 0; level < levelCount; level += 1) {
+    end = tag.indexOf("/", end + 1);
+    if (end === -1) {
+      return { start: 0, end: tag.length };
+    }
+  }
+  return { start: 0, end };
 }

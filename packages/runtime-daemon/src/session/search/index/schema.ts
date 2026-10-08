@@ -161,6 +161,16 @@ BEGIN
   ${sessionRowOutboxSql(indexKeySql("OLD.rowid", "tag"), "tag", "OLD.session_id")}
 END;
 
+-- A tag row carries its session's last activity, which orders a search by tag alone, so each move
+-- of that activity has the session's tag rows read again.
+CREATE TRIGGER trg_session_search_activity_move AFTER UPDATE OF last_activity_at ON sessions
+WHEN OLD.last_activity_at IS NOT NEW.last_activity_at
+BEGIN
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT ${indexKeySql("tag.rowid", "tag")}, 'tag', NEW.rowid, '${OutboxOperation.Row}'
+    FROM session_tags AS tag WHERE tag.session_id = NEW.id;
+END;
+
 -- Each delete that lowers an indexed source table's highest rowid, with the new highest (0 for an
 -- empty table), so a held search can tell the rowids a later row may have taken since its view.
 -- kind names the index rows the table's rows source. AUTOINCREMENT, so an entry written after a

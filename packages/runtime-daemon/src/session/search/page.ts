@@ -9,12 +9,11 @@ import { PAGE_MAX_BYTES, countEntriesFittingOneFrame } from "@ai-sidekicks/contr
 
 import type { SearchPagePosition } from "./cursor.js";
 
-/** A session offered to a page: all its hits, best first, and how many earlier pages showed. */
+/** A session offered to a page: its hits no earlier page showed, best first. */
 export interface PageCandidate<Hit> {
   readonly sessionId: SessionId;
   readonly name: string | null;
   readonly hits: readonly Hit[];
-  readonly shownHitCount: number;
   /** The position of a page that starts at this session with `shownHitCount` of its hits shown. */
   readonly positionAt: (shownHitCount: number) => SearchPagePosition;
 }
@@ -46,20 +45,20 @@ export function assembleSearchPage<Hit>(
   let room = limit;
   let next: SearchPagePosition | undefined;
   for (const candidate of candidates) {
-    const remaining = candidate.hits.slice(candidate.shownHitCount);
-    if (remaining.length === 0) {
+    const { hits } = candidate;
+    if (hits.length === 0) {
       continue;
     }
-    if (remaining.length <= room) {
-      selections.push({ candidate, hits: remaining });
-      room -= remaining.length;
+    if (hits.length <= room) {
+      selections.push({ candidate, hits });
+      room -= hits.length;
       continue;
     }
     if (selections.length === 0) {
-      selections.push({ candidate, hits: remaining.slice(0, room) });
-      next = candidate.positionAt(candidate.shownHitCount + room);
+      selections.push({ candidate, hits: hits.slice(0, room) });
+      next = candidate.positionAt(room);
     } else {
-      next = candidate.positionAt(candidate.shownHitCount);
+      next = candidate.positionAt(0);
     }
     break;
   }
@@ -91,7 +90,7 @@ function fitOneMessage<Hit>(
     const hitCount = countHitsFittingOneGroup(firstGroup);
     return {
       groups: [{ ...firstGroup, hits: firstGroup.hits.slice(0, hitCount) }],
-      next: candidate.positionAt(candidate.shownHitCount + hitCount),
+      next: candidate.positionAt(hitCount),
     };
   }
   const groupCount = countEntriesFittingOneFrame(groups, groups.length);
@@ -101,10 +100,7 @@ function fitOneMessage<Hit>(
     ...otherGroups.slice(0, groupCount - 1),
   ];
   if (firstLeftOut !== undefined) {
-    return {
-      groups: keptGroups,
-      next: firstLeftOut.candidate.positionAt(firstLeftOut.candidate.shownHitCount),
-    };
+    return { groups: keptGroups, next: firstLeftOut.candidate.positionAt(0) };
   }
   return { groups: keptGroups, next };
 }

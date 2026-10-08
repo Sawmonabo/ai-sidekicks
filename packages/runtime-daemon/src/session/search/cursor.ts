@@ -11,25 +11,15 @@ import {
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 
-// A page of a search with words starts at a session of the search's order; past its best hits
-// when an earlier page showed some, named by the last one's index key, whose place among the
-// session's hits the held view keeps.
-interface RankedPagePosition {
-  readonly order: "ranked";
+/**
+ * Where a page starts in a held search: at a session of the search's order, past its best hits
+ * when an earlier page showed some, named by the last one's index key, whose place among the
+ * session's hits the held view keeps.
+ */
+export interface SearchPagePosition {
   readonly sessionIndex: number;
   readonly afterHitKey: number | undefined;
 }
-
-/** A page of a search by tag alone starts at a session of its list, past the hits shown. */
-export interface ListedPagePosition {
-  readonly order: "listed";
-  readonly sessionIndex: number;
-  /** How many of the session's hits earlier pages showed. */
-  readonly shownHitCount: number;
-}
-
-/** Where a page starts in a held search: a session, and which of its hits earlier pages showed. */
-export type SearchPagePosition = RankedPagePosition | ListedPagePosition;
 
 /** A cursor read back: the held search it continues, and where. */
 export interface SearchCursorPosition {
@@ -39,21 +29,17 @@ export interface SearchCursorPosition {
 
 const COUNT = "(0|[1-9][0-9]*)";
 const SNAPSHOT_ID = "([0-9a-f-]+)";
-const RANKED_CURSOR = new RegExp(`^r:${SNAPSHOT_ID}:${COUNT}(?::${COUNT})?$`, "u");
-const LISTED_CURSOR = new RegExp(`^l:${SNAPSHOT_ID}:${COUNT}:${COUNT}$`, "u");
+const CURSOR = new RegExp(`^${SNAPSHOT_ID}:${COUNT}(?::${COUNT})?$`, "u");
 
 /** Writes a held search's next page position as the cursor a client passes back. */
 export function encodeSearchCursor(
   snapshotId: string,
   position: SearchPagePosition,
 ): SessionSearchCursor {
-  const place = String(position.sessionIndex);
-  const text =
-    position.order === "ranked"
-      ? `r:${snapshotId}:${place}` +
-        (position.afterHitKey === undefined ? "" : `:${String(position.afterHitKey)}`)
-      : `l:${snapshotId}:${place}:${String(position.shownHitCount)}`;
-  return SessionSearchCursorSchema.parse(text);
+  const afterHitKey = position.afterHitKey === undefined ? "" : `:${String(position.afterHitKey)}`;
+  return SessionSearchCursorSchema.parse(
+    `${snapshotId}:${String(position.sessionIndex)}${afterHitKey}`,
+  );
 }
 
 /**
@@ -61,29 +47,16 @@ export function encodeSearchCursor(
  * {@link encodeSearchCursor} did not write.
  */
 export function decodeSearchCursor(cursor: SessionSearchCursor): SearchCursorPosition {
-  const ranked = RANKED_CURSOR.exec(cursor);
-  if (ranked !== null) {
-    const [, snapshotId = "", sessionIndex = "", afterHitKey] = ranked;
-    return {
-      snapshotId,
-      position: {
-        order: "ranked",
-        sessionIndex: Number(sessionIndex),
-        afterHitKey: afterHitKey === undefined ? undefined : Number(afterHitKey),
-      },
-    };
-  }
-  const listed = LISTED_CURSOR.exec(cursor);
-  if (listed === null) {
+  const parts = CURSOR.exec(cursor);
+  if (parts === null) {
     throw searchCursorUnresolvable(cursor);
   }
-  const [, snapshotId = "", sessionIndex = "", shownHitCount = ""] = listed;
+  const [, snapshotId = "", sessionIndex = "", afterHitKey] = parts;
   return {
     snapshotId,
     position: {
-      order: "listed",
       sessionIndex: Number(sessionIndex),
-      shownHitCount: Number(shownHitCount),
+      afterHitKey: afterHitKey === undefined ? undefined : Number(afterHitKey),
     },
   };
 }

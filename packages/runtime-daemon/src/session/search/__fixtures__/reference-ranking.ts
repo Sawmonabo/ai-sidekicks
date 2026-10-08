@@ -2,7 +2,8 @@
 // to, built only inside a test: an in-memory FTS5 table with the tokenizer `unicode61
 // remove_diacritics 2`, each row at its index key beside one constant token, so a row's length is
 // its token count plus one, as the index counts it. Rows rank by `rank` then key; a session is
-// placed by its best row, and a group's name counts toward each member in session id order.
+// placed by its best row, and a group's name counts toward each member in session id order. A
+// query's tags keep the sessions carrying each tag or one nested under it, with the rank unchanged.
 
 import Database from "better-sqlite3";
 
@@ -12,8 +13,10 @@ import type {
   SessionSearchRequest,
   SessionSearchResponse,
 } from "@ai-sidekicks/contracts/session/methods";
+import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import type { SearchQuery } from "@ai-sidekicks/search-index";
 
+import { indexRowKindOf } from "../index/columns.js";
 import { parseSessionSearchQuery } from "../query.js";
 import type { DirectoryRow } from "./seeded-directory.js";
 
@@ -62,9 +65,44 @@ function referenceHits(rows: readonly DirectoryRow[], query: SearchQuery): Shown
   }
 }
 
+// The sessions carrying every one of `tagFolds`' tags, or one nested under it.
+function sessionsTagged(
+  rows: readonly DirectoryRow[],
+  tagFolds: readonly string[],
+): Set<SessionId> {
+  const carrying = tagFolds.map((tagFold) => {
+    const sessionIds = new Set<SessionId>();
+    for (const row of rows) {
+      const fold = foldName(row.text);
+      if (
+        indexRowKindOf(row.key) === "tag" &&
+        (fold === tagFold || fold.startsWith(`${tagFold}/`))
+      ) {
+        row.sessionIds.forEach((sessionId) => sessionIds.add(sessionId));
+      }
+    }
+    return sessionIds;
+  });
+  const [first = new Set<SessionId>(), ...others] = carrying;
+  return new Set([...first].filter((sessionId) => others.every((other) => other.has(sessionId))));
+}
+
 // The seeded directory's query classes: one common word, two words, a word still being typed, a
-// folded accent, a tool call's arguments and a finished word in group names and titles.
-const REFERENCE_QUERIES = ["deploy", "billing stripe", "re", "cafe", "git commit", "notes "];
+// folded accent, a tool call's arguments, a finished word in group names and titles, and words
+// within a tag, nested tags included, written in any case, with a word still being typed, and
+// within two tags.
+const REFERENCE_QUERIES = [
+  "deploy",
+  "billing stripe",
+  "re",
+  "cafe",
+  "git commit",
+  "notes ",
+  "tag:billing deploy",
+  "tag:BILLING re",
+  "tag:deploy git commit",
+  "tag:billing tag:infra worker",
+];
 // Small pages, so every query pages many times.
 const REFERENCE_PAGE_LIMIT = 3;
 
@@ -84,11 +122,16 @@ export function hitsByQuery(
 export function referenceHitsByQuery(rows: readonly DirectoryRow[]): Record<string, ShownHit[]> {
   return Object.fromEntries(
     REFERENCE_QUERIES.map((query) => {
-      const { searchQuery } = parseSessionSearchQuery(query);
+      const { searchQuery, tagFolds } = parseSessionSearchQuery(query);
       if (searchQuery === undefined) {
         throw new Error(`The reference query "${query}" names no word.`);
       }
-      return [query, referenceHits(rows, searchQuery)];
+      const hits = referenceHits(rows, searchQuery);
+      if (tagFolds.length === 0) {
+        return [query, hits];
+      }
+      const tagged = sessionsTagged(rows, tagFolds);
+      return [query, hits.filter((hit) => tagged.has(hit.sessionId))];
     }),
   );
 }

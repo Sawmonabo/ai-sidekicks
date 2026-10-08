@@ -1,7 +1,9 @@
 //! The index's fields, how a row becomes a document, and how owners are kept apart. A row is
 //! folded into tokens once, as its document is made; every text field holds those tokens joined,
 //! and the tokenizers registered here split them again as the field is indexed, so a document
-//! waiting for the indexing thread holds one short string per field.
+//! waiting for the indexing thread holds one short string per field. A tag row also holds its
+//! tag's fold in the tag field, cut at each `/` so a `tag:` term finds the tags nested under it,
+//! and its session's last activity, which orders a search by tag alone.
 
 use std::str::Split;
 
@@ -29,6 +31,12 @@ const TOKEN_SEPARATOR: char = '\u{0}';
 /// The tokenizer the text field is indexed with.
 const TOKENS_TOKENIZER: &str = "joined-tokens";
 
+/// The tokenizer the tag field is indexed with.
+const TAG_PATHS_TOKENIZER: &str = "tag-paths";
+
+/// Separates a tag's levels.
+const TAG_LEVEL_SEPARATOR: char = '/';
+
 /// The kind code an `event` row carries in the kind column.
 pub const EVENT_KIND: u64 = 0;
 
@@ -46,6 +54,11 @@ pub struct IndexFields {
     pub kind: Field,
     /// The row's length: its token count plus one.
     pub length: Field,
+    /// A tag row's fold and the fold of each tag it is nested under: `billing/stripe` holds
+    /// `billing` and `billing/stripe`.
+    pub tag: Field,
+    /// A tag row's session's last activity, in milliseconds since the Unix epoch.
+    pub activity: Field,
 }
 
 /// The index's schema and its fields.
@@ -65,6 +78,16 @@ pub fn index_schema() -> (Schema, IndexFields) {
     let owner = builder.add_u64_field("owner", NumericOptions::default().set_indexed().set_fast());
     let kind = builder.add_u64_field("kind", NumericOptions::default().set_fast());
     let length = builder.add_u64_field("length", NumericOptions::default().set_fast());
+    // No row is scored by its tag, so the tag field keeps no lengths.
+    let tag_indexing = TextFieldIndexing::default()
+        .set_tokenizer(TAG_PATHS_TOKENIZER)
+        .set_index_option(IndexRecordOption::Basic)
+        .set_fieldnorms(false);
+    let tag = builder.add_text_field(
+        "tag",
+        TextOptions::default().set_indexing_options(tag_indexing),
+    );
+    let activity = builder.add_u64_field("activity", NumericOptions::default().set_fast());
     (
         builder.build(),
         IndexFields {
@@ -74,6 +97,8 @@ pub fn index_schema() -> (Schema, IndexFields) {
             owner,
             kind,
             length,
+            tag,
+            activity,
         },
     )
 }
@@ -107,6 +132,7 @@ pub fn register_tokenizers(index: &Index) {
         };
         tokenizers.register(&prefix_tokenizer_name(length), tokenizer);
     }
+    tokenizers.register(TAG_PATHS_TOKENIZER, TagPaths);
 }
 
 /// Whose rows a row is: a session's own, or a group's name row, which counts toward its members.
@@ -153,14 +179,21 @@ pub fn owner_term(fields: &IndexFields, owner: Owner) -> Term {
     Term::from_field_u64(fields.owner, owner_value(owner))
 }
 
+/// The term a tag field holds for every tag row whose tag is `fold` or nested under it.
+pub fn tag_term(fields: &IndexFields, fold: &str) -> Term {
+    Term::from_field_text(fields.tag, fold)
+}
+
 /// One row as a document: its folded tokens in the text field, their prefixes in the prefix fields,
-/// and its key, owner, kind and length as columns.
+/// and its key, owner, kind and length as columns; a tag row's fold and its session's last activity
+/// besides.
 pub fn row_document(
     fields: &IndexFields,
     key: u64,
     kind: &IndexRowKind,
     owner: Owner,
     text: &str,
+    tag: Option<(&str, u64)>,
 ) -> TantivyDocument {
     let tokens = tokenize(text);
     let joined = joined_tokens(&tokens);
@@ -173,6 +206,10 @@ pub fn row_document(
     document.add_u64(fields.owner, owner_value(owner));
     document.add_u64(fields.kind, kind_code(kind));
     document.add_u64(fields.length, tokens.len() as u64 + 1);
+    if let Some((fold, activity)) = tag {
+        document.add_text(fields.tag, fold);
+        document.add_u64(fields.activity, activity);
+    }
     document
 }
 
@@ -254,6 +291,66 @@ impl TokenStream for JoinedTokenStream<'_> {
         }
         self.is_filler_sent = true;
         self.emit(FILLER, self.place);
+        true
+    }
+
+    fn token(&self) -> &Token {
+        &self.token
+    }
+
+    fn token_mut(&mut self) -> &mut Token {
+        &mut self.token
+    }
+}
+
+/// Splits a tag's fold into the fold of each level from the first: `billing/stripe` gives
+/// `billing`, then `billing/stripe`.
+#[derive(Clone)]
+struct TagPaths;
+
+impl Tokenizer for TagPaths {
+    type TokenStream<'a> = TagPathStream<'a>;
+
+    fn token_stream<'a>(&'a mut self, text: &'a str) -> TagPathStream<'a> {
+        TagPathStream {
+            fold: text,
+            next_end: (!text.is_empty()).then_some(0),
+            position: 0,
+            token: Token::default(),
+        }
+    }
+}
+
+struct TagPathStream<'a> {
+    fold: &'a str,
+    // Where the search for the next level's end starts; `None` once the whole fold was sent.
+    next_end: Option<usize>,
+    position: usize,
+    token: Token,
+}
+
+impl TokenStream for TagPathStream<'_> {
+    fn advance(&mut self) -> bool {
+        let Some(from) = self.next_end else {
+            return false;
+        };
+        let end = match self.fold[from..].find(TAG_LEVEL_SEPARATOR) {
+            Some(offset) => {
+                self.next_end = Some(from + offset + 1);
+                from + offset
+            }
+            None => {
+                self.next_end = None;
+                self.fold.len()
+            }
+        };
+        self.token.text.clear();
+        self.token.text.push_str(&self.fold[..end]);
+        self.token.position = self.position;
+        self.position += 1;
+        self.token.offset_from = 0;
+        self.token.offset_to = end;
+        self.token.position_length = 1;
         true
     }
 

@@ -24,9 +24,11 @@ import {
 } from "./index-rows.js";
 
 // Lowercase words both FTS5's `unicode61 remove_diacritics 2` and the index's tokenizer split and
-// fold alike; `café` folds to `cafe` in both.
+// fold alike; `café` folds to `cafe` in both. A typed `deploy` matches `deploy` and `deployed`, a
+// prefix longer than the index's prefix fields, so a row's count of it sums two words.
 const VOCABULARY = [
   "deploy",
+  "deployed",
   "worker",
   "billing",
   "stripe",
@@ -46,7 +48,15 @@ const VOCABULARY = [
   "thread",
 ];
 const GROUP_NAMES = ["release train", "billing work", "cache review notes"];
-const TAGS = ["billing", "billing/stripe", "infra", "deploy/worker"];
+// Nested tags, one written in capitals, and `deployment`, which no search for `tag:deploy` keeps.
+const TAGS = [
+  "billing",
+  "billing/stripe",
+  "infra",
+  "deploy/worker",
+  "Billing/Webhook",
+  "deployment",
+];
 
 /** A row the index holds, as the test wrote it, and the sessions it counts toward. */
 export interface DirectoryRow {

@@ -1,49 +1,26 @@
 // The searches whose later pages are still to be read, each held as its first page opened it, so a
-// write between pages neither repeats nor drops a hit. A search with words holds a view of the
-// index, which keeps the index version it opened on, its files and the totals it scores with, so
-// holding is bounded: a search not paged for a while is let go, so is one held too long however
-// often it is paged, and past a count the least recently paged goes first. A cursor of a search let
-// go is refused, and the search starts again.
+// write between pages neither repeats nor drops a hit. A search holds a view of the index, which
+// keeps the index version it opened on, its files and the totals it scores with, so holding is
+// bounded: a search not paged for a while is let go, so is one held too long however often it is
+// paged, and past a count the least recently paged goes first. A cursor of a search let go is
+// refused, and the search starts again.
 
-import type { HeldSearch, SearchQuery } from "@ai-sidekicks/search-index";
-
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
+import type { HeldSearch } from "@ai-sidekicks/search-index";
 
 import { mintUuidV7 } from "../../uuid-v7.js";
-
-// The sessions of a search with words, by session key, in the order its pages show them.
-interface SessionOrder {
-  /** The sessions at places `from` to `from + count - 1`; fewer past the end. */
-  sessionsAt(from: number, count: number): number[];
-}
-
-/** A session a search by tag alone found, with the tags that matched as its hits. */
-export interface ListedSession {
-  readonly sessionId: SessionId;
-  readonly name: string | null;
-  readonly hits: readonly SessionSearchHit[];
-}
+import type { ParsedSearchQuery } from "./query.js";
 
 /**
  * One held search. `queryKey` is the parsed query it answers, so a cursor sent with another query
- * continues nothing. A search with words keeps its view of the index, where the rowid floor log
- * stood for that view, and its session order; a search by tag alone keeps its whole answer.
+ * continues nothing. It keeps that query, its view of the index, and where the rowid floor log
+ * stood for that view.
  */
-export type SearchSnapshot =
-  | {
-      readonly order: "ranked";
-      readonly queryKey: string;
-      readonly searchQuery: SearchQuery;
-      readonly view: HeldSearch;
-      readonly floorPosition: number;
-      readonly sessionOrder: SessionOrder;
-    }
-  | {
-      readonly order: "listed";
-      readonly queryKey: string;
-      readonly sessions: readonly ListedSession[];
-    };
+export interface SearchSnapshot {
+  readonly queryKey: string;
+  readonly query: ParsedSearchQuery;
+  readonly view: HeldSearch;
+  readonly floorPosition: number;
+}
 
 /** The bounds on held searches. */
 export interface SearchSnapshotLimits {
@@ -117,15 +94,13 @@ export class SearchSnapshots {
   }
 
   /**
-   * The lowest place in the rowid floor log a held search with words still reads from;
-   * `undefined` while none is held.
+   * The lowest place in the rowid floor log a held search still reads from; `undefined` while none
+   * is held.
    */
   oldestFloorPosition(): number | undefined {
     let oldest: number | undefined;
     for (const { snapshot } of this.#held.values()) {
-      if (snapshot.order === "ranked") {
-        oldest = Math.min(oldest ?? snapshot.floorPosition, snapshot.floorPosition);
-      }
+      oldest = Math.min(oldest ?? snapshot.floorPosition, snapshot.floorPosition);
     }
     return oldest;
   }
@@ -141,7 +116,7 @@ export class SearchSnapshots {
 
   #letGo(snapshotId: string, held: HeldSnapshot): void {
     this.#held.delete(snapshotId);
-    releaseSearch(held.snapshot);
+    held.snapshot.view.release();
   }
 
   #letGoExpired(): void {
@@ -176,12 +151,5 @@ export class SearchSnapshots {
       Math.max(0, firstExpiry - this.#now()),
     );
     this.#expiryTimer.unref();
-  }
-}
-
-/** Lets go of a search's view of the index at once, once nothing holds the search. */
-export function releaseSearch(snapshot: SearchSnapshot): void {
-  if (snapshot.order === "ranked") {
-    snapshot.view.release();
   }
 }

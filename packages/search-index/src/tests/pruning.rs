@@ -1,17 +1,18 @@
 //! Block skipping never drops a session that belongs in the top k, after the average row length
-//! has moved far from the one a segment's block bounds were chosen under.
+//! has moved far from the one a segment's block bounds were chosen under, among every session or
+//! within a set of them, for a whole word and for a prefix longer than every prefix field.
 
-use crate::collector::{PreparedQuery, score_every_session, top_sessions};
+use crate::collector::{PreparedQuery, SessionSet, score_every_session, top_sessions};
 use crate::phrase::query_phrases;
 use crate::scorer::{phrase_idf, row_score};
-use crate::{IndexBatch, IndexRow, RemovedOwner};
+use crate::{IndexBatch, IndexRow, RemovedOwner, SearchQuery};
 
 use super::support::{ScratchFolder, batch, event, open_engine, query};
 
-// Segment one's postings for "w" run in blocks of 128 rows. Block 0 opens with four sessions whose
-// rows score just under the long row's once the average has moved; block 1 holds a short row that
-// wins the block's stored bound under segment one's own short average, and the long row, which
-// only wins under the moved one; a tail block follows so block 1 is full.
+// Segment one's postings for the searched word run in blocks of 128 rows. Block 0 opens with four
+// sessions whose rows score just under the long row's once the average has moved; block 1 holds a
+// short row that wins the block's stored bound under segment one's own short average, and the long
+// row, which only wins under the moved one; a tail block follows so block 1 is full.
 const CUTOFF_SESSIONS: [u64; 4] = [1, 2, 3, 4];
 const SHORT_SESSION: u64 = 5;
 const LONG_SESSION: u64 = 6;
@@ -24,6 +25,22 @@ fn repeated(word: &str, count: usize) -> String {
 
 #[test]
 fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
+    assert_pruned_rankings_equal_full_rankings(query(&["w"], false), |count| repeated("w", count));
+    // Two words the prefix begins, alternating, so a row's count is the two words' counts summed.
+    assert_pruned_rankings_equal_full_rankings(query(&["wwwwww"], true), |count| {
+        let words: Vec<&str> = (0..count)
+            .map(|index| if index % 2 == 0 { "wwwwwwa" } else { "wwwwwwb" })
+            .collect();
+        words.join(" ")
+    });
+}
+
+// Builds the segments for `search`, `matches(n)` writing n words it matches, and checks the pruned
+// rankings against the full ones.
+fn assert_pruned_rankings_equal_full_rankings(
+    search: SearchQuery,
+    matches: impl Fn(usize) -> String,
+) {
     let folder = ScratchFolder::new("pruning");
     let engine = open_engine(folder.path());
     let mut rows: Vec<IndexRow> = Vec::new();
@@ -36,23 +53,23 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
         rows.push(event((rows.len() as u64 + 1) * 4, session, &text));
         session
     };
-    let cutoff_text = format!("w w {}", repeated("x", 7));
+    let cutoff_text = format!("{} {}", matches(2), repeated("x", 7));
     for session in CUTOFF_SESSIONS {
         add(Some(session), cutoff_text.clone());
     }
     for _ in CUTOFF_SESSIONS.len()..BLOCK {
-        add(None, "w x".to_string());
+        add(None, format!("{} x", matches(1)));
     }
-    add(Some(SHORT_SESSION), "w".to_string());
+    add(Some(SHORT_SESSION), matches(1));
     add(
         Some(LONG_SESSION),
-        format!("{} {}", repeated("w", 6), repeated("x", 33)),
+        format!("{} {}", matches(6), repeated("x", 33)),
     );
     for _ in BLOCK + 2..2 * BLOCK {
-        add(None, "w x".to_string());
+        add(None, format!("{} x", matches(1)));
     }
     let tail_sessions: Vec<u64> = (0..TAIL_ROWS)
-        .map(|_| add(None, "w x".to_string()))
+        .map(|_| add(None, format!("{} x", matches(1))))
         .collect();
     let segment_one_rows = rows.len() as u64;
     let segment_one_tokens: u64 = 4 * 10 + 2 + 40 + (segment_one_rows - 6) * 3;
@@ -79,7 +96,7 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
     engine.apply(&purge).expect("the purge applies");
 
     let version = engine.current_version();
-    let phrases = query_phrases(&query(&["w"], false));
+    let phrases = query_phrases(&search);
     let average = version.average_length();
     let written_average = f64::from(segment_one_tokens as f32 / segment_one_rows as f32);
     let idf = phrase_idf(
@@ -104,10 +121,32 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
         .order;
     assert_eq!(full[0], LONG_SESSION);
     assert_eq!(full[1..5], CUTOFF_SESSIONS);
+    // Within a set: two of the cutoff sessions, the short and the long one, and every other filler.
+    let mut chosen = vec![
+        CUTOFF_SESSIONS[1],
+        CUTOFF_SESSIONS[3],
+        SHORT_SESSION,
+        LONG_SESSION,
+    ];
+    chosen.extend((101..next_filler_session).step_by(2));
+    let set = SessionSet::new(&chosen, &version.membership);
+    let full_within = score_every_session(&version, &prepared, Some(&set))
+        .expect("ranks")
+        .order;
+    assert!(full_within.iter().all(|session| chosen.contains(session)));
+    assert_eq!(full_within[..3], [LONG_SESSION, 2, 4]);
     for k in [1, 2, 4, 8] {
-        let pruned = top_sessions(&version, &prepared, k)
+        let pruned = top_sessions(&version, &prepared, k, None)
             .expect("ranks")
             .expect("a word drives");
         assert_eq!(pruned, full[..k], "the best {k} sessions");
+        let pruned_within = top_sessions(&version, &prepared, k, Some(&set))
+            .expect("ranks")
+            .expect("a word drives");
+        assert_eq!(
+            pruned_within,
+            full_within[..k],
+            "the best {k} sessions of the set"
+        );
     }
 }

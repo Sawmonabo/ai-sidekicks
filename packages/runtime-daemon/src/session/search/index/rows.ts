@@ -1,14 +1,14 @@
 // The text the search index holds for each source row, read from the database as it is now: a
 // settled message's text, a tool call's name and arguments, a session's title, a group's name and a
-// tag. The outbox applier, the rebuild and the hit reader all read rows here, so a hit's line is
-// marked on the same text the index saw. A log row belongs to its session through the session's
+// tag, with a tag's fold and its session's last activity beside it. The outbox applier, the rebuild
+// and the hit reader all read rows here, so a hit's line is marked on the same text the index saw. A log row belongs to its session through the session's
 // directory row; a log row of a session with none, which only the daemon's own sentinel session
 // lacks, is no index row.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { IndexRow, IndexRowKind } from "@ai-sidekicks/search-index";
+import type { IndexRow, IndexRowKind, IndexRowTag } from "@ai-sidekicks/search-index";
 
 import { indexKeySql, indexRowKindOf, sourceRowidOf } from "./columns.js";
 
@@ -50,6 +50,8 @@ export interface SourceRow {
   readonly text: string;
   /** A log row's id and position in its session's log; `undefined` on a title, group or tag. */
   readonly logRow: { readonly eventId: string; readonly sequence: number } | undefined;
+  /** A tag row's fold and its session's last activity; `undefined` on every other row. */
+  readonly tag: { readonly fold: string; readonly sessionLastActivityAt: string } | undefined;
 }
 
 // A log row's text: a person's words, an assistant's reply, or a tool's name then its arguments.
@@ -70,28 +72,33 @@ function chosenRowsSql(choice: RowChoice, rowidSql: string): string {
     : `AND ${rowidSql} > @afterRowid ORDER BY ${rowidSql} LIMIT ${String(INDEX_BATCH_ROW_LIMIT)}`;
 }
 
-// Each kind's rows: the key, the owner's key, the text and, for a log row, its id and position.
+// The columns a row other than a tag holds none of.
+const NO_TAG_SQL = "NULL AS tag_fold, NULL AS session_last_activity_at";
+
+// Each kind's rows: the key, the owner's key, the text and, for a log row, its id and position,
+// and for a tag, its fold and its session's last activity.
 const ROW_SQL_BY_KIND: Readonly<Record<IndexRowKind, (choice: RowChoice) => string>> = {
   event: (choice) => `
     SELECT ${indexKeySql("event.rowid", "event")} AS key, session.rowid AS owner_key,
-           ${EVENT_TEXT_SQL} AS text, event.id AS event_id, event.sequence
+           ${EVENT_TEXT_SQL} AS text, event.id AS event_id, event.sequence, ${NO_TAG_SQL}
       FROM session_events AS event
       JOIN sessions AS session ON session.id = event.session_id
      WHERE event.type IN (${INDEXED_EVENT_TYPES_SQL}) AND (${EVENT_TEXT_SQL}) IS NOT NULL
        ${chosenRowsSql(choice, "event.rowid")}`,
   title: (choice) => `
     SELECT ${indexKeySql("rowid", "title")} AS key, rowid AS owner_key, name AS text,
-           NULL AS event_id, NULL AS sequence
+           NULL AS event_id, NULL AS sequence, ${NO_TAG_SQL}
       FROM sessions
      WHERE name IS NOT NULL ${chosenRowsSql(choice, "rowid")}`,
   group: (choice) => `
     SELECT ${indexKeySql("rowid", "group")} AS key, rowid AS owner_key, name AS text,
-           NULL AS event_id, NULL AS sequence
+           NULL AS event_id, NULL AS sequence, ${NO_TAG_SQL}
       FROM session_groups
      WHERE TRUE ${chosenRowsSql(choice, "rowid")}`,
   tag: (choice) => `
     SELECT ${indexKeySql("tag.rowid", "tag")} AS key, session.rowid AS owner_key, tag.tag AS text,
-           NULL AS event_id, NULL AS sequence
+           NULL AS event_id, NULL AS sequence, tag.tag_folded AS tag_fold,
+           session.last_activity_at AS session_last_activity_at
       FROM session_tags AS tag
       JOIN sessions AS session ON session.id = tag.session_id
      WHERE TRUE ${chosenRowsSql(choice, "tag.rowid")}`,
@@ -103,6 +110,8 @@ interface SourceRowColumns {
   readonly text: string;
   readonly event_id: string | null;
   readonly sequence: number | null;
+  readonly tag_fold: string | null;
+  readonly session_last_activity_at: string | null;
 }
 
 // One statement per kind, all choosing their rows the same way.
@@ -174,9 +183,17 @@ export class IndexRowReader {
   }
 }
 
-/** The row as the index takes it. */
+/** The row as the index takes it, a tag's session's last activity in milliseconds. */
 export function indexRowOf(row: SourceRow): IndexRow {
-  return { key: row.key, kind: row.kind, ownerKey: row.ownerKey, text: row.text };
+  const indexRow = { key: row.key, kind: row.kind, ownerKey: row.ownerKey, text: row.text };
+  if (row.tag === undefined) {
+    return indexRow;
+  }
+  const tag: IndexRowTag = {
+    fold: row.tag.fold,
+    sessionLastActivityMs: Date.parse(row.tag.sessionLastActivityAt),
+  };
+  return { ...indexRow, tag };
 }
 
 function sourceRowOf(kind: IndexRowKind, columns: SourceRowColumns): SourceRow {
@@ -189,5 +206,9 @@ function sourceRowOf(kind: IndexRowKind, columns: SourceRowColumns): SourceRow {
       columns.event_id === null || columns.sequence === null
         ? undefined
         : { eventId: columns.event_id, sequence: columns.sequence },
+    tag:
+      columns.tag_fold === null || columns.session_last_activity_at === null
+        ? undefined
+        : { fold: columns.tag_fold, sessionLastActivityAt: columns.session_last_activity_at },
   };
 }

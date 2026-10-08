@@ -10,6 +10,7 @@ mod merge_policy;
 mod phrase;
 mod schema;
 mod scorer;
+mod tags;
 #[cfg(test)]
 mod tests;
 mod tokenizer;
@@ -51,6 +52,19 @@ pub struct IndexRow {
     /// The session key the row belongs to; for a `group` row, the group key whose name it is.
     pub owner_key: i64,
     pub text: String,
+    /// What a `tag` row carries besides its text; no other row carries it.
+    pub tag: Option<IndexRowTag>,
+}
+
+/// A tag row's tag as a `tag:` term matches it, and its session's last activity, which orders a
+/// search by tag alone.
+#[napi(object, object_to_js = false)]
+#[cfg_attr(test, derive(Clone, Debug))]
+pub struct IndexRowTag {
+    /// The tag folded as the tag store folds it.
+    pub fold: String,
+    /// The session's last activity, in milliseconds since the Unix epoch.
+    pub session_last_activity_ms: i64,
 }
 
 /// An owner all of whose rows leave the index: a purged session, a deleted group.
@@ -266,22 +280,18 @@ impl SearchIndex {
         self.engine()?.set_group_members(groups).map_err(failure)
     }
 
-    /// A search over the index as it is now, held until released. With `withinSessions`, only those
-    /// sessions' rows and their groups' rows count, and the order covers every one of them that
-    /// matches.
-    #[napi(ts_args_type = "query: SearchQuery, withinSessions?: number[]")]
+    /// A search over the index as it is now, held until released. With `tagFolds`, each a tag
+    /// folded as the tag store folds it, only the sessions carrying every one of those tags or one
+    /// nested under it count, with their groups' rows: ranked by `query`'s words when it is given,
+    /// most recently active first when it is not.
+    #[napi(ts_args_type = "tagFolds: string[], query?: SearchQuery")]
     pub fn open_search(
         &self,
-        query: SearchQuery,
-        within_sessions: Option<Vec<i64>>,
+        tag_folds: Vec<String>,
+        query: Option<SearchQuery>,
     ) -> Result<HeldSearch> {
-        let within = within_sessions
-            .as_deref()
-            .map(keys_of)
-            .transpose()
-            .map_err(failure)?;
         let version = self.engine()?.current_version();
-        let view = SearchView::open(version, &query, within.as_deref()).map_err(failure)?;
+        let view = SearchView::open(version, query.as_ref(), tag_folds).map_err(failure)?;
         Ok(HeldSearch { view: Some(view) })
     }
 
@@ -338,7 +348,8 @@ impl HeldSearch {
         Ok(to_js_keys(sessions))
     }
 
-    /// Each named session's matching row keys, best first, in the order the sessions were named.
+    /// Each named session's matching row keys, best first, in the order the sessions were named; a
+    /// search by tags alone gives each session's matching tag rows by key.
     #[napi]
     pub fn hits_of(&self, session_keys: Vec<i64>) -> Result<Vec<Vec<i64>>> {
         let view = self.view.as_ref().ok_or_else(released)?;

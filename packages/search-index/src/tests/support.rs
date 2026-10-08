@@ -68,6 +68,7 @@ pub fn row(key: u64, kind: IndexRowKind, owner_key: u64, text: &str) -> IndexRow
         kind,
         owner_key: owner_key as i64,
         text: text.to_string(),
+        tag: None,
     }
 }
 
