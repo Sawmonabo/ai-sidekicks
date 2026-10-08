@@ -11,7 +11,10 @@ import "./MathBlock.css";
 import { useLayoutEffect, useMemo, useRef } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { getWindow } from "@floating-ui/utils/dom";
+
 import { useChunkLoad } from "#renderer/hooks/useChunkLoad.js";
+import { RealClock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { MemoizedLoad } from "#renderer/lib/memoized-load.js";
 
@@ -100,7 +103,10 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
  * A ref for a display formula's span, on which `--math-natural-width` is written once per markup,
  * when the span first has a width; the sheet does the fitting from it. Where glyph widths round to
  * whole pixels, as on Linux, a piece's width does not scale exactly with its font size, so each
- * later resize checks the fit and raises the width where the drawn piece overran its column.
+ * later resize checks the fit and raises the width where the drawn piece overran its column. A
+ * write resizes the span it watches, so the watch stops before it and starts again on the next
+ * frame: a report of the size the write made would otherwise land in the same pass, which the
+ * browser refuses with a window error.
  */
 function useMeasureNaturalWidth(
   displayMarkup: string | undefined,
@@ -114,14 +120,28 @@ function useMeasureNaturalWidth(
     if (displayMarkup === undefined || span === null) {
       return undefined;
     }
+    const clock = new RealClock(getWindow(span));
     let isMeasured = false;
-    return observeElementResize(span, () => {
-      if (isMeasured) {
-        raiseNaturalWidthToFit(span);
-      } else {
-        isMeasured = writeNaturalWidth(span);
+    let rewatch: ScheduledHandle | undefined;
+    const watch = (): (() => void) =>
+      observeElementResize(span, () => {
+        const hasWritten = isMeasured ? raiseNaturalWidthToFit(span) : writeNaturalWidth(span);
+        isMeasured = isMeasured || hasWritten;
+        if (hasWritten) {
+          stopWatching();
+          rewatch = clock.scheduleFrame(() => {
+            rewatch = undefined;
+            stopWatching = watch();
+          });
+        }
+      });
+    let stopWatching = watch();
+    return () => {
+      stopWatching();
+      if (rewatch !== undefined) {
+        clock.cancel(rewatch);
       }
-    });
+    };
   }, [displayMarkup]);
 
   return displayRef;
@@ -130,16 +150,17 @@ function useMeasureNaturalWidth(
 /**
  * Write the width the widest unbreakable piece needs, its equation number's room included, over
  * the formula's font size: a unitless ratio that reads right at whatever size the formula is
- * drawn; false while the span is not laid out yet.
+ * drawn; false while the span is not laid out yet, and true once it was measured.
  */
 function writeNaturalWidth(span: HTMLSpanElement): boolean {
   const formula = span.querySelector(".katex-display");
   if (formula === null || span.getBoundingClientRect().width === 0) {
     return false;
   }
-  const widestPiece = widestWidthOf(span, ".katex-base");
+  // Rounded up to whole pixels, so a fraction of a pixel never leaves a piece over the edge.
+  const widestPiece = Math.ceil(widestWidthOf(span, ".katex-base"));
   // The line is centered and its number pinned right, so the number needs room on both sides.
-  const naturalWidth = widestPiece + 2 * widestWidthOf(span, ".katex-tag");
+  const naturalWidth = widestPiece + 2 * Math.ceil(widestWidthOf(span, ".katex-tag"));
   // An empty formula has nothing to fit, and a zero ratio would void the sheet's division.
   if (widestPiece > 0) {
     const fontSize = Number.parseFloat(getComputedStyle(formula).fontSize);
@@ -150,31 +171,32 @@ function writeNaturalWidth(span: HTMLSpanElement): boolean {
 
 /**
  * Raise `--math-natural-width` by the share the widest piece overran the column at its drawn size,
- * which the sheet then shrinks the formula by. The width only grows, to at most the widest the
- * piece draws per em at any size, so a formula that fits is left alone. A span whose width was
- * taken away is left alone too.
+ * which the sheet then shrinks the formula by, and say whether it was raised. The width only
+ * grows, to at most the widest the piece draws per em at any size, so a formula that fits is left
+ * alone. A span whose width was taken away is left alone too.
  */
-function raiseNaturalWidthToFit(span: HTMLSpanElement): void {
+function raiseNaturalWidthToFit(span: HTMLSpanElement): boolean {
   const naturalWidth = Number.parseFloat(span.style.getPropertyValue("--math-natural-width"));
   const columnWidth = span.getBoundingClientRect().width;
   if (Number.isNaN(naturalWidth) || columnWidth === 0) {
-    return;
+    return false;
   }
+  // Both widths as drawn, unrounded, so a piece that fits by a fraction of a pixel is not shrunk.
   const drawnWidth = widestWidthOf(span, ".katex-base") + 2 * widestWidthOf(span, ".katex-tag");
-  if (drawnWidth > columnWidth) {
-    span.style.setProperty(
-      "--math-natural-width",
-      String((naturalWidth * drawnWidth) / columnWidth),
-    );
+  if (drawnWidth <= columnWidth) {
+    return false;
   }
+  span.style.setProperty("--math-natural-width", String((naturalWidth * drawnWidth) / columnWidth));
+  return true;
 }
 
-/** The width of the widest element under `span` that matches `selector`, in whole pixels. */
+/** The width of the widest element under `span` that matches `selector`, in pixels. */
 function widestWidthOf(span: HTMLSpanElement, selector: string): number {
   return Math.max(
     0,
-    ...Array.from(span.querySelectorAll(selector), (element) =>
-      Math.ceil(element.getBoundingClientRect().width),
+    ...Array.from(
+      span.querySelectorAll(selector),
+      (element) => element.getBoundingClientRect().width,
     ),
   );
 }

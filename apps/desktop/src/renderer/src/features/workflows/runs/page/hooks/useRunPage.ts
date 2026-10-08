@@ -3,11 +3,13 @@ import { useCallback, useEffect, useState } from "react";
 import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { type WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import {
+  type WorkflowStep,
+  type WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
-import type { HeldStepAnswer } from "../step/receipts.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowRead.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
@@ -18,6 +20,15 @@ import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
 
 /** The two members that name a step inside its run. */
 export type StepAddress = Pick<WorkflowStep, "nodeId" | "executionIndex">;
+
+/**
+ * An answer this sitting gave a step, held until the run reads it back. `isWindowClock` is true
+ * where its instant is the window's own clock standing in for the daemon's record, as a reply's is.
+ */
+export interface HeldStepAnswer {
+  readonly resolution: WorkflowStepResolution;
+  readonly isWindowClock: boolean;
+}
 
 /** Everything one run's page draws, and the acts on what it shows. */
 export interface RunPageHold {

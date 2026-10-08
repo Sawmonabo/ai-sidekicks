@@ -11,6 +11,7 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowChainQuestion } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import type { FigureSentencePart } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 
 const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {
@@ -19,15 +20,6 @@ const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {
   answered: "Answered",
   declined: "Declined",
 };
-
-/**
- * An answer this sitting gave a step, held until the run reads it back. `isWindowClock` is true
- * where its instant is the window's own clock standing in for the daemon's record, as a reply's is.
- */
-export interface HeldStepAnswer {
-  readonly resolution: WorkflowStepResolution;
-  readonly isWindowClock: boolean;
-}
 
 /** A step's receipt: its words and the instant they end on, drawn `Approved at 2:14 PM`. */
 export interface StepReceipt {
@@ -70,10 +62,18 @@ export function timedOutReceipt(
     : undefined;
 }
 
-/** The chain question's receipt: `Kept going at 100 runs` or `Stopped at 100 runs`. */
+/**
+ * The chain question's receipt: `Kept going at 100 runs` or `Stopped at 100 runs`, the daemon's
+ * count as a wire figure.
+ */
 export function chainReceipt(
   answered: Extract<WorkflowChainQuestion, { state: "answered" }>,
-): string {
+): readonly FigureSentencePart[] {
   const verb = answered.decision === "approved" ? "Kept going" : "Stopped";
-  return `${verb} at ${formatCount(answered.runCount)} runs`;
+  return [`${verb} at `, { wire: formatCount(answered.runCount) }, " runs"];
+}
+
+/** How far a chain has run, `100 runs from one start`, the daemon's count as a wire figure. */
+export function chainRunsWords(runCount: number): readonly FigureSentencePart[] {
+  return [{ wire: formatCount(runCount) }, " runs from one start"];
 }

@@ -3,7 +3,7 @@
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { exactCountLabel, formatCount } from "#renderer/lib/wire/figures.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ContextWindowReading } from "./context-window-reading.js";
 
@@ -46,17 +46,11 @@ export function ContextRingReading(props: {
         <DerivedFigure text={formatCount(usagePercent)} />
         <span className="meridian-context-ring__unit">%</span>
         <span className="meridian-context-ring__tokens">
-          <WireFigure
-            value={formatCount(windowUsedTokens)}
-            hoverLabel={exactCountLabel(windowUsedTokens)}
-          />
+          <WireFigure value={formatCount(windowUsedTokens)} />
           <span className="meridian-context-ring__separator" aria-hidden="true">
             /
           </span>
-          <WireFigure
-            value={formatCount(windowMaxTokens)}
-            hoverLabel={exactCountLabel(windowMaxTokens)}
-          />
+          <WireFigure value={formatCount(windowMaxTokens)} />
           <span className="meridian-context-ring__unit">tokens</span>
         </span>
       </span>

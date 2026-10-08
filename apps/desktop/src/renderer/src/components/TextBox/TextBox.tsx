@@ -12,6 +12,7 @@ import "./TextBox.css";
 
 import { useRef } from "react";
 
+import type { HoverLabelSide } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 
 /** Props for `TextBox`: the box's classes and height, and everything a text area takes. */
@@ -38,11 +39,27 @@ export interface TextBoxProps extends Omit<
   readonly fieldRef?: React.RefObject<HTMLTextAreaElement | null>;
   /** The box that scrolls, for a caller that measures how much of the text it shows. */
   readonly scrollerRef?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * A `HoverLabel`'s words and side, which mark the frame so the pointer anywhere on the box shows
+   * them; the label's name or description still goes to the text area.
+   */
+  readonly "data-hover-label"?: string | undefined;
+  readonly "data-hover-label-side"?: HoverLabelSide | undefined;
 }
 
 /** A multi-line text box that scrolls in its own box, measured in lines of its own text. */
 export function TextBox(props: TextBoxProps): React.JSX.Element {
-  const { className, fieldClassName, rows, maxRows, fieldRef, scrollerRef, ...fieldProps } = props;
+  const {
+    className,
+    fieldClassName,
+    rows,
+    maxRows,
+    fieldRef,
+    scrollerRef,
+    "data-hover-label": hoverLabel,
+    "data-hover-label-side": hoverLabelSide,
+    ...fieldProps
+  } = props;
   const ownFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const textAreaRef = fieldRef ?? ownFieldRef;
   const ownScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +75,8 @@ export function TextBox(props: TextBoxProps): React.JSX.Element {
     <div
       className={`meridian-text-box${sizeClassName} ${className}`}
       style={lines}
+      data-hover-label={hoverLabel}
+      data-hover-label-side={hoverLabelSide}
       onClick={(event) => {
         // The frame's edge and the scroller's padding lie outside the text area; a click there
         // still puts the caret in it. A click, not a press, so a press on the resize grip still

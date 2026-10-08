@@ -3,7 +3,8 @@
 // A display formula too wide for its column breaks after its operators. It shrinks until its
 // widest piece fits, at any width. Every KaTeX face is in before it is first drawn, so no font
 // arriving later moves it. Taking away the measured natural width lets the same formula cross the
-// column's edge: the negative control for the fit.
+// column's edge: the negative control for the fit. Fitting never raises a window error, such as
+// the one the browser raises when a resize watch resizes what it watches in the same pass.
 
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
@@ -54,8 +55,17 @@ describe("browser — a formula drawn by KaTeX", () => {
   });
 
   it("breaks and shrinks a wide display formula to its column at every width, in fonts loaded before it is drawn", async () => {
+    const windowErrors: string[] = [];
+    const recordError = (event: ErrorEvent): void => {
+      windowErrors.push(event.message);
+    };
+    window.addEventListener("error", recordError);
+    onTestFinished(() => {
+      window.removeEventListener("error", recordError);
+    });
+    // First drawn narrower than the formula, so the first fit shrinks it.
     const column = document.createElement("div");
-    column.style.inlineSize = "480px";
+    column.style.inlineSize = "120px";
     document.body.append(column);
     onTestFinished(() => {
       column.remove();
@@ -97,6 +107,7 @@ describe("browser — a formula drawn by KaTeX", () => {
       });
       expect(piecesOutside(block), `at ${String(width)} px`).toStrictEqual([]);
     }
+    expect(windowErrors).toStrictEqual([]);
 
     await changeLayout(() => {
       block.style.removeProperty("--math-natural-width");

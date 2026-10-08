@@ -58,7 +58,7 @@ describe("diff file list — a change set too long to mount", () => {
 
     expect(mountedEntryCount(container)).toBeLessThanOrEqual(MAXIMUM_MOUNTED_ENTRY_COUNT);
     // The reset control still counts every file, not the handful the window mounted.
-    expect(container.querySelector(".meridian-diff-files__entry")?.textContent).toContain("5000");
+    expect(container.querySelector(".meridian-diff-files__entry")?.textContent).toContain("5,000");
   });
 
   it("opens the window on a selection the window would not otherwise reach", () => {

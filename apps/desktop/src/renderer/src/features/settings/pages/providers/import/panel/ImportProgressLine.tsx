@@ -2,16 +2,21 @@
 //
 // While an import runs the row counts what it has read and carries `Stop`, over a bar that moves
 // but measures nothing; once it ends the row says how it ended, and where conversations failed
-// or files could not be read, pressing the row unfolds them. The refusal and most counts are the
-// service's own and drawn as wire figures. The failed and unreadable counts are the row's own
-// tallies of the lists the service sent, drawn as derived figures. A filled bar or percentage
-// would invent a denominator nobody sent.
+// or files could not be read, pressing the row unfolds them. The counts read, imported, total and
+// already here, and the names of attached projects, are the service's own and drawn as wire
+// figures; the failed and unreadable counts are the row's own tallies of the lists the service
+// sent, drawn as derived figures. A filled bar or percentage would invent a denominator nobody
+// sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import {
+  FigureSentence,
+  figureSentenceText,
+  type FigureSentencePart,
+} from "#renderer/components/FigureSentence/FigureSentence.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
@@ -44,7 +49,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
       ? importingWords(providerLabel)
       : sentence === undefined
         ? undefined
-        : sentenceText(sentence),
+        : figureSentenceText(sentence),
     "polite",
     { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },
   );
@@ -62,7 +67,7 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   if (model.isUnderway) {
     return (
       <div className={PROGRESS_CLASS}>
-        <span>{sentence === undefined ? null : <Sentence parts={sentence} />}</span>
+        <span>{sentence === undefined ? null : <FigureSentence parts={sentence} />}</span>
         {model.isReading ? (
           <button
             type="button"
@@ -107,36 +112,6 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   return <SettledLine settlement={settlement} providerLabel={providerLabel} />;
 }
 
-/**
- * One stretch of a row's sentence: words, a count or name the service sent, drawn as a wire
- * figure, or a count the row made by counting what the service sent, drawn as the app's own.
- */
-type SentencePart = string | { readonly wire: string } | { readonly derived: string };
-
-/** A sentence's words as one string, for the announcer. */
-function sentenceText(parts: readonly SentencePart[]): string {
-  return parts
-    .map((part) => (typeof part === "string" ? part : "wire" in part ? part.wire : part.derived))
-    .join("");
-}
-
-/** A sentence drawn with each figure in its own figure class. */
-function Sentence(props: { readonly parts: readonly SentencePart[] }): React.JSX.Element {
-  return (
-    <>
-      {props.parts.map((part, index) =>
-        typeof part === "string" ? (
-          part
-        ) : "wire" in part ? (
-          <WireFigure key={index} value={part.wire} />
-        ) : (
-          <DerivedFigure key={index} text={part.derived} />
-        ),
-      )}
-    </>
-  );
-}
-
 /** What a stopped import's row says. */
 const IMPORT_STOPPED_SENTENCE =
   "Import stopped. The sessions already read are in the sessions list.";
@@ -152,7 +127,7 @@ function importingWords(providerLabel: string): string {
 function rowSentence(
   model: ProviderImportModel,
   providerLabel: string,
-): readonly SentencePart[] | undefined {
+): readonly FigureSentencePart[] | undefined {
   const { progress } = model;
   if (progress.status === "failed") {
     return undefined;
@@ -183,7 +158,7 @@ function SettledLine(props: {
 }): React.JSX.Element {
   const { settlement, providerLabel } = props;
   const failures = settlement.outcome === "finished" ? settlement.failures : [];
-  const line = <Sentence parts={settledSentence(settlement, providerLabel)} />;
+  const line = <FigureSentence parts={settledSentence(settlement, providerLabel)} />;
   if (failures.length === 0 && settlement.unreadableFiles.length === 0) {
     return <p className={PROGRESS_CLASS}>{line}</p>;
   }
@@ -215,8 +190,8 @@ function SettledLine(props: {
 function settledSentence(
   settlement: Extract<ProviderImportOutcome, { outcome: "finished" | "nothingNew" }>,
   providerLabel: string,
-): readonly SentencePart[] {
-  const head: readonly SentencePart[] =
+): readonly FigureSentencePart[] {
+  const head: readonly FigureSentencePart[] =
     settlement.outcome === "nothingNew"
       ? [`Nothing new to import from ${providerLabel}`]
       : [
@@ -227,7 +202,7 @@ function settledSentence(
   const failureCount = settlement.outcome === "finished" ? settlement.failures.length : 0;
   const attachedProjects = settlement.outcome === "finished" ? settlement.attachedProjects : [];
   const unreadableCount = settlement.unreadableFiles.length;
-  const clauses: (readonly SentencePart[])[] = [
+  const clauses: (readonly FigureSentencePart[])[] = [
     ...(settlement.alreadyHere === 0
       ? []
       : [[{ wire: formatCount(settlement.alreadyHere) }, " already here"]]),
@@ -259,13 +234,13 @@ function settledSentence(
 }
 
 /** `125 of 128 sessions`, or `12 sessions` where every session read was imported. */
-function importedCount(imported: number, total: number): readonly SentencePart[] {
+function importedCount(imported: number, total: number): readonly FigureSentencePart[] {
   return imported === total
     ? sessionCount(imported)
     : [{ wire: formatCount(imported) }, " of ", ...sessionCount(total)];
 }
 
 /** A count the service sent and `session` agreeing with it. */
-function sessionCount(count: number): readonly SentencePart[] {
+function sessionCount(count: number): readonly FigureSentencePart[] {
   return [{ wire: formatCount(count) }, count === 1 ? " session" : " sessions"];
 }

@@ -5,6 +5,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 import { parseInstant } from "#renderer/lib/instant.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -85,7 +86,9 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
     <header className="meridian-workflow-run__header">
       <div className="meridian-workflow-run__lines">
         <span className="meridian-workflow-run__eyebrow">What happened</span>
-        <h2 className="meridian-workflow-run__happened">{lines.happened}</h2>
+        <h2 className="meridian-workflow-run__happened">
+          <FigureSentence parts={lines.happened} />
+        </h2>
         <span className="meridian-workflow-run__eyebrow">What it needs</span>
         <p className="meridian-workflow-run__needs">{lines.needs}</p>
       </div>
@@ -198,7 +201,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
                   : "meridian-workflow-run__live-part"
               }
             >
-              {part.text}
+              <FigureSentence parts={part.words} />
               {part.at === undefined ? null : (
                 <>
                   {" "}

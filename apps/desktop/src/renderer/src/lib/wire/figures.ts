@@ -233,6 +233,17 @@ export function formatDayDuration(days: number, locale?: string): string {
 }
 
 /**
+ * A duration the wire states in whole minutes, in words: `300 minutes`. Non-finite and negative
+ * inputs render an em dash.
+ */
+export function formatMinuteDuration(minutes: number, locale?: string): string {
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return UNREADABLE_FIGURE;
+  }
+  return numberFormatFor("minuteDuration", locale).format(minutes);
+}
+
+/**
  * A relative time through `Intl.RelativeTimeFormat`. The unit is chosen by magnitude from two
  * instants the app holds; an unreadable stamp renders an em dash.
  */
@@ -364,21 +375,16 @@ export function formatDate(iso: string, locale: string): string {
 }
 
 /**
- * The exact count behind `formatCount(count)`, for a hover label; `undefined` where the formatted
- * text already shows it whole, so the label never repeats the figure.
- */
-export function exactCountLabel(count: number, locale?: string): string | undefined {
-  const exact = String(count);
-  return exact === formatCount(count, locale) ? undefined : exact;
-}
-
-/**
- * The exact percent behind `formatPercent(percent / 100)`, for a hover label; `undefined` where
- * the formatted text already shows it whole.
+ * The percent behind `formatPercent(percent / 100)` with every digit the wire sent, for a hover
+ * label; `undefined` where the rounded text already shows it whole or shows no figure.
  */
 export function exactPercentLabel(percent: number, locale?: string): string | undefined {
-  const exact = `${String(percent)}%`;
-  return exact === formatPercent(percent / 100, locale) ? undefined : exact;
+  const rounded = formatPercent(percent / 100, locale);
+  if (rounded === UNREADABLE_FIGURE) {
+    return undefined;
+  }
+  const exact = numberFormatFor("exactPercent", locale).format(percent / 100);
+  return exact === rounded ? undefined : exact;
 }
 
 /**

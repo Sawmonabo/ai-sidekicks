@@ -140,11 +140,20 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
   );
 
   // A node or an edge's count reached by keyboard is brought into view, which the library does
-  // only with its own keys on.
+  // only with its own keys on. Shift+Tab into the graph lands on the browser's last node, so focus
+  // moves on to the walk's last stop, the last count leaving that node where it has one.
   const revealFocusedElement = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
       if (!event.target.matches(":focus-visible")) {
         return;
+      }
+      const canvas = canvasRef.current;
+      if (canvas !== null && isEnteredFromAfter(event)) {
+        const lastStop = graphStopElement(canvas, graphOrder.at(-1));
+        if (lastStop !== null && lastStop !== event.target) {
+          lastStop.focus();
+          return;
+        }
       }
       const nodeId = focusedNodeId(event.target);
       const node = nodes.find((candidate) => candidate.id === nodeId);
@@ -160,7 +169,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
         );
       }
     },
-    [nodes, revealPoint, screenToFlowPosition],
+    [graphOrder, nodes, revealPoint, screenToFlowPosition],
   );
 
   return (
@@ -273,6 +282,17 @@ function moveGraphFocus(
   const nodeElements = canvas.querySelectorAll<HTMLElement>(".react-flow__node");
   nodeElements[isBackward ? 0 : nodeElements.length - 1]?.focus();
   return false;
+}
+
+// Whether focus came into the graph's walk from an element after it in the document's order, such
+// as the canvas's own controls or whatever follows the canvas, rather than from a stop of the walk.
+function isEnteredFromAfter(event: React.FocusEvent): boolean {
+  const from = event.relatedTarget;
+  return (
+    from !== null &&
+    graphStopOf(from) === undefined &&
+    (from.compareDocumentPosition(event.target) & Node.DOCUMENT_POSITION_PRECEDING) !== 0
+  );
 }
 
 function graphStopOf(target: EventTarget): GraphFocusStop | undefined {

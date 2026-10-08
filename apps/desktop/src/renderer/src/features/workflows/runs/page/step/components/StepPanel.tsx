@@ -28,10 +28,9 @@ import {
   nodePasses,
   type NodePass,
 } from "#renderer/features/workflows/runs/steps.js";
-import type { StepAddress } from "../../hooks/useRunPage.js";
+import type { HeldStepAnswer, StepAddress } from "../../hooks/useRunPage.js";
 import { stepKeyText } from "../key-text.js";
 import { PIN_CARRIES_FILE_REFUSAL, pinAvailability, pinnedItemsOf } from "../pin.js";
-import type { HeldStepAnswer } from "../receipts.js";
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
 import { StepBlocker } from "./StepBlocker.js";
 import { StepError } from "./StepError.js";

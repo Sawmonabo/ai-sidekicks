@@ -41,7 +41,7 @@ export function DiffFileEntryButton({
         {entry.kind === "all-files" ? (
           <>
             <span className="meridian-diff-files__path">All files</span>
-            <DerivedFigure text={String(entry.fileCount)} />
+            <DerivedFigure text={formatCount(entry.fileCount)} />
           </>
         ) : (
           <>

@@ -1,13 +1,14 @@
-// Which hover label a window shows, read from its document's pointer and focus. The pointer
-// shows a trigger's label the moment it is over the trigger, keeps it while it is over the label
-// itself, and drops it once it is over anything else or leaves the window; keyboard focus shows
-// the focused trigger's label until focus leaves it, and the pointer's label stands in front of it
-// only while the pointer is on another trigger. A touch never shows one, since a touch has no
-// hover to end it. The element the pointer and focus are on is kept whether or not it carries a
-// label, and the label is read off it again whenever a label attribute changes, so a control that
-// gains its words while it is hovered or focused shows them at once, and one that drops them drops
-// the label. A label put away stays away until the pointer moves to another trigger or off every
-// trigger, or focus moves.
+// Which hover label a window shows, read from its document's pointer and focus. The pointer shows a
+// trigger's label the moment it is over the trigger, keeps it while it is over the label itself,
+// and drops it once it is over anything else or leaves the window; keyboard focus shows the focused
+// trigger's label until focus leaves it, and the pointer's label stands in front of it only while
+// the pointer is on another trigger. A touch never shows one, since a touch has no hover to end it.
+// Focus inside a trigger, as in a text area whose frame carries the label, shows that trigger's
+// label, as the pointer does. The element the pointer and focus are on is kept whether or not it
+// carries a label, and the label is read off it again whenever a label attribute changes, so a
+// control that gains its words while it is hovered or focused shows them at once, and one that
+// drops them drops the label. A label put away stays away until the pointer moves to another
+// trigger or off every trigger, or focus moves.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -92,7 +93,10 @@ export function useShownHoverLabel(
     const observer = new MutationObserver((records) => {
       const { pointer, focus } = tracked;
       if (
-        records.some((record) => record.target === focus || record.target.contains(pointer ?? null))
+        records.some(
+          (record) =>
+            record.target.contains(focus ?? null) || record.target.contains(pointer ?? null),
+        )
       ) {
         readShown();
       }
@@ -147,7 +151,7 @@ function pointerTriggerOf(pointer: Element | undefined): Element | undefined {
 }
 
 function focusTriggerOf(focus: Element | undefined): Element | undefined {
-  return focus?.matches(TRIGGER_SELECTOR) === true ? focus : undefined;
+  return focus?.closest(TRIGGER_SELECTOR) ?? undefined;
 }
 
 function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {

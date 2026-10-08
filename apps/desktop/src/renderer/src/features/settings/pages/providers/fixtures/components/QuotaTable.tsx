@@ -8,6 +8,7 @@ import {
   exactPercentLabel,
   formatDateTime,
   formatDuration,
+  formatMinuteDuration,
   formatPercent,
   formatZonedDateTime,
 } from "#renderer/lib/wire/figures.js";
@@ -106,13 +107,16 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
   );
 }
 
-/** How long a window runs, as the provider reported it in minutes, which its title carries. */
+/**
+ * How long a window runs, read as a duration, with the minutes the provider reported in its hover
+ * label.
+ */
 function WindowLength(props: { readonly window: AccountQuotaRow["window"] }): React.JSX.Element {
   const { windowMins } = props.window;
   return (
     <WireFigure
       value={formatDuration(windowMins * MILLISECONDS_PER_MINUTE)}
-      hoverLabel={String(windowMins)}
+      hoverLabel={formatMinuteDuration(windowMins)}
     />
   );
 }

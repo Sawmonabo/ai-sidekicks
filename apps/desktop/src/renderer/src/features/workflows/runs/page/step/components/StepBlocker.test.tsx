@@ -26,7 +26,7 @@ import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { clockLocaleFor, formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
-import type { HeldStepAnswer } from "../receipts.js";
+import type { HeldStepAnswer } from "../../hooks/useRunPage.js";
 import {
   createWorkflowCommandTargets,
   type WorkflowCommandTargets,
@@ -79,12 +79,13 @@ function fixtureNodeKind(run: WorkflowRunReadResponse, nodeId: string): string {
 /** A day after the fixture's answers, so each receipt names the day it was left. */
 const NEXT_DAY_MS = WORKFLOW_FIXTURE_NOW_MS + MILLISECONDS_PER_DAY;
 
-/** The blocker over one fixture step, changed by `adjust`, with no receipt from this sitting. */
+/** The blocker over one fixture step, changed by `adjust`, holding `answer` from this sitting. */
 function renderBlocker(
   workflowRunId: string,
   nodeId: string,
   reviews: (readonly [WorkflowRunSnapshotPoint, WorkflowRunSnapshotPoint])[] = [],
   adjust: (step: WorkflowStep) => WorkflowStep = (step) => step,
+  answer: HeldStepAnswer | undefined = undefined,
 ): BlockerRecord {
   const { run, step } = fixtureStep(workflowRunId, nodeId);
   const nodeKind = fixtureNodeKind(run, nodeId);
@@ -96,7 +97,7 @@ function renderBlocker(
       run={run}
       step={adjust(step)}
       nodeKind={nodeKind}
-      answer={undefined}
+      answer={answer}
       nowMs={NEXT_DAY_MS}
       bridge={bridge}
       onAnswered={(answer) => {
@@ -244,5 +245,15 @@ describe("a step's blocker", () => {
     expect(answers[0]?.resolution.kind).toBe("answered");
     // The reply's instant is the window's clock until the daemon's record replaces it.
     expect(answers[0]?.isWindowClock).toBe(true);
+  });
+
+  it("draws a held reply's time as the app's own reading until the daemon's record arrives", () => {
+    const { receipt } = renderBlocker(WORKFLOW_RUN_IDS.waitingReply, "ask", [], (step) => step, {
+      resolution: { kind: "answered", at: new Date(WORKFLOW_FIXTURE_NOW_MS).toISOString() },
+      isWindowClock: true,
+    });
+
+    expect(receipt()?.querySelector(".meridian-figure--derived")).not.toBeNull();
+    expect(receipt()?.querySelector(".meridian-figure--wire")).toBeNull();
   });
 });
