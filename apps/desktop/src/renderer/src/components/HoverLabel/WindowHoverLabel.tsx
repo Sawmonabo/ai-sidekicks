@@ -1,8 +1,9 @@
 // The one hover label a window draws, for whichever trigger `HoverLabel` marked that the pointer or
 // the keyboard is on. Base UI's tooltip places it against that trigger, flips it where its side has
-// no room, and closes it on Escape or a press anywhere else; which trigger it belongs to is read
-// from the document. The label sits flush against its trigger, its gap drawn inside its own
-// transparent edge, so the pointer crosses straight from the trigger onto it without closing it.
+// no room, and closes it on a press anywhere else, Escape being `useShownHoverLabel`'s; which
+// trigger it belongs to is read from the document. The label sits flush against its trigger, its
+// gap drawn inside its own transparent edge, so the pointer crosses straight from the trigger onto
+// it without closing it.
 
 import { useRef } from "react";
 import { Tooltip } from "@base-ui/react/tooltip";
@@ -23,8 +24,9 @@ export function WindowHoverLabel(): React.JSX.Element {
   return (
     <Tooltip.Root
       open={shown !== undefined}
-      onOpenChange={(open) => {
-        if (!open) {
+      onOpenChange={(open, details) => {
+        // Escape is the label hook's to take or pass on; a press anywhere else closes it here.
+        if (!open && details.reason !== "escape-key") {
           close();
         }
       }}

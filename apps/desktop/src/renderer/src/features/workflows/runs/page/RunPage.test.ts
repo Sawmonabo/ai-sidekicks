@@ -1,5 +1,6 @@
 // A run's page under the window's route: a failed run opens on its failed step's error, Escape
-// closes the step panel before it leaves for the list and leaves a text field's Escape alone,
+// closes the step panel before it leaves for the list, even from a disabled control kept
+// focusable, and leaves a text field's Escape alone,
 // `Answer this run` says why it cannot on a run that waits on no one here and a press of it does
 // nothing, and a reply wait answered on this
 // page or through its session's card gives way to its receipt, since both answer one question.
@@ -62,6 +63,22 @@ describe("a run's page", () => {
       throw new Error("nothing on the page holds focus");
     }
     await pressEscape(document.activeElement);
+    expect(openRunId(mounted)).toBeUndefined();
+  });
+
+  it("leaves for the list on Escape from a control that stands disabled and focusable", async () => {
+    const mounted = await mountWorkflowsScreen({
+      route: workflowRunsRoute(WORKFLOW_RUN_IDS.succeeded),
+    });
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(screen.getByRole("button", { name: "Cancel" }).getAttribute("aria-disabled")).toBe(
+        "true",
+      );
+    });
+    expect(stepPanel()).toBeNull();
+
+    // The disabled control cancels every key so none presses it; the Escape is still the page's.
+    await pressEscape(screen.getByRole("button", { name: "Cancel" }));
     expect(openRunId(mounted)).toBeUndefined();
   });
 

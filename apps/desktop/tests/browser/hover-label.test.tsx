@@ -9,8 +9,9 @@
 // the frame's label. The drawn label is hidden from assistive technology, which reads the words
 // once, from the control. Escape on a focused control puts its label away and nothing else: the
 // page never sees that press, and its default is canceled; once the control scrolls its label out
-// of view, Escape is the page's again. Escape over a hovered control puts away its label alone,
-// without reaching the page, and the focused control's label returns once the pointer leaves.
+// of view, Escape is the page's again and leaves the label to return with its control. Escape over
+// a hovered control puts away its label alone, without reaching the page, and the focused control's
+// label returns once the pointer leaves.
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
@@ -310,6 +311,14 @@ it("leaves Escape to the page once a focused control scrolls its label out of vi
     await userEvent.keyboard("{Escape}");
   });
   expect(pageEscapes, "a label out of view took the page's Escape").toBe(1);
+  // That Escape was the page's alone: the label comes back with its control.
+  act(() => {
+    scroller.scrollTop = 0;
+  });
+  await waitFor(() => {
+    expect(document.querySelector("[data-anchor-hidden]")).toBeNull();
+    expect(shownLabel()?.textContent).toBe("Color scheme");
+  });
 });
 
 it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {

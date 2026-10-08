@@ -1,9 +1,6 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type {
-  WorkflowStep,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
@@ -11,7 +8,8 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import type { HeldStepAnswer } from "../held-answer.js";
-import { chainRunsWords, resolutionReceipt, timedOutReceipt } from "../receipts.js";
+import { chainRunsWords } from "../receipts.js";
+import { useStepAnswer } from "../hooks/useStepAnswer.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
 import { OpenInReview } from "../../components/OpenInReview.js";
@@ -45,16 +43,12 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
-  const resolution = step.resolution ?? props.answer?.resolution;
-  const isWindowClock = step.resolution === undefined && props.answer?.isWindowClock === true;
-  // Approvals and forms answer with the daemon's own instant.
-  const answeredByDaemon = (answered: WorkflowStepResolution): void => {
-    props.onAnswered({ resolution: answered, isWindowClock: false });
-  };
-  const receipt =
-    resolution === undefined
-      ? timedOutReceipt(step, props.nodeKind)
-      : resolutionReceipt(resolution);
+  const { receipt, isWindowClock, answeredByDaemon } = useStepAnswer(
+    step,
+    props.nodeKind,
+    props.answer,
+    props.onAnswered,
+  );
   if (receipt !== undefined) {
     return (
       <p className="meridian-workflow-step__receipt">
