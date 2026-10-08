@@ -123,6 +123,7 @@ export type SessionEventType =
   | "recovery.attempted"
   | "recovery.succeeded"
   | "recovery.failed"
+  | "recovery.damaged_events_skipped"
   // security_events
   | "relay.pin_refused"
   // event_maintenance

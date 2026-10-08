@@ -88,6 +88,23 @@ const REGISTERED_STRICT_VARIANT_EVENT_TYPES: ReadonlySet<string> = new Set<strin
   SESSION_EVENT_TYPES,
 );
 
+/**
+ * Whether the envelope parses as its registered variant. A type this build does not register is
+ * kept as a stub and counts as parsing.
+ */
+export function parsesAsRegisteredVariant(envelope: EventEnvelope): boolean {
+  return parseRegisteredVariant(envelope)?.success ?? true;
+}
+
+// The strict parse of a registered type; `undefined` for a type this build does not register.
+function parseRegisteredVariant(
+  envelope: EventEnvelope,
+): ReturnType<typeof SessionEventSchema.safeParse> | undefined {
+  return REGISTERED_STRICT_VARIANT_EVENT_TYPES.has(envelope.type)
+    ? SessionEventSchema.safeParse(envelope)
+    : undefined;
+}
+
 // An unpaired surrogate counts three bytes, matching `TextEncoder`'s U+FFFD substitution.
 function utf8ByteWidth(codePoint: number): number {
   if (codePoint <= 0x7f) return 1;
@@ -209,12 +226,8 @@ function describeStrictLayerIssues(issues: readonly StrictLayerParseIssue[]): st
  * skipped (a reader must persist an unknown type as a version stub, never reject it).
  */
 export function assertRegisteredVariantParses(envelope: EventEnvelope, refuser: string): void {
-  if (!REGISTERED_STRICT_VARIANT_EVENT_TYPES.has(envelope.type)) {
-    return;
-  }
-
-  const parsed = SessionEventSchema.safeParse(envelope);
-  if (parsed.success) {
+  const parsed = parseRegisteredVariant(envelope);
+  if (parsed === undefined || parsed.success) {
     return;
   }
 

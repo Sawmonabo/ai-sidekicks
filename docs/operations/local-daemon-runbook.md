@@ -8,7 +8,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 
 - Desktop or CLI cannot connect to the Local Runtime Daemon
 - Session reads work intermittently or not at all
-- New mutable work is refused because the daemon is in its degraded read-only mode
+- New mutable work is refused: by every session while the restart's recovery pass runs or the store is unavailable (`daemon.write_refused`), or by one session whose history is damaged (`session.write_refused`) while the others keep working
 - Scope and blast radius: one machine, its local sessions, and any runs on it
 
 ## Detection
@@ -30,7 +30,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 ## Recovery Steps
 
 1. Run `sidekicks daemon status` and record its output before restarting anything.
-2. If the daemon is in its degraded read-only mode, start no new mutable work on the machine and leave read surfaces available for diagnosis.
+2. If one session's history is damaged, it opens read-only at its last good point with `Continue from here` and `Delete session`, and the rest of the machine keeps working; no restart is needed for it. If the store is unavailable, start no new mutable work on the machine and leave read surfaces available for diagnosis.
 3. Restart the daemon: `Restart` on Settings › Runtime, `sidekicks daemon restart`, or `sidekicks daemon stop` followed by `sidekicks daemon start`. Work in flight stops.
 4. If restart succeeds, run `sidekicks daemon status` again and resume writable work once it reads the service as running with its store open.
 5. If restart fails with SQLite or projection-rebuild errors, follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before trying another restart.

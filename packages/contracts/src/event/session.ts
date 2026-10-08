@@ -101,6 +101,7 @@ import {
   SessionGoalClearedPayloadSchema,
   SessionGoalUpdatedPayloadSchema,
 } from "../session/goal.js";
+import { RecoveryDamagedEventsSkippedPayloadSchema } from "../session/recovery.js";
 import { SessionRestoreFinishedPayloadSchema } from "../session/restore.js";
 import {
   WorkflowCanceledPayloadSchema,
@@ -242,6 +243,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.attempted": "recovery_events",
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
+  "recovery.damaged_events_skipped": "recovery_events",
   // security_events
   "relay.pin_refused": "security_events",
   // event_maintenance
@@ -697,6 +699,11 @@ const recoveryFailedVariantSchema = buildSessionEventVariantSchema(
   "recovery_events",
   RecoveryFailedPayloadSchema,
 );
+const recoveryDamagedEventsSkippedVariantSchema = buildSessionEventVariantSchema(
+  "recovery.damaged_events_skipped",
+  "recovery_events",
+  RecoveryDamagedEventsSkippedPayloadSchema,
+);
 
 // A run state change and an intervention event each take their payload from their own state.
 const buildRunStateChangeVariantSchema = <TState extends RunStateChangeState>(state: TState) =>
@@ -855,6 +862,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   recoveryAttemptedVariantSchema,
   recoverySucceededVariantSchema,
   recoveryFailedVariantSchema,
+  recoveryDamagedEventsSkippedVariantSchema,
   buildRunStateChangeVariantSchema("starting"),
   buildRunStateChangeVariantSchema("running"),
   buildRunStateChangeVariantSchema("waiting_for_approval"),

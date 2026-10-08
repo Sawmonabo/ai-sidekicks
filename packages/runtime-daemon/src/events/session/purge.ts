@@ -1,6 +1,6 @@
-// The whole-session purge: deletes the event, snapshot, run and projection cursor rows of each
-// session a person deletes, outright, appends one receipt naming every session that lost rows,
-// then truncates the write-ahead log.
+// The whole-session purge: deletes the event, snapshot, run, intervention, command receipt and
+// projection cursor rows of each session a person deletes, outright, appends one receipt naming
+// every session that lost rows, then truncates the write-ahead log.
 //
 // It is the only operation in this package that removes a committed row of the append-only log.
 // Nothing in the background calls it. The caller chooses the sessions and owns the precondition
@@ -288,7 +288,8 @@ export class SessionPurge {
  * stored sequences are safe integers, so a range the receipt could not name refuses the write
  * before anything is deleted. A snapshot names the event it reflects, so snapshots go first; the
  * run rows and the projection cursor are built from the events, so they go with them, and a
- * restart never settles a run of a purged session.
+ * restart never settles a run of a purged session. Interventions and command receipts name a run
+ * and not the session, so they are found through the session's runs before the runs go.
  */
 function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
   return [
@@ -304,6 +305,16 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     },
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
+    {
+      sql: `DELETE FROM interventions
+             WHERE target_run_id IN (SELECT run_id FROM runs WHERE session_id = ?)`,
+      bindings: [sessionId],
+    },
+    {
+      sql: `DELETE FROM command_receipts
+             WHERE run_id IN (SELECT run_id FROM runs WHERE session_id = ?)`,
+      bindings: [sessionId],
+    },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
   ];

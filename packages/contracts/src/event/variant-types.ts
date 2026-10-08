@@ -77,6 +77,7 @@ import type {
 } from "../session/controls/events.js";
 import type { SessionConvertedPayload } from "../session/convert.js";
 import type { SessionGoalClearedPayload, SessionGoalUpdatedPayload } from "../session/goal.js";
+import type { RecoveryDamagedEventsSkippedPayload } from "../session/recovery.js";
 import type { SessionRestoreFinishedPayload } from "../session/restore.js";
 import type {
   SessionAdvisorChangedPayload,
@@ -564,6 +565,15 @@ export type RecoveryFailedEvent = SessionEventVariant<
   "recovery_events",
   RecoveryFailedPayload
 >;
+/**
+ * Emitted on a session with damaged history when it continues from its last good point, naming
+ * the damaged range every read and rebuild skips from then on.
+ */
+export type RecoveryDamagedEventsSkippedEvent = SessionEventVariant<
+  "recovery.damaged_events_skipped",
+  "recovery_events",
+  RecoveryDamagedEventsSkippedPayload
+>;
 
 /** Emitted when the daemon starts preparing a run's provider, workspace or execution state. */
 export type RunStartingEvent = SessionEventVariant<
@@ -758,6 +768,7 @@ export type SessionEvent =
   | RecoveryAttemptedEvent
   | RecoverySucceededEvent
   | RecoveryFailedEvent
+  | RecoveryDamagedEventsSkippedEvent
   | RunStartingEvent
   | RunRunningEvent
   | RunWaitingForApprovalEvent

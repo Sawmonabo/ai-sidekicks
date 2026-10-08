@@ -1,5 +1,5 @@
 // The node's recovery after a restart: the state `daemon.status.read` carries as its `recovery`
-// field, the refusal a write meets while that state is not healthy, and the three events the
+// field, the refusal a write meets while the whole node cannot take one, and the three events the
 // daemon's recovery pass records on its own sentinel session.
 //
 // This file imports nothing from the event registry, which imports it.
@@ -20,9 +20,9 @@ import { SessionIdSchema, type SessionId } from "../session/id.js";
 const DAEMON_RECOVERY_STATE_VALUES = ["healthy", "rebuilding", "degraded", "blocked"] as const;
 
 /**
- * Where the node or one session stands in recovery: `rebuilding` while the restart's pass runs,
- * `degraded` when a projection could not be rebuilt into trustworthy read state, and `blocked`
- * when the local store itself is unavailable. Listed from least to most severe.
+ * Where the node stands in recovery: `rebuilding` while the restart's pass runs, `degraded` while
+ * one or more sessions have damaged history, and `blocked` when the local store itself is
+ * unavailable. Listed from least to most severe.
  */
 export type DaemonRecoveryState = (typeof DAEMON_RECOVERY_STATE_VALUES)[number];
 /** Every {@link DaemonRecoveryState}, from least to most severe. */
@@ -32,6 +32,26 @@ export const DAEMON_RECOVERY_STATES: readonly DaemonRecoveryState[] = Object.fre
 /** Parses a {@link DaemonRecoveryState}. */
 export const DaemonRecoveryStateSchema: z.ZodType<DaemonRecoveryState, DaemonRecoveryState> =
   z.enum(DAEMON_RECOVERY_STATE_VALUES);
+
+const DAEMON_RECOVERY_SESSION_STATE_VALUES = [
+  "rebuilding",
+  "degraded",
+  "damaged",
+  "blocked",
+] as const;
+
+/**
+ * Where one session that is not healthy stands: `rebuilding` while its projections are rebuilt,
+ * `degraded` when its history is damaged after a readable start, so it opens read-only at its
+ * last good point, `damaged` when no event of it can be read, and `blocked` when a run of it needs
+ * the person.
+ */
+export type DaemonRecoverySessionState = (typeof DAEMON_RECOVERY_SESSION_STATE_VALUES)[number];
+/** Parses a {@link DaemonRecoverySessionState}. */
+export const DaemonRecoverySessionStateSchema: z.ZodType<
+  DaemonRecoverySessionState,
+  DaemonRecoverySessionState
+> = z.enum(DAEMON_RECOVERY_SESSION_STATE_VALUES);
 
 /**
  * One run behind a session's entry that needs the person: a halt on a diverged resume carries no
@@ -43,12 +63,19 @@ export interface DaemonRecoveryHaltedRun {
   failureCategory?: RunFailureCategory | undefined;
 }
 
-/** One session that is not healthy, and why. */
+/**
+ * One session that is not healthy, and why. A `degraded` session carries its last good point:
+ * the last event it opens at, that event's time, and the first event that cannot be read.
+ */
 export interface DaemonRecoverySession {
   sessionId: SessionId;
-  state: DaemonRecoveryState;
+  state: DaemonRecoverySessionState;
   /** The last event sequence the session's projections reflect. */
   lastAppliedSequence?: number | undefined;
+  /** When the event at `lastAppliedSequence` happened. */
+  lastAppliedAt?: string | undefined;
+  /** The first event that cannot be read; every event from it to the head is damaged. */
+  damagedFromSequence?: number | undefined;
   failureCategory?: RunFailureCategory | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
   /** The runs that need the person, each once; absent when no run does. */
@@ -56,8 +83,8 @@ export interface DaemonRecoverySession {
 }
 
 /**
- * The `recovery` field of `daemon.status.read`: the node's overall state, the most severe of its
- * own and every listed session's, and the sessions that are not healthy.
+ * The `recovery` field of `daemon.status.read`: the node's overall state and the sessions that
+ * are not healthy, each damaged session among them.
  */
 export interface DaemonRecoveryStatus {
   overall: DaemonRecoveryState;
@@ -71,8 +98,10 @@ export const DaemonRecoveryStatusSchema: z.ZodType<DaemonRecoveryStatus> = z
       z
         .object({
           sessionId: SessionIdSchema,
-          state: DaemonRecoveryStateSchema,
+          state: DaemonRecoverySessionStateSchema,
           lastAppliedSequence: countSchema.optional(),
+          lastAppliedAt: isoDateTimeSchema.optional(),
+          damagedFromSequence: countSchema.optional(),
           failureCategory: RunFailureCategorySchema.optional(),
           recoveryCondition: RecoveryConditionSchema.optional(),
           haltedRuns: z
@@ -94,17 +123,18 @@ export const DaemonRecoveryStatusSchema: z.ZodType<DaemonRecoveryStatus> = z
 
 // ---- The write refusal ----
 
-/** A mutating call refused while the node's recovery state is not healthy. */
+/** A mutating call refused while the whole node cannot take writes. */
 export type DaemonWriteRefusedCode = "daemon.write_refused";
 /**
- * The error code the service answers a mutating call with while its recovery state is not
- * healthy; only the stop, the restart and the flush are taken then.
+ * The error code the service answers a mutating call with while its recovery pass is still
+ * running or its local store is unavailable; only the stop, the restart and the flush are taken
+ * then. A session with damaged history refuses its own writes with `session.write_refused`.
  */
 export const DAEMON_WRITE_REFUSED_CODE: DaemonWriteRefusedCode = "daemon.write_refused";
 
-/** The refusal's `data.fields`: the node's overall recovery state when the call arrived. */
+/** The refusal's `data.fields`: the node's recovery state when the call arrived. */
 export interface DaemonWriteRefusedDetails {
-  recovery: Exclude<DaemonRecoveryState, "healthy">;
+  recovery: Extract<DaemonRecoveryState, "rebuilding" | "blocked">;
 }
 
 // ---- The recovery pass's events, recorded on the service's own session ----
@@ -197,7 +227,7 @@ export const RecoverySucceededPayloadSchema: z.ZodType<RecoverySucceededPayload>
 
 /**
  * `recovery.failed`: a recovery pass that left the node blocked, when the local store failed, or
- * degraded, when a session's projections could not be rebuilt; `detail` is in the service's own
+ * degraded, when a session's history could not be rebuilt whole; `detail` is in the service's own
  * words.
  */
 export interface RecoveryFailedPayload extends RecoveryEventBase {

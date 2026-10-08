@@ -4,7 +4,8 @@
 // running and builds the terminal host over this run's orphan guard, knows this machine, captures
 // the environment providers are built from, listens on its socket and writes this start's session
 // token once the bind has succeeded, then runs its recovery pass, refusing writes until that pass
-// leaves the node healthy. A client that reads the previous token in the moment between the bind
+// has ended and, after it, only the writes of a session whose history is damaged. Before the
+// database opens, a damaged file is repaired. A client that reads the previous token in the moment between the bind
 // and the write is refused once, and its next read finds this start's token. Its stop, asked for
 // over the socket or by a terminate signal, ends it cleanly.
 
@@ -17,6 +18,7 @@ import {
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { BACKUP_DEFAULT_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/backup";
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon/status";
@@ -33,6 +35,7 @@ import {
   type DatabaseConnections,
 } from "../database/connections.js";
 import { EventLogService } from "../events/log-service.js";
+import { SessionPurge } from "../events/session/purge.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
@@ -43,7 +46,11 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
+import { DamagedHistory, registerDamagedHistoryMethods } from "../recovery/damaged-history.js";
+import { copyDatabaseFilesAside } from "../recovery/database-file/aside-copy.js";
+import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
+import { refuseEventOfDamagedSession } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
 import { RecoveryStatusTracker } from "../recovery/status.js";
 import { RecoveryWriteGate } from "../recovery/write-gate.js";
@@ -139,6 +146,9 @@ export class DaemonProcess {
     dataFolder: string;
     dataFolderLock: DataFolderLock;
     database: DatabaseConnections;
+    /** Whether the start found the database file damaged and could not repair it. */
+    isDatabaseFileUnrepaired: boolean;
+    settingsFile: MachineSettingsFile;
     orphanGuard: OrphanGuard;
     localMachine: LocalMachine;
     providerBaseEnvironment: readonly SpawnEnvPair[];
@@ -154,18 +164,51 @@ export class DaemonProcess {
     this.#writeServiceLog = options.writeServiceLog;
 
     const { reader, writer } = parts.database;
-    const sessionEvents = new EventLogService({ writer });
+    if (parts.isDatabaseFileUnrepaired) {
+      this.#recoveryStatus.markStoreFailed();
+    }
+    const sessionEvents = new EventLogService({
+      writer,
+      refuseSessionWrite: (sessionId, eventType) => {
+        refuseEventOfDamagedSession(this.#recoveryStatus, sessionId, eventType);
+      },
+    });
     const runEngine = new RunEngine({ reader, sessionEvents });
+    const sessionReads = new SessionService(reader);
+    const projectionRebuild = new ProjectionRebuildService({
+      reader,
+      writer,
+      sessionEvents: sessionReads,
+      projections: [RUNS_PROJECTION],
+    });
+    const damagedHistory = new DamagedHistory({
+      reader,
+      sessionEvents: sessionReads,
+      eventLog: sessionEvents,
+      projectionRebuild,
+      purge: new SessionPurge({
+        writer,
+        nodeId: parts.localMachine.nodeId,
+        eventLog: sessionEvents,
+        now: options.now,
+      }),
+      status: this.#recoveryStatus,
+    });
     this.#startupRecovery = new StartupRecovery({
       nodeId: parts.localMachine.nodeId,
       reader,
       sessionEvents,
-      projectionRebuild: new ProjectionRebuildService({
-        reader,
-        writer,
-        sessionEvents: new SessionService(reader),
-        projections: [RUNS_PROJECTION],
-      }),
+      projectionRebuild,
+      damagedHistory,
+      // Every write the pass queued commits first, so the copy holds them.
+      copyStoreAside: async () => {
+        await writer.flush();
+        return copyDatabaseFilesAside({
+          databasePath: path.join(parts.dataFolder, DATABASE_FILE_NAME),
+          dataFolder: parts.dataFolder,
+          now: options.now,
+        });
+      },
       runs: new RunStateReader(reader),
       runEngine,
       status: this.#recoveryStatus,
@@ -177,7 +220,7 @@ export class DaemonProcess {
     // refused call is never recorded.
     this.#inFlightMutations = new InFlightMutations();
     const negotiator = new ProtocolNegotiator(parts.sessionToken);
-    const writeGate = new RecoveryWriteGate(() => this.#recoveryStatus.readOverall());
+    const writeGate = new RecoveryWriteGate(this.#recoveryStatus);
     const registry = negotiator.wrap(
       writeGate.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl())),
     );
@@ -209,11 +252,9 @@ export class DaemonProcess {
         this.#gateway.notify(transportId, notification);
       },
     });
+    registerDamagedHistoryMethods(registry, damagedHistory);
     registerMachineSettingsMethods(registry, {
-      settingsFile: new MachineSettingsFile({
-        filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
-        now: options.now,
-      }),
+      settingsFile: parts.settingsFile,
       streamingPrimitive,
       findBranchPatternRefusal,
     });
@@ -266,8 +307,23 @@ export class DaemonProcess {
     await chmod(dataFolder, 0o700);
     const dataFolderLock = takeDataFolderLock(dataFolder);
     try {
+      const databasePath = path.join(dataFolder, DATABASE_FILE_NAME);
+      const settingsFile = new MachineSettingsFile({
+        filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
+        now: options.now,
+      });
+      // Before anything opens the file for writing, so a repaired file replaces it whole.
+      const fileRepair = await repairDatabaseFile({
+        databasePath,
+        dataFolder,
+        readBackupFolder: async () =>
+          (await settingsFile.read()).settings.backup.folder ??
+          path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
+        now: options.now,
+        writeServiceLog: options.writeServiceLog,
+      });
       const database = await openDatabaseConnections({
-        databasePath: path.join(dataFolder, DATABASE_FILE_NAME),
+        databasePath,
         writeServiceLog: options.writeServiceLog,
       });
       let orphanGuard: OrphanGuard | undefined;
@@ -291,6 +347,8 @@ export class DaemonProcess {
           dataFolder,
           dataFolderLock,
           database,
+          isDatabaseFileUnrepaired: fileRepair.outcome === "unrepaired",
+          settingsFile,
           orphanGuard,
           localMachine,
           providerBaseEnvironment,

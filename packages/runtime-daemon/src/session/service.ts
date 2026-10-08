@@ -1,11 +1,13 @@
 // Reads a session's events back in `sequence ASC` order, whole or a page after a known sequence,
-// and rebuilds its record from the stored events on every call; no snapshot is persisted.
+// and rebuilds its record from the stored events on every call; no snapshot is persisted. A range
+// the session skipped past as damaged is never read.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { outsideSkippedRangesSql } from "../events/session/skipped-ranges.js";
 import type { DaemonSessionRecord, StoredEvent } from "./records.js";
 import { rebuildSession as rebuildSessionFromEvents } from "./projector.js";
 
@@ -36,6 +38,8 @@ export interface EventsReadAfterSequenceRequest {
   readonly limit?: number | undefined;
   /** Only events of these types; every type when absent. */
   readonly eventTypes?: readonly string[] | undefined;
+  /** Only events before this sequence; every later event when absent. */
+  readonly beforeSequence?: number | undefined;
 }
 
 /** The page: its events in sequence order, and where the next page starts. */
@@ -53,11 +57,14 @@ const EVENT_COLUMNS_SQL = `id, session_id, sequence, occurred_at, monotonic_ns,
 // SQLite reads a negative limit as no limit.
 const NO_LIMIT = -1;
 
-/** A stored event row whose payload or envelope fails to parse. */
+/** A stored event row whose payload or envelope fails to parse; `sequence` is the row's. */
 export class MalformedStoredEventError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  readonly sequence: number;
+
+  constructor(message: string, sequence: number, options?: ErrorOptions) {
     super(message, options);
     this.name = "MalformedStoredEventError";
+    this.sequence = sequence;
   }
 }
 
@@ -72,8 +79,8 @@ export class SessionService {
     this.#readEventsStatement = db
       .prepare(
         `SELECT ${EVENT_COLUMNS_SQL}
-         FROM session_events
-         WHERE session_id = ?
+         FROM session_events AS event
+         WHERE session_id = ? AND ${outsideSkippedRangesSql("event")}
          ORDER BY sequence ASC`,
       )
       // Returns integer columns as bigint so a `monotonic_ns` above 2^53 round-trips exactly.
@@ -81,9 +88,11 @@ export class SessionService {
     this.#readEventsAfterSequenceStatement = db
       .prepare(
         `SELECT ${EVENT_COLUMNS_SQL}
-         FROM session_events
+         FROM session_events AS event
          WHERE session_id = @session_id AND sequence > @after_sequence
+           AND (@before_sequence IS NULL OR sequence < @before_sequence)
            AND (@event_types IS NULL OR type IN (SELECT value FROM json_each(@event_types)))
+           AND ${outsideSkippedRangesSql("event")}
          ORDER BY sequence ASC
          LIMIT @limit`,
       )
@@ -91,8 +100,8 @@ export class SessionService {
   }
 
   /**
-   * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them and
-   * only of `eventTypes` when it is given. Throws {@link MalformedStoredEventError} when a stored
+   * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them,
+   * only of `eventTypes` and only before `beforeSequence` when each is given. Throws {@link MalformedStoredEventError} when a stored
    * row is not a well-formed envelope.
    */
   readEventsAfterSequence(
@@ -103,6 +112,7 @@ export class SessionService {
       session_id: request.sessionId,
       after_sequence: request.afterSequence,
       event_types: request.eventTypes === undefined ? null : JSON.stringify(request.eventTypes),
+      before_sequence: request.beforeSequence ?? null,
       limit: request.limit === undefined ? NO_LIMIT : request.limit + 1,
     }) as ReadonlyArray<SessionEventRow>;
     const hasMore = request.limit !== undefined && rows.length > request.limit;
@@ -167,6 +177,7 @@ function toEventEnvelope(event: StoredEvent): EventEnvelope {
     throw new MalformedStoredEventError(
       `The stored event id=${event.id} sequence=${String(event.sequence)} is not a well-formed ` +
         "envelope",
+      event.sequence,
       { cause: parsed.error },
     );
   }
@@ -184,6 +195,7 @@ function parsePayload(row: SessionEventRow): Record<string, unknown> {
     throw new MalformedStoredEventError(
       `SessionService.hydrateRow: payload is not valid JSON for event id=${row.id} sequence=` +
         `${String(row.sequence)} (${err instanceof Error ? err.message : String(err)})`,
+      Number(row.sequence),
       { cause: err },
     );
   }
@@ -192,6 +204,7 @@ function parsePayload(row: SessionEventRow): Record<string, unknown> {
       `SessionService.hydrateRow: payload must be a JSON object for event id=${row.id} ` +
         `sequence=${String(row.sequence)} (got ` +
         `${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed})`,
+      Number(row.sequence),
     );
   }
   return parsed as Record<string, unknown>;
