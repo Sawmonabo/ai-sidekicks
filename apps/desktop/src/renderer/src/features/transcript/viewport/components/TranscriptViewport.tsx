@@ -41,7 +41,7 @@ export interface TranscriptViewportProps {
    * happened" above the pane's skeleton rows while the read is still in flight.
    */
   readonly firstReadSettled: boolean;
-  /** A turn is mid-flight; the value the caller reconciled the binding with. */
+  /** A run is still being written, which marks the log busy for a screen reader. */
   readonly hasActiveTurn?: boolean;
   /**
    * The head control that walks back into the rows before this window's head, where the caller

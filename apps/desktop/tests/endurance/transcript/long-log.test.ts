@@ -239,7 +239,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     // rather than as a count, so it does not encode how many beats the generator spends opening
     // a session, and it still fails the day the run group index stops recognizing a run's
     // terminal at scale.
-    expect(transcriptWindow.hasActiveTurn).toBe(false);
+    expect(transcriptWindow.liveRunGroupKeys.size).toBe(0);
     const uncollapsedRowKinds = new Set(
       transcriptWindow.rows
         .filter((row) => !transcriptWindow.collapsedRowIds.has(row.id))

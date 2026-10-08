@@ -139,9 +139,8 @@ export class ViewportPruneCycle {
     this.#virtualizer()?.getTotalSize();
     this.#window.ingest(conditions.rows);
     const outcome = this.#window.prune({
-      hasActiveTurn: conditions.hasActiveTurn,
       scrollControllerVetoes: this.#scroll.vetoesPrune(),
-      revealDrainInFlight: conditions.isRevealDraining,
+      liveRunGroupKeys: conditions.liveRunGroupKeys,
       heldRowKeys,
       onScreenRowKeys,
       readingPosition,
@@ -287,8 +286,8 @@ export class ViewportPruneCycle {
    * Whether the condition that refused the last pass is gone. Total over
    * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * `within-share` owes nothing, and the feed already re-runs the pass when `active-turn` or
-   * `reveal-drain` changes, so those answer `false`. The sets compare rather than test for empty:
+   * `within-share` owes nothing, and the feed already re-runs the pass when a run ends, which is
+   * when `live-run-group` clears, so those answer `false`. The sets compare rather than test for empty:
    * only a changed engagement, screen or place helps a stopped cut, and comparing makes the
    * re-ask single-shot.
    */
@@ -313,8 +312,7 @@ export class ViewportPruneCycle {
       case "held-rows":
         return !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys);
       case "within-share":
-      case "active-turn":
-      case "reveal-drain":
+      case "live-run-group":
         return false;
     }
   }

@@ -72,8 +72,11 @@ export interface TranscriptWindowModel {
   readonly replyRowIdsByFootRowId: ReadonlyMap<string, readonly string[]>;
   /** The rows in log order, for find and the run group fold. */
   readonly rows: readonly TranscriptEventRow[];
-  /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
-  readonly hasActiveTurn: boolean;
+  /**
+   * The runs the log has not seen end, by run id, which is the key their rows hang from: the log
+   * is busy while one stands, and the viewport never lets go of their rows.
+   */
+  readonly liveRunGroupKeys: ReadonlySet<string>;
 }
 
 /**
@@ -124,9 +127,13 @@ export function deriveTranscriptWindow(
       ]),
     ),
     rows,
-    // A run group with no terminal is a run the log has not seen end; the viewport asks the same
-    // question before it prunes.
-    hasActiveTurn: runGroupIndex.runGroups().length > runGroupIndex.terminalRunGroups().length,
+    // A run group with no terminal is a run the log has not seen end.
+    liveRunGroupKeys: new Set(
+      runGroupIndex
+        .runGroups()
+        .filter((runGroup) => runGroup.lifecycle === "live")
+        .map((runGroup) => runGroup.runId),
+    ),
   };
 }
 

@@ -17,7 +17,7 @@ import {
   type TranscriptViewportBinding,
 } from "../hooks/useTranscriptViewport.js";
 import type { ViewportRow } from "../snapshot.js";
-import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
+import { CALM, syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
@@ -48,8 +48,7 @@ function ComposedTranscriptViewport(props: ComposedTranscriptViewportProps): Rea
   const binding = useTranscriptViewport({
     clock: props.clock,
     rows: props.rows,
-    hasActiveTurn: false,
-    isRevealDraining: false,
+    ...CALM,
   });
   const { holder } = props;
   useEffect(() => {

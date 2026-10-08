@@ -31,10 +31,11 @@ export interface ViewportSnapshot {
 /** What the surrounding feed tells the frame each render. */
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
-  /** A turn is mid-flight, so a cut waits rather than moving rows under a stream. */
-  readonly hasActiveTurn: boolean;
-  /** The reveal engine still has characters queued for this frame. */
-  readonly isRevealDraining: boolean;
+  /**
+   * The run groups the log has not seen end, by the key their rows hang from. The window never
+   * lets go of their rows.
+   */
+  readonly liveRunGroupKeys: ReadonlySet<string>;
 }
 
 /**

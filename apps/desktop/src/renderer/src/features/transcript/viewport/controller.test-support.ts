@@ -16,10 +16,9 @@ export function syntheticRows(count: number, runGroupKey?: string): readonly Vie
   }));
 }
 
-/** Reconcile conditions with nothing in flight — no turn, no reveal draining. */
-export const CALM: { hasActiveTurn: boolean; isRevealDraining: boolean } = {
-  hasActiveTurn: false,
-  isRevealDraining: false,
+/** Reconcile conditions with no run still being written. */
+export const CALM: { liveRunGroupKeys: ReadonlySet<string> } = {
+  liveRunGroupKeys: new Set(),
 };
 
 /** A controller attached to a detached element, with the clock its cases advance. */

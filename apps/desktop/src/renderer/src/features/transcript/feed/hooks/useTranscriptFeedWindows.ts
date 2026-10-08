@@ -102,8 +102,7 @@ export function useTranscriptFeedWindows(
     (row: TranscriptEventRow) => isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
     [unfurledWindow, drawsBody],
   );
-  // The reveal engine is this feed's, minted once and disposed with it; its drain state reaches
-  // the viewport. The frame scheduler is minted above both holders so one object orders the
+  // The reveal engine is this feed's, minted once and disposed with it. The frame scheduler is minted above both holders so one object orders the
   // paint: the reveal drain runs in its second phase, while the viewport writes `scrollTop` at
   // once and submits nothing to the first.
   const frameScheduler = useAnimationFrameScheduler(inputs.clock);
@@ -136,8 +135,7 @@ export function useTranscriptFeedWindows(
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: transcriptWindow.viewportRows,
-    hasActiveTurn: transcriptWindow.hasActiveTurn,
-    isRevealDraining: reveal.isDraining,
+    liveRunGroupKeys: transcriptWindow.liveRunGroupKeys,
     landingRowKey,
     rememberedRowHeights: inputs.sessionStore.rememberedRowHeights,
     heightKindOf,

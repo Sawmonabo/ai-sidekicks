@@ -124,7 +124,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               renderRow={renderRow}
               feedLabel={props.feedLabel}
               firstReadSettled={windows.firstReadSettled}
-              hasActiveTurn={transcriptWindow.hasActiveTurn}
+              hasActiveTurn={transcriptWindow.liveRunGroupKeys.size > 0}
               earlierHistoryControl={
                 earlierHistory === undefined ? undefined : (
                   <LoadEarlier earlierHistory={earlierHistory} />

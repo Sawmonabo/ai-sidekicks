@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
 import type { ViewportRow } from "../snapshot.js";
-import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
+import { CALM, syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
 
 /** Comfortably more rows than a 400 px box can hold, so a window is the only answer. */
 const LOG_ROW_COUNT = 200;
@@ -46,8 +46,7 @@ function TranscriptUnderTest(props: { readonly rows: readonly ViewportRow[] }): 
   const binding = useTranscriptViewport({
     clock,
     rows: props.rows,
-    hasActiveTurn: false,
-    isRevealDraining: false,
+    ...CALM,
   });
   return <MountedTranscriptViewport binding={binding} />;
 }

@@ -9,7 +9,8 @@
 // The span is held by its end rows, so it survives the feed handing over the whole log on every
 // pass, and an end at the log's first or last row stays there as the log grows at it. A run group
 // goes with its children: no end falls between a row and the row it hangs from. A cut never takes
-// the reader's row, a row on screen or a held row; it stops short of the first one, and names it.
+// the reader's row, a row on screen, a held row or a row of a run still being written; it stops
+// short of the first one, and names it.
 //
 // The feed hands over the whole projected log on every reconcile, so the key index describes the
 // last log ingested and an ingest re-indexes only the span that differs from it.
@@ -40,12 +41,11 @@ export type WindowSide = "head" | "tail";
 export const PRUNE_DEFERRAL_REASONS = [
   "within-share",
   "unmeasured",
-  "active-turn",
   "scroll-write",
-  "reveal-drain",
   "reading-floor",
   "on-screen-rows",
   "held-rows",
+  "live-run-group",
 ] as const;
 
 /** One deferral reason. Derived from the enumeration, never restated. */
@@ -53,12 +53,13 @@ export type PruneDeferralReason = (typeof PRUNE_DEFERRAL_REASONS)[number];
 
 /** What the caller must tell the window before it may admit or let go of anything. */
 export interface PruneConditions {
-  /** A turn is mid-flight; its rows are still being written to. */
-  readonly hasActiveTurn: boolean;
   /** `ScrollController.vetoesPrune()` — a programmatic write is in flight. */
   readonly scrollControllerVetoes: boolean;
-  /** The reveal engine has characters queued for this frame. */
-  readonly revealDrainInFlight: boolean;
+  /**
+   * The run groups still being written, by the key their rows hang from. A row of one is never
+   * let go: a live run is the story the reader is following, and its rows still grow.
+   */
+  readonly liveRunGroupKeys: ReadonlySet<string>;
   /** `ReadingAnchor.heldRowKeys()`. A held row is never let go. */
   readonly heldRowKeys: readonly string[];
   /** The rows the viewport has on screen, as the virtualizer laid them out. Never let go. */
@@ -323,22 +324,21 @@ export class TranscriptWindow {
     if (headCutEnd === undefined && tailCutStart === undefined) {
       return this.#settle(head, tail, NOTHING_OWED);
     }
-    const deferral = deferralFor(conditions);
-    if (deferral !== undefined) {
-      return this.#settle(head, tail, deferredOutcome(deferral));
+    if (conditions.scrollControllerVetoes) {
+      return this.#settle(head, tail, deferredOutcome("scroll-write"));
     }
 
-    const protectedReasons = protectedRowReasons(conditions, log[readerPosition]?.key);
+    const protectionOf = rowProtection(conditions, log[readerPosition]?.key);
     let stoppedBecause: PruneDeferralReason | undefined;
     let keptHead = head;
     if (headCutEnd !== undefined) {
-      const cut = this.#headCut(head, headCutEnd, tail, protectedReasons);
+      const cut = this.#headCut(head, headCutEnd, tail, protectionOf);
       keptHead = cut.keptEdge;
       stoppedBecause = cut.stoppedBecause;
     }
     let keptTail = tail;
     if (tailCutStart !== undefined) {
-      const cut = this.#tailCut(tailCutStart, tail, keptHead, protectedReasons);
+      const cut = this.#tailCut(tailCutStart, tail, keptHead, protectionOf);
       keptTail = cut.keptEdge;
       stoppedBecause ??= cut.stoppedBecause;
     }
@@ -406,16 +406,12 @@ export class TranscriptWindow {
    * Where the head cut ends: before the first protected row, and before any row tied by hanging
    * to a row the window keeps, so a run group never leaves without its children.
    */
-  #headCut(
-    head: number,
-    cutEnd: number,
-    tail: number,
-    protectedReasons: ReadonlyMap<string, PruneDeferralReason>,
-  ): WindowCut {
+  #headCut(head: number, cutEnd: number, tail: number, protectionOf: RowProtection): WindowCut {
     let keptHead = cutEnd;
     let stoppedBecause: PruneDeferralReason | undefined;
     for (let position = head; position < keptHead; position += 1) {
-      const reason = protectedReasons.get(this.#ingestedRows[position]?.key ?? "");
+      const row = this.#ingestedRows[position];
+      const reason = row === undefined ? undefined : protectionOf(row);
       if (reason !== undefined) {
         keptHead = position;
         stoppedBecause = reason;
@@ -432,16 +428,12 @@ export class TranscriptWindow {
   }
 
   /** Where the tail cut starts, under the same stops as the head cut, read from the tail up. */
-  #tailCut(
-    cutStart: number,
-    tail: number,
-    head: number,
-    protectedReasons: ReadonlyMap<string, PruneDeferralReason>,
-  ): WindowCut {
+  #tailCut(cutStart: number, tail: number, head: number, protectionOf: RowProtection): WindowCut {
     let keptTail = cutStart - 1;
     let stoppedBecause: PruneDeferralReason | undefined;
     for (let position = tail; position > keptTail; position -= 1) {
-      const reason = protectedReasons.get(this.#ingestedRows[position]?.key ?? "");
+      const row = this.#ingestedRows[position];
+      const reason = row === undefined ? undefined : protectionOf(row);
       if (reason !== undefined) {
         keptTail = position;
         stoppedBecause = reason;
@@ -715,28 +707,18 @@ function deferredOutcome(reason: PruneDeferralReason): PruneOutcome {
   };
 }
 
-/** The refusal a cut waits out, decided before any row is read. */
-function deferralFor(conditions: PruneConditions): PruneDeferralReason | undefined {
-  if (conditions.hasActiveTurn) {
-    return "active-turn";
-  }
-  if (conditions.scrollControllerVetoes) {
-    return "scroll-write";
-  }
-  if (conditions.revealDrainInFlight) {
-    return "reveal-drain";
-  }
-  return undefined;
-}
+/** What a cut must stop short of at one row: the reason it names, or `undefined` for none. */
+type RowProtection = (row: WindowRow) => PruneDeferralReason | undefined;
 
 /**
- * Every row a cut must stop short of, with the reason it names: a held row, a row on screen, and
- * the reader's row, which outranks the others.
+ * The rows a cut must stop short of, with the reason each names: the reader's row, which outranks
+ * the others, a row on screen, a held row, then a row of a run still being written, which is
+ * matched by the run group it hangs from rather than listed row by row.
  */
-function protectedRowReasons(
+function rowProtection(
   conditions: PruneConditions,
   readerRowKey: string | undefined,
-): ReadonlyMap<string, PruneDeferralReason> {
+): RowProtection {
   const reasons = new Map<string, PruneDeferralReason>();
   for (const heldRowKey of conditions.heldRowKeys) {
     reasons.set(heldRowKey, "held-rows");
@@ -747,7 +729,13 @@ function protectedRowReasons(
   if (readerRowKey !== undefined) {
     reasons.set(readerRowKey, "reading-floor");
   }
-  return reasons;
+  const liveRunGroupKeys = conditions.liveRunGroupKeys;
+  return (row) =>
+    reasons.get(row.key) ??
+    (liveRunGroupKeys.has(row.key) ||
+    (row.parentKey !== undefined && liveRunGroupKeys.has(row.parentKey))
+      ? "live-run-group"
+      : undefined);
 }
 
 /** A key's first position in a log, or `-1`; a repeated key resolves to its first occurrence. */

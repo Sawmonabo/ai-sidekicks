@@ -14,6 +14,8 @@ import { CALM, syntheticRows } from "./controller.test-support.js";
 const LOG_ROW_COUNT = 400;
 const READER_ROW_KEY = "row-200";
 const VIEWPORT_HEIGHT_PX = 300;
+/** The run the log's first row belongs to, still being written on the first pass. */
+const LIVE_RUN_GROUP_KEY = "run-live";
 
 /** Where a row's top edge sits relative to the top of the viewport. */
 function offsetOnScreen(controller: ViewportController, rowKey: string): number | undefined {
@@ -26,7 +28,9 @@ function offsetOnScreen(controller: ViewportController, rowKey: string): number 
 
 describe("the viewport controller — the row under the reader stays put", () => {
   it("keeps the reader's row where it was after a cut above and a stretch admitted above", () => {
-    const rows = syntheticRows(LOG_ROW_COUNT);
+    const rows = syntheticRows(LOG_ROW_COUNT).map((row, index) =>
+      index === 0 ? { ...row, parentKey: LIVE_RUN_GROUP_KEY } : row,
+    );
     const rowHeightPx = new ViewportController({ clock: new ManualClock() }).measurements.heightOf(
       "row-0",
     );
@@ -37,9 +41,9 @@ describe("the viewport controller — the row under the reader stays put", () =>
     });
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(scrollContainer);
-    // A turn in flight: the window holds the whole log, laid out, the rows above the reader
-    // among it.
-    controller.reconcile({ rows, hasActiveTurn: true, isRevealDraining: false });
+    // The first row's run is still being written, so the cut above stops at it: the rows above
+    // the reader stay laid out until the run ends.
+    controller.reconcile({ rows, liveRunGroupKeys: new Set([LIVE_RUN_GROUP_KEY]) });
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
     expect(controller.anchor.state.mode).not.toBe("following");
     const readerOffsetBeforeCut = offsetOnScreen(controller, READER_ROW_KEY);

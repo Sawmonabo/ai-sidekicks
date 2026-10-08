@@ -21,19 +21,21 @@ function rowKey(index: number): string {
   return `row-${String(index)}`;
 }
 
-function flatLog(): readonly WindowRow[] {
+/** The log, every row top-level except those `parentKeyAt` hangs from a run group. */
+function flatLog(
+  parentKeyAt: (index: number) => string | undefined = () => undefined,
+): readonly WindowRow[] {
   return Array.from({ length: LOG_ROW_COUNT }, (_unused, index) => ({
     key: rowKey(index),
-    parentKey: undefined,
+    parentKey: parentKeyAt(index),
     rootCursor: `cursor-${String(index)}`,
   }));
 }
 
 /** A reader at the top of their row in the middle of the log, with nothing refusing a cut. */
 const READING_MID_LOG: PruneConditions = {
-  hasActiveTurn: false,
   scrollControllerVetoes: false,
-  revealDrainInFlight: false,
+  liveRunGroupKeys: new Set(),
   heldRowKeys: [],
   onScreenRowKeys: [],
   readingPosition: { rowKey: rowKey(READER_ROW_INDEX), offsetWithinViewportPx: 0 },
@@ -99,5 +101,28 @@ describe("the transcript window — letting go around the reader", () => {
     expect(refused.deferredBecause).toBe("on-screen-rows");
     expect(heldKeys(window)[0]).toBe(rowKey(onScreenRowIndex));
     expect(heldKeys(window).at(-1)).toBe(rowKey(readerRowIndex));
+  });
+
+  it("lets go far above the reader while a run near the tail is written, and keeps its rows", () => {
+    // A live run's rows sit between the reader and the tail. The cut walking up from the tail
+    // stops at its last row; the cut above, far from the run, lets go as it would with none.
+    const liveRunGroupKey = "run-live";
+    const liveRowIndexes = Array.from({ length: 10 }, (_unused, offset) => 300 + offset);
+    const window = new TranscriptWindow();
+    window.ingest(
+      flatLog((index) => (liveRowIndexes.includes(index) ? liveRunGroupKey : undefined)),
+    );
+
+    const outcome = window.prune({
+      ...READING_MID_LOG,
+      liveRunGroupKeys: new Set([liveRunGroupKey]),
+    });
+
+    expect(heldKeys(window)[0]).toBe(rowKey(READER_ROW_INDEX - RETAINED_ROWS));
+    expect(outcome.prunedKeys).toContain(rowKey(0));
+    for (const liveRowIndex of liveRowIndexes) {
+      expect(heldKeys(window)).toContain(rowKey(liveRowIndex));
+    }
+    expect(outcome.owedBecause).toBe("live-run-group");
   });
 });
