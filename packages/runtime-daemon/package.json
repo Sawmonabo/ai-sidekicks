@@ -25,11 +25,11 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.sqlite-shell.json",
+    "lint": "eslint src sqlite-shell",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "postinstall": "node --experimental-strip-types sqlite-shell/fetch-source.ts && node-gyp configure build --directory sqlite-shell"
+    "postinstall": "node --experimental-strip-types sqlite-shell/compile.ts"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
@@ -49,9 +49,11 @@
     "bun": "1.4.2",
     "canonicalize": "5.1.0",
     "croner": "10.0.1",
+    "fflate": "0.8.3",
     "jsonata": "2.2.2",
     "koffi": "^3.3.2",
     "lru-cache": "^11.5.3",
+    "node-gyp": "13.1.0",
     "node-pty": "^1.2.0-beta.15",
     "nodemailer": "10.0.13",
     "p-limit": "7.3.3",
@@ -74,8 +76,6 @@
     "@types/pidusage": "2.0.5",
     "@types/semver": "^7.8.0",
     "@vitest/coverage-v8": "catalog:testing",
-    "fflate": "0.8.3",
-    "node-gyp": "13.1.0",
     "vitest": "catalog:testing"
   }
 }

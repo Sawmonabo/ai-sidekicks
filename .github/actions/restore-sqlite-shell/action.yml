@@ -1,0 +1,21 @@
+name: Restore the daemon's SQLite shell
+description: >-
+  Restores the SQLite shell the daemon's install compiles, so a job's install skips the compile.
+
+
+runs:
+  using: composite
+  steps:
+    # The daemon's `postinstall` (`packages/runtime-daemon/sqlite-shell/compile.ts`) skips its
+    # compile when the shell beside it was built from the same inputs on the same platform, which
+    # the `.inputs` file records, so a restored pair costs the install nothing; any other pair is
+    # rebuilt. The key carries the runner's system and processor, the script, the target file and
+    # the lockfile, which pins the binding whose SQLite source the shell is built from. The
+    # `native-prebuilds` legs never restore it, so each target still proves a build from source.
+    - name: Restore the daemon's SQLite shell
+      uses: actions/cache@v4
+      with:
+        path: |
+          packages/runtime-daemon/sqlite-shell/build/Release/sqlite3
+          packages/runtime-daemon/sqlite-shell/build/Release/sqlite3.inputs
+        key: sqlite-shell-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/runtime-daemon/sqlite-shell/compile.ts', 'packages/runtime-daemon/sqlite-shell/binding.gyp', 'pnpm-lock.yaml') }}

@@ -11,7 +11,7 @@ import {
   BackupManifestSchema,
 } from "@ai-sidekicks/contracts/daemon/backup";
 
-import { isMissingFileError } from "../../missing-file-error.js";
+import { isMissingFileError } from "../../file/missing-error.js";
 
 /**
  * The newest backup's database copy in `backupFolder`, `undefined` when the folder holds none.

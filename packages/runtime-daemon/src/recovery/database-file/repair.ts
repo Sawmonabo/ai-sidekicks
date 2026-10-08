@@ -13,8 +13,8 @@ import * as path from "node:path";
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
-import { writeFileAtomically } from "../../atomic-file-write.js";
-import { isMissingFileError } from "../../missing-file-error.js";
+import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
+import { isMissingFileError } from "../../file/missing-error.js";
 import { DAEMON_SCHEMA_SQL } from "../../session/daemon-schema.js";
 import { hasSqliteErrorCode } from "../../session/sqlite-error-code.js";
 import { copyDatabaseFilesAside, DATABASE_COMPANION_FILE_SUFFIXES } from "./aside-copy.js";
@@ -255,8 +255,9 @@ function dropLostAndFound(fresh: DatabaseType, writeServiceLog: (line: string) =
   }
 }
 
+// Opened for writing because Windows refuses to flush a file opened only for reading.
 async function syncFile(filePath: string): Promise<void> {
-  const file = await open(filePath, "r");
+  const file = await open(filePath, "r+");
   try {
     await file.sync();
   } finally {
@@ -282,13 +283,6 @@ async function replaceDatabaseFile(
   await syncFolder(path.dirname(databasePath));
   await rm(readyMarkerPath);
   await syncFolder(path.dirname(databasePath));
-}
-
-async function syncFolder(folderPath: string): Promise<void> {
-  if (process.platform === "win32") {
-    return;
-  }
-  await syncFile(folderPath);
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

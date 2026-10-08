@@ -10,8 +10,8 @@ import * as path from "node:path";
 
 import { z } from "zod";
 
-import { writeFileAtomically } from "../../atomic-file-write.js";
-import { isMissingFileError } from "../../missing-file-error.js";
+import { writeFileAtomically } from "../../file/atomic-write.js";
+import { isMissingFileError } from "../../file/missing-error.js";
 
 /** The two files SQLite keeps beside a database in write-ahead-log mode. */
 export const DATABASE_COMPANION_FILE_SUFFIXES = ["-wal", "-shm"] as const;

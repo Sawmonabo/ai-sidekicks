@@ -100,6 +100,45 @@ async function damageIndexPage(): Promise<void> {
   await writeFile(databasePath, file);
 }
 
+// Gives each event a snapshot row pointing at it, then overwrites one of the event table's leaf
+// pages, so the snapshots of the events on it point at rows the recovery cannot bring back.
+async function damageEventPageUnderSnapshots(sessionId: string, count: number): Promise<void> {
+  const database = openDatabase(databasePath);
+  const insert = database.prepare(
+    `INSERT INTO session_snapshots (id, session_id, as_of_sequence, state_blob, created_at)
+     VALUES (?, ?, ?, x'00', '2026-10-07T12:00:00.000Z')`,
+  );
+  for (let sequence = 0; sequence < count; sequence += 1) {
+    insert.run(`snapshot-${String(sequence)}`, sessionId, sequence);
+  }
+  database.pragma("wal_checkpoint(TRUNCATE)");
+  const leafPage = database
+    .prepare<
+      [],
+      { pageno: number }
+    >("SELECT pageno FROM dbstat WHERE name = 'session_events' AND pagetype = 'leaf' ORDER BY pageno LIMIT 1 OFFSET 1")
+    .get()?.pageno;
+  database.close();
+  if (leafPage === undefined) {
+    throw new Error("The event table has no second leaf page");
+  }
+  const file = await readFile(databasePath);
+  file.fill(0xa5, (leafPage - 1) * PAGE_SIZE, leafPage * PAGE_SIZE);
+  await writeFile(databasePath, file);
+}
+
+function countRows(table: "session_snapshots"): number {
+  const database = new Database(databasePath, { readonly: true });
+  try {
+    return (
+      database.prepare<[], { count: number }>(`SELECT COUNT(*) AS count FROM ${table}`).get()
+        ?.count ?? 0
+    );
+  } finally {
+    database.close();
+  }
+}
+
 function countEvents(sessionId: string): number {
   const database = new Database(databasePath, { readonly: true });
   try {
@@ -182,6 +221,18 @@ describe("the database file's repair", () => {
     });
     expect(countEvents(KEPT_SESSION)).toBe(4);
     expect(countEvents(BACKED_UP_SESSION)).toBe(2);
+  });
+
+  it("recovers the rows of a lost table page's neighbors, whose snapshots outlive their events", async () => {
+    writeDatabase(databasePath, { [KEPT_SESSION]: 200 });
+    await damageEventPageUnderSnapshots(KEPT_SESSION, 200);
+
+    const result = await repair();
+    expect(result, JSON.stringify(result)).toMatchObject({ outcome: "repaired" });
+    const recoveredEvents = countEvents(KEPT_SESSION);
+    expect(recoveredEvents).toBeGreaterThan(0);
+    expect(recoveredEvents).toBeLessThan(200);
+    expect(countRows("session_snapshots")).toBe(200);
   });
 
   it("leaves a file it cannot recover untouched, copied aside once across starts", async () => {

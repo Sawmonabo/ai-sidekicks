@@ -118,8 +118,9 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
               - '.github/actions/assert-native-prebuild/**'
-              # The daemon's SQLite shell, built at install on every leg.
+              # The daemon's SQLite shell, which every leg builds, and the repair that runs it.
               - 'packages/runtime-daemon/sqlite-shell/**'
+              - 'packages/runtime-daemon/src/recovery/database-file/**'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -188,6 +189,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: "pnpm"
+
+      - name: Restore the daemon's SQLite shell
+        uses: ./.github/actions/restore-sqlite-shell
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -357,6 +361,9 @@ jobs:
           node-version-file: .nvmrc
           cache: "pnpm"
 
+      - name: Restore the daemon's SQLite shell
+        uses: ./.github/actions/restore-sqlite-shell
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -469,6 +476,9 @@ jobs:
           node-version-file: .nvmrc
           cache: "pnpm"
 
+      - name: Restore the daemon's SQLite shell
+        uses: ./.github/actions/restore-sqlite-shell
+
       - name: Install dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -558,6 +568,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: "pnpm"
+
+      - name: Restore the daemon's SQLite shell
+        uses: ./.github/actions/restore-sqlite-shell
 
       - name: Install dependencies
         env:
@@ -700,6 +713,9 @@ jobs:
           node-version-file: .nvmrc
           cache: "pnpm"
 
+      - name: Restore the daemon's SQLite shell
+        uses: ./.github/actions/restore-sqlite-shell
+
       # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron: the desktop
       # `test:coverage` is `vitest run --project=renderer`, a happy-dom project, and the smoke
       # project that spawns the binary is not in the coverage set. Otherwise the `apps/desktop`
@@ -761,10 +777,11 @@ jobs:
   # `--frozen-lockfile` still applies, so lockfile drift fails here as everywhere else.
   native-prebuilds:
     name: native prebuild (${{ matrix.prebuild }})
-    # Five runners across three operating systems, and only the dependency graph (the lockfile, a
-    # package.json, or the npm client config) or the shell's build can change which binding resolves
-    # or how the shell is built. It runs only where `slow-jobs` is set; there a pull request
-    # touching none of those files skips it, and `ci-gate` reads the skip as success. The nightly and manual runs run it unconditionally.
+    # Five runners across three operating systems. Only the dependency graph (the lockfile, a
+    # package.json, or the npm client config) can change which binding resolves, and only the
+    # shell's build or the code that runs it can change the repair each leg proves. It runs only
+    # where `slow-jobs` is set; there a pull request touching none of those files skips it, and
+    # `ci-gate` reads the skip as success. The nightly and manual runs run it unconditionally.
     needs: [changes]
     if: needs.changes.outputs.slow-jobs == 'true' && needs.changes.outputs.deps == 'true'
     runs-on: ${{ matrix.os }}

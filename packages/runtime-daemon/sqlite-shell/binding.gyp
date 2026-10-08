@@ -9,6 +9,9 @@
     'win_delay_load_hook': 'false',
     'includes': ['../node_modules/better-sqlite3/deps/defines.gypi'],
     'defines': ['SQLITE_ENABLE_DBPAGE_VTAB'],
+    # `.recover` turns foreign keys off inside its own transaction, where SQLite ignores that, so
+    # a row whose parent was lost would fail the whole recovery; the shell keeps SQLite's default.
+    'defines!': ['SQLITE_DEFAULT_FOREIGN_KEYS=1'],
     'include_dirs': ['../node_modules/better-sqlite3/deps/sqlite3'],
     'sources': ['build/source/shell.c', '../node_modules/better-sqlite3/deps/sqlite3/sqlite3.c'],
     'cflags': ['-w'],
