@@ -495,6 +495,18 @@ describe("Codex rewind and re-realization", () => {
       .framesForMethod("turn/start")
       .map((frame) => (frame["params"] as Record<string, unknown>)["approvalsReviewer"]);
     expect(turnReviewers).toStrictEqual(["auto_review", "user"]);
+
+    // A run at reviewed on a session at ask moves its turn to Codex's own reviewer.
+    const asking = createHarness();
+    asking.server.on("thread/start", () => threadStartResult());
+    asking.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await asking.driver.createSession({ ...CREATE_PARAMS, executionPosture: WORKSPACE_POSTURE });
+    await asking.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "one" },
+      executionPosture: reviewed,
+    });
+    expect(paramsOf(asking, "turn/start")["approvalsReviewer"]).toBe("auto_review");
   });
 
   it("starts a yolo thread asking on request to the person, every connector on Codex's approve", async () => {
@@ -699,7 +711,7 @@ describe("Codex rewind and re-realization", () => {
 
       await harness.driver.createSession({ ...CREATE_PARAMS, subagentPolicy });
 
-      expect(paramsOf(harness, "thread/start")["config"]).toStrictEqual({
+      expect(paramsOf(harness, "thread/start")["config"]).toMatchObject({
         "agents.max_concurrent_threads_per_session": 1,
         "agents.max_depth": 0,
       });

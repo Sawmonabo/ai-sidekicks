@@ -397,8 +397,9 @@ describe("CodexLifecycleManager session slot", () => {
 });
 
 describe("CodexDriver approval reviewer pinning", () => {
-  // With no level declared every ask reaches the daemon's own pipeline. The per-turn field routes
-  // later turns too, so a thread-level pin alone would be undone by one turn without it.
+  // With no level declared every ask reaches the daemon's own pipeline. A turn's reviewer routes it
+  // and every later turn, so each turn carries the level's reviewer and a level move between turns
+  // reaches it; the connectors' default reviewer is pinned too, since Codex reads it first.
   it("pins the person as reviewer on the thread and on every turn", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -415,6 +416,7 @@ describe("CodexDriver approval reviewer pinning", () => {
 
     expect(harness.server.framesForMethod("thread/start")[0]?.["params"]).toMatchObject({
       approvalsReviewer: "user",
+      config: { "apps._default.approvals_reviewer": "user" },
     });
     const turnFrames = harness.server.framesForMethod("turn/start");
     expect(turnFrames).toHaveLength(2);

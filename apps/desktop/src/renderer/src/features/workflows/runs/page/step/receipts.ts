@@ -20,6 +20,15 @@ const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {
   declined: "Declined",
 };
 
+/**
+ * An answer this sitting gave a step, held until the run reads back answered. A reply's record
+ * carries no instant, so its stamp is the window's own clock reading, which is not a wire figure.
+ */
+export interface HeldStepAnswer {
+  readonly resolution: WorkflowStepResolution;
+  readonly isWindowClockStamp: boolean;
+}
+
 /** A step's receipt: its words and the instant they end on, drawn `Approved at 2:14 PM`. */
 export interface StepReceipt {
   readonly words: string;

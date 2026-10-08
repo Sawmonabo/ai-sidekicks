@@ -49,7 +49,7 @@ export interface RunGraphNodeView {
    * The instant a waiting step resumes itself, drawn `Resumes at 6:00 AM` or `Resumes at Tomorrow
    * 6:00 AM`, where one is armed.
    */
-  readonly resumeAt: DayClockFigureProps | undefined;
+  readonly resumeFigure: DayClockFigureProps | undefined;
   /** What the ring says in words, such as `Failed` or `Waiting on an approval`. */
   readonly stateWords: string;
   /** The node's accessible name: every line it draws, such as `Summarize · Failed · Attempt 2`. */
@@ -191,7 +191,7 @@ function nodeView(
   const status = step?.status ?? "pending";
   const waitCause = status === "waiting" ? step?.waitCause : undefined;
   const resumeStamp = status === "waiting" ? step?.resumeAt : undefined;
-  const resumeAt = resumeStamp === undefined ? undefined : { at: resumeStamp, nowMs, locale };
+  const resumeFigure = resumeStamp === undefined ? undefined : { at: resumeStamp, nowMs, locale };
   const stateWords =
     waitCause === undefined
       ? STEP_STATUS_WORDS[status]
@@ -210,7 +210,7 @@ function nodeView(
     attemptWords,
     outputCount,
     errorLine,
-    resumeAt,
+    resumeFigure,
     stateWords,
     accessibleName: [
       node.name,
@@ -219,9 +219,9 @@ function nodeView(
       attemptWords,
       outputCount === undefined ? undefined : itemCountWords(outputCount),
       errorLine,
-      resumeAt === undefined
+      resumeFigure === undefined
         ? undefined
-        : `${RUN_GRAPH_RESUME_WORDS} ${formatDayClock(resumeAt.at, nowMs, locale)}`,
+        : `${RUN_GRAPH_RESUME_WORDS} ${formatDayClock(resumeFigure.at, nowMs, locale)}`,
     ]
       .filter(isPresent)
       .join(" · "),

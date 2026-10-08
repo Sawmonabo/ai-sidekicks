@@ -1,9 +1,6 @@
 import { useId } from "react";
 
-import type {
-  WorkflowStepKey,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
@@ -15,6 +12,7 @@ import { ParamForm } from "#renderer/features/workflows/param-form/ParamForm.js"
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { useStepForm } from "../hooks/useStepForm.js";
+import type { HeldStepAnswer } from "../receipts.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
 /**
@@ -26,7 +24,7 @@ import { ActionButton } from "#renderer/features/workflows/components/ActionButt
 export function StepForm(props: {
   readonly bridge: PlatformBridge;
   readonly stepKey: WorkflowStepKey;
-  readonly onAnswered: (answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (answer: HeldStepAnswer) => void;
 }): React.JSX.Element {
   const idPrefix = useId();
   const clock = useClock();

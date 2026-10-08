@@ -72,7 +72,7 @@ export function toRunGraphFlowNodes(
       view.node,
       handles,
       countFigure,
-      view.errorLine !== undefined || view.resumeAt !== undefined,
+      view.errorLine !== undefined || view.resumeFigure !== undefined,
     );
     return {
       id: view.node.id,

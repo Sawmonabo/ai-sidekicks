@@ -159,7 +159,7 @@ export class CodexSessionEstablishment {
         cwd: config.cwd,
         // Spread so a session with no declared posture gets no sandbox or approval policy (an
         // invented one would refuse admitted tool calls or grant what was not) and the person as
-        // its reviewer.
+        // its reviewer, its connectors' included.
         ...this.#spawnPosture.composeThreadEstablishmentLegs(
           params.executionPosture,
           params.subagentPolicy,

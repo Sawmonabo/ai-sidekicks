@@ -1,16 +1,14 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type {
-  WorkflowStep,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
-import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
+import { resolutionReceipt, timedOutReceipt, type HeldStepAnswer } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
 import { OpenInReview } from "../../components/OpenInReview.js";
@@ -28,10 +26,10 @@ export interface StepBlockerProps {
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
   /** The answer this sitting gave the step, held until the run reads back answered. */
-  readonly answer: WorkflowStepResolution | undefined;
+  readonly answer: HeldStepAnswer | undefined;
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has taken it. */
-  readonly onAnswered: (answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (answer: HeldStepAnswer) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
 }
 
@@ -44,7 +42,9 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
-  const resolution = step.resolution ?? props.answer;
+  // The daemon's record wins over this sitting's answer, which wins over a timed-out wait.
+  const isWindowClockStamp = step.resolution === undefined && props.answer?.isWindowClockStamp;
+  const resolution = step.resolution ?? props.answer?.resolution;
   const receipt =
     resolution === undefined
       ? timedOutReceipt(step, props.nodeKind)
@@ -52,7 +52,12 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   if (receipt !== undefined) {
     return (
       <p className="meridian-workflow-step__receipt">
-        {receipt.words} <DayClockFigure at={receipt.at} nowMs={props.nowMs} locale={clockLocale} />
+        {receipt.words}{" "}
+        {isWindowClockStamp === true ? (
+          <DerivedFigure text={formatDayClock(receipt.at, props.nowMs, clockLocale)} />
+        ) : (
+          <DayClockFigure at={receipt.at} nowMs={props.nowMs} locale={clockLocale} />
+        )}
       </p>
     );
   }

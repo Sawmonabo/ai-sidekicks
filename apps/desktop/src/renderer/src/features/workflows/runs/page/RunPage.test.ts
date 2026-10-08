@@ -125,6 +125,10 @@ describe("a run's page", () => {
     await advanceScenarioUntil(answeredHere.engine, () => {
       expect(screen.getByText(/^Answered at/u)).toBeDefined();
     });
+    // The receipt's instant reads as a clock time, never the unreadable placeholder.
+    expect(document.querySelector(".meridian-workflow-step__receipt")?.textContent).toMatch(
+      /^Answered at \S*\d/u,
+    );
     expect(answeredHere.calls.filter((call) => call.method === "question.resolve")).toStrictEqual([
       {
         method: "question.resolve",

@@ -151,8 +151,11 @@ export class CodexSpawnPosture {
 
   /**
    * The thread-establishment legs one posture and one subagent policy realize: the posture's
-   * `sandbox`, `approvalPolicy` and `approvalsReviewer`, and the posture's and the subagent caps'
-   * `config` overrides in one map. Used by `thread/start`, `thread/resume` and `thread/fork`.
+   * `sandbox`, `approvalPolicy` and `approvalsReviewer`, and the posture's, the connectors'
+   * reviewer and the subagent caps' `config` overrides in one map. Codex reads a connector ask's
+   * reviewer from the `apps` table before the conversation's, so its default is the level's
+   * reviewer too, with or without a posture. Used by `thread/start`, `thread/resume` and
+   * `thread/fork`.
    */
   composeThreadEstablishmentLegs(
     posture: ExecutionPosture | undefined,
@@ -162,14 +165,17 @@ export class CodexSpawnPosture {
     // The credential deny-list is realized in the child environment, so no credential axis is
     // read here.
     const threadPosture = posture === undefined ? undefined : composeCodexThreadPosture(posture);
-    const config = {
-      ...threadPosture?.config,
-      ...(subagentPolicy === undefined ? {} : composeCodexSubagentConfigOverrides(subagentPolicy)),
-    };
+    const approvalsReviewer = composeCodexApprovalsReviewer(posture);
     return {
       ...threadPosture?.params,
-      approvalsReviewer: composeCodexApprovalsReviewer(posture),
-      ...(Object.keys(config).length === 0 ? {} : { config }),
+      approvalsReviewer,
+      config: {
+        ...threadPosture?.config,
+        "apps._default.approvals_reviewer": approvalsReviewer,
+        ...(subagentPolicy === undefined
+          ? {}
+          : composeCodexSubagentConfigOverrides(subagentPolicy)),
+      },
     };
   }
 

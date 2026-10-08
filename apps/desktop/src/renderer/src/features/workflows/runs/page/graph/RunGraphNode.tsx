@@ -61,9 +61,9 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
       {view.errorLine === undefined ? null : (
         <span className="meridian-run-graph-node__error">{view.errorLine}</span>
       )}
-      {view.resumeAt === undefined ? null : (
+      {view.resumeFigure === undefined ? null : (
         <span className="meridian-run-graph-node__resume">
-          {RUN_GRAPH_RESUME_WORDS} <DayClockFigure {...view.resumeAt} />
+          {RUN_GRAPH_RESUME_WORDS} <DayClockFigure {...view.resumeFigure} />
         </span>
       )}
       {handles.outputs.map((id, index) => (

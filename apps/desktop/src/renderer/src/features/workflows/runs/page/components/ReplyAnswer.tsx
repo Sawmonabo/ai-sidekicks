@@ -1,9 +1,6 @@
 import { useId, useState } from "react";
 
-import type {
-  WorkflowStepQuestion,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -13,6 +10,7 @@ import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/use
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
+import type { HeldStepAnswer } from "../step/receipts.js";
 
 /** Why `Answer this run` cannot answer a reply wait with nothing typed in it. */
 const REPLY_EMPTY = "This step waits for a reply. Type one, then answer.";
@@ -28,7 +26,7 @@ export function ReplyAnswer(props: {
   readonly question: WorkflowStepQuestion;
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has taken it. */
-  readonly onAnswered: (answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (answer: HeldStepAnswer) => void;
 }): React.JSX.Element | null {
   const { question, bridge } = props;
   const fieldId = useId();
@@ -43,7 +41,10 @@ export function ReplyAnswer(props: {
     () => {
       // The question's answer carries no instant, so the window's clock stands in until the
       // daemon's own record replaces it.
-      props.onAnswered({ kind: "answered", at: new Date(clock.now()).toISOString() });
+      props.onAnswered({
+        resolution: { kind: "answered", at: new Date(clock.now()).toISOString() },
+        isWindowClockStamp: true,
+      });
     },
   );
   const isSending = answer.state.kind === "sending";
