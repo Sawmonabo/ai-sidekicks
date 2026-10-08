@@ -2,10 +2,10 @@
 // keychain, the Windows Credential Manager, and on Linux the Secret Service (GNOME Keyring,
 // KWallet, KeePassXC).
 //
-// Only the keychain is used. On Linux the entry is pinned to the Secret Service, so a machine
-// without one refuses instead of falling back to the kernel keyring, which forgets its keys at
-// reboot; there is no encrypted-file or plaintext fallback. A call that does not settle in time
-// is abandoned and reported locked, because a keychain waiting on an unlock prompt nobody
+// On Linux the entry is pinned to the Secret Service, so a machine without one refuses here
+// instead of falling back to the kernel keyring, which forgets its keys at reboot; there the
+// entries go in the daemon's items file (`file-keychain.ts`) instead. A call that does not settle
+// in time is abandoned and reported locked, because a keychain waiting on an unlock prompt nobody
 // answers never settles.
 import { AsyncEntry } from "@napi-rs/keyring";
 

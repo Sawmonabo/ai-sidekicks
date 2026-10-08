@@ -1,7 +1,8 @@
-// The seam between the workflow secret store and the operating system's keychain. The store
-// takes a `SecretKeychain` and holds no keychain code; `os-keychain.ts` is the platform
-// implementation. Tests therefore run the store's rules without touching a real keychain, and
-// the native binding stays out of modules that only need the store's shape.
+// The seam between the workflow secret store and where its values are kept. The store takes a
+// `SecretKeychain` and holds no keychain code; `os-keychain.ts` is the platform keychain, and
+// `file-keychain.ts` the daemon's items file where that keychain cannot be used. Tests therefore
+// run the store's rules without touching a real keychain, and the native binding stays out of
+// modules that only need the store's shape.
 import {
   WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
   type WorkflowSecretStoreUnavailableCause,
