@@ -26,7 +26,6 @@ describe("SessionStoreRegistry — one store per open session", () => {
       openingPageLimit,
       read: readsNothing,
       clock: new ManualClock(0),
-      openingPageLimit,
     });
 
     const first = registry.open("session-1");
@@ -46,7 +45,6 @@ describe("SessionStoreRegistry — one store per open session", () => {
       openingPageLimit,
       read: readsNothing,
       clock: new ManualClock(0),
-      openingPageLimit,
     });
 
     const first = registry.open("session-1");
@@ -66,7 +64,6 @@ describe("SessionStoreRegistry — one store per open session", () => {
       openingPageLimit,
       read: readsNothing,
       clock: new ManualClock(0),
-      openingPageLimit,
     });
 
     const refusal = registry.enqueue("session-gone", [runEventAt(1, "run-1")]);

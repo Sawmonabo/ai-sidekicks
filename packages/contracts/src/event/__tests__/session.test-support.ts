@@ -312,6 +312,10 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
       cause: "model_unavailable",
     },
   ],
+  [
+    "session.activated",
+    { sessionId: SESSION_ID, previousState: "provisioning", newState: "active" },
+  ],
   ["session.archived", { sessionId: SESSION_ID, previousState: "active", newState: "archived" }],
   ["session.reactivated", { sessionId: SESSION_ID, previousState: "archived", newState: "active" }],
   ["session.closed", { sessionId: SESSION_ID, previousState: "active", newState: "closed" }],
@@ -321,7 +325,7 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
   ["session.unmuted", { sessionId: SESSION_ID, at: OCCURRED_AT }],
   [
     "session.converted",
-    { sessionId: SESSION_ID, repoMountId: REPO_MOUNT_ID, copiedCount: 4, skippedPaths: [] },
+    { sessionId: SESSION_ID, repoMountId: REPO_MOUNT_ID, copiedCount: 4, skippedCount: 0 },
   ],
   [
     "session.branch_changed",

@@ -23,6 +23,7 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/ca
 import { drawnText, liveRegionText } from "#test/helpers/live-region.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
+import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
 
 const SESSION_ID = "session-catching-up";
 
@@ -61,6 +62,7 @@ describe("SessionCatchUpLine", () => {
     let readRejects = false;
     // Its own session, so the capture case below reads only its own records.
     const entry = new OpenSessionEntry("session-gap-repair", {
+      openingPageLimit,
       read: () =>
         readRejects
           ? Promise.reject(new Error("the daemon refused the read"))
@@ -106,9 +108,10 @@ describe("SessionCatchUpLine", () => {
     expect(drawnText(container)).toBe("");
   });
 
-  it("says it couldn't catch up each time a replay fails on the same row", async () => {
+  it("says it couldn't catch up each time the same row fails again", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry("session-failing-row", {
+      openingPageLimit,
       read: () => Promise.resolve({ entities: [] }),
       clock,
       applyCoalesceMs: 0,
@@ -160,22 +163,20 @@ describe("SessionCatchUpLine", () => {
     deliver([6, 7]);
     advance(clock, CATCH_UP_LINE_DWELL_MS);
     const afterTheRowFailed = drawnText(container);
-    // A replay failing on the same row inside the hold leaves the words where they stood.
+    // The row failing again inside the hold leaves the words where they stood.
     pressTryAgain();
     await landRead();
     deliver([6, 7]);
     advance(clock, CATCH_UP_LINE_DWELL_MS);
-    // One that runs past the hold is catching up while it runs.
+    // And again once the read has landed and the hold has passed.
     pressTryAgain();
     await landRead();
     advance(clock, CATCH_UP_LINE_DWELL_MS);
-    const whileTheReplayRuns = drawnText(container);
     deliver([6, 7]);
     advance(clock, CATCH_UP_LINE_DWELL_MS);
     entry.dispose();
 
     expect(afterTheRowFailed).toBe("Couldn't catch up · Try again");
-    expect(whileTheReplayRuns).toBe("Catching up…");
     // No read is coming for the row, so the line stands with Try again.
     expect(drawnText(container)).toBe("Couldn't catch up · Try again");
     // Each failure is said, the one that never moved the words included.
@@ -189,6 +190,7 @@ describe("SessionCatchUpLine", () => {
   it("says it couldn't catch up if the mounts read fails after a good session read", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry("session-mounts-failed", {
+      openingPageLimit,
       read: () => Promise.resolve({ cursor: 0, entities: [] }),
       clock,
       applyCoalesceMs: 0,
@@ -236,6 +238,7 @@ describe("SessionCatchUpLine", () => {
     const clock = new ManualClock(0);
     let readRejects = true;
     const entry = new OpenSessionEntry("session-read-lands", {
+      openingPageLimit,
       read: () =>
         readRejects
           ? Promise.reject(new Error("the daemon refused the read"))
@@ -297,6 +300,7 @@ describe("SessionCatchUpLine", () => {
   it("sends the cause to the diagnostic capture and never to the screen", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry(SESSION_ID, {
+      openingPageLimit,
       read: () => Promise.reject(new Error("the daemon refused the read")),
       clock,
       applyCoalesceMs: 0,

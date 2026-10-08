@@ -183,6 +183,7 @@ describe("SessionService — readSession", () => {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),
         latest: encodeEventCursor(1),
       },
+      liveRuns: [],
     });
   });
 

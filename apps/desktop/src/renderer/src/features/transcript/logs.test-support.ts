@@ -3,7 +3,7 @@
 // read from. The harness that mounts a feed is `feed/components/TranscriptFeed.test-support.tsx`.
 // Every event carries a real row id, because the hydrated-event read is keyed by it.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { EventCursorSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   TranscriptReadResponseSchema,
@@ -53,8 +53,8 @@ export function transcriptFixtureEventId(sequence: number): string {
  * The position the session's stream delivered the event at one log position, the cursor a link
  * to that message names. Not the row id, so a lookup that confused the two would find nothing.
  */
-export function transcriptFixtureStreamCursor(sequence: number): string {
-  return `stream-position-${String(sequence)}`;
+export function transcriptFixtureStreamCursor(sequence: number): EventCursor {
+  return EventCursorSchema.parse(`stream-position-${String(sequence)}`);
 }
 
 /** A run that has ENDED, so a case can name the run group it expects a header for. */

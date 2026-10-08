@@ -18,6 +18,13 @@ export function selectTranscript(state: SessionStoreState): readonly ProjectedSe
   return state.transcript;
 }
 
+/** The events the newest batch admitted, the transcript's tail held or not. */
+export function selectLastAdmittedEvents(
+  state: SessionStoreState,
+): readonly ProjectedSessionEvent[] {
+  return state.lastAdmittedEvents;
+}
+
 /** Every entity of one kind. A narrow pick, never a whole-pane object. */
 export function selectPartition(
   state: SessionStoreState,

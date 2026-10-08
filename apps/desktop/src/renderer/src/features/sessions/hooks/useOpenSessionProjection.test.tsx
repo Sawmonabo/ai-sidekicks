@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { worstDegradedCause } from "#renderer/store/session/degradation.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { readsNothing } from "#test/helpers/session/store/fixtures.js";
+import { readsNothing, openingPageLimit } from "#test/helpers/session/store/fixtures.js";
 import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
 import { OpenSessionRowProjection, useOpenSessionProjection } from "./useOpenSessionProjection.js";
 import type { SessionListRow } from "../rows/list-row.js";
@@ -41,7 +41,7 @@ function establish(
 
 /** A registry holding the named sessions, each with a base state. */
 function registryHolding(sessionIds: readonly string[]): SessionStoreRegistry {
-  const registry = new SessionStoreRegistry({ read: readsNothing });
+  const registry = new SessionStoreRegistry({ openingPageLimit, read: readsNothing });
   for (const sessionId of sessionIds) {
     establish(registry.open(sessionId), { cursor: 0, touchedAtIso: "2026-01-01T10:00:00.000Z" });
   }
