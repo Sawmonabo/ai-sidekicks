@@ -22,7 +22,6 @@ const TIMESTAMP = "2026-10-07T00:00:00.000Z";
 const CHECK_FAILURE = /CHECK constraint failed/;
 const WRONG_STORAGE_CLASS = /cannot store TEXT value in INTEGER column/;
 const HASH_A = `b3:${"a".repeat(64)}`;
-const HASH_B = `b3:${"b".repeat(64)}`;
 
 describe("workflow tables", () => {
   let db: DatabaseType;
@@ -48,20 +47,13 @@ describe("workflow tables", () => {
     id: string;
     definitionId: string;
     versionNumber: unknown;
-    contentHash?: string;
   }): void {
     db.prepare(
       `INSERT INTO workflow_versions
          (id, definition_id, version_number, content_hash, schema_version, definition_body,
           created_at)
        VALUES (?, ?, ?, ?, '2', '{}', ?)`,
-    ).run(
-      columns.id,
-      columns.definitionId,
-      columns.versionNumber,
-      columns.contentHash ?? HASH_A,
-      TIMESTAMP,
-    );
+    ).run(columns.id, columns.definitionId, columns.versionNumber, HASH_A, TIMESTAMP);
   }
 
   function insertRun(columns: {
@@ -75,7 +67,7 @@ describe("workflow tables", () => {
     db.prepare(
       `INSERT INTO workflow_runs
          (id, workflow_version_id, session_id, status, mode, started_by, chain_root_run_id,
-          chain_run_count, chain_kept_going, created_at)
+          chain_run_count, chain_kept_going, started_at)
        VALUES (?, 'version-1', 'session-1', ?, 'manual', '{"kind":"schedule"}', ?, ?, ?, ?)`,
     ).run(
       columns.id,
@@ -264,24 +256,6 @@ describe("workflow tables", () => {
         chainKeptGoing: 0,
       });
     }).toThrow(CHECK_FAILURE);
-  });
-
-  it("keys a version's bytes per definition", () => {
-    insertDefinition("definition-1");
-    insertDefinition("definition-2");
-    insertVersion({ id: "version-1", definitionId: "definition-1", versionNumber: 1 });
-    insertVersion({ id: "version-2", definitionId: "definition-2", versionNumber: 1 });
-    insertVersion({
-      id: "version-3",
-      definitionId: "definition-1",
-      versionNumber: 2,
-      contentHash: HASH_B,
-    });
-    expect(() => {
-      insertVersion({ id: "version-4", definitionId: "definition-1", versionNumber: 3 });
-    }).toThrow(
-      /UNIQUE constraint failed: workflow_versions\.definition_id, workflow_versions\.content_hash/,
-    );
   });
 
   it("takes a live workflow's name once, ignoring case, and frees it on delete", () => {

@@ -329,14 +329,8 @@
         // The structural difference between two versions, read by the version chain and difference
         // reads above.
         "src/workflow/definitions/versions/difference.ts",
-        // The list of runs waiting on a person, served by the workflow run handlers.
-        "src/workflow/runs/attention.ts",
         // A step's input, output or log read, served by the workflow step read handler.
-        "src/workflow/runs/step-payload.ts",
-        // The run read and the runs list, served by the workflow run handlers.
-        "src/workflow/runs/store.ts",
-        // The refusal for a malformed page cursor, raised by the run list and the step read above.
-        "src/workflow/runs/invalid-cursor.ts"
+        "src/workflow/runs/step-payload.ts"
       ]
     }
   }

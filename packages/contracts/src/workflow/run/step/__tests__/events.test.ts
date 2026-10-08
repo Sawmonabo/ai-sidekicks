@@ -27,7 +27,9 @@ const STEP = {
 };
 const EMPTY = { kind: "inline", items: [] };
 
-// One sample payload per registered workflow event type, with the category it is registered under.
+// One sample payload per registered workflow event type, with the category it is registered under;
+// `workflow.run_deleted` is left out, since its payload names only the run, which
+// `workflow.canceled` accepts too.
 const SAMPLES: ReadonlyArray<{
   type: string;
   category: EventCategory;

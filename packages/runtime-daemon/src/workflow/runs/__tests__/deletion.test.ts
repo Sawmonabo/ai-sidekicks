@@ -1,7 +1,8 @@
 // Deleting runs removes stored history for good: a delete must refuse a run still going, and a
-// chain's first run while a later run of the chain is going, without touching a row; leave nothing
-// of a run it deletes while answering the git folder its snapshot refs live in; and in bulk remove
-// exactly what its preview counted while sparing kept, waiting and parked runs.
+// chain's first run while a later run of the chain is going, without touching a row or the log;
+// leave nothing of a run it deletes while answering the git folder its snapshot refs live in, and
+// append the one deleted event a rebuild of the runs from the log needs to leave it out; and in
+// bulk remove exactly what its preview counted while sparing kept, waiting and parked runs.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -13,8 +14,10 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import { EventLogService } from "../../../events/log-service.js";
 import {
   createFixtureRun,
+  FIXTURE_SESSION_ID,
   insertExecutionContextCheckout,
   insertFixtureFormDraft,
   insertFixtureStep,
@@ -45,7 +48,7 @@ beforeEach(async () => {
   await database.writer.write([
     { sql: "CREATE TABLE approval_requests (id TEXT PRIMARY KEY) STRICT" },
   ]);
-  deletion = new WorkflowRunDeletion(database);
+  deletion = new WorkflowRunDeletion(database, new EventLogService({ writer: database.writer }));
   versionId = await insertWorkflowVersion(database.writer, "Nightly review");
   checkout = await insertExecutionContextCheckout(database.writer);
 });
@@ -64,16 +67,56 @@ async function storeRun(
   chainRootRunId?: WorkflowRunId,
 ): Promise<WorkflowRunId> {
   const workflowRunId = await createFixtureRun(database.writer, versionId, {
+    startedAt,
     executionContext: checkout,
     chain:
       chainRootRunId === undefined
         ? { kind: "starts" }
         : { kind: "joins", chainRootRunId, isFromError: false },
   });
-  await setFixtureRunStatus(database.writer, workflowRunId, status, startedAt, finishedAt);
+  await setFixtureRunStatus(database.writer, workflowRunId, status, finishedAt);
   await insertFixtureStep(database.writer, workflowRunId, step);
   await insertFixtureFormDraft(database.writer, workflowRunId);
   return workflowRunId;
+}
+
+interface DeletedEvent {
+  readonly appendedTo: string;
+  readonly payload: Record<string, string>;
+}
+
+// Each `workflow.run_deleted` in the log: the session it was appended to and its payload, in the
+// order of the runs it names.
+function readDeletedEvents(): DeletedEvent[] {
+  return database.reader
+    .prepare<[], { session_id: string; payload: string }>(
+      `SELECT session_id, payload FROM session_events WHERE type = 'workflow.run_deleted'
+       ORDER BY json_extract(payload, '$.workflowRunId')`,
+    )
+    .all()
+    .map((row) => ({
+      appendedTo: row.session_id,
+      payload: JSON.parse(row.payload) as Record<string, string>,
+    }));
+}
+
+// The event a delete of `workflowRunId`, a run of the fixture version, appends.
+function deletedEventOf(workflowRunId: WorkflowRunId): DeletedEvent {
+  const version = database.reader
+    .prepare<
+      [string],
+      { definition_id: string }
+    >("SELECT definition_id FROM workflow_versions WHERE id = ?")
+    .get(versionId);
+  return {
+    appendedTo: FIXTURE_SESSION_ID,
+    payload: {
+      sessionId: FIXTURE_SESSION_ID,
+      workflowRunId,
+      definitionId: version?.definition_id ?? "",
+      workflowVersionId: versionId,
+    },
+  };
 }
 
 const SETTLED_STEP: FixtureStep = { executionIndex: 0, status: "succeeded" };
@@ -105,12 +148,14 @@ describe("deleting one run", () => {
     for (const refused of refusedRows) {
       expect(readRunRows(database.reader, refused.workflowRunId)).toEqual(refused.rows);
     }
+    expect(readDeletedEvents()).toEqual([]);
 
     expect(await deletion.delete(finishedRunId)).toEqual({
       workflowRunId: finishedRunId,
       gitCommonDir: checkout.gitCommonDir,
     });
     expect(readRunRows(database.reader, finishedRunId)).toEqual(NO_ROWS);
+    expect(readDeletedEvents()).toEqual([deletedEventOf(finishedRunId)]);
     for (const refused of refusedRows) {
       expect(readRunRows(database.reader, refused.workflowRunId)).toEqual(refused.rows);
     }
@@ -144,8 +189,26 @@ describe("deleting runs older than an instant", () => {
     for (const workflowRunId of oldFinishedRunIds) {
       expect(readRunRows(database.reader, workflowRunId)).toEqual(NO_ROWS);
     }
+    expect(readDeletedEvents()).toEqual([...oldFinishedRunIds].sort().map(deletedEventOf));
     for (const survivor of survivors) {
       expect(readRunRows(database.reader, survivor.workflowRunId)).toEqual(survivor.rows);
     }
+  });
+
+  it("leaves a run kept after it was read as deletable, with no deleted event", async () => {
+    const keptLateRunId = await storeRun("succeeded", OLD_START, OLD_FINISH, SETTLED_STEP);
+
+    // The Keep write is queued first, so it commits before the delete's guard reads the run, while
+    // the delete reads the run before the Keep has committed.
+    const keeping = deletion.setKeep({ workflowRunId: keptLateRunId, keep: true });
+    const deleted = await deletion.deleteOlderThan(CUTOFF);
+    await keeping;
+
+    expect(deleted).toEqual([]);
+    expect(readRunRows(database.reader, keptLateRunId)).toMatchObject({
+      run: [{ id: keptLateRunId, kept: 1 }],
+      steps: [{ status: "succeeded" }],
+    });
+    expect(readDeletedEvents()).toEqual([]);
   });
 });

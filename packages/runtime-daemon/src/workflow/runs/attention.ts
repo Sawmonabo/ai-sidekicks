@@ -4,20 +4,41 @@
 
 import type { Statement } from "better-sqlite3";
 
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
-import type {
-  WorkflowRunAttentionEntry,
-  WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowRunAttentionEntry } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import type { DatabaseConnections } from "../../database/connections.js";
 import { GOING_RUN_STATUSES_SQL } from "./record.js";
 import {
   spentAccountColumns,
-  spentAccountFromColumns,
+  spentAccountNameFromColumns,
   type SpentAccountColumns,
+  type SpentAccountName,
 } from "./spent-account.js";
+
+/**
+ * One line of the runs-needing-you section as the rows hold it. An account line names its account
+ * by id, and by name while the account's row is stored.
+ *
+ * @consumedBy the run attention list handler
+ */
+export type StoredWorkflowRunAttentionEntry =
+  | Extract<WorkflowRunAttentionEntry, { kind: "run" }>
+  | (Omit<Extract<WorkflowRunAttentionEntry, { kind: "account" }>, "account"> & {
+      providerAccountId: ProviderAccountId;
+      accountName?: SpentAccountName | undefined;
+    });
+
+/**
+ * The runs-needing-you section as the rows hold it: the account lines first, then the runs
+ * waiting on a person, oldest first, with how many runs wait on a person.
+ */
+export interface StoredWorkflowRunAttentionList {
+  entries: StoredWorkflowRunAttentionEntry[];
+  waitingOnPersonCount: number;
+}
 
 interface PersonWaitRow {
   readonly run_id: string;
@@ -80,18 +101,21 @@ export class WorkflowRunAttentionList {
 
   /**
    * The account lines, oldest first, then one line per run waiting on a person, oldest first.
-   * Throws when a waiting step's node is missing from its run's version, or its spent account
-   * from the accounts, since neither line can be shown without it.
+   * Throws when a waiting step's node is missing from its run's version, since that line cannot be
+   * shown without it.
    */
-  read(): WorkflowRunAttentionListResponse {
-    const accountEntries: WorkflowRunAttentionEntry[] = this.#readAccountWaits.all().map((row) => ({
-      kind: "account",
-      account: spentAccountFromColumns(row.wait_account_id, row),
-      affectedRunCount: row.affected_run_count,
-      waitingSince: row.waiting_since,
-      resumeAt: row.resume_at ?? undefined,
-    }));
-    const runEntries: WorkflowRunAttentionEntry[] = this.#readPersonWaits.all().map((row) => {
+  read(): StoredWorkflowRunAttentionList {
+    const accountEntries: StoredWorkflowRunAttentionEntry[] = this.#readAccountWaits
+      .all()
+      .map((row) => ({
+        kind: "account",
+        providerAccountId: row.wait_account_id as ProviderAccountId,
+        accountName: spentAccountNameFromColumns(row.wait_account_id, row),
+        affectedRunCount: row.affected_run_count,
+        waitingSince: row.waiting_since,
+        resumeAt: row.resume_at ?? undefined,
+      }));
+    const runEntries: StoredWorkflowRunAttentionEntry[] = this.#readPersonWaits.all().map((row) => {
       if (row.step_name === null) {
         throw new Error(`A waiting step of run ${row.run_id} names no node of its version`);
       }

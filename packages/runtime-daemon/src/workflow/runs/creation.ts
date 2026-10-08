@@ -1,6 +1,6 @@
 // Creating a run's row: the statements the engine's run start writes in one unit of work with the
-// run's created event, so a run, its place in its chain and its execution context are stored
-// together or not at all.
+// run's `workflow.started`, whose instant is the run's start, so a run, its place in its chain and
+// its execution context are stored together or not at all.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
@@ -48,7 +48,7 @@ export type WorkflowRunExecutionContext = Pick<
   readonly gitCommonDir: string;
 };
 
-/** Everything a new run's row is written from; the run starts `new`, not yet started. */
+/** Everything a new run's row is written from; the run reads `new` until the engine admits it. */
 export interface WorkflowRunCreation {
   readonly workflowRunId: WorkflowRunId;
   /** The version the run pins for its whole life. */
@@ -60,15 +60,16 @@ export interface WorkflowRunCreation {
   readonly chain: WorkflowRunChainPlace;
   /** Present only for a run that works in a project's repository. */
   readonly executionContext?: WorkflowRunExecutionContext | undefined;
-  readonly createdAt: Date;
+  /** When the run was started: the request, fire or call that started it. */
+  readonly startedAt: Date;
 }
 
 const INSERT_RUN_SQL = `INSERT INTO workflow_runs (
     id, workflow_version_id, session_id, status, mode, trigger_json, started_by,
-    chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept, created_at
+    chain_root_run_id, chain_from_error, chain_run_count, chain_kept_going, kept, started_at
   ) VALUES (
     @id, @workflowVersionId, @sessionId, 'new', @mode, @triggerJson, @startedBy,
-    @chainRootRunId, @chainFromError, @chainRunCount, @chainKeptGoing, 0, @createdAt
+    @chainRootRunId, @chainFromError, @chainRunCount, @chainKeptGoing, 0, @startedAt
   )`;
 
 // Only a chain's first run counts, so a root that is gone or is not a first run matches no row.
@@ -80,7 +81,7 @@ const INSERT_EXECUTION_CONTEXT_SQL = `INSERT INTO run_execution_contexts (
     worktree_id, branch_context_id, created_at
   ) VALUES (
     @runId, @sessionId, @workspaceId, @executionMode, @executionRoot, @gitCommonDir,
-    @worktreeId, @branchContextId, @createdAt
+    @worktreeId, @branchContextId, @startedAt
   )`;
 
 /**
@@ -90,7 +91,7 @@ const INSERT_EXECUTION_CONTEXT_SQL = `INSERT INTO run_execution_contexts (
  * one. A first run's own row counts itself.
  */
 export function workflowRunCreationStatements(creation: WorkflowRunCreation): WriteStatement[] {
-  const createdAt = creation.createdAt.toISOString();
+  const startedAt = creation.startedAt.toISOString();
   const startsChain = creation.chain.kind === "starts";
   const statements: WriteStatement[] = [
     {
@@ -107,7 +108,7 @@ export function workflowRunCreationStatements(creation: WorkflowRunCreation): Wr
         chainFromError: creation.chain.kind === "joins" && creation.chain.isFromError ? 1 : 0,
         chainRunCount: startsChain ? 1 : null,
         chainKeptGoing: startsChain ? 0 : null,
-        createdAt,
+        startedAt,
       },
     },
   ];
@@ -131,7 +132,7 @@ export function workflowRunCreationStatements(creation: WorkflowRunCreation): Wr
         gitCommonDir: context.gitCommonDir,
         worktreeId: context.worktreeId ?? null,
         branchContextId: context.branchContextId,
-        createdAt,
+        startedAt,
       },
     });
   }

@@ -2,16 +2,16 @@
 // keychain, the Windows Credential Manager, and on Linux the Secret Service (GNOME Keyring,
 // KWallet, KeePassXC).
 //
-// Only the keychain is used. On Linux the entry is pinned to the Secret Service, so a machine
-// without one refuses instead of falling back to the kernel keyring, which forgets its keys at
-// reboot; there is no encrypted-file or plaintext fallback. A call that does not settle in time
-// is abandoned and reported locked, because a keychain waiting on an unlock prompt nobody
+// On Linux the entry is pinned to the Secret Service, so a machine without one refuses here
+// instead of falling back to the kernel keyring, which forgets its keys at reboot; there the
+// entries go in the daemon's items file (`file.ts`) instead. A call that does not settle
+// in time is abandoned and reported locked, because a keychain waiting on an unlock prompt nobody
 // answers never settles.
 import { AsyncEntry } from "@napi-rs/keyring";
 
 import type { WorkflowSecretStoreUnavailableCause } from "@ai-sidekicks/contracts/workflow/secret";
 
-import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./keychain.js";
+import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
 
 // How long one keychain call may take, an unlock prompt included.
 const KEYCHAIN_CALL_TIMEOUT_MS = 30_000;
@@ -68,7 +68,11 @@ export class OsSecretKeychain implements SecretKeychain {
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
-      throw new WorkflowSecretStoreUnavailableError(causeOfKeychainFailure(message), message);
+      throw new WorkflowSecretStoreUnavailableError(
+        causeOfKeychainFailure(message),
+        message,
+        error,
+      );
     } finally {
       clearTimeout(timer);
     }

@@ -6,7 +6,10 @@ import type { Statement } from "better-sqlite3";
 
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
-import type { WorkflowRunListRequest } from "@ai-sidekicks/contracts/workflow/run/records";
+import type {
+  WorkflowChainRoot,
+  WorkflowRunListRequest,
+} from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import type { DatabaseConnections } from "../../database/connections.js";
@@ -18,7 +21,6 @@ import {
   storedStepFromColumns,
   type RunColumns,
   type StepColumns,
-  type StoredWorkflowChainRoot,
   type StoredWorkflowRun,
   type StoredWorkflowStep,
 } from "./record.js";
@@ -32,7 +34,7 @@ import { spentAccountColumns } from "./spent-account.js";
  */
 export type StoredWorkflowRunRead = StoredWorkflowRun & {
   /** Absent once the chain's first run has been deleted. */
-  chainRoot?: StoredWorkflowChainRoot | undefined;
+  chainRoot?: WorkflowChainRoot | undefined;
   executionContextCaptured: boolean;
   steps: StoredWorkflowStep[];
 };
@@ -55,8 +57,8 @@ export type StoredWorkflowRunListEntry = StoredWorkflowRun & {
 
 /**
  * One page of the runs list, newest first, and how many runs the filters match in all. Each run
- * is listed once across pages: the order is the run's creation and then its id, neither of which
- * changes after the run is created.
+ * is listed once across pages: the order is the run's start and then its id, neither of which
+ * changes after the run is written.
  */
 export interface StoredWorkflowRunListPage {
   runs: StoredWorkflowRunListEntry[];
@@ -103,7 +105,7 @@ interface ListBindings {
   readonly startedBefore: string | null;
   readonly definitionId: string | null;
   readonly workflowVersionId: string | null;
-  readonly afterCreatedAt: string | null;
+  readonly afterStartedAt: string | null;
   readonly afterRunId: string | null;
   readonly pageRowLimit: number;
 }
@@ -139,10 +141,10 @@ const LIST_RUNS_SQL = `WITH matched AS (
   ),
   page AS (
     SELECT * FROM matched
-    WHERE @afterCreatedAt IS NULL
-       OR created_at < @afterCreatedAt
-       OR (created_at = @afterCreatedAt AND run_id < @afterRunId)
-    ORDER BY created_at DESC, run_id DESC
+    WHERE @afterStartedAt IS NULL
+       OR started_at < @afterStartedAt
+       OR (started_at = @afterStartedAt AND run_id < @afterRunId)
+    ORDER BY started_at DESC, run_id DESC
     LIMIT @pageRowLimit
   )
   SELECT (SELECT COUNT(*) FROM matched) AS total_count, page.*,
@@ -157,10 +159,9 @@ const LIST_RUNS_SQL = `WITH matched AS (
      SELECT MIN(first_waiting.execution_index) FROM workflow_steps AS first_waiting
      WHERE first_waiting.workflow_run_id = page.run_id AND first_waiting.status = 'waiting'
    )
-  ORDER BY page.created_at DESC, page.run_id DESC`;
+  ORDER BY page.started_at DESC, page.run_id DESC`;
 
-// A cursor names the last run a page listed by its creation instant, as `toISOString` writes it,
-// and its id.
+// A cursor names the last run a page listed by its start, as `toISOString` writes it, and its id.
 const LIST_CURSOR_PATTERN = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)_([0-9a-f-]{36})$/u;
 
 /** Reads runs and their steps for the run page and the runs list. */
@@ -211,7 +212,7 @@ export class WorkflowRunStore {
         request.startedBefore === undefined ? null : storedInstant(request.startedBefore),
       definitionId: request.definitionId ?? null,
       workflowVersionId: request.workflowVersionId ?? null,
-      afterCreatedAt: after?.createdAt ?? null,
+      afterStartedAt: after?.startedAt ?? null,
       afterRunId: after?.workflowRunId ?? null,
       pageRowLimit: request.limit + 1,
     });
@@ -227,17 +228,18 @@ export class WorkflowRunStore {
     const last = pageRows.length > request.limit ? pageRows[request.limit - 1] : undefined;
     return {
       runs,
-      nextCursor: last === undefined ? undefined : `${last.created_at}_${last.run_id}`,
+      nextCursor: last === undefined ? undefined : `${last.started_at}_${last.run_id}`,
       totalCount,
     };
   }
 }
 
-function chainRootFromColumns(columns: ChainRootColumns): StoredWorkflowChainRoot | undefined {
+function chainRootFromColumns(columns: ChainRootColumns): WorkflowChainRoot | undefined {
   if (
     columns.root_run_id === null ||
     columns.root_definition_id === null ||
     columns.root_workflow_name === null ||
+    columns.root_started_at === null ||
     columns.root_run_count === null
   ) {
     return undefined;
@@ -246,15 +248,15 @@ function chainRootFromColumns(columns: ChainRootColumns): StoredWorkflowChainRoo
     runId: columns.root_run_id as WorkflowRunId,
     definitionId: columns.root_definition_id as WorkflowDefinitionId,
     workflowName: columns.root_workflow_name,
-    startedAt: columns.root_started_at ?? undefined,
+    startedAt: columns.root_started_at,
     runCount: columns.root_run_count,
   };
 }
 
-function readListCursor(cursor: string): { createdAt: string; workflowRunId: string } {
+function readListCursor(cursor: string): { startedAt: string; workflowRunId: string } {
   const match = LIST_CURSOR_PATTERN.exec(cursor);
   if (match?.[1] === undefined || match[2] === undefined) {
     throw new InvalidCursorError(`"${cursor}" is not a runs-list cursor`);
   }
-  return { createdAt: match[1], workflowRunId: match[2] };
+  return { startedAt: match[1], workflowRunId: match[2] };
 }
