@@ -54,7 +54,7 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
           <Chip label={reading.derived.mimeType} mono />
           <WireFigure
             value={formatByteQuantity(reading.derived.sizeBytes).text}
-            title={String(reading.derived.sizeBytes)}
+            hoverLabel={String(reading.derived.sizeBytes)}
           />
           <span className="meridian-attachment__artifact-id">
             <WireFigure value={reading.derived.artifactId} />
@@ -93,7 +93,7 @@ function renderIngesting(
       <div className="meridian-attachment__face">
         <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
         {nameReading.provenance === "declared" ? (
-          <WireFigure value={nameReading.name} title={DECLARED_NAME_TITLE} />
+          <WireFigure value={nameReading.name} hoverLabel={DECLARED_NAME_TITLE} />
         ) : (
           <WireFigure value={nameReading.name} />
         )}
@@ -112,9 +112,9 @@ function renderIngesting(
           </Fragment>
         ))}
         <span className="meridian-attachment__bytes">
-          <WireFigure value={receivedFigure.text} title={String(entry.receivedBytes)} />
+          <WireFigure value={receivedFigure.text} hoverLabel={String(entry.receivedBytes)} />
           <DerivedFigure text="of" />
-          <WireFigure value={declaredFigure.text} title={String(entry.declared.byteLength)} />
+          <WireFigure value={declaredFigure.text} hoverLabel={String(entry.declared.byteLength)} />
         </span>
         <Chip
           label={codeWords(entry.state)}

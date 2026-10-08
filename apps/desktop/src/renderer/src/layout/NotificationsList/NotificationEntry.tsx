@@ -5,7 +5,7 @@ import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale
 
 /**
  * One entry, one line: a dot (waiting amber, done a hollow ring, failed a red mark), the name, the
- * daemon's state word verbatim and the age, whose hover title is the time it stands for. A button
+ * daemon's state word verbatim and the age, whose hover label is the time it stands for. A button
  * when the caller supplied a way to open it, plain text otherwise, so the list never offers a
  * press that goes nowhere.
  */
@@ -26,7 +26,7 @@ export function NotificationEntry(props: {
       <span className="meridian-attention__state">{item.stateWord}</span>
       <WireFigure
         value={formatRelativeTime(item.createdAt, props.nowMilliseconds)}
-        title={formatZonedDateTime(item.createdAt, clockLocale)}
+        hoverLabel={formatZonedDateTime(item.createdAt, clockLocale)}
       />
     </>
   );

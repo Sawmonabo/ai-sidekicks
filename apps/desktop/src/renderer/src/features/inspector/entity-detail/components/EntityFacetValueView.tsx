@@ -18,8 +18,8 @@ export function EntityFacetValueView(props: { readonly facet: EntityFacet }): Re
   if (value.form === "instant") {
     return (
       <>
-        <WireFigure value={value.clockText} title={value.zonedText} /> ·{" "}
-        <WireFigure value={value.text} title={value.zonedText} />
+        <WireFigure value={value.clockText} hoverLabel={value.zonedText} /> ·{" "}
+        <WireFigure value={value.text} hoverLabel={value.zonedText} />
       </>
     );
   }

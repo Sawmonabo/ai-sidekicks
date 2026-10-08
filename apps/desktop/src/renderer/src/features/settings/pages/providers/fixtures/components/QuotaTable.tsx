@@ -84,14 +84,14 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
               ) : (
                 <WireFigure
                   value={formatDateTime(window.resetsAt, clockLocale)}
-                  title={formatZonedDateTime(window.resetsAt, clockLocale)}
+                  hoverLabel={formatZonedDateTime(window.resetsAt, clockLocale)}
                 />
               )}
             </td>
             <td>
               <WireFigure
                 value={formatDateTime(window.observedAt, clockLocale)}
-                title={formatZonedDateTime(window.observedAt, clockLocale)}
+                hoverLabel={formatZonedDateTime(window.observedAt, clockLocale)}
               />{" "}
               <Chip label={codeWords(window.source)} />
               {behindAccountGeneration ? (

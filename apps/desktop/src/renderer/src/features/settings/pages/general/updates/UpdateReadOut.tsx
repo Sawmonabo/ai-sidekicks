@@ -52,7 +52,7 @@ export function UpdateReadOut(props: {
           Update available — <WireFigure value={state.version} />, released{" "}
           <WireFigure
             value={formatDate(state.releasedAt, clockLocale)}
-            title={formatZonedDateTime(state.releasedAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(state.releasedAt, clockLocale)}
           />
           .
         </p>

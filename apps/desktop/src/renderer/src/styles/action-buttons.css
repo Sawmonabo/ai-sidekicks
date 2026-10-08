@@ -8,7 +8,8 @@
  * `--compact` and `--small` lay a glyph out beside the label. Faces: `--outline` is the
  * page surface under the strong edge; `--raised` is the raised surface under the quiet edge,
  * which strengthens on hover and sinks with its text faded while disabled. `--destructive` marks
- * a face red while it is enabled. A size or face no other control shares stays in that
+ * a face red while it is enabled. A button disabled by `aria-disabled`, which keeps focus so its
+ * hover label still shows, wears the disabled face too. A size or face no other control shares stays in that
  * control's class.
  *
  * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
@@ -62,11 +63,11 @@
   border-color: var(--meridian-edge);
 }
 
-:where(.meridian-action-button--raised:hover:enabled) {
+:where(.meridian-action-button--raised:hover:not(:disabled, [aria-disabled="true"])) {
   border-color: var(--meridian-edge-strong);
 }
 
-:where(.meridian-action-button--raised:disabled) {
+:where(.meridian-action-button--raised:is(:disabled, [aria-disabled="true"])) {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;
@@ -77,7 +78,7 @@
  * control would read as the primary act. Only while enabled, so a closed destructive control
  * fades like any other, and after the hover rule, so its edge stays red under the pointer.
  */
-:where(.meridian-action-button--destructive:enabled) {
+:where(.meridian-action-button--destructive:not(:disabled, [aria-disabled="true"])) {
   color: var(--meridian-red-text);
   border-color: var(--meridian-red-mark);
 }

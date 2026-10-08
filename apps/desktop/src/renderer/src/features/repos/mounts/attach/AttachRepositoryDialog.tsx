@@ -157,14 +157,14 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
             <dd>
               <WireFigure
                 value={reading.response.repoMountId}
-                title={reading.response.repoMountId}
+                hoverLabel={reading.response.repoMountId}
               />
             </dd>
             <dt>Resolved root</dt>
             <dd>
               <WireFigure
                 value={reading.response.canonicalRoot}
-                title={reading.response.canonicalRoot}
+                hoverLabel={reading.response.canonicalRoot}
               />
             </dd>
           </dl>

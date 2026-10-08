@@ -113,7 +113,7 @@ describe("TranscriptRowLayout — the time on the machine's own clock", () => {
       { wrapper: bridgeWrapper(bridge) },
     );
     const time = (): string | null =>
-      container.querySelector(`[data-hover-label="${occurredAtIso}"]`)?.textContent ?? null;
+      container.querySelector(".meridian-figure--wire[data-hover-label]")?.textContent ?? null;
     expect(time()).toBe("2:20:05 PM");
 
     act(() => {

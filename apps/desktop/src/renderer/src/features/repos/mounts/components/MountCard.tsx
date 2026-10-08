@@ -69,7 +69,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       <header className="meridian-mount-card__head">
         <Glyph name="repo" size={GLYPH_SIZE_CHROME} />
         {/* The title carries the whole string the stylesheet truncates. */}
-        <WireFigure value={mount.canonicalRoot} title={mount.canonicalRoot} truncate />
+        <WireFigure value={mount.canonicalRoot} hoverLabel={mount.canonicalRoot} truncate />
         <button
           type="button"
           className="meridian-mount-card__copy"
@@ -90,7 +90,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           probed{" "}
           <WireFigure
             value={formatClockTime(mount.health.checkedAt, clockLocale)}
-            title={formatZonedDateTime(mount.health.checkedAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(mount.health.checkedAt, clockLocale)}
           />
         </span>
       </div>
@@ -122,13 +122,13 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         <dl className="meridian-mount-card__provenance-list">
           <dt>Entered path</dt>
           <dd>
-            <WireFigure value={mount.localPath} title={mount.localPath} />
+            <WireFigure value={mount.localPath} hoverLabel={mount.localPath} />
           </dd>
           <dt>Attached</dt>
           <dd>
             <WireFigure
               value={formatDateTime(mount.attachedAt, clockLocale)}
-              title={formatZonedDateTime(mount.attachedAt, clockLocale)}
+              hoverLabel={formatZonedDateTime(mount.attachedAt, clockLocale)}
             />
           </dd>
         </dl>

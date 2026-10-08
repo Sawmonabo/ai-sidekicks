@@ -99,11 +99,19 @@ describe("an edge's item count at the largest text size", () => {
       expect(drawn).toHaveLength(workflowDocument.edges.length);
       return drawn;
     });
-    // The count is drawn short, the whole count is its title.
+    // The count is drawn short, the whole count is its hover label, and the pointer over the count
+    // reaches the count itself rather than the background drawn behind it.
     for (const label of labels) {
-      const text = label.querySelector(".react-flow__edge-text");
-      expect(text?.querySelector("title")?.textContent).toBe("123,456,789,012 items");
-      expect(text?.querySelector("tspan")?.lastChild?.textContent).toBe("123B");
+      const count = label.querySelector<SVGTSpanElement>(".react-flow__edge-text tspan");
+      expect(count?.dataset["hoverLabel"]).toBe("123,456,789,012 items");
+      expect(count?.textContent).toBe("123B");
+      count?.scrollIntoView({ block: "center", inline: "center" });
+      const countBox = count?.getBoundingClientRect();
+      const pointed = document.elementFromPoint(
+        (countBox?.left ?? 0) + (countBox?.width ?? 0) / 2,
+        (countBox?.top ?? 0) + (countBox?.height ?? 0) / 2,
+      );
+      expect(pointed?.closest("[data-hover-label]")).toBe(count);
     }
     const nodeBoxes = [...container.querySelectorAll<HTMLElement>(".react-flow__node")].map(
       (node) => ({ id: node.dataset["id"], box: node.getBoundingClientRect() }),

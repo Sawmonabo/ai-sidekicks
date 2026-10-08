@@ -74,7 +74,7 @@ export function AccountRow(props: {
               <span className="meridian-settings-page__aside">Observed </span>
               <WireFigure
                 value={formatDateTime(account.healthObservedAt, clockLocale)}
-                title={formatZonedDateTime(account.healthObservedAt, clockLocale)}
+                hoverLabel={formatZonedDateTime(account.healthObservedAt, clockLocale)}
               />
             </>
           )}

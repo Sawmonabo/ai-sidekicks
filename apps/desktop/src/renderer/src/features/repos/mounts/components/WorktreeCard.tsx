@@ -26,6 +26,7 @@ import {
 } from "../execution-roots/columns.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
@@ -100,16 +101,18 @@ function summaryCell(
   switch (column) {
     case "fsRoot":
       return (
-        <dd className="meridian-root-card__path" title={record.fsRoot}>
-          <WireFigure value={record.fsRoot} />
-        </dd>
+        <HoverLabel text={record.fsRoot} textIs="visible-text">
+          <dd className="meridian-root-card__path">
+            <WireFigure value={record.fsRoot} />
+          </dd>
+        </HoverLabel>
       );
     case "createdAt":
       return (
         <dd>
           <WireFigure
             value={formatRelativeTime(record.createdAt, nowMilliseconds)}
-            title={formatZonedDateTime(record.createdAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(record.createdAt, clockLocale)}
           />
         </dd>
       );

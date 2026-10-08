@@ -27,12 +27,12 @@ export function ToolKindBadge(props: ToolKindBadgeProps): React.ReactNode {
     <span className="meridian-tool-kind-badge">
       {reading.serverLabel === undefined ? null : (
         <>
-          <WireFigure value={reading.serverLabel} title="Server" />{" "}
+          <WireFigure value={reading.serverLabel} hoverLabel="Server" />{" "}
         </>
       )}
       {reading.argumentSummary.map((argument) => (
         <Fragment key={argument}>
-          <WireFigure value={argument} title="Argument" />{" "}
+          <WireFigure value={argument} hoverLabel="Argument" />{" "}
         </Fragment>
       ))}
     </span>

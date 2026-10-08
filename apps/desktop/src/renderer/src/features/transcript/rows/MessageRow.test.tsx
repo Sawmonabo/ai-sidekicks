@@ -225,13 +225,12 @@ describe("a message's Copy", () => {
 
 describe("a reply's foot", () => {
   it("stands on the reply's last row alone once it has text, and keeps it when dropped", async () => {
-    const occurredAt = "2026-09-02T10:00:00.000Z";
     const replyRows = replyRowIdsByFootRowId([
       sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
       sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
     ]);
     const timesIn = (container: HTMLElement) =>
-      container.querySelectorAll(`[data-hover-label="${occurredAt}"]`);
+      container.querySelectorAll(".meridian-figure--wire[data-hover-label]");
 
     const opening = renderMessageCard({
       id: "reply-opening",
@@ -324,7 +323,6 @@ describe("a reply's foot", () => {
   });
 
   it("keeps the foot on a new empty last row when the earlier row holds only a stored body", () => {
-    const occurredAt = "2026-09-02T10:00:00.000Z";
     const replyRows = replyRowIdsByFootRowId([
       sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
       sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
@@ -336,7 +334,7 @@ describe("a reply's foot", () => {
       replyRowIds: replyRows.get("reply-closing"),
       revealChannel: channel,
     });
-    expect(closing.querySelectorAll(`[data-hover-label="${occurredAt}"]`)).toHaveLength(0);
+    expect(closing.querySelectorAll(".meridian-figure--wire[data-hover-label]")).toHaveLength(0);
 
     // The earlier row draws its stored body, with no live text: the foot comes to the last row.
     const opening = renderMessageCard({
@@ -345,9 +343,9 @@ describe("a reply's foot", () => {
       replyRowIds: replyRows.get("reply-opening"),
       revealChannel: channel,
     });
-    expect(opening.querySelectorAll(`[data-hover-label="${occurredAt}"]`)).toHaveLength(0);
+    expect(opening.querySelectorAll(".meridian-figure--wire[data-hover-label]")).toHaveLength(0);
     const foot = closing.querySelector(".meridian-transcript-row-layout__footer");
-    expect(foot?.querySelectorAll(`[data-hover-label="${occurredAt}"]`)).toHaveLength(1);
+    expect(foot?.querySelectorAll(".meridian-figure--wire[data-hover-label]")).toHaveLength(1);
     expect(foot?.querySelector("button")?.textContent).toBe("Copy");
   });
 });

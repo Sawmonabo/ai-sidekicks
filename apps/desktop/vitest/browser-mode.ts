@@ -20,6 +20,7 @@ const BASE_UI_PACKAGE = "@base-ui/react";
 const BASE_UI_ENTRY_POINTS: readonly string[] = [
   BASE_UI_PACKAGE,
   `${BASE_UI_PACKAGE}/alert-dialog`,
+  `${BASE_UI_PACKAGE}/button`,
   `${BASE_UI_PACKAGE}/checkbox`,
   `${BASE_UI_PACKAGE}/collapsible`,
   `${BASE_UI_PACKAGE}/combobox`,

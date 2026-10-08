@@ -44,7 +44,7 @@ export const DefinitionListItem: React.MemoExoticComponent<
         version{" "}
         <WireFigure
           value={formatCount(definition.latestVersionNumber)}
-          title={`${definition.latestVersionNumber}`}
+          hoverLabel={`${definition.latestVersionNumber}`}
         />
       </td>
     </tr>

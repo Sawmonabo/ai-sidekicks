@@ -151,7 +151,7 @@ function boxesOverlap(first: DOMRect, second: DOMRect): boolean {
   );
 }
 
-/** The name a failure reports a control by: its label, its title, its text, or its markup. */
+/** The name a failure reports a control by: its label, its text, or its markup. */
 function accessibleNameOf(control: Element): string {
   const labelledBy = control.getAttribute("aria-labelledby");
   const labelText =
@@ -162,12 +162,7 @@ function accessibleNameOf(control: Element): string {
           .map((id) => control.ownerDocument.getElementById(id)?.textContent?.trim() ?? "")
           .join(" ")
           .trim();
-  const candidates = [
-    control.getAttribute("aria-label"),
-    labelText,
-    control.getAttribute("title"),
-    control.textContent?.trim(),
-  ];
+  const candidates = [control.getAttribute("aria-label"), labelText, control.textContent?.trim()];
   return (
     candidates.find((name) => name !== null && name !== undefined && name !== "") ??
     control.outerHTML

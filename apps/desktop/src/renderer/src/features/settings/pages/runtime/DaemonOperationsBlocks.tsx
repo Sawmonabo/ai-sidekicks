@@ -18,6 +18,7 @@
 // while a dispatch is outstanding is not that, since the outstanding dispatch is a fact they
 // hold.
 
+import { Button } from "@base-ui/react/button";
 import { useCallback, useState, type ReactNode } from "react";
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
@@ -255,10 +256,10 @@ function renderUsageReading(
   }
   return (
     <span>
-      <WireFigure value={reading.figure} title={reading.exactValue} /> · as of{" "}
+      <WireFigure value={reading.figure} hoverLabel={reading.exactValue} /> · as of{" "}
       <WireFigure
         value={formatClockTime(reading.readAt, clockLocale)}
-        title={formatZonedDateTime(reading.readAt, clockLocale)}
+        hoverLabel={formatZonedDateTime(reading.readAt, clockLocale)}
       />
     </span>
   );
@@ -268,7 +269,8 @@ function renderUsageReading(
  * The confirm step: the question, the verb, and the two ways out of it.
  *
  * `dispatchedReason` is `undefined` while the confirmation is a question and a sentence once
- * it has been answered, so one value carries both the disable and its cause.
+ * it has been answered, so one value carries both the disable and its cause. A disabled button
+ * keeps focus, so the press that answers does not drop focus to the page.
  */
 function renderControlConfirm(
   control: DaemonControl,
@@ -284,27 +286,27 @@ function renderControlConfirm(
       <AnnouncedLine element="p" words={copy.confirmation} politeness="polite" />
       <div className="meridian-settings-page__actions">
         <HoverLabel text={dispatchedReason} textIs="description">
-          <button
-            type="button"
+          <Button
             className={
               "meridian-settings-page__action " +
               "meridian-settings-page__action--destructive meridian-action-button"
             }
             disabled={isDispatched}
+            focusableWhenDisabled
             onClick={onConfirm}
           >
             {copy.verb}
-          </button>
+          </Button>
         </HoverLabel>
         <HoverLabel text={dispatchedReason} textIs="description">
-          <button
-            type="button"
+          <Button
             className="meridian-settings-page__action meridian-action-button"
             disabled={isDispatched}
+            focusableWhenDisabled
             onClick={onCancel}
           >
             Cancel
-          </button>
+          </Button>
         </HoverLabel>
       </div>
       {isDispatched ? (

@@ -1,10 +1,11 @@
 // The hover label under a real pointer and keyboard in Chromium, where the label's box lands
 // against its control by real geometry: it shows when the keyboard reaches its control, Escape
-// closes it, and it stays while the pointer crosses from the control onto the label. Moving the
+// closes it, and it stays while the pointer crosses from the control onto the label, its box
+// touching the control's so the crossing passes over nothing else. Moving the
 // pointer off both is the negative control: the label closes, so its staying is not a label that
 // never closes.
 
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -31,33 +32,63 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
   );
   const control = getByRole("button", { name: "Color scheme" });
 
-  getByRole("button", { name: "Before" }).focus();
-  await userEvent.tab();
+  act(() => {
+    getByRole("button", { name: "Before" }).focus();
+  });
+  await act(async () => {
+    await userEvent.tab();
+  });
   expect(document.activeElement).toBe(control);
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Color scheme");
   });
 
-  await userEvent.keyboard("{Escape}");
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
   await waitFor(() => {
     expect(shownLabel()).toBeNull();
   });
   expect(document.activeElement).toBe(control);
 
-  control.blur();
-  await userEvent.hover(control);
-  await waitFor(() => {
-    expect(shownLabel()).not.toBeNull();
+  act(() => {
+    control.blur();
   });
-  await userEvent.hover(shownLabel()!);
-  await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+  await act(async () => {
+    await userEvent.hover(control);
+  });
+  const label = await waitFor(() => {
+    const shown = shownLabel();
+    expect(shown).not.toBeNull();
+    return shown!;
+  });
+  expect(gapBetween(label.getBoundingClientRect(), control.getBoundingClientRect())).toBeLessThan(
+    1,
+  );
+  await act(async () => {
+    await userEvent.hover(label);
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+  });
   expect(shownLabel()?.textContent).toBe("Color scheme");
 
-  await userEvent.hover(getByRole("button", { name: "After" }));
+  await act(async () => {
+    await userEvent.hover(getByRole("button", { name: "After" }));
+  });
   await waitFor(() => {
     expect(shownLabel()).toBeNull();
   });
 });
+
+/** The widest empty run between two boxes along either axis; zero when they touch or overlap. */
+function gapBetween(first: DOMRect, second: DOMRect): number {
+  return Math.max(
+    0,
+    first.left - second.right,
+    second.left - first.right,
+    first.top - second.bottom,
+    second.top - first.bottom,
+  );
+}
 
 function shownLabel(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".meridian-hover-label");

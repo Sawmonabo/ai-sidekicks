@@ -47,7 +47,7 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
           <span className="meridian-run-graph-node__count">
             <WireFigure
               value={formatCompactCount(view.outputCount)}
-              title={itemCountWords(view.outputCount)}
+              hoverLabel={itemCountWords(view.outputCount)}
             />
           </span>
         )}

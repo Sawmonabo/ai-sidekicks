@@ -88,7 +88,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
           <dl className="meridian-reattach__subject">
             <dt>Path</dt>
             <dd>
-              <WireFigure value={localPath} title={localPath} />
+              <WireFigure value={localPath} hoverLabel={localPath} />
             </dd>
           </dl>
           <div className="meridian-dialog__actions">

@@ -58,7 +58,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       definition: (
         <WireFigure
           value={formatDateTime(account.loggedInAt, clockLocale)}
-          title={formatZonedDateTime(account.loggedInAt, clockLocale)}
+          hoverLabel={formatZonedDateTime(account.loggedInAt, clockLocale)}
         />
       ),
     });

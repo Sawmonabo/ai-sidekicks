@@ -36,7 +36,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
           <span className="meridian-form__label">Created</span>{" "}
           <WireFigure
             value={formatDateTime(agent.createdAt, clockLocale)}
-            title={formatZonedDateTime(agent.createdAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(agent.createdAt, clockLocale)}
           />
         </span>
       </header>

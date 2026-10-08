@@ -1,19 +1,23 @@
+import { Button } from "@base-ui/react/button";
+
 /** How a workflows action button stands out: outlined, filled with the accent, or raised. */
 export type ActionButtonTone = "outline" | "primary" | "raised";
 
 /**
  * The workflows screen's small action button, in the app's shared action-button treatment. It is
  * a plain `type="button"` unless it submits a form; `className` adds the caller's own layout.
+ * `focusableWhenDisabled` keeps a disabled button in the tab order, so its reason can be reached.
  */
 export function ActionButton(
   props: Omit<React.ComponentPropsWithoutRef<"button">, "type"> & {
     readonly tone?: ActionButtonTone;
     readonly type?: "button" | "submit";
+    readonly focusableWhenDisabled?: boolean;
   },
 ): React.JSX.Element {
   const { tone = "outline", type = "button", className, ...buttonProps } = props;
   return (
-    <button
+    <Button
       {...buttonProps}
       type={type}
       className={

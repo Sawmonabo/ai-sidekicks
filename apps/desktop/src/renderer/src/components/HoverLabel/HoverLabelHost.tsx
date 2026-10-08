@@ -10,7 +10,7 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { overlayClassName } from "#renderer/components/OverlayPopups/overlay-class-name.js";
 import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
-import { useShownHoverLabel } from "./useShownHoverLabel.js";
+import { useShownHoverLabel } from "./hooks/useShownHoverLabel.js";
 
 import "./HoverLabelHost.css";
 

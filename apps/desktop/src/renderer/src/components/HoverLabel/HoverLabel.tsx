@@ -27,7 +27,7 @@ export type HoverLabelSide = "top" | "right" | "bottom" | "left";
 
 /** Props for `HoverLabel`. */
 export interface HoverLabelProps {
-  /** The label's words; `undefined` draws the trigger with no label. */
+  /** The label's words; `undefined` or an empty string draws the trigger with no label. */
   readonly text: string | undefined;
   readonly textIs: HoverLabelTextRole;
   /** Defaults to `top`. */
@@ -51,9 +51,11 @@ export interface HoverLabelTriggerProps {
 export function HoverLabel(props: HoverLabelProps): React.JSX.Element {
   const ownerWindow = useOwnerWindow();
   const descriptionId = useId();
-  const { text } = props;
+  // An empty string draws no label, as an empty `title` showed nothing.
+  const text = props.text === "" ? undefined : props.text;
   const isDescription = props.textIs === "description" && text !== undefined;
-  // Only the keys that hold a value, so a trigger's own attribute is never written over.
+  // Only the keys this label sets: one it leaves unset keeps the trigger's own value, and one it
+  // sets replaces it.
   const labelProps: HoverLabelTriggerProps =
     text === undefined
       ? {}

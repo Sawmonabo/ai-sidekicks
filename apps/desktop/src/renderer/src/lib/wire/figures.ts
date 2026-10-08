@@ -127,7 +127,7 @@ export function formatCount(value: number, locale?: string): string {
 
 /**
  * A count shortened for a figure that must stay narrow, in the locale's compact notation (`1.2K`,
- * `3.4M`). The full count, `formatCount`, belongs in its title. Non-finite is an em dash.
+ * `3.4M`). The full count, `formatCount`, belongs in its hover label. Non-finite is an em dash.
  */
 export function formatCompactCount(value: number, locale?: string): string {
   if (!Number.isFinite(value)) {
@@ -341,9 +341,10 @@ export function formatDateTime(iso: string, locale: string): string {
 }
 
 /**
- * The time an instant stands for, as a hover title reads it: {@link formatDateTime} on the
+ * The time an instant stands for, as a hover label reads it: {@link formatDateTime} on the
  * machine's own clock with its zone, `Oct 7, 2026, 7:28 PM EDT`. A relative time and every other
- * timestamp carry it as their `title`; the exact stamp the daemon sent is read in the inspector.
+ * timestamp carry it in their hover label; the exact stamp the daemon sent is read in the
+ * inspector.
  */
 export function formatZonedDateTime(iso: string, locale: string): string {
   const instant = parseInstant(iso);
