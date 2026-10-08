@@ -172,6 +172,25 @@ const RESOLVED = {
   clientResolutionId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f27",
 };
 const INLINE_REF = { kind: "inline", items: [] };
+const RUN_STATE_CHANGE = {
+  sessionId: SESSION_ID,
+  runId: RUN_ID,
+  runVersion: 3,
+  previousState: "running",
+};
+const RECOVERY = {
+  nodeId: "node-1",
+  recoveryId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f28",
+  phase: "projection_rebuild",
+  attemptNumber: 1,
+};
+const INTERVENTION = {
+  sessionId: SESSION_ID,
+  interventionId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f27",
+  targetRunId: RUN_ID,
+  type: "steer",
+  actor: "daemon",
+};
 
 /**
  * A valid payload for each registered event type that no other contracts test builds, keyed by the
@@ -407,6 +426,7 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
   ],
   ["workflow.resumed", WORKFLOW],
   ["workflow.canceled", WORKFLOW],
+  ["workflow.run_deleted", WORKFLOW],
   ["workflow.results_posted", { sessionId: SESSION_ID, workflowRunId: WORKFLOW_RUN_ID }],
   ["workflow.step_started", { ...STEP, inputRef: INLINE_REF }],
   ["workflow.step_finished", { ...STEP, outputRef: INLINE_REF, logRef: INLINE_REF }],
@@ -416,4 +436,50 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
   ["backup.completed", { backupId: "backup-2026-01-22", totalBytes: 1_048_576 }],
   ["backup.failed", { message: "The backup folder is not writable." }],
   ["backup.restored", { backupId: "backup-2026-01-22" }],
+  [
+    "recovery.attempted",
+    { ...RECOVERY, recoveryTrigger: "startup", priorFailureCount: 0, startedAt: OCCURRED_AT },
+  ],
+  [
+    "recovery.succeeded",
+    {
+      ...RECOVERY,
+      eventsApplied: 12,
+      bindingsRestored: 1,
+      runsResumed: 1,
+      runsFailedDeterministically: 0,
+      runsHaltedForReconciliation: 0,
+      runsInterrupted: 0,
+      durationMs: 40,
+      completedAt: OCCURRED_AT,
+    },
+  ],
+  [
+    "recovery.failed",
+    {
+      ...RECOVERY,
+      failureKind: "projection_rebuild_failed",
+      detail: "The projection could not be rebuilt.",
+      runsLeftInFlight: [RUN_ID],
+      durationMs: 40,
+    },
+  ],
+  ["recovery.damaged_events_skipped", { sessionId: SESSION_ID, fromSequence: 4, toSequence: 9 }],
+  ["run.starting", { ...RUN_STATE_CHANGE, newState: "starting" }],
+  ["run.running", { ...RUN_STATE_CHANGE, newState: "running" }],
+  ["run.waiting_for_approval", { ...RUN_STATE_CHANGE, newState: "waiting_for_approval" }],
+  ["run.waiting_for_input", { ...RUN_STATE_CHANGE, newState: "waiting_for_input" }],
+  ["run.pausing", { ...RUN_STATE_CHANGE, newState: "pausing" }],
+  ["run.paused", { ...RUN_STATE_CHANGE, newState: "paused" }],
+  ["run.interrupted", { ...RUN_STATE_CHANGE, newState: "interrupted" }],
+  ["run.stopped", { ...RUN_STATE_CHANGE, newState: "stopped" }],
+  ["run.failed", { ...RUN_STATE_CHANGE, newState: "failed" }],
+  ["run.completed", { ...RUN_STATE_CHANGE, newState: "completed", completionKind: "turn" }],
+  ["intervention.requested", { ...INTERVENTION, state: "requested" }],
+  ["intervention.accepted", { ...INTERVENTION, state: "accepted" }],
+  ["intervention.applied", { ...INTERVENTION, state: "applied" }],
+  ["intervention.rejected", { ...INTERVENTION, state: "rejected" }],
+  ["intervention.degraded", { ...INTERVENTION, state: "degraded" }],
+  ["intervention.expired", { ...INTERVENTION, state: "expired" }],
+  ["intervention.failed", { ...INTERVENTION, state: "failed" }],
 ]);
