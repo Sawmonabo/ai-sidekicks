@@ -45,13 +45,13 @@ struct CommitPayload {
     highest_row_keys: [u64; 4],
     /// The segments that held a purged session's or a deleted group's rows, still to be rewritten
     /// without them.
-    removed_owner_segments: HashSet<SegmentId>,
+    segments_to_expunge: HashSet<SegmentId>,
 }
 
 struct Writing {
     writer: IndexWriter,
     highest_row_keys: [u64; 4],
-    removed_owner_segments: HashSet<SegmentId>,
+    segments_to_expunge: HashSet<SegmentId>,
 }
 
 /// The index in one folder.
@@ -128,7 +128,7 @@ impl IndexEngine {
             writing: Mutex::new(Some(Writing {
                 writer,
                 highest_row_keys: payload.highest_row_keys,
-                removed_owner_segments: payload.removed_owner_segments,
+                segments_to_expunge: payload.segments_to_expunge,
             })),
             version: RwLock::new(Arc::new(version)),
         })
@@ -169,7 +169,7 @@ impl IndexEngine {
         let mut committed = CommitPayload {
             last_applied_outbox_id,
             highest_row_keys: writing.highest_row_keys,
-            removed_owner_segments: writing.removed_owner_segments.clone(),
+            segments_to_expunge: writing.segments_to_expunge.clone(),
         };
         let staged = self.stage(&mut writing.writer, batch, &mut committed);
         if let Err(error) = staged {
@@ -177,7 +177,7 @@ impl IndexEngine {
             return Err(error);
         }
         writing.highest_row_keys = committed.highest_row_keys;
-        writing.removed_owner_segments = committed.removed_owner_segments;
+        writing.segments_to_expunge = committed.segments_to_expunge;
         self.reader.reload()?;
         let current = self.current_version();
         let membership = if replacements.is_empty() {
@@ -225,15 +225,13 @@ impl IndexEngine {
             let term = owner_term(&self.fields, owner);
             for segment in searcher.segment_readers() {
                 if segment.inverted_index(self.fields.owner)?.doc_freq(&term)? > 0 {
-                    committed
-                        .removed_owner_segments
-                        .insert(segment.segment_id());
+                    committed.segments_to_expunge.insert(segment.segment_id());
                 }
             }
             writer.delete_term(term);
         }
-        // A noted segment a merge has since rewritten holds no removed owner's row.
-        committed.removed_owner_segments.retain(|noted| {
+        // A noted segment a merge has since rewritten is gone, and its deleted rows with it.
+        committed.segments_to_expunge.retain(|noted| {
             searcher
                 .segment_readers()
                 .iter()
@@ -290,7 +288,7 @@ impl IndexEngine {
             let mut guard = self.lock_writing()?;
             let writing = guard.as_mut().ok_or_else(closed)?;
             let policy =
-                CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.removed_owner_segments.clone());
+                CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.segments_to_expunge.clone());
             let Some(segment_ids) =
                 smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
             else {

@@ -28,16 +28,16 @@ const LEVEL_FLOOR_ROWS: u32 = 10_000;
 #[derive(Debug, Clone)]
 pub struct CappedMergePolicy {
     row_cap: u32,
-    removed_owner_segments: HashSet<SegmentId>,
+    segments_to_expunge: HashSet<SegmentId>,
 }
 
 impl CappedMergePolicy {
     /// A policy that writes no segment of more than `row_cap` live rows, and rewrites each of
-    /// `removed_owner_segments` alone whatever share of its rows is deleted.
-    pub fn new(row_cap: u32, removed_owner_segments: HashSet<SegmentId>) -> CappedMergePolicy {
+    /// `segments_to_expunge` alone whatever share of its rows is deleted.
+    pub fn new(row_cap: u32, segments_to_expunge: HashSet<SegmentId>) -> CappedMergePolicy {
         CappedMergePolicy {
             row_cap,
-            removed_owner_segments,
+            segments_to_expunge,
         }
     }
 
@@ -87,7 +87,7 @@ impl MergePolicy for CappedMergePolicy {
         let rewrites = segments
             .iter()
             .filter(|segment| {
-                self.removed_owner_segments.contains(&segment.id())
+                self.segments_to_expunge.contains(&segment.id())
                     || deleted_share(segment) > DELETED_SHARE_BEFORE_REWRITE
             })
             .map(|segment| MergeCandidate(vec![segment.id()]));
