@@ -16,7 +16,9 @@ use tantivy::{
 
 use crate::directory::{FolderDirectory, ReadMode};
 use crate::membership::GroupMembership;
-use crate::schema::{IndexFields, Owner, index_schema, key_term, owner_term, row_document};
+use crate::schema::{
+    IndexFields, Owner, index_schema, key_term, owner_term, register_tokenizers, row_document,
+};
 use crate::version::IndexVersion;
 use crate::{IndexBatch, IndexRowKind};
 
@@ -88,6 +90,7 @@ impl IndexEngine {
             };
             Index::create(directory, schema, settings).map_err(OpenFailure::Other)?
         };
+        register_tokenizers(&index);
         let payload = read_payload(&index).map_err(OpenFailure::Unreadable)?;
         let reader: IndexReader = index
             .reader_builder()

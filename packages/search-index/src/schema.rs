@@ -1,13 +1,18 @@
-//! The index's fields, how a row becomes a document, and how owners are kept apart.
+//! The index's fields, how a row becomes a document, and how owners are kept apart. A row is
+//! folded into tokens once, as its document is made; every text field holds those tokens joined,
+//! and the tokenizers registered here split them again as the field is indexed, so a document
+//! waiting for the indexing thread holds one short string per field.
+
+use std::str::Split;
 
 use tantivy::schema::{
     Field, IndexRecordOption, NumericOptions, Schema, TextFieldIndexing, TextOptions,
 };
-use tantivy::tokenizer::{PreTokenizedString, Token};
-use tantivy::{TantivyDocument, Term};
+use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
+use tantivy::{Index, TantivyDocument, Term};
 
 use crate::IndexRowKind;
-use crate::tokenizer::{prefix_of, tokenize};
+use crate::tokenizer::{TextToken, prefix_of, tokenize};
 
 /// The longest prefix with a field of its own; a longer prefix merges the whole-word terms it
 /// begins.
@@ -17,6 +22,12 @@ pub const PREFIX_FIELD_COUNT: usize = 4;
 /// closes every row in every text field, so each field's token count is the row's length: its token
 /// count plus one, the length BM25 normalizes by.
 const FILLER: &str = "\u{1}";
+
+/// Separates the joined tokens a text field holds; no folded token holds it.
+const TOKEN_SEPARATOR: char = '\u{0}';
+
+/// The tokenizer the text field is indexed with.
+const TOKENS_TOKENIZER: &str = "joined-tokens";
 
 /// The kind code an `event` row carries in the kind column.
 pub const EVENT_KIND: u64 = 0;
@@ -40,11 +51,15 @@ pub struct IndexFields {
 /// The index's schema and its fields.
 pub fn index_schema() -> (Schema, IndexFields) {
     let mut builder = Schema::builder();
-    let text_indexing = text_options(IndexRecordOption::WithFreqsAndPositions);
+    let text_indexing = text_options(IndexRecordOption::WithFreqsAndPositions, TOKENS_TOKENIZER);
     let text = builder.add_text_field("text", text_indexing);
     let prefixes = std::array::from_fn(|index| {
         let name = format!("p{}", index + 1);
-        builder.add_text_field(&name, text_options(IndexRecordOption::WithFreqs))
+        let tokenizer = prefix_tokenizer_name(index + 1);
+        builder.add_text_field(
+            &name,
+            text_options(IndexRecordOption::WithFreqs, &tokenizer),
+        )
     });
     let key = builder.add_u64_field("key", NumericOptions::default().set_indexed().set_fast());
     let owner = builder.add_u64_field("owner", NumericOptions::default().set_indexed().set_fast());
@@ -63,13 +78,35 @@ pub fn index_schema() -> (Schema, IndexFields) {
     )
 }
 
-// Tokens arrive pre-tokenized, so the raw tokenizer named here never runs.
-fn text_options(record: IndexRecordOption) -> TextOptions {
+fn text_options(record: IndexRecordOption, tokenizer: &str) -> TextOptions {
     TextOptions::default().set_indexing_options(
         TextFieldIndexing::default()
-            .set_tokenizer("raw")
+            .set_tokenizer(tokenizer)
             .set_index_option(record),
     )
+}
+
+// The tokenizer the prefix field of prefixes `length` characters long is indexed with.
+fn prefix_tokenizer_name(length: usize) -> String {
+    format!("joined-prefixes-{length}")
+}
+
+/// Registers the tokenizers the schema's text fields name, which an index needs before its writer
+/// indexes a row.
+pub fn register_tokenizers(index: &Index) {
+    let tokenizers = index.tokenizers();
+    tokenizers.register(
+        TOKENS_TOKENIZER,
+        JoinedTokens {
+            prefix_length: None,
+        },
+    );
+    for length in 1..=PREFIX_FIELD_COUNT {
+        let tokenizer = JoinedTokens {
+            prefix_length: Some(length),
+        };
+        tokenizers.register(&prefix_tokenizer_name(length), tokenizer);
+    }
 }
 
 /// Whose rows a row is: a session's own, or a group's name row, which counts toward its members.
@@ -126,20 +163,11 @@ pub fn row_document(
     text: &str,
 ) -> TantivyDocument {
     let tokens = tokenize(text);
-    let filler_position = tokens.last().map_or(0, |token| token.position as usize + 1);
+    let joined = joined_tokens(&tokens);
     let mut document = TantivyDocument::default();
-    let words = tokens
-        .iter()
-        .map(|token| (token.folded.as_str(), token.position as usize));
-    document.add_pre_tokenized_text(fields.text, pre_tokenized(words, filler_position));
-    for (index, field) in fields.prefixes.iter().enumerate() {
-        let prefixes = tokens.iter().map(|token| {
-            (
-                prefix_of(&token.folded, index + 1).unwrap_or(FILLER),
-                token.position as usize,
-            )
-        });
-        document.add_pre_tokenized_text(*field, pre_tokenized(prefixes, filler_position));
+    document.add_text(fields.text, &joined);
+    for field in fields.prefixes {
+        document.add_text(field, &joined);
     }
     document.add_u64(fields.key, key);
     document.add_u64(fields.owner, owner_value(owner));
@@ -148,22 +176,92 @@ pub fn row_document(
     document
 }
 
-fn pre_tokenized<'a>(
-    words: impl Iterator<Item = (&'a str, usize)>,
-    filler_position: usize,
-) -> PreTokenizedString {
-    let tokens = words
-        .chain(std::iter::once((FILLER, filler_position)))
-        .map(|(text, position)| Token {
-            offset_from: 0,
-            offset_to: 0,
-            position,
-            text: text.to_string(),
-            position_length: 1,
-        })
-        .collect();
-    PreTokenizedString {
-        text: String::new(),
-        tokens,
+// The folded tokens in place order, joined by the separator, a dropped token's place left empty
+// between them: the n-th piece is the token at place n.
+fn joined_tokens(tokens: &[TextToken]) -> String {
+    let mut joined = String::new();
+    let mut place = 0;
+    for token in tokens {
+        while place < token.position {
+            joined.push(TOKEN_SEPARATOR);
+            place += 1;
+        }
+        joined.push_str(&token.folded);
+    }
+    joined
+}
+
+/// Splits a text field's joined tokens back into tokens at their places, each cut to its prefix
+/// for a prefix field or the filler where it is shorter, then the filler past the last place.
+#[derive(Clone)]
+struct JoinedTokens {
+    prefix_length: Option<usize>,
+}
+
+impl Tokenizer for JoinedTokens {
+    type TokenStream<'a> = JoinedTokenStream<'a>;
+
+    fn token_stream<'a>(&'a mut self, text: &'a str) -> JoinedTokenStream<'a> {
+        let mut pieces = text.split(TOKEN_SEPARATOR);
+        // An empty text holds no token, not one empty piece.
+        if text.is_empty() {
+            pieces.next();
+        }
+        JoinedTokenStream {
+            pieces,
+            prefix_length: self.prefix_length,
+            place: 0,
+            is_filler_sent: false,
+            token: Token::default(),
+        }
+    }
+}
+
+struct JoinedTokenStream<'a> {
+    pieces: Split<'a, char>,
+    prefix_length: Option<usize>,
+    place: usize,
+    is_filler_sent: bool,
+    token: Token,
+}
+
+impl JoinedTokenStream<'_> {
+    fn emit(&mut self, text: &str, position: usize) {
+        self.token.text.clear();
+        self.token.text.push_str(text);
+        self.token.position = position;
+        self.token.position_length = 1;
+    }
+}
+
+impl TokenStream for JoinedTokenStream<'_> {
+    fn advance(&mut self) -> bool {
+        for piece in self.pieces.by_ref() {
+            let place = self.place;
+            self.place += 1;
+            if piece.is_empty() {
+                continue;
+            }
+            let text = match self.prefix_length {
+                None => piece,
+                Some(length) => prefix_of(piece, length).unwrap_or(FILLER),
+            };
+            self.emit(text, place);
+            return true;
+        }
+        if self.is_filler_sent {
+            return false;
+        }
+        self.is_filler_sent = true;
+        self.emit(FILLER, self.place);
+        true
+    }
+
+    fn token(&self) -> &Token {
+        &self.token
+    }
+
+    fn token_mut(&mut self) -> &mut Token {
+        &mut self.token
     }
 }
