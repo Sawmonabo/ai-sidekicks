@@ -183,7 +183,7 @@ describe("the step panel", () => {
     // A failed step opens on Error: its code in words with its reason, then its process's exit
     // code and last lines under the failure.
     expect(screen.getByText("Step thread failed · Out of memory")).toBeDefined();
-    expect(screen.getByText("Exit code 1")).toBeDefined();
+    expect(screen.getByText(/^Exit code/u).textContent).toBe("Exit code 1");
     expect(screen.getByLabelText("Last log lines").textContent).toBe("2 of 40 tests failed");
 
     fireEvent.click(screen.getByRole("button", { name: "JSON" }));

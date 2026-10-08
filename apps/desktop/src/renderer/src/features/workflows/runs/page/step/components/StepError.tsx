@@ -29,7 +29,9 @@ export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Ele
       <p className="meridian-workflow-step__error-message">{error.message}</p>
       {processExit === undefined ? null : (
         <>
-          <p className="meridian-workflow-step__error-item">{exitWords(processExit)}</p>
+          <p className="meridian-workflow-step__error-item">
+            <ProcessExitWords processExit={processExit} />
+          </p>
           <pre className="meridian-workflow-step__log-tail" aria-label="Last log lines">
             {processExit.outputTail}
           </pre>
@@ -54,8 +56,15 @@ function failureLabel(
 
 // The wire carries exactly one of the exit code and the signal. An exit code is a code, read as
 // it was sent, not a count.
-function exitWords(processExit: NonNullable<WorkflowStep["processExit"]>): string {
-  return processExit.signal === undefined
-    ? `Exit code ${String(processExit.exitCode)}`
-    : `Ended by ${processExit.signal}`;
+function ProcessExitWords(props: {
+  readonly processExit: NonNullable<WorkflowStep["processExit"]>;
+}): React.JSX.Element {
+  const { processExit } = props;
+  return processExit.signal === undefined ? (
+    <>
+      Exit code <WireFigure value={String(processExit.exitCode)} />
+    </>
+  ) : (
+    <>Ended by {processExit.signal}</>
+  );
 }

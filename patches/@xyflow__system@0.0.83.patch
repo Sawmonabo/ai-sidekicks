@@ -1,20 +1,30 @@
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index 200b77265eca746bb1b712e41a9a92ab58f57c6d..209f85dccce51c191e8941d6ab28f03296dfd854 100644
+index 200b772..889f1a2 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
-@@ -2966,9 +2966,8 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
+@@ -2966,9 +2966,9 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
      /*
       * Cache the pane extent and refresh it from a ResizeObserver. Otherwise d3-zoom falls back to its
       * defaultExtent, which reads clientWidth/clientHeight and forces a synchronous layout while panning
 -     * and pinching. The observer is never disconnected on purpose: destroy() also runs to pause zooming
 -     * during a user selection, so disconnecting there would leave the cache stale. It becomes unreachable
 -     * and is garbage collected with the pane on unmount.
-+     * and pinching. destroy() disconnects the observer, since an observer left watching a removed pane
-+     * keeps an observation that is never delivered.
++     * and pinching. A user selection only pauses zooming, so the observer keeps the cache fresh through
++     * it; destroy() disconnects it, since an observer left watching a removed pane keeps an observation
++     * that is never delivered.
       */
      let cachedExtent = [
          [0, 0],
-@@ -3091,6 +3090,7 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
+@@ -3013,7 +3013,7 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
+     // public functions
+     function update({ noWheelClassName, noPanClassName, onPaneContextMenu, userSelectionActive, panOnScroll, panOnDrag, panOnScrollMode, panOnScrollSpeed, preventScrolling, zoomOnPinch, zoomOnScroll, zoomOnDoubleClick, panActivationKeyPressed = false, zoomActivationKeyPressed, lib, onTransformChange, connectionInProgress, paneClickDistance, selectionOnDrag, }) {
+         if (userSelectionActive && !zoomPanValues.isZoomingOrPanning) {
+-            destroy();
++            d3ZoomInstance.on('zoom', null);
+         }
+         const isPanOnScroll = panOnScroll && !zoomActivationKeyPressed && !userSelectionActive;
+         d3ZoomInstance.clickDistance(selectionOnDrag ? Infinity : !isNumeric(paneClickDistance) || paneClickDistance < 0 ? 0 : paneClickDistance);
+@@ -3091,6 +3091,7 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
      }
      function destroy() {
          d3ZoomInstance.on('zoom', null);
@@ -23,22 +33,32 @@ index 200b77265eca746bb1b712e41a9a92ab58f57c6d..209f85dccce51c191e8941d6ab28f032
      async function setViewportConstrained(viewport, extent, translateExtent) {
          const nextTransform = viewportToTransform(viewport);
 diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
-index 200b77265eca746bb1b712e41a9a92ab58f57c6d..209f85dccce51c191e8941d6ab28f03296dfd854 100644
+index 200b772..889f1a2 100644
 --- a/dist/esm/index.mjs
 +++ b/dist/esm/index.mjs
-@@ -2966,9 +2966,8 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
+@@ -2966,9 +2966,9 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
      /*
       * Cache the pane extent and refresh it from a ResizeObserver. Otherwise d3-zoom falls back to its
       * defaultExtent, which reads clientWidth/clientHeight and forces a synchronous layout while panning
 -     * and pinching. The observer is never disconnected on purpose: destroy() also runs to pause zooming
 -     * during a user selection, so disconnecting there would leave the cache stale. It becomes unreachable
 -     * and is garbage collected with the pane on unmount.
-+     * and pinching. destroy() disconnects the observer, since an observer left watching a removed pane
-+     * keeps an observation that is never delivered.
++     * and pinching. A user selection only pauses zooming, so the observer keeps the cache fresh through
++     * it; destroy() disconnects it, since an observer left watching a removed pane keeps an observation
++     * that is never delivered.
       */
      let cachedExtent = [
          [0, 0],
-@@ -3091,6 +3090,7 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
+@@ -3013,7 +3013,7 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
+     // public functions
+     function update({ noWheelClassName, noPanClassName, onPaneContextMenu, userSelectionActive, panOnScroll, panOnDrag, panOnScrollMode, panOnScrollSpeed, preventScrolling, zoomOnPinch, zoomOnScroll, zoomOnDoubleClick, panActivationKeyPressed = false, zoomActivationKeyPressed, lib, onTransformChange, connectionInProgress, paneClickDistance, selectionOnDrag, }) {
+         if (userSelectionActive && !zoomPanValues.isZoomingOrPanning) {
+-            destroy();
++            d3ZoomInstance.on('zoom', null);
+         }
+         const isPanOnScroll = panOnScroll && !zoomActivationKeyPressed && !userSelectionActive;
+         d3ZoomInstance.clickDistance(selectionOnDrag ? Infinity : !isNumeric(paneClickDistance) || paneClickDistance < 0 ? 0 : paneClickDistance);
+@@ -3091,6 +3091,7 @@ function XYPanZoom({ domNode, minZoom, maxZoom, translateExtent, viewport, onPan
      }
      function destroy() {
          d3ZoomInstance.on('zoom', null);

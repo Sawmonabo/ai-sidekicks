@@ -8,7 +8,8 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { formatCount, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
@@ -47,6 +48,7 @@ export function QueueRow(props: {
 }): React.JSX.Element {
   const { item } = props;
   const [cancelRefusal, setCancelRefusal] = useState<Refusal | undefined>(undefined);
+  const clockLocale = useClockLocale();
   return (
     <li className="meridian-queue__row">
       <div className="meridian-queue__identity">
@@ -63,13 +65,19 @@ export function QueueRow(props: {
         <div className="meridian-queue__figure">
           <dt>Created</dt>
           <dd>
-            <WireFigure value={item.createdAt} />
+            <WireFigure
+              value={item.createdAt}
+              hoverLabel={formatZonedDateTime(item.createdAt, clockLocale)}
+            />
           </dd>
         </div>
         <div className="meridian-queue__figure">
           <dt>Updated</dt>
           <dd>
-            <WireFigure value={item.updatedAt} />
+            <WireFigure
+              value={item.updatedAt}
+              hoverLabel={formatZonedDateTime(item.updatedAt, clockLocale)}
+            />
           </dd>
         </div>
       </dl>

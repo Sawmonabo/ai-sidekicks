@@ -1,7 +1,7 @@
 // The saved-definition registry projected into rows a page can render: no React, no bridge
 // call, no state. Each axis carries its source so the page shows a wire string verbatim in
-// mono and the app's own sentence (an inherit `null` rephrased) in the derived style.
-// Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
+// mono and the app's own sentence (an inherit `null` rephrased) in the derived style. A saved
+// record's instants stay as the registry wrote them, with the zoned time as their hover.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
@@ -11,10 +11,10 @@ import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/position
 
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
- * mono; `composed` is a word, sentence or count this module composed, which mono would
- * misattribute.
+ * mono; `instant` is a registry timestamp, shown the same way with its zoned time on hover;
+ * `composed` is a word, sentence or count this module composed, which mono would misattribute.
  */
-export const AGENT_AXIS_SOURCES = ["wire", "composed"] as const;
+export const AGENT_AXIS_SOURCES = ["wire", "instant", "composed"] as const;
 
 /** One axis's provenance. */
 export type AgentAxisSource = (typeof AGENT_AXIS_SOURCES)[number];
@@ -127,14 +127,18 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
       composedAxis("tools", "Tools", describeToolAllowlist(definition.toolAllowlist)),
       composedAxis("instructions", "Instructions", describeProsePresence(definition.instructions)),
       composedAxis("goal", "Goal", describeProsePresence(definition.goal)),
-      wireAxis("created", "Created", definition.createdAt),
-      wireAxis("updated", "Updated", definition.updatedAt),
+      instantAxis("created", "Created", definition.createdAt),
+      instantAxis("updated", "Updated", definition.updatedAt),
     ],
   };
 }
 
 function wireAxis(key: string, label: string, reading: string): AgentDefinitionAxis {
   return { key, label, reading, source: "wire" };
+}
+
+function instantAxis(key: string, label: string, reading: string): AgentDefinitionAxis {
+  return { key, label, reading, source: "instant" };
 }
 
 function composedAxis(key: string, label: string, reading: string): AgentDefinitionAxis {

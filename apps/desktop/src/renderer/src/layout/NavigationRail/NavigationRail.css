@@ -84,7 +84,7 @@
 
 /* The pip is the attention amber, a person is needed, and carries the waiting count: one line of
  * the smallest figure size, at least as wide as it is tall, so one digit draws a circle and more
- * digits a capsule. The figure is the amber's own ink. */
+ * digits a capsule. The figure is the amber's own ink, set through the derived figure's color. */
 .meridian-rail__pip {
   inset-block-start: var(--meridian-space-1);
   inset-inline-end: var(--meridian-space-1);
@@ -97,6 +97,7 @@
   border-radius: calc(var(--meridian-space-3) / 2);
   background: var(--meridian-amber-mark);
   color: var(--meridian-amber-ink);
+  --meridian-figure-derived-color: var(--meridian-amber-ink);
   font-size: var(--meridian-text-8-5);
   font-weight: 600;
   font-variant-numeric: tabular-nums;

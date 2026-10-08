@@ -4,6 +4,8 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type AgentLibraryView } from "../view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
 
@@ -24,6 +26,7 @@ export function SavedDefinitionRow(props: {
   readonly view: AgentLibraryView;
 }): React.JSX.Element {
   const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;
+  const clockLocale = useClockLocale();
   return (
     <article
       className={
@@ -46,6 +49,11 @@ export function SavedDefinitionRow(props: {
             <dd className="meridian-saved-definition-row__axis-reading">
               {axis.source === "wire" ? (
                 <WireFigure value={axis.reading} />
+              ) : axis.source === "instant" ? (
+                <WireFigure
+                  value={axis.reading}
+                  hoverLabel={formatZonedDateTime(axis.reading, clockLocale)}
+                />
               ) : (
                 <DerivedFigure text={axis.reading} />
               )}

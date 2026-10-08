@@ -35,6 +35,7 @@ import {
 } from "./adapter.js";
 import { validatePersistedAddress } from "./value-classes.js";
 import { MemoryPersistenceAdapter } from "./memory-adapter.js";
+import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
 import { openUiStateDatabase, type OpenUiStateDatabaseOptions } from "./indexeddb-adapter.js";
 import {
   PERSISTENCE_READ_ABSENT,
@@ -341,5 +342,7 @@ export class UiStateStore {
 }
 
 function describeThrownValue(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : wireRejectionToError(error).message;
 }

@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { resolveAttachForm } from "./form.js";
 
 describe("resolveAttachForm — the path is checked and never rewritten", () => {
@@ -12,7 +14,9 @@ describe("resolveAttachForm — the path is checked and never rewritten", () => 
     const tooLong = "/".repeat(FILE_PATH_MAX_LEN + 1);
     const verdict = resolveAttachForm({ localPath: tooLong });
     expect(verdict.status).toBe("incomplete");
-    expect(verdict.status === "incomplete" && verdict.because).toContain(String(FILE_PATH_MAX_LEN));
+    expect(verdict.status === "incomplete" && joinFigureSentence(verdict.because)).toContain(
+      formatCount(FILE_PATH_MAX_LEN),
+    );
   });
 
   it("sends a path exactly at the cap", () => {

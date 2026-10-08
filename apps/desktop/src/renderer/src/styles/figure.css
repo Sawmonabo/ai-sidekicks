@@ -47,8 +47,9 @@
 
 /*
  * The app's own reading, never the wire's: proportional and muted so it is not mistaken for
- * something the daemon said.
+ * something the daemon said. `--meridian-figure-derived-color` is this class's public API, set by
+ * a container whose own ink the muted color would break, such as a filled badge.
  */
 .meridian-figure--derived {
-  color: var(--meridian-text-muted);
+  color: var(--meridian-figure-derived-color, var(--meridian-text-muted));
 }
