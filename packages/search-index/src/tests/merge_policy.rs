@@ -1,6 +1,7 @@
-//! The capped merge policy: no merge writes more live rows than the cap, the build's merges down
-//! to the last included, and a segment over half the cap is rewritten only alone, once past its
-//! deleted share or once it has held a purged session's or a deleted group's rows.
+//! The capped merge policy: no merge writes more live rows than the cap or takes more segments
+//! than its width, the build's merges down to the last included, and a segment over half the cap
+//! is rewritten only alone, once past its deleted share or once it has held a purged session's or
+//! a deleted group's rows.
 
 use std::collections::HashSet;
 
@@ -9,7 +10,7 @@ use tantivy::merge_policy::{MergeCandidate, MergePolicy};
 use tantivy::schema::{INDEXED, Schema};
 use tantivy::{Index, SegmentMeta};
 
-use crate::merge_policy::CappedMergePolicy;
+use crate::merge_policy::{CappedMergePolicy, MERGE_WIDTH};
 
 const ROW_CAP: u32 = 10_000;
 
@@ -37,22 +38,28 @@ fn live_rows(segments: &[SegmentMeta], candidate: &MergeCandidate) -> u32 {
 }
 
 #[test]
-fn merges_a_build_down_without_writing_a_segment_over_the_cap() {
+fn merges_a_build_down_without_writing_a_segment_over_the_cap_or_the_width() {
     let index = index();
     let policy = CappedMergePolicy::new(ROW_CAP, HashSet::new());
-    // A build's commits: 97 segments of 1,234 rows, 119,698 rows in all.
-    let mut segments: Vec<SegmentMeta> = (0..97).map(|_| segment(&index, 1_234, 0)).collect();
+    // A build's commits: 300 segments of 123 rows, 36,900 rows in all, so the width binds first and
+    // the cap later.
+    let mut segments: Vec<SegmentMeta> = (0..300).map(|_| segment(&index, 123, 0)).collect();
     let mut merges = 0;
     while let Some(candidate) = policy.compute_merge_candidates(&segments).first().cloned() {
         let rows = live_rows(&segments, &candidate);
         assert!(rows <= ROW_CAP, "a merge writes {rows} rows, over the cap");
+        assert!(
+            candidate.0.len() <= MERGE_WIDTH,
+            "a merge takes {} segments",
+            candidate.0.len()
+        );
         segments.retain(|segment| !candidate.0.contains(&segment.id()));
         segments.push(segment(&index, rows, 0));
         merges += 1;
         assert!(merges < 1_000, "the merges never end");
     }
     let total: u32 = segments.iter().map(SegmentMeta::num_docs).sum();
-    assert_eq!(total, 97 * 1_234);
+    assert_eq!(total, 300 * 123);
     // Every segment but at most one is over half the cap, so the build ends with few segments.
     let small = segments
         .iter()

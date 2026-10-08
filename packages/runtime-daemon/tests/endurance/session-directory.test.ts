@@ -572,8 +572,8 @@ describe("the session directory's budgets on the seeded set", () => {
     expect(page.groups.map((group) => group.sessionId)).not.toContain(largeSessionId);
     expect(firstPage.p95Ms).toBeLessThanOrEqual(SEARCH_P95_BUDGET_MS);
     expect(firstPage.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
-    // Once the index holds the purge, its deleted rows are over the share past which the idle
-    // merge rewrites the segment holding them: the largest merge a daemon runs on its own thread.
+    // Once the index holds the purge, the idle merges rewrite each segment that held the session's
+    // rows, one at a time and none past the merge cap: the largest merges an idle daemon runs.
     const outboxRows = database.reader
       .prepare<[], number>("SELECT count(*) FROM session_search_outbox")
       .pluck();

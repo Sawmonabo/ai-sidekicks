@@ -1,11 +1,12 @@
 //! Which segments merge while the daemon is idle, on Lucene's tiered model: no merge writes a
 //! segment holding more than a cap of live rows, so a merge's time is bounded whatever the index's
-//! size; segments of a similar size merge while their live rows fit the cap; and a segment with
-//! more than one row in a hundred deleted, or that held the rows of a purged session or a deleted
-//! group, is rewritten alone, so their words leave the index's files and only the segments that
-//! held them are rewritten. Tantivy's own `LogMergePolicy` has no such cap: its document bound only
-//! keeps larger segments out of merges, so many smaller ones still merge past it, and a segment
-//! past it never merges again, its deleted rows never expunged.
+//! size; segments of a similar size merge, at most ten at once, while their live rows fit the cap,
+//! since merging many segments' term dictionaries costs more per row than rewriting one; and a
+//! segment with more than one row in a hundred deleted, or that held the rows of a purged session
+//! or a deleted group, is rewritten alone, so their words leave the index's files and only the
+//! segments that held them are rewritten. Tantivy's own `LogMergePolicy` has no such cap: its
+//! document bound only keeps larger segments out of merges, so many smaller ones still merge past
+//! it, and a segment past it never merges again, its deleted rows never expunged.
 
 use std::collections::HashSet;
 
@@ -22,6 +23,8 @@ const DELETED_SHARE_BEFORE_REWRITE: f32 = 0.01;
 const LEVEL_LOG_SIZE: f64 = 0.75;
 // Segments under this many live rows count as this size, so small segments merge as one level.
 const LEVEL_FLOOR_ROWS: u32 = 10_000;
+/// The most segments one merge takes, as Lucene's `maxMergeAtOnce`.
+pub(crate) const MERGE_WIDTH: usize = 10;
 
 /// Proposes merges whose merged segment holds at most `row_cap` live rows, and a rewrite of each
 /// segment that held a purged session's or a deleted group's rows.
@@ -65,14 +68,15 @@ impl CappedMergePolicy {
         levels
     }
 
-    // The level's smallest segments whose live rows fit the cap together, when two or more do.
+    // The level's smallest segments, at most `MERGE_WIDTH`, whose live rows fit the cap together,
+    // when two or more do.
     fn fitting_merge(&self, level: &[&SegmentMeta]) -> Option<MergeCandidate> {
         let mut smallest_first = level.to_vec();
         smallest_first.sort_by_key(|segment| segment.num_docs());
         let mut rows = 0u32;
         let mut merged = Vec::new();
         for segment in smallest_first {
-            if rows + segment.num_docs() > self.row_cap {
+            if merged.len() == MERGE_WIDTH || rows + segment.num_docs() > self.row_cap {
                 break;
             }
             rows += segment.num_docs();
