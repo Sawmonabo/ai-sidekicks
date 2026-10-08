@@ -121,12 +121,13 @@ export class ReadingAnchor {
   }
 
   /**
-   * Start reading at one row, as a link to a message does: the follow releases and the row's top
-   * edge becomes the anchor, at the top of the viewport, so the window centers on it and an
-   * append holds it there.
+   * Start reading at one row: the follow releases and the row's top edge becomes the anchor, at
+   * `offsetWithinViewportPx` from the top of the viewport, so the window centers on it and an
+   * append holds it there. A link to a message reads from the top; a press on a control inside
+   * the log reads from where the row stands, so the row stays there.
    */
-  public readFrom(rowKey: string): void {
-    this.#anchorPoint = { rowKey, offsetWithinViewportPx: 0 };
+  public readFrom(rowKey: string, offsetWithinViewportPx = 0): void {
+    this.#anchorPoint = { rowKey, offsetWithinViewportPx };
     this.#transition(this.#mode === "following" ? "reading" : this.#mode, this.#newRowCount);
   }
 

@@ -65,7 +65,7 @@ describe("the viewport controller — the row under the reader stays put", () =>
     scrollContainer.moveTo(rowHeightPx);
     expect(controller.snapshot().rowKeys.indexOf(keysBeforeAdmission[0] ?? "")).toBeGreaterThan(0);
 
-    controller.commitPendingPositionHold();
+    controller.commitPendingPositionHold(rows);
 
     expect(offsetOnScreen(controller, firstOnScreenKey)).toBe(firstOnScreenOffset);
   });

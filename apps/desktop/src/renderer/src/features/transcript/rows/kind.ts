@@ -1,11 +1,13 @@
-// Which kind of card a row is, decided once. Icon, label and layout all come from this one
-// table, so they cannot drift apart. The classifier reads only the row's `type`, never the tool
-// name: the wire declares no tool kind, and inferring one would assert a fact the daemon never
-// sent. Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
+// Which kind of card a row is, decided once. Icon and label both come from this one table, so
+// they cannot drift apart. The classifier reads only the row's `type`, never the tool name: the
+// wire declares no tool kind, and inferring one would assert a fact the daemon never sent.
+// Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
+import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import type { GlyphName } from "#renderer/styles/glyphs.js";
 
 /**
@@ -23,23 +25,13 @@ export const TRANSCRIPT_ROW_KINDS = [
 /** One row kind. Derived from the enumeration, never restated. */
 export type TranscriptRowKind = (typeof TRANSCRIPT_ROW_KINDS)[number];
 
-/**
- * How much of a row kind's card is open before anybody touches it: tool rows render as one
- * line until opened, and message bodies open.
- */
-export const ROW_LAYOUTS = ["body-open", "one-line"] as const;
-
-/** One card layout. Derived from the enumeration, never restated. */
-export type RowLayout = (typeof ROW_LAYOUTS)[number];
-
-/** What one row kind supplies: the icon, the label, and the layout. */
+/** What one row kind supplies: the icon and the label. */
 export interface RowKindDescriptor {
   readonly kind: TranscriptRowKind;
   /** The row kind's icon, or `undefined` where the row carries no mark (the user's message). */
   readonly glyph: GlyphName | undefined;
   /** The row kind's name, for the kind label when the row carries no wire-true label. */
   readonly label: string;
-  readonly layout: RowLayout;
 }
 
 /** A row kind's descriptor, with the icon typed present for every kind but the user's message. */
@@ -54,25 +46,21 @@ const DESCRIPTORS_BY_ROW_KIND: { readonly [TKind in TranscriptRowKind]: Descript
     kind: "user-message",
     glyph: undefined,
     label: "Message",
-    layout: "body-open",
   },
   "agent-message": {
     kind: "agent-message",
     glyph: "agent",
     label: "Reply",
-    layout: "body-open",
   },
   thinking: {
     kind: "thinking",
     glyph: "dot",
     label: "Reasoning",
-    layout: "body-open",
   },
   "tool-call": {
     kind: "tool-call",
     glyph: "run",
     label: "Tool",
-    layout: "one-line",
   },
 };
 
@@ -104,6 +92,18 @@ export function classifyTranscriptRow(row: TranscriptEventRow): RowKindDescripto
 /** The descriptor for a row kind named directly, for a caller that already has one. */
 export function describeRowKind<TKind extends TranscriptRowKind>(kind: TKind): DescriptorOf<TKind> {
   return DESCRIPTORS_BY_ROW_KIND[kind];
+}
+
+/**
+ * Whether a row is a call with a body under it, so it folds on its own row: a tool row whose
+ * payload counts a body, or whose output is streaming in now. A call with neither draws no
+ * chevron, because nothing would open.
+ */
+export function isFoldableCall(row: TranscriptEventRow, hasLiveText: boolean): boolean {
+  if (classifyTranscriptRow(row)?.kind !== "tool-call") {
+    return false;
+  }
+  return hasLiveText || (readWireCount(projectedPayload(row), CONTENT_LENGTH_PAYLOAD_KEY) ?? 0) > 0;
 }
 
 /**

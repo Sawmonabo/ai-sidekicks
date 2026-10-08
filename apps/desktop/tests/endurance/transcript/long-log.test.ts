@@ -104,20 +104,10 @@ describe("endurance — the transcript's fold over a long session", () => {
     // drawn.
     expect(transcriptWindow.viewportRows).toHaveLength(transcriptWindow.rows.length);
     expect(transcriptWindow.rowsByKey.size).toBe(transcriptWindow.rows.length);
-    // Every generated run group closes, so the window holds no live turn and every row hanging
-    // from a run group is collapsed under the terminal run group fold. The rows not collapsed
-    // are exactly those belonging to no run group: the session's opening beats. Stated that way
-    // rather than as a count, so it does not encode how many beats the generator spends opening
-    // a session, and it still fails the day the run group index stops recognizing a run's
+    // Every generated run group closes, so the window holds no live turn. Stated that way rather
+    // than as a count, so it still fails the day the run group index stops recognizing a run's
     // terminal at scale.
     expect(transcriptWindow.liveRunGroupKeys.size).toBe(0);
-    const uncollapsedRowKinds = new Set(
-      transcriptWindow.rows
-        .filter((row) => !transcriptWindow.collapsedRowIds.has(row.id))
-        .map((row) => row.kind),
-    );
-    expect([...uncollapsedRowKinds]).toStrictEqual(["general"]);
-    expect(transcriptWindow.collapsedRowIds.size).toBeGreaterThan(0);
   });
 
   it("does not fold superlinearly as the log grows", () => {

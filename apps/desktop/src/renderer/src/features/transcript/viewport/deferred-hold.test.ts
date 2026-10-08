@@ -56,8 +56,9 @@ describe("TranscriptDeferredHold — the head hold", () => {
       headInsertedCount: 2,
       previousHeadKey: "c",
       scrollTopPx: 80,
+      hasRowSetChanged: true,
     });
-    subject.hold.commit();
+    subject.hold.commit(true);
 
     expect(subject.scrollContainer.scrollTop).toBe(2 * ROW_HEIGHT_PX + 80);
   });
@@ -70,8 +71,9 @@ describe("TranscriptDeferredHold — the head hold", () => {
       headInsertedCount: 2,
       previousHeadKey: "gone",
       scrollTopPx: 80,
+      hasRowSetChanged: true,
     });
-    subject.hold.commit();
+    subject.hold.commit(true);
 
     expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
   });
@@ -79,10 +81,15 @@ describe("TranscriptDeferredHold — the head hold", () => {
   it("disarms, so a disposed frame owes no position", () => {
     const subject = holdUnderTest();
     subject.setRowKeys(["a", "b"]);
-    subject.hold.armAfterReconcile({ headInsertedCount: 1, previousHeadKey: "b", scrollTopPx: 0 });
+    subject.hold.armAfterReconcile({
+      headInsertedCount: 1,
+      previousHeadKey: "b",
+      scrollTopPx: 0,
+      hasRowSetChanged: true,
+    });
 
     subject.hold.disarm();
-    subject.hold.commit();
+    subject.hold.commit(true);
 
     expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
   });
@@ -112,18 +119,20 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
       headInsertedCount: 3,
       previousHeadKey: "r40",
       scrollTopPx: subject.scrollContainer.scrollTop,
+      hasRowSetChanged: true,
     });
     subject.setRowKeys(AFTER_FIRST_PAGE);
-    subject.hold.commit();
+    subject.hold.commit(true);
     expect(rowAtViewportTop(AFTER_FIRST_PAGE, subject.scrollContainer.scrollTop)).toBe("r42");
 
     subject.hold.armAfterReconcile({
       headInsertedCount: 2,
       previousHeadKey: "r35",
       scrollTopPx: subject.scrollContainer.scrollTop,
+      hasRowSetChanged: true,
     });
     subject.setRowKeys(AFTER_SECOND_PAGE);
-    subject.hold.commit();
+    subject.hold.commit(true);
     expect(rowAtViewportTop(AFTER_SECOND_PAGE, subject.scrollContainer.scrollTop)).toBe("r42");
   });
 });

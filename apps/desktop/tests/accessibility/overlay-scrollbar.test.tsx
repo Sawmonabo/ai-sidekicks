@@ -251,6 +251,7 @@ describe("accessibility — the overlay scrollbar", () => {
             onSession: false,
             onWorkflows: false,
             onSettings: false,
+            transcriptHoldsRunGroup: false,
           }}
           open
           onOpenChange={() => undefined}

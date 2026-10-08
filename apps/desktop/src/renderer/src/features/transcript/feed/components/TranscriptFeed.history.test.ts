@@ -35,7 +35,14 @@ import {
   scriptedTranscriptLog,
   transcriptFixtureStreamCursor,
 } from "../../logs.test-support.js";
-import { LONG_LOG_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
+import {
+  LONG_LOG_EVENT_COUNT,
+  RowIdBody,
+  boundController,
+  readerScrollsTo,
+  renderFeed,
+  scrollContainerOf,
+} from "./TranscriptFeed.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -71,14 +78,6 @@ function logPositions(first: number, last: number): number[] {
   return Array.from({ length: last - first + 1 }, (_unused, offset) => first + offset);
 }
 
-function scrollContainerOf(feed: HTMLElement): HTMLElement {
-  const scrollContainer = feed.querySelector(".meridian-transcript-viewport__scroll-container");
-  if (!(scrollContainer instanceof HTMLElement)) {
-    throw new Error("the feed rendered no scroll container");
-  }
-  return scrollContainer;
-}
-
 /**
  * Fails legibly when the held rows are not estimated between the height the opening look-ahead
  * fills and the distance the window lets rows go at: the band every case here is laid out in.
@@ -91,23 +90,6 @@ function expectHeldRowsWithinBand(scrollContainer: HTMLElement): void {
   expect(scrollContainer.scrollHeight).toBeLessThan(
     TRANSCRIPT_LET_GO_SCREEN_HEIGHTS * screenHeightPx,
   );
-}
-
-/** The reader's own scroll: the box moves and says so, as the platform does after a wheel. */
-function readerScrollsTo(scrollContainer: HTMLElement, scrollTopPx: number): void {
-  scrollContainer.scrollTop = scrollTopPx;
-  fireEvent.scroll(scrollContainer);
-}
-
-/** The controller the mounted feed bound its virtualizer to. */
-function boundController(bindings: {
-  readonly mock: { readonly contexts: readonly unknown[] };
-}): ViewportController {
-  const controller = bindings.mock.contexts.at(-1);
-  if (!(controller instanceof ViewportController)) {
-    throw new Error("the feed bound no virtualizer to a viewport controller");
-  }
-  return controller;
 }
 
 /** The row whose top edge is the last at or above the top of the box, and where it sits. */

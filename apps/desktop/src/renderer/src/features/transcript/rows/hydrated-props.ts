@@ -25,4 +25,9 @@ export interface HydratedRowProps extends TranscriptRowProps {
   readonly liveText?: PublishedText | undefined;
   /** Where this message's footnote definitions are registered. */
   readonly footnotes: FootnoteRegistry;
+  /**
+   * Keep a pressed control inside the body where it stands while the row's height changes, called
+   * before the change; absent where the card is drawn outside a transcript's list.
+   */
+  readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }

@@ -8,6 +8,7 @@
 // publication, deferred hold and anchor capture each have a module beside this one.
 
 import { type Clock } from "#renderer/lib/clock.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type RowHeightKind } from "../rows/height-kind.js";
@@ -187,8 +188,8 @@ export class ViewportController {
       scroll: this.scroll,
       rowKeys: () => this.#rowKeys,
       offsetOfIndex: (index) => this.#anchorCapture.offsetOfIndex(index),
-      holdReadingPosition: () => {
-        this.holdReadingPosition();
+      holdReadingPosition: (controlDisplacementPx) => {
+        this.holdReadingPosition(controlDisplacementPx);
       },
     });
     this.#teardown.push(
@@ -298,15 +299,65 @@ export class ViewportController {
   }
 
   /**
-   * Performs the head hold the last reconcile armed, now that the new height is committed. The
+   * Performs the holds a reconcile or a press armed, now that the new height is committed. The
    * binding calls it from a layout effect declared after `useVirtualizer`, so the library has
-   * already written the container height.
+   * already written the container height, with the rows that render drew: a press's hold waits
+   * for the render whose rows the window has reconciled, since the reconcile runs after it.
    */
-  public commitPendingPositionHold(): void {
+  public commitPendingPositionHold(renderedRows: readonly ViewportRow[]): void {
     if (this.#disposed) {
       return;
     }
-    this.#deferredHold.commit();
+    this.#deferredHold.commit(renderedRows === this.#pruneCycle.lastConditions?.rows);
+  }
+
+  /**
+   * Keeps one row where it stands on screen through a press that changes heights in or around it,
+   * as a fold's header or chevron does: reading starts at the row, at its offset now, and the
+   * hold is performed once the rows the press changes are laid out. A pressed `control` whose row
+   * grows above it is moved back by what it moved inside the row, read once then. Does nothing
+   * for a row the window does not hold.
+   */
+  public holdRowInPlace(rowKey: string, control?: HTMLElement): void {
+    const rowStartPx = this.rowStartPx(rowKey);
+    if (this.#disposed || rowStartPx === undefined) {
+      return;
+    }
+    this.anchor.readFrom(rowKey, rowStartPx - (this.scroll.geometry?.scrollTop ?? 0));
+    const controlOffsetPx = control === undefined ? undefined : controlOffsetInRowPx(control);
+    this.#deferredHold.armAnchoredHoldAtCommit(() => {
+      const movedOffsetPx = control === undefined ? undefined : controlOffsetInRowPx(control);
+      return controlOffsetPx === undefined || movedOffsetPx === undefined
+        ? 0
+        : movedOffsetPx - controlOffsetPx;
+    });
+  }
+
+  /**
+   * Keeps the row nearest the middle of the view where it stands through a change no control on
+   * the page was pressed for, as folding every run is. The nearest row `survives` says stays in
+   * the list is held, walking out from the middle a row at a time on either side.
+   */
+  public holdRowNearestMiddle(survives: (rowKey: string) => boolean): void {
+    const geometry = this.scroll.geometry;
+    const middle = this.#virtualizer?.getVirtualItemForOffset(
+      (geometry?.scrollTop ?? 0) + (geometry?.viewportHeight ?? 0) / 2,
+    );
+    if (middle === undefined) {
+      return;
+    }
+    const rowKeys = this.#rowKeys;
+    for (let distance = 0; distance < rowKeys.length; distance += 1) {
+      const indexes =
+        distance === 0 ? [middle.index] : [middle.index - distance, middle.index + distance];
+      for (const index of indexes) {
+        const rowKey = rowKeys[index];
+        if (rowKey !== undefined && survives(rowKey)) {
+          this.holdRowInPlace(rowKey);
+          return;
+        }
+      }
+    }
   }
 
   /**
@@ -387,13 +438,14 @@ export class ViewportController {
 
   /**
    * Puts a reader who left the tail back where they were: the anchored row at the same distance
-   * from the top of the viewport. A follower's position is the library's, so it does nothing.
+   * from the top of the viewport, moved on by `controlDisplacementPx` where a pressed control
+   * moved inside that row. A follower's position is the library's, so it does nothing.
    *
    * A pass calls it only where no cut compensation ran: after a cut the virtualizer is still in
    * the pre-cut offset space until React re-renders, so its index lookup would name the wrong
    * row. The head-insert case waits for `commitPendingPositionHold`.
    */
-  public holdReadingPosition(): void {
+  public holdReadingPosition(controlDisplacementPx = 0): void {
     const reading = this.anchor.state;
     const anchorPoint = reading.anchorPoint;
     if (reading.mode === "following" || anchorPoint === undefined) {
@@ -407,7 +459,9 @@ export class ViewportController {
     }
     this.scroll.glideTo(
       "hold-reading-position",
-      this.#anchorCapture.offsetOfIndex(index) - anchorPoint.offsetWithinViewportPx,
+      this.#anchorCapture.offsetOfIndex(index) -
+        anchorPoint.offsetWithinViewportPx +
+        controlDisplacementPx,
     );
   }
 
@@ -534,6 +588,7 @@ export class ViewportController {
           headInsertedCount: countInsertedBefore(retained, previousHeadKey),
           previousHeadKey,
           scrollTopPx,
+          hasRowSetChanged,
         });
       }
       this.#publication.publish();
@@ -647,6 +702,17 @@ function haveDifferentEnds(previousKeys: readonly string[], nextKeys: readonly s
     previousKeys[0] !== nextKeys[0] ||
     previousKeys[previousKeys.length - 1] !== nextKeys[nextKeys.length - 1]
   );
+}
+
+/**
+ * How far a control sits below the top of the row it is drawn in, in pixels, or `undefined` once
+ * the press took it off the page.
+ */
+function controlOffsetInRowPx(control: HTMLElement): number | undefined {
+  const rowElement = control.closest(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`);
+  return rowElement === null
+    ? undefined
+    : control.getBoundingClientRect().top - rowElement.getBoundingClientRect().top;
 }
 
 /** Whether a key was pressed with a modifier, which makes it a chord rather than a plain key. */

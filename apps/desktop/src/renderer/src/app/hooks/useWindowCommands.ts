@@ -12,6 +12,7 @@ import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/us
 import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import type { CommandPaletteProps } from "#renderer/layout/CommandPalette/hooks/useCommandPalette.js";
+import { useTranscriptHoldsRunGroup } from "#renderer/features/transcript/index.js";
 
 /** What one window's palette and chords are built against. */
 export interface WindowCommandsInput {
@@ -49,6 +50,10 @@ export interface WindowCommands {
 export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
   const { route, lastOpenedSessionId, ownerWindow, revision } = input;
 
+  // Whether this window's transcript holds a run group, so the fold rows are offered only where
+  // there is a run to fold.
+  const transcriptHoldsRunGroup = useTranscriptHoldsRunGroup(ownerWindow.document);
+
   // Derived from the route, so the palette cannot disagree with the rail about where it is.
   const whenContext: WindowWhenClauseContext = useMemo(
     () => ({
@@ -57,8 +62,9 @@ export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
       onSession: route.kind === "session",
       onWorkflows: route.kind === "workflows",
       onSettings: route.kind === "settings",
+      transcriptHoldsRunGroup,
     }),
-    [route, lastOpenedSessionId],
+    [route, lastOpenedSessionId, transcriptHoldsRunGroup],
   );
 
   // Read through a ref: a closure captured at construction would evaluate every chord against

@@ -15,7 +15,12 @@ import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
-import { LONG_LOG_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
+import {
+  LONG_LOG_EVENT_COUNT,
+  RowIdBody,
+  renderFeed,
+  scrollContainerOf,
+} from "./TranscriptFeed.test-support.js";
 import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   openPagedSessionStore,
@@ -43,10 +48,6 @@ const BELOW_MID_LOG_INDEX = 140;
 /** Whether the window mounted the row for the event at one log position. */
 function isMounted(feed: HTMLElement, index: number): boolean {
   return feed.querySelector(`[data-row-id="${transcriptFixtureEventId(index)}"]`) !== null;
-}
-
-function scrollContainerOf(feed: HTMLElement): Element | null {
-  return feed.querySelector(".meridian-transcript-viewport__scroll-container");
 }
 
 /**
@@ -168,7 +169,7 @@ describe("the transcript feed — opened at a message", () => {
     expect(document.activeElement).toBe(scrollContainerOf(feed));
   });
 
-  it("opens the finished run group holding the message, and lands on it once", () => {
+  it("lands once on a message inside a run group, so a reader who folds the group keeps it", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup(), undefined, RowIdBody, {
       messageAnchorCursor: transcriptFixtureStreamCursor(1),
@@ -177,7 +178,7 @@ describe("the transcript feed — opened at a message", () => {
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(isMounted(feed, 1)).toBe(true);
     expect(document.activeElement).toBe(scrollContainerOf(feed));
-    // A reader who folds it again is not overruled.
+    // A reader who folds it afterwards is not overruled.
     disclosure?.focus();
     fireEvent.click(disclosure as Element);
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");

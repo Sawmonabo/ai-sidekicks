@@ -41,6 +41,8 @@ export interface MachineBodyProps {
   readonly footnotes: FootnoteRegistry;
   /** What a screen reader calls a command-output block. */
   readonly label: string;
+  /** Keep a pressed control where it stands while the body grows; see `HydratedRowProps`. */
+  readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }
 
 /** A machine-authored body: markdown, plain text or command output, as `readOutputKind` says. */
@@ -102,7 +104,13 @@ function renderBodyText(
 ): React.JSX.Element {
   if (kind === "command-output") {
     // Read through the handle: the block parses only the text past what it already parsed.
-    return <AnsiOutput publishedText={drawnText} label={props.label} />;
+    return (
+      <AnsiOutput
+        publishedText={drawnText}
+        label={props.label}
+        holdControlInPlace={props.holdControlInPlace}
+      />
+    );
   }
   if (kind === "plain-text") {
     // Verbatim: no parse, no footnotes. Preformatted, so text copied out of it keeps its lines.

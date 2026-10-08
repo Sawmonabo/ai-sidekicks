@@ -1,6 +1,7 @@
 // Shared scaffolding for the command list suites: one real composer over the real store, fed
 // the composer scenario's beats through the registered run projectors.
 
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -42,7 +43,8 @@ export function composerSessionStore(): SessionStore {
     sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialize({ cursor: 0, entities: [] });
+  // The scenario numbers its beats from 0, so the store starts before the first.
+  store.initialize({ cursor: START_OF_LOG_POSITION, entities: [] });
   store.applyBatch(
     WAITING_FOR_INPUT_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent),
   );

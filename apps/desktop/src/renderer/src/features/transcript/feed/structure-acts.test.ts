@@ -56,8 +56,11 @@ function actInputs(
     jumpToTail: () => {
       trace.push("jumpToTail");
     },
-    collapseAllTerminalRunGroups: () => {
-      trace.push("collapseAllTerminalRunGroups");
+    foldEveryRun: () => {
+      trace.push("foldEveryRun");
+    },
+    unfoldEveryRun: () => {
+      trace.push("unfoldEveryRun");
     },
   };
 }

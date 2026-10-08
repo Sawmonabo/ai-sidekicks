@@ -24,7 +24,6 @@ import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-di
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
 import { ViewportController, type ViewportControllerOptions } from "../controller.js";
-import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
 import { type WindowSide } from "../window-cap.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
@@ -54,12 +53,17 @@ export interface TranscriptViewportBinding {
    */
   readonly focusScrollContainer: () => void;
   /**
-   * The state a row body parked on this window, live or re-parked after its row was let go.
-   * Survives an unmount and a cut, up to the parked state cap.
+   * Keeps one row where it stands on screen through a press that changes heights in or around
+   * it, and stops following the tail; see `ViewportController.holdRowInPlace`. Call it before the
+   * change the press makes. Stable for the binding's controller.
    */
-  readonly retainedRowState: (rowKey: string) => RetainedRowState | undefined;
-  /** Park one row body's state on the window. */
-  readonly setRetainedRowState: (rowKey: string, state: RetainedRowState) => void;
+  readonly holdRowInPlace: (rowKey: string, control?: HTMLElement) => void;
+  /**
+   * Keeps the row nearest the middle of the view where it stands through a change no control was
+   * pressed for, holding the nearest row `survives` keeps; see
+   * `ViewportController.holdRowNearestMiddle`. Stable for the binding's controller.
+   */
+  readonly holdRowNearestMiddle: (survives: (rowKey: string) => boolean) => void;
   /**
    * What this window is showing, read when called; stable across renders.
    * A function, not a snapshot member: it is mostly layout, and publishing it through React
@@ -255,7 +259,7 @@ export function useTranscriptViewport(
     controller.retryDeferredPrune();
   }, [controller, readingMode, lastPrune]);
 
-  // Performs the deferred head hold, and a pending landing, once the height they depend on is
+  // Performs the deferred holds, and a pending landing, once the height they depend on is
   // committed.
   // `reconcile` runs in a passive effect, so the sizer still has the previous total size and a
   // head hold would read a stale offset. A layout effect declared after `useVirtualizer` runs
@@ -266,15 +270,16 @@ export function useTranscriptViewport(
     if (controller.isDisposed) {
       return;
     }
-    controller.commitPendingPositionHold();
+    controller.commitPendingPositionHold(rows);
     // Focus goes to the log a link landed in, so the keyboard reads on from the message.
     if (controller.commitPendingLanding() === "message-anchor") {
       scrollContainerRef.current?.focus();
     }
   });
 
-  // A retained-state write is window state, not React state; the revision only re-renders the tree.
-  const [retainedStateRevision, setRetainedStateRevision] = useState(0);
+  // A press's hold is window state, not React state; the count only re-renders the tree, so the
+  // layout effect above performs the hold after a press whose change is the row's own.
+  const [, setHeldPressCount] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
 
@@ -311,16 +316,17 @@ export function useTranscriptViewport(
       () => controller.measurements.smallestEstimatePx,
       [controller],
     ),
-    // The revision is a dependency, not a read: a write mints a new reader, so every row that
-    // compares it draws again.
-    retainedRowState: useCallback(
-      (rowKey: string) => controller.rowWindow.retainedState(rowKey),
-      [controller, retainedStateRevision],
+    holdRowInPlace: useCallback(
+      (rowKey: string, control?: HTMLElement) => {
+        controller.holdRowInPlace(rowKey, control);
+        setHeldPressCount((current) => current + 1);
+      },
+      [controller],
     ),
-    setRetainedRowState: useCallback(
-      (rowKey: string, state: RetainedRowState) => {
-        controller.rowWindow.setRetainedState(rowKey, state);
-        setRetainedStateRevision((current) => current + 1);
+    holdRowNearestMiddle: useCallback(
+      (survives: (rowKey: string) => boolean) => {
+        controller.holdRowNearestMiddle(survives);
+        setHeldPressCount((current) => current + 1);
       },
       [controller],
     ),

@@ -1,16 +1,17 @@
 // The transcript's row renderer: one row through the card its kind names. It holds no state: a
-// disclosure press writes density to the list's retained row state, because the virtualizer
-// unmounts rows scrolled out of range. A `TranscriptEventRow` carries no body, so machine rows
-// render the empty state `MessageContent` and `ToolOutput` draw for an unread body. A type the kind
-// table does not name has no card, and `drawsTranscriptRowBody` says so before the feed lists it.
+// call's fold press goes to the feed's fold, because the virtualizer unmounts rows scrolled out of
+// range, and every press that changes the row's height asks the feed to keep the pressed control
+// where it stands. A `TranscriptEventRow` carries no body, so machine rows render the empty state
+// `MessageContent` and `ToolOutput` draw for an unread body. A type the kind table does not name
+// has no card, and `drawsTranscriptRowBody` says so before the feed lists it.
 
 import { useCallback, useState } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
-import { type TranscriptRowDensity, type TranscriptRowProps } from "./renderer.js";
+import { useRowToggle } from "./hooks/useRowToggle.js";
+import { type TranscriptRowProps } from "./renderer.js";
 import { findTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 import { MessageRow } from "./MessageRow.js";
@@ -21,23 +22,27 @@ import { ToolRow } from "./ToolRow.js";
 
 /**
  * One row, through the card its kind names. The classifier decides once and this switch spends
- * the answer, so the glyph, label and layout match what the cards read anywhere else. Throws for
- * a row with no card, which `drawsTranscriptRowBody` keeps out of the list.
+ * the answer, so the glyph and label match what the cards read anywhere else. Throws for a row
+ * with no card, which `drawsTranscriptRowBody` keeps out of the list.
  */
 export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const retainedRowState = useRetainedRowState();
+  const { toggleCallFold, holdControlInPlace } = useRowToggle();
   const rowId = props.row.id;
-  const density: TranscriptRowDensity = props.density;
-  // The toggle inverts the density the row was handed (the list's answer with the retained state
-  // overlaid) and writes it to the list, not to local state, which would die when the virtualizer
-  // unmounts the row. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own.
-  const toggleDensity = useCallback(() => {
-    retainedRowState.setRetainedState(rowId, {
-      density: density === "expanded" ? "collapsed" : "expanded",
-      innerScrollTopPx: 0,
-    });
-  }, [density, rowId, retainedRowState]);
+  // The fold goes to the feed, not to local state, which would die when the virtualizer unmounts
+  // the row.
+  const toggleFold = useCallback(
+    (control: HTMLElement) => {
+      toggleCallFold(rowId, control);
+    },
+    [rowId, toggleCallFold],
+  );
+  const holdPressedControl = useCallback(
+    (control: HTMLElement) => {
+      holdControlInPlace(rowId, control);
+    },
+    [rowId, holdControlInPlace],
+  );
 
   const rowKind = classifyTranscriptRow(props.row);
   // The reasoning read is armed in the component that renders it, not here: an ordinary row would
@@ -63,10 +68,11 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           row={props.row}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
-          density={density}
+          density={props.density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
-          onDensityToggle={toggleDensity}
+          holdControlInPlace={holdPressedControl}
+          onDensityToggle={toggleFold}
         />
       );
     case "user-message":
@@ -78,14 +84,19 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           rowKind={rowKind}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
-          density={density}
+          density={props.density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
+          holdControlInPlace={holdPressedControl}
           replyRowIds={props.replyRowIds}
           editControl={editControlOf(props)}
           thinkingRow={
             rowKind.kind === "thinking" ? (
-              <ThinkingRowWithRead runId={attributedRunId} liveText={liveText} />
+              <ThinkingRowWithRead
+                runId={attributedRunId}
+                liveText={liveText}
+                holdControlInPlace={holdPressedControl}
+              />
             ) : undefined
           }
         />

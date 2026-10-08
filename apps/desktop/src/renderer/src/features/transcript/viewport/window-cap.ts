@@ -21,7 +21,6 @@ import {
   TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
 } from "./caps.js";
 import { type ReadingAnchorPoint } from "./reading-anchor.js";
-import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-state-table.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {
@@ -98,12 +97,6 @@ export interface PruneOutcome {
   readonly prunedAboveKeys: readonly string[];
 }
 
-/** Options for a `TranscriptWindow`. */
-export interface TranscriptWindowOptions {
-  /** How many let-go rows' retained states are parked; defaults to the shared constant. */
-  readonly parkedStateCap?: number;
-}
-
 /** The span of the log the viewport holds, sized in screen heights from the reading position. */
 export class TranscriptWindow {
   /** Each parent key's child keys over the last ingested log, in log order, each listed once. */
@@ -112,7 +105,6 @@ export class TranscriptWindow {
   readonly #ingestedRowKeys = new Set<string>();
   /** Each key's first position in `#positionIndexedRows`, built when a span grows. */
   readonly #positionByKey = new Map<string, number>();
-  readonly #retainedStates: RetainedRowStateTable;
 
   /** The log last ingested, which the next ingest diffs against. */
   #ingestedRows: readonly WindowRow[] = [];
@@ -140,18 +132,14 @@ export class TranscriptWindow {
   /** The rows the window held when its last pass returned: what the viewport laid out. */
   #rowsAtLastPrune: readonly WindowRow[] = [];
 
-  public constructor(options: TranscriptWindowOptions = {}) {
-    this.#retainedStates = new RetainedRowStateTable(options.parkedStateCap);
-  }
-
   /**
    * Adopt the projected log, oldest first, and find the span in it. The window holds the array
    * rather than copying it, so the caller must not mutate it afterwards.
    *
    * The window is a view over the projection, never a second copy: a row the projection no
-   * longer carries is forgotten, and its retained state parked. An end whose row the log no longer
-   * carries moves to the log's end on that side, which keeps more rather than guessing. A row that
-   * arrives twice is listed once under its parent, at its first position.
+   * longer carries is forgotten. An end whose row the log no longer carries moves to the log's end
+   * on that side, which keeps more rather than guessing. A row that arrives twice is listed once
+   * under its parent, at its first position.
    */
   public ingest(rows: readonly WindowRow[]): void {
     if (rows === this.#ingestedRows) {
@@ -162,7 +150,6 @@ export class TranscriptWindow {
     if (this.#hasRepeatedRowKey || !this.#reindexChangedSpan(previousRows, rows)) {
       this.#rebuildIndex(rows);
     }
-    this.#retainedStates.parkAllExcept(this.#ingestedRowKeys);
     const lastPosition = rows.length - 1;
     const foundHead = this.#holdsLogHead ? 0 : positionOfKey(rows, this.#headKey);
     const foundTail = this.#holdsLogTail ? lastPosition : positionOfKey(rows, this.#tailKey);
@@ -199,24 +186,6 @@ export class TranscriptWindow {
   /** Whether the last ingested log carries a row under this key, held by the window or not. */
   public logHoldsRow(rowKey: string): boolean {
     return this.#ingestedRowKeys.has(rowKey);
-  }
-
-  /** A row body's retained state, live or parked. */
-  public retainedState(rowKey: string): RetainedRowState | undefined {
-    return this.#retainedStates.retainedState(rowKey);
-  }
-
-  /** Record what a row body retains while the window holds its row. */
-  public setRetainedState(rowKey: string, state: RetainedRowState): void {
-    this.#retainedStates.setRetainedState(rowKey, state);
-  }
-
-  /**
-   * Drop every parked state. Delegated so the idle trim asks the window, which knows which rows
-   * are still held, instead of holding the table itself.
-   */
-  public releaseParkedStates(): void {
-    this.#retainedStates.releaseParkedStates();
   }
 
   /**
@@ -355,9 +324,6 @@ export class TranscriptWindow {
         ? new Set<string>()
         : new Set(this.#rowsAtLastPrune.map((row) => row.key));
     const prunedKeys = [...prunedAboveRows, ...prunedBelowRows].map((row) => row.key);
-    for (const prunedKey of prunedKeys) {
-      this.#retainedStates.park(prunedKey);
-    }
     return this.#settle(keptHead, keptTail, {
       applied: true,
       deferredBecause: undefined,

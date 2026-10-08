@@ -10,17 +10,19 @@ import {
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { type RowHeightKind } from "../rows/height-kind.js";
-import { classifyTranscriptRow } from "../rows/kind.js";
+import { classifyTranscriptRow, isFoldableCall } from "../rows/kind.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
-import { densityFor } from "./run-group-fold.js";
+import { densityFor } from "./fold-state.js";
 
 /**
- * The height kind the feed draws a key of its list as, decided as the row dispatch decides what
- * to draw. A tool row's density is the list's alone: a row whose density a person chose was
- * mounted to be chosen, so it has a measured height and never asks for an estimate.
+ * The height kind the feed draws a key of its list as, decided as the row dispatch and the tool
+ * card decide what to draw: a call draws its body only where it has one and nobody folded it.
+ * `isRevealing` names a row whose output is streaming in, which has a body before it has a count.
  */
 export function rowHeightKindOf(
   transcriptWindow: TranscriptWindowModel,
+  foldedCallRowIds: ReadonlySet<string>,
+  isRevealing: (rowId: string) => boolean,
   rowKey: string,
 ): RowHeightKind {
   if (transcriptWindow.runGroupByHeaderKey.has(rowKey)) {
@@ -42,9 +44,10 @@ export function rowHeightKindOf(
   if (kind !== "tool-call") {
     return kind;
   }
-  return densityFor(row.id, transcriptWindow.collapsedRowIds) === "collapsed"
-    ? "tool-call-collapsed"
-    : "tool-call-expanded";
+  return isFoldableCall(row, isRevealing(row.id)) &&
+    densityFor(row.id, foldedCallRowIds) === "expanded"
+    ? "tool-call-expanded"
+    : "tool-call-collapsed";
 }
 
 /**

@@ -84,32 +84,4 @@ describe("the trim takes only what the frame cannot reach", () => {
     expect(measurements.heightOf("row-a")).toBe(40);
     expect(measurements.heightOf("row-b")).toBe(60);
   });
-
-  it("releases parked states and leaves live ones alone", () => {
-    // Parked through the real window: a retained state is parked when its row leaves the log.
-    const clock = new ManualClock();
-    const window = windowWithRows(["row-gone", "row-kept"]);
-    window.setRetainedState("row-gone", { density: "expanded", innerScrollTopPx: 44 });
-    window.setRetainedState("row-kept", { density: "expanded", innerScrollTopPx: 30 });
-    window.ingest([{ key: "row-kept", parentKey: undefined, rootCursor: "row-kept" }]);
-    expect(window.retainedState("row-gone")).toStrictEqual({
-      density: "expanded",
-      innerScrollTopPx: 44,
-    });
-
-    const trim = new IdleMemoryTrim({
-      clock,
-      window,
-      measurements: new RowMeasurementTable(),
-    });
-    trim.noteActivity();
-    clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS);
-    trim.noteActivity();
-
-    expect(window.retainedState("row-gone")).toBeUndefined();
-    expect(window.retainedState("row-kept")).toStrictEqual({
-      density: "expanded",
-      innerScrollTopPx: 30,
-    });
-  });
 });

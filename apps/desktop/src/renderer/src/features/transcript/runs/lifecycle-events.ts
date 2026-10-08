@@ -31,7 +31,7 @@ export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
  * daemon had undone. These are the non-terminal states (`run.pausing` included, since a run
  * finishing its step has not ended) plus the rollback. Rows that report no state
  * (`run.worker_shutdown`, `run.turn_started` and the rest) are absent: a worker shutting down
- * after a completion says nothing about the run and would unfold every finished run group.
+ * after a completion says nothing about the run and would read every finished run as live.
  */
 export const RUN_REOPENING_EVENT_TYPES = [
   "run.queued",

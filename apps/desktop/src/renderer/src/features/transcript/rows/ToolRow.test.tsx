@@ -1,6 +1,8 @@
-// One line until opened — and the error that is never hidden inside the closed line.
+// A call with a body folds and opens on its chevron; one without a body has nothing to fold. The
+// error is never hidden inside a folded line.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
@@ -14,7 +16,7 @@ function renderToolCard(
     readonly summary?: string;
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly density?: "collapsed" | "expanded";
-    readonly onDensityToggle?: () => void;
+    readonly onDensityToggle?: (control: HTMLElement) => void;
     readonly body?: string;
   } = {},
 ): HTMLElement {
@@ -59,7 +61,7 @@ describe("an opened tool row", () => {
     const container = renderToolCard({
       type: "tool.result",
       density: "expanded",
-      payload: { toolName: "bash" },
+      payload: { toolName: "bash", contentLength: body.length },
       body,
     });
 
@@ -67,5 +69,61 @@ describe("an opened tool row", () => {
     expect(container.querySelector('[role="heading"]')).toBeNull();
     expect(container.querySelector("strong")).toBeNull();
     expect(container.querySelector(".meridian-ansi")).toBeNull();
+  });
+});
+
+/** A tool card whose fold the harness holds, as the list does, so a press repaints it. */
+function FoldingToolCard(props: { readonly body: string }): React.JSX.Element {
+  const [density, setDensity] = useState<"collapsed" | "expanded">("expanded");
+  return (
+    <ToolRow
+      row={sampleRunRow({
+        type: "tool.result",
+        summary: "ran the build",
+        payload: { toolName: "bash", contentLength: props.body.length },
+      })}
+      agentHue={undefined}
+      isSuperseded={false}
+      density={density}
+      footnotes={new FootnoteRegistry()}
+      content={{ status: "available", body: props.body }}
+      onDensityToggle={() => {
+        setDensity((current) => (current === "expanded" ? "collapsed" : "expanded"));
+      }}
+    />
+  );
+}
+
+describe("a call's chevron", () => {
+  it("folds a call with a multi-line body to its line, keeping the summary in view", () => {
+    const body = "step one\nstep two\nstep three";
+    const { container } = render(<FoldingToolCard body={body} />, {
+      wrapper: liveBridgeWrapper(),
+    });
+    // Named by the tool's name beside it, and a native button in the tab order, so Enter and
+    // Space press it the way they press any button.
+    const chevron = screen.getByRole("button", { name: "bash" });
+    expect(chevron.tagName).toBe("BUTTON");
+    expect(chevron.tabIndex).toBe(0);
+    expect(chevron.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".meridian-machine-body__plain")?.textContent).toBe(body);
+
+    fireEvent.click(chevron);
+
+    expect(chevron.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".meridian-machine-body__plain")).toBeNull();
+    expect(container.querySelector(".meridian-tool-card__summary")?.textContent).toBe(
+      "ran the build",
+    );
+  });
+
+  it("is absent from a call with no body, leaving no tab stop", () => {
+    const container = renderToolCard({
+      type: "tool.invoked",
+      density: "expanded",
+      payload: { toolName: "bash" },
+      onDensityToggle: () => undefined,
+    });
+    expect(container.querySelector("button, [tabindex]")).toBeNull();
   });
 });

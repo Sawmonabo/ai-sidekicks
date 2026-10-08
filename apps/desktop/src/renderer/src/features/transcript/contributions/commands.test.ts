@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { CommandRegistry, commandRegistry } from "#renderer/registries/commands/registry.js";
 import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
@@ -26,6 +26,7 @@ function recordingActs(fired: string[]): TranscriptActs {
     stepFindPrevious: () => fired.push("stepFindPrevious"),
     jumpToLatest: () => fired.push("jumpToLatest"),
     foldEveryRun: () => fired.push("foldEveryRun"),
+    unfoldEveryRun: () => fired.push("unfoldEveryRun"),
   };
 }
 
@@ -44,13 +45,32 @@ describe("transcript commands — the rows themselves", () => {
       ["transcript.findNext", "stepFindNext"],
       ["transcript.findPrevious", "stepFindPrevious"],
       ["transcript.scrollToTail", "jumpToLatest"],
-      ["transcript.collapseTerminalRunGroups", "foldEveryRun"],
+      ["transcript.foldEveryRun", "foldEveryRun"],
+      ["transcript.unfoldEveryRun", "unfoldEveryRun"],
     ];
     for (const [commandId, actName] of expectations) {
       const fired: string[] = [];
       commandById(createTranscriptCommands(recordingActs(fired)), commandId).run();
       expect(fired).toStrictEqual([actName]);
     }
+  });
+});
+
+describe("transcript commands — the fold rows", () => {
+  it("are offered only while the window's transcript holds a run group", () => {
+    const registry = new CommandRegistry();
+    registry.registerAll(createTranscriptCommands(recordingActs([])));
+    const offeredFoldRows = (transcriptHoldsRunGroup: boolean): readonly string[] =>
+      registry
+        .commandsFor({ sessionActive: true, transcriptHoldsRunGroup })
+        .map((command) => command.id)
+        .filter((commandId) => commandId.endsWith("EveryRun"))
+        .sort();
+    expect(offeredFoldRows(false)).toStrictEqual([]);
+    expect(offeredFoldRows(true)).toStrictEqual([
+      "transcript.foldEveryRun",
+      "transcript.unfoldEveryRun",
+    ]);
   });
 });
 
@@ -72,7 +92,7 @@ describe("transcript commands — the contribution reaches the palette and the k
   function keyBindingTable(): KeybindingTable {
     const table = new KeybindingTable({
       registry: commandRegistry,
-      readContext: () => ({ sessionActive: true }),
+      readContext: () => ({ sessionActive: true, transcriptHoldsRunGroup: false }),
     });
     table.setBindings(keybindingOverrides.snapshot.bindings);
     return table;
@@ -94,10 +114,10 @@ describe("transcript commands — the contribution reaches the palette and the k
     const fired: string[] = [];
     const transcript = new MountedTranscript();
     registerTranscriptCommands(commandContributionRegistry, transcript);
-    const release = transcript.adopt(recordingActs(fired), document);
+    const adoption = transcript.adopt(recordingActs(fired), document, false);
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(fired).toStrictEqual(["openFind"]);
-    release();
+    adoption.release();
   });
 
   it("states a refusal where a person can read it when no transcript is mounted", () => {

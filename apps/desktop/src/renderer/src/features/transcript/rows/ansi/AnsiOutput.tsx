@@ -21,6 +21,11 @@ export interface AnsiOutputProps {
   readonly publishedText: PublishedText;
   /** What a screen reader calls this block. */
   readonly label: string;
+  /**
+   * Keep `Show the rest` where it stands while the runs it reveals grow above it, called before
+   * they do; absent where the block is drawn outside a transcript's list.
+   */
+  readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }
 
 /** Renders ANSI-styled command output, with a control to show the spans past the render cap. */
@@ -78,7 +83,8 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
               type="button"
               // The transcript's retry control, already the shape a `Nothing` action takes here.
               className="meridian-transcript-retry"
-              onClick={() => {
+              onClick={(event) => {
+                props.holdControlInPlace?.(event.currentTarget);
                 setRevealed({
                   publishedText,
                   revision,

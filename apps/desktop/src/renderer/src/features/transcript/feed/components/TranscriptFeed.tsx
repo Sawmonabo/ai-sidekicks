@@ -7,7 +7,6 @@ import "./TranscriptFeed.css";
 
 import { useCallback, useMemo } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
@@ -21,6 +20,8 @@ import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
+import { RowToggleProvider, type RowToggle } from "../../rows/RowToggleProvider.js";
+import { readRunGroupKey } from "../../runs/groups.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
@@ -56,7 +57,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     readTranscriptPage: props.readTranscriptPage,
     drawsBody: props.rowRenderer.drawsBody,
   });
-  const { runGroupDisclosure, transcriptWindow, viewport, history } = windows;
+  const { folds, transcriptWindow, viewport, history } = windows;
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
@@ -75,39 +76,77 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     [props.sessionStore],
   );
 
-  const toggleRunGroup = runGroupDisclosure.toggle;
-  const openedTerminalRunIds = runGroupDisclosure.openedTerminalRunIds;
-  const retainedRowState = viewport.retainedRowState;
-  const setRetainedRowState = viewport.setRetainedRowState;
+  // Every fold is held, then made: the viewport reads where the pressed row stands before the
+  // press changes the rows, and keeps it there once they are laid out again.
+  const { holdRowInPlace, holdRowNearestMiddle } = viewport;
+  const { foldedRunIds, foldedCallRowIds, toggleCall, foldEveryRunGroup, unfoldEveryRunGroup } =
+    folds;
+  const toggleFoldedRunGroup = folds.toggleRunGroup;
+  // A header's key is the run id it heads.
+  const toggleRunGroup = useCallback(
+    (runId: string) => {
+      holdRowInPlace(runId);
+      toggleFoldedRunGroup(runId);
+    },
+    [holdRowInPlace, toggleFoldedRunGroup],
+  );
+  const rowToggle = useMemo<RowToggle>(
+    () => ({
+      toggleCallFold: (rowId, control) => {
+        holdRowInPlace(rowId, control);
+        toggleCall(rowId);
+      },
+      holdControlInPlace: holdRowInPlace,
+    }),
+    [holdRowInPlace, toggleCall],
+  );
   // Named off the props object because the callback below keys on it and `props` is a fresh
   // object every render; depending on the whole object rebuilt `renderRow` on every render and
   // re-rendered every mounted row.
   const renderTranscriptRow = props.rowRenderer.render;
-  const retainedStateChannel = useMemo(
-    () => ({ setRetainedState: setRetainedRowState }),
-    [setRetainedRowState],
-  );
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
-    openedTerminalRunIds,
+    foldedRunIds,
+    foldedCallRowIds,
     hueForAgent,
     toggleRunGroup,
-    retainedRowState,
     renderTranscriptRow,
   });
 
   // The palette's chords cannot import this component, so the feed adopts the mounted transcript
-  // for its lifetime; what each act does is its own module's.
-  const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;
-  const collapseAllTerminalRunGroups = useCallback(() => {
-    collapseAllTerminal([...transcriptWindow.runGroupByHeaderKey.values()]);
-  }, [collapseAllTerminal, transcriptWindow]);
-  useTranscriptStructureActs({
-    find,
-    jumpToRow,
-    jumpToTail: viewport.jumpToTail,
-    collapseAllTerminalRunGroups,
-  });
+  // for its lifetime; what each act does is its own module's. A press that would change no group
+  // holds nothing, so it leaves a reader following the tail where they are.
+  const runGroupByHeaderKey = transcriptWindow.runGroupByHeaderKey;
+  const foldEveryRun = useCallback(() => {
+    const runIds = [...runGroupByHeaderKey.keys()];
+    if (runIds.every((runId) => foldedRunIds.has(runId))) {
+      return;
+    }
+    // A member row leaves with its group; a header or a row outside every group stays.
+    holdRowNearestMiddle((rowKey) => {
+      const row = transcriptWindow.rowsByKey.get(rowKey);
+      return row === undefined || readRunGroupKey(row) === undefined;
+    });
+    foldEveryRunGroup(runIds);
+  }, [
+    runGroupByHeaderKey,
+    foldedRunIds,
+    holdRowNearestMiddle,
+    transcriptWindow,
+    foldEveryRunGroup,
+  ]);
+  const unfoldEveryRun = useCallback(() => {
+    const runIds = [...runGroupByHeaderKey.keys()];
+    if (!runIds.some((runId) => foldedRunIds.has(runId))) {
+      return;
+    }
+    holdRowNearestMiddle(() => true);
+    unfoldEveryRunGroup(runIds);
+  }, [runGroupByHeaderKey, foldedRunIds, holdRowNearestMiddle, unfoldEveryRunGroup]);
+  useTranscriptStructureActs(
+    { find, jumpToRow, jumpToTail: viewport.jumpToTail, foldEveryRun, unfoldEveryRun },
+    runGroupByHeaderKey.size > 0,
+  );
   const copySelection = useConversationCopy();
 
   // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
@@ -117,7 +156,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
         <TranscriptFeedHeader findAndJump={findAndJump} />
       </div>
       <div className="meridian-transcript-feed__body" onCopy={copySelection}>
-        <RetainedRowStateProvider channel={retainedStateChannel}>
+        <RowToggleProvider rowToggle={rowToggle}>
           <RowRevealProvider channel={windows.reveal.channel}>
             <TranscriptViewport
               binding={viewport}
@@ -130,7 +169,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               }
             />
           </RowRevealProvider>
-        </RetainedRowStateProvider>
+        </RowToggleProvider>
         <TranscriptWindowSkeleton sessionStore={props.sessionStore} />
       </div>
     </div>

@@ -34,7 +34,6 @@ import {
   type TranscriptHistory,
 } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
-import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { isDrawnRow } from "../drawn-rows.js";
 import { rowBodyLengthOf, rowHeightKindOf } from "../row-height-inputs.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
@@ -42,7 +41,7 @@ import { useDrawnRows } from "./useDrawnRows.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
-import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
+import { useTranscriptFolds, type TranscriptFolds } from "./useTranscriptFolds.js";
 
 /** What the window chain is derived from: the session's store and the frame's clock. */
 export interface TranscriptFeedWindowsInputs {
@@ -67,7 +66,8 @@ export interface TranscriptFeedWindowsInputs {
  */
 export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
-  readonly runGroupDisclosure: RunGroupDisclosure;
+  /** What this session's reader folded, and the acts that fold and open. */
+  readonly folds: TranscriptFolds;
   /** Every member row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
   readonly runGroupFold: TranscriptPipelineStage;
@@ -88,13 +88,13 @@ export function useTranscriptFeedWindows(
   // The same reading `TranscriptWindowSkeleton` draws from, so the empty sentence and the
   // skeleton rows cannot both be on screen.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
-  // Which finished run groups a person has opened is a fact about who is reading, so it is held
-  // here and handed to the derivation rather than folded into it.
-  const runGroupDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
+  // What a person folded is a fact about who is reading, so it is held here and handed to the
+  // derivation rather than folded into it.
+  const folds = useTranscriptFolds(inputs.sessionStore.sessionId);
   const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
   const runGroupFold = useFoldedRunGroups(
     unfurledWindow,
-    runGroupDisclosure.openedTerminalRunIds,
+    folds.foldedRunIds,
     inputs.sessionStore.sessionId,
   );
   const drawsBody = inputs.drawsBody;
@@ -108,9 +108,9 @@ export function useTranscriptFeedWindows(
     (row: TranscriptEventRow) => isDrawnRow(row, unfurledWindow.systemMessageByRowId, drawsBody),
     [unfurledWindow, drawsBody],
   );
-  // The reveal engine is this feed's, minted once and disposed with it. The frame scheduler is minted above both holders so one object orders the
-  // paint: the reveal drain runs in its second phase, while the viewport writes `scrollTop` at
-  // once and submits nothing to the first.
+  // The reveal engine is this feed's, minted once and disposed with it. The frame scheduler is
+  // minted above both holders so one object orders the paint: the reveal drain runs in its second
+  // phase, while the viewport writes `scrollTop` at once and submits nothing to the first.
   const frameScheduler = useAnimationFrameScheduler(inputs.clock);
   const reveal = useReveal({ frameScheduler, clock: inputs.clock });
   const history = useTranscriptHistory(inputs.sessionStore, inputs.readTranscriptPage);
@@ -123,16 +123,23 @@ export function useTranscriptFeedWindows(
     unfurledWindow,
     transcriptWindow,
     drawsRow,
-    runGroupDisclosure,
+    openRunGroup: folds.openRunGroup,
   });
-  // One reader of each for the mount, over the window the tree last committed and the reveal
-  // engine of the last render: a new reader would mint a new viewport, and the viewport asks for a
-  // row's kind and body length only for rows that window holds.
+  // One reader of each for the mount, over the window, folds and reveal engine of the last
+  // render: a new reader would mint a new viewport, and the viewport asks for a row's kind and
+  // body length only for rows that window holds.
   const committedTranscriptWindow = useLatestRef(transcriptWindow);
+  const committedFoldedCallRowIds = useLatestRef(folds.foldedCallRowIds);
   const isRevealingRow = useLatestRef(reveal.isRevealing);
   const heightKindOf = useCallback(
-    (rowKey: string) => rowHeightKindOf(committedTranscriptWindow.current, rowKey),
-    [committedTranscriptWindow],
+    (rowKey: string) =>
+      rowHeightKindOf(
+        committedTranscriptWindow.current,
+        committedFoldedCallRowIds.current,
+        isRevealingRow.current,
+        rowKey,
+      ),
+    [committedTranscriptWindow, committedFoldedCallRowIds, isRevealingRow],
   );
   const bodyLengthOf = useCallback(
     (rowKey: string) =>
@@ -153,7 +160,8 @@ export function useTranscriptFeedWindows(
     history,
     viewport,
     drawsBody,
-    openedTerminalRunIds: runGroupDisclosure.openedTerminalRunIds,
+    foldedRunIds: folds.foldedRunIds,
+    foldedCallRowIds: folds.foldedCallRowIds,
   });
   useHistoryLookAhead({
     history,
@@ -184,16 +192,14 @@ export function useTranscriptFeedWindows(
     inputs.clock,
   );
 
-  // A lane whose row this window no longer holds, or holds only inside a terminal run group, is
-  // a turn that is over, so the engine drops it, keeping a reply row's text for its foot. Asked
-  // of the engine's own lanes (at most one per streaming row) rather than walking the whole log
-  // on every event. What a row drew is forgotten once the log's window lets the row go; a row
-  // only folded away is still held.
+  // A lane whose row has left this window is dropped, keeping a reply row's text for its foot; a
+  // run that settles keeps its lanes while its rows stay drawn. Asked of the engine's own lanes
+  // (at most one per streaming row) rather than walking the whole log on every event. What a row
+  // drew is forgotten once the log's window lets the row go; a row only folded away is still held.
   const { retireLanes: retireRevealLanes, forgetDrawnTextOutside } = reveal;
   useEffect(() => {
     retireRevealLanes(
-      (laneId) =>
-        !transcriptWindow.rowsByKey.has(laneId) || transcriptWindow.collapsedRowIds.has(laneId),
+      (laneId) => !transcriptWindow.rowsByKey.has(laneId),
       (laneId) => {
         const row = unfurledWindow.rowsByKey.get(laneId);
         return row !== undefined && classifyTranscriptRow(row)?.kind === "agent-message";
@@ -204,7 +210,7 @@ export function useTranscriptFeedWindows(
 
   return {
     firstReadSettled,
-    runGroupDisclosure,
+    folds,
     unfurledWindow,
     runGroupFold,
     transcriptWindow,

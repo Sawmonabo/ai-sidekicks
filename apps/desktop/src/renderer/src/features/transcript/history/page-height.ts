@@ -15,8 +15,10 @@ import { deriveTranscriptWindow } from "../window/transcript-window.js";
 export interface PageHeightInputs {
   readonly estimatedRowHeightPx: TranscriptViewportBinding["estimatedRowHeightPx"];
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
-  /** The finished run groups the reader opened; every other one draws folded. */
-  readonly openedTerminalRunIds: ReadonlySet<string>;
+  /** The run groups the reader folded; every other one draws open. */
+  readonly foldedRunIds: ReadonlySet<string>;
+  /** The calls the reader folded; every other call with a body draws open. */
+  readonly foldedCallRowIds: ReadonlySet<string>;
 }
 
 /** The estimated height, in pixels, of the rows the feed would draw for one page of events. */
@@ -24,16 +26,13 @@ export function estimatePageHeightPx(
   events: readonly ProjectedSessionEvent[],
   inputs: PageHeightInputs,
 ): number {
-  const folded = foldRunGroupHeaders(
-    deriveTranscriptWindow(events),
-    inputs.openedTerminalRunIds,
-  ).window;
+  const folded = foldRunGroupHeaders(deriveTranscriptWindow(events), inputs.foldedRunIds).window;
   const drawn = new DrawnRowFilter().filter(folded, inputs.drawsBody);
   let heightPx = 0;
   for (const row of drawn.viewportRows) {
     heightPx += inputs.estimatedRowHeightPx(
       row.key,
-      rowHeightKindOf(drawn, row.key),
+      rowHeightKindOf(drawn, inputs.foldedCallRowIds, isNeverRevealing, row.key),
       // A page read from history is drawn whole: no row of it is still being revealed.
       rowBodyLengthOf(drawn, isNeverRevealing, row.key),
     );

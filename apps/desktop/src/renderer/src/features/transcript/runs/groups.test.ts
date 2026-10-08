@@ -1,5 +1,5 @@
 // The run group fold, held to what `groups.ts` must never do. Each rule fails silently (a
-// heuristic grouping or a collapsed live run group still renders).
+// heuristic grouping or a live run read as ended still renders).
 
 import { describe, expect, it } from "vitest";
 
@@ -34,7 +34,7 @@ describe("run groups — what makes a run group terminal", () => {
 
   it("a rewind is not a terminal", () => {
     // `run.rolled_back` is a forward, non-state event: the run continues from the boundary. A
-    // fold treating any run-lifecycle row as an ending would fold this run group.
+    // fold treating any run-lifecycle row as an ending would let the window drop its rows.
     const runGroups = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.queued", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.rolled_back", runId: "run-a", position: 2 }),
@@ -44,8 +44,8 @@ describe("run groups — what makes a run group terminal", () => {
 
   it("reopens a run group the run came back from", () => {
     // A rollback accepted from a finished run appends a pause and a rewind before it resumes.
-    // An accumulator that only set the terminal would keep the completion, leaving the run
-    // group folded with rows hidden behind a receipt for an ending that had been undone.
+    // An accumulator that only set the terminal would keep the completion, reading the run as
+    // ended after that ending had been undone.
     const runGroups = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.queued", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.completed", runId: "run-a", position: 2 }),
@@ -54,23 +54,18 @@ describe("run groups — what makes a run group terminal", () => {
       runRow({ id: "a5", sequence: 5, type: "run.running", runId: "run-a", position: 5 }),
     ]);
 
-    const runGroup = findRunGroup(runGroups, "run-a");
-    expect(runGroup.lifecycle).toBe("live");
-    // The receipt goes with it: that row ends nothing now.
-    expect(runGroup.terminalRowId).toBeUndefined();
+    expect(findRunGroup(runGroups, "run-a").lifecycle).toBe("live");
   });
 
   it("seals a reopened run group again at its next ending", () => {
-    // A run that came back and then failed is finished, and its header names the second ending.
+    // A run that came back and then failed is finished.
     const runGroups = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.completed", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.rolled_back", runId: "run-a", position: 2 }),
       runRow({ id: "a3", sequence: 3, type: "run.failed", runId: "run-a", position: 3 }),
     ]);
 
-    const runGroup = findRunGroup(runGroups, "run-a");
-    expect(runGroup.lifecycle).toBe("terminal");
-    expect(runGroup.terminalRowId).toBe("a3");
+    expect(findRunGroup(runGroups, "run-a").lifecycle).toBe("terminal");
   });
 });
 

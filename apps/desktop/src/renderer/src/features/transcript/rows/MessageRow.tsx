@@ -149,6 +149,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
               sourceId={props.row.id}
               footnotes={props.footnotes}
               label={rowKind.label}
+              holdControlInPlace={props.holdControlInPlace}
             />
           )}
         </div>

@@ -80,7 +80,7 @@ describe("a selection across the conversation", () => {
               type: "tool.result",
               actor: "Claude",
               summary: "Ran pnpm test",
-              payload: { toolName: "bash" },
+              payload: { toolName: "bash", contentLength: "first line\n  second line".length },
             })}
             agentHue={undefined}
             isSuperseded={false}

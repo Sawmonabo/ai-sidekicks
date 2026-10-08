@@ -1,14 +1,12 @@
-// The transcript's row renderer: the card it routes a row to, the density it hands back
-// to the list, and the one owner it registers under.
+// The transcript's row renderer: the card it routes a row to, the footer control beside a message,
+// and the one owner it registers under.
 
-import { fireEvent, render } from "@testing-library/react";
-import { useState } from "react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
-import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
-import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
+import { RowToggleProvider, type RowToggle } from "./RowToggleProvider.js";
 import { registerTranscriptRowRenderer, type TranscriptRowProps } from "./renderer.js";
 import { registerTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/rows.js";
@@ -33,52 +31,27 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
   );
 }
 
-/**
- * The row renderer inside a list that owns its density, as a transcript does: the renderer
- * writes a retained state and the list hands the answer back.
- */
-function MountedInAList(props: {
-  readonly row: TranscriptRowProps["row"];
-  readonly listDensity: TranscriptRowProps["density"];
-  readonly onRetainedStateWritten?: (rowKey: string, state: RetainedRowState) => void;
-}): React.JSX.Element {
-  const [retained, setRetained] = useState<RetainedRowState | undefined>(undefined);
+/** The toggles of a list no case here presses. */
+const UNPRESSED_ROW_TOGGLE: RowToggle = {
+  toggleCallFold: () => undefined,
+  holdControlInPlace: () => undefined,
+};
+
+/** The row renderer inside a list, as a transcript mounts it. */
+function MountedInAList(props: { readonly row: TranscriptRowProps["row"] }): React.JSX.Element {
   return (
     <InBridge>
-      <RetainedRowStateProvider
-        channel={{
-          setRetainedState: (rowKey, state) => {
-            props.onRetainedStateWritten?.(rowKey, state);
-            setRetained(state);
-          },
-        }}
-      >
-        <TranscriptRow
-          {...rowRendererProps(props.row)}
-          density={retained?.density ?? props.listDensity}
-        />
-      </RetainedRowStateProvider>
+      <RowToggleProvider rowToggle={UNPRESSED_ROW_TOGGLE}>
+        <TranscriptRow {...rowRendererProps(props.row)} />
+      </RowToggleProvider>
     </InBridge>
   );
-}
-
-const TOOL_DISCLOSURE = ".meridian-tool-card__disclosure";
-
-function pressDisclosure(container: HTMLElement): void {
-  fireEvent.click(container.querySelector(TOOL_DISCLOSURE) as Element);
-}
-
-function disclosureState(container: HTMLElement): string | null | undefined {
-  return container.querySelector(TOOL_DISCLOSURE)?.getAttribute("aria-expanded");
 }
 
 describe("routing a row to its card", () => {
   it("gives a reasoning row the reasoning body rather than the machine body", () => {
     const { container } = render(
-      <MountedInAList
-        row={sampleRunRow({ type: "assistant.thinking_update" })}
-        listDensity="collapsed"
-      />,
+      <MountedInAList row={sampleRunRow({ type: "assistant.thinking_update" })} />,
       { wrapper: LiveAnnouncerProvider },
     );
     expect(container.querySelector(".meridian-reasoning-surface")).not.toBeNull();
@@ -98,60 +71,10 @@ describe("the edit control's footer renderer", () => {
     const { container } = render(
       <MountedInAList
         row={sampleRunRow({ type: "user.message", summary: "please run the tests" })}
-        listDensity="collapsed"
       />,
       { wrapper: LiveAnnouncerProvider },
     );
     expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
-  });
-});
-
-describe("standing in for the list's density decision", () => {
-  it("writes a reader's press to the list rather than remembering it here", () => {
-    // A `useState` here would be discarded when the virtualizer scrolls the row out of the
-    // mounted range, so the choice must leave the component; this asserts on the value that
-    // leaves, keyed by the row, which the window parks across a prune.
-    const written: Array<{ readonly rowKey: string; readonly state: RetainedRowState }> = [];
-    const row = sampleRunRow({ type: "tool.invoked" });
-    const { container } = render(
-      <MountedInAList
-        row={row}
-        listDensity="collapsed"
-        onRetainedStateWritten={(rowKey, state) => {
-          written.push({ rowKey, state });
-        }}
-      />,
-      { wrapper: LiveAnnouncerProvider },
-    );
-    expect(disclosureState(container)).toBe("false");
-
-    pressDisclosure(container);
-    expect(written).toStrictEqual([
-      { rowKey: row.id, state: { density: "expanded", innerScrollTopPx: 0 } },
-    ]);
-    expect(disclosureState(container)).toBe("true");
-  });
-
-  it("closes a row the list opened on the first press, not the second", () => {
-    // The press inverts the effective density (what is on screen), so one press closes an open
-    // row. A private "touched" flag would store "open" and leave the row as it was.
-    const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
-      { wrapper: LiveAnnouncerProvider },
-    );
-
-    pressDisclosure(container);
-    expect(disclosureState(container)).toBe("false");
-  });
-
-  it("refuses to mount outside a transcript rather than swallowing the press", () => {
-    // A no-op default channel would look exactly like a row that will not open; it fails loudly
-    // instead.
-    expect(() =>
-      render(<TranscriptRow {...rowRendererProps(sampleRunRow({ type: "tool.invoked" }))} />, {
-        wrapper: LiveAnnouncerProvider,
-      }),
-    ).toThrow(/retained row state provider/);
   });
 });
 

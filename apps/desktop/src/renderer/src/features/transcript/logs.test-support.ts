@@ -84,33 +84,6 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
 }
 
 /**
- * A live run whose rows are tool rows, the only cards that carry a disclosure, so a case can
- * press a reader's expansion and watch the retained-state round trip out of the row and back.
- */
-export function openSessionStoreWithToolRows(count: number): SessionStore {
-  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
-  sessionStore.applyBatch(
-    Array.from({ length: count }, (_unused, index) => ({
-      id: transcriptFixtureEventId(index),
-      sessionId: SESSION_ID,
-      sequence: index,
-      cursor: transcriptFixtureStreamCursor(index),
-      kind: "tool.invoked",
-      occurredAt: transcriptFixtureStampAt(index),
-      payload: {
-        sessionId: SESSION_ID,
-        runId: LIVE_RUN_ID,
-        toolName: `tool_${String(index)}`,
-        toolCallId: `call-${String(index)}`,
-      },
-      runStamp: { position: index, epoch: 0 },
-    })),
-  );
-  return sessionStore;
-}
-
-/**
  * A log of general rows, so no run group is open and the cap may actually apply. Each event
  * carries the cursor the stream delivered it at.
  */

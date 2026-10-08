@@ -5,7 +5,7 @@
 // refused by name.
 // The props carry decisions the list makes, not facts a row holds: `agentHue` comes from
 // `AgentHueAllocator` over the session log, `isSuperseded` is the row's superseded mark read by
-// the list, and `density` is the list's collapse state.
+// the list, and `density` is whether a person folded the row.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -13,12 +13,12 @@ import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 
 /**
- * A row's collapse state: tool rows render as one line until opened; run groups collapse once
- * terminal and the live run group stays open. Two values, not a spacing scale.
+ * Whether a row is folded: a call with a body is open until a person folds it, and nothing folds
+ * itself. Two values, not a spacing scale.
  */
 export const TRANSCRIPT_ROW_DENSITIES = ["collapsed", "expanded"] as const;
 
-/** One row's collapse state. Derived from the enumeration, never restated. */
+/** Whether one row is folded. Derived from the enumeration, never restated. */
 export type TranscriptRowDensity = (typeof TRANSCRIPT_ROW_DENSITIES)[number];
 
 /** What the transcript list hands each row. */

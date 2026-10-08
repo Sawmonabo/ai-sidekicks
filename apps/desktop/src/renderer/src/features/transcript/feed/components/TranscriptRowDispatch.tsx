@@ -4,22 +4,21 @@
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { RunGroupHeader } from "../../runs/components/RunGroupHeader.js";
-import { type RunGroup } from "../../runs/groups.js";
 import { SystemMessage } from "../../system-messages/components/SystemMessage.js";
-import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
 import { type ViewportRow } from "../../viewport/snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type TranscriptRowBody } from "../../rows/renderer.js";
-import { densityFor } from "../run-group-fold.js";
+import { densityFor } from "../fold-state.js";
 import { TranscriptFeedRow } from "./TranscriptFeedRow.js";
 
 /** Everything the dispatch reads beyond the key itself. Each member is stable except the window. */
 export interface TranscriptRowDispatchOptions {
   readonly transcriptWindow: TranscriptWindowModel;
-  readonly openedTerminalRunIds: ReadonlySet<string>;
+  readonly foldedRunIds: ReadonlySet<string>;
+  readonly foldedCallRowIds: ReadonlySet<string>;
   readonly hueForAgent: (actorId: string) => AgentHueAssignment | undefined;
-  readonly toggleRunGroup: (runGroup: RunGroup) => void;
-  readonly retainedRowState: (rowKey: string) => RetainedRowState | undefined;
+  /** Fold or open a run group, holding its header where it stands. */
+  readonly toggleRunGroup: (runId: string) => void;
   /** The registered row renderer's body. STABLE across renders, or the row memo moves with it. */
   readonly renderTranscriptRow: TranscriptRowBody;
 }
@@ -33,13 +32,13 @@ export interface TranscriptRowDispatchProps extends TranscriptRowDispatchOptions
 export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.JSX.Element {
   const { transcriptWindow, hueForAgent } = props;
   // A run group header is a row of the list keyed by the run it heads, with no projected row
-  // behind it, so it is dispatched before the body lookup. A live run group has none.
+  // behind it, so it is dispatched before the body lookup.
   const runGroup = transcriptWindow.runGroupByHeaderKey.get(props.row.key);
   if (runGroup !== undefined) {
     return (
       <RunGroupHeader
         runGroup={runGroup}
-        isOpen={props.openedTerminalRunIds.has(runGroup.runId)}
+        isOpen={!props.foldedRunIds.has(runGroup.runId)}
         agentHue={runGroup.actorId === undefined ? undefined : hueForAgent(runGroup.actorId)}
         onToggle={props.toggleRunGroup}
       />
@@ -74,13 +73,9 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
       row={projected}
       agentHue={agentHue}
       isSuperseded={isSuperseded}
-      // The retained state overlays the list, which is the fallback: an untouched row holds none
-      // and follows the run group fold, and an opened row keeps its choice across an unmount and
-      // a prune, because the window re-parks it.
-      density={
-        props.retainedRowState(projected.id)?.density ??
-        densityFor(projected.id, transcriptWindow.collapsedRowIds)
-      }
+      // Read from the session's folds, not the row, so a folded call stays folded when it
+      // scrolls out of the drawn window and back.
+      density={densityFor(projected.id, props.foldedCallRowIds)}
       replyRowIds={transcriptWindow.replyRowIdsByFootRowId.get(projected.id)}
       renderTranscriptRow={props.renderTranscriptRow}
     />

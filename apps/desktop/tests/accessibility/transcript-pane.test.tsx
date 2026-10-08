@@ -21,6 +21,7 @@
 // entries, which scroll inside the row, are a tab stop a real Tab press reaches and the arrows
 // scroll.
 
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
@@ -54,13 +55,6 @@ import { groupRowsByRun } from "#renderer/features/transcript/runs/groups.js";
 import { findRunGroup } from "#renderer/features/transcript/runs/groups.test-support.js";
 import { installOverlayScrollbarLibrary } from "#renderer/lib/overlay-scrollbar-library.js";
 
-/**
- * The cursor a scenario's log is applied on top of. Zero rather than `-1`, because
- * `composeScriptBeats` numbers beats from one: a store rebased at `-1` would record a gap
- * before the first beat and mark itself degraded.
- */
-const SCENARIO_BASE_CURSOR = 0;
-
 /** A column narrower than the table below, as a narrow conversation is. */
 const ROW_COLUMN_WIDTH = "30rem";
 
@@ -92,10 +86,9 @@ const NO_CODE_SPANS: CodeSpanReader = {
  */
 function openStoreOnScenario(scenario: Scenario): SessionStore {
   const sessionStore = new SessionStore({ sessionId: scenario.sessionId });
-  sessionStore.initialize({
-    cursor: SCENARIO_BASE_CURSOR,
-    entities: [],
-  });
+  // `composeScriptBeats` numbers beats from 0, as the daemon numbers a log, so the store starts
+  // before the first: a base of 0 would refuse beat 0 as one it already holds.
+  sessionStore.initialize({ cursor: START_OF_LOG_POSITION, entities: [] });
   if (scenario.beats.length > 0) {
     sessionStore.applyBatch(scenario.beats.map((beat) => beat.event));
   }

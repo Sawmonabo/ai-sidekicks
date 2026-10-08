@@ -16,8 +16,10 @@ export interface StretchMeasureInputs {
   readonly history: TranscriptHistory | undefined;
   readonly viewport: TranscriptViewportBinding;
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
-  /** The finished run groups the reader opened; every other one draws folded. */
-  readonly openedTerminalRunIds: ReadonlySet<string>;
+  /** The run groups the reader folded; every other one draws open. */
+  readonly foldedRunIds: ReadonlySet<string>;
+  /** The calls the reader folded; every other call with a body draws open. */
+  readonly foldedCallRowIds: ReadonlySet<string>;
 }
 
 /**
@@ -26,7 +28,7 @@ export interface StretchMeasureInputs {
  */
 export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStretchMeasure {
   const ownerWindow = useOwnerWindow();
-  const { history, viewport, drawsBody, openedTerminalRunIds } = inputs;
+  const { history, viewport, drawsBody, foldedRunIds, foldedCallRowIds } = inputs;
   const { scrollController, estimatedRowHeightPx, smallestRowHeightPx } = viewport;
   const measure = useMemo<TranscriptStretchMeasure>(
     () => ({
@@ -36,7 +38,12 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
       },
       smallestRowHeightPx,
       pageHeightPx: (events) =>
-        estimatePageHeightPx(events, { estimatedRowHeightPx, drawsBody, openedTerminalRunIds }),
+        estimatePageHeightPx(events, {
+          estimatedRowHeightPx,
+          drawsBody,
+          foldedRunIds,
+          foldedCallRowIds,
+        }),
     }),
     [
       ownerWindow,
@@ -44,7 +51,8 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
       estimatedRowHeightPx,
       smallestRowHeightPx,
       drawsBody,
-      openedTerminalRunIds,
+      foldedRunIds,
+      foldedCallRowIds,
     ],
   );
   const measureWith = history?.measureWith;

@@ -45,11 +45,9 @@ export interface TranscriptWindowModel {
   readonly rowsByKey: ReadonlyMap<string, TranscriptEventRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
-  /** Which rows are collapsed, under the fold that closes every finished run group. */
-  readonly collapsedRowIds: ReadonlySet<string>;
   /**
-   * The run group behind each header row, keyed by the run id the header is. Every terminal run
-   * group has an entry, folded or open; a live one has none, since it draws no header.
+   * The run group behind each header row, keyed by the run id the header is. Every run group has
+   * an entry, live or ended, folded or open.
    */
   readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
@@ -109,9 +107,8 @@ export function deriveTranscriptWindow(
     viewportRows,
     rowsByKey,
     supersededRowIds,
-    collapsedRowIds: collapsedRowIdsOf(runGroupIndex),
     runGroupByHeaderKey: new Map(
-      runGroupIndex.terminalRunGroups().map((runGroup) => [runGroup.runId, runGroup]),
+      runGroupIndex.runGroups().map((runGroup) => [runGroup.runId, runGroup]),
     ),
     systemMessageByRowId: new Map(
       systemMessages.map((systemMessage) => [systemMessage.rowId, systemMessage]),
@@ -133,18 +130,4 @@ export function deriveTranscriptWindow(
         .map((runGroup) => runGroup.runId),
     ),
   };
-}
-
-/**
- * Every row of a run group that has reached a terminal, asked of `terminalRunGroups()` so the fold
- * that decides a group is over and the one that collapses its rows are one fold.
- */
-function collapsedRowIdsOf(runGroupIndex: RunGroupIndex): ReadonlySet<string> {
-  const collapsed = new Set<string>();
-  for (const runGroup of runGroupIndex.terminalRunGroups()) {
-    for (const rowId of runGroup.rowIds) {
-      collapsed.add(rowId);
-    }
-  }
-  return collapsed;
 }
