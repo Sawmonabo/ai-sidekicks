@@ -39,8 +39,9 @@
 // `MAX_REPAIRABLE_SEQUENCE_GAP` the frame is set aside and the stream opened again after the last
 // change delivered, so the daemon fills the hole in order and the store never sees it; a
 // caught-up frame names no sequence, so it is filled the same way. Past the bound the hole is not
-// filled: the stream is closed and the store marked degraded, and its one repair read reopens the
-// stream after the last row the store folded whole, which then sends what the old one dropped.
+// filled: the stream is closed and the store marked degraded, and its one repair read takes a
+// snapshot, the session's record and the window at the log's newest rows, and reopens the stream
+// after the window's newest row.
 // Reading a frame is `services/daemon/session/event/payload.ts`. The four reads the endurance
 // tier makes (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 

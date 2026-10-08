@@ -6,6 +6,7 @@
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { transcriptRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 import {
   RUN_INITIAL_STATE,
   RUN_QUEUED_EVENT_KIND,
@@ -13,7 +14,6 @@ import {
 } from "#renderer/store/session/events/run/state-kinds.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { attributedRunIdOf } from "./run-attribution.js";
 
 /**
  * Every child run this log names, keyed by the event id of the row it is stamped on.
@@ -28,7 +28,7 @@ export function deriveChildRunSummaries(
 ): ReadonlyMap<string, ChildRunSummary> {
   const readingsByRunId = new Map<string, ChildRunReading>();
   for (const event of events) {
-    const runId = attributedRunIdOf(event.payload);
+    const runId = transcriptRunIdOf(event.payload);
     if (runId === undefined) {
       continue;
     }

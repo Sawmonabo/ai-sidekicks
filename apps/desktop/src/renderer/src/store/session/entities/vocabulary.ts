@@ -7,6 +7,8 @@
 //     cannot heal.
 //   - Projections never persist. `persistence/` holds UI state only, and every entity here is
 //     re-derived from the daemon on reconnect.
+import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
+
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "#renderer/lib/entity-kinds.js";
 
 /**
@@ -86,6 +88,11 @@ export interface ProjectedSessionEvent {
   readonly actorId?: string;
   /** The event's own payload, narrowed by the projector that claims its kind. */
   readonly payload?: Readonly<Record<string, unknown>>;
+  /**
+   * The daemon's stamp of the run turn this event belongs to, present exactly when the daemon
+   * stamped it: on every event of a run, and on no session-level event.
+   */
+  readonly runStamp?: TranscriptRunStamp;
 }
 
 /**

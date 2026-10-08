@@ -18,6 +18,7 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
@@ -48,10 +49,12 @@ export interface ScenarioEventEnvelopeCandidate {
   readonly version: string;
 }
 
-/** One composed change on the session stream: a beat's envelope and its cursor. */
+/** One composed change on the session stream: a beat's envelope, its cursor and its run stamp. */
 export interface ScenarioSessionStreamChange {
   readonly cursor: string;
   readonly event: ScenarioEventEnvelopeCandidate;
+  /** The daemon's turn stamp, present exactly when the beat belongs to a run. */
+  readonly runStamp?: TranscriptRunStamp;
 }
 
 /** One composed `session.subscribe` frame. */
@@ -83,7 +86,8 @@ export function composeScenarioEventEnvelope(
 /**
  * Compose the `session.subscribe` frames one batch of beats is delivered in: frames of at most
  * `STREAM_FRAME_MAX_CHANGES`, oldest first. The fixture never falls behind, so no frame carries
- * the drop mark, and an empty batch is no frame at all. Each change carries its beat's cursor.
+ * the drop mark, and an empty batch is no frame at all. Each change carries its beat's cursor and
+ * the run stamp the beat was given.
  */
 export function composeScenarioSessionFrames(
   events: readonly ProjectedSessionEvent[],
@@ -94,6 +98,7 @@ export function composeScenarioSessionFrames(
       changes: events.slice(start, start + STREAM_FRAME_MAX_CHANGES).map((event) => ({
         cursor: event.cursor,
         event: composeScenarioEventEnvelope(event),
+        ...(event.runStamp === undefined ? {} : { runStamp: event.runStamp }),
       })),
     });
   }

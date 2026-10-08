@@ -1,13 +1,18 @@
-// The transcript pane: the address it hands the shared pane chrome, and the registered row
-// renderer its rows are drawn with. The close control is not defaulted: a control nobody can
-// perform is left out, so a close prop is forwarded only where the caller owns the pane.
+// The transcript pane: the address it hands the shared pane chrome, the registered row renderer
+// its rows are drawn with, and the `transcript.read` its history is read through. The close
+// control is not defaulted: a control nobody can perform is left out, so a close prop is
+// forwarded only where the caller owns the pane.
 
+import { useCallback } from "react";
+
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { findTranscriptRowRenderer, type TranscriptRowRenderer } from "./rows/renderer.js";
 import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
+import { type TranscriptPageRead } from "./history/reader.js";
 
 /** The pane context narrowed to the transcript arm, using the pane registry's own narrowing. */
 export type TranscriptPaneContext = PaneContextOf<"transcript">;
@@ -25,6 +30,11 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
 
   // Read through the store's selector so the pane follows a navigation to another session.
   const route = useWindowStore(context.frameStore, (state) => state.route);
+  const { bridge } = context;
+  const readTranscriptPage = useCallback<TranscriptPageRead>(
+    (request, { signal }) => callDaemon(bridge, "transcript.read", request, { signal }),
+    [bridge],
+  );
 
   return (
     <PaneFrame
@@ -38,6 +48,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
         rowRenderer={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
         messageAnchorCursor={sessionMessageAnchorCursor(route)}
+        readTranscriptPage={readTranscriptPage}
       />
     </PaneFrame>
   );

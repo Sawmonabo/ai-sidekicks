@@ -31,7 +31,7 @@ export interface SessionRegistryChange {
   readonly change: "opened" | "closed";
 }
 
-/** Where one open session's stream opens, named each time a read moves its window. */
+/** Where one open session's stream opens, named each time a read or a rejoined tail moves it. */
 export interface SessionStreamOpening extends SessionStreamPosition {
   readonly sessionId: string;
 }
@@ -169,8 +169,8 @@ export class SessionStoreRegistry {
   }
 
   /**
-   * Where an open session's stream opens, as its last read that moved the window named it, or
-   * `undefined` when no read has, or the session is not open.
+   * Where an open session's stream opens, as the last read or rejoined tail that moved it named
+   * it, or `undefined` when none has, or the session is not open.
    */
   public streamPositionFor(sessionId: string): SessionStreamPosition | undefined {
     return this.#entriesBySessionId.get(sessionId)?.streamPosition;
@@ -215,14 +215,13 @@ export class SessionStoreRegistry {
 
   /**
    * Ask for a re-read of every open session a read can help — the window-focus and reconnect
-   * path. A session whose replay is under way is left to it, since a read would start the replay
-   * over. A session behind for a cause its replay raises again is left until a person asks, or
-   * every focus would replay its log to fail on the same row.
+   * path. A session behind for a cause the stream raises again is left until a person asks, or
+   * every focus would read it again to fail on the same row.
    */
   public requestRefreshOfEverySession(reason: RefreshReason): void {
     for (const entry of this.#entriesBySessionId.values()) {
-      const { degradedCause, isReplaying } = entry.store.snapshot();
-      if (isReplaying || (degradedCause !== undefined && isRaisedAgainOnReplay(degradedCause))) {
+      const { degradedCause } = entry.store.snapshot();
+      if (degradedCause !== undefined && isRaisedAgainOnReplay(degradedCause)) {
         continue;
       }
       entry.refreshScheduler.request(reason);
@@ -250,7 +249,8 @@ export class SessionStoreRegistry {
 
   /**
    * Subscribe to where each session's stream opens: once its first read places the window, and
-   * again whenever a read moves it. Through the shared emitter, for `subscribe`'s reasons.
+   * again whenever a read or a rejoined tail moves it. Through the shared emitter, for
+   * `subscribe`'s reasons.
    */
   public subscribeToStreamOpenings(listener: (opening: SessionStreamOpening) => void): Unsubscribe {
     return this.#streamOpenings.subscribe(listener);

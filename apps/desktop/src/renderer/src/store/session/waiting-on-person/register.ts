@@ -1,9 +1,9 @@
 // What is still waiting on a person, held outside the window it was learned from.
 //
-// Not a fold over the store's `transcript`: a resumed read starts mid-log and the transcript is
-// capped, so an approval's opening row can be gone while the run is still blocked. The register
-// is advanced by every admitted event and recovered backward page, seeded from each read's base
-// state, and cleared by nothing that replaces or prunes the window.
+// Not a fold over the store's `transcript`: the transcript is a window of the log that lets go of
+// rows far from the reader, so an approval's opening row can be gone while the run is still
+// blocked. The register is advanced by every admitted event and recovered page, seeded from each
+// read's base state, and cleared by nothing that replaces or prunes the window.
 //
 // It keeps two positions per lifecycle (the opener and the newest terminal), so rows in any order
 // give the same answer. A backward page delivers an opener after its terminal, and a register that
@@ -48,8 +48,9 @@ export interface WaitingOnPersonRecords {
   readonly runsByRunId: ReadonlyMap<string, WaitingRunRecord>;
   /**
    * Whether requests raised below this window's head may exist that were never read here.
-   * True while the read that established the base state submitted a position, since the window
-   * then starts partway through the log. Run states are seeded, so they are not what this reports.
+   * True while the read that established the base state carried a window with rows before it,
+   * since the window then starts partway through the log. Run states are seeded, so they are not
+   * what this reports.
    */
   readonly isWindowHeadUnread: boolean;
 }
@@ -62,8 +63,8 @@ export interface WaitingOnPersonSeed {
    * An event at or below it is already folded into the seed and must not supersede it.
    */
   readonly cursor: number;
-  /** The position the read was performed FROM, or `undefined` for the log's beginning. */
-  readonly windowHeadCursor: string | undefined;
+  /** Whether rows sit before the window the read carried, which the register never saw. */
+  readonly isWindowHeadUnread: boolean;
 }
 
 /**
@@ -83,7 +84,7 @@ export class WaitingOnPersonRegister {
    * window-head fact is replaced.
    */
   public seedFrom(seed: WaitingOnPersonSeed): void {
-    this.#isWindowHeadUnread = seed.windowHeadCursor !== undefined;
+    this.#isWindowHeadUnread = seed.isWindowHeadUnread;
     this.#revision += 1;
     for (const entity of seed.entities) {
       if (entity.kind !== "run") {

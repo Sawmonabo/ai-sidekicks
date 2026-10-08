@@ -597,6 +597,8 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
           latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length - 1),
         },
+        // The record a read before any beat lands holds: no run has begun.
+        liveRuns: [],
       },
     },
     ...SETTINGS_REPLIES,

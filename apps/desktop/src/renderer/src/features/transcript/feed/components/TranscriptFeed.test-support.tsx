@@ -8,7 +8,10 @@ import { act, render } from "@testing-library/react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
@@ -18,7 +21,7 @@ import { registerTranscriptCommands } from "../../contributions/commands.js";
 import { TRANSCRIPT_OWNER } from "../../contributions/screens.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptRowProps } from "../../rows/renderer.js";
-import { type EarlierPageRead } from "../../history/earlier-reader.js";
+import { type TranscriptPageRead } from "../../history/reader.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** An event count short enough that the window never lets one of its rows go. */
@@ -33,8 +36,9 @@ export const LONG_LOG_EVENT_COUNT = 450;
  * Mount the feed under a bridge, because the transcript reads the app's clock. `onRowMounted`
  * lets a case read the three decisions the list makes for a row, which reach the row renderer as
  * arguments and never as markup. `messageAnchorCursor` opens the feed at that message,
- * `readEarlierPage` is the backward read the feed pages through, and `drawsBody` is the row
- * renderer's answer to which rows it draws, every row unless a case says otherwise.
+ * `readTranscriptPage` is the `transcript.read` the feed reads its history with, `drawsBody` is
+ * the row renderer's answer to which rows it draws, every row unless a case says otherwise, and
+ * `fixture` the bridge whose frozen clock a case advances, a fresh one unless it says otherwise.
  */
 export function renderFeed(
   sessionStore: SessionStore,
@@ -42,12 +46,14 @@ export function renderFeed(
   renderRowBody?: (mount: TranscriptRowProps) => React.JSX.Element,
   options: {
     readonly messageAnchorCursor?: string;
-    readonly readEarlierPage?: EarlierPageRead;
+    readonly readTranscriptPage?: TranscriptPageRead;
     readonly drawsBody?: (row: TranscriptEventRow) => boolean;
+    readonly fixture?: FixtureBridge;
   } = {},
 ): HTMLElement {
+  const fixture = options.fixture ?? createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const { container } = render(
-    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+    <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <TranscriptFeed
           sessionStore={sessionStore}
@@ -64,7 +70,7 @@ export function renderFeed(
           }}
           feedLabel="Transcript"
           messageAnchorCursor={options.messageAnchorCursor}
-          readEarlierPage={options.readEarlierPage}
+          readTranscriptPage={options.readTranscriptPage}
         />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,

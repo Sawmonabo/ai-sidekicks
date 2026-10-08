@@ -1,6 +1,6 @@
 // The row a link to a message lands on. The link names the message by its event cursor, which the
 // store's log carries on every event, streamed or read back. A message older than the window is
-// reached by paging back through the feed's walk until the log holds it; a message inside a
+// reached by reading stretches back through the feed's history until the log holds it; one inside a
 // finished run group is opened out of its fold first, once, so the row is drawn rather than
 // hidden under a header. An event the feed draws nothing for lands on the nearest row it does draw.
 
@@ -13,7 +13,7 @@ import { type ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { readRunGroupKey, type RunGroup } from "../../runs/groups.js";
-import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
+import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 
@@ -22,8 +22,8 @@ export interface MessageAnchorRowKeyInputs {
   readonly sessionStore: SessionStore;
   /** The cursor of the message to land on, or `undefined` for an ordinary open. */
   readonly messageAnchorCursor: string | undefined;
-  /** The backward walk that reaches a message older than the window, or none to page with. */
-  readonly earlierHistory: EarlierHistoryPaging | undefined;
+  /** The history a message older than the window is read back through, or none to read with. */
+  readonly history: TranscriptHistory | undefined;
   /** Every row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
   /** The window the viewport draws: folded by run group, its lists holding only drawn rows. */
@@ -37,8 +37,8 @@ export interface MessageAnchorRowKeyInputs {
  * The key of the drawn row the message cursor names, or `undefined` while there is none: no
  * cursor, or a cursor the log does not hold (yet, or at all). An event the feed draws nothing for
  * lands on the next drawn row after it in log order, else the one before it. While the log lacks
- * the event, this pages back one page per render until it arrives, history starts or a page is
- * refused. Nothing stands in for a missing row, so the transcript opens as it would with no link.
+ * the event, this reads back one stretch at a time until it arrives, history starts or a read
+ * fails. Nothing stands in for a missing row, so the transcript opens as it would with no link.
  */
 export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): string | undefined {
   const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow, drawsRow } = inputs;
@@ -55,7 +55,7 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
             .transcript.find((event) => event.cursor === messageAnchorCursor)?.id,
     [sessionStore, messageAnchorCursor, oldestEvent],
   );
-  usePageBackToMessage(messageAnchorCursor, eventId, inputs.earlierHistory);
+  useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
   const foldedRunGroup = useMemo(
     () => runGroupFoldingAway(eventId, unfurledWindow, transcriptWindow),
     [eventId, unfurledWindow, transcriptWindow],
@@ -80,19 +80,19 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
 }
 
 /**
- * Asks for the page before the window while the linked message is not in the log. Each landed
- * page re-renders with the grown log, so this walks page by page and stops on its own: at the
- * message, at the start of history (`canLoadEarlier` false), or at a refusal, which the head
- * control shows and offers to retry. Once the message is found the walk is over for that link,
- * so a row that later leaves the log is not chased back.
+ * Asks for the stretch before the window while the linked message is not in the log. Each landed
+ * stretch re-renders with the grown log, so this reads back stretch by stretch and stops on its
+ * own: at the message, at the start of history, or at a failed read, which the line at the top
+ * shows and offers to try again. Once the message is found the reading back is over for that
+ * link, so a row that later leaves the log is not chased back.
  */
-function usePageBackToMessage(
+function useReadBackToMessage(
   messageAnchorCursor: string | undefined,
   eventId: string | undefined,
-  earlierHistory: EarlierHistoryPaging | undefined,
+  history: TranscriptHistory | undefined,
 ): void {
   const reachedCursor = useRef<string | undefined>(undefined);
-  // Keyed on the walk's state object, which is new after every page, so a page that lands
+  // Keyed on the history object, which is new after every stretch, so a stretch that lands
   // without the message asks for the next even when no flag reads differently.
   useEffect(() => {
     if (messageAnchorCursor === undefined || reachedCursor.current === messageAnchorCursor) {
@@ -102,10 +102,11 @@ function usePageBackToMessage(
       reachedCursor.current = messageAnchorCursor;
       return;
     }
-    if (earlierHistory?.canLoadEarlier === true && earlierHistory.refusal === undefined) {
-      earlierHistory.loadEarlier();
+    const earlier = history?.state.earlier;
+    if (earlier?.hasMore === true && !earlier.isReading && !earlier.hasFailed) {
+      history?.readStretch("head");
     }
-  }, [messageAnchorCursor, eventId, earlierHistory]);
+  }, [messageAnchorCursor, eventId, history]);
 }
 
 /**

@@ -7,6 +7,7 @@ import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/control";
 
 import { WaitingOnPersonRegister, type WaitingOnPersonRecords } from "./register.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
+import { heldRowCursor } from "../state.js";
 import { SessionStore } from "../store.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
@@ -45,7 +46,7 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
     const register = new WaitingOnPersonRegister();
     register.seedFrom({
       cursor: 12,
-      windowHeadCursor: "cursor-12",
+      isWindowHeadUnread: true,
       entities: [
         { kind: "run", id: "run-a", state: "waiting_for_approval", attributedTo: "agent-scout" },
       ],
@@ -59,7 +60,7 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
     // A read says nothing about a request it did not carry; clearing here would lose older asks.
     const register = new WaitingOnPersonRegister();
     register.admit([rowOf(3, "approval.requested", { approvalRequestId: "req-1" })]);
-    register.seedFrom({ cursor: 40, windowHeadCursor: "cursor-40", entities: [] });
+    register.seedFrom({ cursor: 40, isWindowHeadUnread: true, entities: [] });
 
     expect(openCountOf(register.records)).toBe(1);
   });
@@ -68,7 +69,7 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
     const register = new WaitingOnPersonRegister();
     register.seedFrom({
       cursor: 12,
-      windowHeadCursor: undefined,
+      isWindowHeadUnread: false,
       entities: [{ kind: "run", id: "run-a", state: "waiting_for_approval" }],
     });
     register.admit([rowOf(12, "run.running", { runId: "run-a" })]);
@@ -120,15 +121,17 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
 });
 
 describe("SessionStore — the register outlives the window", () => {
-  it("still counts an approval whose opening row the cap has dropped", () => {
-    // The cap drops the row that opened this approval from the transcript, yet it is still open.
-    const store = new SessionStore({ sessionId: SESSION_ID, transcriptCap: 2 });
+  it("still counts an approval whose opening row the window has let go", () => {
+    // The release drops the row that opened this approval from the window, yet it is still open.
+    const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({ cursor: 0, entities: [] });
-    store.applyBatch([
+    const rows = [
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
       rowOf(2, "tool.invoked", { runId: "run-a" }, "agent-scout"),
       rowOf(3, "tool.result", { runId: "run-a" }, "agent-scout"),
-    ]);
+    ];
+    store.applyBatch(rows);
+    store.releaseOutside(heldRowCursor(rows[1]!), heldRowCursor(rows[2]!));
 
     expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([2, 3]);
     expect(openCountOf(store.waitingOnPersonRecords)).toBe(1);

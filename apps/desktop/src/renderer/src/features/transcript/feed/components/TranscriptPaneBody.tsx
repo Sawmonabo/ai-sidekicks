@@ -4,6 +4,7 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptPageRead } from "../../history/reader.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
@@ -14,6 +15,8 @@ export interface TranscriptPaneBodyProps {
   readonly sessionStore: SessionStore | undefined;
   /** The event cursor of the message the route opens the session at, or `undefined`. */
   readonly messageAnchorCursor: string | undefined;
+  /** The `transcript.read` the feed reads its history past the store's window with. */
+  readonly readTranscriptPage: TranscriptPageRead;
 }
 
 /**
@@ -40,6 +43,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       rowRenderer={props.rowRenderer}
       feedLabel="Transcript"
       messageAnchorCursor={props.messageAnchorCursor}
+      readTranscriptPage={props.readTranscriptPage}
     />
   );
 }

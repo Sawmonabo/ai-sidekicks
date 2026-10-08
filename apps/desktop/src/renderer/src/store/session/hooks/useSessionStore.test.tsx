@@ -3,12 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { useSessionStore } from "./useOpenSessionStore.js";
 import { useSessionInitialized } from "./useSessionInitialized.js";
-import { type SessionBaseStateReader } from "../open/entry.js";
+import { openingPageLimit, readsNothing } from "#test/helpers/session/store/fixtures.js";
 import { SessionStoreRegistry } from "../registry.js";
 import type { SessionStore } from "../store.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-
-const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 
 function StoreHeader(props: { readonly store: SessionStore }): React.JSX.Element {
   const initialized = useSessionInitialized(props.store);
@@ -21,7 +19,7 @@ function StoreHeader(props: { readonly store: SessionStore }): React.JSX.Element
 describe("useSessionInitialized / useSessionStore — the store's own facts", () => {
   it("reports loading before a read lands and ready after it", () => {
     const clock = new ManualClock(0);
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock });
+    const registry = new SessionStoreRegistry({ read: readsNothing, clock, openingPageLimit });
     const store = registry.open("session-1");
 
     const view = render(<StoreHeader store={store} />);

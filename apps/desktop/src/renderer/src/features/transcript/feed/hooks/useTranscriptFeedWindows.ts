@@ -2,16 +2,11 @@
 // projection, the run-group fold, and the rows the feed draws anything for, which the viewport
 // holds a window of. The fold publishes the rows it removed, since re-deriving the difference
 // downstream re-walked the projection on every append; nothing counts a row the feed never draws,
-// so that stage publishes its window alone. The one viewport binding and reveal engine are minted
-// here.
+// so that stage publishes its window alone. The one viewport binding, reveal engine and history
+// reader are minted here, since the reader is asked by the viewport and measured in it.
 
 import { useCallback, useEffect } from "react";
 
-import {
-  CONTENT_LENGTH_PAYLOAD_KEY,
-  CONTENT_PAYLOAD_PLAINTEXT_MAX,
-  CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "@ai-sidekicks/contracts/event/declared-variants";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
@@ -30,14 +25,20 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
-import { densityFor, type RunGroupDisclosure } from "../run-group-fold.js";
+import { useOpeningLookAhead } from "../../history/hooks/useOpeningLookAhead.js";
+import { useReleaseOutsideWindow } from "../../history/hooks/useReleaseOutsideWindow.js";
+import { useStretchMeasure } from "../../history/hooks/useStretchMeasure.js";
+import {
+  useTranscriptHistory,
+  type TranscriptHistory,
+} from "../../history/hooks/useTranscriptHistory.js";
+import { type TranscriptPageRead } from "../../history/reader.js";
+import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { isDrawnRow } from "../drawn-rows.js";
+import { rowBodyLengthOf, rowHeightKindOf } from "../row-height-inputs.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
 import { useDrawnRows } from "./useDrawnRows.js";
-import { type RowHeightKind } from "../../rows/height-kind.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
@@ -50,8 +51,11 @@ export interface TranscriptFeedWindowsInputs {
   readonly clock: Clock;
   /** The event cursor of the message a link opened the session at, or `undefined` for none. */
   readonly messageAnchorCursor: string | undefined;
-  /** The backward walk a linked message older than the window is reached through, if any. */
-  readonly earlierHistory: EarlierHistoryPaging | undefined;
+  /**
+   * The `transcript.read` the history past the store's window is read with. A composition with
+   * none offers no history, and the store keeps every row it was given.
+   */
+  readonly readTranscriptPage: TranscriptPageRead | undefined;
   /** The registered row renderer's answer to whether it draws anything for a row. */
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
 }
@@ -73,6 +77,8 @@ export interface TranscriptFeedWindows {
   readonly drawsRow: (row: TranscriptEventRow) => boolean;
   readonly reveal: RevealBinding;
   readonly viewport: TranscriptViewportBinding;
+  /** The history past the store's window, or `undefined` for a composition with no read. */
+  readonly history: TranscriptHistory | undefined;
 }
 
 /** Derive every window this feed draws from, in the one order they may be derived in. */
@@ -107,12 +113,13 @@ export function useTranscriptFeedWindows(
   // once and submits nothing to the first.
   const frameScheduler = useAnimationFrameScheduler(inputs.clock);
   const reveal = useReveal({ frameScheduler, clock: inputs.clock });
+  const history = useTranscriptHistory(inputs.sessionStore, inputs.readTranscriptPage);
   // Resolved from the same windows the viewport is handed, so the landing reaches it on the
   // render that brings the row.
   const landingRowKey = useMessageAnchorRowKey({
     sessionStore: inputs.sessionStore,
     messageAnchorCursor: inputs.messageAnchorCursor,
-    earlierHistory: inputs.earlierHistory,
+    history,
     unfurledWindow,
     transcriptWindow,
     drawsRow,
@@ -140,6 +147,26 @@ export function useTranscriptFeedWindows(
     rememberedRowHeights: inputs.sessionStore.rememberedRowHeights,
     heightKindOf,
     bodyLengthOf,
+    readBeyondLogEdge: history?.readStretch,
+  });
+  const stretchMeasure = useStretchMeasure({
+    history,
+    viewport,
+    drawsBody,
+    openedTerminalRunIds: runGroupDisclosure.openedTerminalRunIds,
+  });
+  useOpeningLookAhead({
+    history,
+    sessionStore: inputs.sessionStore,
+    measure: stretchMeasure,
+    isFirstReadSettled: firstReadSettled,
+  });
+  useReleaseOutsideWindow({
+    history,
+    sessionStore: inputs.sessionStore,
+    snapshot: viewport.snapshot,
+    unfurledWindow,
+    transcriptWindow,
   });
 
   // Registered here, where the session id and the one binding meet, so the session diagnostics a
@@ -184,57 +211,6 @@ export function useTranscriptFeedWindows(
     drawsRow,
     reveal,
     viewport,
+    history,
   };
-}
-
-/**
- * The height kind the feed draws a key of its list as, decided as the row dispatch decides what
- * to draw. A tool row's density is the list's alone: a row whose density a person chose was
- * mounted to be chosen, so it has a measured height and never asks for an estimate.
- */
-function rowHeightKindOf(transcriptWindow: TranscriptWindowModel, rowKey: string): RowHeightKind {
-  if (transcriptWindow.runGroupByHeaderKey.has(rowKey)) {
-    return "run-group-header";
-  }
-  const row = transcriptWindow.rowsByKey.get(rowKey);
-  if (row === undefined) {
-    return "not-loaded";
-  }
-  if (transcriptWindow.systemMessageByRowId.has(row.id)) {
-    return "system-message";
-  }
-  const kind = classifyTranscriptRow(row)?.kind;
-  if (kind === undefined) {
-    // A card the kind table does not name, which the registered renderer draws: one line until
-    // it measures, as a tool row is.
-    return "tool-call-collapsed";
-  }
-  if (kind !== "tool-call") {
-    return kind;
-  }
-  return densityFor(row.id, transcriptWindow.collapsedRowIds) === "collapsed"
-    ? "tool-call-collapsed"
-    : "tool-call-expanded";
-}
-
-/**
- * The UTF-8 byte length of the body a key of the feed's list draws, or `undefined` for a row that
- * reports none. A row the reveal still holds reports none: it pairs its whole body's length with
- * the height of the part drawn so far. A truncated body draws only its stored prefix, which the
- * stored ceiling bounds.
- */
-function rowBodyLengthOf(
-  transcriptWindow: TranscriptWindowModel,
-  isRevealing: RevealBinding["isRevealing"],
-  rowKey: string,
-): number | undefined {
-  const row = transcriptWindow.rowsByKey.get(rowKey);
-  if (row === undefined || isRevealing(row.id)) {
-    return undefined;
-  }
-  const payload = projectedPayload(row);
-  const contentLength = readWireCount(payload, CONTENT_LENGTH_PAYLOAD_KEY);
-  return contentLength !== undefined && payload[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
-    ? Math.min(contentLength, CONTENT_PAYLOAD_PLAINTEXT_MAX)
-    : contentLength;
 }

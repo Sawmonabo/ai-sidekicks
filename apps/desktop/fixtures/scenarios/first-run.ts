@@ -88,6 +88,8 @@ export const FIRST_RUN_SCENARIO: Scenario = {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
           latest: findBeatCursor(FIRST_RUN_BEATS, FIRST_RUN_BEATS.length - 1),
         },
+        // The record a read before any beat lands holds: no run has begun.
+        liveRuns: [],
       },
     },
   ],

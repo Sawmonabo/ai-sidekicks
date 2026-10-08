@@ -11,8 +11,7 @@ import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowS
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
-import { type EarlierPageRead } from "../../history/earlier-reader.js";
-import { useEarlierHistory } from "../../history/hooks/useEarlierHistory.js";
+import { type TranscriptPageRead } from "../../history/reader.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
@@ -30,12 +29,15 @@ export interface TranscriptFeedProps {
   readonly rowRenderer: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
-  /** The backward page read. A composition with none mounts no `Load earlier`. */
-  readonly readEarlierPage?: EarlierPageRead | undefined;
+  /**
+   * The `transcript.read` the history past the store's window is read with. A composition with
+   * none mounts no `Load earlier` and reads nothing past the rows it was given.
+   */
+  readonly readTranscriptPage?: TranscriptPageRead | undefined;
   /**
    * The event cursor of the message to open at, or `undefined` to open at the bottom. A message
-   * older than the window is reached by paging back through `readEarlierPage`; a cursor no page
-   * holds, down to the start of history, opens at the bottom too.
+   * older than the window is reached by reading back through `readTranscriptPage`; a cursor no
+   * read holds, down to the start of history, opens at the bottom too.
    */
   readonly messageAnchorCursor?: string | undefined;
 }
@@ -47,15 +49,14 @@ export interface TranscriptFeedProps {
  */
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useClock();
-  const earlierHistory = useEarlierHistory(props.sessionStore, props.readEarlierPage);
   const windows = useTranscriptFeedWindows({
     sessionStore: props.sessionStore,
     clock,
     messageAnchorCursor: props.messageAnchorCursor,
-    earlierHistory,
+    readTranscriptPage: props.readTranscriptPage,
     drawsBody: props.rowRenderer.drawsBody,
   });
-  const { runGroupDisclosure, transcriptWindow, viewport } = windows;
+  const { runGroupDisclosure, transcriptWindow, viewport, history } = windows;
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
@@ -109,8 +110,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   });
   const copySelection = useConversationCopy();
 
-  // `Load earlier` comes from `history/`, over the producer's verdict about the log. The find box
-  // offers none: the rows the window let go are rows the store still holds, and find reaches them.
+  // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
   return (
     <div className="meridian-transcript-feed">
       <div className="meridian-transcript-feed__head">
@@ -126,9 +126,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
               firstReadSettled={windows.firstReadSettled}
               hasActiveTurn={transcriptWindow.liveRunGroupKeys.size > 0}
               earlierHistoryControl={
-                earlierHistory === undefined ? undefined : (
-                  <LoadEarlier earlierHistory={earlierHistory} />
-                )
+                history === undefined ? undefined : <LoadEarlier history={history} />
               }
             />
           </RowRevealProvider>

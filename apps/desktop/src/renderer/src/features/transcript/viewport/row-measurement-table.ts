@@ -210,6 +210,32 @@ export class RowMeasurementTable {
     return this.#rememberedHeights.heightOf(rowKey) ?? this.#estimateOf(rowKey);
   }
 
+  /**
+   * The height a row not yet in the feed's list would be laid out at, its kind and body length
+   * told by the caller: the height the session remembers for its key, else the published
+   * estimate for that kind and length.
+   */
+  public estimatedHeightOf(
+    rowKey: string,
+    kind: RowHeightKind,
+    bodyLength: number | undefined,
+  ): number {
+    return this.#rememberedHeights.heightOf(rowKey) ?? this.#estimateFor(kind, bodyLength);
+  }
+
+  /**
+   * The least height any drawn row is estimated at: every kind's published estimate and the floor
+   * of its line. The line a row the window no longer holds draws is left out, since no row read
+   * from the log is drawn as it.
+   */
+  public get smallestEstimatePx(): number {
+    return Math.min(
+      ...ROW_HEIGHT_KINDS.filter((kind) => kind !== "not-loaded").map((kind) =>
+        Math.min(this.#estimatePxByKind[kind], this.#lineByKind[kind]?.floorPx ?? Infinity),
+      ),
+    );
+  }
+
   /** The height the session measured a row at, or `undefined` when it remembers none. */
   public rememberedHeightOf(rowKey: string): number | undefined {
     return this.#rememberedHeights.heightOf(rowKey);
@@ -245,9 +271,17 @@ export class RowMeasurementTable {
 
   #estimateOf(measuredKey: string): number {
     const kind = this.#kindOf(measuredKey);
+    return this.#estimateFor(
+      kind,
+      this.#lineByKind[kind] === undefined
+        ? undefined
+        : this.#bodyLengthOf(this.#rowKeyOf(measuredKey)),
+    );
+  }
+
+  /** A kind's estimate: on its line where it has one and the length is known, else its median. */
+  #estimateFor(kind: RowHeightKind, bodyLength: number | undefined): number {
     const line = this.#lineByKind[kind];
-    const bodyLength =
-      line === undefined ? undefined : this.#bodyLengthOf(this.#rowKeyOf(measuredKey));
     return line === undefined || bodyLength === undefined
       ? this.#estimatePxByKind[kind]
       : heightOnLine(line, bodyLength);

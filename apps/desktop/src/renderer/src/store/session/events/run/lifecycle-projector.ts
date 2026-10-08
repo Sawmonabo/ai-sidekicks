@@ -1,5 +1,6 @@
-// The `run` partition's projector: run-lifecycle events folded into run entities. It sits below
-// every feature because it reads wire member names, and the composition root registers it.
+// The `run` partition's projector: run-lifecycle events folded into run entities, and the entity a
+// read's record of a live run seeds in their place. It sits below every feature because it reads
+// wire member names, and the composition root registers it.
 //
 // The claimed kinds and the body's members are derived from the contract, so a new run event or
 // member fails to compile until it is classified. `state` is written only where the payload
@@ -8,6 +9,7 @@
 // yields no mutation rather than a throw.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
+import type { SessionLiveRun } from "@ai-sidekicks/contracts/session/methods";
 import { runStateForTransitionKind } from "#renderer/store/session/events/run/state-kinds.js";
 import { payloadNamesSession } from "#renderer/lib/wire/session-attribution.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
@@ -16,6 +18,7 @@ import type {
   EntityMutation,
   EntityProjector,
   EntityProjectorTable,
+  StoredEntity,
 } from "../../entities/vocabulary.js";
 import { readRunEntityBody } from "./entity-body.js";
 
@@ -67,6 +70,23 @@ export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorTable = buildRunLifecycleP
 
 /** The owner the run-lifecycle kinds are registered under, so a conflicting claim names it. */
 export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session";
+
+/**
+ * The run entity a read's record of a run not yet ended establishes, shaped as this projector
+ * folds it: the state the run is in now, and the body members the record carries. A window opened
+ * below a run's events learns its state here rather than from the events it never read.
+ */
+export function projectLiveRun(run: SessionLiveRun): StoredEntity {
+  return {
+    kind: "run",
+    id: run.runId,
+    state: run.state,
+    body: {
+      runVersion: run.runVersion,
+      ...(run.parentRunId === undefined ? {} : { parentRunId: run.parentRunId }),
+    },
+  };
+}
 
 function buildRunLifecycleProjectors(): EntityProjectorTable {
   const projectors: Record<string, EntityProjector> = {};

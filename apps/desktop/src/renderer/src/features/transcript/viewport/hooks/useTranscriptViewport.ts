@@ -16,15 +16,17 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
-import { ViewportController } from "../controller.js";
+import { ViewportController, type ViewportControllerOptions } from "../controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
+import { type WindowSide } from "../window-cap.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
@@ -74,6 +76,17 @@ export interface TranscriptViewportBinding {
    * read when called and reading no element; `undefined` when the window does not hold the row.
    */
   readonly rowStartPx: (rowKey: string) => number | undefined;
+  /**
+   * The height a row the feed has not drawn yet would be laid out at, from its kind and body
+   * length; see `RowMeasurementTable.estimatedHeightOf`. Stable for the binding's controller.
+   */
+  readonly estimatedRowHeightPx: (
+    rowKey: string,
+    kind: RowHeightKind,
+    bodyLength: number | undefined,
+  ) => number;
+  /** The least height any drawn row is estimated at, read when called; stable likewise. */
+  readonly smallestRowHeightPx: () => number;
 }
 
 /**
@@ -101,6 +114,11 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
    * first committed render that holds it, and the log takes focus there.
    */
   readonly landingRowKey?: string | undefined;
+  /**
+   * Asks for the stretch past an edge of the log; see `ViewportControllerOptions`. Read when
+   * called, so a new function does not mint a new controller.
+   */
+  readonly readBeyondLogEdge?: ((side: WindowSide) => boolean) | undefined;
 }
 
 /**
@@ -125,21 +143,35 @@ export function useTranscriptViewport(
   // The attached element, for the one act that needs the node. A ref because nothing renders
   // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
-  const [controller, setController] = useState<ViewportController>(
-    () => new ViewportController({ clock, rememberedRowHeights, heightKindOf, bodyLengthOf }),
+  const latestReadBeyondLogEdge = useLatestRef(options.readBeyondLogEdge);
+  const [controller, setController] = useState<ViewportController>(() =>
+    mintViewportController(
+      { clock, rememberedRowHeights, heightKindOf, bodyLengthOf },
+      latestReadBeyondLogEdge,
+    ),
   );
 
   useEffect(() => {
     if (controller.isDisposed) {
       setController(
-        new ViewportController({ clock, rememberedRowHeights, heightKindOf, bodyLengthOf }),
+        mintViewportController(
+          { clock, rememberedRowHeights, heightKindOf, bodyLengthOf },
+          latestReadBeyondLogEdge,
+        ),
       );
       return;
     }
     return () => {
       controller.dispose();
     };
-  }, [controller, clock, rememberedRowHeights, heightKindOf, bodyLengthOf]);
+  }, [
+    controller,
+    clock,
+    rememberedRowHeights,
+    heightKindOf,
+    bodyLengthOf,
+    latestReadBeyondLogEdge,
+  ]);
   useObserveDisplaySettings(controller);
 
   const snapshot = useSyncExternalStore(
@@ -270,6 +302,15 @@ export function useTranscriptViewport(
     }, [controller]),
     scrollController: controller.scroll,
     rowStartPx: useCallback((rowKey: string) => controller.rowStartPx(rowKey), [controller]),
+    estimatedRowHeightPx: useCallback(
+      (rowKey: string, kind: RowHeightKind, bodyLength: number | undefined) =>
+        controller.measurements.estimatedHeightOf(rowKey, kind, bodyLength),
+      [controller],
+    ),
+    smallestRowHeightPx: useCallback(
+      () => controller.measurements.smallestEstimatePx,
+      [controller],
+    ),
     // The revision is a dependency, not a read: a write mints a new reader, so every row that
     // compares it draws again.
     retainedRowState: useCallback(
@@ -337,4 +378,18 @@ export function useTranscriptViewport(
       [controller, snapshot, virtualizer],
     ),
   };
+}
+
+/**
+ * A controller over the hook's inputs, asking for history through the latest committed read, so
+ * a new read function reaches the controller without minting another.
+ */
+function mintViewportController(
+  options: Omit<ViewportControllerOptions, "readBeyondLogEdge">,
+  latestReadBeyondLogEdge: React.RefObject<UseTranscriptViewportOptions["readBeyondLogEdge"]>,
+): ViewportController {
+  return new ViewportController({
+    ...options,
+    readBeyondLogEdge: (side) => latestReadBeyondLogEdge.current?.(side) ?? false,
+  });
 }

@@ -30,6 +30,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      runStamp: { position: 0, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(1),
@@ -39,6 +40,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       kind: "assistant.message",
       occurredAt: transcriptFixtureStampAt(1),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      runStamp: { position: 1, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(2),
@@ -48,6 +50,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       kind: "run.paused",
       occurredAt: transcriptFixtureStampAt(2),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      runStamp: { position: 2, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(3),
@@ -57,6 +60,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       kind: "run.completed",
       occurredAt: transcriptFixtureStampAt(3),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      runStamp: { position: 3, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(4),
@@ -66,6 +70,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(4),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      runStamp: { position: 0, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(5),
@@ -75,6 +80,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       kind: "assistant.message",
       occurredAt: transcriptFixtureStampAt(5),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      runStamp: { position: 1, epoch: 0 },
     },
   ]);
   return sessionStore;
@@ -98,6 +104,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(0),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      runStamp: { position: 0, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(1),
@@ -107,6 +114,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       kind: "usage.context_compacted",
       occurredAt: transcriptFixtureStampAt(1),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      runStamp: { position: 1, epoch: 0 },
     },
     {
       id: transcriptFixtureEventId(2),
@@ -116,6 +124,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       kind: "assistant.message",
       occurredAt: transcriptFixtureStampAt(2),
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      runStamp: { position: 2, epoch: 0 },
     },
   ]);
   return sessionStore;

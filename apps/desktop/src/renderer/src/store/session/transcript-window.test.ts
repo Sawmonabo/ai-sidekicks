@@ -3,10 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { mergeEarlierWindow } from "./earlier-window.js";
+import { mergeEarlierWindow } from "./transcript-window.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 
-const SESSION_ID = "session-earlier-window";
+const SESSION_ID = "session-transcript-window";
 
 function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[] {
   return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.running", sequence));

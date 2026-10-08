@@ -46,6 +46,8 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
           latest: encodeEventCursor(START_OF_LOG_POSITION),
         },
+        // The record a read before any beat lands holds: no run has begun.
+        liveRuns: [],
       },
     },
   ],

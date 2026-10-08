@@ -1,6 +1,7 @@
 // The window's cycle: one pass asked with the reading position, the viewport's height and every
-// condition that can refuse a cut, the stretch a reader's approach to an edge is owed, and the
-// re-ask a refusal owes.
+// condition that can refuse a cut, the stretch a reader's approach to an edge is owed (from the
+// log, or from the daemon's history once the window holds that edge of the log), and the re-ask a
+// refusal owes.
 //
 // The state a re-ask needs (last conditions, outcome, held and on-screen sets) lives beside the
 // pass that produces it, not among the controller's fields. The cycle reads the anchor and the
@@ -43,6 +44,8 @@ export interface ViewportPruneCycleOptions {
   readonly publishedRowKeys: () => readonly string[];
   /** A published key's index in that order, or `undefined` for a key it does not hold. */
   readonly publishedIndexOf: (rowKey: string) => number | undefined;
+  /** Asks the history reader for the stretch past an edge of the log, as the controller is told. */
+  readonly readBeyondLogEdge: ((side: WindowSide) => boolean) | undefined;
 }
 
 /** What one pass took, for the controller to pay. */
@@ -70,6 +73,8 @@ export class ViewportPruneCycle {
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
   readonly #publishedRowKeys: () => readonly string[];
   readonly #publishedIndexOf: (rowKey: string) => number | undefined;
+  readonly #readBeyondLogEdge: ((side: WindowSide) => boolean) | undefined;
+  readonly #clock: Clock;
   /**
    * Owned here because `run` is called once per pass, the frame's signal that the transcript
    * moved; the trim measures quiet time against the clock.
@@ -90,7 +95,7 @@ export class ViewportPruneCycle {
   #lastReadingRowKey: string | undefined;
   /** The last sample heard, of any cause, so an edge crossing the let-go distance is told apart. */
   #lastSample: ScrollGeometry | undefined;
-  /** The clock stamp of the reader's last scroll sample, which a pause measures from. */
+  /** The clock stamp of the reader's last scroll sample or pull, which a pause measures from. */
   #lastReaderSampleAtMs: number | undefined;
   /** Whether the reader's current gesture has had its stretch. */
   #hasGestureAdmitted = false;
@@ -103,6 +108,8 @@ export class ViewportPruneCycle {
     this.#virtualizer = options.virtualizer;
     this.#publishedRowKeys = options.publishedRowKeys;
     this.#publishedIndexOf = options.publishedIndexOf;
+    this.#readBeyondLogEdge = options.readBeyondLogEdge;
+    this.#clock = options.clock;
     this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
       window: options.window,
@@ -179,7 +186,8 @@ export class ViewportPruneCycle {
   /**
    * The pass a geometry sample asks for, or `undefined` when it asks for none: a stretch when the
    * reader comes within the approach distance of an edge the log holds rows past, once per
-   * gesture, or a cut when an edge has just drifted past the let-go distance.
+   * gesture, or a cut when an edge has just drifted past the let-go distance. At an edge the
+   * window holds of the log, the gesture's stretch is asked of the history reader instead.
    *
    * Only the reader's own scroll asks; a sample a programmatic write published is the transcript
    * moving itself. A gesture ends at a pause of `TRANSCRIPT_GESTURE_GAP_MS` between the reader's
@@ -197,24 +205,25 @@ export class ViewportPruneCycle {
     ) {
       return undefined;
     }
-    const lastReaderSampleAtMs = this.#lastReaderSampleAtMs;
-    this.#lastReaderSampleAtMs = geometry.sampledAt;
-    if (
-      lastReaderSampleAtMs === undefined ||
-      geometry.sampledAt - lastReaderSampleAtMs >= TRANSCRIPT_GESTURE_GAP_MS
-    ) {
-      this.#hasGestureAdmitted = false;
-    }
+    this.#noteReaderInputAt(geometry.sampledAt);
     const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * screenHeightPx;
+    const isNearHead = geometry.scrollTop < approachPx;
+    const isNearTail = geometry.distanceFromTailPx < approachPx;
     const admitSide: WindowSide | undefined =
-      geometry.scrollTop < approachPx && !this.#window.holdsLogHead
+      isNearHead && !this.#window.holdsLogHead
         ? "head"
-        : geometry.distanceFromTailPx < approachPx && !this.#window.holdsLogTail
+        : isNearTail && !this.#window.holdsLogTail
           ? "tail"
           : undefined;
-    if (admitSide !== undefined && !this.#hasGestureAdmitted) {
-      this.#hasGestureAdmitted = true;
-      return { admitSide };
+    if (!this.#hasGestureAdmitted) {
+      if (admitSide !== undefined) {
+        this.#hasGestureAdmitted = true;
+        return { admitSide };
+      }
+      if ((isNearHead && this.#readsBeyond("head")) || (isNearTail && this.#readsBeyond("tail"))) {
+        this.#hasGestureAdmitted = true;
+        return undefined;
+      }
     }
     // Asked as the edge crosses the distance rather than on every sample past it, so a pass that
     // found nothing to let go is not run again for each pixel scrolled.
@@ -225,6 +234,29 @@ export class ViewportPruneCycle {
       hasCrossed(geometry.distanceFromTailPx, previous?.distanceFromTailPx)
       ? { admitSide: undefined }
       : undefined;
+  }
+
+  /**
+   * The pass a pull past one end owes with the reader already at that end, where the box cannot
+   * scroll and publishes no sample: a wheel, an arrow key or a drag. The same one stretch per
+   * gesture as an approach, from the log when the window has let that edge go, else from the
+   * history reader.
+   */
+  public passOwedByPullAt(side: WindowSide): WindowPassRequest | undefined {
+    if (this.#lastConditions === undefined || this.#scroll.vetoesPrune()) {
+      return undefined;
+    }
+    this.#noteReaderInputAt(this.#clock.now());
+    if (this.#hasGestureAdmitted) {
+      return undefined;
+    }
+    const holdsLogEdge = side === "head" ? this.#window.holdsLogHead : this.#window.holdsLogTail;
+    if (!holdsLogEdge) {
+      this.#hasGestureAdmitted = true;
+      return { admitSide: side };
+    }
+    this.#hasGestureAdmitted = this.#readsBeyond(side);
+    return undefined;
   }
 
   /**
@@ -250,6 +282,23 @@ export class ViewportPruneCycle {
     this.#lastConditions = undefined;
     this.#lastHeldRowKeys = [];
     this.#lastOnScreenRowKeys = [];
+  }
+
+  /** Starts a new gesture when the reader's input comes a gesture gap after their last one. */
+  #noteReaderInputAt(inputAtMs: number): void {
+    const lastReaderSampleAtMs = this.#lastReaderSampleAtMs;
+    this.#lastReaderSampleAtMs = inputAtMs;
+    if (
+      lastReaderSampleAtMs === undefined ||
+      inputAtMs - lastReaderSampleAtMs >= TRANSCRIPT_GESTURE_GAP_MS
+    ) {
+      this.#hasGestureAdmitted = false;
+    }
+  }
+
+  /** Whether the history reader took the stretch past this edge of the log as the gesture's. */
+  #readsBeyond(side: WindowSide): boolean {
+    return this.#readBeyondLogEdge?.(side) ?? false;
   }
 
   /** The reader's place: the tail while following, their anchored row otherwise. */

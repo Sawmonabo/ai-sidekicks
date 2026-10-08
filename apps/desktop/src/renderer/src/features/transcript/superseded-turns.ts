@@ -1,8 +1,10 @@
-// Superseded turns: the rows a rewind put behind it, kept and dimmed rather than removed. One group
-// holds the rows one rollback rewound past. Unlike a system message in
-// `features/transcript/system-messages/classifier.ts`, it is ranked over a whole loaded window, not
-// one row. Marks are single-field and present exactly when superseded, a row at the cutoff
-// survives, and marks are epoch-scoped because re-execution reuses ordinals.
+// Superseded turns: the rows a rewind put behind it, kept and dimmed rather than removed. The
+// daemon marks every row it serves or streams after the rewind that superseded it, so a row
+// usually carries its own marker. A row stamped before its rewind happened carries none: a
+// `run.rolled_back` arriving live supersedes the held rows of its run and epoch above its cutoff,
+// and that rule is the only one ranked here. One group holds the rows one rollback rewound past.
+// Marks are single-field and present exactly when superseded, a row at the cutoff survives, and
+// marks are epoch-scoped because re-execution reuses ordinals.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -39,9 +41,9 @@ export class SupersededIndex {
 }
 
 /**
- * Derive every superseded turns group over one loaded window.
- * A pre-marked row carries its own cutoff and a later boundary supersedes rows around it;
- * both feed one per-row cutoff and the lowest wins, matching `SupersededMarker`.
+ * Derive every superseded turns group over one loaded window. A row's carried marker is its
+ * cutoff; a boundary in the window adds its own to the rows of its run and epoch it outranks, and
+ * the lowest cutoff wins, matching `SupersededMarker`.
  */
 export function deriveSupersededTurns(
   rows: readonly TranscriptEventRow[],

@@ -31,6 +31,7 @@ import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { WindowStore } from "#renderer/store/window/store.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import { openingPageLimit, readsNothing } from "../../helpers/session/store/fixtures.js";
 import {
   createWorkflowCommandTargets,
   registerWorkflowPanes,
@@ -123,7 +124,8 @@ function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
     sessionStore: undefined,
     // The registry hands its fold to every store it opens, so it takes the window's composition.
     sessionStoreRegistry: new SessionStoreRegistry({
-      read: () => Promise.resolve(undefined),
+      read: readsNothing,
+      openingPageLimit,
       projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
     // The board the screen opens panes from; the pane helper above mounts bodies from the same one.

@@ -511,6 +511,8 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length - 1),
           acknowledged: findBeatCursor(TRANSCRIPT_STATES_BEATS, ACKNOWLEDGED_LOG_POSITION),
         },
+        // The record a read before any beat lands holds: no run has begun.
+        liveRuns: [],
       },
     },
   ],

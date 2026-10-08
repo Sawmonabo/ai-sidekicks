@@ -83,6 +83,7 @@ export function openSessionStoreWithPaneLog(): SessionStore {
         sessionId: TRANSCRIPT_PANE_SESSION_ID,
         runId: "019b793b-7b60-740e-8110-d1a4c1150111",
       },
+      runStamp: { position: 0, epoch: 0 },
     },
   ]);
   return sessionStore;

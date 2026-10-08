@@ -14,6 +14,7 @@ import {
   emptyBaseState,
   runEventAt,
   projectors,
+  openingPageLimit,
   readsNothing,
 } from "#test/helpers/session/store/fixtures.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -21,7 +22,12 @@ import { SESSION_REGISTRY_ORIGIN, SessionStoreRegistry } from "./registry.js";
 
 describe("SessionStoreRegistry — one store per open session", () => {
   it("returns the SAME store for a second open of one session", () => {
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
+    const registry = new SessionStoreRegistry({
+      openingPageLimit,
+      read: readsNothing,
+      clock: new ManualClock(0),
+      openingPageLimit,
+    });
 
     const first = registry.open("session-1");
     const second = registry.open("session-1");
@@ -36,7 +42,12 @@ describe("SessionStoreRegistry — one store per open session", () => {
   });
 
   it("forgets a closed session and opens a fresh store on re-open", () => {
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
+    const registry = new SessionStoreRegistry({
+      openingPageLimit,
+      read: readsNothing,
+      clock: new ManualClock(0),
+      openingPageLimit,
+    });
 
     const first = registry.open("session-1");
     expect(registry.close("session-1")).toBe(true);
@@ -51,7 +62,12 @@ describe("SessionStoreRegistry — one store per open session", () => {
   });
 
   it("refuses — rather than throws — for a session that is not open", () => {
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
+    const registry = new SessionStoreRegistry({
+      openingPageLimit,
+      read: readsNothing,
+      clock: new ManualClock(0),
+      openingPageLimit,
+    });
 
     const refusal = registry.enqueue("session-gone", [runEventAt(1, "run-1")]);
 
@@ -79,6 +95,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
   it("coalesces a burst of events into one transition on one frame", () => {
     const clock = new ManualClock(0);
     const registry = new SessionStoreRegistry({
+      openingPageLimit,
       read: readsNothing,
       clock,
       projectors,
@@ -114,6 +131,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
     // undelivered.
     const clock = new ManualClock(0);
     const registry = new SessionStoreRegistry({
+      openingPageLimit,
       read: readsNothing,
       clock,
       projectors,
@@ -137,6 +155,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
     const clock = new ManualClock(0);
     const readCalls: RefreshReason[][] = [];
     const registry = new SessionStoreRegistry({
+      openingPageLimit,
       clock,
       refreshDebounceMs: 20,
       refreshMaxWaitMs: 1000,
@@ -168,6 +187,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
   it("marks the store degraded — with a cause — when the read fails", async () => {
     const clock = new ManualClock(0);
     const registry = new SessionStoreRegistry({
+      openingPageLimit,
       clock,
       refreshDebounceMs: 20,
       read: () => Promise.reject(new Error("the daemon did not answer")),
@@ -187,6 +207,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
   it("requests a read of every open session on one window-level reason", () => {
     const clock = new ManualClock(0);
     const registry = new SessionStoreRegistry({
+      openingPageLimit,
       read: readsNothing,
       clock,
       refreshDebounceMs: 20,
@@ -202,15 +223,16 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("leaves a session to its replay, or behind for a cause it raises again, until asked", async () => {
+  it("leaves a session behind for a cause it raises again until asked", async () => {
     const clock = new ManualClock(0);
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock, refreshDebounceMs: 20 });
+    const registry = new SessionStoreRegistry({
+      read: readsNothing,
+      clock,
+      openingPageLimit,
+      refreshDebounceMs: 20,
+    });
     registry.open("session-gap").markDegraded("sequence-gap");
     registry.open("session-failing-row").markDegraded("projection-failed");
-    const replaying = registry.open("session-1");
-    replaying.initialize(emptyBaseState(0));
-    replaying.applyBatch([runEventAt(1, "run-1"), runEventAt(3, "run-3")]);
-    replaying.initialize({ entities: [] });
     async function settle(): Promise<void> {
       clock.advance(21);
       await crossMacrotaskBoundary();
@@ -218,12 +240,9 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
 
     registry.requestRefreshOfEverySession("window-focus");
     await settle();
-    // A read would replay the log and fail on the same row, so focus leaves it be.
+    // The reopened stream would send the same row and fail on it again, so focus leaves it be.
     expect(registry.refreshCountFor("session-gap")).toBe(1);
     expect(registry.refreshCountFor("session-failing-row")).toBe(0);
-    // A read would start the replay under way over.
-    expect(registry.refreshCountFor("session-1")).toBe(0);
-    expect(replaying.snapshot().isReplaying).toBe(true);
 
     // Try again is the person asking.
     registry.requestRefresh("session-failing-row", "user-request");
@@ -239,6 +258,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     const clock = new ManualClock(0);
     const readCalls: RefreshReason[][] = [];
     const registry = new SessionStoreRegistry({
+      openingPageLimit,
       clock,
       projectors,
       applyCoalesceMs: 0,

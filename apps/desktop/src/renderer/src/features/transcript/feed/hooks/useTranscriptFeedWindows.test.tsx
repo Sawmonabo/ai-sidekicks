@@ -55,7 +55,7 @@ describe("the transcript feed windows — the body lengths the viewport estimate
           sessionStore,
           clock,
           messageAnchorCursor: undefined,
-          earlierHistory: undefined,
+          readTranscriptPage: undefined,
           drawsBody: () => true,
         }),
       {

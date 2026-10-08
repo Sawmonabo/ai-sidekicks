@@ -15,7 +15,10 @@ import { ReadingAnchor, type ReadingMode } from "./reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
-import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
+import {
+  SCROLL_GEOMETRY_EPSILON_PX,
+  type ScrollGeometry,
+} from "#renderer/lib/scroll/geometry/sample.js";
 import { ViewportAnchorCapture } from "./anchor-capture.js";
 import { ViewportDeferredHold } from "./deferred-hold.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
@@ -43,6 +46,13 @@ export interface ViewportControllerOptions {
   readonly heightKindOf?: ((rowKey: string) => RowHeightKind) | undefined;
   /** The UTF-8 byte length of a row key's body; see `RowMeasurementTableOptions`. */
   readonly bodyLengthOf?: ((rowKey: string) => number | undefined) | undefined;
+  /**
+   * Asks the history reader for the stretch past one edge of the log, once the reader's gesture
+   * reaches an edge the window already holds; answers whether the daemon has more there to read,
+   * so a gesture at an edge with nothing past it keeps its stretch for the other edge. A frame
+   * given none reads nothing past the log.
+   */
+  readonly readBeyondLogEdge?: ((side: WindowSide) => boolean) | undefined;
 }
 
 /** Wires the scroll, anchor, measurement and window-cap objects into one published snapshot. */
@@ -86,12 +96,14 @@ export class ViewportController {
   #logTailKey: string | undefined;
   /** Whether a pass is running, so a sample its own write publishes cannot start another. */
   #isPassRunning = false;
+  /** Where the reader's touch on the log started, so the direction of a drag is told. */
+  #touchStartYPx: number | undefined;
   #disposed = false;
 
   /**
-   * Home and End pressed on the log itself. A key pressed in a control inside a row, or with a
-   * modifier, or already handled, is not the log's; the browser's own jump is prevented because
-   * it lands on an estimated end.
+   * Home and End pressed on the log itself, and the arrow and page keys pressed at either of its
+   * ends. A key pressed in a control inside a row, or with a modifier, or already handled, is not
+   * the log's; the browser's own jump is prevented because it lands on an estimated end.
    */
   readonly #onScrollContainerKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.target !== event.currentTarget || hasModifier(event)) {
@@ -103,7 +115,34 @@ export class ViewportController {
     } else if (event.key === "End") {
       event.preventDefault();
       this.jumpToTail();
+    } else if (event.key === "ArrowUp" || event.key === "PageUp") {
+      this.#reviewPullAt("head");
+    } else if (event.key === "ArrowDown" || event.key === "PageDown") {
+      this.#reviewPullAt("tail");
     }
+  };
+
+  /** A wheel turned past an end of the log the box already stands at. */
+  readonly #onScrollContainerWheel = (event: WheelEvent): void => {
+    if (event.deltaY < 0) {
+      this.#reviewPullAt("head");
+    } else if (event.deltaY > 0) {
+      this.#reviewPullAt("tail");
+    }
+  };
+
+  readonly #onScrollContainerTouchStart = (event: TouchEvent): void => {
+    this.#touchStartYPx = event.touches[0]?.clientY;
+  };
+
+  /** A drag past an end of the log the box already stands at: down toward the head, up the tail. */
+  readonly #onScrollContainerTouchMove = (event: TouchEvent): void => {
+    const touchYPx = event.touches[0]?.clientY;
+    const touchStartYPx = this.#touchStartYPx;
+    if (touchStartYPx === undefined || touchYPx === undefined || touchYPx === touchStartYPx) {
+      return;
+    }
+    this.#reviewPullAt(touchYPx > touchStartYPx ? "head" : "tail");
   };
 
   public constructor(options: ViewportControllerOptions) {
@@ -134,6 +173,7 @@ export class ViewportController {
       virtualizer: () => this.#virtualizer,
       publishedRowKeys: () => this.#rowKeys,
       publishedIndexOf: (rowKey) => this.#indexOfRowKey(rowKey),
+      readBeyondLogEdge: options.readBeyondLogEdge,
     });
     this.#anchorCapture = new ViewportAnchorCapture({
       anchor: this.anchor,
@@ -217,6 +257,13 @@ export class ViewportController {
     );
     this.virtualizerOptions.bindScrollContainer(scrollContainer);
     scrollContainer.addEventListener("keydown", this.#onScrollContainerKeyDown);
+    scrollContainer.addEventListener("wheel", this.#onScrollContainerWheel, { passive: true });
+    scrollContainer.addEventListener("touchstart", this.#onScrollContainerTouchStart, {
+      passive: true,
+    });
+    scrollContainer.addEventListener("touchmove", this.#onScrollContainerTouchMove, {
+      passive: true,
+    });
     this.#scrollContainer = scrollContainer;
   }
 
@@ -225,6 +272,9 @@ export class ViewportController {
     this.scroll.detach();
     this.virtualizerOptions.bindScrollContainer(undefined);
     this.#scrollContainer?.removeEventListener("keydown", this.#onScrollContainerKeyDown);
+    this.#scrollContainer?.removeEventListener("wheel", this.#onScrollContainerWheel);
+    this.#scrollContainer?.removeEventListener("touchstart", this.#onScrollContainerTouchStart);
+    this.#scrollContainer?.removeEventListener("touchmove", this.#onScrollContainerTouchMove);
     this.#scrollContainer = undefined;
   }
 
@@ -505,6 +555,26 @@ export class ViewportController {
       return;
     }
     this.retryDeferredPrune();
+  }
+
+  /**
+   * Asks the window for the pass a pull past one end owes, when the box already stands at that
+   * end: there it cannot scroll, so the pull publishes no sample for `#reviewWindowAfter`.
+   */
+  #reviewPullAt(side: WindowSide): void {
+    const geometry = this.scroll.geometry;
+    if (this.#pendingLanding !== undefined || geometry === undefined) {
+      return;
+    }
+    const distanceFromEndPx = side === "head" ? geometry.scrollTop : geometry.distanceFromTailPx;
+    if (distanceFromEndPx >= SCROLL_GEOMETRY_EPSILON_PX) {
+      return;
+    }
+    const request = this.#pruneCycle.passOwedByPullAt(side);
+    const conditions = this.#pruneCycle.lastConditions;
+    if (request !== undefined && conditions !== undefined) {
+      this.#runPass(conditions, { admitSide: request.admitSide, isRender: false });
+    }
   }
 
   /** A published key's index, the first for a repeated key, or `undefined` when not held. */

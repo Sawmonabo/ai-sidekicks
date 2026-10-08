@@ -20,7 +20,7 @@ function watchedRowAt(sequence: number): ReturnType<typeof eventOfKind> {
 describe("subscribeToSessionEventKinds", () => {
   it.each([
     {
-      repair: "a replay that passes the rows held",
+      repair: "a stream sending them again after an empty read",
       landHole: (store: SessionStore): void => {
         store.initialize({ entities: [] });
         store.applyBatch([runRowAt(6), watchedRowAt(7), runRowAt(8)]);
@@ -51,34 +51,6 @@ describe("subscribeToSessionEventKinds", () => {
     store.applyBatch([runRowAt(9)]);
     unsubscribe();
 
-    expect(signals).toBe(1);
-  });
-
-  it("counts a hole's watched row at the swap when a cause raised mid-replay outlives it", () => {
-    const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 5, entities: [] });
-    let signals = 0;
-    const unsubscribe = subscribeToSessionEventKinds(store, ["workspace.ready"], () => {
-      signals += 1;
-    });
-    store.applyBatch([runRowAt(6), runRowAt(8)]);
-
-    store.initialize({ entities: [] });
-    store.applyBatch([runRowAt(6)]);
-    store.markDegraded("subscription-closed");
-    store.applyBatch([watchedRowAt(7), runRowAt(8)]);
-    expect(store.snapshot()).toMatchObject({
-      isReplaying: false,
-      degradedCause: "subscription-closed",
-    });
-    expect(signals).toBe(1);
-
-    // The next repair replays the same rows, which the window already holds.
-    store.initialize({ entities: [] });
-    store.applyBatch([runRowAt(6), watchedRowAt(7), runRowAt(8)]);
-    unsubscribe();
-
-    expect(store.snapshot().degradedCause).toBeUndefined();
     expect(signals).toBe(1);
   });
 });

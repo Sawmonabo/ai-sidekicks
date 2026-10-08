@@ -1,13 +1,36 @@
 // The logs every transcript-feed case is driven over: pure store builders (a real
-// `SessionStore` with a real batch applied) with no DOM. The harness that mounts a feed is
-// `feed/components/TranscriptFeed.test-support.tsx`.
+// `SessionStore` with a real batch applied) with no DOM, and a daemon log the store's history is
+// read from. The harness that mounts a feed is `feed/components/TranscriptFeed.test-support.tsx`.
 // Every event carries a real row id, because the hydrated-event read is keyed by it.
 
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  TranscriptReadResponseSchema,
+  type TranscriptReadRequest,
+} from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
+import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptPageRead } from "./history/reader.js";
+
+/** The paged session's whole log as the daemon holds it, and every read it was asked. */
+export interface ScriptedTranscriptLog {
+  /** `transcript.read` over the log: at or before `beforeCursor`, or after `afterCursor`. */
+  readonly read: TranscriptPageRead;
+  /** Every request the read was asked, in the order asked. */
+  readonly requests: readonly TranscriptReadRequest[];
+  /** Refuses the next read, as a daemon that could not serve it does. */
+  readonly refuseNextRead: () => void;
+}
 
 /** The session every fixture log belongs to. */
 export const SESSION_ID = "session-transcript-feed";
+
+/** A session the read contract admits: its rows name the session by a UUID. */
+export const PAGED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a6";
 
 /**
  * The wire instant of the row at one log position: one second apart from one epoch, in one
@@ -53,6 +76,7 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(index),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      runStamp: { position: index, epoch: 0 },
     })),
   );
   return sessionStore;
@@ -79,6 +103,7 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
         toolName: `tool_${String(index)}`,
         toolCallId: `call-${String(index)}`,
       },
+      runStamp: { position: index, epoch: 0 },
     })),
   );
   return sessionStore;
@@ -103,4 +128,106 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
     })),
   );
   return sessionStore;
+}
+
+/** The message at one log position of the paged session, as `transcript.read` serves it. */
+export function transcriptReadRowAt(index: number): TranscriptEventRow {
+  return {
+    kind: "general",
+    id: transcriptFixtureEventId(index),
+    sessionId: PAGED_SESSION_ID as SessionId,
+    sequence: index,
+    cursor: transcriptFixtureStreamCursor(index) as EventCursor,
+    category: "interactive_request",
+    type: "user.message",
+    summary: "user.message",
+    timestamp: transcriptFixtureStampAt(index),
+    payload: {},
+  };
+}
+
+/**
+ * A real store of the paged session holding its messages from `firstIndex` through `lastIndex`,
+ * as an opening read leaves it, with `transcriptHead` before them (none, when not given).
+ */
+export function openPagedSessionStore(
+  firstIndex: number,
+  lastIndex: number,
+  transcriptHead?: TranscriptWindowEdge,
+): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
+  sessionStore.initialize({
+    cursor: lastIndex,
+    entities: [],
+    transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) => {
+      const index = firstIndex + offset;
+      return {
+        id: transcriptFixtureEventId(index),
+        sessionId: PAGED_SESSION_ID,
+        sequence: index,
+        cursor: transcriptFixtureStreamCursor(index),
+        kind: "user.message",
+        occurredAt: transcriptFixtureStampAt(index),
+        payload: {},
+      };
+    }),
+    ...(transcriptHead === undefined ? {} : { transcriptHead }),
+  });
+  return sessionStore;
+}
+
+/**
+ * The paged session's messages at positions `0` through `rowCount - 1`, read as the daemon reads
+ * them: up to `limit` rows, oldest to newest, nearest the cursor, with the next cursor and
+ * whether rows lie past it.
+ */
+export function scriptedTranscriptLog(rowCount: number): ScriptedTranscriptLog {
+  const indexByCursor = new Map(
+    Array.from({ length: rowCount }, (_unused, index) => [
+      transcriptFixtureStreamCursor(index),
+      index,
+    ]),
+  );
+  const requests: TranscriptReadRequest[] = [];
+  let refusesNextRead = false;
+  const read: TranscriptPageRead = (request) => {
+    requests.push(request);
+    const limit = request.limit ?? rowCount;
+    const beforeIndex =
+      request.beforeCursor === undefined ? undefined : indexByCursor.get(request.beforeCursor);
+    const afterIndex =
+      request.afterCursor === undefined ? undefined : indexByCursor.get(request.afterCursor);
+    if (refusesNextRead || (beforeIndex === undefined && afterIndex === undefined)) {
+      refusesNextRead = false;
+      return Promise.resolve({
+        status: "refused",
+        refusal: { code: "unscripted", detail: "No page there.", origin: "test" },
+      });
+    }
+    const firstIndex =
+      beforeIndex === undefined ? (afterIndex ?? 0) + 1 : Math.max(0, beforeIndex - limit + 1);
+    const lastIndex =
+      beforeIndex === undefined ? Math.min(rowCount - 1, firstIndex + limit - 1) : beforeIndex;
+    const entries = Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
+      transcriptReadRowAt(firstIndex + offset),
+    );
+    const hasMore = beforeIndex === undefined ? lastIndex < rowCount - 1 : firstIndex > 0;
+    const nextCursor =
+      beforeIndex === undefined
+        ? transcriptFixtureStreamCursor(lastIndex)
+        : transcriptFixtureStreamCursor(firstIndex - 1);
+    return Promise.resolve({
+      status: "served",
+      value: TranscriptReadResponseSchema.parse(
+        hasMore ? { entries, hasMore, nextCursor } : { entries, hasMore },
+      ),
+    });
+  };
+  return {
+    read,
+    requests,
+    refuseNextRead: () => {
+      refusesNextRead = true;
+    },
+  };
 }

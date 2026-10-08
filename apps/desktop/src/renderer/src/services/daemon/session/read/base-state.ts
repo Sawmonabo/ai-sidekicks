@@ -1,30 +1,32 @@
-// The window's session read, answered by the daemon's `session.read`. The request names only the
-// session, so where a window opens is chosen from the cursor block the reply carries, and a
-// repair reopens after the held row, or at the head, the held window already names. The position
-// is relayed as the daemon issued it and never read for a sequence: the store learns that from
-// the first event the stream delivers after it.
+// The window's session read: the daemon's `session.read`, then one `transcript.read` window of the
+// log, and the stream opened after the window's newest row. A window opens where the resume rule
+// says, `acknowledged ?? latest`; a repair opens it at `latest`. The record's live runs become the
+// run entities, since a window opened below a run's events never reads the events that set its
+// state. Every position is relayed as the daemon issued it and never read for a sequence: the
+// window's rows carry their own.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 
 import { callDaemon, unwrapDaemonReply } from "../../reply.js";
-import { heldIdAsWireId, readSessionId } from "../../wire/identifiers.js";
+import { readTranscriptPage, type TranscriptPage } from "../../transcript-page.js";
+import { readSessionId } from "../../wire/identifiers.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
-import { type SessionBaseState } from "#renderer/store/session/state.js";
+import { projectLiveRun } from "#renderer/store/session/events/run/lifecycle-projector.js";
+import { heldRowCursor, type SessionBaseState } from "#renderer/store/session/state.js";
 import {
   type SessionBaseStateReader,
   type SessionWindowOpening,
 } from "#renderer/store/session/open/entry.js";
-import { resolveTranscriptResume } from "./transcript-resume.js";
 
 /** The subsystem a refusal from this read names as its author. */
 const SESSION_READ_ORIGIN = "session-read";
 
 /**
- * The read that gives a session store its base state, through one bridge: the base state at the
- * position `opening` names, which the stream is then opened after.
- * A refusal is raised so the store's refresh scheduler marks the session degraded instead of
+ * The read that gives a session store its base state, through one bridge: the record, then the
+ * window at the position `opening` names, which the stream is then opened after. A refusal of
+ * either call is raised so the store's refresh scheduler marks the session degraded instead of
  * reading nothing.
  */
 export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseStateReader {
@@ -35,58 +37,57 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
         refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
       );
     }
-    const { transcriptCursors } = unwrapDaemonReply(
+    const record = unwrapDaemonReply(
       await callDaemon(bridge, "session.read", { sessionId: wireSessionId }),
     );
-    return baseStateOpenedAt(transcriptCursors, opening);
+    const page = readTranscriptPage(
+      unwrapDaemonReply(
+        await callDaemon(bridge, "transcript.read", {
+          sessionId: wireSessionId,
+          beforeCursor: openingCursorOf(record.transcriptCursors, opening),
+          limit: opening.pageLimit,
+        }),
+      ),
+    );
+    return baseStateOf(record, page, opening.refusedCursor);
   };
 }
 
 /**
- * The empty base state at the position `opening` picks, passing over the refused ones. A repair
- * reopens after the held row the window names, since the store holds the window's state there
- * and the read carries none; else at the held window's head, rows still sitting before it, or at
- * the floor for a window that opened there. A window opening takes the resume rule, an
- * acknowledged position heading the window since rows sit before it. Past a refused position the
- * floor stands in, and past a refused floor the log's start, where the stream opens with no
- * position.
+ * The position the window ends at: the acknowledged one when a window opens and one was
+ * acknowledged, else the log's newest. A refused position is passed over for the newest.
  */
-function baseStateOpenedAt(
+function openingCursorOf(
   cursors: SessionReadResponse["transcriptCursors"],
   opening: SessionWindowOpening,
-): SessionBaseState {
-  const { refusedCursors } = opening;
-  if (opening.opensAt === "repair") {
-    const { resumeAfterRowCursor, headCursor } = opening;
-    const afterRowCursor =
-      resumeAfterRowCursor === undefined
-        ? undefined
-        : heldIdAsWireId<EventCursor>(resumeAfterRowCursor);
-    if (afterRowCursor !== undefined && !refusedCursors.has(afterRowCursor)) {
-      return baseStateAfter(afterRowCursor);
-    }
-    return headCursor !== undefined && !refusedCursors.has(headCursor)
-      ? { ...baseStateAfter(headCursor), readFromCursor: headCursor }
-      : baseStateAtFloor(cursors, refusedCursors);
-  }
-  const decision = resolveTranscriptResume(cursors);
-  if (refusedCursors.has(decision.fromCursor)) {
-    return baseStateAtFloor(cursors, refusedCursors);
-  }
-  return decision.outcome === "resume-acknowledged"
-    ? { ...baseStateAfter(decision.fromCursor), readFromCursor: decision.fromCursor }
-    : baseStateAfter(decision.fromCursor);
+): EventCursor {
+  const { acknowledged } = cursors;
+  return opening.opensAt === "resume" &&
+    acknowledged !== undefined &&
+    acknowledged !== opening.refusedCursor
+    ? acknowledged
+    : cursors.latest;
 }
 
-/** The empty base state at the floor, or at the log's start when the floor was refused. */
-function baseStateAtFloor(
-  cursors: SessionReadResponse["transcriptCursors"],
-  refusedCursors: ReadonlySet<EventCursor>,
+/**
+ * The base state one record and its window establish. The stream opens after the window's newest
+ * row; a window with no rows holds nothing at or before its position, so the stream opens after
+ * `earliest`, the position before the oldest surviving event. Past a refused position the stream
+ * opens at the log's start, with no position.
+ */
+function baseStateOf(
+  record: SessionReadResponse,
+  page: TranscriptPage,
+  refusedCursor: EventCursor | undefined,
 ): SessionBaseState {
-  return refusedCursors.has(cursors.earliest) ? { entities: [] } : baseStateAfter(cursors.earliest);
-}
-
-/** An empty base state at one daemon-issued position, the stream opening after it. */
-function baseStateAfter(cursor: EventCursor): SessionBaseState {
-  return { entities: [], streamAfterCursor: cursor };
+  const newest = page.events.at(-1);
+  const streamAfterCursor =
+    newest === undefined ? record.transcriptCursors.earliest : heldRowCursor(newest);
+  return {
+    ...(newest === undefined ? {} : { cursor: newest.sequence }),
+    entities: record.liveRuns.map(projectLiveRun),
+    transcript: page.events,
+    ...(streamAfterCursor === refusedCursor ? {} : { streamAfterCursor }),
+    transcriptHead: page.edge,
+  };
 }

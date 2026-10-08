@@ -31,6 +31,7 @@ function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
     kind: index === memberCount - 1 ? "run.completed" : "assistant.message",
     occurredAt: transcriptFixtureStampAt(index),
     payload,
+    runStamp: { position: index, epoch: 0 },
   }));
 }
 

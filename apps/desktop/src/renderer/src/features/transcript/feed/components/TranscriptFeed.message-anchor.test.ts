@@ -1,6 +1,6 @@
 // Opening a session at one message, as a link from a workflow run does: the feed finds the row by
 // its event cursor, keeps it however far back it sits, scrolls to it and puts focus on the log. A
-// message older than the window is reached by paging back. A cursor no page holds opens at the
+// message older than the window is reached by reading back. A cursor no read holds opens at the
 // bottom with nothing landed.
 
 import { act, fireEvent, waitFor } from "@testing-library/react";
@@ -11,18 +11,18 @@ import {
   type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
-import { SessionStore } from "#renderer/store/session/store.js";
-import { type EarlierPageRead } from "../../history/earlier-reader.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptPageRead } from "../../history/reader.js";
 import { LONG_LOG_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
 import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
+  openPagedSessionStore,
   openSessionStoreWithGeneralLog,
   transcriptFixtureEventId,
-  transcriptFixtureStampAt,
   transcriptFixtureStreamCursor,
+  transcriptReadRowAt,
 } from "../../logs.test-support.js";
 import { openSessionStoreWithTerminalRunGroup } from "../../runs/groups.logs.test-support.js";
 
@@ -63,33 +63,17 @@ function renderLongFeed(messageAnchorCursor?: string): HTMLElement {
   );
 }
 
-/** A session the read contract admits: its rows name the session by a UUID. */
-const PAGED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a6";
 /** Rows per backward page: the log behind the window is two pages, the window a third. */
 const PAGE_ROWS = 50;
 /** On the second page back, so the first page alone does not reach it. */
 const BEFORE_FIRST_PAGE_INDEX = 10;
-/** The position the window was read from: everything before it is behind its head. */
+/** The store's head cursor: everything at or before it is behind the window. */
 const WINDOW_HEAD_CURSOR = "position-before-100" as EventCursor;
 
-/** A message row at one log position, as `transcript.read` serves it, with its cursor. */
-function messageRowAt(index: number): TranscriptEventRow {
-  return {
-    kind: "general",
-    id: transcriptFixtureEventId(index),
-    sessionId: PAGED_SESSION_ID as SessionId,
-    sequence: index,
-    cursor: transcriptFixtureStreamCursor(index) as EventCursor,
-    category: "interactive_request",
-    type: "user.message",
-    summary: "user.message",
-    timestamp: transcriptFixtureStampAt(index),
-    payload: {},
-  };
-}
-
 function rowsFrom(firstIndex: number): TranscriptEventRow[] {
-  return Array.from({ length: PAGE_ROWS }, (_unused, offset) => messageRowAt(firstIndex + offset));
+  return Array.from({ length: PAGE_ROWS }, (_unused, offset) =>
+    transcriptReadRowAt(firstIndex + offset),
+  );
 }
 
 /** The two pages behind the window, keyed by the position each is asked before. */
@@ -106,7 +90,10 @@ const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, TranscriptReadResponse>> =
 };
 
 /** The backward read over those pages, counting what it was asked. */
-function scriptedEarlierRead(): { readonly read: EarlierPageRead; readonly calls: () => number } {
+function scriptedEarlierRead(): {
+  readonly read: TranscriptPageRead;
+  readonly calls: () => number;
+} {
   let calls = 0;
   return {
     read: (request) => {
@@ -128,27 +115,12 @@ function scriptedEarlierRead(): { readonly read: EarlierPageRead; readonly calls
   };
 }
 
-/** A window read from `readFromCursor`, holding only the newest page of messages. */
-function openWindowAfterTwoPages(readFromCursor: EventCursor = WINDOW_HEAD_CURSOR): SessionStore {
-  const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
-  sessionStore.initialize({
-    cursor: 149,
-    entities: [],
-    transcript: Array.from({ length: PAGE_ROWS }, (_unused, offset) => {
-      const index = 100 + offset;
-      return {
-        id: transcriptFixtureEventId(index),
-        sessionId: PAGED_SESSION_ID,
-        sequence: index,
-        cursor: transcriptFixtureStreamCursor(index),
-        kind: "user.message",
-        occurredAt: transcriptFixtureStampAt(index),
-        payload: {},
-      };
-    }),
-    readFromCursor,
+/** A window whose head is `headCursor`, holding only the newest page of messages. */
+function openWindowAfterTwoPages(headCursor: EventCursor = WINDOW_HEAD_CURSOR): SessionStore {
+  return openPagedSessionStore(2 * PAGE_ROWS, 3 * PAGE_ROWS - 1, {
+    cursor: headCursor,
+    hasMore: true,
   });
-  return sessionStore;
 }
 
 describe("the transcript feed — opened at a message", () => {
@@ -219,12 +191,12 @@ describe("the transcript feed — opened at a message", () => {
 });
 
 describe("the transcript feed — opened at a message older than the window", () => {
-  it("pages back past the first page to the message and lands on it, focused", async () => {
+  it("reads back past the first page to the message and lands on it, focused", async () => {
     withLaidOutViewport();
     const earlierRead = scriptedEarlierRead();
     const feed = renderFeed(openWindowAfterTwoPages(), undefined, RowIdBody, {
       messageAnchorCursor: transcriptFixtureStreamCursor(BEFORE_FIRST_PAGE_INDEX),
-      readEarlierPage: earlierRead.read,
+      readTranscriptPage: earlierRead.read,
     });
     await waitFor(() => {
       expect(isMounted(feed, BEFORE_FIRST_PAGE_INDEX)).toBe(true);
@@ -239,9 +211,9 @@ describe("the transcript feed — opened at a message older than the window", ()
     const feed = renderFeed(openWindowAfterTwoPages(), undefined, RowIdBody, {
       // The row id, not the cursor: no page carries it as a position.
       messageAnchorCursor: transcriptFixtureEventId(BEFORE_FIRST_PAGE_INDEX),
-      readEarlierPage: earlierRead.read,
+      readTranscriptPage: earlierRead.read,
     });
-    // The terminal page retires the walk, which takes the head control away with it.
+    // The page that ends history takes the `Load earlier` line away.
     await waitFor(() => {
       expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
     });
@@ -249,7 +221,7 @@ describe("the transcript feed — opened at a message older than the window", ()
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
   });
 
-  it("stops at a refused page rather than asking again", async () => {
+  it("stops at a refused read rather than asking again", async () => {
     withLaidOutViewport();
     const earlierRead = scriptedEarlierRead();
     const feed = renderFeed(
@@ -258,11 +230,11 @@ describe("the transcript feed — opened at a message older than the window", ()
       RowIdBody,
       {
         messageAnchorCursor: transcriptFixtureStreamCursor(BEFORE_FIRST_PAGE_INDEX),
-        readEarlierPage: earlierRead.read,
+        readTranscriptPage: earlierRead.read,
       },
     );
     await waitFor(() => {
-      expect(feed.textContent).toContain("No page there.");
+      expect(feed.textContent).toContain("Couldn't load earlier messages");
     });
     await act(async () => {
       await Promise.resolve();

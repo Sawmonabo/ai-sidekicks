@@ -10,6 +10,7 @@ const PARENT_RUN = "019b793b-7b60-740e-8110-d1a4c1150111";
 const CHILD_RUN = "019b793b-7b60-740e-8140-d1a4c1150114";
 const OTHER_RUN = "019b793b-7b60-740e-8120-d1a4c1150112";
 
+/** An event of a run, stamped by the daemon at the turn position its sequence names. */
 function event(
   sequence: number,
   kind: string,
@@ -23,6 +24,7 @@ function event(
     kind,
     occurredAt: `2026-01-01T11:0${String(sequence % 10)}:00.000Z`,
     payload,
+    runStamp: { position: sequence, epoch: 0 },
   };
 }
 
