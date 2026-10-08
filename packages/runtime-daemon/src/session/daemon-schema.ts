@@ -43,7 +43,6 @@ CREATE TABLE session_events (
   UNIQUE (session_id, sequence)
 ) STRICT;
 
-CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
