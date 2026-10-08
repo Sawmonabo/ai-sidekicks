@@ -2,6 +2,7 @@
 // `sidekicks daemon status`. Processor and memory are read on each call, never on a timer; a call
 // whose reading fails still answers, with both `null` and the failure in the service log.
 
+import type { DaemonRecoveryStatus } from "@ai-sidekicks/contracts/daemon/recovery";
 import {
   DAEMON_STATUS_METHOD_DESCRIPTORS,
   type DaemonProcessState,
@@ -19,6 +20,8 @@ export interface StatusMethodsDeps {
   readonly processIdentity: ProcessIdentity;
   /** Where the daemon is in its own life at the moment of the call. */
   readonly readProcessState: () => DaemonProcessState;
+  /** Where the node stands in its recovery from the last restart, at the moment of the call. */
+  readonly readRecovery: () => DaemonRecoveryStatus;
   /** The service's own release version. */
   readonly version: string;
   /** The socket the daemon listens on. */
@@ -56,6 +59,7 @@ export function registerStatusMethods(registry: MethodRegistry, deps: StatusMeth
           usage === null
             ? null
             : { residentBytes: usage.residentBytes, readAt: readAt.toISOString() },
+        recovery: deps.readRecovery(),
       };
     },
   );

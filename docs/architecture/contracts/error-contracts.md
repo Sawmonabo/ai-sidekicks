@@ -425,6 +425,7 @@ The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-an
 | --- | --- | --- |
 | `daemon.environment_name_refused` | An environment row's name refused at save, from `daemon.machineSettingsUpdate` or `repo.projectEnvironmentUpdate`; nothing is written and the rows stay as they were. `data.fields`: `name`, the refused name, so the page marks the row it was typed into, and `reason`, one of `not_a_name`, `credential_shaped` or `set_by_app` | 422 |
 | `daemon.branch_pattern_refused` | A branch-name pattern refused at save, from `daemon.machineSettingsUpdate` (`Every project`'s `Branch names`) or `repo.projectBranchPatternUpdate`, one rule for both; nothing is written. `data.fields` is `DaemonBranchPatternRefusedDetails`, whose `reason` is `title_not_once` (`Put {title} in the name once.`) or `not_a_branch_name` (`Git does not accept this as a branch name.`), the whole name checked by `git check-ref-format --branch` and against the branches it would collide with; the pattern schema's own issue message is that reason code, and the screen holds the words | 422 |
+| `daemon.write_refused` | A mutating call refused while the node's recovery state on `daemon.status.read` is not `healthy`: the restart's recovery pass is still running, a session's projection could not be rebuilt, or the local store is unavailable. `daemon.stop`, `daemon.restart` and `daemon.flush` are never refused, so the service can always be repaired. `data.fields.recovery`: the overall state, `rebuilding` \| `degraded` \| `blocked` | 503 |
 
 ### Attention
 

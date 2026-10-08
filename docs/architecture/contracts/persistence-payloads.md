@@ -33,6 +33,7 @@ interface EventsReadAfterSequenceRequest {
   sessionId: SessionId;
   afterSequence: number;
   limit?: number;
+  eventTypes?: string[]; // only events of these types; every type when absent
 }
 interface EventsReadAfterSequenceResponse {
   events: EventEnvelope[];
@@ -49,6 +50,7 @@ interface ProjectionRebuildResponse {
   sessionId: SessionId;
   rebuiltProjections: string[];
   asOfSequence: number;
+  eventsApplied: number; // the events the rebuild read; recovery.succeeded sums them
 }
 
 // RuntimeBindingRead

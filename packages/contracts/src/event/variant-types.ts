@@ -23,6 +23,11 @@ import type {
   BackupRestoredPayload,
 } from "../daemon/backup.js";
 import type {
+  RecoveryAttemptedPayload,
+  RecoveryFailedPayload,
+  RecoverySucceededPayload,
+} from "../daemon/recovery.js";
+import type {
   AssistantMessageEvent,
   AssistantThinkingUpdateEvent,
   EventCompactedEvent,
@@ -31,6 +36,7 @@ import type {
   ToolErrorEvent,
   ToolInvokedEvent,
   ToolResultEvent,
+  UsageModelReroutedEvent,
   WorkspaceArchivedEvent,
   WorkspacePreparingEvent,
   WorkspaceReadyEvent,
@@ -46,7 +52,6 @@ import type { SessionEventType } from "./registry.js";
 import type { GitSettledPayload } from "../gitflow/local.js";
 import type { McpServerOauthCompletedPayload } from "../mcp/governance.js";
 import type { PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload } from "../plan.js";
-import type { RunId } from "../run/id.js";
 import type { OrchestrationRejectedPayload } from "../orchestration.js";
 import type { PtyControlChangedPayload } from "../pty.js";
 import type { QuestionAskedPayload } from "../question.js";
@@ -79,7 +84,6 @@ import type {
   SessionMarkChangePayload,
   SessionRenamedPayload,
 } from "../session/events.js";
-import type { SessionId } from "../session/id.js";
 import type {
   WorkflowCanceledPayload,
   WorkflowResultsPostedPayload,
@@ -101,13 +105,11 @@ import type {
 } from "../worktree/events.js";
 
 // Each payload below is declared beside the method or record that produces it and imported here:
-// the emitter's contract authors the payload. `usage.model_rerouted` is declared here because no
-// other contract states it.
+// the emitter's contract authors the payload.
 //
-// Only `command.ended` and `usage.model_rerouted` take the epoch stamp: they are the run-scoped
-// members here, each with a required `runId`. The approval, session-lifecycle, interactive-request,
-// security and mcp-governance variants sit outside the late-append window, and `git.settled`
-// names a run on only some causes.
+// Only `command.ended` takes the epoch stamp: it is the run-scoped member here, with a required
+// `runId`. The approval, session-lifecycle, interactive-request, security and mcp-governance
+// variants sit outside the late-append window, and `git.settled` names a run on only some causes.
 
 /**
  * A session event whose payload its own contract declares: the envelope narrowed to one variant.
@@ -247,32 +249,6 @@ export type CommandEndedEvent = SessionEventVariant<
   }
 >;
 
-/**
- * `usage.model_rerouted`: the provider moved a turn onto another model and the turn went on.
- * `scope` says how long the switch holds: this turn, the rest of the session, or one helper's
- * response (`local`); `sentence`, `explanation` and `safetyCategory` are the provider's own.
- */
-export type UsageModelReroutedPayload = {
-  sessionId: SessionId;
-  runId: RunId;
-  agentId?: string | undefined;
-  fromModel: string;
-  toModel: string;
-  scope: "turn" | "session" | "local";
-  sentence?: string | undefined;
-  explanation?: string | undefined;
-  cause: "safety" | "model_unavailable" | "model_blocked" | "out_of_credits";
-  safetyCategory?: string | undefined;
-};
-/** Emitted when the provider moves a turn onto another model; it takes the epoch stamp. */
-export type UsageModelReroutedEvent = SessionEventVariant<
-  "usage.model_rerouted",
-  "usage_telemetry",
-  UsageModelReroutedPayload & {
-    sourceEpoch?: SourceEpoch | undefined;
-    sourcePosition?: SourcePosition | undefined;
-  }
->;
 /** Emitted when a session is archived. */
 export type SessionArchivedEvent = SessionEventVariant<
   "session.archived",
@@ -560,6 +536,27 @@ export type BackupRestoredEvent = SessionEventVariant<
   "event_maintenance",
   BackupRestoredPayload
 >;
+/** Emitted when the service's recovery pass starts, on its own session. */
+export type RecoveryAttemptedEvent = SessionEventVariant<
+  "recovery.attempted",
+  "recovery_events",
+  RecoveryAttemptedPayload
+>;
+/** Emitted when the service's recovery pass completes, on its own session. */
+export type RecoverySucceededEvent = SessionEventVariant<
+  "recovery.succeeded",
+  "recovery_events",
+  RecoverySucceededPayload
+>;
+/**
+ * Emitted when the service's recovery pass leaves the node blocked or a session degraded, on its
+ * own session.
+ */
+export type RecoveryFailedEvent = SessionEventVariant<
+  "recovery.failed",
+  "recovery_events",
+  RecoveryFailedPayload
+>;
 
 /** Emitted when the daemon starts preparing a run's provider, workspace or execution state. */
 export type RunStartingEvent = SessionEventVariant<
@@ -750,6 +747,9 @@ export type SessionEvent =
   | BackupCompletedEvent
   | BackupFailedEvent
   | BackupRestoredEvent
+  | RecoveryAttemptedEvent
+  | RecoverySucceededEvent
+  | RecoveryFailedEvent
   | RunStartingEvent
   | RunRunningEvent
   | RunWaitingForApprovalEvent

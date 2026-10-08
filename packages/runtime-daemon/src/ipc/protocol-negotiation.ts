@@ -20,7 +20,6 @@ import type {
   Handler,
   HandlerContext,
   MethodRegistry,
-  RegisterOptions,
   ZodType,
 } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { timingSafeEqual } from "node:crypto";
@@ -36,6 +35,8 @@ import {
   NEGOTIATION_VERSION_MISMATCH_CODE,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+
+import { DelegatingRegistry } from "./registry.js";
 
 /**
  * Codes for gate refusals: any method but `daemon.hello` before a hello completed
@@ -127,69 +128,6 @@ const DaemonHelloAckResultSchema: ZodType<DaemonHelloAck> = DaemonHelloAckSchema
 
 const DaemonHelloRequestSchema: ZodType<DaemonHello> = DaemonHelloSchema;
 
-// Delegates everything to the inner registry; only `dispatch` applies the gate.
-class WrappedRegistry implements MethodRegistry {
-  readonly #inner: MethodRegistry;
-  readonly #negotiator: ProtocolNegotiator;
-
-  constructor(inner: MethodRegistry, negotiator: ProtocolNegotiator) {
-    this.#inner = inner;
-    this.#negotiator = negotiator;
-  }
-
-  register<P, R>(
-    method: string,
-    paramsSchema: ZodType<P>,
-    resultSchema: ZodType<R>,
-    handler: Handler<P, R>,
-    opts?: RegisterOptions,
-  ): void {
-    // `opts` is forwarded only when present (exactOptionalPropertyTypes).
-    if (opts === undefined) {
-      this.#inner.register(method, paramsSchema, resultSchema, handler);
-    } else {
-      this.#inner.register(method, paramsSchema, resultSchema, handler, opts);
-    }
-  }
-
-  async dispatch(method: string, params: unknown, ctx: HandlerContext): Promise<unknown> {
-    // A call without a transport id is direct dispatch, not over the wire, and is not gated.
-    const transportId = ctx.transportId;
-    if (transportId !== undefined) {
-      const state = this.#negotiator.getState(transportId);
-      if (state.kind === "refused") {
-        throw sessionTokenRefusal();
-      }
-      if (state.kind === "pre" && method !== DAEMON_HELLO_METHOD) {
-        throw new NegotiationError(
-          "protocol.handshake_required",
-          `protocol-negotiation: method ${JSON.stringify(method)} refused before ` +
-            `\`${DAEMON_HELLO_METHOD}\` completed (fail-closed)`,
-        );
-      }
-      // An unregistered method passes through so the inner dispatch reports `method_not_found`.
-      if (state.kind === "done-incompatible" && this.#inner.isMutating(method) === true) {
-        throw new NegotiationError(
-          NEGOTIATION_VERSION_MISMATCH_CODE,
-          `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because ` +
-            `the connection's prior handshake was incompatible (reason=` +
-            `${JSON.stringify(state.reason)})`,
-          { reason: state.reason },
-        );
-      }
-    }
-    return this.#inner.dispatch(method, params, ctx);
-  }
-
-  has(method: string): boolean {
-    return this.#inner.has(method);
-  }
-
-  isMutating(method: string): boolean | undefined {
-    return this.#inner.isMutating(method);
-  }
-}
-
 /**
  * Keeps per-connection negotiation state and wraps a registry with the gate. The caller must call
  * `cleanupTransport` on every connection close, or the state map leaks one entry per connection.
@@ -221,7 +159,39 @@ export class ProtocolNegotiator {
 
   /** Returns a registry whose `dispatch` is gated by this negotiator; wrappers share its state. */
   wrap(inner: MethodRegistry): MethodRegistry {
-    return new WrappedRegistry(inner, this);
+    return new DelegatingRegistry(inner, async (method, params, ctx) => {
+      this.#refuseUntilNegotiated(inner, method, ctx);
+      return inner.dispatch(method, params, ctx);
+    });
+  }
+
+  #refuseUntilNegotiated(inner: MethodRegistry, method: string, ctx: HandlerContext): void {
+    // A call without a transport id is direct dispatch, not over the wire, and is not gated.
+    const transportId = ctx.transportId;
+    if (transportId === undefined) {
+      return;
+    }
+    const state = this.getState(transportId);
+    if (state.kind === "refused") {
+      throw sessionTokenRefusal();
+    }
+    if (state.kind === "pre" && method !== DAEMON_HELLO_METHOD) {
+      throw new NegotiationError(
+        "protocol.handshake_required",
+        `protocol-negotiation: method ${JSON.stringify(method)} refused before ` +
+          `\`${DAEMON_HELLO_METHOD}\` completed (fail-closed)`,
+      );
+    }
+    // An unregistered method passes through so the inner dispatch reports `method_not_found`.
+    if (state.kind === "done-incompatible" && inner.isMutating(method) === true) {
+      throw new NegotiationError(
+        NEGOTIATION_VERSION_MISMATCH_CODE,
+        `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because ` +
+          `the connection's prior handshake was incompatible (reason=` +
+          `${JSON.stringify(state.reason)})`,
+        { reason: state.reason },
+      );
+    }
   }
 
   /**

@@ -1,8 +1,12 @@
 // The `session_events` row write, run on the database writer's connection: it reads the session's
 // head and inserts the row with the next sequence in one synchronous step, so two appends never
-// derive one sequence.
+// derive one sequence. The same step advances the session's projection cursor, because every
+// projection row an event moves is written in that event's own write.
 
 import type { Database } from "better-sqlite3";
+
+import { DATABASE_NOW_SQL } from "../../database/statement.js";
+import { mintUuidV7 } from "../../uuid-v7.js";
 
 /** A `session_events` row as bound, snake_case to match the columns, before its sequence exists. */
 export interface SessionEventRow {
@@ -25,10 +29,20 @@ interface HeadRow {
   readonly sequence: unknown;
 }
 
+// A new session's cursor starts current; an existing one keeps its state, so a session marked
+// for rebuilding stays marked until its rebuild lands.
+const ADVANCE_PROJECTION_CURSOR_SQL = `INSERT INTO projection_cursors
+    (id, session_id, last_sequence, state, updated_at)
+  VALUES (@id, @session_id, @last_sequence, 'current', ${DATABASE_NOW_SQL})
+  ON CONFLICT (session_id) DO UPDATE
+    SET last_sequence = excluded.last_sequence,
+        updated_at = excluded.updated_at`;
+
 /**
  * Prepares the row write on `database` and returns it: each call inserts one row at the session's
- * next sequence and returns that sequence. Throws when the stored head is not an integer, when the
- * next sequence would pass the safe integers, or when the insert does not land exactly one row.
+ * next sequence, advances the session's projection cursor to it, and returns that sequence. Throws
+ * when the stored head is not an integer, when the next sequence would pass the safe integers, or
+ * when the insert does not land exactly one row.
  */
 export function prepareSessionEventInsert(database: Database): (row: SessionEventRow) => number {
   const insertStatement = database.prepare(
@@ -52,6 +66,7 @@ export function prepareSessionEventInsert(database: Database): (row: SessionEven
         LIMIT 1`,
     )
     .safeIntegers(true);
+  const advanceCursorStatement = database.prepare(ADVANCE_PROJECTION_CURSOR_SQL);
 
   return (row) => {
     const head = headStatement.get(row.session_id) as HeadRow | undefined;
@@ -66,6 +81,12 @@ export function prepareSessionEventInsert(database: Database): (row: SessionEven
           `session=${row.session_id} sequence=${String(sequence)}`,
       );
     }
+    // Runs for the service's own sentinel session too, whose cursor is written and never read.
+    advanceCursorStatement.run({
+      id: mintUuidV7(),
+      session_id: row.session_id,
+      last_sequence: sequence,
+    });
     return sequence;
   };
 }

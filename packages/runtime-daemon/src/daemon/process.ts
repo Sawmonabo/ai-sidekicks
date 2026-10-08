@@ -3,9 +3,10 @@
 // for writes and a read-only connection for reads, kills the terminal children a previous run left
 // running and builds the terminal host over this run's orphan guard, knows this machine, captures
 // the environment providers are built from, listens on its socket and writes this start's session
-// token once the bind has succeeded. A client that reads the previous token in the moment between
-// the bind and the write is refused once, and its next read finds this start's token. Its stop,
-// asked for over the socket or by a terminate signal, ends it cleanly.
+// token once the bind has succeeded, then runs its recovery pass, refusing writes until that pass
+// leaves the node healthy. A client that reads the previous token in the moment between the bind
+// and the write is refused once, and its next read finds this start's token. Its stop, asked for
+// over the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -24,12 +25,14 @@ import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/mac
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
 import { bootstrap } from "../bootstrap/index.js";
+import { waitWithin } from "../bounded-wait.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
 import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
 } from "../database/connections.js";
+import { EventLogService } from "../events/log-service.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
@@ -40,6 +43,14 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
+import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
+import { StartupRecovery } from "../recovery/startup.js";
+import { RecoveryStatusTracker } from "../recovery/status.js";
+import { RecoveryWriteGate } from "../recovery/write-gate.js";
+import { RunEngine } from "../session/run/engine.js";
+import { RUNS_PROJECTION } from "../session/run/projection.js";
+import { RunStateReader } from "../session/run/read.js";
+import { SessionService } from "../session/service.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -111,6 +122,10 @@ export class DaemonProcess {
   readonly #database: DatabaseConnections;
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
+  readonly #recoveryStatus = new RecoveryStatusTracker();
+  readonly #startupRecovery: StartupRecovery;
+  // The start's recovery pass, which a stop waits for before the database closes under it.
+  #recoveryPass: Promise<void> = Promise.resolve();
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
@@ -138,10 +153,34 @@ export class DaemonProcess {
     this.#ptyHost = options.createPtyHost(parts.orphanGuard);
     this.#writeServiceLog = options.writeServiceLog;
 
-    // The negotiation gate wraps the recording registry, so a refused call is never recorded.
+    const { reader, writer } = parts.database;
+    const sessionEvents = new EventLogService({ writer });
+    const runEngine = new RunEngine({ reader, sessionEvents });
+    this.#startupRecovery = new StartupRecovery({
+      nodeId: parts.localMachine.nodeId,
+      reader,
+      sessionEvents,
+      projectionRebuild: new ProjectionRebuildService({
+        reader,
+        writer,
+        sessionEvents: new SessionService(reader),
+        projections: [RUNS_PROJECTION],
+      }),
+      runs: new RunStateReader(reader),
+      runEngine,
+      status: this.#recoveryStatus,
+      now: options.now,
+      writeServiceLog: options.writeServiceLog,
+    });
+
+    // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
+    // refused call is never recorded.
     this.#inFlightMutations = new InFlightMutations();
     const negotiator = new ProtocolNegotiator(parts.sessionToken);
-    const registry = negotiator.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl()));
+    const writeGate = new RecoveryWriteGate(() => this.#recoveryStatus.readOverall());
+    const registry = negotiator.wrap(
+      writeGate.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl())),
+    );
     negotiator.registerHandshakeMethod(registry);
     registerLifecycleMethods(registry, {
       flush: async () => {
@@ -153,6 +192,7 @@ export class DaemonProcess {
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,
+      readRecovery: () => this.#recoveryStatus.read(),
       version: options.serviceVersion,
       transportEndpoint: options.runFolder.socketPath,
       dataDirectory: parts.dataFolder,
@@ -199,17 +239,20 @@ export class DaemonProcess {
         },
       },
     });
-    // A dead writer fails every write from then on, so the service reads as degraded too.
+    // A dead writer fails every write from then on, so the service reads as degraded and its
+    // recovery as blocked.
     void this.#database.writer.whenWorkerFailed.then((error) => {
       this.#markDegraded();
+      this.#recoveryStatus.markStoreFailed();
       options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
     });
   }
 
   /**
-   * Starts the daemon and resolves once it listens. Throws `DaemonAlreadyRunningError` when another
-   * daemon holds the data folder or answers on the socket; any failure releases what the start had
-   * taken.
+   * Starts the daemon and resolves once it listens and its recovery pass has ended; a pass that
+   * fails leaves the node's recovery state saying so and never fails the start. Throws
+   * `DaemonAlreadyRunningError` when another daemon holds the data folder or answers on the
+   * socket; any other failure releases what the start had taken.
    */
   static async start(options: DaemonProcessOptions): Promise<DaemonProcess> {
     const startedAt = options.now();
@@ -254,6 +297,8 @@ export class DaemonProcess {
           sessionToken,
         });
         await daemon.#listen(options.runFolder, sessionToken);
+        daemon.#recoveryPass = daemon.#startupRecovery.run();
+        await daemon.#recoveryPass;
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
@@ -285,10 +330,10 @@ export class DaemonProcess {
 
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
-   * the drain bound, waits for the calls already under way and drains every terminal (each gets
-   * its graceful signal, then a kill); then stops watching terminal children's exits and, in what
-   * is left of the bound, waits for every write taken to commit, failing any still unfinished,
-   * closes the database and lets the data folder go.
+   * the drain bound, waits for the calls already under way and the start's recovery pass, and
+   * drains every terminal (each gets its graceful signal, then a kill); then stops watching
+   * terminal children's exits and, in what is left of the bound, waits for every write taken to
+   * commit, failing any still unfinished, closes the database and lets the data folder go.
    * Repeated calls share the first stop.
    */
   stop(): Promise<void> {
@@ -361,10 +406,12 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    // The calls under way and the terminals are independent, so both finish inside one drain
-    // bound. A call still running at the bound fails once the database closes under it.
-    const [stillWriting, drain] = await Promise.allSettled([
+    // The calls under way, the recovery pass and the terminals are independent, so all finish
+    // inside one drain bound. A call or a pass still running at the bound fails once the database
+    // closes under it.
+    const [stillWriting, hasPassEnded, drain] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
+      waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
       this.#ptyHost.shutdown({
         perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
         hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
@@ -374,6 +421,9 @@ export class DaemonProcess {
       this.#writeServiceLog(
         `The stop's drain bound passed; writes still running: ${String(stillWriting.value)}.`,
       );
+    }
+    if (hasPassEnded.status === "fulfilled" && !hasPassEnded.value) {
+      this.#writeServiceLog("The stop's drain bound passed; the recovery pass was still running.");
     }
     if (drain.status === "fulfilled") {
       this.#writeServiceLog(describeDrain(drain.value));

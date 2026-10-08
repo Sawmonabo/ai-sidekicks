@@ -392,6 +392,10 @@ CREATE TABLE command_receipts (
   run_id        TEXT,
   status        TEXT NOT NULL
                 CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
+  -- The two-phase commit: started_at is set once by the claim's compare-and-set, completed_at by
+  -- the terminal write. Claimed and not completed is in flight.
+  started_at    TEXT,
+  completed_at  TEXT,
   created_at    TEXT NOT NULL,
   -- The receiver-generated MCP Tasks taskId from its acceptance, the one handle a
   -- call is resumed by after a restart. NULL until the acceptance is stored, so a
@@ -403,6 +407,9 @@ CREATE TABLE command_receipts (
 ) STRICT;
 
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
+-- The in-flight receipts the restart's sweep reads.
+CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
+  WHERE started_at IS NOT NULL AND completed_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Run state: one row per run, the read every run write guards against.
@@ -429,6 +436,32 @@ CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT N
 -- The runs not yet ended, which the restart settle scans.
 CREATE INDEX idx_runs_live ON runs(state)
   WHERE state NOT IN ('completed', 'interrupted', 'stopped', 'failed');
+
+-- ---------------------------------------------------------------------------
+-- Recovery: how far each session's projections reflect its log, and saved
+-- recovery state.
+-- ---------------------------------------------------------------------------
+-- Advanced in the same write as each event the session appends, so a session
+-- whose cursor is current at its newest sequence needs no rebuild at a restart.
+CREATE TABLE projection_cursors (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL UNIQUE,
+  last_sequence   INTEGER NOT NULL,             -- the last event the projections reflect
+  state           TEXT NOT NULL DEFAULT 'current'
+                  CHECK(state IN ('current', 'rebuilding', 'stale')),
+  updated_at      TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE recovery_checkpoints (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  checkpoint_type TEXT NOT NULL,                -- such as 'full' or 'incremental'
+  as_of_sequence  INTEGER NOT NULL,
+  state_blob      BLOB NOT NULL,
+  created_at      TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id);
 
 -- ---------------------------------------------------------------------------
 -- Provider accounts and their quota readings.

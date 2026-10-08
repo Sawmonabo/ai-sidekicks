@@ -14,6 +14,7 @@ describe("the status read", () => {
     registerStatusMethods(registry, {
       processIdentity: { processId: 4242, bootId: "boot-1", processStartTime: "start-1" },
       readProcessState: () => "running",
+      readRecovery: () => ({ overall: "healthy", sessions: [] }),
       version: "0.0.0-test",
       transportEndpoint: "/run/sidekicks.sock",
       dataDirectory: "/data",

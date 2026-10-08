@@ -1,6 +1,6 @@
-// Every member of a contract enum is admitted by the SQLite CHECK on the column that stores it, and
-// a value outside the enum is refused. The `Record<Union, true>` member maps make a contract member
-// added without an accept case a typecheck error here.
+// Every member of a contract or daemon enum is admitted by the SQLite CHECK on the column that
+// stores it, and a value outside the enum is refused. The `Record<Union, true>` member maps make a
+// member added without an accept case a typecheck error here.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -16,6 +16,7 @@ import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { ProjectionCursorState } from "../../recovery/projection-rebuild.js";
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
 
 const TIMESTAMP = "2026-09-28T00:00:00.000Z";
@@ -79,6 +80,12 @@ const IDEMPOTENCY_CLASSES: Record<IdempotencyClass, true> = {
   idempotent: true,
   compensable: true,
   manual_reconcile_only: true,
+};
+
+const PROJECTION_CURSOR_STATES: Record<ProjectionCursorState, true> = {
+  current: true,
+  rebuilding: true,
+  stale: true,
 };
 
 function membersOf<Member extends string>(members: Record<Member, true>): Member[] {
@@ -224,6 +231,21 @@ describe("contract enums against the daemon schema", () => {
     }
     expect(() => insertRun(NON_MEMBER, null)).toThrow(CHECK_FAILURE);
     expect(() => insertRun("queued", NON_MEMBER)).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every projection cursor state and refuses any other", () => {
+    const insertCursor = db.prepare(
+      `INSERT INTO projection_cursors (id, session_id, last_sequence, state, updated_at)
+       VALUES (?, ?, 0, ?, ?)`,
+    );
+    for (const state of membersOf(PROJECTION_CURSOR_STATES)) {
+      expect(() =>
+        insertCursor.run(newId("cursor"), newId("session"), state, TIMESTAMP),
+      ).not.toThrow();
+    }
+    expect(() =>
+      insertCursor.run(newId("cursor"), newId("session"), NON_MEMBER, TIMESTAMP),
+    ).toThrow(CHECK_FAILURE);
   });
 
   it("admits every driver capability flag and refuses any other", () => {
