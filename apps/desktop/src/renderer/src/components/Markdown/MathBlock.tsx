@@ -2,7 +2,7 @@
 // produces a markup string. KaTeX loads lazily, settled blocks only, with `trust: false` (model
 // output must not emit `\href`, `\url` or a class), its HTML output with its MathML beside it,
 // and `strict: false`. A display formula measures its widest unbreakable piece once, so its sheet
-// can shrink it to the column. An unparseable formula, or one whose chunk failed to load, shows
+// can shrink it to the column, and checks the fit again when its size changes. An unparseable formula, or one whose chunk failed to load, shows
 // its source beside an error state, never KaTeX's red error text.
 
 import "./MathBlock.css";
@@ -97,7 +97,9 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
 
 /**
  * A ref for a display formula's span, on which `--math-natural-width` is written once per markup,
- * when the span first has a width: no measuring on resize, since the sheet does the fitting.
+ * when the span first has a width; the sheet does the fitting from it. Where glyph widths round to
+ * whole pixels, as on Linux, a piece's width does not scale exactly with its font size, so each
+ * later resize checks the fit and raises the width where the drawn piece overran its column.
  */
 function useMeasureNaturalWidth(
   displayMarkup: string | undefined,
@@ -111,12 +113,14 @@ function useMeasureNaturalWidth(
     if (displayMarkup === undefined || span === null) {
       return undefined;
     }
-    const stopObserving = observeElementResize(span, () => {
-      if (writeNaturalWidth(span)) {
-        stopObserving();
+    let isMeasured = false;
+    return observeElementResize(span, () => {
+      if (isMeasured) {
+        raiseNaturalWidthToFit(span);
+      } else {
+        isMeasured = writeNaturalWidth(span);
       }
     });
-    return stopObserving;
   }, [displayMarkup]);
 
   return displayRef;
@@ -141,6 +145,27 @@ function writeNaturalWidth(span: HTMLSpanElement): boolean {
     span.style.setProperty("--math-natural-width", String(naturalWidth / fontSize));
   }
   return true;
+}
+
+/**
+ * Raise `--math-natural-width` by the share the widest piece overran the column at its drawn size,
+ * which the sheet then shrinks the formula by. The width only grows, to at most the widest the
+ * piece draws per em at any size, so a formula that fits is left alone. A span whose width was
+ * taken away is left alone too.
+ */
+function raiseNaturalWidthToFit(span: HTMLSpanElement): void {
+  const naturalWidth = Number.parseFloat(span.style.getPropertyValue("--math-natural-width"));
+  const columnWidth = span.getBoundingClientRect().width;
+  if (Number.isNaN(naturalWidth) || columnWidth === 0) {
+    return;
+  }
+  const drawnWidth = widestWidthOf(span, ".katex-base") + 2 * widestWidthOf(span, ".katex-tag");
+  if (drawnWidth > columnWidth) {
+    span.style.setProperty(
+      "--math-natural-width",
+      String((naturalWidth * drawnWidth) / columnWidth),
+    );
+  }
 }
 
 /** The width of the widest element under `span` that matches `selector`, in whole pixels. */
