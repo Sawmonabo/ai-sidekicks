@@ -55,10 +55,13 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
           // One sentence carries both figures: an inline badge shows `detail` only in its hover
           // label, and the counts are the substance of the notice. The badge still fits because
           // the output it qualifies is present.
-          title={
-            `Showing ${formatCount(spans.length)} styled runs; ` +
-            `${formatCount(elidedSpanCount)} more are not shown.`
-          }
+          title={[
+            "Showing ",
+            { derived: formatCount(spans.length) },
+            " styled runs; ",
+            { derived: formatCount(elidedSpanCount) },
+            " more are not shown.",
+          ]}
           action={
             <button
               type="button"

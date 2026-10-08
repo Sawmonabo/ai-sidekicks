@@ -36,6 +36,7 @@ import type { PayerReading } from "./cost.js";
 import { NO_RUN_FILTERS, hasRunFilters, noRunMatchSentence } from "./filters.js";
 import type { RunListAnswer, RunListAsk } from "./list-pages.js";
 import { runCountWords } from "../words.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
@@ -261,7 +262,7 @@ function runsSettlementSentence(
     case "loaded": {
       const { response } = listState.value;
       if (response.runs.length > 0) {
-        return `${runCountWords(response.totalCount)} listed.`;
+        return `${joinFigureSentence(runCountWords(response.totalCount, "wire"))} listed.`;
       }
       if (runCountState.kind === "not-loaded") {
         return undefined;

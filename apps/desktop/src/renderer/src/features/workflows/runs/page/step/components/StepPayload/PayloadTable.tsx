@@ -4,6 +4,7 @@ import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/d
 
 import { MarkdownDocumentRow } from "./MarkdownDocumentRow.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { useDrawnStringRead } from "./hooks/useDrawnStringRead.js";
 import { usePayloadTableRows } from "./hooks/usePayloadTableRows.js";
 import type { PayloadTableRow, PayloadValuePlace } from "./rows.js";
@@ -48,11 +49,15 @@ function TableRow(props: {
         />
       );
     case "item":
-      return <p className="meridian-workflow-payload__item-head">{row.heading}</p>;
+      return (
+        <p className="meridian-workflow-payload__item-head">
+          <FigureSentence parts={row.heading} />
+        </p>
+      );
     case "file":
       return (
         <p className="meridian-workflow-payload__file">
-          <WireFigure value={row.line} />
+          <FigureSentence parts={row.line} />
         </p>
       );
     case "value":

@@ -10,7 +10,9 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { DayClockFigure } from "../../components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { runCountWords, spentAccountWords } from "../../words.js";
 import { partOfDayAt } from "../part-of-day.js";
 
@@ -55,7 +57,7 @@ export function RunAttentionSection(props: {
         />
       ) : state.value.entries.length === 0 ? (
         <p className="meridian-workflows-attention__nothing">
-          {nothingWaiting(props.answeredCount, props.nowMs)}
+          <FigureSentence parts={nothingWaiting(props.answeredCount, props.nowMs)} />
         </p>
       ) : (
         <ul className="meridian-workflows-attention__entries">
@@ -83,13 +85,17 @@ function AttentionLine(props: {
 }): React.JSX.Element {
   const { entry, clockLocale } = props;
   if (entry.kind === "account") {
-    const runs = runCountWords(entry.affectedRunCount);
     const verb = entry.affectedRunCount === 1 ? "waits" : "wait";
     const account = spentAccountWords(entry.account);
     // The reset is named only where the daemon armed the instant the runs resume.
     return (
       <span>
-        {`${runs} ${verb} on the ${account}, which is spent`}
+        <FigureSentence
+          parts={[
+            ...runCountWords(entry.affectedRunCount, "wire"),
+            ` ${verb} on the ${account}, which is spent`,
+          ]}
+        />
         {entry.resumeAt === undefined ? null : (
           <>
             {" until "}
@@ -119,13 +125,19 @@ function AttentionLine(props: {
   );
 }
 
-/** `Nothing waiting`, and `· you answered 4 runs this morning` where this sitting answered any. */
-function nothingWaiting(answeredCount: number, nowMs: number): string {
+/**
+ * `Nothing waiting`, and `· you answered 4 runs this morning` where this sitting answered any, a
+ * count the app keeps itself.
+ */
+function nothingWaiting(answeredCount: number, nowMs: number): readonly FigureSentencePart[] {
   if (answeredCount === 0) {
-    return "Nothing waiting";
+    return ["Nothing waiting"];
   }
-  const runs = runCountWords(answeredCount);
-  return `Nothing waiting · you answered ${runs} this ${partOfDayAt(nowMs)}`;
+  return [
+    "Nothing waiting · you answered ",
+    ...runCountWords(answeredCount, "derived"),
+    ` this ${partOfDayAt(nowMs)}`,
+  ];
 }
 
 function entryKey(entry: WorkflowRunAttentionEntry): string {

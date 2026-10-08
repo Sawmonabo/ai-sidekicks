@@ -127,7 +127,9 @@ describe("the attention list", () => {
     expect(screen.queryByText(/Nothing waiting/)).toBeNull();
 
     rerender(section({ kind: "loaded", value: { entries: [], waitingOnPersonCount: 0 } }));
-    expect(screen.getByText("Nothing waiting · you answered 3 runs this afternoon")).toBeTruthy();
+    expect(screen.getByText(/^Nothing waiting/u).textContent).toBe(
+      "Nothing waiting · you answered 3 runs this afternoon",
+    );
   });
 
   it("says the failure again when `Try again` fails the same way", () => {

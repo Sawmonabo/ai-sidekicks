@@ -3,7 +3,8 @@ import "./StepPayload.css";
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
-import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { byteFigurePart, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import type { StepPayloadStorage } from "../hooks/useStepPayloadRead.js";
 import { PayloadJson } from "./StepPayload/PayloadJson.js";
 import { PayloadTable } from "./StepPayload/PayloadTable.js";
@@ -29,15 +30,22 @@ export interface StepPayloadProps {
  */
 export function StepPayload(props: StepPayloadProps): React.JSX.Element {
   const clipboardCopy = usePayloadJsonCopy(props.items, props.label);
-  const count = itemCountWords(props.items.length);
-  const note =
+  const count = itemCountWords(props.items.length, "derived");
+  const note: readonly FigureSentencePart[] =
     props.storage.kind === "inline"
-      ? `Inline · ${count}`
-      : `Read from an artifact · ${formatByteQuantity(props.storage.sizeBytes).text} · ${count}`;
+      ? ["Inline · ", ...count]
+      : [
+          "Read from an artifact · ",
+          byteFigurePart("wire", props.storage.sizeBytes),
+          " · ",
+          ...count,
+        ];
   return (
     <div className="meridian-workflow-payload">
       <div className="meridian-workflow-payload__bar">
-        <p className="meridian-workflow-payload__note">{note}</p>
+        <p className="meridian-workflow-payload__note">
+          <FigureSentence parts={note} />
+        </p>
         <CopyButton label="Copy as JSON" clipboardCopy={clipboardCopy} />
       </div>
       {props.view === "json" ? (

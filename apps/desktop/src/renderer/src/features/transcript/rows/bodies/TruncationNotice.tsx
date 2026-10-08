@@ -2,7 +2,7 @@
 // the rest. A prefix alone would read as a complete short answer.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
+import { byteFigurePart, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
 
 /**
@@ -41,31 +41,40 @@ export function truncatedRemainderDisposition(
  */
 export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Element {
   const storedByteCount = measureUtf8ByteLength(props.storedBody);
-  const storedBytes = formatByteQuantity(storedByteCount);
+  // The stored size is the app's measure of the prefix, the original size is the row's record.
+  const storedBytes = byteFigurePart("derived", storedByteCount);
   const remainder = truncatedRemainderDisposition(storedByteCount, props.preTruncationLength);
   // One sentence carrying both figures, not a headline plus `detail`: the badge form shows
   // `detail` only in its hover label, so the byte counts would show on hover alone.
-  const measurement =
+  const measurement: readonly FigureSentencePart[] =
     props.preTruncationLength === undefined
-      ? `Truncated when recorded. Shown: ${storedBytes.text}; the original size was not recorded.`
-      : `Truncated when recorded: ${storedBytes.text} of ` +
-        `${formatByteQuantity(props.preTruncationLength).text}.`;
+      ? ["Truncated when recorded. Shown: ", storedBytes, "; the original size was not recorded."]
+      : [
+          "Truncated when recorded: ",
+          storedBytes,
+          " of ",
+          byteFigurePart("wire", props.preTruncationLength),
+          ".",
+        ];
 
   return (
     <Nothing
       kind="empty"
       placement="inline"
-      title={`${measurement} ${remainderSentence(remainder)}`}
+      title={[...measurement, " ", ...remainderSentence(remainder)]}
     />
   );
 }
 
 /** What the notice says about the missing part, in one clause per disposition. */
-function remainderSentence(remainder: TruncatedRemainderDisposition): string {
+function remainderSentence(
+  remainder: TruncatedRemainderDisposition,
+): readonly FigureSentencePart[] {
   switch (remainder.kind) {
     case "none-recorded":
-      return "No further content was recorded.";
+      return ["No further content was recorded."];
     case "claimable":
-      return `${formatByteQuantity(remainder.remainderByteCount).text} more was recorded.`;
+      // The app's own difference of the two sizes.
+      return [byteFigurePart("derived", remainder.remainderByteCount), " more was recorded."];
   }
 }

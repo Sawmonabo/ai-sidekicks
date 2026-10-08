@@ -7,6 +7,9 @@ import "./RunGroupHeader.css";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RunGroupBody } from "./RunGroupBody.js";
 import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
@@ -66,18 +69,16 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
       {runGroup.payingAccountId === undefined ? null : (
         <span className="meridian-run-group-header__account">
           {"billed to "}
-          <span className="meridian-run-group-header__figure">{runGroup.payingAccountId}</span>
+          <WireFigure value={runGroup.payingAccountId} />
         </span>
       )}
       <span className="meridian-run-group-header__counts">
-        <span className="meridian-run-group-header__figure">{String(runGroup.rowCount)}</span>
+        <DerivedFigure text={formatCount(runGroup.rowCount)} />
         {runGroup.rowCount === 1 ? " entry" : " entries"}
         {runGroup.clippedRowCount === 0 ? null : (
           <>
             {", "}
-            <span className="meridian-run-group-header__figure">
-              {String(runGroup.clippedRowCount)}
-            </span>
+            <DerivedFigure text={formatCount(runGroup.clippedRowCount)} />
             {" clipped"}
           </>
         )}

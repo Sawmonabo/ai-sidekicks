@@ -18,6 +18,8 @@ import {
   type AccountRegistryReading,
 } from "#renderer/lib/provider-binding/account/axis.js";
 import { AccountChoiceEmptyState } from "./AccountChoiceEmptyState.js";
+import { FigureSentence } from "../FigureSentence/FigureSentence.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { AccountChoiceList } from "./AccountChoiceList.js";
 
 /** What the account field reads from the caller, and what it hands back. */
@@ -104,8 +106,8 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           </span>
           <ul className="meridian-axis-field__advisories">
             {accountAdvisoriesFor(advisoryChoice, props.clockLocale).map((advisory) => (
-              <li key={advisory} className="meridian-axis-field__advisory">
-                {advisory}
+              <li key={joinFigureSentence(advisory)} className="meridian-axis-field__advisory">
+                <FigureSentence parts={advisory} />
               </li>
             ))}
           </ul>

@@ -11,6 +11,8 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import type { RepoOperations } from "../../operations.js";
 import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { type AttachRequestReading } from "./controller.js";
@@ -120,9 +122,11 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
             <AnnouncedLine
               element="p"
               className="meridian-form__blocked"
-              words={verdict.because}
+              words={joinFigureSentence(verdict.because)}
               politeness="polite"
-            />
+            >
+              <FigureSentence parts={verdict.because} />
+            </AnnouncedLine>
           ) : null}
         </StandingContent>
       </OverlayDialogPopup>

@@ -2,6 +2,7 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 
 import type { QueueFeed } from "../reading.js";
 import { QueueContents } from "./QueueContents.js";
@@ -25,7 +26,8 @@ const THREE_ROWS: QueueFeed["items"] = [
 ];
 
 function renderQueue(): HTMLElement {
-  return render(<QueueContents feed={readFeed(THREE_ROWS)} />).container;
+  return render(<QueueContents feed={readFeed(THREE_ROWS)} />, { wrapper: liveBridgeWrapper() })
+    .container;
 }
 
 describe("the queue renders the rows it is given", () => {

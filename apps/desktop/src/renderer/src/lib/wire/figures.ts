@@ -19,7 +19,12 @@
 // cannot stand behind.
 
 import type { MachineClock } from "#shared/app-facts.js";
-import { MILLISECONDS_PER_DAY, parseInstant } from "../instant.js";
+import {
+  MILLISECONDS_PER_DAY,
+  MILLISECONDS_PER_HOUR,
+  MILLISECONDS_PER_MINUTE,
+  parseInstant,
+} from "../instant.js";
 import {
   dateTimeFormatFor,
   dollarFormatFor,
@@ -293,6 +298,50 @@ export function relativeTimeChangesAt(fromIso: string, nowMilliseconds: number):
 }
 
 /**
+ * A numeric code as the wire sent it, such as an exit code, `1` or `-9`: never grouped or rounded,
+ * since a code names an outcome rather than counting anything.
+ */
+export function formatNumericCode(code: number): string {
+  return String(code);
+}
+
+/**
+ * A row's age: `now` under a minute, then one whole count in one unit with no `ago`, `5m`, `3h`,
+ * `2d`, `1w`, `4mo`, `1y`. An instant ahead of the clock reads `now`; an unreadable stamp renders
+ * an em dash. The hover carries `formatZonedDateTime` of the same stamp.
+ */
+export function formatAge(fromIso: string, nowMilliseconds: number): string {
+  const from = parseInstant(fromIso);
+  if (from.kind === "malformed") {
+    return UNREADABLE_FIGURE;
+  }
+  const gap = nowMilliseconds - from.epochMilliseconds;
+  if (gap < MILLISECONDS_PER_MINUTE) {
+    return "now";
+  }
+  const step = ageStepFor(gap);
+  return `${formatCount(Math.floor(gap / step.milliseconds))}${step.suffix}`;
+}
+
+/**
+ * The first instant after `nowMilliseconds` at which {@link formatAge} reads differently for
+ * `fromIso`, so a view wakes then rather than polls. An unreadable stamp never changes.
+ */
+export function ageChangesAt(fromIso: string, nowMilliseconds: number): number {
+  const from = parseInstant(fromIso);
+  if (from.kind === "malformed") {
+    return Number.POSITIVE_INFINITY;
+  }
+  const gap = nowMilliseconds - from.epochMilliseconds;
+  if (gap < MILLISECONDS_PER_MINUTE) {
+    return from.epochMilliseconds + MILLISECONDS_PER_MINUTE;
+  }
+  const step = ageStepFor(gap);
+  const shown = Math.floor(gap / step.milliseconds);
+  return from.epochMilliseconds + Math.min((shown + 1) * step.milliseconds, step.belowMilliseconds);
+}
+
+/**
  * A wall-clock time for a transcript row, on the machine's own clock (`2:20:05 PM`), with
  * seconds; the date is shown separately by the day divider, never per row.
  */
@@ -469,6 +518,42 @@ function relativeTimeUnitChangesAt(deltaMilliseconds: number, nowMilliseconds: n
 
 /** How many days a week holds: an instant within one either side of today is named by weekday. */
 const DAYS_PER_WEEK = 7;
+
+/** The units an age reads in, each used while the gap is below the next one's start. */
+const AGE_STEPS = [
+  { suffix: "m", milliseconds: MILLISECONDS_PER_MINUTE, belowMilliseconds: MILLISECONDS_PER_HOUR },
+  { suffix: "h", milliseconds: MILLISECONDS_PER_HOUR, belowMilliseconds: MILLISECONDS_PER_DAY },
+  {
+    suffix: "d",
+    milliseconds: MILLISECONDS_PER_DAY,
+    belowMilliseconds: DAYS_PER_WEEK * MILLISECONDS_PER_DAY,
+  },
+  {
+    suffix: "w",
+    milliseconds: DAYS_PER_WEEK * MILLISECONDS_PER_DAY,
+    belowMilliseconds: 30 * MILLISECONDS_PER_DAY,
+  },
+  {
+    suffix: "mo",
+    milliseconds: 30 * MILLISECONDS_PER_DAY,
+    belowMilliseconds: 365 * MILLISECONDS_PER_DAY,
+  },
+] as const;
+
+/** The unit an age of a year or more reads in; it never gives way to another. */
+const AGE_YEAR_STEP = {
+  suffix: "y",
+  milliseconds: 365 * MILLISECONDS_PER_DAY,
+  belowMilliseconds: Number.POSITIVE_INFINITY,
+} as const;
+
+function ageStepFor(gap: number): {
+  readonly suffix: string;
+  readonly milliseconds: number;
+  readonly belowMilliseconds: number;
+} {
+  return AGE_STEPS.find((step) => gap < step.belowMilliseconds) ?? AGE_YEAR_STEP;
+}
 
 /** How many calendar days on this machine's clock `to` falls after `from`; negative before it. */
 function calendarDaysBetween(fromMilliseconds: number, toMilliseconds: number): number {

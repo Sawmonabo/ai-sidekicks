@@ -72,10 +72,7 @@ describe("what makes the attention read run again", () => {
   }): React.JSX.Element {
     const clock = useClock();
     return (
-      <NotificationsList
-        reading={useAttentionProjection(props.read, props.registry, clock)}
-        nowMilliseconds={clock.now()}
-      />
+      <NotificationsList reading={useAttentionProjection(props.read, props.registry, clock)} />
     );
   }
 

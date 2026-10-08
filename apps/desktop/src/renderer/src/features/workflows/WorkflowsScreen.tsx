@@ -9,6 +9,7 @@ import "./WorkflowsScreen.css";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { RunsStrip } from "./components/RunsStrip.js";
 import { WorkflowCommandTargetsContext, type WorkflowCommandTargets } from "./command-target.js";
 import { useWorkflowsScreen } from "./hooks/useWorkflowsScreen.js";
@@ -37,7 +38,7 @@ export function WorkflowsScreen(props: {
             Runs
             {runCountState.kind === "loaded" ? (
               <span className="meridian-workflows-tabs__count">
-                {formatCount(runCountState.value)}
+                <WireFigure value={formatCount(runCountState.value)} />
               </span>
             ) : null}
           </a>

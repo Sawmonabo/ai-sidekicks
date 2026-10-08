@@ -9,6 +9,8 @@ import {
   type DeleteOlderThanDays,
 } from "../hooks/useDeleteOlderRuns.js";
 import { runCountWords } from "../../words.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { ActionButton } from "../../components/ActionButton.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 
@@ -29,11 +31,7 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
       return (
         <span className="meridian-workflows-delete-older">
           <ActionButton onClick={act.open}>Delete runs older than…</ActionButton>
-          <AnnouncedLine
-            element="span"
-            words={`${runCountWords(state.deletedCount)} deleted · runs marked Keep stayed`}
-            politeness="polite"
-          />
+          <DeletedLine deletedCount={state.deletedCount} />
         </span>
       );
     case "open": {
@@ -42,8 +40,13 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
         <DeleteOlderChoice days={state.days} onChoose={act.choose} onCancel={act.close}>
           {deleteCount === undefined ? null : (
             <span>
-              {`${runCountWords(deleteCount)} would go. A run marked Keep stays, and a run ` +
-                "waiting on a person is never touched."}
+              <FigureSentence
+                parts={[
+                  ...runCountWords(deleteCount, "wire"),
+                  " would go. A run marked Keep stays, and a run waiting on a person is never " +
+                    "touched.",
+                ]}
+              />
             </span>
           )}
           {state.refusal === undefined ? null : (
@@ -55,7 +58,13 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
             disabled={deleteCount === undefined || deleteCount === 0 || state.isDeleting}
             onClick={act.confirm}
           >
-            {`Delete ${runCountWords(deleteCount ?? 0)}`}
+            <FigureSentence
+              parts={[
+                "Delete ",
+                // Until the preview is read, the app's own zero stands in for the daemon's count.
+                ...runCountWords(deleteCount ?? 0, deleteCount === undefined ? "derived" : "wire"),
+              ]}
+            />
           </ActionButton>
         </DeleteOlderChoice>
       );
@@ -112,5 +121,18 @@ function DeleteOlderChoice(props: {
       </select>
       {props.children}
     </div>
+  );
+}
+
+/** The receipt a served delete leaves, with the daemon's count of the runs it deleted. */
+function DeletedLine(props: { readonly deletedCount: number }): React.JSX.Element {
+  const parts = [
+    ...runCountWords(props.deletedCount, "wire"),
+    " deleted · runs marked Keep stayed",
+  ];
+  return (
+    <AnnouncedLine element="span" words={joinFigureSentence(parts)} politeness="polite">
+      <FigureSentence parts={parts} />
+    </AnnouncedLine>
   );
 }

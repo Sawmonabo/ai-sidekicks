@@ -1,7 +1,8 @@
 // The receipt a settled machine turn leaves: the body's recorded size and media type, and
 // nothing metered, so no card becomes a second source of cost.
 
-import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
 
 /** The descriptive members a row recorded about its body. */
 export interface RecordedBodyLineProps {
@@ -21,9 +22,12 @@ export function RecordedBodyLine(props: RecordedBodyLineProps): React.JSX.Elemen
   return (
     <p className="meridian-message-card__receipt">
       Recorded
-      {props.contentLength === undefined
-        ? null
-        : ` · ${formatByteQuantity(props.contentLength).text}`}
+      {props.contentLength === undefined ? null : (
+        <>
+          {" · "}
+          <FigureSentence parts={[byteFigurePart("wire", props.contentLength)]} />
+        </>
+      )}
       {props.contentType === undefined ? null : ` · ${props.contentType}`}
     </p>
   );

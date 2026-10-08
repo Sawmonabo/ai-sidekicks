@@ -15,9 +15,9 @@ export function FigureSentence(props: {
         typeof part === "string" ? (
           part
         ) : "wire" in part ? (
-          <WireFigure key={index} value={part.wire} />
+          <WireFigure key={index} value={part.wire} hoverLabel={part.hoverLabel} />
         ) : (
-          <DerivedFigure key={index} text={part.derived} />
+          <DerivedFigure key={index} text={part.derived} hoverLabel={part.hoverLabel} />
         ),
       )}
     </>

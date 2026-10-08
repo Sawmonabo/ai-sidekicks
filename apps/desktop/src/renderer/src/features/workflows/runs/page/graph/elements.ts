@@ -23,6 +23,7 @@ import {
 } from "#renderer/features/workflows/canvas/node-box.js";
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
+import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
 import type { RunGraphNodeView } from "./node-views.js";
@@ -235,7 +236,7 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
 // the image role, so a screen reader reads its name, the whole count, in place of the short one.
 function edgeCountLabel(count: number): React.ReactNode {
   return createElement(HoverLabel, {
-    text: itemCountWords(count),
+    text: joinFigureSentence(itemCountWords(count, "wire")),
     textRole: "name",
     children: createElement(
       "tspan",

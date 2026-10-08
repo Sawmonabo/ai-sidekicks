@@ -6,7 +6,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
+import { DayClockFigure } from "#renderer/components/DayClockFigure/DayClockFigure.js";
 import type { HeldStepAnswer } from "../held-answer.js";
 import { chainRunsWords } from "../../header-lines.js";
 import { useStepAnswer } from "../hooks/useStepAnswer.js";

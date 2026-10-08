@@ -29,7 +29,7 @@ import {
 /** The artifacts panel's state and the re-read wiring. */
 export interface ArtifactsSectionProps {
   readonly state: ArtifactsSectionState;
-  /** The instant the section read at; ages move when it re-reads, never on a timer. */
+  /** The instant the caller draws the rows' ages against. */
   readonly nowMilliseconds: number;
   /**
    * Re-read one row's manifest.
@@ -116,11 +116,11 @@ function renderPanelBody(
         kind="empty"
         placement="block"
         title="No artifacts of the type this filter is set to."
-        detail={
-          `This session holds ${formatCount(props.state.rows.length)} of ` +
-          "other types. Every type is on the filter above with its own " +
-          "count."
-        }
+        detail={[
+          "This session holds ",
+          { derived: formatCount(props.state.rows.length) },
+          " of other types. Every type is on the filter above with its own count.",
+        ]}
       />
     );
   }

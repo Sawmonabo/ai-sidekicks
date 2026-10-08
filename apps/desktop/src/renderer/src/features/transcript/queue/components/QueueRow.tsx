@@ -8,6 +8,8 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
+import { formatAge, formatCount, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
@@ -43,9 +45,12 @@ export function QueueRow(props: {
   readonly item: QueueItemSummary;
   readonly isCancelPending: boolean;
   readonly onCancel: (queueItemId: string) => Promise<void>;
+  /** The instant the row's ages are drawn against, on the list's one beat. */
+  readonly nowMilliseconds: number;
 }): React.JSX.Element {
   const { item } = props;
   const [cancelRefusal, setCancelRefusal] = useState<Refusal | undefined>(undefined);
+  const clockLocale = useClockLocale();
   return (
     <li className="meridian-queue__row">
       <div className="meridian-queue__identity">
@@ -56,19 +61,25 @@ export function QueueRow(props: {
         <div className="meridian-queue__figure">
           <dt>Priority</dt>
           <dd>
-            <WireFigure value={String(item.priority)} />
+            <WireFigure value={formatCount(item.priority)} />
           </dd>
         </div>
         <div className="meridian-queue__figure">
           <dt>Created</dt>
           <dd>
-            <WireFigure value={item.createdAt} />
+            <WireFigure
+              value={formatAge(item.createdAt, props.nowMilliseconds)}
+              hoverLabel={formatZonedDateTime(item.createdAt, clockLocale)}
+            />
           </dd>
         </div>
         <div className="meridian-queue__figure">
           <dt>Updated</dt>
           <dd>
-            <WireFigure value={item.updatedAt} />
+            <WireFigure
+              value={formatAge(item.updatedAt, props.nowMilliseconds)}
+              hoverLabel={formatZonedDateTime(item.updatedAt, clockLocale)}
+            />
           </dd>
         </div>
       </dl>

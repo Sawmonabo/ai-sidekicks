@@ -3,6 +3,7 @@ import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/ru
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { WorkflowCallState } from "../hooks/useWorkflowCall.js";
 import type { NextWaiting } from "../hooks/useWorkflowsScreen.js";
@@ -64,13 +65,18 @@ export function RunsStrip(props: {
   );
 }
 
-function nextWaitingWords(nextWaiting: NextWaiting): string {
+function nextWaitingWords(nextWaiting: NextWaiting): React.ReactNode {
   if (nextWaiting.kind !== "loaded") {
     return "Next waiting";
   }
-  return nextWaiting.workflowRunId === undefined
-    ? "Nothing waiting"
-    : `Next waiting (${formatCount(nextWaiting.count)})`;
+  // The count is the app's own tally of the runs the daemon listed as waiting on a person.
+  return nextWaiting.workflowRunId === undefined ? (
+    "Nothing waiting"
+  ) : (
+    <>
+      Next waiting (<DerivedFigure text={formatCount(nextWaiting.count)} />)
+    </>
+  );
 }
 
 function PauseSwitch(props: {

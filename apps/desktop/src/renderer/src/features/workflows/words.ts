@@ -21,6 +21,11 @@ import type {
 import { codeWords } from "#renderer/lib/code-words.js";
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
+import {
+  figurePart,
+  type FigureOrigin,
+  type FigureSentencePart,
+} from "#renderer/lib/figure-sentence.js";
 
 /** A run's status as its chip reads it. */
 export const RUN_STATUS_WORDS: Readonly<Record<WorkflowRunStatus, string>> = {
@@ -101,12 +106,12 @@ export function startedByWords(startedBy: WorkflowStartedBy): string {
   return STARTED_BY_WORDS[startedBy.kind];
 }
 
-/** A count of items with its noun: `1 item`, `12 items`. */
-export function itemCountWords(count: number): string {
-  return `${formatCount(count)} ${count === 1 ? "item" : "items"}`;
+/** A count of items with its noun, `1 item`, `12 items`, the count a figure of `origin`. */
+export function itemCountWords(count: number, origin: FigureOrigin): readonly FigureSentencePart[] {
+  return [figurePart(origin, formatCount(count)), count === 1 ? " item" : " items"];
 }
 
-/** A count of runs with its noun: `1 run`, `4 runs`. */
-export function runCountWords(count: number): string {
-  return `${formatCount(count)} ${count === 1 ? "run" : "runs"}`;
+/** A count of runs with its noun, `1 run`, `4 runs`, the count a figure of `origin`. */
+export function runCountWords(count: number, origin: FigureOrigin): readonly FigureSentencePart[] {
+  return [figurePart(origin, formatCount(count)), count === 1 ? " run" : " runs"];
 }

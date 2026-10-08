@@ -8,6 +8,7 @@ import "./ToolRow.css";
 import { elideText } from "#renderer/lib/elide-text.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
@@ -90,7 +91,9 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
         {durationMs === undefined ? null : (
           <>
             {" "}
-            <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>
+            <span className="meridian-tool-card__elapsed">
+              <WireFigure value={formatDuration(durationMs)} />
+            </span>
           </>
         )}
         {chip === undefined ? null : (

@@ -6,10 +6,12 @@ import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display
 import { isSessionBeingDeleted, type SessionListRow } from "../rows/list-row.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 
-/** What a session row is handed: the row and how to open it. */
+/** What a session row is handed: the row, how to open it, and the instant its age is read at. */
 export interface SessionRowProps {
   readonly row: SessionListRow;
   readonly onOpen: (sessionId: string) => void;
+  /** The instant the row's age is drawn against, on the list's one beat. */
+  readonly nowMilliseconds: number;
 }
 
 /**
@@ -49,7 +51,7 @@ export const SessionRow: MemoExoticComponent<(props: SessionRowProps) => React.J
               {title}
             </button>
           )}
-          <SessionRowFacts row={row} />
+          <SessionRowFacts row={row} nowMilliseconds={props.nowMilliseconds} />
         </div>
       </div>
     );

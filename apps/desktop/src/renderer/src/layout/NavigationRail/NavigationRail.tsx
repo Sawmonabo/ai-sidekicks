@@ -6,6 +6,7 @@
 // string, its hover label and its spoken name at once.
 
 import type { GlyphName } from "#renderer/styles/glyphs.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import type { RailDestination } from "#renderer/routing/readers.js";
@@ -89,7 +90,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
               <Glyph name="bell" />
               {names.pipFigure === undefined ? null : (
                 <span className="meridian-rail__pip" aria-hidden="true">
-                  {names.pipFigure}
+                  <DerivedFigure text={names.pipFigure} />
                 </span>
               )}
             </button>

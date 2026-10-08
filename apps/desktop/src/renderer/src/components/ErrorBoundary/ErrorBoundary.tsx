@@ -7,6 +7,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { RenderFailureCard } from "./RenderFailureCard.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
+import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
 
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
 export interface ErrorBoundaryProps {
@@ -25,7 +26,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   public static getDerivedStateFromError(error: unknown): Partial<ErrorBoundaryState> {
-    return { error: error instanceof Error ? error : new Error(String(error)) };
+    return { error: wireRejectionToError(error) };
   }
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
