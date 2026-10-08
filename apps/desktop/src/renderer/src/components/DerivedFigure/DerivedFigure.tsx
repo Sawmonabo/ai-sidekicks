@@ -9,7 +9,7 @@ export interface DerivedFigureProps {
   /** The app's own reading. Never a number the daemon sent. */
   readonly text: string;
   /** What the reading stands for, when the text is a formatted reading of it. */
-  readonly hoverLabel?: string;
+  readonly hoverLabel?: string | undefined;
 }
 
 /**

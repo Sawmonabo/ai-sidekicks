@@ -50,9 +50,8 @@ export const DiffRowView: React.MemoExoticComponent<
     // no hunks, so this row is the only place its change appears.
     const changeNotes = file === undefined ? [] : diffFileChangeNotes(file);
     return (
-      // The path is the row's hover label, so the keyboard on the row shows a truncated path whole.
-      <HoverLabel text={file?.path} textIs="visible-text">
-        <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
+      <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
+        <HoverLabel text={file?.path} textIs="visible-text">
           <span className="meridian-diff__file-path" role="cell">
             <Glyph name="diff" size={GLYPH_SIZE_ROW} />
             {file?.path ?? ""}
@@ -61,8 +60,8 @@ export const DiffRowView: React.MemoExoticComponent<
               <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
             )}
           </span>
-        </div>
-      </HoverLabel>
+        </HoverLabel>
+      </div>
     );
   }
 

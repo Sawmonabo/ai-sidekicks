@@ -364,6 +364,24 @@ export function formatDate(iso: string, locale: string): string {
 }
 
 /**
+ * The exact count behind `formatCount(count)`, for a hover label; `undefined` where the formatted
+ * text already shows it whole, so the label never repeats the figure.
+ */
+export function exactCountLabel(count: number, locale?: string): string | undefined {
+  const exact = String(count);
+  return exact === formatCount(count, locale) ? undefined : exact;
+}
+
+/**
+ * The exact percent behind `formatPercent(percent / 100)`, for a hover label; `undefined` where
+ * the formatted text already shows it whole.
+ */
+export function exactPercentLabel(percent: number, locale?: string): string | undefined {
+  const exact = `${String(percent)}%`;
+  return exact === formatPercent(percent / 100, locale) ? undefined : exact;
+}
+
+/**
  * A ratio as a percentage through `Intl`. The input is a fraction, as `Intl`'s percent style
  * takes, so a caller holding a 0-to-100 figure divides at the call site. Negative and non-finite
  * inputs render an em dash.

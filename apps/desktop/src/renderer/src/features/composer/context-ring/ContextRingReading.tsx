@@ -1,8 +1,9 @@
 // The context ring's own reading: how much of the window this run has spent. The source note
 // table lives here because where a figure came from is part of what it means.
 
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { exactCountLabel, formatCount } from "#renderer/lib/wire/figures.js";
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ContextWindowReading } from "./context-window-reading.js";
 
@@ -42,14 +43,20 @@ export function ContextRingReading(props: {
         />
       </span>
       <span className="meridian-context-ring__figures">
-        <WireFigure value={formatCount(usagePercent)} hoverLabel={String(usagePercent)} />
+        <DerivedFigure text={formatCount(usagePercent)} />
         <span className="meridian-context-ring__unit">%</span>
         <span className="meridian-context-ring__tokens">
-          <WireFigure value={formatCount(windowUsedTokens)} hoverLabel={String(windowUsedTokens)} />
+          <WireFigure
+            value={formatCount(windowUsedTokens)}
+            hoverLabel={exactCountLabel(windowUsedTokens)}
+          />
           <span className="meridian-context-ring__separator" aria-hidden="true">
             /
           </span>
-          <WireFigure value={formatCount(windowMaxTokens)} hoverLabel={String(windowMaxTokens)} />
+          <WireFigure
+            value={formatCount(windowMaxTokens)}
+            hoverLabel={exactCountLabel(windowMaxTokens)}
+          />
           <span className="meridian-context-ring__unit">tokens</span>
         </span>
       </span>

@@ -3,7 +3,12 @@ import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { formatDate, formatPercent, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import {
+  exactPercentLabel,
+  formatDate,
+  formatPercent,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { UpdateReading } from "#renderer/store/update/reading.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
@@ -70,7 +75,7 @@ export function UpdateReadOut(props: {
           />
           <WireFigure
             value={formatPercent(state.percent / 100)}
-            hoverLabel={String(state.percent)}
+            hoverLabel={exactPercentLabel(state.percent)}
           />
         </div>
       );

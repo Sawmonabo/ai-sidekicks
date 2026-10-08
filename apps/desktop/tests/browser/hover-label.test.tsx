@@ -1,10 +1,11 @@
 // The hover label under a real pointer and keyboard in Chromium, where the label's box lands
-// against its control by real geometry: it shows when the keyboard reaches its control, Escape
-// closes it, and it stays while the pointer crosses from the control onto the label, its box
-// touching the control's so the crossing passes over nothing else. Moving the pointer off both is
-// the negative control: the label closes, so its staying is not a label that never closes. A
-// control that gains its words while focused or hovered shows them at once, and a label Escape
-// put away stays away while the pointer moves inside its control, until it leaves and returns.
+// against its control by real geometry: it shows when the keyboard reaches its control, a press on
+// it leaves focus there, Escape closes it, and it stays while the pointer crosses from the control
+// onto the label, its box touching the control's so the crossing passes over nothing else. Moving
+// the pointer off both is the negative control: the label closes, so its staying is not a label
+// that never closes. A control that gains its words while focused or hovered shows them at once,
+// and a label Escape put away stays away while the pointer moves inside its control, until it
+// leaves and returns.
 
 import { useState } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -44,6 +45,11 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Color scheme");
   });
+  // A press on the label leaves focus on the control.
+  await act(async () => {
+    await userEvent.click(shownLabel()!);
+  });
+  expect(document.activeElement).toBe(control);
 
   await act(async () => {
     await userEvent.keyboard("{Escape}");

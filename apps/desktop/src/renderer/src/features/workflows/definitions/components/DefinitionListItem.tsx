@@ -5,7 +5,7 @@ import "./DefinitionListItem.css";
 import { memo } from "react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { exactCountLabel, formatCount } from "#renderer/lib/wire/figures.js";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type { OpenDefinition } from "../rows.js";
 
@@ -44,7 +44,7 @@ export const DefinitionListItem: React.MemoExoticComponent<
         version{" "}
         <WireFigure
           value={formatCount(definition.latestVersionNumber)}
-          hoverLabel={`${definition.latestVersionNumber}`}
+          hoverLabel={exactCountLabel(definition.latestVersionNumber)}
         />
       </td>
     </tr>

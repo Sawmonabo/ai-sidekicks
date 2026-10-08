@@ -131,7 +131,7 @@ describe("an edge's item count at the largest text size", () => {
     expect(overlaps).toEqual([]);
   });
 
-  it("is reached by Tab, which shows its whole count", async () => {
+  it("is reached by Tab after the node its edge leaves, which shows its whole count", async () => {
     const fixture = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
     const counts = fixture.workflowDocument.edges.map((edge) => ({
       edgeId: edge.id,
@@ -139,32 +139,45 @@ describe("an edge's item count at the largest text size", () => {
     }));
     const container = await mountAtLargestTextSize(fixture, counts);
     render(createElement(WindowHoverLabel));
-    const firstCount = await waitFor(() => {
-      const count = container.querySelector<SVGTSpanElement>(`.${EDGE_COUNT_CLASS}`);
+    const firstNode = container.querySelector<HTMLElement>(".react-flow__node");
+    const leaving = fixture.workflowDocument.edges.find(
+      (edge) => edge.source === firstNode?.dataset["id"],
+    );
+    if (firstNode === null || leaving === undefined) {
+      throw new Error("the fixture's first node has no edge leaving it");
+    }
+    const leavingCount = await waitFor(() => {
+      const count = container.querySelector<SVGTSpanElement>(
+        `.react-flow__edge[data-id="${leaving.id}"] .${EDGE_COUNT_CLASS}`,
+      );
       expect(count).not.toBeNull();
       return count!;
     });
 
-    // Tab walks the page from its start until it lands on the first count, never past it.
+    // The library draws every edge before every node, so the browser's own order would reach
+    // every count before the first node; the canvas walks node, then the counts leaving it.
     act(() => {
       document.body.focus();
     });
-    for (let step = 0; step < TAB_STEP_LIMIT && document.activeElement !== firstCount; step++) {
-      await act(async () => {
-        await userEvent.tab();
-      });
-    }
-    expect(document.activeElement).toBe(firstCount);
+    await act(async () => {
+      await userEvent.tab();
+    });
+    expect(document.activeElement).toBe(firstNode);
+    await act(async () => {
+      await userEvent.tab();
+    });
+    expect(document.activeElement).toBe(leavingCount);
     await waitFor(() => {
       expect(document.querySelector(".meridian-hover-label")?.textContent).toBe(
         "123,456,789,012 items",
       );
     });
+    await act(async () => {
+      await userEvent.tab({ shift: true });
+    });
+    expect(document.activeElement).toBe(firstNode);
   });
 });
-
-/** How many Tab presses the walk to the first count may take; the page has fewer stops. */
-const TAB_STEP_LIMIT = 50;
 
 function nodeWidths(container: HTMLElement): Record<string, number> {
   return Object.fromEntries(

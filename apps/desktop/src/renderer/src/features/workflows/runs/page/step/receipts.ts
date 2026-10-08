@@ -20,6 +20,15 @@ const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {
   declined: "Declined",
 };
 
+/**
+ * An answer this sitting gave a step, held until the run reads it back. `isWindowClock` is true
+ * where its instant is the window's own clock standing in for the daemon's record, as a reply's is.
+ */
+export interface HeldStepAnswer {
+  readonly resolution: WorkflowStepResolution;
+  readonly isWindowClock: boolean;
+}
+
 /** A step's receipt: its words and the instant they end on, drawn `Approved at 2:14 PM`. */
 export interface StepReceipt {
   readonly words: string;

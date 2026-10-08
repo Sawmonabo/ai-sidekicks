@@ -1,9 +1,10 @@
 // Renders TeX with KaTeX: the renderer's one `dangerouslySetInnerHTML` site, because KaTeX only
 // produces a markup string. KaTeX loads lazily, settled blocks only, with `trust: false` (model
-// output must not emit `\href`, `\url` or a class), its HTML output with its MathML beside it,
-// and `strict: false`. A display formula measures its widest unbreakable piece once, so its sheet
-// can shrink it to the column, and checks the fit again when its size changes. An unparseable formula, or one whose chunk failed to load, shows
-// its source beside an error state, never KaTeX's red error text.
+// output must not emit `\href`, `\url` or a class), its HTML output with its MathML beside it, and
+// `strict: false`. A display formula measures its widest unbreakable piece once, so its sheet can
+// shrink it to the column, and checks the fit again when its size changes. An unparseable formula,
+// or one whose chunk failed to load, shows its source beside an error state, never KaTeX's red
+// error text.
 
 import "./MathBlock.css";
 

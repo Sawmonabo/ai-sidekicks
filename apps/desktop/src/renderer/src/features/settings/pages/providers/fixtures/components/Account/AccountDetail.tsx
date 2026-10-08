@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import {
+  exactCountLabel,
   formatCount,
   formatDateTime,
   formatDayDuration,
@@ -35,7 +36,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       definition: (
         <WireFigure
           value={formatCount(account.credentialGeneration)}
-          hoverLabel={String(account.credentialGeneration)}
+          hoverLabel={exactCountLabel(account.credentialGeneration)}
         />
       ),
     },

@@ -6,13 +6,13 @@
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import type { ComposerAttachmentChipModel } from "./chip.js";
+import { ATTACHMENT_DECLARED_NAME_ORIGIN } from "./provenance.js";
 
 /** One chip model with the retry and abandon acts, keyed by the entry's local id. */
 export interface AttachmentChipProps {
@@ -27,12 +27,11 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
   return (
     <li className="meridian-composer-attachment" aria-label={`Attachment ${chip.name}`}>
       <span className="meridian-composer-attachment__line">
-        {/* A declared name is the caller's claim, drawn as a derived figure, not a wire string. */}
-        {chip.nameIsDeclared ? (
-          <DerivedFigure text={chip.name} />
-        ) : (
-          <WireFigure value={chip.name} />
-        )}
+        {/* A name is the sender's own data either way; a declared one says so on hover. */}
+        <WireFigure
+          value={chip.name}
+          hoverLabel={chip.nameIsDeclared ? ATTACHMENT_DECLARED_NAME_ORIGIN : undefined}
+        />
         {chip.mediaType === undefined ? null : (
           <Chip label={chip.mediaType} mono glyph="artifact" />
         )}

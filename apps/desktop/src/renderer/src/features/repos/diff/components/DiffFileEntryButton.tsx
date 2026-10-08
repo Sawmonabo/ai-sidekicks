@@ -1,5 +1,4 @@
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { type WindowedRowTargetProps } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { type DiffFileListEntry } from "../file-entries.js";
@@ -55,8 +54,8 @@ export function DiffFileEntryButton({
               </HoverLabel>
             )}
             <span className="meridian-diff-files__counts">
-              <WireFigure value={`+${formatCount(entry.counts.insertions)}`} />
-              <WireFigure value={`−${formatCount(entry.counts.deletions)}`} />
+              <DerivedFigure text={`+${formatCount(entry.counts.insertions)}`} />
+              <DerivedFigure text={`−${formatCount(entry.counts.deletions)}`} />
             </span>
           </>
         )}

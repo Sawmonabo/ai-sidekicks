@@ -5,6 +5,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import {
+  exactPercentLabel,
   formatDateTime,
   formatDuration,
   formatPercent,
@@ -75,7 +76,7 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
               />
               <WireFigure
                 value={formatPercent(window.usedPercent / 100)}
-                hoverLabel={String(window.usedPercent)}
+                hoverLabel={exactPercentLabel(window.usedPercent)}
               />
             </td>
             <td>

@@ -45,6 +45,9 @@ export function attachmentMediaTypeReadings(
 /** What the card calls the caller's own claim, where it is shown beside a finding. */
 export const ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL = "declared";
 
+/** Whose claim a name is, shown on hover where the name shown is still the caller's own. */
+export const ATTACHMENT_DECLARED_NAME_ORIGIN = "Declared by the sender";
+
 /** One name reading, and whose it is. */
 export interface AttachmentNameReading {
   readonly name: string;

@@ -10,7 +10,7 @@ import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
-import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
+import { resolutionReceipt, timedOutReceipt, type HeldStepAnswer } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
 import { OpenInReview } from "../../components/OpenInReview.js";
@@ -28,10 +28,10 @@ export interface StepBlockerProps {
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
   /** The answer this sitting gave the step, held until the run reads back answered. */
-  readonly answer: WorkflowStepResolution | undefined;
+  readonly answer: HeldStepAnswer | undefined;
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has taken it. */
-  readonly onAnswered: (answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (answer: HeldStepAnswer) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
 }
 
@@ -44,11 +44,12 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
-  const resolution = step.resolution ?? props.answer;
-  // A reply's answer carries no instant, so until the daemon's record arrives its receipt's time
-  // is the window's own clock, which the reply stamped.
-  const isWindowClock =
-    step.resolution === undefined && props.answer !== undefined && step.waitCause === "reply";
+  const resolution = step.resolution ?? props.answer?.resolution;
+  const isWindowClock = step.resolution === undefined && props.answer?.isWindowClock === true;
+  // Approvals and forms answer with the daemon's own instant.
+  const answeredByDaemon = (answered: WorkflowStepResolution): void => {
+    props.onAnswered({ resolution: answered, isWindowClock: false });
+  };
   const receipt =
     resolution === undefined
       ? timedOutReceipt(step, props.nodeKind)
@@ -78,7 +79,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             workflowRunId={step.workflowRunId}
             nodeId={step.nodeId}
             bridge={props.bridge}
-            onAnswered={props.onAnswered}
+            onAnswered={answeredByDaemon}
           />
           {reviewPause === undefined ? null : (
             <OpenInReview snapshots={reviewPause} onOpenReview={props.onOpenReview} />
@@ -95,7 +96,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             attempt: step.attempt,
             executionIndex: step.executionIndex,
           }}
-          onAnswered={props.onAnswered}
+          onAnswered={answeredByDaemon}
         />
       );
     case "reply":

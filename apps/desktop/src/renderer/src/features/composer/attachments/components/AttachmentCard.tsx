@@ -7,7 +7,6 @@
 import { Fragment } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -15,6 +14,7 @@ import { codeWords } from "#renderer/lib/code-words.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
+  ATTACHMENT_DECLARED_NAME_ORIGIN,
   attachmentMediaTypeReadings,
   attachmentNameReading,
 } from "../provenance.js";
@@ -26,9 +26,6 @@ import type { AttachmentIngestEntry, AttachmentReading } from "../shapes.js";
 import "./AttachmentCard.css";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
-
-/** Whose claim a name is, where the name shown is still the caller's own. */
-const DECLARED_NAME_ORIGIN = "Declared by the sender";
 
 /** Props for one attachment card. */
 export interface AttachmentCardProps {
@@ -93,7 +90,7 @@ function renderIngesting(
       <div className="meridian-attachment__face">
         <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
         {nameReading.provenance === "declared" ? (
-          <WireFigure value={nameReading.name} hoverLabel={DECLARED_NAME_ORIGIN} />
+          <WireFigure value={nameReading.name} hoverLabel={ATTACHMENT_DECLARED_NAME_ORIGIN} />
         ) : (
           <WireFigure value={nameReading.name} />
         )}
@@ -102,7 +99,7 @@ function renderIngesting(
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
           <Fragment key={mediaTypeReading.provenance}>
             {mediaTypeReading.provenance === "declared" ? (
-              <DerivedFigure text={ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL} />
+              <span>{ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL}</span>
             ) : null}
             <Chip
               label={mediaTypeReading.mediaType}
@@ -113,7 +110,7 @@ function renderIngesting(
         ))}
         <span className="meridian-attachment__bytes">
           <WireFigure value={receivedFigure.text} hoverLabel={String(entry.receivedBytes)} />
-          <DerivedFigure text="of" />
+          <span>of</span>
           <WireFigure value={declaredFigure.text} hoverLabel={String(entry.declared.byteLength)} />
         </span>
         <Chip

@@ -10,10 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import {
-  type WorkflowStep,
-  type WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
@@ -29,6 +26,7 @@ import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { clockLocaleFor, formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
+import type { HeldStepAnswer } from "../receipts.js";
 import {
   createWorkflowCommandTargets,
   type WorkflowCommandTargets,
@@ -57,7 +55,7 @@ function fixtureStep(
 /** What a rendered blocker was asked to do. */
 interface BlockerRecord {
   readonly calls: readonly RecordedDaemonCall[];
-  readonly answers: readonly WorkflowStepResolution[];
+  readonly answers: readonly HeldStepAnswer[];
   /** The receipt's paragraph, once one is drawn. */
   readonly receipt: () => HTMLElement | null;
   /** Move the fixture daemon's clock, so a reply it delays settles. */
@@ -91,7 +89,7 @@ function renderBlocker(
   const { run, step } = fixtureStep(workflowRunId, nodeId);
   const nodeKind = fixtureNodeKind(run, nodeId);
   const { bridge, calls, engine } = bridgeAnswering(async (_call, passThrough) => passThrough());
-  const answers: WorkflowStepResolution[] = [];
+  const answers: HeldStepAnswer[] = [];
   const commandTargets = createWorkflowCommandTargets();
   render(
     <StepBlocker
@@ -243,6 +241,8 @@ describe("a step's blocker", () => {
     await waitFor(() => {
       expect(answers).toHaveLength(1);
     });
-    expect(answers[0]?.kind).toBe("answered");
+    expect(answers[0]?.resolution.kind).toBe("answered");
+    // The reply's instant is the window's clock until the daemon's record replaces it.
+    expect(answers[0]?.isWindowClock).toBe(true);
   });
 });

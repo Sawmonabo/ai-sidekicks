@@ -2,10 +2,10 @@
 //
 // While an import runs the row counts what it has read and carries `Stop`, over a bar that moves
 // but measures nothing; once it ends the row says how it ended, and where conversations failed
-// or files could not be read, pressing the row unfolds them. The counts and the refusal are the
-// service's own, drawn as wire figures, but for the failed and unreadable counts, which the row
-// tallies from the lists the service sent and draws as its own; a filled bar or percentage would
-// invent a denominator nobody sent.
+// or files could not be read, pressing the row unfolds them. The refusal and most counts are the
+// service's own and drawn as wire figures. The failed and unreadable counts are the row's own
+// tallies of the lists the service sent, drawn as derived figures. A filled bar or percentage
+// would invent a denominator nobody sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 
@@ -42,7 +42,9 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   useAnnounceWhenChanged(
     model.isUnderway && progress.status !== "failed"
       ? importingWords(providerLabel)
-      : sentence && sentenceText(sentence),
+      : sentence === undefined
+        ? undefined
+        : sentenceText(sentence),
     "polite",
     { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },
   );

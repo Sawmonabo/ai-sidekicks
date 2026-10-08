@@ -5,8 +5,8 @@
 import "@xyflow/react/dist/base.css";
 import "./RunGraphCanvas.css";
 
-import { isHTMLElement } from "@floating-ui/utils/dom";
-import { useCallback, useRef } from "react";
+import { isElement, isHTMLElement } from "@floating-ui/utils/dom";
+import { useCallback, useMemo, useRef } from "react";
 import {
   Panel,
   ReactFlow,
@@ -109,18 +109,34 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     [onSelectNode],
   );
 
+  const graphOrder = useMemo(() => graphFocusOrder(nodes, edges), [nodes, edges]);
+
   // Any key on the canvas stops the follow; Enter or Space on a node also selects it, since the
-  // library's own node keys are off along with its second live region.
+  // library's own node keys are off along with its second live region. Tab walks the graph's own
+  // order, each node and then the counts of the edges leaving it: the library draws every edge
+  // before every node, so the browser's order would visit all the counts first.
   const handleCanvasKey = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       stopFollowing();
+      const canvas = canvasRef.current;
+      if (
+        event.key === "Tab" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        canvas !== null &&
+        moveGraphFocus(canvas, graphOrder, event.target, event.shiftKey)
+      ) {
+        event.preventDefault();
+        return;
+      }
       const nodeId = focusedNodeId(event.target);
       if (nodeId !== undefined && SELECT_KEYS.includes(event.key)) {
         event.preventDefault();
         onSelectNode(nodeId);
       }
     },
-    [onSelectNode, stopFollowing],
+    [graphOrder, onSelectNode, stopFollowing],
   );
 
   // A node or an edge's count reached by keyboard is brought into view, which the library does
@@ -205,4 +221,81 @@ function focusedNodeId(target: EventTarget): string | undefined {
     return undefined;
   }
   return target.dataset["id"];
+}
+
+/** One stop of the graph's Tab order: a node, or the item count on an edge. */
+interface GraphFocusStop {
+  readonly kind: "node" | "count";
+  readonly id: string;
+}
+
+// Each node in the library's own node order, which the browser's Tab order already enters by,
+// followed by the counts of the edges leaving it.
+function graphFocusOrder(
+  nodes: readonly { readonly id: string }[],
+  edges: readonly { readonly id: string; readonly source: string }[],
+): readonly GraphFocusStop[] {
+  return nodes.flatMap((node) => [
+    { kind: "node" as const, id: node.id },
+    ...edges
+      .filter((edge) => edge.source === node.id)
+      .map((edge) => ({ kind: "count" as const, id: edge.id })),
+  ]);
+}
+
+/**
+ * Moves focus from `target` to the next or previous stop of `order` and says whether it did.
+ * Past either end it puts focus on the first or last node and lets the browser's own Tab carry it
+ * out of the graph from there, since a count is no stop of the browser's order.
+ */
+function moveGraphFocus(
+  canvas: HTMLElement,
+  order: readonly GraphFocusStop[],
+  target: EventTarget,
+  isBackward: boolean,
+): boolean {
+  const from = graphStopOf(target);
+  const index =
+    from === undefined
+      ? -1
+      : order.findIndex((stop) => stop.kind === from.kind && stop.id === from.id);
+  if (index === -1) {
+    return false;
+  }
+  const step = isBackward ? -1 : 1;
+  for (let next = index + step; next >= 0 && next < order.length; next += step) {
+    const element = graphStopElement(canvas, order[next]);
+    if (element !== null) {
+      element.focus();
+      return true;
+    }
+  }
+  const nodeElements = canvas.querySelectorAll<HTMLElement>(".react-flow__node");
+  nodeElements[isBackward ? 0 : nodeElements.length - 1]?.focus();
+  return false;
+}
+
+function graphStopOf(target: EventTarget): GraphFocusStop | undefined {
+  const nodeId = focusedNodeId(target);
+  if (nodeId !== undefined) {
+    return { kind: "node", id: nodeId };
+  }
+  if (!isElement(target) || !target.classList.contains(EDGE_COUNT_CLASS)) {
+    return undefined;
+  }
+  const edgeId = target.closest(".react-flow__edge")?.getAttribute("data-id");
+  return edgeId === null || edgeId === undefined ? undefined : { kind: "count", id: edgeId };
+}
+
+function graphStopElement(
+  canvas: HTMLElement,
+  stop: GraphFocusStop | undefined,
+): HTMLElement | SVGElement | null {
+  if (stop === undefined) {
+    return null;
+  }
+  const id = CSS.escape(stop.id);
+  return stop.kind === "node"
+    ? canvas.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)
+    : canvas.querySelector<SVGElement>(`.react-flow__edge[data-id="${id}"] .${EDGE_COUNT_CLASS}`);
 }

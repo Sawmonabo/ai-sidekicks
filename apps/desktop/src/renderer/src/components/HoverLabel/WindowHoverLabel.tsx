@@ -1,6 +1,6 @@
 // The one hover label a window draws, for whichever trigger `HoverLabel` marked that the pointer or
-// the keyboard is on. Base UI's tooltip places it against that trigger, flips it where its side
-// has no room, and closes it on Escape or a press anywhere else; which trigger it belongs to is read
+// the keyboard is on. Base UI's tooltip places it against that trigger, flips it where its side has
+// no room, and closes it on Escape or a press anywhere else; which trigger it belongs to is read
 // from the document. The label sits flush against its trigger, its gap drawn inside its own
 // transparent edge, so the pointer crosses straight from the trigger onto it without closing it.
 
