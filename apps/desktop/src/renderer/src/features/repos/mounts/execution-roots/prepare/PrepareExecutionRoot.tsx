@@ -176,7 +176,7 @@ function renderSettlement(
           words={codeWords(reading.state)}
           politeness="polite"
         >
-          <WireFigure value={reading.executionRoot} title={reading.executionRoot} />
+          <WireFigure value={reading.executionRoot} />
           <span>{codeWords(reading.state)}</span>
           {/* The re-read is a control, not an effect: it stays after the first press because the
               list can be asked again. */}

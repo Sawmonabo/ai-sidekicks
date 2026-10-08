@@ -53,7 +53,12 @@ describe("the runs table's `Delete run`", () => {
 
     for (const refusedRow of [waitingRow, parkedRow]) {
       fireEvent.click(within(refusedRow).getByRole("button", { name: "Delete run" }));
-      expect(within(refusedRow).getByText("Cancel it first.")).toBeTruthy();
+      expect(
+        within(refusedRow).getByRole("button", {
+          name: "Delete run",
+          description: "Cancel it first.",
+        }),
+      ).toBeTruthy();
       expect(within(refusedRow).queryByRole("group", { name: "Delete this run?" })).toBeNull();
     }
 

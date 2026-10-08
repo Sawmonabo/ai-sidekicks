@@ -1,13 +1,14 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { WirePercentFigure } from "#renderer/components/WireFigure/WirePercentFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import {
   formatDateTime,
   formatDuration,
-  formatPercent,
+  formatWholeDuration,
   formatZonedDateTime,
 } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -73,10 +74,7 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
                 max={UTILIZATION_BAR_FULL_SCALE}
                 value={Math.min(window.usedPercent / 100, UTILIZATION_BAR_FULL_SCALE)}
               />
-              <WireFigure
-                value={formatPercent(window.usedPercent / 100)}
-                title={String(window.usedPercent)}
-              />
+              <WirePercentFigure percent={window.usedPercent} />
             </td>
             <td>
               {window.resetsAt === undefined ? (
@@ -84,14 +82,14 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
               ) : (
                 <WireFigure
                   value={formatDateTime(window.resetsAt, clockLocale)}
-                  title={formatZonedDateTime(window.resetsAt, clockLocale)}
+                  hoverLabel={formatZonedDateTime(window.resetsAt, clockLocale)}
                 />
               )}
             </td>
             <td>
               <WireFigure
                 value={formatDateTime(window.observedAt, clockLocale)}
-                title={formatZonedDateTime(window.observedAt, clockLocale)}
+                hoverLabel={formatZonedDateTime(window.observedAt, clockLocale)}
               />{" "}
               <Chip label={codeWords(window.source)} />
               {behindAccountGeneration ? (
@@ -105,13 +103,16 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
   );
 }
 
-/** How long a window runs, as the provider reported it in minutes, which its title carries. */
+/**
+ * How long a window runs, read as a duration, with the minutes the provider reported in its hover
+ * label.
+ */
 function WindowLength(props: { readonly window: AccountQuotaRow["window"] }): React.JSX.Element {
   const { windowMins } = props.window;
-  return (
-    <WireFigure
-      value={formatDuration(windowMins * MILLISECONDS_PER_MINUTE)}
-      title={String(windowMins)}
-    />
+  const duration = useMemo(
+    () => formatDuration(windowMins * MILLISECONDS_PER_MINUTE),
+    [windowMins],
   );
+  const minutes = useMemo(() => formatWholeDuration(windowMins, "minute"), [windowMins]);
+  return <WireFigure value={duration} hoverLabel={minutes} />;
 }

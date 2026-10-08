@@ -1,5 +1,5 @@
 // One policy row: the control, its label and its consequence. While the switch is not in the
-// position it ships in, the changed mark follows the label and its tooltip names that position.
+// position it ships in, the changed mark follows the label and its hover label names that position.
 //
 // The switch traits travel with the row because it is their only reader; the list composes
 // rows and decides nothing about what a switch says about itself. The row is the list's own

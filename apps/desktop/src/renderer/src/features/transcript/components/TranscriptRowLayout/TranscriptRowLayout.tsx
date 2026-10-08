@@ -11,7 +11,7 @@ import "./TranscriptRowLayout.css";
 import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import { formatClockTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 
@@ -44,8 +44,12 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
     () => formatClockTime(props.occurredAtIso, clockLocale),
     [props.occurredAtIso, clockLocale],
   );
+  const occurredAtZonedTime = useMemo(
+    () => formatZonedDateTime(props.occurredAtIso, clockLocale),
+    [props.occurredAtIso, clockLocale],
+  );
   const timePlacement = props.timePlacement ?? "gutter";
-  const time = <WireFigure value={occurredAtClockTime} title={props.occurredAtIso} />;
+  const time = <WireFigure value={occurredAtClockTime} hoverLabel={occurredAtZonedTime} />;
 
   // Fail closed: a step outside the wheel is not clamped into another author's color. The edge
   // falls back to the neutral boundary and the class says the row carries no attribution.

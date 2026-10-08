@@ -79,7 +79,7 @@
 }
 
 .meridian-approval-card__action:disabled,
-.meridian-approval-card__arrow:disabled {
+.meridian-approval-card__arrow:is(:disabled, [aria-disabled="true"]) {
   cursor: not-allowed;
   opacity: 0.55;
 }

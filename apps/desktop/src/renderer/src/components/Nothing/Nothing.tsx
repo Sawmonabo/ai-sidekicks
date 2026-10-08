@@ -10,7 +10,7 @@
 //
 // Kind is what is missing; placement is where it is mounted. `inline` is a badge beside the value
 // it qualifies; `block` stands in for a region's content. A badge in place of a whole pane reads
-// as unfinished paint and can only carry its second line as a tooltip. Copy is the caller's.
+// as unfinished paint and can only carry its second line in its hover label. Copy is the caller's.
 
 import "./Nothing.css";
 
@@ -18,6 +18,7 @@ import { GLYPH_SIZE_ROW, type GlyphName } from "#renderer/styles/glyphs.js";
 import type { AnnouncementPoliteness } from "../LiveAnnouncer/announcer.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { Glyph } from "../Glyph/Glyph.js";
+import { HoverLabel } from "../HoverLabel/HoverLabel.js";
 
 /** The closed set of empty-state kinds. */
 export type NothingKind = "not-loaded" | "empty" | "error" | "not-checked" | "computing";
@@ -37,8 +38,8 @@ export interface NothingProps {
   readonly title: string;
   /**
    * The second line. For `error` it is the daemon's message text, rendered verbatim; for every
-   * other kind it is the app's own prose. A block renders it as prose; a badge carries it
-   * as a tooltip.
+   * other kind it is the app's own prose. A block renders it as prose; a badge carries it in its
+   * hover label.
    */
   readonly detail?: string;
   /** The next step, when there is one. A button, a link, a control. */
@@ -155,9 +156,9 @@ function renderBadge(
   return (
     <span className={className} aria-busy={traits.busy}>
       {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
-      <span className="meridian-nothing__badge-label" title={props.detail}>
-        {props.title}
-      </span>
+      <HoverLabel text={props.detail} textRole="description">
+        <span className="meridian-nothing__badge-label">{props.title}</span>
+      </HoverLabel>
       {props.action === undefined ? null : (
         <span className="meridian-nothing__action">{props.action}</span>
       )}
@@ -202,7 +203,7 @@ function renderBlock(
 
 /**
  * The words a spoken state shows: its title, and in a block its second line too. A badge carries
- * that line only as a tooltip.
+ * that line only in its hover label.
  */
 function shownWords(props: NothingProps, placement: NothingPlacement): string {
   if (placement === "inline" || props.detail === undefined) {

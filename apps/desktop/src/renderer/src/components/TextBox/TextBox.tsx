@@ -12,13 +12,18 @@ import "./TextBox.css";
 
 import { useRef } from "react";
 
+import {
+  HOVER_LABEL_SIDE_ATTRIBUTE,
+  HOVER_LABEL_TEXT_ATTRIBUTE,
+  type HoverLabelTriggerProps,
+} from "#renderer/components/HoverLabel/HoverLabel.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 
 /** Props for `TextBox`: the box's classes and height, and everything a text area takes. */
-export interface TextBoxProps extends Omit<
-  React.ComponentProps<"textarea">,
-  "className" | "rows" | "style" | "ref"
-> {
+export interface TextBoxProps
+  extends
+    Omit<React.ComponentProps<"textarea">, "className" | "rows" | "style" | "ref">,
+    TextBoxHoverLabelProps {
   /**
    * The box's own classes: its edge, ground, corners and type, drawn on the frame around the
    * scroller. Its padding is `--meridian-text-box-padding`, which the scroller wears inside the
@@ -42,12 +47,26 @@ export interface TextBoxProps extends Omit<
 
 /** A multi-line text box that scrolls in its own box, measured in lines of its own text. */
 export function TextBox(props: TextBoxProps): React.JSX.Element {
-  const { className, fieldClassName, rows, maxRows, fieldRef, scrollerRef, ...fieldProps } = props;
+  const {
+    className,
+    fieldClassName,
+    rows,
+    maxRows,
+    fieldRef,
+    scrollerRef,
+    [HOVER_LABEL_TEXT_ATTRIBUTE]: hoverLabel,
+    [HOVER_LABEL_SIDE_ATTRIBUTE]: hoverLabelSide,
+    ...fieldProps
+  } = props;
   const ownFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const textAreaRef = fieldRef ?? ownFieldRef;
   const ownScrollerRef = useRef<HTMLDivElement | null>(null);
   const boxScrollerRef = scrollerRef ?? ownScrollerRef;
   const scrollbarRef = useDrawOverlayScrollbar(boxScrollerRef);
+  const frameHoverLabel: TextBoxHoverLabelProps = {
+    [HOVER_LABEL_TEXT_ATTRIBUTE]: hoverLabel,
+    [HOVER_LABEL_SIDE_ATTRIBUTE]: hoverLabelSide,
+  };
   const sizeClassName = maxRows === undefined ? "" : " meridian-text-box--grows";
   const lines: TextBoxLines = {
     "--meridian-text-box-rows": String(rows),
@@ -58,6 +77,7 @@ export function TextBox(props: TextBoxProps): React.JSX.Element {
     <div
       className={`meridian-text-box${sizeClassName} ${className}`}
       style={lines}
+      {...frameHoverLabel}
       onClick={(event) => {
         // The frame's edge and the scroller's padding lie outside the text area; a click there
         // still puts the caret in it. A click, not a press, so a press on the resize grip still
@@ -81,6 +101,15 @@ export function TextBox(props: TextBoxProps): React.JSX.Element {
     </div>
   );
 }
+
+/**
+ * A `HoverLabel`'s words and side, which mark the frame so the pointer anywhere on the box shows
+ * them; the label's name or description still goes to the text area.
+ */
+type TextBoxHoverLabelProps = Pick<
+  HoverLabelTriggerProps,
+  typeof HOVER_LABEL_TEXT_ATTRIBUTE | typeof HOVER_LABEL_SIDE_ATTRIBUTE
+>;
 
 /** Carries the box's line counts into its sheet. */
 interface TextBoxLines extends React.CSSProperties {

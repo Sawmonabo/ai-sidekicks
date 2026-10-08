@@ -61,7 +61,7 @@ export function ServerLegs(props: {
                   <span className="meridian-settings-page__aside">· updated</span>
                   <WireFigure
                     value={formatRelativeTime(leg.observedAt, nowMilliseconds)}
-                    title={formatZonedDateTime(leg.observedAt, clockLocale)}
+                    hoverLabel={formatZonedDateTime(leg.observedAt, clockLocale)}
                   />
                 </>
               )}

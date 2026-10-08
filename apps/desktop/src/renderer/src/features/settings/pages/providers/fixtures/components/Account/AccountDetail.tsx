@@ -6,7 +6,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import {
   formatCount,
   formatDateTime,
-  formatDayDuration,
+  formatWholeDuration,
   formatZonedDateTime,
 } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -32,12 +32,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
     {
       key: "credentialGeneration",
       term: <span>Credential generation</span>,
-      definition: (
-        <WireFigure
-          value={formatCount(account.credentialGeneration)}
-          title={String(account.credentialGeneration)}
-        />
-      ),
+      definition: <WireFigure value={formatCount(account.credentialGeneration)} />,
     },
     {
       key: "probeEnabled",
@@ -58,7 +53,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       definition: (
         <WireFigure
           value={formatDateTime(account.loggedInAt, clockLocale)}
-          title={formatZonedDateTime(account.loggedInAt, clockLocale)}
+          hoverLabel={formatZonedDateTime(account.loggedInAt, clockLocale)}
         />
       ),
     });
@@ -73,8 +68,8 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       term: <span>Re-login estimate</span>,
       definition: (
         <span>
-          About <DerivedFigure text={formatDayDuration(horizonInDays)} /> after sign-in. An estimate
-          from the provider’s published issuance interval, not a set deadline.
+          About <DerivedFigure text={formatWholeDuration(horizonInDays, "day")} /> after sign-in. An
+          estimate from the provider’s published issuance interval, not a set deadline.
         </span>
       ),
     });

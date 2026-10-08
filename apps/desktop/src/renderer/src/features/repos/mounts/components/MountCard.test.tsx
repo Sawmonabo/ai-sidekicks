@@ -1,7 +1,7 @@
 // The mount card: the resolved root in its head, an unreachable mount withholding its bind
 // controls, and a drifted one offering the re-attach.
 
-import { render, within } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -17,6 +17,7 @@ import {
   buildMount,
   workspaceRow,
 } from "../repo-mounts.test-support.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */
 function withheldLine(container: HTMLElement): string | null {
@@ -55,7 +56,9 @@ describe("MountCard — the resolved root", () => {
     // same string also appears on the row beneath.
     const { container } = renderCard();
     const head = container.querySelector(".meridian-mount-card__head") as HTMLElement;
-    expect(within(head).getByTitle(CANONICAL_ROOT).textContent).toBe(CANONICAL_ROOT);
+    expect(
+      head.querySelector(`[${HOVER_LABEL_TEXT_ATTRIBUTE}="${CANONICAL_ROOT}"]`)?.textContent,
+    ).toBe(CANONICAL_ROOT);
   });
 });
 

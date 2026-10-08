@@ -55,14 +55,14 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
     <article className="meridian-workspace-card" aria-label={`Workspace ${workspace.id}`}>
       <header className="meridian-workspace-card__head">
         <Glyph name="workspace" size={GLYPH_SIZE_ROW} />
-        <WireFigure value={workspace.id} title={workspace.id} />
+        <WireFigure value={workspace.id} />
         <Chip label={codeWords(workspace.executionMode)} tone="neutral" />
         <Chip label={codeWords(workspace.state)} tone={STATE_TONES[workspace.state]} />
       </header>
 
       <p className="meridian-workspace-card__root">
         {workspace.fsRoot !== undefined ? (
-          <WireFigure value={workspace.fsRoot} title={workspace.fsRoot} />
+          <WireFigure value={workspace.fsRoot} />
         ) : workspace.state === "preparing" ? (
           // The root does not exist yet; it is filled when preparation completes.
           <Nothing kind="computing" title="Root pending" />

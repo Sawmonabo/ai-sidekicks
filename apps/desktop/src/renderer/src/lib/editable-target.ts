@@ -1,4 +1,4 @@
-// Whose keystroke is it, the widget's or the app's? Two callers ask different versions:
+// Whose keystroke is it, the widget's or the app's? Callers ask three versions:
 //
 //   - The keybinding table asks the narrow one, per binding: is text being typed? "Open the
 //     palette" must work while composing a message and "delete the selected row" must not
@@ -6,6 +6,8 @@
 //   - The pane layout asks the wide one: does the focused widget own its arrow keys? On macOS
 //     Option+Arrow moves the caret by word, so a pane chord firing inside a find field would
 //     rearrange the pane. Comboboxes and listboxes own their arrows too (`isEditableTarget`).
+//   - A screen's Escape asks whether a widget it passed through already took it
+//     (`isUnclaimedEscape`).
 //
 // The wide answer is the narrow one plus an ancestor walk, because events from a
 // `role="textbox"` div, a listbox option or a combobox input fire on a descendant;
@@ -73,4 +75,19 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     return false;
   }
   return target.closest(EDITABLE_ROLE_SELECTOR) !== null;
+}
+
+/**
+ * Whether an Escape is still the screen's: no widget it passed through claimed it. A disabled
+ * control kept focusable cancels every key but Tab so none can press it, and that cancel claims
+ * no Escape.
+ */
+export function isUnclaimedEscape(
+  event: Pick<KeyboardEvent, "key" | "defaultPrevented"> & { readonly target: EventTarget | null },
+): boolean {
+  return (
+    event.key === "Escape" &&
+    (!event.defaultPrevented ||
+      (isElement(event.target) && event.target.getAttribute("aria-disabled") === "true"))
+  );
 }

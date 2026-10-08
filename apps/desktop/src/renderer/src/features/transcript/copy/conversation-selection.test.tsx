@@ -8,7 +8,10 @@ import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
-import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import {
+  SAMPLE_RUN_ROW_TIME_SELECTOR,
+  sampleRunRow,
+} from "#test/helpers/transcript-event-row-samples.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
@@ -89,7 +92,9 @@ describe("a selection across the conversation", () => {
         </div>
       </FixtureBridgeProvider>,
     );
-    const toolTime = container.querySelector('[data-index="1"] [title]')?.textContent;
+    const toolTime = container.querySelector(
+      `[data-index="1"] ${SAMPLE_RUN_ROW_TIME_SELECTOR}`,
+    )?.textContent;
     const everything = document.createRange();
     everything.selectNodeContents(container);
 

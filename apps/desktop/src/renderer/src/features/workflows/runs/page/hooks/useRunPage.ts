@@ -3,10 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { type WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import {
-  type WorkflowStep,
-  type WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
@@ -15,11 +11,9 @@ import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowR
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { createRunRead, type WorkflowReadSources } from "#renderer/features/workflows/reading.js";
 import { isPersonWaitCause, latestStepWith } from "../../steps.js";
-import { stepKeyText } from "../step/key-text.js";
+import { stepKeyText, type StepAddress } from "../step/address.js";
+import type { HeldStepAnswer } from "../step/held-answer.js";
 import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
-
-/** The two members that name a step inside its run. */
-export type StepAddress = Pick<WorkflowStep, "nodeId" | "executionIndex">;
 
 /** Everything one run's page draws, and the acts on what it shows. */
 export interface RunPageHold {
@@ -30,12 +24,12 @@ export interface RunPageHold {
   readonly selectedNodeId: string | undefined;
   readonly selectNode: (nodeId: string | undefined) => void;
   /** The answers this sitting gave, by step. */
-  readonly answers: ReadonlyMap<string, WorkflowStepResolution>;
+  readonly answers: ReadonlyMap<string, HeldStepAnswer>;
   /**
    * Keep the panel on a step a person just answered, and the answer, which its receipt reads,
    * until the run reads back answered.
    */
-  readonly holdAnswered: (step: StepAddress, answer: WorkflowStepResolution) => void;
+  readonly holdAnswered: (step: StepAddress, answer: HeldStepAnswer) => void;
 }
 
 /**
@@ -69,9 +63,7 @@ export function useRunPage(options: {
       setOpened({ nodeId: openingNode(run) });
     }
   }, [run, opened]);
-  const [answers, setAnswers] = useState<ReadonlyMap<string, WorkflowStepResolution>>(
-    () => new Map(),
-  );
+  const [answers, setAnswers] = useState<ReadonlyMap<string, HeldStepAnswer>>(() => new Map());
 
   const isMissing = runState.kind === "failed" && runState.refusal.code === WORKFLOW_NOT_FOUND_CODE;
   useEffect(() => {
@@ -106,7 +98,7 @@ export function useRunPage(options: {
     "fallback",
   );
   const holdAnswered = useCallback(
-    (step: StepAddress, answer: WorkflowStepResolution) => {
+    (step: StepAddress, answer: HeldStepAnswer) => {
       setAnswers((held) => new Map(held).set(stepKeyText(step), answer));
       // Held on the answered step: once it stops waiting, the default would close the panel.
       setPicked({ nodeId: step.nodeId });

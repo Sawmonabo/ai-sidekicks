@@ -8,6 +8,7 @@ import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/r
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { costFigure } from "../cost.js";
 import { spentAccountWords, WAIT_CAUSE_WORDS } from "../../words.js";
@@ -15,15 +16,16 @@ import { isGoing } from "../controls.js";
 import { isPersonWaitCause, latestStepWith } from "../steps.js";
 import { isPersonWaitKind } from "./step/receipts.js";
 
-/** The header's two opening lines. */
+/** The header's two opening lines; what happened carries the daemon's counts as wire figures. */
 export interface RunHeaderLines {
-  readonly happened: string;
+  readonly happened: readonly FigureSentencePart[];
   readonly needs: string;
 }
 
 /** One stretch of the live line; `isAttention` marks the one blocker that needs a person. */
 export interface RunLiveLinePart {
-  readonly text: string;
+  /** Its words, with the daemon's counts and any cost it billed as wire figures. */
+  readonly words: readonly FigureSentencePart[];
   /** The instant the words end on, the daemon's stamp: `until` it, `resumes itself at` it. */
   readonly at: string | undefined;
   readonly isAttention: boolean;
@@ -59,22 +61,22 @@ export function runHeaderLines(
   switch (run.status) {
     case "new":
       return {
-        happened: `${runName} has not started yet.`,
+        happened: [`${runName} has not started yet.`],
         needs: "Nothing — it starts on its own.",
       };
     case "running":
-      return { happened: `${runName} is running.`, needs: "Nothing — it is still going." };
+      return { happened: [`${runName} is running.`], needs: "Nothing — it is still going." };
     case "waiting":
       return waitingLines(run, names, runName);
     case "failed":
       return failedLines(run, latestStepWith(run.steps, "failed"), names);
     case "succeeded":
-      return { happened: `${runName} finished every step.`, needs: NOTHING_FINISHED };
+      return { happened: [`${runName} finished every step.`], needs: NOTHING_FINISHED };
     case "canceled":
-      return { happened: `${runName} was canceled.`, needs: NOTHING_FINISHED };
+      return { happened: [`${runName} was canceled.`], needs: NOTHING_FINISHED };
     case "crashed":
       return {
-        happened: `${runName} stopped when the machine went down.`,
+        happened: [`${runName} stopped when the machine went down.`],
         needs: "Nothing — re-run it when you want it again.",
       };
   }
@@ -92,7 +94,12 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   const parts: RunLiveLinePart[] = [];
   if (run.liveStep !== undefined) {
     parts.push(
-      plain(`Step ${formatCount(run.liveStep.index)} of ${formatCount(run.liveStep.total)}`),
+      plain([
+        "Step ",
+        { wire: formatCount(run.liveStep.index) },
+        " of ",
+        { wire: formatCount(run.liveStep.total) },
+      ]),
     );
   }
   const waiting = latestStepWith(run.steps, "waiting");
@@ -100,12 +107,19 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   if (waiting?.waitCause !== undefined) {
     parts.push(...waitingParts(run, waiting, waiting.waitCause));
   } else if (holding !== undefined) {
-    parts.push(plain("waiting for memory"), plain("starts itself when memory frees up"));
+    parts.push(plain(["waiting for memory"]), plain(["starts itself when memory frees up"]));
   } else if (run.liveStep !== undefined) {
-    parts.push(plain(run.liveStep.nodeName));
+    parts.push(plain([run.liveStep.nodeName]));
   }
-  parts.push(plain(`${costFigure(run.cost)} so far`));
+  // A run nothing was billed for reads `$0.00`, the app's own stand-in rather than the daemon's.
+  const spent = costFigure(run.cost);
+  parts.push(plain([run.cost === undefined ? { derived: spent } : { wire: spent }, " so far"]));
   return parts;
+}
+
+/** How far a chain has run, `100 runs from one start`, the daemon's count as a wire figure. */
+export function chainRunsWords(runCount: number): readonly FigureSentencePart[] {
+  return [{ wire: formatCount(runCount) }, " runs from one start"];
 }
 
 /**
@@ -127,7 +141,7 @@ function waitingLines(
       // The window's reset is named only where the wait armed the instant it resumes.
       const until = step.resumeAt === undefined ? "" : " until the window resets";
       return {
-        happened: `The ${spentAccountWords(account)} is spent${until}.`,
+        happened: [`The ${spentAccountWords(account)} is spent${until}.`],
         needs: "Nothing until the account can run again.",
       };
     }
@@ -136,7 +150,7 @@ function waitingLines(
       const feeder = step.source.find((source) => source !== null);
       const asker = feeder === undefined ? runName : names.nodeName(feeder.nodeId);
       return {
-        happened: `${asker} finished and asked for an approval.`,
+        happened: [`${asker} finished and asked for an approval.`],
         needs: "Approve it or reject it in the step that is waiting.",
       };
     }
@@ -144,22 +158,24 @@ function waitingLines(
       // The chain's question stands on its first run's page and nowhere else.
       return run.chainRoot.runId === run.workflowRunId
         ? {
-            happened:
-              `This run has started ${formatCount(run.chainRoot.runCount)} runs, itself ` +
-              "included, and the next one is waiting.",
+            happened: [
+              "This run has started ",
+              { wire: formatCount(run.chainRoot.runCount) },
+              " runs, itself included, and the next one is waiting.",
+            ],
             needs: "Answer the question below: keep going, or stop them all.",
           }
         : {
-            happened:
-              `${names.nodeName(step.nodeId)} is holding its next run behind the chain's ` +
-              "question.",
+            happened: [
+              `${names.nodeName(step.nodeId)} is holding its next run behind the chain's question.`,
+            ],
             needs: "Answer it on the first run's page.",
           };
     case "form":
     case "reply": {
       const subject = stepSubject(names.nodeKind(step.nodeId));
       return {
-        happened: `${subject} is waiting on ${WAIT_CAUSE_WORDS[step.waitCause]}.`,
+        happened: [`${subject} is waiting on ${WAIT_CAUSE_WORDS[step.waitCause]}.`],
         needs:
           step.waitCause === "form"
             ? "Fill in its form in the step that is waiting."
@@ -175,14 +191,14 @@ function failedLines(
   names: RunHeaderNames,
 ): RunHeaderLines {
   if (step === undefined) {
-    return { happened: run.error?.message ?? "This run failed.", needs: FIX_AND_RESUME };
+    return { happened: [run.error?.message ?? "This run failed."], needs: FIX_AND_RESUME };
   }
   const kind = names.nodeKind(step.nodeId);
   const subject = stepSubject(kind);
   if (step.error?.code === WORKFLOW_STEP_TIMED_OUT_CODE) {
     // A person's wait that ran out is waited on again from the same input.
     return {
-      happened: `${subject} timed out.`,
+      happened: [`${subject} timed out.`],
       needs:
         kind !== undefined && isPersonWaitKind(kind)
           ? "Press Retry from this step to wait for an answer again."
@@ -190,9 +206,12 @@ function failedLines(
     };
   }
   if (step.resolution?.kind === "declined") {
-    return { happened: `${subject} was declined.`, needs: FIX_AND_RESUME };
+    return { happened: [`${subject} was declined.`], needs: FIX_AND_RESUME };
   }
-  return { happened: `${subject} failed ${failedTimes(step.attempt)}.`, needs: FIX_AND_RESUME };
+  return {
+    happened: [`${subject} failed `, ...failedTimes(step.attempt), "."],
+    needs: FIX_AND_RESUME,
+  };
 }
 
 /**
@@ -207,19 +226,19 @@ function stepSubject(kind: string | undefined): string {
   return `The ${word} step`;
 }
 
-/** `once`, `twice`, `three times`, `four times`, then the count in figures. */
-function failedTimes(attempt: number): string {
+/** `once`, `twice`, `three times`, `four times`, then the count as a wire figure. */
+function failedTimes(attempt: number): readonly FigureSentencePart[] {
   switch (attempt) {
     case 1:
-      return "once";
+      return ["once"];
     case 2:
-      return "twice";
+      return ["twice"];
     case 3:
-      return "three times";
+      return ["three times"];
     case 4:
-      return "four times";
+      return ["four times"];
     default:
-      return `${formatCount(attempt)} times`;
+      return [{ wire: formatCount(attempt) }, " times"];
   }
 }
 
@@ -230,12 +249,12 @@ function waitingParts(
 ): RunLiveLinePart[] {
   const deadlineAt = step.waitDeadlineAt;
   const blocker: RunLiveLinePart = {
-    text: `waiting on ${WAIT_CAUSE_WORDS[cause]}${deadlineAt === undefined ? "" : " until"}`,
+    words: [`waiting on ${WAIT_CAUSE_WORDS[cause]}${deadlineAt === undefined ? "" : " until"}`],
     at: deadlineAt,
     isAttention: isPersonWaitCause(cause),
   };
   if (cause === "chain") {
-    return [blocker, plain(`${formatCount(run.chainRoot.runCount)} runs from one start`)];
+    return [blocker, plain(chainRunsWords(run.chainRoot.runCount))];
   }
   if (cause !== "account") {
     return [blocker];
@@ -243,11 +262,11 @@ function waitingParts(
   return [
     blocker,
     step.resumeAt === undefined
-      ? plain("awaiting resume — no instant is armed")
-      : { text: "resumes itself at", at: step.resumeAt, isAttention: false },
+      ? plain(["awaiting resume — no instant is armed"])
+      : { words: ["resumes itself at"], at: step.resumeAt, isAttention: false },
   ];
 }
 
-function plain(text: string): RunLiveLinePart {
-  return { text, at: undefined, isAttention: false };
+function plain(words: readonly FigureSentencePart[]): RunLiveLinePart {
+  return { words, at: undefined, isAttention: false };
 }

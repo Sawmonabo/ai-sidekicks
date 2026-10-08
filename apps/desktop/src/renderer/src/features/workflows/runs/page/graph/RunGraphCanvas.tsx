@@ -5,7 +5,6 @@
 import "@xyflow/react/dist/base.css";
 import "./RunGraphCanvas.css";
 
-import { isHTMLElement } from "@floating-ui/utils/dom";
 import { useCallback, useRef } from "react";
 import {
   Panel,
@@ -21,9 +20,10 @@ import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run
 
 import { tokenReference } from "#renderer/styles/tokens.js";
 import { WORKFLOW_CANVAS_MEASURES } from "#renderer/features/workflows/canvas/measures.js";
-import { RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./elements.js";
+import { RUN_GRAPH_NODE_TYPE } from "./elements.js";
 import { RunGraphNode } from "./RunGraphNode.js";
 import { useLiveStepFollow } from "./hooks/useLiveStepFollow.js";
+import { useRunGraphKeyboard } from "./hooks/useRunGraphKeyboard.js";
 import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 import { useInViewMarks } from "../../hooks/useInViewMarks.js";
@@ -62,9 +62,6 @@ const RUN_GRAPH_MAX_ZOOM = 1.5;
  */
 const EDGE_MARKER_COLOR: string = tokenReference("edge-strong");
 
-/** The keys that select the focused node, as a button's do. */
-const SELECT_KEYS: readonly string[] = ["Enter", " "];
-
 /** One run on its workflow's canvas, read-only, following the live step. */
 export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
   return (
@@ -100,47 +97,21 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     },
     [markInView],
   );
-  const { stopFollowing, revealPoint } = follow;
 
   const selectClickedNode = useCallback<NodeMouseHandler>(
     (_event, node) => onSelectNode(node.id),
     [onSelectNode],
   );
 
-  // Any key on the canvas stops the follow; Enter or Space on a node also selects it, since the
-  // library's own node keys are off along with its second live region.
-  const handleCanvasKey = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      stopFollowing();
-      const nodeId = focusedNodeId(event.target);
-      if (nodeId !== undefined && SELECT_KEYS.includes(event.key)) {
-        event.preventDefault();
-        onSelectNode(nodeId);
-      }
-    },
-    [onSelectNode, stopFollowing],
-  );
-
-  // A node reached by keyboard is brought into view, which the library does only with its own
-  // keys on.
-  const revealFocusedNode = useCallback(
-    (event: React.FocusEvent<HTMLDivElement>) => {
-      const nodeId = focusedNodeId(event.target);
-      const node = nodes.find((candidate) => candidate.id === nodeId);
-      if (node !== undefined && event.target.matches(":focus-visible")) {
-        revealPoint(runGraphNodeCenter(node));
-      }
-    },
-    [nodes, revealPoint],
-  );
+  const { onKeyDown, onFocus } = useRunGraphKeyboard(canvasRef, nodes, edges, follow, onSelectNode);
 
   return (
     <div
       ref={attachCanvas}
       className="meridian-run-graph__canvas"
       style={WORKFLOW_CANVAS_MEASURES}
-      onKeyDown={handleCanvasKey}
-      onFocus={revealFocusedNode}
+      onKeyDown={onKeyDown}
+      onFocus={onFocus}
     >
       <ReactFlow
         aria-label="Run graph"
@@ -184,12 +155,4 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
       </ReactFlow>
     </div>
   );
-}
-
-/** The id of the node an event landed on, read from the library's node element. */
-function focusedNodeId(target: EventTarget): string | undefined {
-  if (!isHTMLElement(target) || !target.classList.contains("react-flow__node")) {
-    return undefined;
-  }
-  return target.dataset["id"];
 }

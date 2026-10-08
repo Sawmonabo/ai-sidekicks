@@ -22,7 +22,7 @@ export function SessionHeaderIdentity(props: SessionHeaderIdentityProps): React.
         <Nothing kind="empty" title="No session" />
       ) : (
         <>
-          <WireFigure value={props.sessionId} title="Session id" />
+          <WireFigure value={props.sessionId} hoverLabel="Session id" />
           <SessionTitle title={props.title} />
         </>
       )}

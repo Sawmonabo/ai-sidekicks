@@ -56,6 +56,7 @@ import {
 import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";
 import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import { formatRoute } from "#renderer/routing/routes.js";
+import { nextFrame } from "../helpers/animation-frame.js";
 import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
 import { advanceScenarioUntil } from "../helpers/scenario/manual-clock.js";
@@ -107,6 +108,15 @@ const BUSY_WINDOW_START_TIMEOUT_MS = 3000;
 
 /** How long a bar may take to start: the library's load plus its window's idle time. */
 const OVERLAY_START_TIMEOUT_MS = 5000;
+
+/**
+ * How long a key's smooth scroll may take to move a scroller before the wait gives up: a ceiling,
+ * not a wait, since a loaded host draws the scroll's first frame late.
+ */
+const KEYBOARD_SCROLL_TIMEOUT_MS = 5000;
+
+/** How long a first PageDown may leave a scroller still before the key is pressed again. */
+const KEYBOARD_SCROLL_RETRY_MS = 1000;
 
 const SESSION_ROUTE = formatRoute({ kind: "session", sessionId: SESSION_ID });
 
@@ -337,9 +347,17 @@ describe("the overlay scrollbar", () => {
 
     // It still scrolls from the keyboard.
     conversation.focus();
+    expect(appWindow.document.activeElement, "the conversation took no focus").toBe(conversation);
+    // Chromium drops about one first key scroll in a hundred in a newly made window, though the
+    // key reaches the focused conversation uncanceled; a second press has scrolled it every time.
     await untilInsideAct(async () => {
       await userEvent.keyboard("{PageDown}");
-      await expect.poll(() => conversation.scrollTop).toBeGreaterThan(0);
+      if (!(await isScrolledWithin(conversation, KEYBOARD_SCROLL_RETRY_MS))) {
+        await userEvent.keyboard("{PageDown}");
+      }
+      await expect
+        .poll(() => conversation.scrollTop, { timeout: KEYBOARD_SCROLL_TIMEOUT_MS })
+        .toBeGreaterThan(0);
     });
     await untilInsideAct(() =>
       expect
@@ -556,6 +574,26 @@ async function untilDrawn(appWindow: Window, selector: string): Promise<HTMLElem
       .not.toBeNull(),
   );
   return requireElement(appWindow.document, selector);
+}
+
+/**
+ * Whether `scroller` has left its top within `timeoutMs`, read every animation frame and once more
+ * at the deadline, so a window that stops drawing cannot hold the wait past it.
+ */
+async function isScrolledWithin(scroller: HTMLElement, timeoutMs: number): Promise<boolean> {
+  const ownerWindow = viewOf(scroller.ownerDocument);
+  const deadline = ownerWindow.performance.now() + timeoutMs;
+  while (scroller.scrollTop === 0) {
+    const remainingMs = deadline - ownerWindow.performance.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+    await Promise.race([
+      nextFrame(ownerWindow),
+      new Promise((resolve) => ownerWindow.setTimeout(resolve, remainingMs)),
+    ]);
+  }
+  return scroller.scrollTop > 0;
 }
 
 function requireElement(root: ParentNode, selector: string): HTMLElement {

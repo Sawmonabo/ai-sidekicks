@@ -1,16 +1,15 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type {
-  WorkflowStep,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
-import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
+import type { HeldStepAnswer } from "../held-answer.js";
+import { chainRunsWords } from "../../header-lines.js";
+import { useStepAnswer } from "../hooks/useStepAnswer.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";
 import { OpenInReview } from "../../components/OpenInReview.js";
@@ -28,10 +27,10 @@ export interface StepBlockerProps {
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
   /** The answer this sitting gave the step, held until the run reads back answered. */
-  readonly answer: WorkflowStepResolution | undefined;
+  readonly answer: HeldStepAnswer | undefined;
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has taken it. */
-  readonly onAnswered: (answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (answer: HeldStepAnswer) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
 }
 
@@ -44,15 +43,22 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
-  const resolution = step.resolution ?? props.answer;
-  const receipt =
-    resolution === undefined
-      ? timedOutReceipt(step, props.nodeKind)
-      : resolutionReceipt(resolution);
+  const { receipt, isWindowClock, holdDaemonAnswer } = useStepAnswer(
+    step,
+    props.nodeKind,
+    props.answer,
+    props.onAnswered,
+  );
   if (receipt !== undefined) {
     return (
       <p className="meridian-workflow-step__receipt">
-        {receipt.words} <DayClockFigure at={receipt.at} nowMs={props.nowMs} locale={clockLocale} />
+        {receipt.words}{" "}
+        <DayClockFigure
+          at={receipt.at}
+          nowMs={props.nowMs}
+          locale={clockLocale}
+          isWindowClock={isWindowClock}
+        />
       </p>
     );
   }
@@ -68,7 +74,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             workflowRunId={step.workflowRunId}
             nodeId={step.nodeId}
             bridge={props.bridge}
-            onAnswered={props.onAnswered}
+            onAnswered={holdDaemonAnswer}
           />
           {reviewPause === undefined ? null : (
             <OpenInReview snapshots={reviewPause} onOpenReview={props.onOpenReview} />
@@ -85,7 +91,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             attempt: step.attempt,
             executionIndex: step.executionIndex,
           }}
-          onAnswered={props.onAnswered}
+          onAnswered={holdDaemonAnswer}
         />
       );
     case "reply":
@@ -98,7 +104,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
         <div>
           <WaitingEyebrow words="Waiting on you" />
           <p className="meridian-workflow-step__note">
-            {`${formatCount(run.chainRoot.runCount)} runs from one start`}
+            <FigureSentence parts={chainRunsWords(run.chainRoot.runCount)} />
           </p>
           <p className="meridian-workflow-step__note">
             Its next run waits for the chain&apos;s question on the first run&apos;s page.

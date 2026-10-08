@@ -24,6 +24,7 @@ import {
   dateTimeFormatFor,
   dollarFormatFor,
   numberFormatFor,
+  type NumberStyle,
   relativeTimeFormatFor,
 } from "../intl-formatter-cache.js";
 
@@ -46,6 +47,11 @@ export interface FormattedByteQuantity {
   readonly unit: ByteUnitLabel;
   /** `value` and `unit` joined with a non-breaking space. */
   readonly text: string;
+  /**
+   * The whole byte count in words, `1,234,567 bytes`, for a hover label; `undefined` where `text`
+   * already shows it whole, in bytes, or shows no figure.
+   */
+  readonly exactText: string | undefined;
 }
 
 /** One member of a structured wire value, ready to render as a pair. */
@@ -70,7 +76,7 @@ export function clockLocaleFor(clock: MachineClock): string {
  */
 export function formatByteQuantity(byteCount: number, locale?: string): FormattedByteQuantity {
   if (!Number.isFinite(byteCount) || byteCount < 0) {
-    return { value: UNREADABLE_FIGURE, unit: "B", text: UNREADABLE_FIGURE };
+    return { value: UNREADABLE_FIGURE, unit: "B", text: UNREADABLE_FIGURE, exactText: undefined };
   }
   let scaled = byteCount;
   let unitIndex = 0;
@@ -88,7 +94,12 @@ export function formatByteQuantity(byteCount: number, locale?: string): Formatte
   );
   // A no-break space as an escape (the literal is invisible in diffs and banned by
   // `no-irregular-whitespace`) so a figure never wraps away from its unit.
-  return { value, unit, text: `${value}\u00A0${unit}` };
+  return {
+    value,
+    unit,
+    text: `${value}\u00A0${unit}`,
+    exactText: unitIndex === 0 ? undefined : numberFormatFor("byteCount", locale).format(byteCount),
+  };
 }
 
 /**
@@ -127,7 +138,7 @@ export function formatCount(value: number, locale?: string): string {
 
 /**
  * A count shortened for a figure that must stay narrow, in the locale's compact notation (`1.2K`,
- * `3.4M`). The full count, `formatCount`, belongs in its title. Non-finite is an em dash.
+ * `3.4M`). The full count, `formatCount`, belongs in its hover label. Non-finite is an em dash.
  */
 export function formatCompactCount(value: number, locale?: string): string {
   if (!Number.isFinite(value)) {
@@ -219,17 +230,26 @@ export function formatUnitDuration(milliseconds: number, locale?: string): strin
   return parts.join(" ");
 }
 
+/** The units a duration figure is stated in whole, each with the `Intl` style that words it. */
+const WHOLE_DURATION_STYLES: Readonly<Record<"day" | "minute", NumberStyle>> = {
+  day: "dayDuration",
+  minute: "minuteDuration",
+};
+
 /**
- * A duration the wire states in whole days (a retention window). The unit is part of the figure,
- * so the whole text comes from `Intl` with `style: "unit"`, which handles the plural and the
- * locale's own word; `formatDuration` would render 7 days as `168:00:00`. A fractional input
- * renders whole. Non-finite and negative inputs render an em dash.
+ * A duration the wire states in whole units, in words through `Intl`'s unit style: `7 days`,
+ * `300 minutes`, where `formatDuration` would render 7 days as `168:00:00`. A fractional input
+ * renders whole, and a non-finite or negative one an em dash.
  */
-export function formatDayDuration(days: number, locale?: string): string {
-  if (!Number.isFinite(days) || days < 0) {
+export function formatWholeDuration(
+  amount: number,
+  unit: keyof typeof WHOLE_DURATION_STYLES,
+  locale?: string,
+): string {
+  if (!Number.isFinite(amount) || amount < 0) {
     return UNREADABLE_FIGURE;
   }
-  return numberFormatFor("dayDuration", locale).format(days);
+  return numberFormatFor(WHOLE_DURATION_STYLES[unit], locale).format(amount);
 }
 
 /**
@@ -341,9 +361,10 @@ export function formatDateTime(iso: string, locale: string): string {
 }
 
 /**
- * The time an instant stands for, as a hover title reads it: {@link formatDateTime} on the
+ * The time an instant stands for, as a hover label reads it: {@link formatDateTime} on the
  * machine's own clock with its zone, `Oct 7, 2026, 7:28 PM EDT`. A relative time and every other
- * timestamp carry it as their `title`; the exact stamp the daemon sent is read in the inspector.
+ * timestamp carry it in their hover label; the exact stamp the daemon sent is read in the
+ * inspector.
  */
 export function formatZonedDateTime(iso: string, locale: string): string {
   const instant = parseInstant(iso);
@@ -360,6 +381,19 @@ export function formatDate(iso: string, locale: string): string {
     return UNREADABLE_FIGURE;
   }
   return dateTimeFormatFor("date", locale).format(instant.epochMilliseconds);
+}
+
+/**
+ * The percent behind `formatPercent(percent / 100)` with every digit the wire sent, for a hover
+ * label; `undefined` where the rounded text already shows it whole or shows no figure.
+ */
+export function formatExactPercent(percent: number, locale?: string): string | undefined {
+  const rounded = formatPercent(percent / 100, locale);
+  if (rounded === UNREADABLE_FIGURE) {
+    return undefined;
+  }
+  const exact = numberFormatFor("exactPercent", locale).format(percent / 100);
+  return exact === rounded ? undefined : exact;
 }
 
 /**

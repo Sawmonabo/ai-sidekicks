@@ -16,8 +16,14 @@
 // wait through a resize after the first fit and the slide that follows it, whose updates would
 // otherwise land during the audit. Refusing matters: a throw fails the audit, where a silent pass
 // would audit an empty box.
+//
+// Each node carries its handles, so the graph is drawn and placed before the library has measured
+// a node. That first measurement arrives from a resize observer and redraws the edges, so the wait
+// ends only once the observers have answered.
 
 import { waitFor } from "@testing-library/react";
+
+import { letObserversAnswer } from "./animation-frame.js";
 
 /**
  * The viewport transform the library renders before it has fitted anything.
@@ -136,7 +142,8 @@ export function isRunGraphSettled(mountedElement: HTMLElement): boolean {
 }
 
 /**
- * Hold until this element's graph has been fitted, painted and placed; throws past the deadline.
+ * Hold until this element's graph has been fitted, painted, placed and measured by the library;
+ * throws past the deadline.
  *
  * The fit arrives on a React state update, so it is waited for through the library's `waitFor`,
  * whose polling runs in the async act every other wait goes through; a hand-rolled loop would
@@ -163,4 +170,5 @@ export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise
     },
     { timeout: FIT_DEADLINE_MS },
   );
+  await letObserversAnswer();
 }

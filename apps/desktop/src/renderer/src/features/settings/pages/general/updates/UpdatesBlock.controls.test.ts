@@ -1,7 +1,8 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
 // offered before the download finishes and needs no confirmation, a call main does not answer and
 // a failure the updater reports are drawn in the block's own words, and the automatic-check
-// switch, which a refused write leaves where it was. The doubles are in `UpdatesBlock.test-support.tsx`.
+// switch, which a refused write leaves where it was. The doubles are in
+// `UpdatesBlock.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
@@ -20,6 +21,7 @@ import {
   updaterReporting,
 } from "./UpdatesBlock.test-support.js";
 import { UPDATE_FAILED_DETAIL } from "./state-words.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 describe("the updates block — nothing downloads without a press", () => {
   it("offers the download on a found update, and downloads on a press", async () => {
@@ -188,7 +190,9 @@ describe("the updates block — a refused write puts the switch back", () => {
     expect(control()?.getAttribute("aria-checked")).toBe("false");
     expect(block.querySelector("[data-refusal-code]")).toBeNull();
     expect(
-      block.querySelector('[aria-label="Changed from the default"]')?.getAttribute("title"),
+      block
+        .querySelector('[aria-label="Changed from the default"]')
+        ?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE),
     ).toBe("On by default");
   });
 });

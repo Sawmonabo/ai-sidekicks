@@ -251,8 +251,10 @@ describe("the step panel", () => {
 
     renderPanel(withOutput({ kind: "inline", items: fileItems }));
     expect(
-      screen.getByRole("button", { name: "Pin this output as builder test data" }),
-    ).toHaveProperty("disabled", true);
+      screen
+        .getByRole("button", { name: "Pin this output as builder test data" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
     cleanup();
 
     const version = WORKFLOW_DEFINITION_RECORDS.flatMap((record) => record.versions)[0];
@@ -277,13 +279,14 @@ describe("the step panel", () => {
     const failed = fixtureRun(WORKFLOW_RUN_IDS.failed);
     renderPanel({ ...failed, steps: failed.steps.filter((step) => step.nodeId !== "summary") });
 
-    expect(screen.getByRole("button", { name: "Retry from this step" })).toHaveProperty(
-      "disabled",
-      true,
-    );
     expect(
-      screen.getByRole("button", { name: "Pin this output as builder test data" }),
-    ).toHaveProperty("disabled", true);
+      screen.getByRole("button", { name: "Retry from this step" }).getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: "Pin this output as builder test data" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(screen.getByRole("checkbox", { name: "Keep" })).toBeDefined();
     expect(screen.getByText("Not reached")).toBeDefined();
     expect(screen.getByText("Retry · this step was not reached")).toBeDefined();

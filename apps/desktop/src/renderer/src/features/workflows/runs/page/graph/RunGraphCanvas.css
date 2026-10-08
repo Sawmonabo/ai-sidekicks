@@ -126,14 +126,18 @@
   font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
+/* The count takes the pointer across its whole box, so its label opens between the glyphs too. */
 .meridian-run-graph .react-flow__edge-text {
+  pointer-events: bounding-box;
   fill: var(--meridian-text-muted);
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-figure-wire-size-default);
   font-variant-numeric: tabular-nums;
 }
 
+/* The background drawn behind the count never takes the pointer away from it. */
 .meridian-run-graph .react-flow__edge-textbg {
+  pointer-events: none;
   fill: var(--meridian-surface-sunken);
 }
 

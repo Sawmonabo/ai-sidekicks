@@ -52,7 +52,9 @@ describe("the composed new-session draft — which composition a settlement land
     );
     expect(politeText(container)).toBe("");
     // The replacement is untouched and still sendable, including its sending flag.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe(
+      "false",
+    );
   });
 
   it("keeps Send disabled when an older draft's send settles under a newer one", async () => {
@@ -72,7 +74,7 @@ describe("the composed new-session draft — which composition a settlement land
       await crossMacrotaskBoundary();
     });
 
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
     expect(container.textContent).not.toContain(
       "The session was created, but the first turn was not queued.",
     );
@@ -83,7 +85,9 @@ describe("the composed new-session draft — which composition a settlement land
     });
 
     // The newer draft's own settlement is the one that lands.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe(
+      "false",
+    );
     expect(container.textContent).toContain(
       "The session was created, but the first turn was not queued.",
     );
@@ -148,7 +152,7 @@ describe("the composed new-session draft — the composition a completed send cl
         "not sent, and it is still here.",
     );
     // Every leg it names landed, so Send is closed rather than left to report the session again.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
     // Not settled either: settling navigates and would take the sentence and the words away.
     expect(settledSessionIds).toStrictEqual([]);
   });

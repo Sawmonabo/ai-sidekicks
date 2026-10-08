@@ -58,7 +58,7 @@ export function ReadinessRow(props: {
             <span className="meridian-settings-page__aside">from the observation taken </span>
             <WireFigure
               value={formatDateTime(readiness.observedAt, clockLocale)}
-              title={formatZonedDateTime(readiness.observedAt, clockLocale)}
+              hoverLabel={formatZonedDateTime(readiness.observedAt, clockLocale)}
             />
           </>
         )}

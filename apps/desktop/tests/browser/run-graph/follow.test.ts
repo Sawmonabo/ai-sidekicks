@@ -1,12 +1,13 @@
-// The run graph follows the live step until a person moves the view, and only the `now` chip
-// brings the follow back. This needs real geometry: the follow places the view only once the
-// canvas has a measured size, which a DOM shim reports as zero.
+// The run graph follows the live step until a person moves the view or puts keyboard focus on
+// the graph, and only the `now` chip brings the follow back. This needs real geometry: the follow
+// places the view only once the canvas has a measured size, which a DOM shim reports as zero.
 //
 // Reduced motion is emulated so every placement is a jump rather than a slide: a view that
 // still followed would have moved by the time the update settles, with no clock to wait on.
 
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
@@ -120,5 +121,43 @@ describe("browser — the run graph's follow of the live step", () => {
       expect(nowChip(container), "the chip stood after it brought the view back").toBeNull();
     });
     expect(viewportTransform(container)).not.toBe(scrolledTransform);
+  });
+
+  it("stops when keyboard focus lands on a node, not on the canvas's link, and holds", async () => {
+    await emulateReducedMotion();
+    const { container, showSteps } = await mountRunGraph(RUNNING);
+    const link = container.querySelector<HTMLElement>(".react-flow__attribution a");
+    if (link === null) {
+      throw new Error("the graph drew no attribution link");
+    }
+    // A key first, away from the canvas, so focus put from code is keyboard focus and no key
+    // reaches the canvas, as Tab from before the canvas lands.
+    await act(async () => {
+      await userEvent.keyboard("{Shift}");
+    });
+    act(() => {
+      link.focus();
+    });
+    const linkTransform = viewportTransform(container);
+    await showSteps(stepsOneOn(RUNNING.run.steps));
+    expect(viewportTransform(container), "focus on the link stopped the follow").not.toBe(
+      linkTransform,
+    );
+
+    // A second graph, its run not yet moved on, for focus on a node.
+    const second = await mountRunGraph(RUNNING);
+    const secondNode = second.container.querySelector<HTMLElement>(".react-flow__node");
+    if (secondNode === null) {
+      throw new Error("the second graph drew no node");
+    }
+    act(() => {
+      secondNode.focus();
+    });
+    const focusedTransform = viewportTransform(second.container);
+    await second.showSteps(stepsOneOn(RUNNING.run.steps));
+    expect(
+      viewportTransform(second.container),
+      "the view followed the run off the focused node",
+    ).toBe(focusedTransform);
   });
 });

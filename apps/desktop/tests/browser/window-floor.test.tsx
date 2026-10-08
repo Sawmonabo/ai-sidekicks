@@ -6,8 +6,8 @@
 // sideways; one rem narrower, that pane falls under its floor. A closed track takes no width,
 // where an open one does. At the floor the agent library keeps its two columns and an entity
 // record keeps each label beside its value on one line, a long value truncated with its whole text
-// as its title, with nothing overflowing or overlapping; a box planted too wide, one planted over
-// a row, a short value that is not cut, and a record narrower than its label column are the
+// as its hover label, with nothing overflowing or overlapping; a box planted too wide, one planted
+// over a row, a short value that is not cut, and a record narrower than its label column are the
 // negative controls. The whole app held at its floor keeps the conversation in view above the
 // composer with its command list open; on a screen shorter than the floor the conversation keeps
 // its own height floor, and the list gives way and scrolls in what is left.
@@ -47,6 +47,7 @@ import { SESSIONS_ROUTE, frameProps, liveBridgeWrapper } from "../helpers/app/fr
 import { renderAppSettled, renderSettled } from "../helpers/app/harness.js";
 import { describeHorizontalOverflow } from "../helpers/horizontal-overflow.js";
 import { untilInsideAct } from "../helpers/settle.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ? size : largest));
 
@@ -404,23 +405,23 @@ describe("at the window floor", () => {
       expect(valueBox.top).toBeLessThan(label.bottom);
       return value;
     });
-    // The long value is cut to one line as tall as the short one's, and titled with all of it;
+    // The long value is cut to one line as tall as the short one's, and labeled with all of it;
     // the short one is the negative control, laid out whole.
     const [shortValue, longValue] = values;
     expect(longValue?.scrollWidth).toBeGreaterThan(longValue?.clientWidth ?? 0);
     expect(longValue?.getBoundingClientRect().height).toBe(
       shortValue?.getBoundingClientRect().height,
     );
-    expect(longValue?.title).toBe(UNBREAKABLE_WIRE_VALUE);
+    expect(longValue?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe(UNBREAKABLE_WIRE_VALUE);
     expect(shortValue?.scrollWidth).toBe(shortValue?.clientWidth);
-    expect(shortValue?.title).toBe("repo-mount-1");
-    // The head's identifier is cut the same way and titled with itself.
+    expect(shortValue?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe("repo-mount-1");
+    // The head's identifier is cut the same way and labeled with itself.
     const identifier = elementOf<HTMLElement>(
       box,
       ".meridian-entity-record__head .meridian-figure--wire",
     );
     expect(identifier.scrollWidth).toBeGreaterThan(identifier.clientWidth);
-    expect(identifier.title).toBe(UNBREAKABLE_WIRE_VALUE);
+    expect(identifier.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe(UNBREAKABLE_WIRE_VALUE);
     expect(describeHorizontalOverflow(box)).toStrictEqual([]);
     expect(describeOverlappingSiblings(box)).toStrictEqual([]);
 

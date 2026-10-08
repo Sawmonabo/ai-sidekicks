@@ -34,6 +34,19 @@ const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], strin
 const SESSION_CREATED_WITH_UNSENT_EDITS =
   "The session was created. What you typed after pressing Send was not sent, and it is still here.";
 
+/** Why Send is held while this draft is being sent. */
+const SENDING_REASON = "This draft is being sent.";
+
+/** Why Send is held once the create's reply could not be read: a second send could make another. */
+const AMBIGUOUS_CREATE_REASON =
+  "The session may already have been created. Check the sessions list before sending again.";
+
+/** Why Send is held while the first message is empty. */
+const EMPTY_DRAFT_REASON = "Write its first message to send it.";
+
+/** Why Send is held once this draft's session exists; the line under the field says the rest. */
+const ALREADY_CREATED_REASON = "This draft's session was already created.";
+
 /** Everything the control renders and every act it offers, in one hook. */
 export interface NewSessionComposition {
   /** `undefined` while no draft is open — the state the "+ New" button is in. */
@@ -57,12 +70,14 @@ export interface NewSessionComposition {
   readonly isAmbiguousCreate: boolean;
   /**
    * Present once a completed send settled over a composition that had moved on. A sentence,
-   * so the announcer, the line under the field and Send's disabled reason share one wording.
-   * Send is closed while it stands: every leg has landed, so a second press would answer
+   * so the announcer and the line under the field share one wording. Send is closed while it
+   * stands: every leg has landed, so a second press would answer
    * `sent` over a matching composition and close the draft, discarding the words this state
    * keeps.
    */
   readonly unsentEditsSentence: string | undefined;
+  /** Why Send is held, in the words its hover label reads; `undefined` while it can be pressed. */
+  readonly sendHeldReason: string | undefined;
 }
 
 /** What one draft's send is doing, and what it settled on. Held per draft. */
@@ -208,6 +223,18 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     // a moved-on draft, so a further edit re-renders without re-running this.
   }, [announce, hasUnsentLaterEdits, publishDraft, result, settleCreatedSession]);
 
+  const isAmbiguousCreate = result?.outcome === "created-unreadable";
+  const unsentEditsSentence = hasUnsentLaterEdits ? SESSION_CREATED_WITH_UNSENT_EDITS : undefined;
+  const sendHeldReason = isSending
+    ? SENDING_REASON
+    : isAmbiguousCreate
+      ? AMBIGUOUS_CREATE_REASON
+      : hasUnsentLaterEdits
+        ? ALREADY_CREATED_REASON
+        : draftState?.isEmpty === true
+          ? EMPTY_DRAFT_REASON
+          : undefined;
+
   return {
     draftState,
     sendResult: result,
@@ -217,7 +244,8 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     setFirstTurn,
     send,
     recheckDirectory: props.onSessionDirectoryRecheck,
-    isAmbiguousCreate: result?.outcome === "created-unreadable",
-    unsentEditsSentence: hasUnsentLaterEdits ? SESSION_CREATED_WITH_UNSENT_EDITS : undefined,
+    isAmbiguousCreate,
+    unsentEditsSentence,
+    sendHeldReason,
   };
 }

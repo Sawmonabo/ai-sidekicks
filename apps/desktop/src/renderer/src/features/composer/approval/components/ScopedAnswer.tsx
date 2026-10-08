@@ -2,11 +2,13 @@
 // same answer, each row saying how far it reaches. With no arrow the answer stands alone. The face
 // and its arrow are one control, so a card that withholds the answer removes both.
 
+import { Button } from "@base-ui/react/button";
 import { Menu } from "@base-ui/react/menu";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { OverlayMenuPopup } from "#renderer/components/OverlayPopups/OverlayMenuPopup.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** One row behind the arrow: its words, and what pressing it answers. */
 export interface ScopedAnswerRow {
@@ -58,14 +60,16 @@ export function ScopedAnswer(props: ScopedAnswerProps): React.JSX.Element {
     <span className="meridian-approval-card__split">
       {face}
       <Menu.Root>
-        <Menu.Trigger
-          className={`meridian-approval-card__arrow ${props.faceClassName}`}
-          aria-label={arrow.label}
-          title={arrow.label}
-          disabled={props.isDisabled}
-        >
-          <Glyph name="chevron-down" size={GLYPH_SIZE_ROW} />
-        </Menu.Trigger>
+        <HoverLabel text={arrow.label} textRole="name">
+          <Menu.Trigger
+            className={`meridian-approval-card__arrow ${props.faceClassName}`}
+            disabled={props.isDisabled}
+            // Disabled yet focusable, so the keyboard still reaches the arrow's name.
+            render={<Button focusableWhenDisabled />}
+          >
+            <Glyph name="chevron-down" size={GLYPH_SIZE_ROW} />
+          </Menu.Trigger>
+        </HoverLabel>
         <OverlayMenuPopup className="meridian-approval-card__scope-menu">
           {arrow.rows.map((row) => (
             <Menu.Item

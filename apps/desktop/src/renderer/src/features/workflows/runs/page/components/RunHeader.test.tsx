@@ -221,20 +221,20 @@ describe("a run's header", () => {
     const endedCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.succeeded)).calls;
     const endedCancel = control("Cancel");
     const endedResume = control("Resume");
-    expect(endedCancel).toHaveProperty("disabled", true);
+    expect(endedCancel.getAttribute("aria-disabled")).toBe("true");
     expect(endedCancel.getAttribute("aria-describedby")).not.toBeNull();
     expect(screen.getByText("Cancel · this run has already finished")).toBeDefined();
-    expect(endedResume).toHaveProperty("disabled", true);
+    expect(endedResume.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
     // A new run of the pinned version can start beside a run in any state.
-    expect(control("Re-run")).toHaveProperty("disabled", false);
+    expect(control("Re-run").getAttribute("aria-disabled")).toBe("false");
     fireEvent.click(endedCancel);
     fireEvent.click(endedResume);
     expect(endedCalls.map((call) => call.method)).toStrictEqual([]);
     cleanup();
 
     const goingCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.running)).calls;
-    expect(control("Resume")).toHaveProperty("disabled", true);
+    expect(control("Resume").getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
@@ -257,8 +257,8 @@ describe("a run's header", () => {
 
     // A failed run that ended refuses both, in words.
     const endedFailedCalls = renderHeader({ ...parked, finishedAt: parked.startedAt }).calls;
-    expect(control("Resume")).toHaveProperty("disabled", true);
-    expect(control("Cancel")).toHaveProperty("disabled", true);
+    expect(control("Resume").getAttribute("aria-disabled")).toBe("true");
+    expect(control("Cancel").getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
     expect(screen.getByText("Cancel · this run has already finished")).toBeDefined();
     fireEvent.click(control("Resume"));
@@ -301,7 +301,7 @@ describe("a run's header", () => {
       reviews,
     );
     const openInReview = control("Open in Review");
-    expect(openInReview).toHaveProperty("disabled", true);
+    expect(openInReview.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText(reason)).toBeDefined();
     fireEvent.click(openInReview);
     expect(reviews).toHaveLength(1);

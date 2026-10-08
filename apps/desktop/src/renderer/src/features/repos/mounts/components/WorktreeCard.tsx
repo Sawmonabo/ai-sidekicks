@@ -1,6 +1,6 @@
 // One worktree row of `repo.worktreeStatusRead`. Every column is the wire's own string but the
 // state, which reads as words, and the age, which is derived, with its machine-clock time as its
-// `title`.
+// hover label.
 // Secondary facts sit in a native `<details>`, which keeps no per-row state. There is no retire
 // control: its confirm needs an inspection preview this card is not given and must not fabricate.
 
@@ -26,6 +26,7 @@ import {
 } from "../execution-roots/columns.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
@@ -100,16 +101,18 @@ function summaryCell(
   switch (column) {
     case "fsRoot":
       return (
-        <dd className="meridian-root-card__path" title={record.fsRoot}>
-          <WireFigure value={record.fsRoot} />
-        </dd>
+        <HoverLabel text={record.fsRoot} textRole="visible-text">
+          <dd className="meridian-root-card__path">
+            <WireFigure value={record.fsRoot} />
+          </dd>
+        </HoverLabel>
       );
     case "createdAt":
       return (
         <dd>
           <WireFigure
             value={formatRelativeTime(record.createdAt, nowMilliseconds)}
-            title={formatZonedDateTime(record.createdAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(record.createdAt, clockLocale)}
           />
         </dd>
       );
