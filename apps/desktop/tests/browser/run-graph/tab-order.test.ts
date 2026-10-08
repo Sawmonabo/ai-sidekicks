@@ -7,13 +7,12 @@
 // into the canvas, even while the view is still sliding. This needs real focus and layout, so it
 // runs in Chromium.
 
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { clearMediaEmulation, emulateReducedMotion } from "../../helpers/media-emulation.js";
-import { MOTION_DURATIONS_MS } from "#renderer/styles/motion.js";
 import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { EDGE_COUNT_CLASS } from "#renderer/features/workflows/runs/page/graph/elements.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
@@ -157,11 +156,9 @@ it("hands Tab on past its last stop, and Shift+Tab back in starts at that stop",
 });
 
 it("moves no view as Tab passes over the end node on its way out of the graph", async () => {
-  // Reduced motion, so a move would be a jump the next read sees. The running run opens at full
-  // size on its live step, and narrowed to a sliver it stays on that step at full size, which
-  // leaves most nodes outside the canvas. Its nodes reversed, so the last node in the library's
-  // order is one that edges leave, and Tab from its last count hands focus to that node on the
-  // way out.
+  // Reduced motion, so a move would be a jump the next read sees. Its nodes reversed, so the last
+  // node in the library's order is one that edges leave, and Tab from its last count hands focus
+  // to that node on the way out.
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
   const reversed: FixtureRun = {
@@ -171,32 +168,24 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
       nodes: [...fixture.workflowDocument.nodes].reverse(),
     },
   };
-  const { canvas } = await mountBetweenButtons(reversed);
-  const openedTransform = viewportTransform(canvas);
-  act(() => {
-    canvas.style.inlineSize = "96px";
-  });
-  // The follow centers the live step again at the new width, so the library has seen the resize.
-  await waitFor(() => {
-    expect(viewportTransform(canvas)).not.toBe(openedTransform);
-  });
+  const { canvas, pane } = await mountNarrowed(reversed);
   const lastNode = [...canvas.querySelectorAll<HTMLElement>(".react-flow__node")].at(-1);
-  const pane = canvas.querySelector<HTMLElement>(".react-flow");
-  const lastLeaving = reversed.workflowDocument.edges.filter(
-    (edge) => edge.source === lastNode?.dataset["id"],
-  );
-  if (lastNode === undefined || pane === null || lastLeaving.length === 0) {
-    throw new Error("the reversed fixture's last node has no edge leaving it");
+  if (lastNode === undefined) {
+    throw new Error("the reversed fixture drew no node");
   }
-  const lastStop = await waitFor(() => {
-    const count = countOf(canvas, lastLeaving.at(-1)!.id);
-    expect(count).toBeInstanceOf(SVGElement);
-    return count as SVGElement;
-  });
+  const lastStop = await lastCountLeaving(canvas, reversed, lastNode);
 
-  // Focus put on the last count from code reveals the count; the Tab out is measured from there.
+  // A key first, so focus put on the last count from code is keyboard focus and reveals the count;
+  // the Tab out is measured from there.
+  await act(async () => {
+    await userEvent.keyboard("{Shift}");
+  });
   act(() => {
     lastStop.focus();
+  });
+  await waitFor(() => {
+    expect(pane.scrollLeft + pane.scrollTop).toBe(0);
+    expect(isInside(lastStop, pane)).toBe(true);
   });
   expect(
     isInside(lastNode, pane),
@@ -209,31 +198,12 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
 });
 
 it("brings a count reached by Tab into the canvas", async () => {
-  // Reduced motion, so the pan is a jump the next read sees. Narrowed to a sliver, the canvas
-  // shows a node but not the count on the edge leaving it.
+  // Reduced motion, so the pan is a jump the next read sees.
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
-  const { canvas } = await mountBetweenButtons(fixture);
-  const openedTransform = viewportTransform(canvas);
-  act(() => {
-    canvas.style.inlineSize = "96px";
-  });
-  await waitFor(() => {
-    expect(viewportTransform(canvas)).not.toBe(openedTransform);
-  });
-  const pane = canvas.querySelector<HTMLElement>(".react-flow");
-  const firstNode = canvas.querySelector<HTMLElement>(".react-flow__node");
-  const leaving = fixture.workflowDocument.edges.find(
-    (edge) => edge.source === firstNode?.dataset["id"],
-  );
-  if (pane === null || firstNode === null || leaving === undefined) {
-    throw new Error("the running fixture's first node has no edge leaving it");
-  }
-  const count = await waitFor(() => {
-    const drawn = countOf(canvas, leaving.id);
-    expect(drawn).toBeInstanceOf(SVGElement);
-    return drawn as SVGElement;
-  });
+  const { canvas, pane } = await mountNarrowed(fixture);
+  const firstNode = firstNodeOf(canvas);
+  const count = await lastCountLeaving(canvas, fixture, firstNode);
 
   act(() => {
     firstNode.focus();
@@ -248,62 +218,131 @@ it("brings a count reached by Tab into the canvas", async () => {
 });
 
 it("brings a count reached by Tab mid-slide into the canvas where the slide ends", async () => {
-  // Narrowed to a sliver, the canvas shows a count but not the center of the node it leaves.
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
+  const { canvas, pane } = await mountNarrowed(fixture);
+  const firstNode = firstNodeOf(canvas);
+  const count = await lastCountLeaving(canvas, fixture, firstNode);
+  // A key first, so focus put from code is keyboard focus, which the canvas brings into view.
+  await act(async () => {
+    await userEvent.keyboard("{Shift}");
+  });
+  // The count put in view first, its node's center then outside the canvas.
+  act(() => {
+    count.focus();
+  });
+  await waitFor(() => {
+    expect(pane.scrollLeft + pane.scrollTop).toBe(0);
+    expect(isInside(count, pane), "the count is in the canvas").toBe(true);
+  });
+  expect(isInside(firstNode, pane), "the node's center is outside the canvas").toBe(false);
+
+  // With motion on, focus on the node starts a slide to it, and Tab moves to the count in that
+  // same task, before the slide has moved the view, so the count is still in view as focus lands.
+  // The node centered leaves the count outside, so only a reveal judged against where the view is
+  // going brings the count back.
+  await act(async () => {
+    await clearMediaEmulation();
+  });
+  // The page reads the cleared emulation a moment later; until then a slide would be a jump.
+  await waitFor(() => {
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false);
+  });
+  let isCountInViewAsFocusLands: boolean | undefined;
+  count.addEventListener(
+    "focus",
+    () => {
+      isCountInViewAsFocusLands = isInside(count, pane);
+    },
+    { once: true },
+  );
+  act(() => {
+    firstNode.focus();
+    fireEvent.keyDown(firstNode, { key: "Tab" });
+  });
+  expect(document.activeElement).toBe(count);
+  expect(isCountInViewAsFocusLands).toBe(true);
+  await waitForViewToRest(canvas);
+  expect(isInside(count, pane)).toBe(true);
+  const countBox = count.getBoundingClientRect();
+  const nodeBox = firstNode.getBoundingClientRect();
+  expect(
+    Math.abs(countBox.left + countBox.width / 2 - (nodeBox.left + nodeBox.width / 2)),
+    "the node centered would leave the count outside the canvas",
+  ).toBeGreaterThan(pane.getBoundingClientRect().width / 2);
+});
+
+/**
+ * `fixture`'s graph, narrowed to a sliver once it opens: the running run opens at full size on its
+ * live step and stays on it at full size, which leaves most nodes outside the canvas.
+ */
+async function mountNarrowed(
+  fixture: FixtureRun,
+): Promise<{ readonly canvas: HTMLElement; readonly pane: HTMLElement }> {
   const { canvas } = await mountBetweenButtons(fixture);
   const openedTransform = viewportTransform(canvas);
   act(() => {
     canvas.style.inlineSize = "96px";
   });
+  // The follow centers the live step again at the new width, so the library has seen the resize.
   await waitFor(() => {
     expect(viewportTransform(canvas)).not.toBe(openedTransform);
   });
   const pane = canvas.querySelector<HTMLElement>(".react-flow");
-  const firstNode = canvas.querySelector<HTMLElement>(".react-flow__node");
-  const leaving = fixture.workflowDocument.edges.find(
-    (edge) => edge.source === firstNode?.dataset["id"],
-  );
-  if (pane === null || firstNode === null || leaving === undefined) {
-    throw new Error("the running fixture's first node has no edge leaving it");
+  if (pane === null) {
+    throw new Error("the graph drew no frame");
   }
-  const count = await waitFor(() => {
-    const drawn = countOf(canvas, leaving.id);
+  return { canvas, pane };
+}
+
+function firstNodeOf(canvas: HTMLElement): HTMLElement {
+  const node = canvas.querySelector<HTMLElement>(".react-flow__node");
+  if (node === null) {
+    throw new Error("the graph drew no node");
+  }
+  return node;
+}
+
+/** The count on the last edge leaving `node`, once the library has drawn it. */
+async function lastCountLeaving(
+  canvas: HTMLElement,
+  fixture: FixtureRun,
+  node: HTMLElement,
+): Promise<SVGElement> {
+  const edge = fixture.workflowDocument.edges
+    .filter((candidate) => candidate.source === node.dataset["id"])
+    .at(-1);
+  if (edge === undefined) {
+    throw new Error(`no edge leaves the node ${String(node.dataset["id"])}`);
+  }
+  return waitFor(() => {
+    const drawn = countOf(canvas, edge.id);
     expect(drawn).toBeInstanceOf(SVGElement);
     return drawn as SVGElement;
   });
-  act(() => {
-    count.focus();
-  });
-  expect(isInside(count, pane), "the count is in the canvas").toBe(true);
-  expect(isInside(firstNode, pane), "its node's center is outside the canvas").toBe(false);
+}
 
-  // With motion on, focus on the node slides the view to it, and Tab lands on the count while
-  // that slide has barely begun, the count still in view. The slide ends with the count outside,
-  // so the count's reveal is judged against where the view is going.
+// Waits until the view has stood still for a run of frames, as it does once every slide ends.
+async function waitForViewToRest(canvas: HTMLElement): Promise<void> {
   await act(async () => {
-    await clearMediaEmulation();
+    let last = viewportTransform(canvas);
+    let stillFrames = 0;
+    for (let frame = 0; frame < 600 && stillFrames < 12; frame += 1) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const now = viewportTransform(canvas);
+      stillFrames = now === last ? stillFrames + 1 : 0;
+      last = now;
+    }
   });
-  act(() => {
-    firstNode.focus();
-  });
-  await pressTab();
-  expect(document.activeElement).toBe(count);
-  // Both slides run out on the clock; the label follows the count as they move.
-  await act(async () => {
-    await new Promise((resolve) =>
-      setTimeout(resolve, 2 * MOTION_DURATIONS_MS["motion-thread"] + 200),
-    );
-  });
-  expect(isInside(count, pane)).toBe(true);
-});
+}
 
-// Whether `element`'s center lies within `box`.
-function isInside(element: Element, box: Element): boolean {
+// Whether `element`'s center lies within `frame` as the graph's view draws it, with any scroll
+// the browser gave the frame to show a focused element taken back out.
+function isInside(element: Element, frame: Element): boolean {
   const { left, top, width, height } = element.getBoundingClientRect();
-  const bounds = box.getBoundingClientRect();
-  const x = left + width / 2;
-  const y = top + height / 2;
+  const bounds = frame.getBoundingClientRect();
+  const x = left + width / 2 + frame.scrollLeft;
+  const y = top + height / 2 + frame.scrollTop;
   return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
 }
 

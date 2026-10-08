@@ -26,7 +26,10 @@ export interface LiveStepFollow {
   readonly resumeFollowing: () => void;
   /** Stops the follow on a pan or zoom a person started; the library's own moves pass no event. */
   readonly stopOnPersonMove: OnMoveStart;
-  /** Brings a point into view at the current zoom when it stands outside the canvas. */
+  /**
+   * Brings a point into view when it stands outside the canvas as the view will rest, once any
+   * slide this hook started ends, at that view's zoom.
+   */
   readonly revealPoint: (point: CanvasPoint) => void;
 }
 
@@ -48,7 +51,7 @@ const ON_LIVE_STEP_TOLERANCE_PX = 1;
 /** How long the view takes to slide to the live step, in milliseconds. */
 const FOLLOW_SLIDE_MS = MOTION_DURATIONS_MS["motion-thread"];
 
-/** A slide is a straight pan at one zoom, never the library's default zoom out and back in. */
+/** A slide moves the view straight to where it rests, never the library's zoom out and back in. */
 const SLIDE_INTERPOLATION = "linear";
 
 /**
@@ -115,7 +118,9 @@ export function useLiveStepFollow(
           )
         : viewportCenteredOn(
             { x: liveX, y: liveY },
-            hasPlacedRef.current ? getZoom() : OPEN_ON_LIVE_STEP_ZOOM,
+            hasPlacedRef.current
+              ? (restingViewportRef.current?.zoom ?? getZoom())
+              : OPEN_ON_LIVE_STEP_ZOOM,
             canvasWidth,
             canvasHeight,
           );
@@ -125,6 +130,8 @@ export function useLiveStepFollow(
     void placement.then((isPlaced) => {
       if (isPlaced) {
         hasPlacedRef.current = true;
+      } else if (restingViewportRef.current === resting) {
+        restingViewportRef.current = undefined;
       }
     });
   }, [

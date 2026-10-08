@@ -23,6 +23,7 @@ import { tokenReference } from "#renderer/styles/tokens.js";
 import { WORKFLOW_CANVAS_MEASURES } from "#renderer/features/workflows/canvas/measures.js";
 import { EDGE_COUNT_CLASS, RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./elements.js";
 import { RunGraphNode } from "./RunGraphNode.js";
+import type { CanvasPoint } from "./layout.js";
 import { useLiveStepFollow } from "./hooks/useLiveStepFollow.js";
 import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
@@ -296,10 +297,10 @@ function moveGraphFocus(
 // Where `element`'s center sits in the graph's own units, read off the drawn graph alone: the
 // browser may already have scrolled the library's frame to show a focused element, which moves the
 // element and the graph's origin alike, and the scale is the one the graph is drawn at.
-function drawnGraphPoint(element: Element): { readonly x: number; readonly y: number } {
+function drawnGraphPoint(element: Element): CanvasPoint {
   const graph = element.closest<HTMLElement>(".react-flow__viewport");
   if (graph === null) {
-    throw new Error("A run graph count is drawn outside the graph's viewport.");
+    throw new Error("A focused run graph element is drawn outside the graph's viewport.");
   }
   const origin = graph.getBoundingClientRect();
   const scale = new DOMMatrixReadOnly(getComputedStyle(graph).transform).a;
