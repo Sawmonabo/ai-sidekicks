@@ -449,6 +449,7 @@ describe("Codex rewind and re-realization", () => {
       expect(params["sandbox"]).toBe("workspace-write");
       expect(params["config"]).toStrictEqual({
         "apps._default.default_tools_approval_mode": "writes",
+        "apps._default.approvals_reviewer": "user",
         "agents.max_concurrent_threads_per_session": 3,
         "agents.max_depth": 1,
       });
@@ -481,9 +482,15 @@ describe("Codex rewind and re-realization", () => {
       executionPosture: WORKSPACE_POSTURE,
     });
 
-    expect(paramsOf(created, "thread/start")["approvalsReviewer"]).toBe("auto_review");
-    expect(paramsOf(harness, "thread/resume")["approvalsReviewer"]).toBe("auto_review");
-    expect(paramsOf(harness, "thread/fork")["approvalsReviewer"]).toBe("auto_review");
+    // A connector ask takes the `apps` table's reviewer before the conversation's.
+    for (const params of [
+      paramsOf(created, "thread/start"),
+      paramsOf(harness, "thread/resume"),
+      paramsOf(harness, "thread/fork"),
+    ]) {
+      expect(params["approvalsReviewer"]).toBe("auto_review");
+      expect(params["config"]).toMatchObject({ "apps._default.approvals_reviewer": "auto_review" });
+    }
     const turnReviewers = harness.server
       .framesForMethod("turn/start")
       .map((frame) => (frame["params"] as Record<string, unknown>)["approvalsReviewer"]);
@@ -509,6 +516,7 @@ describe("Codex rewind and re-realization", () => {
     expect(params["approvalsReviewer"]).toBe("user");
     expect(params["config"]).toStrictEqual({
       "apps._default.default_tools_approval_mode": "approve",
+      "apps._default.approvals_reviewer": "user",
       "agents.max_concurrent_threads_per_session": 3,
       "agents.max_depth": 1,
     });
@@ -529,6 +537,7 @@ describe("Codex rewind and re-realization", () => {
     expect(params["approvalPolicy"]).toBe("never");
     expect(params["config"]).toStrictEqual({
       "apps._default.default_tools_approval_mode": "writes",
+      "apps._default.approvals_reviewer": "user",
     });
   });
 

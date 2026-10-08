@@ -178,7 +178,11 @@ export function composeCodexApprovalsReviewer(
 interface CodexThreadPosture {
   /** The `sandbox` and `approvalPolicy` thread fields. */
   readonly params: { readonly sandbox: CodexSandboxMode; readonly approvalPolicy: string };
-  /** The `config` overrides the level adds: the connectors' default approval mode. */
+  /**
+   * The `config` overrides the level adds: the connectors' default approval mode and reviewer.
+   * Codex picks a connector ask's reviewer from the `apps` table before the conversation's, so the
+   * default is set too; an app or account the person set keeps its own.
+   */
   readonly config: Readonly<Record<string, unknown>>;
 }
 
@@ -191,6 +195,8 @@ export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThrea
     config: {
       "apps._default.default_tools_approval_mode":
         CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL[posture.mode],
+      "apps._default.approvals_reviewer":
+        CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL[posture.mode],
     },
   };
 }
