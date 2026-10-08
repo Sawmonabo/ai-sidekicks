@@ -1,6 +1,7 @@
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
+import type { WorkflowStepResolution } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
@@ -9,7 +10,6 @@ import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/use
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
-import type { HeldStepAnswer } from "../step/receipts.js";
 
 /**
  * A step blocked on an approval, answered where it stands: `Reject` and `Approve`. The answer
@@ -21,17 +21,14 @@ export function ApprovalAnswer(props: {
   readonly nodeId: WorkflowNodeId;
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has recorded it. */
-  readonly onAnswered: (answer: HeldStepAnswer) => void;
+  readonly onAnswered: (answer: WorkflowStepResolution) => void;
 }): React.JSX.Element {
   const { workflowRunId, nodeId, bridge } = props;
   const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
       callDaemon(bridge, "workflow.gateResolve", { workflowRunId, nodeId, decision }),
     (resolved, decision) => {
-      props.onAnswered({
-        resolution: { kind: decision, at: resolved.decidedAt },
-        isWindowClockStamp: false,
-      });
+      props.onAnswered({ kind: decision, at: resolved.decidedAt });
     },
   );
   const isSending = answer.state.kind === "sending";

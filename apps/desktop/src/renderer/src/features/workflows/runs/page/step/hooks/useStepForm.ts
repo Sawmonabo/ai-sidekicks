@@ -4,7 +4,10 @@ import type {
   WorkflowHumanFormPathAnswer,
   WorkflowHumanFormReadResponse,
 } from "@ai-sidekicks/contracts/workflow/run/step/methods";
-import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type {
+  WorkflowStepKey,
+  WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
@@ -24,7 +27,6 @@ import {
   type ParamAnswers,
   type ParamIssues,
 } from "#renderer/features/workflows/param-form/answers.js";
-import type { HeldStepAnswer } from "../receipts.js";
 
 /** Where the step's form read stands. */
 export type StepFormRead =
@@ -65,7 +67,7 @@ export const DRAFT_SAVE_REST_MS = 600;
 export function useStepForm(
   bridge: PlatformBridge,
   stepKey: WorkflowStepKey,
-  onAnswered: (answer: HeldStepAnswer) => void,
+  onAnswered: (answer: WorkflowStepResolution) => void,
 ): StepFormHold {
   const clock = useClock();
   const subject =
@@ -180,10 +182,7 @@ export function useStepForm(
       readonly expectedRevision: number;
     }) => callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
     (submitted) => {
-      onAnswered({
-        resolution: { kind: "answered", at: submitted.submittedAt },
-        isWindowClockStamp: false,
-      });
+      onAnswered({ kind: "answered", at: submitted.submittedAt });
     },
   );
 
