@@ -3,8 +3,9 @@
 // so the browser's own order would reach every count first. The walk hands Tab back to the browser
 // at both ends, so the graph is never a trap, and Shift+Tab coming back in reaches the canvas's own
 // controls, then starts the walk at its last stop rather than skipping the counts that leave the
-// last node. Tabbing out past an end does not move the view. This needs real focus and layout, so
-// it runs in Chromium.
+// last node. Tabbing out past an end does not move the view, and a count Tab reaches is brought
+// into the canvas, even while the view is still sliding. This needs real focus and layout, so it
+// runs in Chromium.
 
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -12,6 +13,7 @@ import { afterEach, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { clearMediaEmulation, emulateReducedMotion } from "../../helpers/media-emulation.js";
+import { MOTION_DURATIONS_MS } from "#renderer/styles/motion.js";
 import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { EDGE_COUNT_CLASS } from "#renderer/features/workflows/runs/page/graph/elements.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
@@ -196,17 +198,10 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
   act(() => {
     lastStop.focus();
   });
-  const paneBox = pane.getBoundingClientRect();
-  const nodeBox = lastNode.getBoundingClientRect();
-  const nodeCenterX = nodeBox.left + nodeBox.width / 2;
-  const nodeCenterY = nodeBox.top + nodeBox.height / 2;
   expect(
-    nodeCenterX < paneBox.left ||
-      nodeCenterX > paneBox.right ||
-      nodeCenterY < paneBox.top ||
-      nodeCenterY > paneBox.bottom,
+    isInside(lastNode, pane),
     "the last node stands outside the canvas as Tab leaves its count",
-  ).toBe(true);
+  ).toBe(false);
   const transform = viewportTransform(canvas);
   await pressTab();
   expect(isGraphStop(document.activeElement)).toBe(false);
@@ -252,7 +247,58 @@ it("brings a count reached by Tab into the canvas", async () => {
   });
 });
 
-// Whether `element`'s center lies inside `box`'s box.
+it("brings a count reached by Tab mid-slide into the canvas where the slide ends", async () => {
+  // Narrowed to a sliver, the canvas shows a count but not the center of the node it leaves.
+  await emulateReducedMotion();
+  const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
+  const { canvas } = await mountBetweenButtons(fixture);
+  const openedTransform = viewportTransform(canvas);
+  act(() => {
+    canvas.style.inlineSize = "96px";
+  });
+  await waitFor(() => {
+    expect(viewportTransform(canvas)).not.toBe(openedTransform);
+  });
+  const pane = canvas.querySelector<HTMLElement>(".react-flow");
+  const firstNode = canvas.querySelector<HTMLElement>(".react-flow__node");
+  const leaving = fixture.workflowDocument.edges.find(
+    (edge) => edge.source === firstNode?.dataset["id"],
+  );
+  if (pane === null || firstNode === null || leaving === undefined) {
+    throw new Error("the running fixture's first node has no edge leaving it");
+  }
+  const count = await waitFor(() => {
+    const drawn = countOf(canvas, leaving.id);
+    expect(drawn).toBeInstanceOf(SVGElement);
+    return drawn as SVGElement;
+  });
+  act(() => {
+    count.focus();
+  });
+  expect(isInside(count, pane), "the count is in the canvas").toBe(true);
+  expect(isInside(firstNode, pane), "its node's center is outside the canvas").toBe(false);
+
+  // With motion on, focus on the node slides the view to it, and Tab lands on the count while
+  // that slide has barely begun, the count still in view. The slide ends with the count outside,
+  // so the count's reveal is judged against where the view is going.
+  await act(async () => {
+    await clearMediaEmulation();
+  });
+  act(() => {
+    firstNode.focus();
+  });
+  await pressTab();
+  expect(document.activeElement).toBe(count);
+  // Both slides run out on the clock; the label follows the count as they move.
+  await act(async () => {
+    await new Promise((resolve) =>
+      setTimeout(resolve, 2 * MOTION_DURATIONS_MS["motion-thread"] + 200),
+    );
+  });
+  expect(isInside(count, pane)).toBe(true);
+});
+
+// Whether `element`'s center lies within `box`.
 function isInside(element: Element, box: Element): boolean {
   const { left, top, width, height } = element.getBoundingClientRect();
   const bounds = box.getBoundingClientRect();

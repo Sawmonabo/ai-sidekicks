@@ -11,7 +11,6 @@ import {
   Panel,
   ReactFlow,
   ReactFlowProvider,
-  useReactFlow,
   type NodeMouseHandler,
   type NodeTypes,
 } from "@xyflow/react";
@@ -102,7 +101,6 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     [markInView],
   );
   const { stopFollowing, revealPoint } = follow;
-  const { getViewport } = useReactFlow();
 
   const selectClickedNode = useCallback<NodeMouseHandler>(
     (_event, node) => onSelectNode(node.id),
@@ -173,20 +171,10 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
       if (node !== undefined) {
         revealPoint(runGraphNodeCenter(node));
       } else if (event.target.classList.contains(EDGE_COUNT_CLASS)) {
-        // Read against the drawn graph's own origin rather than the screen: the browser may
-        // already have scrolled the library's frame to show the count, which moves both alike.
-        const origin = event.target.closest(".react-flow__viewport")?.getBoundingClientRect();
-        if (origin !== undefined) {
-          const countBox = event.target.getBoundingClientRect();
-          const { zoom } = getViewport();
-          revealPoint({
-            x: (countBox.left + countBox.width / 2 - origin.left) / zoom,
-            y: (countBox.top + countBox.height / 2 - origin.top) / zoom,
-          });
-        }
+        revealPoint(drawnGraphPoint(event.target));
       }
     },
-    [getViewport, graphOrder, nodes, revealPoint],
+    [graphOrder, nodes, revealPoint],
   );
 
   return (
@@ -303,6 +291,23 @@ function moveGraphFocus(
   const nodeElements = canvas.querySelectorAll<HTMLElement>(".react-flow__node");
   const endNode = nodeElements[isBackward ? 0 : nodeElements.length - 1];
   return endNode === undefined ? undefined : { kind: "hand-off", element: endNode };
+}
+
+// Where `element`'s center sits in the graph's own units, read off the drawn graph alone: the
+// browser may already have scrolled the library's frame to show a focused element, which moves the
+// element and the graph's origin alike, and the scale is the one the graph is drawn at.
+function drawnGraphPoint(element: Element): { readonly x: number; readonly y: number } {
+  const graph = element.closest<HTMLElement>(".react-flow__viewport");
+  if (graph === null) {
+    throw new Error("A run graph count is drawn outside the graph's viewport.");
+  }
+  const origin = graph.getBoundingClientRect();
+  const scale = new DOMMatrixReadOnly(getComputedStyle(graph).transform).a;
+  const box = element.getBoundingClientRect();
+  return {
+    x: (box.left + box.width / 2 - origin.left) / scale,
+    y: (box.top + box.height / 2 - origin.top) / scale,
+  };
 }
 
 // Whether focus came into the graph's walk from an element after it in the document's order, such

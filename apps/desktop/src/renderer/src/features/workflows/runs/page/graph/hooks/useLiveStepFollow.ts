@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useReactFlow, useStore, type OnMoveStart } from "@xyflow/react";
+import {
+  getViewportForBounds,
+  useReactFlow,
+  useStore,
+  type OnMoveStart,
+  type Viewport,
+} from "@xyflow/react";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
@@ -42,6 +48,9 @@ const ON_LIVE_STEP_TOLERANCE_PX = 1;
 /** How long the view takes to slide to the live step, in milliseconds. */
 const FOLLOW_SLIDE_MS = MOTION_DURATIONS_MS["motion-thread"];
 
+/** A slide is a straight pan at one zoom, never the library's default zoom out and back in. */
+const SLIDE_INTERPOLATION = "linear";
+
 /**
  * Keeps the view on the live step: placed on it when the graph opens, sliding after it as the
  * run moves, and fitting the whole graph while nothing is live. A pan, a zoom or a key a person
@@ -53,9 +62,14 @@ export function useLiveStepFollow(
   liveCenter: CanvasPoint | undefined,
   canvasRef: React.RefObject<HTMLElement | null>,
 ): LiveStepFollow {
-  const { fitView, getZoom, getViewport, setCenter } = useReactFlow();
+  const { getNodes, getNodesBounds, getZoom, getViewport, setViewport } = useReactFlow();
   const canvasWidth = useStore((state) => state.width);
   const canvasHeight = useStore((state) => state.height);
+  const minZoom = useStore((state) => state.minZoom);
+  const maxZoom = useStore((state) => state.maxZoom);
+  // Where the view comes to rest once the slide this hook started ends, and gone once a person
+  // moves it: a reveal judges against where the view is going, not where a slide has it now.
+  const restingViewportRef = useRef<Viewport | undefined>(undefined);
   const [isFollowing, setIsFollowing] = useState(true);
   const hasPlacedRef = useRef(false);
   const ownerWindow = useOwnerWindow();
@@ -89,38 +103,65 @@ export function useLiveStepFollow(
     }
     // The first placement is where the graph opens, so it never slides in from elsewhere.
     const duration = hasPlacedRef.current ? slideMs() : 0;
-    const placement =
+    const resting =
       liveX === undefined || liveY === undefined
-        ? fitView({ padding: RUN_GRAPH_FIT_PADDING, duration })
-        : setCenter(liveX, liveY, {
-            zoom: hasPlacedRef.current ? getZoom() : OPEN_ON_LIVE_STEP_ZOOM,
-            duration,
-          });
+        ? getViewportForBounds(
+            getNodesBounds(getNodes()),
+            canvasWidth,
+            canvasHeight,
+            minZoom,
+            maxZoom,
+            RUN_GRAPH_FIT_PADDING,
+          )
+        : viewportCenteredOn(
+            { x: liveX, y: liveY },
+            hasPlacedRef.current ? getZoom() : OPEN_ON_LIVE_STEP_ZOOM,
+            canvasWidth,
+            canvasHeight,
+          );
+    restingViewportRef.current = resting;
+    const placement = setViewport(resting, { duration, interpolate: SLIDE_INTERPOLATION });
     // The library answers false while its pan and zoom are not mounted yet, and nothing moved.
     void placement.then((isPlaced) => {
       if (isPlaced) {
         hasPlacedRef.current = true;
       }
     });
-  }, [isFollowing, liveX, liveY, canvasWidth, canvasHeight, fitView, getZoom, setCenter, slideMs]);
+  }, [
+    isFollowing,
+    liveX,
+    liveY,
+    canvasWidth,
+    canvasHeight,
+    minZoom,
+    maxZoom,
+    getNodes,
+    getNodesBounds,
+    getZoom,
+    setViewport,
+    slideMs,
+  ]);
 
   const stopFollowing = useCallback(() => setIsFollowing(false), []);
   const resumeFollowing = useCallback(() => setIsFollowing(true), []);
   const stopOnPersonMove = useCallback<OnMoveStart>((event) => {
     if (event !== null) {
+      restingViewportRef.current = undefined;
       setIsFollowing(false);
     }
   }, []);
   const revealPoint = useCallback(
     (point: CanvasPoint) => {
-      const { x, y, zoom } = getViewport();
+      const { x, y, zoom } = restingViewportRef.current ?? getViewport();
       const screenX = point.x * zoom + x;
       const screenY = point.y * zoom + y;
       if (screenX < 0 || screenY < 0 || screenX > canvasWidth || screenY > canvasHeight) {
-        void setCenter(point.x, point.y, { zoom, duration: slideMs() });
+        const resting = viewportCenteredOn(point, zoom, canvasWidth, canvasHeight);
+        restingViewportRef.current = resting;
+        void setViewport(resting, { duration: slideMs(), interpolate: SLIDE_INTERPOLATION });
       }
     },
-    [canvasWidth, canvasHeight, getViewport, setCenter, slideMs],
+    [canvasWidth, canvasHeight, getViewport, setViewport, slideMs],
   );
 
   return {
@@ -131,4 +172,14 @@ export function useLiveStepFollow(
     stopOnPersonMove,
     revealPoint,
   };
+}
+
+// The view that puts `point` at the canvas's center at `zoom`, as the library's own centering does.
+function viewportCenteredOn(
+  point: CanvasPoint,
+  zoom: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): Viewport {
+  return { x: canvasWidth / 2 - point.x * zoom, y: canvasHeight / 2 - point.y * zoom, zoom };
 }
