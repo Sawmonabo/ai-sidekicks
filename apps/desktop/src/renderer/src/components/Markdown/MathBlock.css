@@ -11,6 +11,11 @@
   /* The widest unbreakable piece, measured once in em, fits the column at this size: the formula
      shrinks as far as the column does, with no floor, so it never scrolls sideways. */
   font-size: min(1em, 100cqi / var(--math-natural-width, 1));
+  /* Unhinted glyphs at fractional advances, so a piece's width scales in step with its font size
+     and the size worked out from the measured width fits on every platform; hinting rounds each
+     glyph's advance to whole pixels at the drawn size, which on Linux pushed a piece past the
+     column it was sized to fill. */
+  text-rendering: geometricPrecision;
 }
 
 /* KaTeX ends a piece after each top-level relation and binary operator; letting the line wrap
