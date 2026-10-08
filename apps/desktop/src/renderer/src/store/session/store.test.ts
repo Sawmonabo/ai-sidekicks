@@ -362,15 +362,21 @@ describe("the standing events stand whatever rows the window holds", () => {
       eventAt(5),
     ]);
     store.releaseBeyondNewest(1);
+    const switchedAt = (sequence: number, agentId: string): ProjectedSessionEvent =>
+      eventOfKind("session-1", "agent.provider_binding_changed", sequence, { agentId });
     store.applyBatch([
       measuredAt(6, "run-b"),
       eventOfKind("session-1", "pty.control_changed", 7, { terminalId: "shell-1" }),
+      // Each agent's newest switch stands: the lead's second replaces its first.
+      switchedAt(8, "agent-lead"),
+      switchedAt(9, "agent-helper"),
+      switchedAt(10, "agent-lead"),
     ]);
 
     expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([5]);
     expect(store.snapshot().transcriptTail.following).toBe("detached");
     expect(store.snapshot().standingEvents.map((event) => event.sequence)).toStrictEqual([
-      1, 2, 6, 7,
+      1, 2, 6, 7, 9, 10,
     ]);
   });
 });

@@ -79,7 +79,7 @@
     {
       "id": "scrolling-conversation-frame-gap",
       "label": "Scrolling the conversation, frame gap",
-      "subject": "The 95th-percentile gap between the frames the window presents while a series of flings moves the long conversation up from its tail, less one refresh of the display, idle and with four lanes streaming, read from a DevTools trace of the built bundle running in Electron against the fixture bridge's long-conversation scenario with the frozen clock: a history of twenty-four turns of four agents' thinking, replies and tool calls, every run group open, then the four concurrent-streaming lanes.",
+      "subject": "The 95th-percentile gap between the frames the window presents while a series of flings moves the long conversation up from its tail, less one refresh of the display, idle and with four lanes streaming, read from a DevTools trace of the built bundle running in Electron against the fixture bridge's long-conversation scenario with the frozen clock: a history of twenty-four turns of four agents' thinking, replies and tool calls, every run finished and its group folded to its header and receipt, then the four concurrent-streaming lanes.",
       "specTarget": "a fling at 8,000 px/s through a long conversation, idle and with four lanes streaming, on the reference machine: while the fling moves the content, p95 ≤ one refresh and 1 ms between presented frames (9.4 ms at 120 Hz)",
       "limit": {
         "comparison": "<=",
@@ -191,9 +191,9 @@
       "scope": "product"
     },
     {
-      "id": "steady-heap-concurrent-streaming",
-      "label": "Steady heap, concurrent-streaming live stream",
-      "subject": "Renderer heap over thirty minutes of the concurrent-streaming scenario streaming live on the scenario clock — both its ceiling and its slope, since a heap that stays under the ceiling while climbing monotonically is still a leak.",
+      "id": "steady-heap-sustained-streaming",
+      "label": "Steady heap, sustained-streaming live stream",
+      "subject": "Renderer heap over thirty minutes of the sustained-streaming scenario streaming live on the scenario clock — agents' turns streaming and finishing one after another while the reader follows the live tail — both its ceiling and its flatness, since a heap that stays under the ceiling while climbing is still a leak.",
       "specTarget": "flat over thirty minutes; ≤ 250 MB renderer heap",
       "limit": {
         "comparison": "<=",
@@ -205,8 +205,8 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/heap/instrument.ts` forces a collection over a CDP `HeapProfiler` session, `steady-state.test.ts` bounds heap GROWTH across 200 churn cycles that stream the in-tree concurrent-streaming script through the fixture bridge once, and `endurance/heap/at-rest.test.ts` measures the at-rest ceiling when the endurance tier is run by name — and none of the three conditions THIS row states is met by those. No run holds the app for thirty minutes: the `endurance-body` allowance is nine. No snapshot SERIES is analyzed for slope: `endurance/heap/snapshot-analysis.ts` reads a single snapshot by constructor with `memlab`, which answers what one heap is holding rather than whether a run's heap climbed, so the flat-over-thirty-minutes criterion has no verdict behind it. And there is no dated endurance record to log a refutation in.",
-      "notes": "Not wired: no task yet holds the app for thirty minutes and reads its heap for slope.",
+      "notMeasurableReason": "`tests/endurance/heap/sustained-streaming.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "The ceiling is this row's; flatness is judged against `steady-heap-growth`'s allowance, so no number has two owners. The thirty minutes are scenario time on the frozen clock, played inside the `endurance-body` allowance: half of it is spread over stretches of half the in-window step bound, each paced across the window's own frames so the reveal and the viewport run as they do for a reader, each ending on a beat's own tick, and each followed by a settled reading behind a forced collection, which the other half pays for. The ceiling is compared against the largest reading of the run. Flat means every reading after the warm-up sits within `steady-heap-growth`'s allowance of the first reading after it; the warm-up lasts until the store first lets go of events, since until then it holds every event it was given and the heap grows with the log by design. Over the script's 68 turns a leak of about 120 kB a turn reaches the allowance; a smaller one is below what this run can see. The run fails rather than passing over an idle app when the beats delivered stop growing between readings, the stream reaches no store through a subscription, or the store never lets go of events or stops letting go after the warm-up. The figure is `performance.memory.usedJSHeapSize` at precise precision, the minimum over settling samples, which counts allocated and not yet collected bytes and so sits at or above the retained heap, the safe direction for a ceiling.",
       "scope": "product"
     },
     {
@@ -377,8 +377,8 @@
     },
     {
       "id": "steady-heap-growth",
-      "label": "Steady-state heap growth across route churn",
-      "subject": "How much the renderer heap grows between the settled reading after warm-up and the settled reading after the endurance tier's churn cycles over the concurrent-streaming workload, each behind a forced collection.",
+      "label": "Steady-state heap growth after warm-up",
+      "subject": "How much the renderer heap grows from the settled reading after warm-up, each reading behind a forced collection: to the settled reading after the endurance tier's churn cycles over the concurrent-streaming workload, and to each settled reading while the sustained-streaming session streams for half an hour.",
       "specTarget": "≤ 8 MiB of growth across the run",
       "limit": {
         "comparison": "<=",
@@ -391,8 +391,8 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/steady-state.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run. Not a percentage, because a percentage of a large baseline is a large absolute allowance and a leak's size does not depend on the application's. Over the run's 200 cycles a leak of about 40 kB a cycle reaches it; a smaller leak is below what this instrument can see. It bounds a difference of two readings, never the heap itself: the ceiling at rest is `renderer-heap-at-rest`'s and the thirty-minute slope is `steady-heap-concurrent-streaming`'s, so no number has two owners."
+      "notMeasurableReason": "`tests/endurance/steady-state.test.ts` and `tests/endurance/heap/sustained-streaming.test.ts` measure it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run. Not a percentage, because a percentage of a large baseline is a large absolute allowance and a leak's size does not depend on the application's. Over the churn run's 200 cycles a leak of about 40 kB a cycle reaches it, and over the half-hour stream's 68 turns one of about 120 kB a turn; a smaller leak is below what this instrument can see. It bounds a difference of two readings, never the heap itself: the ceiling at rest is `renderer-heap-at-rest`'s and the ceiling over the half-hour stream is `steady-heap-sustained-streaming`'s, so no number has two owners."
     },
     {
       "id": "detached-node-retention",

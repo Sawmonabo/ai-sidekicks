@@ -52,7 +52,7 @@ import {
   findBeatCursor,
   newestBeatInstant,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
@@ -523,6 +523,7 @@ export function composeConcurrentStreamingLanes(
       atMs: at(2_400),
       runVersion: 1,
       newState: "queued",
+      agentId: AGENT_ARCHITECT,
       parentRunId: RUN_ARCHITECT,
     }),
     lane.transition(RUN_ARCHITECT_HELPER, {
@@ -543,68 +544,77 @@ export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
  */
 export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
-const CONCURRENT_STREAMING_BEATS = composeScriptBeats({
-  sessionId: SESSION_ID,
-  eventIdStem: EVENT_ID_STEM,
-  startedAtMs,
-  entries: [
-    // The opening: the room born with its lead, the architect; the lanes then open the
-    // implementer's run for the signed-in user.
-    composeOpeningEntry({
-      sessionId: SESSION_ID,
-      shape: "project",
-      openedBy: USER_YOU,
-      lead: CONCURRENT_STREAMING_LEAD,
-      createdAt: STARTED_AT_ISO,
-    }),
-    ...composeConcurrentStreamingLanes({
-      sessionId: SESSION_ID,
-      startedAtMs,
-      offsetMs: 0,
-      isAgentsFirstRun: true,
-    }),
-  ],
-});
+function composeConcurrentStreamingBeats(): readonly ScenarioBeat[] {
+  return composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs,
+    entries: [
+      // The opening: the room born with its lead, the architect; the lanes then open the
+      // implementer's run for the signed-in user.
+      composeOpeningEntry({
+        sessionId: SESSION_ID,
+        shape: "project",
+        openedBy: USER_YOU,
+        lead: CONCURRENT_STREAMING_LEAD,
+        createdAt: STARTED_AT_ISO,
+      }),
+      ...composeConcurrentStreamingLanes({
+        sessionId: SESSION_ID,
+        startedAtMs,
+        offsetMs: 0,
+        isAgentsFirstRun: true,
+      }),
+    ],
+  });
+}
 
 /** Four agents streaming at once, with a mid-stream approval, a parked lane and a helper run. */
-export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
-  id: CONCURRENT_STREAMING_SCENARIO_ID,
-  label: "Four lanes",
-  purpose:
-    "A live session with four agents streaming at once — interleaved turns on four run " +
-    "groups, an approval landing mid-stream while the other three carry on, the cost " +
-    "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: CONCURRENT_STREAMING_BEATS,
-  replies: [
-    {
-      // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-      call: "session.read",
-      result: {
-        session: {
-          id: SESSION_ID,
-          state: "active",
-          shape: "project",
-          muted: false,
-          pendingWorkingFolder: null,
-          createdAt: STARTED_AT_ISO,
-          updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
-          draft: "",
-          tags: [],
+export const CONCURRENT_STREAMING_SCENARIO: Scenario = defineScenario(
+  {
+    id: CONCURRENT_STREAMING_SCENARIO_ID,
+    label: "Four lanes",
+    purpose:
+      "A live session with four agents streaming at once — interleaved turns on four run " +
+      "groups, an approval landing mid-stream while the other three carry on, the cost " +
+      "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
+    sessionId: SESSION_ID,
+    startedAtIso: STARTED_AT_ISO,
+    openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
+  },
+  () => {
+    const beats = composeConcurrentStreamingBeats();
+    return {
+      beats,
+      replies: [
+        {
+          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
+          call: "session.read",
+          result: {
+            session: {
+              id: SESSION_ID,
+              state: "active",
+              shape: "project",
+              muted: false,
+              pendingWorkingFolder: null,
+              createdAt: STARTED_AT_ISO,
+              updatedAt: newestBeatInstant(beats),
+              draft: "",
+              tags: [],
+            },
+            transcriptCursors: {
+              earliest: encodeEventCursor(START_OF_LOG_POSITION),
+              latest: findBeatCursor(beats, beats.length - 1),
+            },
+            // The record a read before any beat lands holds: no run has begun.
+            liveRuns: [],
+            standingEvents: [],
+          },
         },
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length - 1),
-        },
-        // The record a read before any beat lands holds: no run has begun.
-        liveRuns: [],
-        standingEvents: [],
-      },
-    },
-    ...SETTINGS_REPLIES,
-    ...WORKFLOW_REPLIES,
-    ...WORKFLOW_RUN_DIFF_REPLIES,
-  ],
-  openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
-};
+        ...SETTINGS_REPLIES,
+        ...WORKFLOW_REPLIES,
+        ...WORKFLOW_RUN_DIFF_REPLIES,
+      ],
+    };
+  },
+);

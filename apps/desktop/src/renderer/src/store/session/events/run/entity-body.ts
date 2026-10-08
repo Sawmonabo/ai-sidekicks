@@ -149,7 +149,7 @@ export function readRunEntityBody(
 
 /**
  * The id of the agent a run's creation row brings into the session, inside its `resolvedAgent`, or
- * `undefined` for a row naming an agent already there as `agentId`, or none.
+ * `undefined` for a row naming an agent already there as `agentId`.
  */
 export function readResolvedAgentId(
   payload: Readonly<Record<string, unknown>> | undefined,

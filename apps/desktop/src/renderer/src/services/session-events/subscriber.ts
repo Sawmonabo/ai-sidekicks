@@ -65,7 +65,7 @@ import { openObservedSubscription } from "../transport/observed-subscription.js"
 import { ReopenBackoff } from "../transport/reopen-backoff.js";
 import { readSessionStreamFrame } from "../daemon/session/event/payload.js";
 import { type PlatformBridge } from "../platform/bridge.js";
-import { type SessionDiagnostics } from "./diagnostics-handle.js";
+import { type HeldTranscriptReading, type SessionDiagnostics } from "./diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type {
   SessionStoreRegistry,
@@ -555,6 +555,12 @@ export class SessionEventSubscriber {
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
+      heldTranscriptFor: (sessionId: string): HeldTranscriptReading | null => {
+        const transcript = this.#registry.peek(sessionId)?.snapshot().transcript;
+        return transcript === undefined
+          ? null
+          : { eventCount: transcript.length, firstSequence: transcript[0]?.sequence ?? null };
+      },
       transcriptWindowFor: (sessionId: string): TranscriptWindowReading | null =>
         transcriptWindowDiagnostics.readingFor(sessionId),
     });

@@ -121,10 +121,10 @@ const SELECT_LIVE_RUNS_SQL = `SELECT run_id, parent_run_id, state, run_version,
 
 // The sequences of the session's standing events (`SessionReadResponse.standingEvents`). A live
 // run's newest measured window and newest compaction read the run-and-type index; the shells'
-// lease changes and the events that brought an agent in read the type index. `UNION ALL`, since
-// the arms name different events and a sorting `UNION` would trade the type index for a walk of
-// the whole log in sequence order; the envelope read orders them. A live run with no such row
-// answers NULL, which the outer select drops.
+// lease changes, the events that brought an agent in and each agent's newest binding switch read
+// the type index. `UNION ALL`, since the arms name different events and a sorting `UNION` would
+// trade the type index for a walk of the whole log in sequence order; the envelope read orders
+// them. A live run with no such row answers NULL, which the outer select drops.
 const SELECT_STANDING_SEQUENCES_SQL = `SELECT sequence FROM (
     SELECT (SELECT MAX(measured.sequence)
               FROM session_events AS measured
@@ -161,7 +161,12 @@ const SELECT_STANDING_SEQUENCES_SQL = `SELECT sequence FROM (
       FROM session_events
      WHERE session_id = @sessionId
        AND type = 'run.queued'
-       AND json_type(payload, '$.resolvedAgent') = 'object')
+       AND json_type(payload, '$.resolvedAgent') = 'object'
+    UNION ALL
+    SELECT MAX(sequence)
+      FROM session_events
+     WHERE session_id = @sessionId AND type = 'agent.provider_binding_changed'
+     GROUP BY json_extract(payload, '$.agentId'))
   WHERE sequence IS NOT NULL`;
 
 /**
@@ -202,13 +207,16 @@ export class SessionService {
    * or the start of the log too when its history is damaged before any. Row, tags, runs, standing
    * events and head are read in one snapshot, so no event the row, a run or a standing event
    * reflects lies past `latest`. Throws `session.not_found` for a session this daemon holds no row
-   * for, and `MalformedStoredEventError` for a standing event that is not a well-formed envelope.
+   * for, `MalformedStoredEventError` for a standing event that is not a well-formed envelope, and
+   * an `Error` for a live run whose creation names no agent.
    */
   readSession(request: SessionReadRequest): SessionLogRead {
     const { row, tags, liveRuns, standingEvents, head } = this.#reader.transaction(() => ({
       row: this.#selectRow.get(request.sessionId),
       tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
-      liveRuns: this.#selectLiveRuns.all(request.sessionId).map(readLiveRun),
+      liveRuns: this.#selectLiveRuns
+        .all(request.sessionId)
+        .map((runRow) => readLiveRun(runRow, request.sessionId)),
       standingEvents: this.#readStandingEvents(request.sessionId),
       head: this.#eventReads.readHead(request.sessionId),
     }))();
@@ -285,13 +293,17 @@ export class SessionService {
   }
 }
 
-function readLiveRun(row: LiveRunRow): SessionLiveRun {
+function readLiveRun(row: LiveRunRow, sessionId: SessionId): SessionLiveRun {
+  // Every run is created naming its agent, so one naming none was written outside admission.
+  if (row.agent_id === null) {
+    throw new Error(`Run ${row.run_id} of session ${sessionId} names no agent`);
+  }
   return {
     runId: row.run_id,
     ...(row.parent_run_id === null ? {} : { parentRunId: row.parent_run_id }),
     state: row.state,
     runVersion: row.run_version,
-    ...(row.agent_id === null ? {} : { agentId: row.agent_id }),
+    agentId: row.agent_id,
     touchedAt: row.touched_at,
   };
 }

@@ -12,6 +12,12 @@ import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refr
 const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
 
+/**
+ * The smallest advance that carries both deadlines a window arms on the frozen clock past their
+ * end, the store's apply window and the refresh debounce, so the batch delivered last is applied.
+ */
+export const SCENARIO_DRAIN_MS: number = Math.max(APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS) + 1;
+
 /** How the frozen clock is walked over a script, and how far. */
 export interface ScenarioDeliverySchedule {
   readonly stepMilliseconds: number;
@@ -26,8 +32,7 @@ export interface ScenarioDeliverySchedule {
 export function scenarioDeliverySchedule(lastBeatAtMs: number): ScenarioDeliverySchedule {
   return {
     stepMilliseconds: Math.max(
-      APPLY_COALESCE_MS + 1,
-      REFRESH_DEBOUNCE_MS + 1,
+      SCENARIO_DRAIN_MS,
       Math.ceil(lastBeatAtMs / SCENARIO_DELIVERY_STEP_COUNT),
     ),
     stepCount: SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT,

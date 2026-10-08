@@ -12,6 +12,7 @@ import {
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
@@ -146,6 +147,19 @@ export function transcriptReadRowAt(index: number): TranscriptEventRow {
   };
 }
 
+/** The message at one log position of the paged session, as the stream delivers it. */
+export function pagedSessionEventAt(index: number): ProjectedSessionEvent {
+  return {
+    id: transcriptFixtureEventId(index),
+    sessionId: PAGED_SESSION_ID,
+    sequence: index,
+    cursor: transcriptFixtureStreamCursor(index),
+    kind: "user.message",
+    occurredAt: transcriptFixtureStampAt(index),
+    payload: {},
+  };
+}
+
 /**
  * A real store of the paged session holding its messages from `firstIndex` through `lastIndex`,
  * as an opening read leaves it, with `transcriptHead` before them (none, when not given).
@@ -159,18 +173,9 @@ export function openPagedSessionStore(
   sessionStore.initialize({
     cursor: lastIndex,
     entities: [],
-    transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) => {
-      const index = firstIndex + offset;
-      return {
-        id: transcriptFixtureEventId(index),
-        sessionId: PAGED_SESSION_ID,
-        sequence: index,
-        cursor: transcriptFixtureStreamCursor(index),
-        kind: "user.message",
-        occurredAt: transcriptFixtureStampAt(index),
-        payload: {},
-      };
-    }),
+    transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
+      pagedSessionEventAt(firstIndex + offset),
+    ),
     ...(transcriptHead === undefined ? {} : { transcriptHead }),
   });
   return sessionStore;

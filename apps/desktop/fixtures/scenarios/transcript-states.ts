@@ -42,7 +42,7 @@ import {
   newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
@@ -441,12 +441,14 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   },
 ];
 
-const TRANSCRIPT_STATES_BEATS = composeScriptBeats({
-  sessionId: SESSION_ID,
-  eventIdStem: EVENT_ID_STEM,
-  startedAtMs,
-  entries: TRANSCRIPT_STATES_SCRIPT,
-});
+function composeTranscriptStatesBeats(): readonly ScenarioBeat[] {
+  return composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs,
+    entries: TRANSCRIPT_STATES_SCRIPT,
+  });
+}
 
 /** The acknowledged log position: the implementer's answer after its rewind. */
 const ACKNOWLEDGED_LOG_POSITION = 29;
@@ -455,66 +457,74 @@ const ACKNOWLEDGED_LOG_POSITION = 29;
 export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
 
 /** Three runs ending in three conditions at once: finished behind a rewind, parked, streaming. */
-export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
-  id: TRANSCRIPT_STATES_SCENARIO_ID,
-  label: "Three lanes",
-  purpose:
-    "A session whose three runs end in three different conditions at once — " +
-    "one finished behind a rewind boundary, one parked, one still streaming " +
-    "— so the run groups and the seams all have something to render.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: TRANSCRIPT_STATES_BEATS,
-  replies: [
-    // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
-    // need no scripted entries (a run this reply does not name gets the fixture's refusal),
-    // while the entries are what no beat in this session produces.
-    {
-      call: "transcript.reasoningSurfaceRead",
-      result: {
-        availability: "available",
-        hasMore: false,
-        reasoningEntries: [
-          {
-            sequence: 12,
-            content: "The two storage backends differ in who owns the row, not in what it holds.",
-            timestamp: composeScenarioInstant(startedAtMs, 2_500),
+export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
+  {
+    id: TRANSCRIPT_STATES_SCENARIO_ID,
+    label: "Three lanes",
+    purpose:
+      "A session whose three runs end in three different conditions at once — " +
+      "one finished behind a rewind boundary, one parked, one still streaming " +
+      "— so the run groups and the seams all have something to render.",
+    sessionId: SESSION_ID,
+    startedAtIso: STARTED_AT_ISO,
+  },
+  () => {
+    const beats = composeTranscriptStatesBeats();
+    return {
+      beats,
+      replies: [
+        // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
+        // need no scripted entries (a run this reply does not name gets the fixture's refusal),
+        // while the entries are what no beat in this session produces.
+        {
+          call: "transcript.reasoningSurfaceRead",
+          result: {
+            availability: "available",
+            hasMore: false,
+            reasoningEntries: [
+              {
+                sequence: 12,
+                content:
+                  "The two storage backends differ in who owns the row, not in what it holds.",
+                timestamp: composeScenarioInstant(startedAtMs, 2_500),
+              },
+              {
+                sequence: 13,
+                content: "An answer kept on this machine is reversible; a hosted answer is not.",
+                timestamp: composeScenarioInstant(startedAtMs, 2_520),
+              },
+            ],
           },
-          {
-            sequence: 13,
-            content: "An answer kept on this machine is reversible; a hosted answer is not.",
-            timestamp: composeScenarioInstant(startedAtMs, 2_520),
+        },
+        {
+          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
+          call: "session.read",
+          result: {
+            session: {
+              id: SESSION_ID,
+              state: "active",
+              shape: "project",
+              muted: false,
+              pendingWorkingFolder: null,
+              createdAt: STARTED_AT_ISO,
+              updatedAt: newestBeatInstant(beats),
+              draft: "",
+              tags: [],
+            },
+            // An acknowledged position beside `latest` makes the resume cycle reachable: the
+            // store submits the acknowledged position on its next read. It sits behind `latest`,
+            // the newest row, as a real one does.
+            transcriptCursors: {
+              earliest: encodeEventCursor(START_OF_LOG_POSITION),
+              latest: findBeatCursor(beats, beats.length - 1),
+              acknowledged: findBeatCursor(beats, ACKNOWLEDGED_LOG_POSITION),
+            },
+            // The record a read before any beat lands holds: no run has begun.
+            liveRuns: [],
+            standingEvents: [],
           },
-        ],
-      },
-    },
-    {
-      // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-      call: "session.read",
-      result: {
-        session: {
-          id: SESSION_ID,
-          state: "active",
-          shape: "project",
-          muted: false,
-          pendingWorkingFolder: null,
-          createdAt: STARTED_AT_ISO,
-          updatedAt: newestBeatInstant(TRANSCRIPT_STATES_BEATS),
-          draft: "",
-          tags: [],
         },
-        // An acknowledged position beside `latest` makes the resume cycle reachable: the store
-        // submits the acknowledged position on its next read. It sits behind `latest`, the newest
-        // row, as a real one does.
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length - 1),
-          acknowledged: findBeatCursor(TRANSCRIPT_STATES_BEATS, ACKNOWLEDGED_LOG_POSITION),
-        },
-        // The record a read before any beat lands holds: no run has begun.
-        liveRuns: [],
-        standingEvents: [],
-      },
-    },
-  ],
-};
+      ],
+    };
+  },
+);

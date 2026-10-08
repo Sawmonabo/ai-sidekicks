@@ -8,10 +8,10 @@
 //
 // The history is a number of turns, each a person's message and one run per agent of the
 // concurrent-streaming cast. A run thinks, then answers in several replies, each followed by tool
-// calls and their results. Every history run stays `running` with nothing more to say: a run
-// group that finishes folds to its receipt, and a history of receipts would be a short
-// conversation, so every group stays open and every row is drawn. A run with no output ahead is
-// not a streaming lane (`tests/endurance/streaming-lanes.ts`), so only the four lanes stream.
+// calls and their results, and ends its turn. Every beat of a history turn lands on one tick, so
+// no history run is a streaming lane (`tests/endurance/streaming-lanes.ts`) and only the four
+// lanes stream. The turns are composed apart from the session (`composeConversationTurn`), so
+// `sustained-streaming.ts` plays the same turns with their beats spaced out.
 //
 // Assistant and tool payloads describe their body and never carry it, so each beat carries its
 // body's media type and UTF-8 length. The lengths are those of the markdown and command output
@@ -32,7 +32,7 @@ import {
   newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
 import { composeOpeningEntry, composeResolvedAgent } from "../data/opening-entries.js";
 import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/clock.js";
@@ -247,8 +247,6 @@ const EDIT_OUTPUT = `Edited 2 files, 14 lines.\n${CODE_BLOCKS[6] ?? ""}`;
 
 const encoder = new TextEncoder();
 
-const lane = createRunEntryBuilders(SESSION_ID);
-
 /** One body block from a cycle, by any whole index. */
 function blockAt(blocks: readonly string[], index: number): string {
   const block = blocks[index % blocks.length];
@@ -284,36 +282,59 @@ function toolOutput(toolName: string, seed: number): string {
   return toolName === "read_file" ? blockAt(CODE_BLOCKS, seed) : EDIT_OUTPUT;
 }
 
-/** A history run's id, a function of its turn and agent alone. */
-function historyRunId(turnIndex: number, agentIndex: number): string {
-  const tail = (turnIndex * CONCURRENT_STREAMING_AGENTS.length + agentIndex).toString(16);
-  return `${HISTORY_RUN_ID_STEM}-${tail.padStart(12, "0")}`;
+/** Where one conversation turn plays: its session, its clock, its run ids and its pace. */
+export interface ConversationTurnInput {
+  readonly sessionId: string;
+  /** The instant tick zero stands for, in epoch milliseconds. */
+  readonly startedAtMs: number;
+  /** The stem the turn's run ids are completed from, apart from its session's other run ids. */
+  readonly runIdStem: string;
+  /** Which turn of the conversation this is; the first starts every agent but the lead. */
+  readonly turnIndex: number;
+  /** Scenario time the turn's first beat lands at. */
+  readonly startsAtMs: number;
+  /** Scenario time between two beats of the turn; zero lands the whole turn on one tick. */
+  readonly beatSpacingMs: number;
 }
 
-/** One turn: the person's message, then a run per agent, each thinking, replying and calling tools. */
-function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
-  const atMs = (turnIndex + 1) * HISTORY_TURN_SPACING_MS;
+/**
+ * One turn of a conversation with the concurrent-streaming cast: the person's message, then a run
+ * per agent, one after another, each thinking, replying in several pieces with tool calls and
+ * their results after each, and ending its turn. Every identifier, block and length is a function
+ * of the turn, agent and reply indices alone.
+ */
+export function composeConversationTurn(input: ConversationTurnInput): readonly ScriptEntry[] {
+  const { sessionId, turnIndex } = input;
+  const lane = createRunEntryBuilders(sessionId);
+  // Each beat takes the next tick, in the order the beats are composed.
+  let composedBeatCount = 0;
+  const nextAtMs = (): number => {
+    const atMs = input.startsAtMs + composedBeatCount * input.beatSpacingMs;
+    composedBeatCount += 1;
+    return atMs;
+  };
   const entries: ScriptEntry[] = [
     {
-      atMs,
+      atMs: nextAtMs(),
       kind: "user.message",
       // The payload's actor repeats the envelope's.
       actorId: USER_YOU,
       payload: {
-        sessionId: SESSION_ID,
+        sessionId,
         actor: USER_YOU,
         message: blockAt(USER_MESSAGES, turnIndex),
       },
     },
   ];
   for (const [agentIndex, agent] of CONCURRENT_STREAMING_AGENTS.entries()) {
-    const runId = historyRunId(turnIndex, agentIndex);
+    const runId = conversationRunId(input.runIdStem, turnIndex, agentIndex);
+    const queuedAtMs = nextAtMs();
     // An agent other than the lead enters the session with its first run, from its saved
     // definition; every later run names it.
     const isAgentsFirstRun = turnIndex === 0 && agent.agentId !== CONCURRENT_STREAMING_LEAD.agentId;
     entries.push(
       lane.transition(runId, {
-        atMs,
+        atMs: queuedAtMs,
         runVersion: 1,
         newState: "queued",
         actorId: USER_YOU,
@@ -322,25 +343,25 @@ function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
               resolvedAgent: composeResolvedAgent({
                 agent,
                 lead: CONCURRENT_STREAMING_LEAD,
-                resolvedAt: composeScenarioInstant(startedAtMs, atMs),
+                resolvedAt: composeScenarioInstant(input.startedAtMs, queuedAtMs),
               }),
             }
           : { agentId: agent.agentId }),
       }),
       lane.transition(runId, {
-        atMs,
+        atMs: nextAtMs(),
         runVersion: 2,
         previousState: "queued",
         newState: "starting",
       }),
       lane.transition(runId, {
-        atMs,
+        atMs: nextAtMs(),
         runVersion: 3,
         previousState: "starting",
         newState: "running",
       }),
       lane.output(runId, {
-        atMs,
+        atMs: nextAtMs(),
         kind: "assistant.thinking_update",
         contentType: "text/plain",
         contentLength: bodyByteLength([
@@ -353,7 +374,7 @@ function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
     for (let replyIndex = 0; replyIndex < replyCount; replyIndex += 1) {
       entries.push(
         lane.output(runId, {
-          atMs,
+          atMs: nextAtMs(),
           kind: "assistant.message",
           contentType: "text/markdown",
           contentLength: bodyByteLength(replyBlocks(turnIndex, agentIndex, replyIndex)),
@@ -367,9 +388,9 @@ function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
           `call-${String(turnIndex)}-${String(agentIndex)}-` +
           `${String(replyIndex)}-${String(toolIndex)}`;
         entries.push(
-          lane.tool(runId, { atMs, kind: "tool.invoked", toolName, toolCallId }),
+          lane.tool(runId, { atMs: nextAtMs(), kind: "tool.invoked", toolName, toolCallId }),
           lane.tool(runId, {
-            atMs,
+            atMs: nextAtMs(),
             kind: "tool.result",
             toolName,
             toolCallId,
@@ -379,10 +400,10 @@ function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
         );
       }
     }
-    // A history turn is finished: its run ends, so its group is settled rather than live.
+    // The turn is finished: its run ends, so its group is settled rather than live.
     entries.push(
       lane.transition(runId, {
-        atMs,
+        atMs: nextAtMs(),
         runVersion: 4,
         previousState: "running",
         newState: "completed",
@@ -393,66 +414,87 @@ function composeHistoryTurn(turnIndex: number): readonly ScriptEntry[] {
   return entries;
 }
 
-const LONG_CONVERSATION_BEATS = composeScriptBeats({
-  sessionId: SESSION_ID,
-  eventIdStem: EVENT_ID_STEM,
-  startedAtMs,
-  entries: [
-    composeOpeningEntry({
-      sessionId: SESSION_ID,
-      shape: "project",
-      openedBy: USER_YOU,
-      lead: CONCURRENT_STREAMING_LEAD,
-      createdAt: STARTED_AT_ISO,
-    }),
-    ...Array.from({ length: HISTORY_TURN_COUNT }, (_, turnIndex) =>
-      composeHistoryTurn(turnIndex),
-    ).flat(),
-    ...composeConcurrentStreamingLanes({
-      sessionId: SESSION_ID,
-      startedAtMs,
-      offsetMs: LANES_OFFSET_MS,
-      isAgentsFirstRun: false,
-    }),
-  ],
-});
+/** A conversation run's id, a function of its stem, turn and agent alone. */
+function conversationRunId(runIdStem: string, turnIndex: number, agentIndex: number): string {
+  const tail = (turnIndex * CONCURRENT_STREAMING_AGENTS.length + agentIndex).toString(16);
+  return `${runIdStem}-${tail.padStart(12, "0")}`;
+}
+
+function composeLongConversationBeats(): readonly ScenarioBeat[] {
+  return composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs,
+    entries: [
+      composeOpeningEntry({
+        sessionId: SESSION_ID,
+        shape: "project",
+        openedBy: USER_YOU,
+        lead: CONCURRENT_STREAMING_LEAD,
+        createdAt: STARTED_AT_ISO,
+      }),
+      ...Array.from({ length: HISTORY_TURN_COUNT }, (_, turnIndex) =>
+        composeConversationTurn({
+          sessionId: SESSION_ID,
+          startedAtMs,
+          runIdStem: HISTORY_RUN_ID_STEM,
+          turnIndex,
+          startsAtMs: (turnIndex + 1) * HISTORY_TURN_SPACING_MS,
+          beatSpacingMs: 0,
+        }),
+      ).flat(),
+      ...composeConcurrentStreamingLanes({
+        sessionId: SESSION_ID,
+        startedAtMs,
+        offsetMs: LANES_OFFSET_MS,
+        isAgentsFirstRun: false,
+      }),
+    ],
+  });
+}
 
 /** A long history of four agents' turns, then the four concurrent-streaming lanes at its tail. */
-export const LONG_CONVERSATION_SCENARIO: Scenario = {
-  id: "long-conversation",
-  label: "Long conversation",
-  purpose:
-    "A long conversation to scroll through — turns of a person's message and four agents' " +
-    "thinking, replies and tool calls, every run group open — with the four concurrent " +
-    "lanes streaming at its tail once the clock moves past the history.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: LONG_CONVERSATION_BEATS,
-  replies: [
-    {
-      // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-      call: "session.read",
-      result: {
-        session: {
-          id: SESSION_ID,
-          state: "active",
-          shape: "project",
-          muted: false,
-          pendingWorkingFolder: null,
-          createdAt: STARTED_AT_ISO,
-          updatedAt: newestBeatInstant(LONG_CONVERSATION_BEATS),
-          draft: "",
-          tags: [],
+export const LONG_CONVERSATION_SCENARIO: Scenario = defineScenario(
+  {
+    id: "long-conversation",
+    label: "Long conversation",
+    purpose:
+      "A long conversation to scroll through — turns of a person's message and four agents' " +
+      "thinking, replies and tool calls, each run finished and folded to its receipt — with " +
+      "the four concurrent lanes streaming at its tail once the clock moves past the history.",
+    sessionId: SESSION_ID,
+    startedAtIso: STARTED_AT_ISO,
+    openingNotices: SESSION_LIST_OPENING_NOTICES,
+  },
+  () => {
+    const beats = composeLongConversationBeats();
+    return {
+      beats,
+      replies: [
+        {
+          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
+          call: "session.read",
+          result: {
+            session: {
+              id: SESSION_ID,
+              state: "active",
+              shape: "project",
+              muted: false,
+              createdAt: STARTED_AT_ISO,
+              updatedAt: newestBeatInstant(beats),
+              draft: "",
+              tags: [],
+            },
+            transcriptCursors: {
+              earliest: encodeEventCursor(START_OF_LOG_POSITION),
+              latest: findBeatCursor(beats, beats.length - 1),
+            },
+            liveRuns: [],
+            standingEvents: [],
+          },
         },
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(LONG_CONVERSATION_BEATS, LONG_CONVERSATION_BEATS.length - 1),
-        },
-        liveRuns: [],
-        standingEvents: [],
-      },
-    },
-    ...SETTINGS_REPLIES,
-  ],
-  openingNotices: SESSION_LIST_OPENING_NOTICES,
-};
+        ...SETTINGS_REPLIES,
+      ],
+    };
+  },
+);

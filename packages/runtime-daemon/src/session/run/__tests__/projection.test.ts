@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -34,7 +35,13 @@ describe("run state projection", () => {
     sessionId = SessionIdSchema.parse(randomUUID());
     runId = RunIdSchema.parse(randomUUID());
     await database.writer.write([
-      insertQueuedRunStatement({ sessionId, runId, runVersion: 0, newState: "queued" }),
+      insertQueuedRunStatement({
+        sessionId,
+        runId,
+        runVersion: 0,
+        newState: "queued",
+        agentId: AgentIdSchema.parse(randomUUID()),
+      }),
     ]);
   });
 

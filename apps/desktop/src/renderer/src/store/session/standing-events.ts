@@ -1,13 +1,15 @@
 // The newest event of each kind a standing fact is read from, held apart from the window: a run's
-// newest window measurement and compaction, a shell's newest change of holder, and each event that
-// brought an agent into the session. The window lets go of rows far from the reader and the tail
-// detaches, but these facts stand until a newer event of the same kind and subject replaces them,
-// so the store keeps the events and every reader folds them as it would the log.
+// newest window measurement and compaction, a shell's newest change of holder, each event that
+// brought an agent into the session, and each agent's newest switch of provider binding. The window
+// lets go of rows far from the reader and the tail detaches, but these facts stand until a newer
+// event of the same kind and subject replaces them, so the store keeps the events and every reader
+// folds them as it would the log.
 //
 // A read seeds them (`session.read`'s standing events), and every row the stream admits, a page
 // recovers or a window read carries advances them. Newest by sequence wins whatever order rows
 // arrive in, since a backward page delivers older rows after newer ones.
 
+import { AGENT_PROVIDER_BINDING_CHANGED_EVENT } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { PTY_CONTROL_CHANGED_EVENT } from "@ai-sidekicks/contracts/pty";
 
@@ -82,6 +84,8 @@ function standingSubjectOf(event: ProjectedSessionEvent): string | undefined {
       return UNNAMED_SUBJECT;
     case RUN_QUEUED_EVENT_KIND:
       return readResolvedAgentId(event.payload);
+    case AGENT_PROVIDER_BINDING_CHANGED_EVENT:
+      return readWireString(event.payload?.["agentId"]);
     default:
       return undefined;
   }

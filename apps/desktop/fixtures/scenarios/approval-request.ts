@@ -27,7 +27,7 @@ import {
   composeScriptBeats,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario } from "../scenario.js";
 
 // UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
 // identifies its fixture. Parsed through the registered schemas, not cast, so a malformed id
@@ -176,20 +176,24 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
 ];
 
 /** One approved and three waiting approval requests raised by one agent in one run. */
-export const APPROVAL_REQUEST_SCENARIO: Scenario = {
-  id: "approval-request",
-  label: "A decision waiting",
-  purpose:
-    "Three requests waiting, one of them a provider permission ask, beside one that is " +
-    "already approved, so a view that lists the waiting ones can be held to leaving the " +
-    "approved one out.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: composeScriptBeats({
+export const APPROVAL_REQUEST_SCENARIO: Scenario = defineScenario(
+  {
+    id: "approval-request",
+    label: "A decision waiting",
+    purpose:
+      "Three requests waiting, one of them a provider permission ask, beside one that is " +
+      "already approved, so a view that lists the waiting ones can be held to leaving the " +
+      "approved one out.",
     sessionId: SESSION_ID,
-    eventIdStem: EVENT_ID_STEM,
-    startedAtMs: STARTED_AT_MS,
-    entries: APPROVAL_REQUEST_SCRIPT,
+    startedAtIso: STARTED_AT_ISO,
+  },
+  () => ({
+    beats: composeScriptBeats({
+      sessionId: SESSION_ID,
+      eventIdStem: EVENT_ID_STEM,
+      startedAtMs: STARTED_AT_MS,
+      entries: APPROVAL_REQUEST_SCRIPT,
+    }),
+    replies: [],
   }),
-  replies: [],
-};
+);

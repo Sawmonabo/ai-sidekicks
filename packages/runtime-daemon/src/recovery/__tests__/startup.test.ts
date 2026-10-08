@@ -40,6 +40,8 @@ import { RecoveryStatusTracker } from "../status.js";
 import { RecoveryWriteGate } from "../write-gate.js";
 
 const OCCURRED_AT = "2026-10-07T12:00:00.000Z";
+// The agent every queued run is created for.
+const QUEUED_AGENT_ID = randomUUID();
 
 describe("the recovery pass at a restart", () => {
   let fixture: RunEngineFixture;
@@ -89,7 +91,13 @@ describe("the recovery pass at a restart", () => {
     return [
       {
         type: "run.queued",
-        payload: JSON.stringify({ sessionId, runId, runVersion: 0, newState: "queued" }),
+        payload: JSON.stringify({
+          sessionId,
+          runId,
+          runVersion: 0,
+          newState: "queued",
+          agentId: QUEUED_AGENT_ID,
+        }),
       },
       change(1, "queued", "starting"),
       change(2, "starting", "running"),
@@ -107,7 +115,13 @@ describe("the recovery pass at a restart", () => {
       const runId = RunIdSchema.parse(randomUUID());
       rows.push({
         type: "run.queued",
-        payload: JSON.stringify({ sessionId, runId, runVersion: 0, newState: "queued" }),
+        payload: JSON.stringify({
+          sessionId,
+          runId,
+          runVersion: 0,
+          newState: "queued",
+          agentId: QUEUED_AGENT_ID,
+        }),
       });
     }
     const unqueuedRunId = RunIdSchema.parse(randomUUID());

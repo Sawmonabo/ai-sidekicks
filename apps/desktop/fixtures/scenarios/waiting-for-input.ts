@@ -45,7 +45,7 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario } from "../scenario.js";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are
@@ -309,19 +309,23 @@ const WAITING_FOR_INPUT_SCRIPT: readonly ScriptEntry[] = [
 ];
 
 /** A session whose newest run is blocked on the person's next message. */
-export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
-  id: "waiting-for-input",
-  label: "Awaiting a reply",
-  purpose:
-    "A session whose newest run is blocked on a person's next message — the " +
-    "state the composer's target, posture, and send resolution are read against.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: composeScriptBeats({
+export const WAITING_FOR_INPUT_SCENARIO: Scenario = defineScenario(
+  {
+    id: "waiting-for-input",
+    label: "Awaiting a reply",
+    purpose:
+      "A session whose newest run is blocked on a person's next message — the " +
+      "state the composer's target, posture, and send resolution are read against.",
     sessionId: SESSION_ID,
-    eventIdStem: EVENT_ID_STEM,
-    startedAtMs: STARTED_AT_MS,
-    entries: WAITING_FOR_INPUT_SCRIPT,
+    startedAtIso: STARTED_AT_ISO,
+  },
+  () => ({
+    beats: composeScriptBeats({
+      sessionId: SESSION_ID,
+      eventIdStem: EVENT_ID_STEM,
+      startedAtMs: STARTED_AT_MS,
+      entries: WAITING_FOR_INPUT_SCRIPT,
+    }),
+    replies: COMPOSER_REPLIES,
   }),
-  replies: COMPOSER_REPLIES,
-};
+);

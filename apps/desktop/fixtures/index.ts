@@ -8,9 +8,13 @@ import { EMPTY_SESSION_SCENARIO } from "./scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "./scenarios/transcript-states.js";
 import { TERMINAL_LEASE_SCENARIO } from "./scenarios/terminal-lease.js";
 import { LONG_CONVERSATION_SCENARIO } from "./scenarios/long-conversation.js";
+import { SUSTAINED_STREAMING_SCENARIO } from "./scenarios/sustained-streaming.js";
 import type { Scenario } from "./scenario.js";
 
-/** Every scenario the fixture bridge can play. */
+/**
+ * Every scenario the fixture bridge can play. Each composes its script when first read, so listing
+ * the catalog's ids builds none.
+ */
 export const SCENARIOS: readonly Scenario[] = [
   FIRST_RUN_SCENARIO,
   CONCURRENT_STREAMING_SCENARIO,
@@ -21,6 +25,7 @@ export const SCENARIOS: readonly Scenario[] = [
   APPROVAL_REQUEST_SCENARIO,
   TERMINAL_LEASE_SCENARIO,
   LONG_CONVERSATION_SCENARIO,
+  SUSTAINED_STREAMING_SCENARIO,
 ];
 
 /** Scenario lookup by id. Throws rather than returning a silent default. */

@@ -16,6 +16,7 @@ import {
   sessionActivityAsOf,
   type SessionListChange,
 } from "@ai-sidekicks/contracts/session/directory";
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
@@ -96,7 +97,13 @@ async function moveRun(
 }
 
 async function startRun(sessionId: SessionId, runId: RunId): Promise<void> {
-  const queued = { sessionId, runId, runVersion: 0, newState: "queued" as const };
+  const queued = {
+    sessionId,
+    runId,
+    runVersion: 0,
+    newState: "queued" as const,
+    agentId: AgentIdSchema.parse(randomUUID()),
+  };
   await log.append(sessionId, "run.queued", "run_lifecycle", queued, undefined, [
     insertQueuedRunStatement(queued),
   ]);

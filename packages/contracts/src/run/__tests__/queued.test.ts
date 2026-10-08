@@ -1,7 +1,7 @@
 // A run's creation row is the one record an agent started from a saved definition is
 // brought into the session by, and the one the agent index rebuilds a child's linkage
 // from. These cases hold that such an agent carries the configuration it was resolved
-// from, that a run names at most one agent, and that its admitted cap is whole micro-dollars.
+// from, and that a run names exactly one agent.
 import { describe, expect, it } from "vitest";
 
 import { RunQueuedPayloadSchema } from "../queued.js";
@@ -18,12 +18,15 @@ describe("run.queued", () => {
     expect(RunQueuedPayloadSchema.safeParse(payload).success).toBe(false);
   });
 
-  it("refuses a run naming both an agent in the session and one resolved from a definition", () => {
+  it("refuses a run naming both an agent in the session and one resolved from a definition, or neither", () => {
     expect(
       RunQueuedPayloadSchema.safeParse({ ...RUN_QUEUED_CHILD_PAYLOAD, agentId: AGENT_ID }).success,
     ).toBe(false);
-    // Neither is a run of the lead, which the session's birth record names.
-    const { resolvedAgent: _agent, ...leadRun } = RUN_QUEUED_CHILD_PAYLOAD;
-    expect(RunQueuedPayloadSchema.safeParse(leadRun).success).toBe(true);
+    const { resolvedAgent: _agent, ...namingNoAgent } = RUN_QUEUED_CHILD_PAYLOAD;
+    expect(RunQueuedPayloadSchema.safeParse(namingNoAgent).success).toBe(false);
+    // The lead's run names the session's lead as an agent already in it.
+    expect(RunQueuedPayloadSchema.safeParse({ ...namingNoAgent, agentId: AGENT_ID }).success).toBe(
+      true,
+    );
   });
 });

@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
   ApplyInterventionParams,
@@ -106,7 +107,13 @@ describe("InterventionService", () => {
       },
     });
 
-    const queued = { sessionId, runId, runVersion: 0, newState: "queued" as const };
+    const queued = {
+      sessionId,
+      runId,
+      runVersion: 0,
+      newState: "queued" as const,
+      agentId: AgentIdSchema.parse(randomUUID()),
+    };
     await runEvents.append("run.queued", queued, {
       transactionalPrelude: [insertQueuedRunStatement(queued)],
     });

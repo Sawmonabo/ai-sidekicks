@@ -28,7 +28,7 @@ import {
   type ScriptEntry,
 } from "../data/script-entries.js";
 import { FIXTURE_DEVICE_ID } from "../data/this-device.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario } from "../scenario.js";
 
 // Who and what the scenario is about: the session, the owner, a second device and the agent's
 // run. Ids are UUIDs because the contract check presents each beat to the strict layer as a
@@ -275,23 +275,28 @@ const TERMINAL_LEASE_SCRIPT: readonly ScriptEntry[] = [
 export const TERMINAL_LEASE_SCENARIO_ID = "terminal-lease";
 
 /** A shell changing hands between two devices and an agent run, ending held by the owner. */
-export const TERMINAL_LEASE_SCENARIO: Scenario = {
-  id: TERMINAL_LEASE_SCENARIO_ID,
-  label: "Lease changing hands",
-  purpose:
-    "One of the session's shells moving between two of the user's devices and an agent " +
-    "run — taken by another device and freed when its connection ends, taken on the agent " +
-    "path for the run's first command and freed when that command ends, taken by the owner's " +
-    "first keystroke, taken off the owner for the run's next command, and handed back when the " +
-    "run completes, so each release follows the acquisition it releases — and ending held. The " +
-    "output stream is absent until the terminal pane's renderer is registered.",
-  sessionId: TERMINAL_SCENARIO_SESSION_ID,
-  startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
-  beats: composeScriptBeats({
+export const TERMINAL_LEASE_SCENARIO: Scenario = defineScenario(
+  {
+    id: TERMINAL_LEASE_SCENARIO_ID,
+    label: "Lease changing hands",
+    purpose:
+      "One of the session's shells moving between two of the user's devices and an agent " +
+      "run — taken by another device and freed when its connection ends, taken on the agent " +
+      "path for the run's first command and freed when that command ends, taken by the " +
+      "owner's first keystroke, taken off the owner for the run's next command, and handed " +
+      "back when the run completes, so each release follows the acquisition it releases — and " +
+      "ending held. The output stream is absent until the terminal pane's renderer is " +
+      "registered.",
     sessionId: TERMINAL_SCENARIO_SESSION_ID,
-    eventIdStem: TERMINAL_EVENT_ID_STEM,
-    startedAtMs: TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS,
-    entries: TERMINAL_LEASE_SCRIPT,
+    startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
+  },
+  () => ({
+    beats: composeScriptBeats({
+      sessionId: TERMINAL_SCENARIO_SESSION_ID,
+      eventIdStem: TERMINAL_EVENT_ID_STEM,
+      startedAtMs: TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS,
+      entries: TERMINAL_LEASE_SCRIPT,
+    }),
+    replies: [],
   }),
-  replies: [],
-};
+);

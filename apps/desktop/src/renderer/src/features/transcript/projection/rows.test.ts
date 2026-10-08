@@ -10,6 +10,7 @@ import { projectTranscriptRows } from "./rows.js";
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
 const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
+const AGENT_TWO = "019b793b-7b60-7a6e-8120-d1a4c1150102";
 const USER = "019b793b-7b60-79a4-8110-cca0117a0410";
 
 function event(
@@ -147,7 +148,12 @@ describe("which payload member names a row's run", () => {
       event({
         sequence: 1,
         kind: "run.queued",
-        payload: { sessionId: SESSION_ID, runId: RUN_TWO, parentRunId: RUN_ONE },
+        payload: {
+          sessionId: SESSION_ID,
+          runId: RUN_TWO,
+          parentRunId: RUN_ONE,
+          agentId: AGENT_TWO,
+        },
         runStamp: { position: 0, epoch: 0 },
       }),
     ]);

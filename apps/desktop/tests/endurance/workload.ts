@@ -1,10 +1,10 @@
 // The endurance tier's driving vocabulary, shared by the files in it.
 //
-// Two tests drive the same app the same way (one measures how the heap moves over
-// sustained use, the other what it is once the app has settled) and both need a route
-// observed, the scenario advanced and the store read back. A copy in each file would be two
-// drivers that drift silently, since a route wait that stopped waiting still passes. The heap
-// itself is read through `heap/instrument.ts`, which measures rather than drives.
+// The tests here drive the same app the same way (how the heap moves over sustained use, what
+// it is once the app has settled, how it holds while a session streams for half an hour) and
+// each needs a route observed, the scenario advanced and the store read back. A copy in each
+// file would be drivers that drift silently, since a route wait that stopped waiting still
+// passes. The heap itself is read through `heap/instrument.ts`, which measures rather than drives.
 //
 // The route waits name a screen, not the frame. `.meridian-frame` is permanent chrome, on the
 // page before and after a route change, so a wait on it returns at once and the next navigation
@@ -34,7 +34,10 @@ import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
 } from "#renderer/app/fixture/global-names.js";
-import type { SessionDiagnostics } from "#renderer/services/session-events/diagnostics-handle.js";
+import type {
+  HeldTranscriptReading,
+  SessionDiagnostics,
+} from "#renderer/services/session-events/diagnostics-handle.js";
 import { type ScenarioFixtureHandle } from "#renderer/services/daemon/selection.fixture.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript/window-read.js";
@@ -187,6 +190,26 @@ export async function readAppliedEventCount(
         globalName
       ];
       return sessions === undefined ? null : sessions.appliedEventCountFor(targetSessionId);
+    },
+    [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
+  );
+}
+
+/**
+ * What one session's store holds of its transcript, or `null` with no handle or no store open
+ * for it. Against the beats delivered, it says whether the store let go of events far from the
+ * reader or kept the whole log.
+ */
+export async function readHeldTranscript(
+  appUnderTest: AppUnderTest,
+  sessionId: string,
+): Promise<HeldTranscriptReading | null> {
+  return appUnderTest.consolePage.evaluate(
+    ([globalName, targetSessionId]: [string, string]) => {
+      const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
+        globalName
+      ];
+      return sessions === undefined ? null : sessions.heldTranscriptFor(targetSessionId);
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
   );

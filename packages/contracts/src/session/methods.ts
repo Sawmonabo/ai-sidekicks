@@ -134,8 +134,8 @@ export interface SessionLiveRun {
   parentRunId?: RunId | undefined;
   state: RunState;
   runVersion: number;
-  /** The agent the run was created for; absent on the lead's run, which names none. */
-  agentId?: AgentId | undefined;
+  /** The agent the run was created for, as its `run.queued` names it. */
+  agentId: AgentId;
   /** When the run's newest `run_lifecycle` event occurred. */
   touchedAt: string;
 }
@@ -146,7 +146,7 @@ export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
     parentRunId: RunIdSchema.optional(),
     state: RunStateSchema,
     runVersion: countSchema,
-    agentId: AgentIdSchema.optional(),
+    agentId: AgentIdSchema,
     touchedAt: isoDateTimeSchema,
   })
   .strict();
@@ -185,9 +185,10 @@ export interface SessionReadResponse {
    * The newest event of each kind a reader keeps a standing fact from, in sequence order: for
    * each run not yet ended, its newest `usage.context_window_update` that measures the window
    * (both counts, a window above zero) and its newest `usage.context_compacted`; for each shell,
-   * its newest `pty.control_changed`, and the newest naming no shell; and every event that
-   * brought an agent into the session, `session.created` and each `run.queued` carrying
-   * `resolvedAgent`. A window opened below them still reads those facts.
+   * its newest `pty.control_changed`, and the newest naming no shell; every event that brought
+   * an agent into the session, `session.created` and each `run.queued` carrying `resolvedAgent`;
+   * and for each agent, its newest `agent.provider_binding_changed`. A window opened below them
+   * still reads those facts.
    */
   standingEvents: SessionStandingEvent[];
 }

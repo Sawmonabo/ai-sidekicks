@@ -3,6 +3,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
@@ -103,6 +104,8 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
     },
   });
   const sessionId = SessionIdSchema.parse(randomUUID());
+  // The agent every queued run is created for.
+  const agentId = AgentIdSchema.parse(randomUUID());
   const queuedAppender = new SessionEventAppender(
     { sessionEvents },
     EventEnvelopeVersionSchema.parse("1.0"),
@@ -117,6 +120,7 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
       runId,
       runVersion: 0,
       newState: "queued" as const,
+      agentId,
       ...(child === undefined ? {} : child),
     };
     await queuedAppender.append("run.queued", payload, {
