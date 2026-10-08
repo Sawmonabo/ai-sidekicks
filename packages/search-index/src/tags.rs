@@ -1,5 +1,6 @@
 //! A search's tags: the sessions carrying every queried tag or one nested under it, read from the
-//! tag field's postings without scoring, each with its last activity, and the tag rows that matched.
+//! tag field's postings without scoring, each with its last activity, and the tag rows that
+//! matched.
 
 use std::collections::{HashMap, HashSet};
 

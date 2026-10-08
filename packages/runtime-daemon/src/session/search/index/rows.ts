@@ -1,9 +1,9 @@
 // The text the search index holds for each source row, read from the database as it is now: a
 // settled message's text, a tool call's name and arguments, a session's title, a group's name and a
 // tag, with a tag's fold and its session's last activity beside it. The outbox applier, the rebuild
-// and the hit reader all read rows here, so a hit's line is marked on the same text the index saw. A log row belongs to its session through the session's
-// directory row; a log row of a session with none, which only the daemon's own sentinel session
-// lacks, is no index row.
+// and the hit reader all read rows here, so a hit's line is marked on the same text the index saw.
+// A log row belongs to its session through the session's directory row; a log row of a session
+// with none, which only the daemon's own sentinel session lacks, is no index row.
 
 import type { Database, Statement } from "better-sqlite3";
 
