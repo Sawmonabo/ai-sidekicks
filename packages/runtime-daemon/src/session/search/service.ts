@@ -70,10 +70,12 @@ interface ShownHit {
   readonly hit: SessionSearchHit;
 }
 
-// Sessions are read a batch at a time while a page fills, each batch four times the last. A read
-// costs what its sessions' hits cost, so a small first batch keeps a page of sessions that each
-// hold many hits from reading hits it never shows, and a page of sessions with one hit each still
-// takes three reads.
+// Sessions are read a batch at a time while a page fills. A read costs what its sessions' hits
+// cost, so the first batch is small and each later one holds the sessions the page's room takes at
+// the last batch's hits per session, sessions further down holding fewer, and the one after them,
+// which tells where the next page starts: at least the first batch's size and at most four times
+// the last. A page of sessions that each hold many hits reads few sessions it never shows, and a
+// page of sessions with one hit each still takes three reads.
 const FIRST_READ_BATCH_SIZE = 16;
 const READ_BATCH_GROWTH = 4;
 
@@ -206,6 +208,7 @@ export class SessionSearchService {
     const firstIndex = start?.sessionIndex ?? 0;
     let batchStart = firstIndex;
     let batchSize = FIRST_READ_BATCH_SIZE;
+    let hitsOffered = 0;
     for (;;) {
       const sessionKeys = snapshot.view.sessionsAt(batchStart, batchSize);
       if (sessionKeys.length === 0) {
@@ -219,6 +222,7 @@ export class SessionSearchService {
       const hitKeysBySession = new Map(
         heldKeys.map((sessionKey, index) => [sessionKey, hitKeysOfHeld[index] ?? []]),
       );
+      let batchHits = 0;
       for (const [offset, sessionKey] of sessionKeys.entries()) {
         const session = sessions.get(sessionKey);
         if (session === undefined) {
@@ -241,6 +245,8 @@ export class SessionSearchService {
             ? this.#hitLines.readTagLines(heldHitKeys, tagFolds, limit + 1)
             : this.#hitLines.readLines(heldHitKeys, searchQuery, limit + 1)
         ).map(shownHitOf);
+        batchHits += hits.length;
+        hitsOffered += hits.length;
         yield {
           sessionId: session.session_id,
           name: session.name,
@@ -252,7 +258,13 @@ export class SessionSearchService {
         };
       }
       batchStart += sessionKeys.length;
-      batchSize *= READ_BATCH_GROWTH;
+      // The page took every session offered so far, so its room is the limit less their hits.
+      const hitsPerSession = batchHits / sessionKeys.length;
+      const sessionsTheRoomTakes = Math.ceil((limit - hitsOffered) / hitsPerSession) + 1;
+      batchSize = Math.min(
+        Math.max(sessionsTheRoomTakes, FIRST_READ_BATCH_SIZE),
+        batchSize * READ_BATCH_GROWTH,
+      );
     }
   }
 
