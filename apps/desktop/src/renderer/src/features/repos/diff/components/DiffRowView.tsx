@@ -9,6 +9,7 @@ import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 import { DiffStepMark } from "./DiffStepMark.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** What one virtualized diff row is drawn from. */
 export interface DiffRowViewProps {
@@ -50,14 +51,16 @@ export const DiffRowView: React.MemoExoticComponent<
     const changeNotes = file === undefined ? [] : diffFileChangeNotes(file);
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
-        <span className="meridian-diff__file-path" role="cell" title={file?.path}>
-          <Glyph name="diff" size={GLYPH_SIZE_ROW} />
-          {file?.path ?? ""}
-          {file?.stepName === undefined ? null : <DiffStepMark stepName={file.stepName} />}
-          {changeNotes.length === 0 ? null : (
-            <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
-          )}
-        </span>
+        <HoverLabel text={file?.path} textIs="visible-text">
+          <span className="meridian-diff__file-path" role="cell">
+            <Glyph name="diff" size={GLYPH_SIZE_ROW} />
+            {file?.path ?? ""}
+            {file?.stepName === undefined ? null : <DiffStepMark stepName={file.stepName} />}
+            {changeNotes.length === 0 ? null : (
+              <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
+            )}
+          </span>
+        </HoverLabel>
       </div>
     );
   }

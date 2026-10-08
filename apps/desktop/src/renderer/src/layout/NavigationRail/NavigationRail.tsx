@@ -3,10 +3,11 @@
 // entries it is handed and has no availability flag: an unreachable destination is absent, not
 // disabled. It carries no color except the accent on the current destination and on the bell while
 // its list is open, and two marks: the attention pip and the Settings dot. Each control has one
-// string, its hover title and its spoken name at once.
+// string, its hover label and its spoken name at once.
 
 import type { GlyphName } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import type { RailDestination } from "#renderer/routing/readers.js";
 import { RAIL_CONTROL_LABELS } from "./control-labels.js";
 import { useRailNames } from "./hooks/useRailNames.js";
@@ -77,33 +78,33 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
         ))}
         <li className="meridian-rail__spacer" aria-hidden="true" />
         <li className="meridian-rail__item">
-          <button
-            type="button"
-            className="meridian-rail__button"
-            aria-label={names.attentionName}
-            title={names.attentionName}
-            aria-expanded={attention.isExpanded}
-            aria-controls={attention.controlsId}
-            onClick={attention.onToggle}
-          >
-            <Glyph name="bell" />
-            {names.pipFigure === undefined ? null : (
-              <span className="meridian-rail__pip" aria-hidden="true">
-                {names.pipFigure}
-              </span>
-            )}
-          </button>
+          <HoverLabel text={names.attentionName} textIs="name" side="right">
+            <button
+              type="button"
+              className="meridian-rail__button"
+              aria-expanded={attention.isExpanded}
+              aria-controls={attention.controlsId}
+              onClick={attention.onToggle}
+            >
+              <Glyph name="bell" />
+              {names.pipFigure === undefined ? null : (
+                <span className="meridian-rail__pip" aria-hidden="true">
+                  {names.pipFigure}
+                </span>
+              )}
+            </button>
+          </HoverLabel>
         </li>
         <li className="meridian-rail__item">
-          <button
-            type="button"
-            className="meridian-rail__button"
-            aria-label={RAIL_CONTROL_LABELS.colorScheme}
-            title={RAIL_CONTROL_LABELS.colorScheme}
-            onClick={props.onCycleColorScheme}
-          >
-            <Glyph name="moon" />
-          </button>
+          <HoverLabel text={RAIL_CONTROL_LABELS.colorScheme} textIs="name" side="right">
+            <button
+              type="button"
+              className="meridian-rail__button"
+              onClick={props.onCycleColorScheme}
+            >
+              <Glyph name="moon" />
+            </button>
+          </HoverLabel>
         </li>
         <li className="meridian-rail__item">
           <RailDestinationButton
@@ -139,7 +140,7 @@ export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTem
 
 interface RailDestinationButtonProps {
   readonly entry: RailEntry;
-  /** The button's one string: its hover title and its spoken name. */
+  /** The button's one string: its hover label and its spoken name. */
   readonly name: string;
   readonly isCurrent: boolean;
   readonly onSelect: (destination: RailDestination) => void;
@@ -150,22 +151,22 @@ interface RailDestinationButtonProps {
 function RailDestinationButton(props: RailDestinationButtonProps): React.JSX.Element {
   const { entry } = props;
   return (
-    <button
-      type="button"
-      className={
-        props.isCurrent
-          ? "meridian-rail__button meridian-rail__button--current"
-          : "meridian-rail__button"
-      }
-      aria-current={props.isCurrent ? "page" : undefined}
-      aria-label={props.name}
-      title={props.name}
-      onClick={() => {
-        props.onSelect(entry.destination);
-      }}
-    >
-      <Glyph name={entry.glyph} />
-      {props.children}
-    </button>
+    <HoverLabel text={props.name} textIs="name" side="right">
+      <button
+        type="button"
+        className={
+          props.isCurrent
+            ? "meridian-rail__button meridian-rail__button--current"
+            : "meridian-rail__button"
+        }
+        aria-current={props.isCurrent ? "page" : undefined}
+        onClick={() => {
+          props.onSelect(entry.destination);
+        }}
+      >
+        <Glyph name={entry.glyph} />
+        {props.children}
+      </button>
+    </HoverLabel>
   );
 }

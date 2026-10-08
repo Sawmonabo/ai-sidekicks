@@ -9,6 +9,7 @@
 // and for a time the time it stands for on the machine's own clock, with its zone.
 
 import { formatWireString } from "#renderer/lib/wire/figures.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** Props for `WireFigure`. */
 export interface WireFigureProps {
@@ -31,9 +32,13 @@ export function WireFigure(props: WireFigureProps): React.JSX.Element {
   const className = props.truncate
     ? "meridian-figure meridian-figure--wire meridian-figure--truncate"
     : "meridian-figure meridian-figure--wire";
+  // A title repeating the value keeps a truncated value whole, which the text already speaks.
   return (
-    <span className={className} title={props.title}>
-      {formatWireString(props.value)}
-    </span>
+    <HoverLabel
+      text={props.title}
+      textIs={props.title === props.value ? "visible-text" : "description"}
+    >
+      <span className={className}>{formatWireString(props.value)}</span>
+    </HoverLabel>
   );
 }

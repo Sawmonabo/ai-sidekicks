@@ -16,6 +16,7 @@ import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "#renderer/store/session/degradation.js";
 import type { EntityFacet } from "../facets.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** What one entity record draws: identity, facets, and the wording of its empty-state arms. */
 export interface EntityRecordProps {
@@ -95,9 +96,14 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         {props.facets.map((facet) => (
           <div className="meridian-entity-record__facet" key={facet.label}>
             <dt className="meridian-entity-record__label">{facet.label}</dt>
-            <dd className="meridian-entity-record__value" title={fullTextOf(facet)}>
-              <EntityFacetValueView facet={facet} />
-            </dd>
+            <HoverLabel
+              text={fullTextOf(facet)}
+              textIs={facet.value.form === "instant" ? "description" : "visible-text"}
+            >
+              <dd className="meridian-entity-record__value">
+                <EntityFacetValueView facet={facet} />
+              </dd>
+            </HoverLabel>
           </div>
         ))}
       </dl>
@@ -112,7 +118,7 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   );
 }
 
-// The whole value, for the hover title of a value cut short; an unrecorded one carries its own,
+// The whole value, for the hover label of a value cut short; an unrecorded one carries its own,
 // and an instant its zoned time.
 function fullTextOf(facet: EntityFacet): string | undefined {
   if (facet.value.form === "unrecorded") {

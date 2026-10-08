@@ -25,6 +25,7 @@ import type { AttachmentIngestEntry, AttachmentReading } from "../shapes.js";
 
 import "./AttachmentCard.css";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** Whose claim a name is, where the name shown is still the caller's own. */
 const DECLARED_NAME_TITLE = "Declared by the sender";
@@ -162,14 +163,15 @@ function renderIngesting(
         {props.onAbandon === undefined ||
         entry.state === "complete" ||
         entry.state === "abandoned" ? null : (
-          <button
-            type="button"
-            className="meridian-attachment__act"
-            title={INGEST_ABANDON_COPY}
-            onClick={() => props.onAbandon?.(entry.declared.localId)}
-          >
-            Stop sending
-          </button>
+          <HoverLabel text={INGEST_ABANDON_COPY} textIs="description">
+            <button
+              type="button"
+              className="meridian-attachment__act"
+              onClick={() => props.onAbandon?.(entry.declared.localId)}
+            >
+              Stop sending
+            </button>
+          </HoverLabel>
         )}
       </div>
 

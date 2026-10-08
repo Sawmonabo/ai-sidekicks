@@ -1,7 +1,7 @@
 // The mount card: the resolved root in its head, an unreachable mount withholding its bind
 // controls, and a drifted one offering the re-attach.
 
-import { render, within } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -55,7 +55,9 @@ describe("MountCard — the resolved root", () => {
     // same string also appears on the row beneath.
     const { container } = renderCard();
     const head = container.querySelector(".meridian-mount-card__head") as HTMLElement;
-    expect(within(head).getByTitle(CANONICAL_ROOT).textContent).toBe(CANONICAL_ROOT);
+    expect(head.querySelector(`[data-hover-label="${CANONICAL_ROOT}"]`)?.textContent).toBe(
+      CANONICAL_ROOT,
+    );
   });
 });
 

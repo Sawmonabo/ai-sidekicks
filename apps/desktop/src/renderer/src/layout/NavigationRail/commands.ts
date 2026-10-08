@@ -24,29 +24,35 @@ export interface RailControlActs {
 /**
  * What the palette and the chord table need to offer one rail destination. Command ids are written
  * out because a person can rebind them on the Keyboard page; Settings takes `$mod+,`, the
- * platform's own chord for it.
+ * platform's own chord for it. A command's title is the act's own name, which the palette and the
+ * Keyboard page both read; a destination with no act of its own is titled with its rail label.
  */
 export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavigationDetail>> = {
   sessions: {
     commandId: "frame.goToSessions",
+    title: "Sessions list",
     chord: "$mod+b",
     keywords: ["list", "home"],
   },
   sidekicks: {
     commandId: "frame.goToSidekicks",
+    title: RAIL_ENTRY_TEMPLATES.sidekicks.label,
     keywords: ["agents", "definitions", "plugins"],
   },
   skills: {
     commandId: "frame.goToSkills",
+    title: RAIL_ENTRY_TEMPLATES.skills.label,
     keywords: ["instructions", "folders"],
   },
   workflows: {
     commandId: "frame.goToWorkflows",
+    title: "Open Workflows",
     chord: "$mod+Shift+w",
     keywords: ["builder", "automation", "graph"],
   },
   settings: {
     commandId: "frame.goToSettings",
+    title: "Open Settings",
     chord: "$mod+,",
     keywords: ["preferences", "options"],
   },
@@ -78,7 +84,7 @@ export function registerNavigationKeybindings(contributions: CommandContribution
 }
 
 /**
- * One command per rail destination, titled with the rail's label. Each warms the screen before
+ * One command per rail destination, titled with its act's name. Each warms the screen before
  * handing `navigate` the destination's route, and again while its palette row is highlighted;
  * Settings opens on the page last open.
  */
@@ -89,7 +95,7 @@ export function buildNavigationCommands(
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
-    title: RAIL_ENTRY_TEMPLATES[destination].label,
+    title: RAIL_NAVIGATION_DETAILS[destination].title,
     group: CONSOLE_COMMAND_GROUP,
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
@@ -127,6 +133,7 @@ export function buildRailControlCommands(acts: RailControlActs): readonly FrameC
 
 interface RailNavigationDetail {
   readonly commandId: string;
+  readonly title: string;
   /** tinykeys syntax, single press; absent while the destination ships with no chord. */
   readonly chord?: string;
   /** Extra words a person might type for this destination in the palette. */

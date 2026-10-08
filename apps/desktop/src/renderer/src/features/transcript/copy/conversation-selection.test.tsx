@@ -89,7 +89,7 @@ describe("a selection across the conversation", () => {
         </div>
       </FixtureBridgeProvider>,
     );
-    const toolTime = container.querySelector('[data-index="1"] [title]')?.textContent;
+    const toolTime = container.querySelector('[data-index="1"] [data-hover-label]')?.textContent;
     const everything = document.createRange();
     everything.selectNodeContents(container);
 

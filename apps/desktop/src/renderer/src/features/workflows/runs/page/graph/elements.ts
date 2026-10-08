@@ -21,6 +21,7 @@ import {
   deriveNodeBoxSize,
   type NodeBoxSize,
 } from "#renderer/features/workflows/canvas/node-box.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
 import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
@@ -225,13 +226,12 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
   return isDisabled ? "meridian-run-graph__edge--disabled" : undefined;
 }
 
-// The short count on the edge, with the whole count as its title, which a pointer shows and a
+// The short count on the edge, with the whole count in its hover label, which a pointer shows and a
 // screen reader names the label by.
 function edgeCountLabel(count: number): React.ReactNode {
-  return createElement(
-    "tspan",
-    null,
-    createElement("title", null, itemCountWords(count)),
-    formatCompactCount(count),
-  );
+  return createElement(HoverLabel, {
+    text: itemCountWords(count),
+    textIs: "name",
+    children: createElement("tspan", null, formatCompactCount(count)),
+  });
 }

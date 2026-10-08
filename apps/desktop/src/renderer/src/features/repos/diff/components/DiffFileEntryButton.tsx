@@ -2,6 +2,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { type WindowedRowTargetProps } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { type DiffFileListEntry } from "../file-entries.js";
 import { DiffStepMark } from "./DiffStepMark.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** What one file-list row's control is drawn from, plus the row's target props. */
 export type DiffFileEntryButtonProps = {
@@ -40,15 +41,16 @@ export function DiffFileEntryButton({
         </>
       ) : (
         <>
-          {/* Wire-verbatim path, truncated at the measure; the full string stays in the title. */}
-          <span className="meridian-diff-files__path" title={entry.path}>
-            {entry.path}
-          </span>
+          {/* Wire-verbatim path, truncated at the measure; the full string stays in the hover
+              label. */}
+          <HoverLabel text={entry.path} textIs="visible-text">
+            <span className="meridian-diff-files__path">{entry.path}</span>
+          </HoverLabel>
           {entry.stepName === undefined ? null : <DiffStepMark stepName={entry.stepName} />}
           {entry.changeNotes.length === 0 ? null : (
-            <span className="meridian-diff-files__change" title={entry.changeNotes.join(", ")}>
-              {entry.changeNotes.join(", ")}
-            </span>
+            <HoverLabel text={entry.changeNotes.join(", ")} textIs="visible-text">
+              <span className="meridian-diff-files__change">{entry.changeNotes.join(", ")}</span>
+            </HoverLabel>
           )}
           <span className="meridian-diff-files__counts">
             <DerivedFigure text={`+${String(entry.counts.insertions)}`} />

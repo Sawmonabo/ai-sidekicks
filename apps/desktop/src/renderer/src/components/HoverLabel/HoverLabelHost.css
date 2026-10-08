@@ -1,0 +1,29 @@
+/*
+ * The hover label: a raised box in the app's own type and colors. The label's own element is a
+ * transparent edge one step of the spacing scale wide, touching its trigger on whichever side it
+ * lands, so the pointer moves from the trigger onto the label without crossing a gap; the box is
+ * drawn inside it. Every value is a Meridian token but the 1px hairline, which stays a pixel at
+ * every text size, and the measure, counted in characters.
+ */
+
+.meridian-hover-label {
+  padding: var(--meridian-space-1);
+}
+
+/* The trigger scrolled away or left the page: the label goes with it. */
+[data-anchor-hidden] > .meridian-hover-label {
+  visibility: hidden;
+}
+
+.meridian-hover-label__box {
+  display: block;
+  max-inline-size: 48ch;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}

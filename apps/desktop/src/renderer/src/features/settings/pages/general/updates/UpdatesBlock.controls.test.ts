@@ -188,7 +188,9 @@ describe("the updates block — a refused write puts the switch back", () => {
     expect(control()?.getAttribute("aria-checked")).toBe("false");
     expect(block.querySelector("[data-refusal-code]")).toBeNull();
     expect(
-      block.querySelector('[aria-label="Changed from the default"]')?.getAttribute("title"),
+      block
+        .querySelector('[aria-label="Changed from the default"]')
+        ?.getAttribute("data-hover-label"),
     ).toBe("On by default");
   });
 });

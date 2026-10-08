@@ -1,3 +1,5 @@
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
+
 import "./ChangedFromDefaultMark.css";
 
 /**
@@ -11,16 +13,17 @@ export type ChangedFromDefaultMarkProps =
 /**
  * The small accent mark drawn after a control's name while its value differs from its default.
  * The caller draws it only then; assistive technology reads it as `Changed from the default`, and
- * its tooltip names the default.
+ * its hover label names the default.
  */
 export function ChangedFromDefaultMark(props: ChangedFromDefaultMarkProps): React.JSX.Element {
   return (
-    <span
-      className="meridian-settings-changed-mark"
-      role="img"
-      aria-label="Changed from the default"
-      title={describeDefault(props)}
-    />
+    <HoverLabel text={describeDefault(props)} textIs="description">
+      <span
+        className="meridian-settings-changed-mark"
+        role="img"
+        aria-label="Changed from the default"
+      />
+    </HoverLabel>
   );
 }
 

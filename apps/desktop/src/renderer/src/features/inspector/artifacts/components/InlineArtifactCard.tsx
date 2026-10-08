@@ -17,6 +17,7 @@ import { type ArtifactManifestRow } from "../model.js";
 import { ARTIFACT_STATE_TONES } from "../copy.js";
 import type { ArtifactInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** What the inline artifact card is given. */
 export interface InlineArtifactCardProps {
@@ -36,11 +37,11 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
           Artifact
         </h4>
-        {/* Wire-verbatim; the title keeps the full string since the id is how a user finds the
-            artifact elsewhere. */}
-        <span className="meridian-artifact-card__id" title={props.card.artifact.id}>
-          {props.card.artifact.id}
-        </span>
+        {/* Wire-verbatim; the hover label keeps the full string since the id is how a user finds
+            the artifact elsewhere. */}
+        <HoverLabel text={props.card.artifact.id} textIs="visible-text">
+          <span className="meridian-artifact-card__id">{props.card.artifact.id}</span>
+        </HoverLabel>
       </header>
       {manifest === undefined ? null : (
         <div className="meridian-artifact-card__body">
