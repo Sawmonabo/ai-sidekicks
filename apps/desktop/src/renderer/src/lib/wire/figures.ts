@@ -387,7 +387,7 @@ export function formatDate(iso: string, locale: string): string {
  * The percent behind `formatPercent(percent / 100)` with every digit the wire sent, for a hover
  * label; `undefined` where the rounded text already shows it whole or shows no figure.
  */
-export function exactPercentLabel(percent: number, locale?: string): string | undefined {
+export function formatExactPercent(percent: number, locale?: string): string | undefined {
   const rounded = formatPercent(percent / 100, locale);
   if (rounded === UNREADABLE_FIGURE) {
     return undefined;

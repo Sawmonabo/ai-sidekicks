@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
@@ -22,8 +24,9 @@ export interface DayClockFigureProps {
  * `Tomorrow 6:00 AM`, written in `locale`; hovering it shows the time it stands for with its zone.
  */
 export function DayClockFigure(props: DayClockFigureProps): React.JSX.Element {
-  const reading = formatDayClock(props.at, props.nowMs, props.locale);
-  const zonedTime = formatZonedDateTime(props.at, props.locale);
+  const { at, nowMs, locale } = props;
+  const reading = useMemo(() => formatDayClock(at, nowMs, locale), [at, nowMs, locale]);
+  const zonedTime = useMemo(() => formatZonedDateTime(at, locale), [at, locale]);
   return props.isWindowClock === true ? (
     <DerivedFigure text={reading} hoverLabel={zonedTime} />
   ) : (

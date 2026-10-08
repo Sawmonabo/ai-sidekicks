@@ -8,7 +8,7 @@
 export type FigureSentencePart = string | { readonly wire: string } | { readonly derived: string };
 
 /** A sentence's words and figures as one string, for an announcement. */
-export function figureSentenceText(parts: readonly FigureSentencePart[]): string {
+export function joinFigureSentence(parts: readonly FigureSentencePart[]): string {
   return parts
     .map((part) => (typeof part === "string" ? part : "wire" in part ? part.wire : part.derived))
     .join("");

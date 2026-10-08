@@ -4,7 +4,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import {
-  exactPercentLabel,
+  formatExactPercent,
   formatDate,
   formatPercent,
   formatZonedDateTime,
@@ -75,7 +75,7 @@ export function UpdateReadOut(props: {
           />
           <WireFigure
             value={formatPercent(state.percent / 100)}
-            hoverLabel={exactPercentLabel(state.percent)}
+            hoverLabel={formatExactPercent(state.percent)}
           />
         </div>
       );

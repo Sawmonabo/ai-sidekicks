@@ -72,8 +72,3 @@ export function chainReceipt(
   const verb = answered.decision === "approved" ? "Kept going" : "Stopped";
   return [`${verb} at `, { wire: formatCount(answered.runCount) }, " runs"];
 }
-
-/** How far a chain has run, `100 runs from one start`, the daemon's count as a wire figure. */
-export function chainRunsWords(runCount: number): readonly FigureSentencePart[] {
-  return [{ wire: formatCount(runCount) }, " runs from one start"];
-}

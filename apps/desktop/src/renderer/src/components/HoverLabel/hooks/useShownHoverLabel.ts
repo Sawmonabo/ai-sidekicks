@@ -7,13 +7,13 @@
 // label, as the pointer does. The element the pointer and focus are on is kept whether or not it
 // carries a label, and the label is read off it again whenever a label attribute changes, so a
 // control that gains its words while it is hovered or focused shows them at once, and one that
-// drops them drops the label. A label put away stays away until the pointer moves to another
-// trigger or off every trigger, or focus moves; the pointer's label put away holds the focused
-// trigger's label back only until the pointer leaves. A bare Escape while a label shows puts the
-// label away and does nothing else: the press reaches no handler below the document and its
-// default is canceled, so the screen's own Escape waits for the next press. A label hidden
-// because its trigger scrolled out of view takes no Escape, nor does a press that ends a text
-// composition.
+// drops them drops the label. The pointer's label put away stays away until the pointer moves to
+// another trigger or off every trigger. The focused trigger's label put away stays away until focus
+// moves, except one held back with the pointer's, which returns once the pointer leaves. A bare
+// Escape while a label shows puts the label away and does nothing else: the press reaches no
+// handler below the document and its default is canceled, so the screen's own Escape waits for the
+// next press. A label hidden because its trigger scrolled out of view takes no Escape, nor does a
+// press with a modifier key or one that ends a text composition.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it

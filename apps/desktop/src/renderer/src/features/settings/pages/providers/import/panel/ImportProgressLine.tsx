@@ -9,13 +9,14 @@
 // sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
+import { useMemo } from "react";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { figureSentenceText, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
+import { joinFigureSentence, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
@@ -40,16 +41,23 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   // running import is said once, without the count it redraws on every frame, which would
   // otherwise be read out frame by frame. What the stream replayed as it opened is not news; a
   // new press is, even where its words match the last press's.
-  const sentence = rowSentence(model, providerLabel);
-  useAnnounceWhenChanged(
-    model.isUnderway && progress.status !== "failed"
-      ? importingWords(providerLabel)
-      : sentence === undefined
-        ? undefined
-        : figureSentenceText(sentence),
-    "polite",
-    { attempt: model.startPressOrdinal, isStanding: model.isShowingReplay },
-  );
+  const { isUnderway } = model;
+  const { sentence, announcement } = useMemo(() => {
+    const rowWords = rowSentence(progress, isUnderway, providerLabel);
+    return {
+      sentence: rowWords,
+      announcement:
+        isUnderway && progress.status !== "failed"
+          ? importingWords(providerLabel)
+          : rowWords === undefined
+            ? undefined
+            : joinFigureSentence(rowWords),
+    };
+  }, [isUnderway, progress, providerLabel]);
+  useAnnounceWhenChanged(announcement, "polite", {
+    attempt: model.startPressOrdinal,
+    isStanding: model.isShowingReplay,
+  });
   if (progress.status === "failed") {
     return (
       <InlineRefusal
@@ -122,15 +130,15 @@ function importingWords(providerLabel: string): string {
  * and once it settled. `undefined` where the row is a refusal or draws nothing.
  */
 function rowSentence(
-  model: ProviderImportModel,
+  progress: ProviderImportModel["progress"],
+  isUnderway: boolean,
   providerLabel: string,
 ): readonly FigureSentencePart[] | undefined {
-  const { progress } = model;
   if (progress.status === "failed") {
     return undefined;
   }
   const { newest } = progress;
-  if (model.isUnderway) {
+  if (isUnderway) {
     const words = importingWords(providerLabel);
     return newest?.kind === "progress"
       ? [`${words} `, { wire: formatCount(newest.read) }, " read."]

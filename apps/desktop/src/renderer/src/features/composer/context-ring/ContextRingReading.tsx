@@ -38,7 +38,7 @@ export function ContextRingReading(props: {
       >
         <span
           className="meridian-context-ring__fill"
-          // The one inline style here: it carries a wire figure into CSS.
+          // The one inline style here: it carries the app's percent into CSS.
           style={{ inlineSize: `${String(usagePercent)}%` }}
         />
       </span>

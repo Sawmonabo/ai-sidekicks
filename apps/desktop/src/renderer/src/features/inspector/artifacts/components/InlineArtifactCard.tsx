@@ -6,7 +6,7 @@
 
 import "./InlineArtifactCard.css";
 
-import { useId } from "react";
+import { useId, useMemo } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
@@ -30,6 +30,10 @@ export interface InlineArtifactCardProps {
 export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.Element {
   const headingId = useId();
   const { manifest } = props;
+  const manifestFace = useMemo(
+    () => (manifest === undefined ? null : renderManifestFace(manifest)),
+    [manifest],
+  );
   return (
     <section className="meridian-artifact-card" aria-labelledby={headingId}>
       <header className="meridian-artifact-card__header">
@@ -43,7 +47,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           <span className="meridian-artifact-card__id">{props.card.artifact.id}</span>
         </HoverLabel>
       </header>
-      {manifest === undefined ? null : renderManifestFace(manifest)}
+      {manifestFace}
     </section>
   );
 }

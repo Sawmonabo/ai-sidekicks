@@ -5,7 +5,7 @@
 // sighted user sees.
 
 import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
-import { Fragment } from "react";
+import { Fragment, useMemo } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
@@ -42,10 +42,14 @@ export interface AttachmentCardProps {
 /** Renders one attachment reading as an in-flight, resolved, or unresolved card. */
 export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
   const { reading } = props;
+  const resolvedFace = useMemo(
+    () => (reading.kind === "resolved" ? renderResolved(reading.derived) : null),
+    [reading],
+  );
   return (
     <article className="meridian-attachment" aria-label={attachmentLabel(reading)}>
       {reading.kind === "ingesting" ? renderIngesting(reading.entry, props) : null}
-      {reading.kind === "resolved" ? renderResolved(reading.derived) : null}
+      {resolvedFace}
       {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId) : null}
     </article>
   );

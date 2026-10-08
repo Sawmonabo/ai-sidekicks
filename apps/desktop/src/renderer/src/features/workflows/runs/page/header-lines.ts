@@ -14,7 +14,7 @@ import { costFigure } from "../cost.js";
 import { spentAccountWords, WAIT_CAUSE_WORDS } from "../../words.js";
 import { isGoing } from "../controls.js";
 import { isPersonWaitCause, latestStepWith } from "../steps.js";
-import { chainRunsWords, isPersonWaitKind } from "./step/receipts.js";
+import { isPersonWaitKind } from "./step/receipts.js";
 
 /** The header's two opening lines; what happened carries the daemon's counts as wire figures. */
 export interface RunHeaderLines {
@@ -115,6 +115,11 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   const spent = costFigure(run.cost);
   parts.push(plain([run.cost === undefined ? { derived: spent } : { wire: spent }, " so far"]));
   return parts;
+}
+
+/** How far a chain has run, `100 runs from one start`, the daemon's count as a wire figure. */
+export function chainRunsWords(runCount: number): readonly FigureSentencePart[] {
+  return [{ wire: formatCount(runCount) }, " runs from one start"];
 }
 
 /**

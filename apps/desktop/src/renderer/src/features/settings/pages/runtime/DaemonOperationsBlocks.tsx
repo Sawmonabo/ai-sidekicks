@@ -19,7 +19,7 @@
 // hold.
 
 import { Button } from "@base-ui/react/button";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -35,7 +35,7 @@ import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import {
-  exactPercentLabel,
+  formatExactPercent,
   formatByteQuantity,
   formatClockTime,
   formatPercent,
@@ -111,6 +111,11 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     { connection: mainProcessState.connection, settledControlCount: control.settledCount },
     props.operations,
   );
+  const { reading, checkAgain } = status;
+  const statusRegion = useMemo(
+    () => renderStatusRegion(reading, checkAgain, clock, clockLocale),
+    [checkAgain, clock, clockLocale, reading],
+  );
   const askToConfirm = (pressed: DaemonControl): void => {
     setControlRefusal(undefined);
     setConfirming(pressed);
@@ -120,7 +125,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     <>
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__section-head">Reported status</h3>
-        {renderStatusRegion(status.reading, status.checkAgain, clock, clockLocale)}
+        {statusRegion}
       </section>
 
       <section className="meridian-settings-page__block">
@@ -207,7 +212,7 @@ function renderStatusRegion(
                   ? undefined
                   : {
                       figure: formatPercent(reading.status.processor.percent / 100),
-                      exactValue: exactPercentLabel(reading.status.processor.percent),
+                      exactValue: formatExactPercent(reading.status.processor.percent),
                       readAt: reading.status.processor.readAt,
                     },
                 clockLocale,

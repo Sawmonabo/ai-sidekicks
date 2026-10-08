@@ -25,12 +25,14 @@ const SAMPLE_RUN_ROW_ZONED_TIME = formatZonedDateTime(
   clockLocaleFor(FIXTURE_APP_META),
 );
 
+const SAMPLE_RUN_ROW_HOVER_LABEL = `[${HOVER_LABEL_TEXT_ATTRIBUTE}="${SAMPLE_RUN_ROW_ZONED_TIME}"]`;
+
 /**
  * A sample run row's drawn time under the fixture's machine clock, found by the zoned instant its
  * hover label reads.
  */
 export const SAMPLE_RUN_ROW_TIME_SELECTOR: string =
-  ".meridian-figure--wire" + `[${HOVER_LABEL_TEXT_ATTRIBUTE}="${SAMPLE_RUN_ROW_ZONED_TIME}"]`;
+  ".meridian-figure--wire" + SAMPLE_RUN_ROW_HOVER_LABEL;
 
 /** What a caller may vary about a sample row. Everything else is held fixed. */
 export interface SampleRowOverrides {

@@ -115,10 +115,12 @@ describe("TranscriptRowLayout — the time on the machine's own clock", () => {
       { wrapper: bridgeWrapper(bridge) },
     );
     // The time, found by the zoned instant its hover label reads on `clock`.
-    const timeOn = (clock: MachineClock): string | null =>
-      container.querySelector(
-        `[${HOVER_LABEL_TEXT_ATTRIBUTE}="${formatZonedDateTime(occurredAtIso, clockLocaleFor(clock))}"]`,
-      )?.textContent ?? null;
+    const timeOn = (clock: MachineClock): string | null => {
+      const zoned = formatZonedDateTime(occurredAtIso, clockLocaleFor(clock));
+      return (
+        container.querySelector(`[${HOVER_LABEL_TEXT_ATTRIBUTE}="${zoned}"]`)?.textContent ?? null
+      );
+    };
     expect(timeOn({ regionLocale: "en-US", hourCycle: "h12" })).toBe("2:20:05 PM");
 
     act(() => {

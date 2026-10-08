@@ -330,6 +330,53 @@ it("leaves Escape to the page once a focused control scrolls its label out of vi
   });
 });
 
+it("leaves a composing or modified Escape to the page and keeps the label", async () => {
+  let windowEscapes = 0;
+  const countEscape = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      windowEscapes += 1;
+    }
+  };
+  window.addEventListener("keydown", countEscape);
+  onTestFinished(() => {
+    window.removeEventListener("keydown", countEscape);
+  });
+  const { getByRole } = render(
+    <div>
+      <button type="button">Before</button>
+      <HoverLabel text="Color scheme" textRole="name">
+        <button type="button">◐</button>
+      </HoverLabel>
+      <WindowHoverLabel />
+    </div>,
+  );
+  const control = getByRole("button", { name: "Color scheme" });
+  act(() => {
+    getByRole("button", { name: "Before" }).focus();
+  });
+  await act(async () => {
+    await userEvent.tab();
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Color scheme");
+  });
+
+  for (const [press, init] of [
+    ["mid-composition", { isComposing: true }],
+    ["with Shift", { shiftKey: true }],
+  ] as const) {
+    let isDefaultKept = false;
+    act(() => {
+      isDefaultKept = control.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, ...init }),
+      );
+    });
+    expect(isDefaultKept, `an Escape ${press} was canceled`).toBe(true);
+    expect(shownLabel()?.textContent, `an Escape ${press} put the label away`).toBe("Color scheme");
+  }
+  expect(windowEscapes, "an Escape the label left alone never reached the window").toBe(2);
+});
+
 it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {
   // Padding inside the frame, so a label against the text area would stand apart from the frame.
   const framePadding = { padding: "64px", "--meridian-text-box-padding": "16px" } as CSSProperties;
