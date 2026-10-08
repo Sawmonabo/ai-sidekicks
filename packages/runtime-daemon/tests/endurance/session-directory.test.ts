@@ -202,14 +202,19 @@ async function measure(run: () => Promise<unknown>): Promise<Timing & MainThread
 // The index's build in a daemon started on `homeFolder`, whose data folder holds the database and
 // no index: how long from the spawn until its search thread answers, and the peak footprints by
 // then of the daemon and of the processes it started, each child's read last while it ran. The
-// daemon is stopped before this resolves; throws, with what it printed, when it exits before the
-// build.
-async function buildIndexInDaemon(homeFolder: string, runFolder: string): Promise<DaemonBuild> {
+// daemon is stopped before this resolves, or once `signal` aborts; throws, with what it printed,
+// when it exits before the build.
+async function buildIndexInDaemon(
+  homeFolder: string,
+  runFolder: string,
+  signal: AbortSignal,
+): Promise<DaemonBuild> {
   const memory = await loadProcessMemoryReader();
   const startedAt = performance.now();
   const daemon = spawn(process.execPath, [DAEMON_ENTRY], {
     env: { ...process.env, HOME: homeFolder, XDG_RUNTIME_DIR: runFolder },
     stdio: ["ignore", "pipe", "pipe"],
+    signal,
   });
   let output = "";
   const exited = new Promise<void>((resolve) => {
@@ -293,6 +298,9 @@ describe("the session directory's budgets on the seeded set", () => {
   let seeded: SeededSet;
   let searchThread: SearchThread;
   let daemonBuild: DaemonBuild;
+  // Stops the daemon at the end even when the build outlives the hook's time, so it never runs on
+  // with no parent.
+  const daemonStop = new AbortController();
 
   beforeAll(async () => {
     folder = await mkdtemp(join(tmpdir(), "directory-budgets-"));
@@ -309,7 +317,7 @@ describe("the session directory's budgets on the seeded set", () => {
     await closeDatabaseConnections(seeding);
     // No index folder yet, so the daemon's search thread builds the index from every row before
     // its first answer; the first test reads the build's time and footprint.
-    daemonBuild = await buildIndexInDaemon(homeFolder, runFolder);
+    daemonBuild = await buildIndexInDaemon(homeFolder, runFolder, daemonStop.signal);
     database = await openDatabaseConnections({ databasePath, writeServiceLog });
     // The seeding leaves this thread's heap large and mostly garbage, which the daemon's main
     // thread never holds; collected and given back now, no collection of it lands in a measured
@@ -329,10 +337,14 @@ describe("the session directory's budgets on the seeded set", () => {
   });
 
   afterAll(async () => {
-    await searchThread.close();
-    await closeDatabaseConnections(database);
-    await rm(folder, { recursive: true, force: true });
-    await rm(runFolder, { recursive: true, force: true });
+    daemonStop.abort();
+    try {
+      await searchThread.close();
+      await closeDatabaseConnections(database);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+      await rm(runFolder, { recursive: true, force: true });
+    }
   });
 
   it("builds the index from the database at the start, merged, in budget", async () => {
