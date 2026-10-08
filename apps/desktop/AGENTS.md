@@ -64,7 +64,7 @@ Fixtures conform to production boundaries and never define them.
 
 ## Chokepoints
 
-- **Figures:** only `lib/wire/figures.ts` formats a wire value: strings verbatim in mono, quantities through `Intl`, bytes scaled by 1024, and a time's hover label on the machine's own clock with its zone (`formatZonedDateTime`). `lib/intl-formatter-cache.ts` holds the `Intl` instances and their cap.
+- **Figures:** only `lib/wire/figures.ts` formats a wire value: strings verbatim in mono, quantities through `Intl`, bytes scaled by 1024, and a time's hover title on the machine's own clock with its zone (`formatZonedDateTime`). `lib/intl-formatter-cache.ts` holds the `Intl` instances and their cap.
 - **Persistence:** every durable write goes through `store/persistence/` and its closed value-class enumeration; one byte-measurement function serves every cap. Drafts never reach it.
 - **Cost:** every cost figure comes from the committed-spend read; the renderer sums nothing.
 - **Refresh:** every refresh goes through `lib/reads/refresh/scheduler.ts`.

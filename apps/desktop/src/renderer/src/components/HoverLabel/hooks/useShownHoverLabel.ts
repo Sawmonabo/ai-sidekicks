@@ -61,7 +61,7 @@ export function useShownHoverLabel(
         return;
       }
       tracked.pointer = target;
-      if (tracked.dismissedPointer !== pointerTriggerOf(target)) {
+      if (tracked.dismissedPointer !== triggerOf(target)) {
         tracked.dismissedPointer = undefined;
       }
       readShown();
@@ -120,8 +120,8 @@ export function useShownHoverLabel(
 
   const close = useCallback(() => {
     const tracked = trackedRef.current;
-    tracked.dismissedPointer = pointerTriggerOf(tracked.pointer);
-    tracked.dismissedFocus = focusTriggerOf(tracked.focus);
+    tracked.dismissedPointer = triggerOf(tracked.pointer);
+    tracked.dismissedFocus = triggerOf(tracked.focus);
     readShown();
   }, [readShown]);
 
@@ -145,18 +145,15 @@ const SIDE_ATTRIBUTE = "data-hover-label-side";
 
 const TRIGGER_SELECTOR = `[${TEXT_ATTRIBUTE}]`;
 
-// The pointer is on a trigger while it is over the trigger or anything inside it, such as a glyph.
-function pointerTriggerOf(pointer: Element | undefined): Element | undefined {
-  return pointer?.closest(TRIGGER_SELECTOR) ?? undefined;
-}
-
-function focusTriggerOf(focus: Element | undefined): Element | undefined {
-  return focus?.closest(TRIGGER_SELECTOR) ?? undefined;
+// The trigger an element is on: itself or the trigger around it, as a glyph the pointer is over
+// or a field focused inside a labeled frame.
+function triggerOf(element: Element | undefined): Element | undefined {
+  return element?.closest(TRIGGER_SELECTOR) ?? undefined;
 }
 
 function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {
-  const pointerTrigger = pointerTriggerOf(tracked.pointer);
-  const focusTrigger = focusTriggerOf(tracked.focus);
+  const pointerTrigger = triggerOf(tracked.pointer);
+  const focusTrigger = triggerOf(tracked.focus);
   const anchor =
     (pointerTrigger === tracked.dismissedPointer ? undefined : pointerTrigger) ??
     (focusTrigger === tracked.dismissedFocus ? undefined : focusTrigger);

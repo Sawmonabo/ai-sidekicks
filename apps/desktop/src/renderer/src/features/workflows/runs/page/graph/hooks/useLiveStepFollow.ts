@@ -56,10 +56,10 @@ const SLIDE_INTERPOLATION = "linear";
 
 /**
  * Keeps the view on the live step: placed on it when the graph opens, sliding after it as the
- * run moves, and fitting the whole graph while nothing is live. A pan, a zoom or a key a person
- * makes stops it, and only `resumeFollowing` starts it again. The slide runs only while the
- * canvas is on screen, as its `data-in-view` mark says, and never under reduced motion; otherwise
- * the view jumps.
+ * run moves, and fitting the whole graph while nothing is live. A pan, a zoom, a key or keyboard
+ * focus a person puts on the graph stops it, and only `resumeFollowing` starts it again. The
+ * slide runs only while the canvas is on screen, as its `data-in-view` mark says, and never under
+ * reduced motion; otherwise the view jumps.
  */
 export function useLiveStepFollow(
   liveCenter: CanvasPoint | undefined,
@@ -70,8 +70,9 @@ export function useLiveStepFollow(
   const canvasHeight = useStore((state) => state.height);
   const minZoom = useStore((state) => state.minZoom);
   const maxZoom = useStore((state) => state.maxZoom);
-  // Where the view comes to rest once the slide this hook started ends, and gone once a person
-  // moves it: a reveal judges against where the view is going, not where a slide has it now.
+  // Where the view comes to rest while a slide this hook started is moving, and gone once that
+  // slide ends or a person moves the view: a reveal judges against where the view is going, not
+  // where a slide has it now.
   const restingViewportRef = useRef<Viewport | undefined>(undefined);
   const [isFollowing, setIsFollowing] = useState(true);
   const hasPlacedRef = useRef(false);
@@ -100,6 +101,23 @@ export function useLiveStepFollow(
     [canvasRef, ownerWindow],
   );
 
+  // Moves the view to `resting` over `duration`, standing it in as where the view rests until the
+  // slide ends; the library answers false, with nothing moved, while its pan and zoom are not
+  // mounted yet. A slide a newer one or a person's move cuts off never ends.
+  const slideTo = useCallback(
+    (resting: Viewport, duration: number): Promise<boolean> => {
+      restingViewportRef.current = resting;
+      const placement = setViewport(resting, { duration, interpolate: SLIDE_INTERPOLATION });
+      void placement.then(() => {
+        if (restingViewportRef.current === resting) {
+          restingViewportRef.current = undefined;
+        }
+      });
+      return placement;
+    },
+    [setViewport],
+  );
+
   useEffect(() => {
     if (!isFollowing || canvasWidth === 0 || canvasHeight === 0) {
       return;
@@ -124,14 +142,9 @@ export function useLiveStepFollow(
             canvasWidth,
             canvasHeight,
           );
-    restingViewportRef.current = resting;
-    const placement = setViewport(resting, { duration, interpolate: SLIDE_INTERPOLATION });
-    // The library answers false while its pan and zoom are not mounted yet, and nothing moved.
-    void placement.then((isPlaced) => {
+    void slideTo(resting, duration).then((isPlaced) => {
       if (isPlaced) {
         hasPlacedRef.current = true;
-      } else if (restingViewportRef.current === resting) {
-        restingViewportRef.current = undefined;
       }
     });
   }, [
@@ -145,7 +158,7 @@ export function useLiveStepFollow(
     getNodes,
     getNodesBounds,
     getZoom,
-    setViewport,
+    slideTo,
     slideMs,
   ]);
 
@@ -163,12 +176,10 @@ export function useLiveStepFollow(
       const screenX = point.x * zoom + x;
       const screenY = point.y * zoom + y;
       if (screenX < 0 || screenY < 0 || screenX > canvasWidth || screenY > canvasHeight) {
-        const resting = viewportCenteredOn(point, zoom, canvasWidth, canvasHeight);
-        restingViewportRef.current = resting;
-        void setViewport(resting, { duration: slideMs(), interpolate: SLIDE_INTERPOLATION });
+        void slideTo(viewportCenteredOn(point, zoom, canvasWidth, canvasHeight), slideMs());
       }
     },
-    [canvasWidth, canvasHeight, getViewport, setViewport, slideMs],
+    [canvasWidth, canvasHeight, getViewport, slideTo, slideMs],
   );
 
   return {

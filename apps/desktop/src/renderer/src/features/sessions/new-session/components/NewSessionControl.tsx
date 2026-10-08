@@ -87,7 +87,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
             Check the sessions list
           </button>
         ) : null}
-        {/* Disabled yet focusable, so the keyboard reaches the reason in its hover label. */}
+        {/* Disabled yet focusable, so the keyboard reaches its hover label where it has one. */}
         <HoverLabel text={composition.unsentEditsSentence} textIs="description">
           <Button
             className="meridian-new-session__send"

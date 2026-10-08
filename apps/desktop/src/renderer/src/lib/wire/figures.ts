@@ -24,6 +24,7 @@ import {
   dateTimeFormatFor,
   dollarFormatFor,
   numberFormatFor,
+  type NumberStyle,
   relativeTimeFormatFor,
 } from "../intl-formatter-cache.js";
 
@@ -219,28 +220,28 @@ export function formatUnitDuration(milliseconds: number, locale?: string): strin
   return parts.join(" ");
 }
 
-/**
- * A duration the wire states in whole days (a retention window). The unit is part of the figure,
- * so the whole text comes from `Intl` with `style: "unit"`, which handles the plural and the
- * locale's own word; `formatDuration` would render 7 days as `168:00:00`. A fractional input
- * renders whole. Non-finite and negative inputs render an em dash.
- */
-export function formatDayDuration(days: number, locale?: string): string {
-  if (!Number.isFinite(days) || days < 0) {
-    return UNREADABLE_FIGURE;
-  }
-  return numberFormatFor("dayDuration", locale).format(days);
-}
+/** The units a duration figure is stated in whole, each with the `Intl` style that words it. */
+const WHOLE_DURATION_STYLES: Readonly<Record<"day" | "minute", NumberStyle>> = {
+  day: "dayDuration",
+  minute: "minuteDuration",
+};
 
 /**
- * A duration the wire states in whole minutes, in words: `300 minutes`. Non-finite and negative
- * inputs render an em dash.
+ * A duration the wire states in whole units, such as a retention window in days or a quota window
+ * in minutes, in words: `7 days`, `300 minutes`. The unit is part of the figure, so the whole text
+ * comes from `Intl` with `style: "unit"`, which handles the plural and the locale's own word;
+ * `formatDuration` would render 7 days as `168:00:00`. A fractional input renders whole.
+ * Non-finite and negative inputs render an em dash.
  */
-export function formatMinuteDuration(minutes: number, locale?: string): string {
-  if (!Number.isFinite(minutes) || minutes < 0) {
+export function formatWholeDuration(
+  amount: number,
+  unit: keyof typeof WHOLE_DURATION_STYLES,
+  locale?: string,
+): string {
+  if (!Number.isFinite(amount) || amount < 0) {
     return UNREADABLE_FIGURE;
   }
-  return numberFormatFor("minuteDuration", locale).format(minutes);
+  return numberFormatFor(WHOLE_DURATION_STYLES[unit], locale).format(amount);
 }
 
 /**

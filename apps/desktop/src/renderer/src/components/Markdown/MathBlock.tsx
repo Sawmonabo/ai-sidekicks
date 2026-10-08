@@ -99,10 +99,10 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
 }
 
 /**
- * A ref for a display formula's span, on which `--math-natural-width` is written once per markup,
- * when the span first has a width; the sheet does the fitting from it. Where glyph widths round to
- * whole pixels, as on Linux, a piece's width does not scale exactly with its font size, so each
- * later resize checks the fit and raises the width where the drawn piece overran its column. A
+ * A ref for a display formula's span, on which `--math-natural-width` is written when the span
+ * first has a width; the sheet does the fitting from it. Where glyph widths round to whole pixels,
+ * as on Linux, a piece's width does not scale exactly with its font size, so each later resize
+ * checks the fit and raises the width where the drawn piece overran its column. A
  * write resizes the span it watches, so the watch stops right after it, in the same report, and
  * starts again on the next frame: a report of the size the write made would otherwise land in the
  * same pass, which the browser refuses with a window error.
@@ -119,6 +119,8 @@ function useMeasureNaturalWidth(
     if (displayMarkup === undefined || span === null) {
       return undefined;
     }
+    // The span's own window paces the rewatch, not the app's clock: it is layout, not time, and
+    // the fixture's frozen clock runs no frame until told to, which would leave the formula unfit.
     const clock = new RealClock(getWindow(span));
     let isMeasured = false;
     let rewatch: ScheduledHandle | undefined;

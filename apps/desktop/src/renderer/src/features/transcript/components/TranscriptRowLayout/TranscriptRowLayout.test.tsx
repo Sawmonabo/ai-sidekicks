@@ -11,6 +11,7 @@ import { createStubBridge } from "#shared/preload-api.js";
 import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "#renderer/services/platform/bridge.fixture.js";
 import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
+import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { bridgeWrapper, liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
 
@@ -112,9 +113,12 @@ describe("TranscriptRowLayout — the time on the machine's own clock", () => {
       <TranscriptRowLayout agentHueStep={0} occurredAtIso={occurredAtIso} authorLabel="Ada" />,
       { wrapper: bridgeWrapper(bridge) },
     );
-    const time = (): string | null =>
-      container.querySelector(".meridian-figure--wire[data-hover-label]")?.textContent ?? null;
-    expect(time()).toBe("2:20:05 PM");
+    // The time, found by the zoned instant its hover label reads on `clock`.
+    const timeOn = (clock: MachineClock): string | null =>
+      container.querySelector(
+        `[data-hover-label="${formatZonedDateTime(occurredAtIso, clockLocaleFor(clock))}"]`,
+      )?.textContent ?? null;
+    expect(timeOn({ regionLocale: "en-US", hourCycle: "h12" })).toBe("2:20:05 PM");
 
     act(() => {
       for (const handler of handlers) {
@@ -122,6 +126,6 @@ describe("TranscriptRowLayout — the time on the machine's own clock", () => {
       }
     });
 
-    expect(time()).toBe("14:20:05");
+    expect(timeOn({ regionLocale: "en-US", hourCycle: "h23" })).toBe("14:20:05");
   });
 });

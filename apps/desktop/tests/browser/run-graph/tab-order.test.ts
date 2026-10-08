@@ -3,15 +3,17 @@
 // so the browser's own order would reach every count first. The walk hands Tab back to the browser
 // at both ends, so the graph is never a trap, and Shift+Tab coming back in reaches the canvas's own
 // controls, then starts the walk at its last stop rather than skipping the counts that leave the
-// last node. Tabbing out past an end does not move the view, and a count Tab reaches is brought
-// into the canvas, even while the view is still sliding. This needs real focus and layout, so it
-// runs in Chromium.
+// last node. Tabbing out past an end does not move the view, and a count Tab reaches is centered
+// in the canvas, even while the view is still sliding, and judged against the view a person's zoom
+// left rather than a slide that zoom cut off. This needs real focus and layout, so it runs in
+// Chromium.
 
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
+import { nextFrame } from "../../helpers/animation-frame.js";
 import { clearMediaEmulation, emulateReducedMotion } from "../../helpers/media-emulation.js";
 import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { EDGE_COUNT_CLASS } from "#renderer/features/workflows/runs/page/graph/elements.js";
@@ -37,7 +39,6 @@ async function mountBetweenButtons(fixture: FixtureRun): Promise<{
     itemCount: WHOLE_COUNT,
   }));
   const { container } = await mountRunGraph(fixture, counts);
-  render(createElement(WindowHoverLabel));
   const before = document.createElement("button");
   const after = document.createElement("button");
   container.before(before);
@@ -69,6 +70,7 @@ function isGraphStop(element: Element | null): boolean {
 it("reaches a count after the node its edge leaves, which shows its whole count", async () => {
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
   const { canvas, before } = await mountBetweenButtons(fixture);
+  render(createElement(WindowHoverLabel));
   const firstNode = canvas.querySelector<HTMLElement>(".react-flow__node");
   const leaving = fixture.workflowDocument.edges.find(
     (edge) => edge.source === firstNode?.dataset["id"],
@@ -197,7 +199,7 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
   expect(viewportTransform(canvas)).toBe(transform);
 });
 
-it("brings a count reached by Tab into the canvas", async () => {
+it("centers a count reached by Tab in the canvas", async () => {
   // Reduced motion, so the pan is a jump the next read sees.
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
@@ -213,11 +215,11 @@ it("brings a count reached by Tab into the canvas", async () => {
   expect(document.activeElement).toBe(count);
   await waitFor(() => {
     expect(pane.scrollLeft + pane.scrollTop).toBe(0);
-    expect(isInside(count, pane)).toBe(true);
+    expect(isCentered(count, pane)).toBe(true);
   });
 });
 
-it("brings a count reached by Tab mid-slide into the canvas where the slide ends", async () => {
+it("centers a count reached by Tab mid-slide in the canvas where the slide ends", async () => {
   await emulateReducedMotion();
   const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
   const { canvas, pane } = await mountNarrowed(fixture);
@@ -236,18 +238,32 @@ it("brings a count reached by Tab mid-slide into the canvas where the slide ends
     expect(isInside(count, pane), "the count is in the canvas").toBe(true);
   });
   expect(isInside(firstNode, pane), "the node's center is outside the canvas").toBe(false);
+  // A person's small zoom about the canvas's edge on the node's side moves the count off the
+  // center away from the node, and the node further out. A slide to the node then carries the
+  // count further off, so only a reveal of the count centers it again.
+  const paneBox = pane.getBoundingClientRect();
+  const isNodeLeftOfCount =
+    firstNode.getBoundingClientRect().left < count.getBoundingClientRect().left;
+  act(() => {
+    zoomAt(
+      canvas,
+      isNodeLeftOfCount ? paneBox.left + 1 : paneBox.right - 1,
+      paneBox.top + paneBox.height / 2,
+      -50,
+    );
+  });
+  // Two frames, so the zoom is drawn before the geometry is read.
+  await nextFrame();
+  await nextFrame();
+  expect(isInside(count, pane), "the zoom took the count out of the canvas").toBe(true);
+  expect(isCentered(count, pane), "the zoom left the count centered").toBe(false);
+  expect(isInside(firstNode, pane), "the zoom brought the node's center in").toBe(false);
 
   // With motion on, focus on the node starts a slide to it, and Tab moves to the count in that
   // same task, before the slide has moved the view, so the count is still in view as focus lands.
   // The node centered leaves the count outside, so only a reveal judged against where the view is
   // going brings the count back.
-  await act(async () => {
-    await clearMediaEmulation();
-  });
-  // The page reads the cleared emulation a moment later; until then a slide would be a jump.
-  await waitFor(() => {
-    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false);
-  });
+  await allowMotion();
   let isCountInViewAsFocusLands: boolean | undefined;
   count.addEventListener(
     "focus",
@@ -262,14 +278,67 @@ it("brings a count reached by Tab mid-slide into the canvas where the slide ends
   });
   expect(document.activeElement).toBe(count);
   expect(isCountInViewAsFocusLands).toBe(true);
-  await waitForViewToRest(canvas);
-  expect(isInside(count, pane)).toBe(true);
+  await waitFor(() => {
+    expect(isCentered(count, pane)).toBe(true);
+  });
   const countBox = count.getBoundingClientRect();
   const nodeBox = firstNode.getBoundingClientRect();
   expect(
     Math.abs(countBox.left + countBox.width / 2 - (nodeBox.left + nodeBox.width / 2)),
     "the node centered would leave the count outside the canvas",
   ).toBeGreaterThan(pane.getBoundingClientRect().width / 2);
+});
+
+it("judges a count reached by Tab against the view a person's zoom left, not the slide it cut off", async () => {
+  await emulateReducedMotion();
+  const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
+  const { canvas, pane } = await mountNarrowed(fixture);
+  const count = await lastCountLeaving(canvas, fixture, firstNodeOf(canvas));
+  expect(isInside(count, pane), "the count starts outside the canvas").toBe(false);
+  const paneBox = pane.getBoundingClientRect();
+  const countBox = count.getBoundingClientRect();
+  // The zoom is about the canvas's far side from the count, so it keeps the count outside.
+  const zoomX =
+    countBox.left < paneBox.left + paneBox.width / 2 ? paneBox.right - 1 : paneBox.left + 1;
+
+  // Focus on the count starts a slide to it, and a person's zoom in that same task cuts the slide
+  // off before it has moved the view.
+  await allowMotion();
+  await act(async () => {
+    await userEvent.keyboard("{Shift}");
+  });
+  act(() => {
+    count.focus();
+    zoomAt(canvas, zoomX, paneBox.top + paneBox.height / 2, -240);
+  });
+  await act(async () => {
+    await emulateReducedMotion();
+  });
+  await waitFor(() => {
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+    expect(pane.scrollLeft + pane.scrollTop).toBe(0);
+  });
+  // Two frames, so the zoom is drawn before the geometry is read.
+  await nextFrame();
+  await nextFrame();
+  expect(zoomOf(canvas), "the person's zoom left the view at its opening zoom").not.toBe(1);
+  expect(isInside(count, pane), "the cut-off slide brought the count in").toBe(false);
+
+  // The keyboard reaches the count again: judged against the view as it stands, it is brought to
+  // the canvas's center at the person's zoom.
+  act(() => {
+    count.blur();
+  });
+  await act(async () => {
+    await userEvent.keyboard("{Shift}");
+  });
+  act(() => {
+    count.focus();
+  });
+  await waitFor(() => {
+    expect(pane.scrollLeft + pane.scrollTop).toBe(0);
+    expect(isCentered(count, pane)).toBe(true);
+  });
 });
 
 /**
@@ -322,28 +391,55 @@ async function lastCountLeaving(
   });
 }
 
-// Waits until the view has stood still for a run of frames, as it does once every slide ends.
-async function waitForViewToRest(canvas: HTMLElement): Promise<void> {
+// A person's wheel on the canvas at a point, which zooms the view about it: in for a negative
+// `deltaY`, out for a positive one.
+function zoomAt(canvas: HTMLElement, clientX: number, clientY: number, deltaY: number): void {
+  const surface = canvas.querySelector<HTMLElement>(".react-flow__pane");
+  if (surface === null) {
+    throw new Error("the graph drew no pane to zoom on");
+  }
+  surface.dispatchEvent(
+    new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX, clientY, deltaY }),
+  );
+}
+
+// Lets the view slide again: the page reads the cleared emulation a moment later, and until then a
+// slide would be a jump.
+async function allowMotion(): Promise<void> {
   await act(async () => {
-    let last = viewportTransform(canvas);
-    let stillFrames = 0;
-    for (let frame = 0; frame < 600 && stillFrames < 12; frame += 1) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      const now = viewportTransform(canvas);
-      stillFrames = now === last ? stillFrames + 1 : 0;
-      last = now;
-    }
+    await clearMediaEmulation();
+  });
+  await waitFor(() => {
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false);
   });
 }
 
-// Whether `element`'s center lies within `frame` as the graph's view draws it, with any scroll
-// the browser gave the frame to show a focused element taken back out.
-function isInside(element: Element, frame: Element): boolean {
+// Where `element`'s center stands as the graph's view draws it, with any scroll the browser gave
+// `frame` to show a focused element taken back out.
+function drawnCenter(element: Element, frame: Element): { readonly x: number; readonly y: number } {
   const { left, top, width, height } = element.getBoundingClientRect();
+  return { x: left + width / 2 + frame.scrollLeft, y: top + height / 2 + frame.scrollTop };
+}
+
+function isInside(element: Element, frame: Element): boolean {
+  const { x, y } = drawnCenter(element, frame);
   const bounds = frame.getBoundingClientRect();
-  const x = left + width / 2 + frame.scrollLeft;
-  const y = top + height / 2 + frame.scrollTop;
   return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+}
+
+// Whether `element`'s center stands at `frame`'s, within the pixel the library rounds its size to.
+function isCentered(element: Element, frame: Element): boolean {
+  const { x, y } = drawnCenter(element, frame);
+  const bounds = frame.getBoundingClientRect();
+  return (
+    Math.abs(x - (bounds.left + bounds.right) / 2) < 1 &&
+    Math.abs(y - (bounds.top + bounds.bottom) / 2) < 1
+  );
+}
+
+// The zoom the library has set the view to, read off the transform it writes.
+function zoomOf(canvas: HTMLElement): number {
+  return new DOMMatrixReadOnly(viewportTransform(canvas)).a;
 }
 
 function viewportTransform(canvas: HTMLElement): string {

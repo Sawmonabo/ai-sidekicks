@@ -10,7 +10,7 @@ import { FigureSentence } from "#renderer/components/FigureSentence/FigureSenten
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
-import type { HeldStepAnswer } from "../../hooks/useRunPage.js";
+import type { HeldStepAnswer } from "../held-answer.js";
 import { chainRunsWords, resolutionReceipt, timedOutReceipt } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";

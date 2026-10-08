@@ -4,7 +4,9 @@
 // widest piece fits, at any width. Every KaTeX face is in before it is first drawn, so no font
 // arriving later moves it. Taking away the measured natural width lets the same formula cross the
 // column's edge: the negative control for the fit. Fitting never raises a window error, such as
-// the one the browser raises when a resize watch resizes what it watches in the same pass.
+// the one the browser raises when a resize watch resizes what it watches in the same pass. Glyph
+// widths round to whole pixels only on Linux, so only the Linux run shows the refit after a resize
+// matters; elsewhere the first measured width already fits.
 
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";

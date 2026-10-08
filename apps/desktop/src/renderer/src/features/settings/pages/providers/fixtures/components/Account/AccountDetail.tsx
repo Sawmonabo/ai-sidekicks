@@ -6,7 +6,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import {
   formatCount,
   formatDateTime,
-  formatDayDuration,
+  formatWholeDuration,
   formatZonedDateTime,
 } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -68,8 +68,8 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       term: <span>Re-login estimate</span>,
       definition: (
         <span>
-          About <DerivedFigure text={formatDayDuration(horizonInDays)} /> after sign-in. An estimate
-          from the provider’s published issuance interval, not a set deadline.
+          About <DerivedFigure text={formatWholeDuration(horizonInDays, "day")} /> after sign-in. An
+          estimate from the provider’s published issuance interval, not a set deadline.
         </span>
       ),
     });

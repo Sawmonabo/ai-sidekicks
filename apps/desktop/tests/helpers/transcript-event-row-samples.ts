@@ -7,11 +7,26 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
+
 /** The session every sample row belongs to. Opaque on the wire; branded in the contract. */
 const SAMPLE_SESSION_ID = "01J0000000000000000000000A" as SessionId;
 
 /** The run every sample run row belongs to. Branded for the same reason. */
 const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
+
+/** When a sample run row happened, unless a caller gives it another time. */
+const SAMPLE_RUN_ROW_TIMESTAMP = "2026-09-02T10:00:00.000Z";
+
+/**
+ * A sample run row's drawn time under the fixture's machine clock, found by the zoned instant its
+ * hover label reads.
+ */
+export const SAMPLE_RUN_ROW_TIME_SELECTOR: string = `.meridian-figure--wire[data-hover-label="${formatZonedDateTime(
+  SAMPLE_RUN_ROW_TIMESTAMP,
+  clockLocaleFor(FIXTURE_APP_META),
+)}"]`;
 
 /** What a caller may vary about a sample row. Everything else is held fixed. */
 export interface SampleRowOverrides {
@@ -42,7 +57,7 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEven
     category: "run_lifecycle",
     type: overrides.type ?? "assistant.message",
     summary: overrides.summary ?? "The agent replied.",
-    timestamp: overrides.timestamp ?? "2026-09-02T10:00:00.000Z",
+    timestamp: overrides.timestamp ?? SAMPLE_RUN_ROW_TIMESTAMP,
     payload: { ...overrides.payload },
     runId: (overrides.runId ?? SAMPLE_RUN_ID) as RunId,
     position: 1,

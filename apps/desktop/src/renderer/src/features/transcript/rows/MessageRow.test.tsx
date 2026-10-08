@@ -20,7 +20,10 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
-import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import {
+  SAMPLE_RUN_ROW_TIME_SELECTOR,
+  sampleRunRow,
+} from "#test/helpers/transcript-event-row-samples.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import {
   RowRevealContext,
@@ -230,7 +233,7 @@ describe("a reply's foot", () => {
       sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
     ]);
     const timesIn = (container: HTMLElement) =>
-      container.querySelectorAll(".meridian-figure--wire[data-hover-label]");
+      container.querySelectorAll(SAMPLE_RUN_ROW_TIME_SELECTOR);
 
     const opening = renderMessageCard({
       id: "reply-opening",
@@ -334,7 +337,7 @@ describe("a reply's foot", () => {
       replyRowIds: replyRows.get("reply-closing"),
       revealChannel: channel,
     });
-    expect(closing.querySelectorAll(".meridian-figure--wire[data-hover-label]")).toHaveLength(0);
+    expect(closing.querySelectorAll(SAMPLE_RUN_ROW_TIME_SELECTOR)).toHaveLength(0);
 
     // The earlier row draws its stored body, with no live text: the foot comes to the last row.
     const opening = renderMessageCard({
@@ -343,9 +346,9 @@ describe("a reply's foot", () => {
       replyRowIds: replyRows.get("reply-opening"),
       revealChannel: channel,
     });
-    expect(opening.querySelectorAll(".meridian-figure--wire[data-hover-label]")).toHaveLength(0);
+    expect(opening.querySelectorAll(SAMPLE_RUN_ROW_TIME_SELECTOR)).toHaveLength(0);
     const foot = closing.querySelector(".meridian-transcript-row-layout__footer");
-    expect(foot?.querySelectorAll(".meridian-figure--wire[data-hover-label]")).toHaveLength(1);
+    expect(foot?.querySelectorAll(SAMPLE_RUN_ROW_TIME_SELECTOR)).toHaveLength(1);
     expect(foot?.querySelector("button")?.textContent).toBe("Copy");
   });
 });

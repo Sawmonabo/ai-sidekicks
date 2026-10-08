@@ -8,7 +8,7 @@ import {
   exactPercentLabel,
   formatDateTime,
   formatDuration,
-  formatMinuteDuration,
+  formatWholeDuration,
   formatPercent,
   formatZonedDateTime,
 } from "#renderer/lib/wire/figures.js";
@@ -116,7 +116,7 @@ function WindowLength(props: { readonly window: AccountQuotaRow["window"] }): Re
   return (
     <WireFigure
       value={formatDuration(windowMins * MILLISECONDS_PER_MINUTE)}
-      hoverLabel={formatMinuteDuration(windowMins)}
+      hoverLabel={formatWholeDuration(windowMins, "minute")}
     />
   );
 }

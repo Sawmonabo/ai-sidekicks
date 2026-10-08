@@ -3,7 +3,7 @@ import { useId, useState } from "react";
 import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import type { HeldStepAnswer } from "../hooks/useRunPage.js";
+import type { HeldStepAnswer } from "../step/held-answer.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";

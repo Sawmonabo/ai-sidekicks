@@ -231,8 +231,8 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
 
 // The short count on the edge, with the whole count in its hover label, which a pointer or the
 // keyboard shows and a screen reader names the count by. The canvas's Tab order reaches it after
-// the node its edge leaves, so the keyboard reads the whole count as the pointer does; it is an
-// image, the role a named figure with no text of its own to read takes.
+// the node its edge leaves, so the keyboard reads the whole count as the pointer does. It takes
+// the image role, so a screen reader reads its name, the whole count, in place of the short one.
 function edgeCountLabel(count: number): React.ReactNode {
   return createElement(HoverLabel, {
     text: itemCountWords(count),

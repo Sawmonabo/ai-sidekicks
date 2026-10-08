@@ -26,7 +26,7 @@ import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { clockLocaleFor, formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
-import type { HeldStepAnswer } from "../../hooks/useRunPage.js";
+import type { HeldStepAnswer } from "../held-answer.js";
 import {
   createWorkflowCommandTargets,
   type WorkflowCommandTargets,
@@ -248,12 +248,25 @@ describe("a step's blocker", () => {
   });
 
   it("draws a held reply's time as the app's own reading until the daemon's record arrives", () => {
-    const { receipt } = renderBlocker(WORKFLOW_RUN_IDS.waitingReply, "ask", [], (step) => step, {
+    const heldReply: HeldStepAnswer = {
       resolution: { kind: "answered", at: new Date(WORKFLOW_FIXTURE_NOW_MS).toISOString() },
       isWindowClock: true,
-    });
+    };
+    const held = renderBlocker(WORKFLOW_RUN_IDS.waitingReply, "ask", [], (step) => step, heldReply);
 
-    expect(receipt()?.querySelector(".meridian-figure--derived")).not.toBeNull();
-    expect(receipt()?.querySelector(".meridian-figure--wire")).toBeNull();
+    expect(held.receipt()?.querySelector(".meridian-figure--derived")).not.toBeNull();
+    expect(held.receipt()?.querySelector(".meridian-figure--wire")).toBeNull();
+
+    // Once the run carries the daemon's record, the time is the wire's, though the answer is held.
+    cleanup();
+    const recorded = renderBlocker(
+      WORKFLOW_RUN_IDS.waitingReply,
+      "ask",
+      [],
+      (step) => ({ ...withoutWait(step, "running"), resolution: heldReply.resolution }),
+      heldReply,
+    );
+    expect(recorded.receipt()?.querySelector(".meridian-figure--wire")).not.toBeNull();
+    expect(recorded.receipt()?.querySelector(".meridian-figure--derived")).toBeNull();
   });
 });

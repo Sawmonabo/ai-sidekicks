@@ -6,10 +6,11 @@
 // that never closes. A control that gains its words while focused or hovered shows them at once,
 // and a label Escape put away stays away while the pointer moves inside its control, until it
 // leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
-// the frame's label.
+// the frame's label. The drawn label is hidden from assistive technology, which reads the words
+// once, from the control.
 
 import { useState, type CSSProperties } from "react";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -47,6 +48,8 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Color scheme");
   });
+  // The words are the control's name already, so the drawn label is never read a second time.
+  expect(isInaccessible(shownLabel()!)).toBe(true);
   // A press on the label leaves focus on the control.
   await act(async () => {
     await userEvent.click(shownLabel()!);

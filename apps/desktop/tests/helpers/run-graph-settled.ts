@@ -18,12 +18,12 @@
 // would audit an empty box.
 //
 // Each node carries its handles, so the graph is drawn and placed before the library has measured
-// a node. That first measurement arrives from a resize observer on a later frame and redraws the
-// edges, so the wait ends only after two frames have passed inside `act`.
+// a node. That first measurement arrives from a resize observer and redraws the edges, so the wait
+// ends only once the observers have answered.
 
-import { act, waitFor } from "@testing-library/react";
+import { waitFor } from "@testing-library/react";
 
-import { nextFrame } from "./animation-frame.js";
+import { letObserversAnswer } from "./animation-frame.js";
 
 /**
  * The viewport transform the library renders before it has fitted anything.
@@ -170,8 +170,5 @@ export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise
     },
     { timeout: FIT_DEADLINE_MS },
   );
-  await act(async () => {
-    await nextFrame();
-    await nextFrame();
-  });
+  await letObserversAnswer();
 }

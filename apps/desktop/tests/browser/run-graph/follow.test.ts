@@ -1,12 +1,13 @@
-// The run graph follows the live step until a person moves the view, and only the `now` chip
-// brings the follow back. This needs real geometry: the follow places the view only once the
-// canvas has a measured size, which a DOM shim reports as zero.
+// The run graph follows the live step until a person moves the view or puts keyboard focus on
+// the graph, and only the `now` chip brings the follow back. This needs real geometry: the follow
+// places the view only once the canvas has a measured size, which a DOM shim reports as zero.
 //
 // Reduced motion is emulated so every placement is a jump rather than a slide: a view that
 // still followed would have moved by the time the update settles, with no clock to wait on.
 
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
@@ -120,5 +121,28 @@ describe("browser — the run graph's follow of the live step", () => {
       expect(nowChip(container), "the chip stood after it brought the view back").toBeNull();
     });
     expect(viewportTransform(container)).not.toBe(scrolledTransform);
+  });
+
+  it("stops when keyboard focus lands on the graph, and holds as the run moves on", async () => {
+    await emulateReducedMotion();
+    const { container, showSteps } = await mountRunGraph(RUNNING);
+    const node = container.querySelector<HTMLElement>(".react-flow__node");
+    if (node === null) {
+      throw new Error("the graph drew no node");
+    }
+    // A key first, away from the canvas, so focus put on the node from code is keyboard focus
+    // and no key reaches the canvas, as Tab from before the canvas lands.
+    await act(async () => {
+      await userEvent.keyboard("{Shift}");
+    });
+    act(() => {
+      node.focus();
+    });
+    const focusedTransform = viewportTransform(container);
+
+    await showSteps(stepsOneOn(RUNNING.run.steps));
+    expect(viewportTransform(container), "the view followed the run off the focused node").toBe(
+      focusedTransform,
+    );
   });
 });
