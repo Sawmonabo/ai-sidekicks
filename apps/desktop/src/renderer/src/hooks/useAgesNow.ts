@@ -9,6 +9,9 @@ import { ageChangesAt } from "#renderer/lib/wire/figures.js";
  */
 export function useAgesNow(clock: Clock, stamps: readonly string[]): number {
   return useDrawnInstant(clock, stamps, (instant) =>
-    Math.min(Number.POSITIVE_INFINITY, ...stamps.map((stamp) => ageChangesAt(stamp, instant))),
+    stamps.reduce(
+      (earliest, stamp) => Math.min(earliest, ageChangesAt(stamp, instant)),
+      Number.POSITIVE_INFINITY,
+    ),
   );
 }

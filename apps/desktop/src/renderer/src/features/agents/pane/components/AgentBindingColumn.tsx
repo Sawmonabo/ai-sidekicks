@@ -38,8 +38,10 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     () => (agentId === undefined ? agents : agents.filter((row) => row.agentId === agentId)),
     [agents, agentId],
   );
-  // The cards' day words move at local midnight, so the column wakes then and at no other time.
-  const nowMilliseconds = useDrawnInstant(useClock(), shownAgents, dayClockChangesAt);
+  // The cards' day words move at local midnight, so the column wakes then, and with no card, never.
+  const nowMilliseconds = useDrawnInstant(useClock(), shownAgents, (instant) =>
+    shownAgents.length === 0 ? Number.POSITIVE_INFINITY : dayClockChangesAt(instant),
+  );
 
   return (
     <>

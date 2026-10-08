@@ -1,6 +1,6 @@
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { formatCount, formatNumericCode } from "#renderer/lib/wire/figures.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 
@@ -62,7 +62,7 @@ function ProcessExitWords(props: {
   const { processExit } = props;
   return processExit.signal === undefined ? (
     <>
-      Exit code <WireFigure value={String(processExit.exitCode)} />
+      Exit code <WireFigure value={formatNumericCode(processExit.exitCode)} />
     </>
   ) : (
     <>Ended by {processExit.signal}</>

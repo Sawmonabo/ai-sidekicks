@@ -15,7 +15,7 @@ import { ARTIFACT_STATE_TONES } from "../copy.js";
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
   readonly row: ArtifactManifestRow;
-  /** The instant the row's age is drawn against, on the screen's one beat. */
+  /** The instant the caller draws the age against. */
   readonly nowMilliseconds: number;
   /** Whether this row's manifest re-read is on the wire; holds the control that sent it. */
   readonly isManifestReadInFlight?: boolean | undefined;

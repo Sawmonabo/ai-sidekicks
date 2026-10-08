@@ -342,7 +342,6 @@ export class UiStateStore {
 }
 
 function describeThrownValue(error: unknown): string {
-  return error instanceof Error
-    ? `${error.name}: ${error.message}`
-    : wireRejectionToError(error).message;
+  const thrown = wireRejectionToError(error);
+  return `${thrown.name}: ${thrown.message}`;
 }

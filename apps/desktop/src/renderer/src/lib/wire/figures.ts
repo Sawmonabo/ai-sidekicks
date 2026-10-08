@@ -298,6 +298,14 @@ export function relativeTimeChangesAt(fromIso: string, nowMilliseconds: number):
 }
 
 /**
+ * A numeric code as the wire sent it, such as an exit code, `1` or `-9`: never grouped or rounded,
+ * since a code names an outcome rather than counting anything.
+ */
+export function formatNumericCode(code: number): string {
+  return String(code);
+}
+
+/**
  * A row's age: `now` under a minute, then one whole count in one unit with no `ago`, `5m`, `3h`,
  * `2d`, `1w`, `4mo`, `1y`. An instant ahead of the clock reads `now`; an unreadable stamp renders
  * an em dash. The hover carries `formatZonedDateTime` of the same stamp.

@@ -31,7 +31,7 @@ import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
   readonly record: WorktreeStatusRecord;
-  /** The instant the card's age is drawn against, on the screen's one beat. */
+  /** The instant the caller draws the age against. */
   readonly nowMilliseconds: number;
 }
 

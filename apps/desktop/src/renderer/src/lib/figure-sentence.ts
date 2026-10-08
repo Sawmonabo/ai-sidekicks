@@ -16,8 +16,11 @@ export type FigureOrigin = "wire" | "derived";
  */
 export type FigureSentencePart =
   | string
-  | { readonly wire: string; readonly hoverLabel?: string | undefined }
-  | { readonly derived: string; readonly hoverLabel?: string | undefined };
+  | {
+      [Origin in FigureOrigin]: { readonly [Key in Origin]: string } & {
+        readonly hoverLabel?: string | undefined;
+      };
+    }[FigureOrigin];
 
 /** A figure of `origin` as a sentence part, with what it stands for where that is not its text. */
 export function figurePart(
