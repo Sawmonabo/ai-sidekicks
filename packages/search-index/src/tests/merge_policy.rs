@@ -1,6 +1,6 @@
 //! The capped merge policy: no merge writes more live rows than the cap, the build's merges down
 //! to the last included, and a segment over half the cap is rewritten only alone, once past its
-//! deleted share or once it has held a purged session's rows.
+//! deleted share or once it has held a purged session's or a deleted group's rows.
 
 use std::collections::HashSet;
 
@@ -65,16 +65,17 @@ fn rewrites_a_full_segment_only_alone_past_its_deleted_share_or_after_a_purge() 
     let index = index();
     let past_share = segment(&index, ROW_CAP, 200);
     let barely_deleted = segment(&index, ROW_CAP, 50);
-    // Held one row of a purged session: rewritten for it, however small its deleted share.
-    let held_purged_rows = segment(&index, ROW_CAP, 1);
+    // Held one row of a purged session or a deleted group: rewritten for it, however small its
+    // deleted share.
+    let held_removed_rows = segment(&index, ROW_CAP, 1);
     // Over half the cap: merged with the small one it would fit, but it is not rewritten for it.
     let full = segment(&index, 6_000, 0);
     let small = segment(&index, 3_000, 0);
-    let policy = CappedMergePolicy::new(ROW_CAP, HashSet::from([held_purged_rows.id()]));
+    let policy = CappedMergePolicy::new(ROW_CAP, HashSet::from([held_removed_rows.id()]));
     let segments = vec![
         past_share.clone(),
         barely_deleted,
-        held_purged_rows.clone(),
+        held_removed_rows.clone(),
         full,
         small,
     ];
@@ -84,7 +85,7 @@ fn rewrites_a_full_segment_only_alone_past_its_deleted_share_or_after_a_purge() 
         .map(|candidate| candidate.0)
         .collect();
     candidates.sort();
-    let mut expected = vec![vec![past_share.id()], vec![held_purged_rows.id()]];
+    let mut expected = vec![vec![past_share.id()], vec![held_removed_rows.id()]];
     expected.sort();
     assert_eq!(candidates, expected);
 }

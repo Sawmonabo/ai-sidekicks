@@ -1,11 +1,11 @@
 //! Which segments merge while the daemon is idle, on Lucene's tiered model: no merge writes a
 //! segment holding more than a cap of live rows, so a merge's time is bounded whatever the index's
 //! size; segments of a similar size merge while their live rows fit the cap; and a segment with
-//! more than one row in a hundred deleted, or that held a purged session's rows, is rewritten
-//! alone, so a purge rewrites only the segments that held its rows and its words leave the index's
-//! files. Tantivy's own `LogMergePolicy` has no such cap: its document bound only keeps larger
-//! segments out of merges, so many smaller ones still merge past it, and a segment past it never
-//! merges again, its deleted rows never expunged.
+//! more than one row in a hundred deleted, or that held the rows of a purged session or a deleted
+//! group, is rewritten alone, so their words leave the index's files and only the segments that
+//! held them are rewritten. Tantivy's own `LogMergePolicy` has no such cap: its document bound only
+//! keeps larger segments out of merges, so many smaller ones still merge past it, and a segment
+//! past it never merges again, its deleted rows never expunged.
 
 use std::collections::HashSet;
 
@@ -24,20 +24,20 @@ const LEVEL_LOG_SIZE: f64 = 0.75;
 const LEVEL_FLOOR_ROWS: u32 = 10_000;
 
 /// Proposes merges whose merged segment holds at most `row_cap` live rows, and a rewrite of each
-/// segment that held a purged session's rows.
+/// segment that held a purged session's or a deleted group's rows.
 #[derive(Debug, Clone)]
 pub struct CappedMergePolicy {
     row_cap: u32,
-    purged_segments: HashSet<SegmentId>,
+    removed_owner_segments: HashSet<SegmentId>,
 }
 
 impl CappedMergePolicy {
     /// A policy that writes no segment of more than `row_cap` live rows, and rewrites each of
-    /// `purged_segments` alone whatever share of its rows is deleted.
-    pub fn new(row_cap: u32, purged_segments: HashSet<SegmentId>) -> CappedMergePolicy {
+    /// `removed_owner_segments` alone whatever share of its rows is deleted.
+    pub fn new(row_cap: u32, removed_owner_segments: HashSet<SegmentId>) -> CappedMergePolicy {
         CappedMergePolicy {
             row_cap,
-            purged_segments,
+            removed_owner_segments,
         }
     }
 
@@ -87,7 +87,7 @@ impl MergePolicy for CappedMergePolicy {
         let rewrites = segments
             .iter()
             .filter(|segment| {
-                self.purged_segments.contains(&segment.id())
+                self.removed_owner_segments.contains(&segment.id())
                     || deleted_share(segment) > DELETED_SHARE_BEFORE_REWRITE
             })
             .map(|segment| MergeCandidate(vec![segment.id()]));

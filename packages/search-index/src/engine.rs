@@ -43,14 +43,15 @@ struct CommitPayload {
     /// For each key slot (a key modulo four), the highest key ever added: a row with a higher key
     /// cannot already be in the index, so adding it deletes nothing first.
     highest_row_keys: [u64; 4],
-    /// The segments that held a purged session's rows and are still to be rewritten without them.
-    purged_segments: HashSet<SegmentId>,
+    /// The segments that held a purged session's or a deleted group's rows, still to be rewritten
+    /// without them.
+    removed_owner_segments: HashSet<SegmentId>,
 }
 
 struct Writing {
     writer: IndexWriter,
     highest_row_keys: [u64; 4],
-    purged_segments: HashSet<SegmentId>,
+    removed_owner_segments: HashSet<SegmentId>,
 }
 
 /// The index in one folder.
@@ -127,7 +128,7 @@ impl IndexEngine {
             writing: Mutex::new(Some(Writing {
                 writer,
                 highest_row_keys: payload.highest_row_keys,
-                purged_segments: payload.purged_segments,
+                removed_owner_segments: payload.removed_owner_segments,
             })),
             version: RwLock::new(Arc::new(version)),
         })
@@ -168,7 +169,7 @@ impl IndexEngine {
         let mut committed = CommitPayload {
             last_applied_outbox_id,
             highest_row_keys: writing.highest_row_keys,
-            purged_segments: writing.purged_segments.clone(),
+            removed_owner_segments: writing.removed_owner_segments.clone(),
         };
         let staged = self.stage(&mut writing.writer, batch, &mut committed);
         if let Err(error) = staged {
@@ -176,7 +177,7 @@ impl IndexEngine {
             return Err(error);
         }
         writing.highest_row_keys = committed.highest_row_keys;
-        writing.purged_segments = committed.purged_segments;
+        writing.removed_owner_segments = committed.removed_owner_segments;
         self.reader.reload()?;
         let current = self.current_version();
         let membership = if replacements.is_empty() {
@@ -197,8 +198,9 @@ impl IndexEngine {
 
     // Removals first, then rows: a row in the batch is as the database holds it now. A row whose
     // key is above its slot's highest was never added, so it is added without a delete; any other
-    // row replaces whatever its key holds. A purged session's segments are noted for rewriting, so
-    // its words leave the index's files however few its rows.
+    // row replaces whatever its key holds. The segments of a removed owner, a purged session or a
+    // deleted group, are noted for rewriting, so its words leave the index's files however few its
+    // rows.
     fn stage(
         &self,
         writer: &mut IndexWriter,
@@ -221,17 +223,17 @@ impl IndexEngine {
                 Owner::Session(key)
             };
             let term = owner_term(&self.fields, owner);
-            if !removed.is_group {
-                for segment in searcher.segment_readers() {
-                    if segment.inverted_index(self.fields.owner)?.doc_freq(&term)? > 0 {
-                        committed.purged_segments.insert(segment.segment_id());
-                    }
+            for segment in searcher.segment_readers() {
+                if segment.inverted_index(self.fields.owner)?.doc_freq(&term)? > 0 {
+                    committed
+                        .removed_owner_segments
+                        .insert(segment.segment_id());
                 }
             }
             writer.delete_term(term);
         }
-        // A noted segment a merge has since rewritten holds no purged row.
-        committed.purged_segments.retain(|noted| {
+        // A noted segment a merge has since rewritten holds no removed owner's row.
+        committed.removed_owner_segments.retain(|noted| {
             searcher
                 .segment_readers()
                 .iter()
@@ -279,7 +281,8 @@ impl IndexEngine {
         let (policy, merging) = {
             let mut guard = self.lock_writing()?;
             let writing = guard.as_mut().ok_or_else(closed)?;
-            let policy = CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.purged_segments.clone());
+            let policy =
+                CappedMergePolicy::new(SEGMENT_ROW_CAP, writing.removed_owner_segments.clone());
             let Some(segment_ids) =
                 smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
             else {
