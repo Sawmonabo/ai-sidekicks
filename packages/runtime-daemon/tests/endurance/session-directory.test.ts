@@ -292,8 +292,6 @@ async function timeUntil(isDone: () => Promise<boolean>): Promise<number> {
 }
 
 describe("the session directory's budgets on the seeded set", () => {
-  let folder: string;
-  let runFolder: string;
   let database: DatabaseConnections;
   let seeded: SeededSet;
   let searchThread: SearchThread;
@@ -301,11 +299,15 @@ describe("the session directory's budgets on the seeded set", () => {
   // Stops the daemon at the end even when the build outlives the hook's time, so it never runs on
   // with no parent.
   const daemonStop = new AbortController();
+  // What the start opened so far, undone last first at the end, however far a failed start got.
+  const teardown: (() => Promise<unknown>)[] = [];
 
   beforeAll(async () => {
-    folder = await mkdtemp(join(tmpdir(), "directory-budgets-"));
+    const folder = await mkdtemp(join(tmpdir(), "directory-budgets-"));
+    teardown.push(() => rm(folder, { recursive: true, force: true }));
     // A socket's path is bounded, 104 bytes on macOS, so the daemon's run folder is a short one.
-    runFolder = await mkdtemp(join(tmpdir(), "budgets-run-"));
+    const runFolder = await mkdtemp(join(tmpdir(), "budgets-run-"));
+    teardown.push(() => rm(runFolder, { recursive: true, force: true }));
     const homeFolder = join(folder, "home");
     const dataFolder = resolveDataFolder(homeFolder);
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
@@ -319,6 +321,7 @@ describe("the session directory's budgets on the seeded set", () => {
     // its first answer; the first test reads the build's time and footprint.
     daemonBuild = await buildIndexInDaemon(homeFolder, runFolder, daemonStop.signal);
     database = await openDatabaseConnections({ databasePath, writeServiceLog });
+    teardown.push(() => closeDatabaseConnections(database));
     // The seeding leaves this thread's heap large and mostly garbage, which the daemon's main
     // thread never holds; collected and given back now, no collection of it lands in a measured
     // turn.
@@ -334,16 +337,21 @@ describe("the session directory's budgets on the seeded set", () => {
         searchLogLines.push(line);
       },
     });
+    teardown.push(() => searchThread.close());
   });
 
   afterAll(async () => {
     daemonStop.abort();
-    try {
-      await searchThread.close();
-      await closeDatabaseConnections(database);
-    } finally {
-      await rm(folder, { recursive: true, force: true });
-      await rm(runFolder, { recursive: true, force: true });
+    const failures: unknown[] = [];
+    for (const undo of teardown.toReversed()) {
+      try {
+        await undo();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "The tier's teardown failed");
     }
   });
 

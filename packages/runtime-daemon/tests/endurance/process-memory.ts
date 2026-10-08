@@ -12,7 +12,10 @@ interface ProcessMemory {
   readonly peakBytes: number;
 }
 
-/** The reads of one system: a live process's memory, `undefined` once it is gone, and its children. */
+/**
+ * The reads of one system: a live process's memory, `undefined` once it is gone or while it runs as
+ * another user (the setuid `ps` the daemon reads a start time with), and its children.
+ */
 export interface ProcessMemoryReader {
   readMemory(processId: number): Promise<ProcessMemory | undefined>;
   listChildren(processId: number): Promise<readonly number[]>;
@@ -24,7 +27,8 @@ const RUSAGE_INFO_V4 = 4;
 const PHYS_FOOTPRINT_OFFSET = 72;
 const LIFETIME_MAX_PHYS_FOOTPRINT_OFFSET = 240;
 const RUSAGE_INFO_V4_BYTES = 296;
-// <sys/errno.h>: no process has the id.
+// <sys/errno.h>: the process runs as another user, and no process has the id.
+const EPERM = 1;
 const ESRCH = 3;
 // More children than a daemon starts at once.
 const CHILD_IDS_AT_MOST = 256;
@@ -55,7 +59,7 @@ async function loadDarwinReader(): Promise<ProcessMemoryReader> {
     readMemory: (processId) => {
       if ((procPidRusage(processId, RUSAGE_INFO_V4, usage) as number) !== 0) {
         const errno = koffi.errno();
-        if (errno === ESRCH) {
+        if (errno === ESRCH || errno === EPERM) {
           return Promise.resolve(undefined);
         }
         throw new Error(`proc_pid_rusage(${String(processId)}) failed with errno ${String(errno)}`);
