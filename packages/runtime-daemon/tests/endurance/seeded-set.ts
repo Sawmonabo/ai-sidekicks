@@ -2,7 +2,8 @@
 // indexed messages, 100,000 links, 30,000 tags and 1,000 groups, each count multiplied by
 // `SEEDED_SET_SCALE` from the environment when it is set, written through the daemon's own writer
 // into a real database file, so the schema's own triggers send every row through the search
-// index's outbox. The same seed and scale write the same set every run.
+// index's outbox, and each session's projection cursor left current, so a daemon can start on it.
+// The same seed and scale write the same set every run.
 
 import { mintUuidV7 } from "../../src/uuid-v7.js";
 import type { DatabaseConnections } from "../../src/database/connections.js";
@@ -226,5 +227,15 @@ export async function seedDirectorySet(database: DatabaseConnections): Promise<S
       Array.from({ length: SEED_BATCH_ROWS }, (_, offset) => messageRowOf(start + offset)),
     );
   }
+  // Each session's projection cursor current at its newest event, as the log's own append leaves
+  // it, so a daemon started on the set rebuilds no projection.
+  await database.writer.write([
+    {
+      sql: `INSERT INTO projection_cursors (id, session_id, last_sequence, updated_at)
+            SELECT lower(hex(randomblob(16))), session_id, MAX(sequence), @at
+              FROM session_events GROUP BY session_id`,
+      bindings: { at: SEEDED_AT },
+    },
+  ]);
   return { sessionIds, words, largeSessionId, typicalSessionId: sessionIds[2] ?? "" };
 }

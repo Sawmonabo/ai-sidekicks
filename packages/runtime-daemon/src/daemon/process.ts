@@ -65,9 +65,10 @@ import { prepareRunFolder, writeSessionToken } from "./run-folder.js";
 import type { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
-const DATABASE_FILE_NAME = "daemon.db";
-// The search index's folder, beside the database it is built from.
-const SEARCH_INDEX_FOLDER_NAME = "search-index";
+/** The daemon's database file in its data folder. */
+export const DATABASE_FILE_NAME = "daemon.db";
+/** The search index's folder in the data folder, beside the database it is built from. */
+export const SEARCH_INDEX_FOLDER_NAME = "search-index";
 
 // The session token's size: 256 bits from the system's secure random source.
 const SESSION_TOKEN_BYTES = 32;
