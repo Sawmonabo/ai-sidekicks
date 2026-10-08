@@ -5,8 +5,11 @@
 //
 // Every table is STRICT: a column refuses a value of the wrong storage class
 // (text into INTEGER, a fractional REAL into INTEGER) instead of storing it.
-// JSON columns are TEXT. A table is added here, with its test; there are no
-// numbered migrations.
+// JSON columns are TEXT. A table is added here, with its test, except the
+// workflow tables, which live in `workflow/schema.ts` and are appended below;
+// there are no numbered migrations.
+
+import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
 
 /**
  * The whole daemon schema. `applyMigrations` executes it once, in one
@@ -632,4 +635,4 @@ CREATE TABLE provider_account_usage_windows (
                 CHECK(source IN ('probe', 'run')),
   PRIMARY KEY (account_id, limit_id)
 ) STRICT;
-`;
+${WORKFLOW_SCHEMA_SQL}`;

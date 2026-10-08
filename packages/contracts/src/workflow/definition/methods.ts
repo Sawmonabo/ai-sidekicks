@@ -75,8 +75,6 @@ import {
 
 /**
  * An update whose expected version is no longer the latest; nothing is written.
- *
- * @consumedBy the handler that returns the `workflow.version_stale` error
  */
 export const WORKFLOW_VERSION_STALE_CODE = "workflow.version_stale" as const;
 

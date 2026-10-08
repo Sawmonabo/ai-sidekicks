@@ -65,13 +65,24 @@ const CREDENTIAL_KIND_WORDS: Readonly<
   unknown: null,
 };
 
+/** The members of a provider account its label is drawn from. */
+export type AccountLabelFields = Pick<
+  ProviderAccount,
+  | "provider"
+  | "displayLabel"
+  | "observedAuthMode"
+  | "observedAccountEmail"
+  | "observedAccountPlan"
+  | "observedAccountOrgName"
+>;
+
 /**
  * The label every surface names `account` by, or `undefined` for an account still signing in that
  * its provider has not named yet. A token or API-key account reads its typed name beside the
  * credential's kind (`Work · Codex API key`); every other account reads the email, the plan in
  * its provider's own word, then the organization (`sam@example.org · Business · Example Inc`).
  */
-export function accountLabel(account: ProviderAccount): string | undefined {
+export function accountLabel(account: AccountLabelFields): string | undefined {
   if (account.displayLabel !== undefined) {
     const credentialKind =
       account.observedAuthMode === null ? null : CREDENTIAL_KIND_WORDS[account.observedAuthMode];

@@ -16,8 +16,6 @@ import { parseWorkflowHandle, type WorkflowHandle, type WorkflowHandleMode } fro
 
 /**
  * A document the daemon's check at save refused; it carries every finding at once.
- *
- * @consumedBy the handler that returns the `workflow.definition_refused` error
  */
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
 

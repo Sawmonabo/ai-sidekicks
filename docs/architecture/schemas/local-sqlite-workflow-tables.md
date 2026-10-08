@@ -2,7 +2,7 @@
 
 The workflow tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store and the workflow secrets' records ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3, 5 and 6 are rebuildable projections, 1, 2 and 4 are immutable truth, and 7 to 10 are MUTABLE truth: what this machine is armed to do next, and which secrets it holds, are facts no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
+Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store, the workflow secrets' records and the builder's unsaved drafts ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth. Table 1 is current state that changes in place: a definition's settings outside the hash, and its current body on a save. Tables 2 and 4 never change once written. Tables 3 and 6 are rebuildable projections. Tables 7 to 10 are MUTABLE truth: what this machine is armed to do next and which secrets it holds are facts no event history can reconstruct, so the durable row is the truth and an in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). Tables 5 and 11, a form step's draft and the builder's unsaved drafts, are durable state with no timer: what the person has drafted but not saved is in no event, so the row holds it. One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
@@ -10,12 +10,12 @@ The normalized-table-over-blob shape and the rebuildable-projection split align 
 
 ```sql
 -- ========================================================================
--- 1. workflow_definitions — content-hashed, immutable, schema-versioned
+-- 1. workflow_definitions — one row per workflow: its current document and its settings outside the hash
 -- ========================================================================
 -- Owner: Plan-014
 -- Commitments: C-1 (one document plus a typed TypeScript SDK), C-8 (schema version marker)
 CREATE TABLE workflow_definitions (
-  id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
+  id                   TEXT PRIMARY KEY,               -- UUID v7; NOT the content hash
   name                 TEXT NOT NULL,                  -- author-facing name, in the person's own casing
   name_folded          TEXT NOT NULL,                  -- the full-Unicode case fold of name, written by the store on every insert and rename
   content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
@@ -33,10 +33,15 @@ CREATE TABLE workflow_definitions (
   -- next step. OUTSIDE the content_hash preimage, so a change mints no version.
   permission_level     TEXT NOT NULL DEFAULT 'yolo'
                        CHECK(permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
+  -- The node's pinned test data: an item array per node id. OUTSIDE the content_hash preimage and on
+  -- the definition only, so a pin mints no version; NULL = nothing pinned.
+  pin_data_json        TEXT
+                       CHECK(pin_data_json IS NULL OR (json_valid(pin_data_json) AND json_type(pin_data_json) = 'object')),
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
+  updated_at           TEXT NOT NULL,                  -- the last change to the row: a save, a rename, a layout, tags, level or pin write, or the soft delete; the Workflows tab's row reads it
   deleted_at           TEXT                            -- the soft delete: set when the person deletes the workflow, whose runs keep their pinned versions; NULL while it is in the library
-);
+) STRICT;
 
 -- One library, so a name names one workflow: unique among the workflows not deleted ignoring case,
 -- on the stored fold key, the same rule agent definition names follow, and a deleted workflow's name
@@ -45,8 +50,8 @@ CREATE TABLE workflow_definitions (
 CREATE UNIQUE INDEX idx_workflow_definitions_name_folded ON workflow_definitions(name_folded) WHERE deleted_at IS NULL;
 CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 
--- Note: `updated_at` intentionally absent — definitions are immutable by C-9/F13 convention.
--- Edits create a new row in workflow_versions referencing this row as a parent.
+-- A saved document never changes in place: a save writes a new immutable row in workflow_versions and
+-- moves this row's current body, hash and name to it. The columns outside the hash change here alone.
 
 -- ========================================================================
 -- 2. workflow_versions — definition history chain (F13 additive versioning)
@@ -54,21 +59,25 @@ CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(conte
 -- Owner: Plan-014
 -- Commitments: F13 / C-8 version-API-at-V1; see Spec-015 §Required Behavior
 CREATE TABLE workflow_versions (
-  id                   TEXT PRIMARY KEY,               -- ULID
+  id                   TEXT PRIMARY KEY,               -- UUID v7
   definition_id        TEXT NOT NULL REFERENCES workflow_definitions(id),
   version_number       INTEGER NOT NULL,               -- monotonic per definition_id
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
+  schema_version       TEXT NOT NULL                   -- THIS version's own schemaVersion, verbatim, stored beside the body, which holds only the hashed members
+                       CHECK(schema_version GLOB '[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition document — name, the trigger node, the nodes and the edges (Workflow Graph Model §Graph model — nodes, ports, and edges (SA-29)) — the BLAKE3 preimage of content_hash, so a version read serves the whole document parsed from this body and read -> export reproduces the canonical bytes verbatim (storing the nodes alone would leave a later version's name and trigger unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
   layout_json          TEXT,                           -- JSON: this version's layout section, snapshotted beside its immutable body and outside content_hash's preimage, so an export of any version reproduces the file form it was written as
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   saved_by_agent_id    TEXT,                           -- the agent that saved this version through the authoring call; NULL where the person saved it in the builder, so the Versions panel names the user or that agent
+  code_locks_json      TEXT NOT NULL DEFAULT '{}'          -- JSON object: each full-tier Code node's package lock (with the package list the lock was made from), keyed by node id, written when this version is saved and carried forward for a node whose code did not change; '{}' where the version locks none. The step's code itself is a param inside definition_body
+                       CHECK(json_valid(code_locks_json) AND json_type(code_locks_json) = 'object'),
   UNIQUE(definition_id, version_number),
   UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions
-);
+) STRICT;
 
 CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
 CREATE INDEX idx_workflow_versions_parent ON workflow_versions(parent_version_id)
@@ -92,13 +101,15 @@ CREATE TABLE workflow_runs (
                             )),
   mode                      TEXT NOT NULL
                             CHECK(mode IN ('manual','trigger','webhook','chat','agent','retry','sub-workflow')),
-  trigger_json              TEXT NOT NULL DEFAULT '{}', -- JSON: the trigger record — which trigger node started the run and with what
-  started_by                TEXT NOT NULL,             -- who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
+  trigger_json              TEXT NOT NULL DEFAULT '{}' -- JSON: the trigger record — which trigger node started the run and with what
+                            CHECK(json_valid(trigger_json)),
+  started_by                TEXT NOT NULL              -- JSON: who or what started it: the user, a schedule, chat, an agent, a webhook, a file event or a parent workflow
+                            CHECK(json_valid(started_by)),
   started_at                TEXT,                      -- RFC 3339 UTC; NULL while the run is new
   finished_at               TEXT,
   -- Result
-  failure_reason            TEXT,                       -- null unless status in ('failed','canceled','crashed')
-  failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-015 §Workflow Transcript Integration
+  error_json                TEXT                        -- JSON: the run's typed error, the contracts' WorkflowStepError; NULL unless status in ('failed','canceled','crashed')
+                            CHECK(error_json IS NULL OR json_valid(error_json)),
   -- Chains: a run that starts runs. Every row names its chain's first run; the first run's own row
   -- counts the runs the chain has started and records the person's answer to the chain's question,
   -- which is itself a row in workflow_gate_resolutions, so a chain needs no table of its own.
@@ -113,13 +124,14 @@ CREATE TABLE workflow_runs (
   created_at                TEXT NOT NULL,
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
   CHECK((chain_run_count IS NULL) = (chain_kept_going IS NULL))
-);
+) STRICT;
 
 CREATE INDEX idx_workflow_runs_session ON workflow_runs(session_id);
 CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)
   WHERE status IN ('new','running','waiting');
 CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);  -- `Stop them all` cancels every run of the chain still going
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
+CREATE INDEX idx_workflow_runs_created ON workflow_runs(created_at, id);  -- the runs list pages newest first by creation, ties broken by id
 
 -- ========================================================================
 -- 4. workflow_gate_resolutions — append-only per C-13 / I5
@@ -128,7 +140,7 @@ CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 -- Commitment: C-13 append-only approval history; the invariant
 -- is I5 in Spec-015 §Pitfalls To Avoid.
 CREATE TABLE workflow_gate_resolutions (
-  id                         TEXT PRIMARY KEY,          -- ULID
+  id                         TEXT PRIMARY KEY,          -- UUID v7
   workflow_run_id            TEXT NOT NULL REFERENCES workflow_runs(id),
   sequence                   INTEGER NOT NULL,          -- per-run monotonic starting at 1
   node_id                    TEXT,                      -- the human.approval node answered; NULL for a chain's question, which belongs to the run
@@ -151,16 +163,13 @@ CREATE TABLE workflow_gate_resolutions (
   decision_context           TEXT NOT NULL DEFAULT '{}', -- JSON: scope, resource, reason text, etc.
   UNIQUE(workflow_run_id, sequence),
   CHECK((gate_kind = 'human.approval') = (node_id IS NOT NULL))
-);
+) STRICT;
 
-CREATE INDEX idx_gate_resolutions_run ON workflow_gate_resolutions(workflow_run_id, sequence);
 CREATE INDEX idx_gate_resolutions_node ON workflow_gate_resolutions(workflow_run_id, node_id)
   WHERE node_id IS NOT NULL;
-CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval_request_id)
-  WHERE approval_request_id IS NOT NULL;
+CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval_request_id);
 
--- No UPDATE or DELETE triggers — append-only enforced at application layer (writer worker only inserts).
--- Each row's id is the gateResolutionId that the session's workflow.gate_resolved event carries.
+-- Rows are never updated; they are removed only with their run. Each row's id is the gateResolutionId that the session's workflow.gate_resolved event carries.
 
 -- ========================================================================
 -- 5. human_phase_form_state — daemon-held draft of a form step
@@ -170,7 +179,7 @@ CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval
 -- Written through `workflow.humanFormDraftSave`; each autosave bumps the row's own
 -- draft version. A client never keeps a form draft in window storage.
 CREATE TABLE human_phase_form_state (
-  id                      TEXT PRIMARY KEY,           -- ULID
+  id                      TEXT PRIMARY KEY,           -- UUID v7
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id                 TEXT NOT NULL,              -- the form node in the run's pinned definition
   draft_json              TEXT NOT NULL DEFAULT '{}', -- JSON: current form field values
@@ -180,7 +189,7 @@ CREATE TABLE human_phase_form_state (
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL,
   UNIQUE(workflow_run_id, node_id)                    -- one draft row per (run, form node)
-);
+) STRICT;
 
 CREATE INDEX idx_human_phase_form_state_step ON human_phase_form_state(workflow_run_id, node_id)
   WHERE submitted = 0;
@@ -198,7 +207,7 @@ CREATE TABLE workflow_steps (
   workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id           TEXT NOT NULL,                 -- the node in the pinned definition this attempt ran
   attempt           INTEGER NOT NULL,              -- 1-based; a retry of the same node at the same point
-  execution_index   INTEGER NOT NULL,              -- per-run monotonic: the faithful what-happened-when order for a branching run, independent of graph shape
+  execution_index   INTEGER NOT NULL,              -- per-run total order: the faithful what-happened-when order for a branching run, independent of graph shape
   source_json       TEXT NOT NULL DEFAULT '[]'     -- JSON array, one entry per input slot: the edge that ACTUALLY fed it and which run of the source produced it (null for a slot nothing fed), so a run page can say this merge consumed the third run of a loop
                     CHECK(json_valid(source_json) AND json_type(source_json) = 'array'),
   status            TEXT NOT NULL
@@ -209,6 +218,7 @@ CREATE TABLE workflow_steps (
   resume_at         TEXT,                        -- the instant a step parked on a spent account resumes itself, where one is armed; NULL where none is, which reads as awaiting resume
   wait_account_id   TEXT,                        -- a step waiting on 'account': the spent provider account, which workflow.runAttentionList groups by, so every run waiting on one account presents as one entry
   wait_deadline_at  TEXT,                        -- the instant a step waiting on a person gives up, set only where its Timeout is
+  wait_started_at   TEXT,                        -- when the step started waiting, set exactly while status = 'waiting'; the attention list's waiting-since and its oldest-first order read it
   started_at        TEXT NOT NULL,
   finished_at       TEXT,                          -- NULL until the step settles
   -- The payload refs a step panel reads, each stored as the JSON WorkflowPayloadRef shape so a
@@ -227,16 +237,17 @@ CREATE TABLE workflow_steps (
                     CHECK(error_json IS NULL OR json_valid(error_json)),
   advisories_json   TEXT                           -- JSON array of non-fatal hints — an unwired branch that dropped items, a deprecated param, a truncated output. Never errors, and NULL where the step attached none
                     CHECK(advisories_json IS NULL OR (json_valid(advisories_json) AND json_type(advisories_json) = 'array')),
-  PRIMARY KEY (workflow_run_id, execution_index),  -- the execution index is what identifies an attempt within its run; (node_id, attempt) can repeat across branches of one run
+  PRIMARY KEY (workflow_run_id, node_id, attempt, execution_index),  -- the whole WorkflowStepKey the contracts address a step by; with node_id after the run id it also serves a lookup by run and node
+  UNIQUE(workflow_run_id, execution_index),      -- the execution index is a total order per run
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it
   CHECK((status = 'waiting') = (wait_cause IS NOT NULL)),
   -- The live wait state clears in the same statement that moves the step out of 'waiting'.
+  CHECK((status = 'waiting') = (wait_started_at IS NOT NULL)),
   CHECK(status = 'waiting' OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
   CHECK(wait_cause = 'account' OR (resume_at IS NULL AND wait_account_id IS NULL)),
   CHECK(wait_deadline_at IS NULL OR wait_cause IN ('approval', 'form', 'reply'))
-);
+) STRICT;
 
-CREATE INDEX idx_workflow_steps_node ON workflow_steps(workflow_run_id, node_id, attempt);
 CREATE INDEX idx_workflow_steps_resume ON workflow_steps(resume_at)
   WHERE resume_at IS NOT NULL;                   -- the resume sweep's scan
 CREATE INDEX idx_workflow_steps_wait_deadline ON workflow_steps(wait_deadline_at)
@@ -261,7 +272,7 @@ CREATE TABLE workflow_triggers (
   enabled           INTEGER NOT NULL DEFAULT 0
                     CHECK(enabled IN (0, 1)),      -- a workflow is enabled or not as a whole: enabling arms every trigger it declares, disabling disarms all of them
   PRIMARY KEY (definition_id, node_id)
-);
+) STRICT;
 
 CREATE INDEX idx_workflow_triggers_due ON workflow_triggers(next_fire_at)
   WHERE enabled = 1 AND next_fire_at IS NOT NULL;  -- the arming sweep's only scan
@@ -278,7 +289,7 @@ CREATE TABLE workflow_webhook_tokens (
   token_hash        TEXT NOT NULL,
   created_at        TEXT NOT NULL,
   last_used_at      TEXT                           -- NULL until the address is first called
-);
+) STRICT;
 
 -- ========================================================================
 -- 9. workflow_node_state — the per-(workflow, node) key-value store
@@ -303,14 +314,14 @@ CREATE TABLE workflow_node_state (
   updated_at        TEXT NOT NULL,               -- when the value was written or kept
   PRIMARY KEY (definition_id, node_id, key),
   CHECK(kept_by_run_id IS NULL OR node_id = '')
-);
+) STRICT;
 
 -- ========================================================================
 -- 10. workflow_secrets — one row per workflow secret (MUTABLE TRUTH)
 -- ========================================================================
 -- Owner: Plan-014
--- A secret's record, never its value: the daemon keeps the value as its own item in the operating system's credential store
--- (ADR-036), and no read, reply, event, log or error carries it. A step parameter stores only
+-- A secret's record, never its value: the daemon keeps the value as its own item in the operating system's credential store,
+-- or in the daemon's secrets.json items file where that store cannot be used (ADR-036), and no read, reply, event, log or error carries it. A step parameter stores only
 -- secret://<scope>/<name>, resolved when the step runs and only in a field its kind marks sensitive.
 -- Managed through workflow.secretCreate, workflow.secretReplace, workflow.secretDelete and
 -- workflow.secretList, from the step's Credential field; nothing on Settings holds them.
@@ -323,9 +334,26 @@ CREATE TABLE workflow_secrets (
                     CHECK(length(name) BETWEEN 1 AND 64 AND name GLOB '[a-z0-9]*' AND name NOT GLOB '*[^a-z0-9-]*'),
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,               -- the last `Replace value`
+  removal_requested_at TEXT,                     -- NULL until a delete starts: the delete records its intent here, removes the stored value, then the row
   CHECK((scope = 'shared') = (scope_ref = '')),
   UNIQUE(scope, scope_ref, name)                 -- a name taken in its scope is refused with workflow.secret_name_invalid (reason: taken)
-);
+) STRICT;
+
+-- ========================================================================
+-- 11. workflow_drafts — the builder's unsaved draft (durable state, no timer)
+-- ========================================================================
+-- Owner: Plan-014
+-- Written through workflow.draftUpdate and read back by workflow.draftRead, so a draft survives a
+-- reload. One row per saved workflow and one for a new workflow, keyed '' (the convention
+-- workflow_node_state.node_id uses); no foreign key, because '' names no definition.
+CREATE TABLE workflow_drafts (
+  definition_id            TEXT PRIMARY KEY,
+  based_on_version_number  INTEGER,                -- the version the draft was loaded from; NULL for a new workflow
+  document_json            TEXT NOT NULL
+                           CHECK(json_valid(document_json)),
+  updated_at               TEXT NOT NULL,
+  CHECK(definition_id <> '' OR based_on_version_number IS NULL)
+) STRICT;
 ```
 
 **Index rationale + write-amplification estimate:** Per-index query justifications above are sized against SQLite's standard query-planner cost model — partial indexes with `WHERE` clauses are evaluated only over the matching subset, yielding the smallest workable index for the live-set queries ([SQLite — Partial Indexes](https://www.sqlite.org/partialindex.html)). The engine commits the step rows one turn of its loop started or settled in one transaction and hands that turn's events to the event log as one batch — Spec-013's 50 events or 10 ms to a transaction, flushed under one `db.transaction(fn)` call — `better-sqlite3` commits each batch atomically and rolls back on throw (_"Calling [.transaction()] returns a new function that, when called, runs the given function inside an SQLite transaction"_ — [better-sqlite3 API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md)). Measured, twenty steps starting and finishing together cost 1.3 to 2.3 ms of the daemon's time in one transaction against up to 12.3 ms one by one, and a sustained 10,000 step boundaries cost 17 to 19 µs each, so nothing the engine emits outruns the store under `synchronous = FULL` WAL and no write rate limit is needed ([SQLite — Write-Ahead Logging](https://www.sqlite.org/wal.html)).
