@@ -17,10 +17,12 @@
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",
-      "Read(./secrets/**)",
+      "Read(/secrets/**)",
       "Read(./**/*.pem)",
       "Read(./**/*.key)",
-      "Read(./**/*credentials*)"
+      "Read(**/.credentials*)",
+      "Read(**/credentials)",
+      "Read(**/credentials.json)"
     ],
     "ask": []
   },
