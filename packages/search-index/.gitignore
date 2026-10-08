@@ -1,0 +1,4 @@
+# Written by the addon build: the loader, its declarations and the compiled addon.
+index.js
+index.d.ts
+*.node

@@ -62,7 +62,6 @@ jobs:
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
       structure: ${{ steps.filter.outputs.structure || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
-      match-count: ${{ steps.filter.outputs.match-count || 'true' }}
       slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
     steps:
       - uses: actions/checkout@v5
@@ -119,16 +118,6 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
               - '.github/actions/assert-native-prebuild/**'
-            # The search's match count, a C library the daemon's build compiles on each platform,
-            # against the SQLite headers its `better-sqlite3` pin ships.
-            match-count:
-              - 'packages/runtime-daemon/src/session/search/match-count.*'
-              - 'packages/runtime-daemon/src/session/search/__tests__/match-count.test.ts'
-              - 'packages/runtime-daemon/scripts/**'
-              - 'packages/runtime-daemon/package.json'
-              - 'packages/runtime-daemon/turbo.json'
-              - 'pnpm-lock.yaml'
-              - '.github/workflows/ci.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -226,6 +215,11 @@ jobs:
 
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
+
+      # The session search's addon is a Rust crate the build compiles and the tests run through
+      # Cargo. The action installs the newest stable Rust; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
       # its filter names changes, so building it here too would build it twice.
@@ -580,10 +574,15 @@ jobs:
           key: stryker-incremental-${{ github.sha }}
           restore-keys: stryker-incremental-
 
-      # The daemon's unit tests load the search's match count, which its build compiles from C.
-      - name: Build the search's match count
+      # The daemon's unit tests load the session search's addon, which its build compiles from
+      # Rust. SHA-pinned.
+      - name: Set up Rust
         if: matrix.package == 'runtime-daemon'
-        run: pnpm --filter @ai-sidekicks/runtime-daemon run build:match-count
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - name: Build the session search's addon
+        if: matrix.package == 'runtime-daemon'
+        run: pnpm --filter @ai-sidekicks/search-index run build
 
       # A pull request's summary lists the surviving mutants in the files it
       # changed; a full run's summary is the score table.
@@ -827,113 +826,10 @@ jobs:
         with:
           expected-prebuild: ${{ matrix.prebuild }}
 
-  # The search's match count, which the daemon's build compiles from C with each platform's own
-  # compiler, must build and count right on every platform the daemon ships to, not just the one
-  # the `test` job runs on (linux-x64): Linux on glibc and on musl, macOS, and Windows, each on x64
-  # and arm64. Only the tests that load the library run here; the rest of the daemon's suite runs in
-  # `test`.
-  #
-  # The install is scoped to the daemon and its workspace dependencies, as in `native-prebuilds`:
-  # the compile needs only `better-sqlite3`'s SQLite headers, and the tests only the daemon's own.
-  # No hosted runner runs musl, so its two legs install, build and test inside an Alpine container
-  # on the Linux runners; JavaScript actions do not run in Alpine, so the checkout stays on the host.
-  match-count:
-    name: match count (${{ matrix.platform }})
-    # Eight legs, run only where `slow-jobs` is set; there a pull request touching none of the
-    # library's files skips it, and `ci-gate` reads the skip as success.
-    needs: [changes]
-    if: needs.changes.outputs.slow-jobs == 'true' && needs.changes.outputs.match-count == 'true'
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux-x64
-          - os: ubuntu-24.04-arm
-            platform: linux-arm64
-          - os: ubuntu-latest
-            platform: linuxmusl-x64
-            alpine: true
-          - os: ubuntu-24.04-arm
-            platform: linuxmusl-arm64
-            alpine: true
-          - os: macos-latest
-            platform: darwin-arm64
-          - os: macos-15-intel
-            platform: darwin-x64
-          - os: windows-latest
-            platform: win32-x64
-            msvc-arch: x64
-          - os: windows-11-arm
-            platform: win32-arm64
-            msvc-arch: arm64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      - name: Setup pnpm
-        if: ${{ !matrix.alpine }}
-        # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
-        with:
-          version: 10.33.2
-          run_install: false
-
-      - name: Setup Node.js
-        if: ${{ !matrix.alpine }}
-        uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: "pnpm"
-
-      - name: Install (runtime-daemon and its workspace dependencies only)
-        if: ${{ !matrix.alpine }}
-        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
-
-      # Windows' compiler, cl, runs only inside a Visual Studio developer environment, which this
-      # sets up for the rest of the job. SHA-pinned.
-      - name: Set up the Visual Studio developer environment
-        if: runner.os == 'Windows'
-        uses: TheMrMilchmann/setup-msvc-dev@368ef7d1ee4d1171b31d4a7f67f4d954f903f5a9 # v4.1.0
-        with:
-          arch: ${{ matrix.msvc-arch }}
-
-      - name: Build the search's match count
-        if: ${{ !matrix.alpine }}
-        run: pnpm --filter @ai-sidekicks/runtime-daemon run build:match-count
-
-      - name: Test the search's match count
-        if: ${{ !matrix.alpine }}
-        working-directory: packages/runtime-daemon
-        run: pnpm exec vitest run --project=unit search/__tests__/match-count search/__tests__/transcript
-
-      # The same install, build and tests on musl, in Alpine's Node image at the `.nvmrc` floor, with
-      # its C compiler from `build-base`; corepack runs the pnpm the root `packageManager` names,
-      # without asking, and `CI` keeps pnpm from asking either.
-      - name: Build and test the search's match count on musl
-        if: ${{ matrix.alpine }}
-        run: |
-          docker run --rm --volume "$PWD:/repository" --workdir /repository \
-            --env CI=true --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-            "node:$(cat .nvmrc)-alpine" sh -euc '
-              apk add --no-cache build-base
-              corepack enable pnpm
-              pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
-              pnpm --filter @ai-sidekicks/runtime-daemon run build:match-count
-              cd packages/runtime-daemon
-              pnpm exec vitest run --project=unit search/__tests__/match-count search/__tests__/transcript
-            '
-
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs:
-      [changes, node-version, test, desktop, desktop-slow, structure, native-prebuilds, match-count]
+    needs: [changes, node-version, test, desktop, desktop-slow, structure, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -968,6 +864,5 @@ jobs:
           check desktop-slow "${{ needs.desktop-slow.result }}"
           check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
-          check match-count "${{ needs.match-count.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "ci-gate: all required jobs succeeded or were skipped"

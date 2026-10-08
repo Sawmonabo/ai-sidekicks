@@ -1,0 +1,36 @@
+[package]
+name = "search-index"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The daemon's session search index: Tantivy in a Node-API addon."
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+caseless = "0.2.2"
+napi = "3.14.2"
+napi-derive = "3.6.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# No stemmer, stop words, document-store compression or zstd columns: the index stores no text
+# and folds its own tokens, so none of Tantivy's default features is used.
+tantivy = { version = "0.26.2", default-features = false }
+unicode-normalization = "0.1.25"
+unicode-properties = { version = "0.1.4", default-features = false, features = [
+  "general-category",
+] }
+
+# The memory-mapped reader is built for macOS alone, where it measures the smaller footprint; every
+# other target reads index files by positioned reads.
+[target.'cfg(target_os = "macos")'.dependencies]
+tantivy = { version = "0.26.2", default-features = false, features = ["mmap"] }
+
+# The measurement runs read macOS's own footprint figure for the test process.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2"
+
+[build-dependencies]
+napi-build = "2.6.0"
