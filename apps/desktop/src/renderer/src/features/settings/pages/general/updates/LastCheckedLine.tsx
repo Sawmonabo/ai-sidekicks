@@ -28,7 +28,7 @@ export function LastCheckedLine(props: {
       Last checked{" "}
       <WireFigure
         value={formatDateTime(props.lastCheckedAt, clockLocale)}
-        title={formatZonedDateTime(props.lastCheckedAt, clockLocale)}
+        hoverLabel={formatZonedDateTime(props.lastCheckedAt, clockLocale)}
       />
       .
     </span>

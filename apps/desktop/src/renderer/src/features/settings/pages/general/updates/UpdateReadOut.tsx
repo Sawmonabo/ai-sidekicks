@@ -1,10 +1,10 @@
 import { useId } from "react";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { WirePercentFigure } from "#renderer/components/WireFigure/WirePercentFigure.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { formatDate, formatPercent, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatDate, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { UpdateReading } from "#renderer/store/update/reading.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
@@ -52,7 +52,7 @@ export function UpdateReadOut(props: {
           Update available — <WireFigure value={state.version} />, released{" "}
           <WireFigure
             value={formatDate(state.releasedAt, clockLocale)}
-            title={formatZonedDateTime(state.releasedAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(state.releasedAt, clockLocale)}
           />
           .
         </p>
@@ -69,7 +69,7 @@ export function UpdateReadOut(props: {
             max={100}
             value={state.percent}
           />
-          <DerivedFigure text={formatPercent(state.percent / 100)} />
+          <WirePercentFigure percent={state.percent} />
         </div>
       );
     case "verifying":

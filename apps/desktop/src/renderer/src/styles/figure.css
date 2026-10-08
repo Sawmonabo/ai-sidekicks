@@ -32,7 +32,7 @@
 }
 
 /*
- * Truncated at the measure, never in the string: the `title` keeps the whole value and the copy
+ * Truncated at the measure, never in the string: the hover label keeps the whole value and the copy
  * control carries it out, so figures that differ only in their tail stay distinguishable. The
  * flex sizing rides this modifier because truncation in a row needs a shrinkable flex child; on
  * a figure that is not a flex item both declarations are inert.

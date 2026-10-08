@@ -78,7 +78,9 @@ describe("the chain's question", () => {
       engine.advance(GATE_RESOLVE_DELAY_MS);
       await Promise.resolve();
     });
-    expect(await screen.findByText("Kept going at 100 runs")).toBeDefined();
+    await waitFor(() => {
+      expect(chainReceiptText()).toBe("Kept going at 100 runs");
+    });
     expect(screen.queryByRole("button")).toBeNull();
     expect(onAnswered).toHaveBeenCalledTimes(1);
   });
@@ -102,7 +104,17 @@ describe("the chain's question", () => {
       { wrapper: withCommandTargets(bridgeWrapper(bridge), createWorkflowCommandTargets()) },
     );
 
-    expect(screen.getByText("Stopped at 100 runs")).toBeDefined();
+    expect(chainReceiptText()).toBe("Stopped at 100 runs");
+    // The count is the daemon's, drawn as a wire figure inside the receipt's words.
+    expect(
+      document.querySelector(".meridian-workflow-run__chain-receipt .meridian-figure--wire")
+        ?.textContent,
+    ).toBe("100");
     expect(screen.queryByRole("button")).toBeNull();
   });
 });
+
+/** The answered question's receipt as one line of text, or `undefined` before it is drawn. */
+function chainReceiptText(): string | undefined {
+  return document.querySelector(".meridian-workflow-run__chain-receipt")?.textContent ?? undefined;
+}

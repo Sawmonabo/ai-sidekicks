@@ -4,10 +4,7 @@ import { useState } from "react";
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_TABS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
-import type {
-  WorkflowStep,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -31,8 +28,8 @@ import {
   nodePasses,
   type NodePass,
 } from "#renderer/features/workflows/runs/steps.js";
-import type { StepAddress } from "../../hooks/useRunPage.js";
-import { stepKeyText } from "../key-text.js";
+import type { HeldStepAnswer } from "../held-answer.js";
+import { stepKeyText, type StepAddress } from "../address.js";
 import { PIN_CARRIES_FILE_REFUSAL, pinAvailability, pinnedItemsOf } from "../pin.js";
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
 import { StepBlocker } from "./StepBlocker.js";
@@ -70,9 +67,9 @@ export interface StepPanelProps {
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
   /** The answers this sitting gave, by step. */
-  readonly answers: ReadonlyMap<string, WorkflowStepResolution>;
+  readonly answers: ReadonlyMap<string, HeldStepAnswer>;
   /** Called with the step and its answer once the daemon has taken it. */
-  readonly onAnswered: (step: StepAddress, answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (step: StepAddress, answer: HeldStepAnswer) => void;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
   readonly onOpenSession: (sessionId: string) => void;

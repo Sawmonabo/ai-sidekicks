@@ -15,7 +15,7 @@
 
 /* Dimmed, not refused: disabled while the draft is empty or a create answered unreadably.
    Left in place so the row does not reflow when the first message is typed. */
-.meridian-new-session__send:disabled {
+.meridian-new-session__send:is(:disabled, [aria-disabled="true"]) {
   color: var(--meridian-text-muted);
 }
 

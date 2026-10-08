@@ -30,7 +30,7 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
         Last probed at{" "}
         <WireFigure
           value={formatDateTime(mount.health.checkedAt, clockLocale)}
-          title={formatZonedDateTime(mount.health.checkedAt, clockLocale)}
+          hoverLabel={formatZonedDateTime(mount.health.checkedAt, clockLocale)}
         />
       </span>
     </div>

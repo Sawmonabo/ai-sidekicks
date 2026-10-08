@@ -8,6 +8,9 @@
 //
 // `ManualClock` is that counting instrument and the fixture's frozen clock: nothing advances
 // until a test or scenario advances it.
+//
+// A frame that only lays out and reads no time may come from its window instead (`MathBlock`);
+// such frames are not minted through the app's clock, so a test's timer count leaves them out.
 
 /** An opaque handle for canceling scheduled work. */
 export type ScheduledHandle = number;

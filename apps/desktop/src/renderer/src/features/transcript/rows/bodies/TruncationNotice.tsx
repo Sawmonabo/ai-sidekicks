@@ -43,8 +43,8 @@ export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Elemen
   const storedByteCount = measureUtf8ByteLength(props.storedBody);
   const storedBytes = formatByteQuantity(storedByteCount);
   const remainder = truncatedRemainderDisposition(storedByteCount, props.preTruncationLength);
-  // One sentence carrying both figures, not a headline plus `detail`: the badge form renders
-  // `detail` only as a `title` tooltip, so the byte counts would show on hover alone.
+  // One sentence carrying both figures, not a headline plus `detail`: the badge form shows
+  // `detail` only in its hover label, so the byte counts would show on hover alone.
   const measurement =
     props.preTruncationLength === undefined
       ? `Truncated when recorded. Shown: ${storedBytes.text}; the original size was not recorded.`

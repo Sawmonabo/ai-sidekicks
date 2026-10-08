@@ -14,7 +14,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { isTextEntryTarget } from "#renderer/lib/editable-target.js";
+import { isTextEntryTarget, isUnclaimedEscape } from "#renderer/lib/editable-target.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useRunTimesNow } from "../../hooks/useRunTimesNow.js";
 import type { WorkflowRunComparison } from "../comparison.js";
@@ -98,7 +98,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
     props.onOpenReview({ sessionId: run.sessionId, workflowRunId: run.workflowRunId, from, to });
   };
   const onKeyDown = (event: React.KeyboardEvent): void => {
-    if (event.key !== "Escape" || event.defaultPrevented || isTextEntryTarget(event.target)) {
+    if (!isUnclaimedEscape(event) || isTextEntryTarget(event.target)) {
       return;
     }
     event.preventDefault();

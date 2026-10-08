@@ -1,11 +1,9 @@
 import { useId, useState } from "react";
 
-import type {
-  WorkflowStepQuestion,
-  WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import type { HeldStepAnswer } from "../step/held-answer.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -28,7 +26,7 @@ export function ReplyAnswer(props: {
   readonly question: WorkflowStepQuestion;
   readonly bridge: PlatformBridge;
   /** Called with the answer once the daemon has taken it. */
-  readonly onAnswered: (answer: WorkflowStepResolution) => void;
+  readonly onAnswered: (answer: HeldStepAnswer) => void;
 }): React.JSX.Element | null {
   const { question, bridge } = props;
   const fieldId = useId();
@@ -42,8 +40,11 @@ export function ReplyAnswer(props: {
       }),
     () => {
       // The question's answer carries no instant, so the window's clock stands in until the
-      // daemon's own record replaces it.
-      props.onAnswered({ kind: "answered", at: new Date(clock.now()).toISOString() });
+      // daemon's own record replaces it, and the answer says so.
+      props.onAnswered({
+        resolution: { kind: "answered", at: new Date(clock.now()).toISOString() },
+        isWindowClock: true,
+      });
     },
   );
   const isSending = answer.state.kind === "sending";

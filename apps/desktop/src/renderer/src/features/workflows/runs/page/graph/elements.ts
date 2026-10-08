@@ -21,6 +21,7 @@ import {
   deriveNodeBoxSize,
   type NodeBoxSize,
 } from "#renderer/features/workflows/canvas/node-box.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
 import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
@@ -49,6 +50,9 @@ export const NO_HANDLES: NodeHandleIds = { inputs: [], outputs: [] };
 
 /** The one node kind this graph draws; the string is the `nodeTypes` key. */
 export const RUN_GRAPH_NODE_TYPE = "run-node" as const;
+
+/** The class on an edge's item count, the element the keyboard focuses to read the whole count. */
+export const EDGE_COUNT_CLASS = "meridian-run-graph__edge-count";
 
 /** A placed node in the library's own shape. */
 export type RunGraphFlowNode = Node<RunGraphNodeData, typeof RUN_GRAPH_NODE_TYPE>;
@@ -166,8 +170,8 @@ export function runGraphNodeCenter(node: RunGraphFlowNode): CanvasPoint {
 /**
  * The library's edges for one run. Each joins the two handles the document names and carries
  * the count of items that went through it, summed over every pass, as a short mono figure whose
- * title is the whole count; an edge nothing has gone through yet carries `0`. An edge a run is
- * flowing through is animated, and an edge into or out of a disabled node is drawn struck
+ * hover label is the whole count; an edge nothing has gone through yet carries `0`. An edge a run
+ * is flowing through is animated, and an edge into or out of a disabled node is drawn struck
  * through, as the node is grayed.
  */
 export function toRunGraphFlowEdges(
@@ -225,13 +229,18 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
   return isDisabled ? "meridian-run-graph__edge--disabled" : undefined;
 }
 
-// The short count on the edge, with the whole count as its title, which a pointer shows and a
-// screen reader names the label by.
+// The short count on the edge, with the whole count in its hover label, which a pointer or the
+// keyboard shows and a screen reader names the count by. The canvas's Tab order reaches it after
+// the node its edge leaves, so the keyboard reads the whole count as the pointer does. It takes
+// the image role, so a screen reader reads its name, the whole count, in place of the short one.
 function edgeCountLabel(count: number): React.ReactNode {
-  return createElement(
-    "tspan",
-    null,
-    createElement("title", null, itemCountWords(count)),
-    formatCompactCount(count),
-  );
+  return createElement(HoverLabel, {
+    text: itemCountWords(count),
+    textRole: "name",
+    children: createElement(
+      "tspan",
+      { className: EDGE_COUNT_CLASS, tabIndex: -1, role: "img" },
+      formatCompactCount(count),
+    ),
+  });
 }

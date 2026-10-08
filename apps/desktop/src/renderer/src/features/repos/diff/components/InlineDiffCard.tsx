@@ -20,6 +20,7 @@ import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
 // a value import would put the parser on the initial import graph.
 import type { ComparedStates } from "../patch-parse.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** What the diff card is drawn from: the row's registry props and, once read, the diff. */
 export interface InlineDiffCardProps {
@@ -50,9 +51,9 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
         {/* Wire-verbatim, and the diff rather than the run: the run is the row's own subject.
             The manifest id is not shown; it is provenance of the same object, which the
             artifact views read. */}
-        <span className="meridian-diff-card__change-set" title={props.card.diffArtifactId}>
-          {props.card.diffArtifactId}
-        </span>
+        <HoverLabel text={props.card.diffArtifactId} textRole="visible-text">
+          <span className="meridian-diff-card__change-set">{props.card.diffArtifactId}</span>
+        </HoverLabel>
         <button
           type="button"
           className="meridian-diff-card__control"

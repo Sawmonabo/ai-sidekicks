@@ -16,6 +16,7 @@ import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "#renderer/store/session/degradation.js";
 import type { EntityFacet } from "../facets.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** What one entity record draws: identity, facets, and the wording of its empty-state arms. */
 export interface EntityRecordProps {
@@ -88,16 +89,18 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
           <Glyph name={props.glyph} size={GLYPH_SIZE_CHROME} />
         </span>
         <h2 className="meridian-entity-record__heading">{props.heading}</h2>
-        <WireFigure value={props.entityId} title={props.entityId} truncate />
+        <WireFigure value={props.entityId} hoverLabel={props.entityId} truncate />
         {props.state === undefined ? null : <Chip tone="neutral" label={codeWords(props.state)} />}
       </header>
       <dl className="meridian-entity-record__facets">
         {props.facets.map((facet) => (
           <div className="meridian-entity-record__facet" key={facet.label}>
             <dt className="meridian-entity-record__label">{facet.label}</dt>
-            <dd className="meridian-entity-record__value" title={fullTextOf(facet)}>
-              <EntityFacetValueView facet={facet} />
-            </dd>
+            <HoverLabel text={fullTextOf(facet)} textRole="visible-text">
+              <dd className="meridian-entity-record__value">
+                <EntityFacetValueView facet={facet} />
+              </dd>
+            </HoverLabel>
           </div>
         ))}
       </dl>
@@ -112,11 +115,10 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   );
 }
 
-// The whole value, for the hover title of a value cut short; an unrecorded one carries its own,
-// and an instant its zoned time.
+// The whole value, for the hover label of a value cut short. An unrecorded value carries its own,
+// and an instant's figures each carry its zoned time in theirs.
 function fullTextOf(facet: EntityFacet): string | undefined {
-  if (facet.value.form === "unrecorded") {
-    return undefined;
-  }
-  return facet.value.form === "instant" ? facet.value.zonedText : facet.value.text;
+  return facet.value.form === "wire" || facet.value.form === "derived"
+    ? facet.value.text
+    : undefined;
 }

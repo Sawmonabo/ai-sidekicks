@@ -42,13 +42,13 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         />
         <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={codeWords(row.state)} />
         <span>
-          {/* The title keeps the exact byte count the daemon sent. */}
-          <WireFigure value={formattedSize.text} title={`${row.size}`} />
+          {/* A scaled size's hover label gives the whole byte count the daemon sent. */}
+          <WireFigure value={formattedSize.text} hoverLabel={formattedSize.exactText} />
         </span>
         <span className="meridian-artifact-row__age">
           <WireFigure
             value={formatRelativeTime(row.createdAt, props.nowMilliseconds)}
-            title={formatZonedDateTime(row.createdAt, clockLocale)}
+            hoverLabel={formatZonedDateTime(row.createdAt, clockLocale)}
           />
         </span>
       </div>
@@ -82,7 +82,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             <dd>
               <WireFigure
                 value={row.createdAt}
-                title={formatZonedDateTime(row.createdAt, clockLocale)}
+                hoverLabel={formatZonedDateTime(row.createdAt, clockLocale)}
               />
             </dd>
           </div>

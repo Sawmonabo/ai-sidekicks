@@ -41,11 +41,7 @@ export const DefinitionListItem: React.MemoExoticComponent<
         )}
       </th>
       <td className="meridian-definition-row__version">
-        version{" "}
-        <WireFigure
-          value={formatCount(definition.latestVersionNumber)}
-          title={`${definition.latestVersionNumber}`}
-        />
+        version <WireFigure value={formatCount(definition.latestVersionNumber)} />
       </td>
     </tr>
   );

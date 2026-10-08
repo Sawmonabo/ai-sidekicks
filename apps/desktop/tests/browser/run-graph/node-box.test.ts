@@ -1,10 +1,11 @@
 // A run graph node's box is derived from its kind's row in canvas units, so at the largest text
 // size every line still fits inside it, its kind's words whole, and every node of a kind is one
 // width, wider where its kind's words are longer. The gap between columns is derived from the
-// widest edge count, so a label never stands on a node. This needs real layout: a DOM shim
-// measures every box as zero.
+// widest edge count, so a label never stands on a node. A count's whole figure is its hover label,
+// which the pointer opens anywhere on the count. This needs real layout: a DOM shim measures every
+// box as zero.
 
-import { waitFor } from "@testing-library/react";
+import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
@@ -12,6 +13,7 @@ import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run
 import { TEXT_SIZES } from "#shared/appearance.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { fixtureRun, mountRunGraph, type FixtureRun } from "./mount.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 afterEach(() => {
   document.documentElement.style.fontSize = "";
@@ -87,6 +89,8 @@ describe("an edge's item count at the largest text size", () => {
     const shortCounts = longCounts.map((count) => ({ ...count, itemCount: 9 }));
     const shortGraph = await mountAtLargestTextSize(fixture, shortCounts);
     const shortWidths = nodeWidths(shortGraph);
+    // Unmounted, so the long graph stands at the top of the page where the pointer can reach it.
+    cleanup();
     const container = await mountAtLargestTextSize(fixture, longCounts);
     // A count's length never moves a node: every box is sized for the widest short form.
     expect(nodeWidths(container)).toEqual(shortWidths);
@@ -99,11 +103,23 @@ describe("an edge's item count at the largest text size", () => {
       expect(drawn).toHaveLength(workflowDocument.edges.length);
       return drawn;
     });
-    // The count is drawn short, the whole count is its title.
+    // The count is drawn short, the whole count is its hover label, and the pointer anywhere over
+    // the count's box, its middle and near either end, reaches the count itself rather than the
+    // background drawn behind it.
     for (const label of labels) {
-      const text = label.querySelector(".react-flow__edge-text");
-      expect(text?.querySelector("title")?.textContent).toBe("123,456,789,012 items");
-      expect(text?.querySelector("tspan")?.lastChild?.textContent).toBe("123B");
+      const count = label.querySelector<SVGTSpanElement>(".react-flow__edge-text tspan");
+      expect(count?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE)).toBe("123,456,789,012 items");
+      expect(count?.textContent).toBe("123B");
+      const countBox = count?.getBoundingClientRect();
+      for (const across of [0.05, 0.5, 0.95]) {
+        const pointed = document.elementFromPoint(
+          (countBox?.left ?? 0) + (countBox?.width ?? 0) * across,
+          (countBox?.top ?? 0) + (countBox?.height ?? 0) / 2,
+        );
+        expect(pointed?.closest(`[${HOVER_LABEL_TEXT_ATTRIBUTE}]`), `at ${across} across`).toBe(
+          count,
+        );
+      }
     }
     const nodeBoxes = [...container.querySelectorAll<HTMLElement>(".react-flow__node")].map(
       (node) => ({ id: node.dataset["id"], box: node.getBoundingClientRect() }),

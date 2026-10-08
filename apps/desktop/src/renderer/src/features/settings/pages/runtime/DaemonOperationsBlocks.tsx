@@ -18,10 +18,12 @@
 // while a dispatch is outstanding is not that, since the outstanding dispatch is a fact they
 // hold.
 
-import { useCallback, useState, type ReactNode } from "react";
+import { Button } from "@base-ui/react/button";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
@@ -33,6 +35,7 @@ import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import {
+  formatExactPercent,
   formatByteQuantity,
   formatClockTime,
   formatPercent,
@@ -108,6 +111,11 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     { connection: mainProcessState.connection, settledControlCount: control.settledCount },
     props.operations,
   );
+  const { reading, checkAgain } = status;
+  const statusRegion = useMemo(
+    () => renderStatusRegion(reading, checkAgain, clock, clockLocale),
+    [checkAgain, clock, clockLocale, reading],
+  );
   const askToConfirm = (pressed: DaemonControl): void => {
     setControlRefusal(undefined);
     setConfirming(pressed);
@@ -117,7 +125,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     <>
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__section-head">Reported status</h3>
-        {renderStatusRegion(status.reading, status.checkAgain, clock, clockLocale)}
+        {statusRegion}
       </section>
 
       <section className="meridian-settings-page__block">
@@ -204,7 +212,7 @@ function renderStatusRegion(
                   ? undefined
                   : {
                       figure: formatPercent(reading.status.processor.percent / 100),
-                      exactValue: String(reading.status.processor.percent),
+                      exactValue: formatExactPercent(reading.status.processor.percent),
                       readAt: reading.status.processor.readAt,
                     },
                 clockLocale,
@@ -214,11 +222,10 @@ function renderStatusRegion(
               {renderUsageReading(
                 reading.status.memory === null
                   ? undefined
-                  : {
-                      figure: formatByteQuantity(reading.status.memory.residentBytes).text,
-                      exactValue: String(reading.status.memory.residentBytes),
-                      readAt: reading.status.memory.readAt,
-                    },
+                  : formatMemoryUsage(
+                      reading.status.memory.residentBytes,
+                      reading.status.memory.readAt,
+                    ),
                 clockLocale,
               )}
             </SettingsFact>
@@ -238,26 +245,34 @@ function renderStatusRegion(
   }
 }
 
+// The memory reading as `renderUsageReading` takes it: scaled, its whole byte count where scaled.
+function formatMemoryUsage(residentBytes: number, readAt: string): UsageReading {
+  const size = formatByteQuantity(residentBytes);
+  return { figure: size.text, exactValue: size.exactText, readAt };
+}
+
+/** One reading of what the service uses: its figure, the exact value under it, and when. */
+interface UsageReading {
+  readonly figure: string;
+  readonly exactValue: string | undefined;
+  readonly readAt: string;
+}
+
 /**
  * One reading of what the service uses, stamped with when it was taken; none reads as not read.
- * The figure's `title` carries the exact value the service sent, and the time's `title` carries
- * the zoned time on the machine's clock.
+ * The figure's hover label carries the exact value the service sent where the figure rounds it,
+ * and the time's carries the zoned time on the machine's clock.
  */
-function renderUsageReading(
-  reading:
-    | { readonly figure: string; readonly exactValue: string; readonly readAt: string }
-    | undefined,
-  clockLocale: string,
-): ReactNode {
+function renderUsageReading(reading: UsageReading | undefined, clockLocale: string): ReactNode {
   if (reading === undefined) {
     return <span>Not read yet</span>;
   }
   return (
     <span>
-      <WireFigure value={reading.figure} title={reading.exactValue} /> · as of{" "}
+      <WireFigure value={reading.figure} hoverLabel={reading.exactValue} /> · as of{" "}
       <WireFigure
         value={formatClockTime(reading.readAt, clockLocale)}
-        title={formatZonedDateTime(reading.readAt, clockLocale)}
+        hoverLabel={formatZonedDateTime(reading.readAt, clockLocale)}
       />
     </span>
   );
@@ -267,7 +282,8 @@ function renderUsageReading(
  * The confirm step: the question, the verb, and the two ways out of it.
  *
  * `dispatchedReason` is `undefined` while the confirmation is a question and a sentence once
- * it has been answered, so one value carries both the disable and its cause.
+ * it has been answered, so one value carries both the disable and its cause. A disabled button
+ * keeps focus, so the press that answers does not drop focus to the page.
  */
 function renderControlConfirm(
   control: DaemonControl,
@@ -282,27 +298,29 @@ function renderControlConfirm(
       {/* The question appears on the press, holding its words, so it says them. */}
       <AnnouncedLine element="p" words={copy.confirmation} politeness="polite" />
       <div className="meridian-settings-page__actions">
-        <button
-          type="button"
-          className={
-            "meridian-settings-page__action " +
-            "meridian-settings-page__action--destructive meridian-action-button"
-          }
-          disabled={isDispatched}
-          title={dispatchedReason}
-          onClick={onConfirm}
-        >
-          {copy.verb}
-        </button>
-        <button
-          type="button"
-          className="meridian-settings-page__action meridian-action-button"
-          disabled={isDispatched}
-          title={dispatchedReason}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
+        <HoverLabel text={dispatchedReason} textRole="description">
+          <Button
+            className={
+              "meridian-settings-page__action " +
+              "meridian-settings-page__action--destructive meridian-action-button"
+            }
+            disabled={isDispatched}
+            focusableWhenDisabled
+            onClick={onConfirm}
+          >
+            {copy.verb}
+          </Button>
+        </HoverLabel>
+        <HoverLabel text={dispatchedReason} textRole="description">
+          <Button
+            className="meridian-settings-page__action meridian-action-button"
+            disabled={isDispatched}
+            focusableWhenDisabled
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+        </HoverLabel>
       </div>
       {isDispatched ? (
         <AnnouncedLine element="p" words={dispatchedReason} politeness="polite" />

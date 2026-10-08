@@ -7,6 +7,9 @@
 
 import "./NewSessionControl.css";
 
+import { Button } from "@base-ui/react/button";
+
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import type { NewSessionControlProps } from "../control-contract.js";
@@ -37,17 +40,21 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
     <section className="meridian-new-session" aria-label="New session draft">
       <label className="meridian-form__field">
         <span className="meridian-form__label">Its first message</span>
-        <TextBox
-          className="meridian-new-session__first-turn-input meridian-form__input"
-          fieldClassName="meridian-form__text-area"
-          value={composition.draftState.firstTurn}
-          rows={3}
-          readOnly={composition.isSending}
-          title={composition.isSending ? SENDING_FIRST_TURN_REASON : undefined}
-          onChange={(event) => {
-            composition.setFirstTurn(event.target.value);
-          }}
-        />
+        <HoverLabel
+          text={composition.isSending ? SENDING_FIRST_TURN_REASON : undefined}
+          textRole="description"
+        >
+          <TextBox
+            className="meridian-new-session__first-turn-input meridian-form__input"
+            fieldClassName="meridian-form__text-area"
+            value={composition.draftState.firstTurn}
+            rows={3}
+            readOnly={composition.isSending}
+            onChange={(event) => {
+              composition.setFirstTurn(event.target.value);
+            }}
+          />
+        </HoverLabel>
       </label>
       {composition.sendResult?.refusal === undefined ? null : (
         <InlineRefusal
@@ -80,20 +87,17 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
             Check the sessions list
           </button>
         ) : null}
-        <button
-          type="button"
-          className="meridian-new-session__send"
-          disabled={
-            composition.draftState.isEmpty ||
-            composition.isSending ||
-            composition.isAmbiguousCreate ||
-            composition.unsentEditsSentence !== undefined
-          }
-          title={composition.unsentEditsSentence}
-          onClick={composition.send}
-        >
-          Send
-        </button>
+        {/* Disabled yet focusable, so the keyboard reaches the reason it is held. */}
+        <HoverLabel text={composition.sendHeldReason} textRole="description">
+          <Button
+            className="meridian-new-session__send"
+            disabled={composition.sendHeldReason !== undefined}
+            focusableWhenDisabled
+            onClick={composition.send}
+          >
+            Send
+          </Button>
+        </HoverLabel>
       </div>
     </section>
   );

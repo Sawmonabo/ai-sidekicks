@@ -67,7 +67,7 @@ describe("the composed new-session draft — what a send reports", () => {
 
     // The create is suspended: the window a double-click's second press would land in.
     await press("Send");
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
 
     await act(async () => {
       held.answer();
@@ -76,7 +76,9 @@ describe("the composed new-session draft — what a send reports", () => {
 
     // Pressable again once it settles, since the partial leaves a draft the person may
     // correct; a flag that never cleared would freeze the control.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe(
+      "false",
+    );
     expect(container.textContent).toContain(
       "The session was created, but the first turn was not queued.",
     );
@@ -143,7 +145,7 @@ describe("the composed new-session draft — the create it cannot answer for", (
     );
     expect(container.textContent).toContain("Check the sessions list");
     // Closed, and stays closed: this draft can put nothing else on the wire.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
     // The act that is available is drawn rather than left to be guessed at.
     await press("Check the sessions list");
     expect(rechecks).toStrictEqual([1]);

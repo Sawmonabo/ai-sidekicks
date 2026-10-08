@@ -4,10 +4,10 @@
 // from `features/composer/attachments/provenance.ts`, so a screen reader hears the identity a
 // sighted user sees.
 
-import { Fragment } from "react";
+import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
+import { Fragment, useMemo } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
@@ -15,6 +15,7 @@ import { codeWords } from "#renderer/lib/code-words.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
+  ATTACHMENT_DECLARED_NAME_ORIGIN,
   attachmentMediaTypeReadings,
   attachmentNameReading,
 } from "../provenance.js";
@@ -25,9 +26,7 @@ import type { AttachmentIngestEntry, AttachmentReading } from "../shapes.js";
 
 import "./AttachmentCard.css";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
-
-/** Whose claim a name is, where the name shown is still the caller's own. */
-const DECLARED_NAME_TITLE = "Declared by the sender";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** Props for one attachment card. */
 export interface AttachmentCardProps {
@@ -43,23 +42,14 @@ export interface AttachmentCardProps {
 /** Renders one attachment reading as an in-flight, resolved, or unresolved card. */
 export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
   const { reading } = props;
+  const resolvedFace = useMemo(
+    () => (reading.kind === "resolved" ? renderResolved(reading.derived) : null),
+    [reading],
+  );
   return (
     <article className="meridian-attachment" aria-label={attachmentLabel(reading)}>
       {reading.kind === "ingesting" ? renderIngesting(reading.entry, props) : null}
-      {reading.kind === "resolved" ? (
-        <div className="meridian-attachment__face">
-          <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
-          <WireFigure value={reading.derived.fileName} />
-          <Chip label={reading.derived.mimeType} mono />
-          <WireFigure
-            value={formatByteQuantity(reading.derived.sizeBytes).text}
-            title={String(reading.derived.sizeBytes)}
-          />
-          <span className="meridian-attachment__artifact-id">
-            <WireFigure value={reading.derived.artifactId} />
-          </span>
-        </div>
-      ) : null}
+      {resolvedFace}
       {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId) : null}
     </article>
   );
@@ -91,17 +81,18 @@ function renderIngesting(
     <>
       <div className="meridian-attachment__face">
         <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
-        {nameReading.provenance === "declared" ? (
-          <WireFigure value={nameReading.name} title={DECLARED_NAME_TITLE} />
-        ) : (
-          <WireFigure value={nameReading.name} />
-        )}
+        <WireFigure
+          value={nameReading.name}
+          hoverLabel={
+            nameReading.provenance === "declared" ? ATTACHMENT_DECLARED_NAME_ORIGIN : undefined
+          }
+        />
         {/* Either reading earns the chip; where they disagree both show, derived first. Labeled
             by provenance because color cannot say whose claim a media type is. */}
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
           <Fragment key={mediaTypeReading.provenance}>
             {mediaTypeReading.provenance === "declared" ? (
-              <DerivedFigure text={ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL} />
+              <span>{ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL}</span>
             ) : null}
             <Chip
               label={mediaTypeReading.mediaType}
@@ -111,9 +102,9 @@ function renderIngesting(
           </Fragment>
         ))}
         <span className="meridian-attachment__bytes">
-          <WireFigure value={receivedFigure.text} title={String(entry.receivedBytes)} />
-          <DerivedFigure text="of" />
-          <WireFigure value={declaredFigure.text} title={String(entry.declared.byteLength)} />
+          <WireFigure value={receivedFigure.text} hoverLabel={receivedFigure.exactText} />
+          <span>of</span>
+          <WireFigure value={declaredFigure.text} hoverLabel={declaredFigure.exactText} />
         </span>
         <Chip
           label={codeWords(entry.state)}
@@ -162,14 +153,15 @@ function renderIngesting(
         {props.onAbandon === undefined ||
         entry.state === "complete" ||
         entry.state === "abandoned" ? null : (
-          <button
-            type="button"
-            className="meridian-attachment__act"
-            title={INGEST_ABANDON_COPY}
-            onClick={() => props.onAbandon?.(entry.declared.localId)}
-          >
-            Stop sending
-          </button>
+          <HoverLabel text={INGEST_ABANDON_COPY} textRole="description">
+            <button
+              type="button"
+              className="meridian-attachment__act"
+              onClick={() => props.onAbandon?.(entry.declared.localId)}
+            >
+              Stop sending
+            </button>
+          </HoverLabel>
         )}
       </div>
 
@@ -182,6 +174,22 @@ function renderIngesting(
         />
       ) : null}
     </>
+  );
+}
+
+/** The resolved arm: the file's name, media type, size and artifact, as the manifest reads them. */
+function renderResolved(derived: SessionAttachmentSummary): React.JSX.Element {
+  const size = formatByteQuantity(derived.sizeBytes);
+  return (
+    <div className="meridian-attachment__face">
+      <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
+      <WireFigure value={derived.fileName} />
+      <Chip label={derived.mimeType} mono />
+      <WireFigure value={size.text} hoverLabel={size.exactText} />
+      <span className="meridian-attachment__artifact-id">
+        <WireFigure value={derived.artifactId} />
+      </span>
+    </div>
   );
 }
 

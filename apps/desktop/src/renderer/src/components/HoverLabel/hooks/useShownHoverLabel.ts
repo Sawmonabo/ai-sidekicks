@@ -1,0 +1,236 @@
+// Which hover label a window shows, read from its document's pointer and focus. The pointer shows a
+// trigger's label the moment it is over the trigger, keeps it while it is over the label itself,
+// and drops it once it is over anything else or leaves the window; keyboard focus shows the focused
+// trigger's label until focus leaves it, and the pointer's label stands in front of it only while
+// the pointer is on another trigger. A touch never shows one, since a touch has no hover to end it.
+// Focus inside a trigger, as in a text area whose frame carries the label, shows that trigger's
+// label, as the pointer does. The element the pointer and focus are on is kept whether or not it
+// carries a label, and the label is read off it again whenever a label attribute changes, so a
+// control that gains its words while it is hovered or focused shows them at once, and one that
+// drops them drops the label. The pointer's label put away stays away until the pointer moves to
+// another trigger or off every trigger. The focused trigger's label put away stays away until focus
+// moves, except one held back with the pointer's, which returns once the pointer leaves. A bare
+// Escape while a label shows puts the label away and does nothing else: the press reaches no
+// handler below the document and its default is canceled, so the screen's own Escape waits for the
+// next press. A label hidden because its trigger scrolled out of view takes no Escape, nor does a
+// press with a modifier key or one that ends a text composition.
+//
+// The elements are kept in refs and the shown label in state that changes only when the trigger,
+// its words or its side do, so a pointer sweeping across a page re-renders nothing until it
+// reaches a label.
+
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { isElement } from "@floating-ui/utils/dom";
+
+import {
+  HOVER_LABEL_SIDE_ATTRIBUTE,
+  HOVER_LABEL_SIDES,
+  HOVER_LABEL_TEXT_ATTRIBUTE,
+  type HoverLabelSide,
+} from "../HoverLabel.js";
+
+/** The label a window shows: its trigger, its words and the side it prefers. */
+export interface ShownHoverLabel {
+  readonly anchor: Element;
+  readonly text: string;
+  readonly side: HoverLabelSide | undefined;
+}
+
+/** The label `ownerDocument` shows now, if any, and the act that puts it away. */
+export interface ShownHoverLabelReading {
+  readonly shown: ShownHoverLabel | undefined;
+  readonly close: () => void;
+}
+
+/**
+ * Follows the pointer and keyboard focus over `ownerDocument`'s triggers. `labelBoxRef` is the
+ * drawn label's outermost box, which the pointer may move onto without the label closing.
+ */
+export function useShownHoverLabel(
+  ownerDocument: Document,
+  labelBoxRef: RefObject<Element | null>,
+): ShownHoverLabelReading {
+  const trackedRef = useRef<TrackedElements>({});
+  const [shown, setShown] = useState<ShownHoverLabel | undefined>(undefined);
+
+  // Reads the label off the tracked elements, keeping the state as it was when nothing changed.
+  const readShown = useCallback(() => {
+    const next = shownOf(trackedRef.current);
+    setShown((current) => (isSameLabel(current, next) ? current : next));
+  }, []);
+
+  // Puts away the label shown. The pointer's label takes the focused control's with it, but only
+  // until the pointer leaves, so the focused control's label then comes back.
+  const close = useCallback(() => {
+    const tracked = trackedRef.current;
+    const anchor = shownOf(tracked)?.anchor;
+    if (anchor === undefined) {
+      return;
+    }
+    const focusTrigger = triggerOf(tracked.focus);
+    const isPointerLabel = anchor === triggerOf(tracked.pointer);
+    if (isPointerLabel) {
+      tracked.dismissedPointer = anchor;
+    }
+    tracked.dismissedFocus = focusTrigger;
+    tracked.isFocusHeldByPointer = isPointerLabel && focusTrigger !== anchor;
+    readShown();
+  }, [readShown]);
+
+  useEffect(() => {
+    const tracked = trackedRef.current;
+    const onPointerOver = (event: PointerEvent): void => {
+      const { target } = event;
+      if (
+        event.pointerType === "touch" ||
+        !isElement(target) ||
+        labelBoxRef.current?.contains(target) === true
+      ) {
+        return;
+      }
+      tracked.pointer = target;
+      if (tracked.dismissedPointer !== triggerOf(target)) {
+        releasePointerDismissal(tracked);
+      }
+      readShown();
+    };
+    // A pointer leaving the window is over nothing of it.
+    const onPointerOut = (event: PointerEvent): void => {
+      if (event.relatedTarget === null) {
+        tracked.pointer = undefined;
+        releasePointerDismissal(tracked);
+        readShown();
+      }
+    };
+    const onFocusIn = (event: FocusEvent): void => {
+      const { target } = event;
+      // Focus from the keyboard only: a click focuses a button too, and the pointer shows it.
+      tracked.focus = isElement(target) && target.matches(":focus-visible") ? target : undefined;
+      tracked.dismissedFocus = undefined;
+      tracked.isFocusHeldByPointer = false;
+      readShown();
+    };
+    // Captured on the document, ahead of the page's own handlers and the tooltip's.
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (
+        isBareEscape(event) &&
+        // Escape mid-composition cancels the composition; the label keeps it from no one.
+        !event.isComposing &&
+        shownOf(tracked) !== undefined &&
+        // A trigger scrolled out of view hides its label, so the key is the page's.
+        labelBoxRef.current?.hasAttribute("data-anchor-hidden") !== true
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        close();
+      }
+    };
+    const onFocusOut = (event: FocusEvent): void => {
+      if (tracked.focus === event.target) {
+        tracked.focus = undefined;
+        tracked.dismissedFocus = undefined;
+        tracked.isFocusHeldByPointer = false;
+        readShown();
+      }
+    };
+    // A label can appear on any element above the pointer, which no listener has seen, so one
+    // observer watches the document's label attributes for the hook's whole life.
+    const observer = new MutationObserver((records) => {
+      const { pointer, focus } = tracked;
+      if (
+        records.some(
+          (record) =>
+            record.target.contains(focus ?? null) || record.target.contains(pointer ?? null),
+        )
+      ) {
+        readShown();
+      }
+    });
+    observer.observe(ownerDocument, {
+      subtree: true,
+      attributeFilter: [HOVER_LABEL_TEXT_ATTRIBUTE, HOVER_LABEL_SIDE_ATTRIBUTE],
+    });
+    ownerDocument.addEventListener("pointerover", onPointerOver);
+    ownerDocument.addEventListener("pointerout", onPointerOut);
+    ownerDocument.addEventListener("focusin", onFocusIn);
+    ownerDocument.addEventListener("focusout", onFocusOut);
+    ownerDocument.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => {
+      observer.disconnect();
+      ownerDocument.removeEventListener("pointerover", onPointerOver);
+      ownerDocument.removeEventListener("pointerout", onPointerOut);
+      ownerDocument.removeEventListener("focusin", onFocusIn);
+      ownerDocument.removeEventListener("focusout", onFocusOut);
+      ownerDocument.removeEventListener("keydown", onKeyDown, { capture: true });
+    };
+  }, [ownerDocument, labelBoxRef, readShown, close]);
+
+  return { shown, close };
+}
+
+/**
+ * The element the pointer is over and the one keyboard focus is on, either absent, with the
+ * trigger each showed when its label was put away, and whether the focused trigger's label was
+ * put away only along with the pointer's.
+ */
+interface TrackedElements {
+  pointer?: Element | undefined;
+  focus?: Element | undefined;
+  dismissedPointer?: Element | undefined;
+  dismissedFocus?: Element | undefined;
+  isFocusHeldByPointer?: boolean;
+}
+
+// The pointer left the trigger whose label was put away, so that label may show again, and the
+// focused trigger's label too where it went away only with the pointer's.
+function releasePointerDismissal(tracked: TrackedElements): void {
+  tracked.dismissedPointer = undefined;
+  if (tracked.isFocusHeldByPointer === true) {
+    tracked.dismissedFocus = undefined;
+    tracked.isFocusHeldByPointer = false;
+  }
+}
+
+const TRIGGER_SELECTOR = `[${HOVER_LABEL_TEXT_ATTRIBUTE}]`;
+
+// The trigger an element is on: itself or the trigger around it, as a glyph the pointer is over
+// or a field focused inside a labeled frame.
+function triggerOf(element: Element | undefined): Element | undefined {
+  return element?.closest(TRIGGER_SELECTOR) ?? undefined;
+}
+
+function shownOf(tracked: TrackedElements): ShownHoverLabel | undefined {
+  const pointerTrigger = triggerOf(tracked.pointer);
+  const focusTrigger = triggerOf(tracked.focus);
+  const anchor =
+    (pointerTrigger === tracked.dismissedPointer ? undefined : pointerTrigger) ??
+    (focusTrigger === tracked.dismissedFocus ? undefined : focusTrigger);
+  if (anchor === undefined) {
+    return undefined;
+  }
+  return {
+    anchor,
+    // Present: the trigger selector matched this element.
+    text: anchor.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE) ?? "",
+    side: sideOf(anchor.getAttribute(HOVER_LABEL_SIDE_ATTRIBUTE)),
+  };
+}
+
+function isBareEscape(event: KeyboardEvent): boolean {
+  return (
+    event.key === "Escape" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+  );
+}
+
+function isSameLabel(
+  current: ShownHoverLabel | undefined,
+  next: ShownHoverLabel | undefined,
+): boolean {
+  return (
+    current?.anchor === next?.anchor && current?.text === next?.text && current?.side === next?.side
+  );
+}
+
+function sideOf(attribute: string | null): HoverLabelSide | undefined {
+  return HOVER_LABEL_SIDES.find((side) => side === attribute);
+}

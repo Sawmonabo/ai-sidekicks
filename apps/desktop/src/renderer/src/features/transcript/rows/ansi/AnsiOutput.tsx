@@ -52,8 +52,8 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
         <Nothing
           kind="empty"
           placement="inline"
-          // One sentence carries both figures: an inline badge shows `detail` only as a hover
-          // title, and the counts are the substance of the notice. The badge still fits because
+          // One sentence carries both figures: an inline badge shows `detail` only in its hover
+          // label, and the counts are the substance of the notice. The badge still fits because
           // the output it qualifies is present.
           title={
             `Showing ${formatCount(spans.length)} styled runs; ` +

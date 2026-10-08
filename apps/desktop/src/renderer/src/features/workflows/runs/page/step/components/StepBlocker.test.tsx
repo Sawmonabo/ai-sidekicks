@@ -10,10 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import {
-  type WorkflowStep,
-  type WorkflowStepResolution,
-} from "@ai-sidekicks/contracts/workflow/run/step/record";
+import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
@@ -29,18 +26,20 @@ import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { clockLocaleFor, formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
+import type { HeldStepAnswer } from "../held-answer.js";
 import {
   createWorkflowCommandTargets,
   type WorkflowCommandTargets,
 } from "#renderer/features/workflows/command-target.js";
 import { withCommandTargets } from "#renderer/features/workflows/command-target.test-support.js";
 import { StepBlocker } from "./StepBlocker.js";
+import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The clock locale the fixture bridge carries, which the screen writes its figures in. */
 const CLOCK_LOCALE = clockLocaleFor(FIXTURE_APP_META);
 
-/** How long the fixture daemon takes to answer `question.resolve`. */
-const QUESTION_RESOLVE_DELAY_MS = 200;
+/** How long the fixture daemon takes to take an answer, through `question.resolve` or a gate's. */
+const ANSWER_DELAY_MS = 200;
 
 function fixtureStep(
   workflowRunId: string,
@@ -57,7 +56,7 @@ function fixtureStep(
 /** What a rendered blocker was asked to do. */
 interface BlockerRecord {
   readonly calls: readonly RecordedDaemonCall[];
-  readonly answers: readonly WorkflowStepResolution[];
+  readonly answers: readonly HeldStepAnswer[];
   /** The receipt's paragraph, once one is drawn. */
   readonly receipt: () => HTMLElement | null;
   /** Move the fixture daemon's clock, so a reply it delays settles. */
@@ -81,24 +80,25 @@ function fixtureNodeKind(run: WorkflowRunReadResponse, nodeId: string): string {
 /** A day after the fixture's answers, so each receipt names the day it was left. */
 const NEXT_DAY_MS = WORKFLOW_FIXTURE_NOW_MS + MILLISECONDS_PER_DAY;
 
-/** The blocker over one fixture step, changed by `adjust`, with no receipt from this sitting. */
+/** The blocker over one fixture step, changed by `adjust`, holding `answer` from this sitting. */
 function renderBlocker(
   workflowRunId: string,
   nodeId: string,
   reviews: (readonly [WorkflowRunSnapshotPoint, WorkflowRunSnapshotPoint])[] = [],
   adjust: (step: WorkflowStep) => WorkflowStep = (step) => step,
+  answer: HeldStepAnswer | undefined = undefined,
 ): BlockerRecord {
   const { run, step } = fixtureStep(workflowRunId, nodeId);
   const nodeKind = fixtureNodeKind(run, nodeId);
   const { bridge, calls, engine } = bridgeAnswering(async (_call, passThrough) => passThrough());
-  const answers: WorkflowStepResolution[] = [];
+  const answers: HeldStepAnswer[] = [];
   const commandTargets = createWorkflowCommandTargets();
   render(
     <StepBlocker
       run={run}
       step={adjust(step)}
       nodeKind={nodeKind}
-      answer={undefined}
+      answer={answer}
       nowMs={NEXT_DAY_MS}
       bridge={bridge}
       onAnswered={(answer) => {
@@ -133,9 +133,11 @@ describe("a step's blocker", () => {
       `Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS, CLOCK_LOCALE)}`,
     );
     // Hovering the instant shows the time it stands for, with its zone.
-    expect(receipt()?.querySelector("[title]")?.getAttribute("title")).toBe(
-      formatZonedDateTime(step.resolution.at, CLOCK_LOCALE),
-    );
+    expect(
+      receipt()
+        ?.querySelector(`[${HOVER_LABEL_TEXT_ATTRIBUTE}]`)
+        ?.getAttribute(HOVER_LABEL_TEXT_ATTRIBUTE),
+    ).toBe(formatZonedDateTime(step.resolution.at, CLOCK_LOCALE));
     expect(screen.queryByRole("button")).toBeNull();
   });
 
@@ -204,7 +206,7 @@ describe("a step's blocker", () => {
     }));
 
     const openInReview = screen.getByRole("button", { name: "Open in Review" });
-    expect(openInReview).toHaveProperty("disabled", true);
+    expect(openInReview.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText(reason)).toBeDefined();
     fireEvent.click(openInReview);
     expect(reviews).toStrictEqual([]);
@@ -239,10 +241,35 @@ describe("a step's blocker", () => {
       ]);
     });
     // The receipt stands as soon as the daemon takes the answer, before the run reads back.
-    await advance(QUESTION_RESOLVE_DELAY_MS);
+    await advance(ANSWER_DELAY_MS);
     await waitFor(() => {
       expect(answers).toHaveLength(1);
     });
-    expect(answers[0]?.kind).toBe("answered");
+    expect(answers[0]?.resolution.kind).toBe("answered");
+    // The reply's instant is the window's clock until the daemon's record replaces it.
+    expect(answers[0]?.isWindowClock).toBe(true);
+  });
+
+  it("draws a held reply's time as the app's own reading until the daemon's record arrives", () => {
+    const heldReply: HeldStepAnswer = {
+      resolution: { kind: "answered", at: new Date(WORKFLOW_FIXTURE_NOW_MS).toISOString() },
+      isWindowClock: true,
+    };
+    const held = renderBlocker(WORKFLOW_RUN_IDS.waitingReply, "ask", [], (step) => step, heldReply);
+
+    expect(held.receipt()?.querySelector(".meridian-figure--derived")).not.toBeNull();
+    expect(held.receipt()?.querySelector(".meridian-figure--wire")).toBeNull();
+
+    // Once the run carries the daemon's record, the time is the wire's, though the answer is held.
+    cleanup();
+    const recorded = renderBlocker(
+      WORKFLOW_RUN_IDS.waitingReply,
+      "ask",
+      [],
+      (step) => ({ ...withoutWait(step, "running"), resolution: heldReply.resolution }),
+      heldReply,
+    );
+    expect(recorded.receipt()?.querySelector(".meridian-figure--wire")).not.toBeNull();
+    expect(recorded.receipt()?.querySelector(".meridian-figure--derived")).toBeNull();
   });
 });

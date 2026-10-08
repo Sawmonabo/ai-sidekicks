@@ -90,7 +90,10 @@ export type NumberStyle =
   | "upToOneDecimal"
   | "bareDigits"
   | "twoDigits"
-  | "dayDuration";
+  | "dayDuration"
+  | "minuteDuration"
+  | "exactPercent"
+  | "byteCount";
 
 /** The one `Intl.RelativeTimeFormat` held for `locale`; two asks answer with the same object. */
 export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat {
@@ -98,8 +101,10 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
 }
 
 /**
- * Every number style a figure renders in, by name. `dayDuration` is `"long"` because the figure is
- * read as a sentence ("kept for 3 days") and the platform then chooses the singular and plural.
+ * Every number style a figure renders in, by name. `dayDuration`, `minuteDuration` and
+ * `byteCount` are `"long"` because the figure is read as a sentence ("kept for 3 days") and the
+ * platform then chooses the singular and plural. `exactPercent` keeps every digit a double holds
+ * and drops the noise past them, so `0.421` reads `42.1%` rather than `42.100000000000004%`.
  */
 const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
   count: {},
@@ -111,6 +116,9 @@ const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
   bareDigits: { useGrouping: false },
   twoDigits: { minimumIntegerDigits: 2, useGrouping: false },
   dayDuration: { style: "unit", unit: "day", unitDisplay: "long", maximumFractionDigits: 0 },
+  minuteDuration: { style: "unit", unit: "minute", unitDisplay: "long", maximumFractionDigits: 0 },
+  exactPercent: { style: "percent", maximumSignificantDigits: 15 },
+  byteCount: { style: "unit", unit: "byte", unitDisplay: "long", maximumFractionDigits: 0 },
 };
 
 /** One named date or time style. */

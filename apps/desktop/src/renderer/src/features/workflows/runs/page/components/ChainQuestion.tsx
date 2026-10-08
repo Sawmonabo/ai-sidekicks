@@ -16,6 +16,7 @@ import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowC
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { chainReceipt } from "../step/receipts.js";
 
 /** The chain question's two answers, in the order they stand, and the approval each one is. */
@@ -57,7 +58,11 @@ export function ChainQuestion(props: {
 type AnsweredChainQuestion = Extract<WorkflowChainQuestion, { state: "answered" }>;
 
 function ChainReceipt(props: { readonly answered: AnsweredChainQuestion }): React.JSX.Element {
-  return <p className="meridian-workflow-run__chain-receipt">{chainReceipt(props.answered)}</p>;
+  return (
+    <p className="meridian-workflow-run__chain-receipt">
+      <FigureSentence parts={chainReceipt(props.answered)} />
+    </p>
+  );
 }
 
 function OpenChainQuestion(props: {

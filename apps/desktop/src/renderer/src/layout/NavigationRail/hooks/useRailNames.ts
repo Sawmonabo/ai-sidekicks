@@ -17,7 +17,7 @@ export interface RailNamesInput<Entry extends LabeledRailDestination> {
   readonly isUpdateStaged: boolean;
 }
 
-/** One destination with its one string: its hover title and its spoken name at once. */
+/** One destination with its one string: its hover label and its spoken name at once. */
 export interface NamedRailEntry<Entry extends LabeledRailDestination> {
   readonly entry: Entry;
   readonly name: string;

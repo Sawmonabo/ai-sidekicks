@@ -1,11 +1,13 @@
-// One window a person sees: its frame store, the bindings that keep it live, and the `AppShell`
-// around the routed screen, drawn into the window's own document through a portal from the console
-// document's tree. Everything below reads the window it is in from `OwnerWindowProvider`, and runs
-// its frame work on that window's own paint through `WindowClockProvider`.
+// One window a person sees: its frame store, the bindings that keep it live, the `AppShell`
+// around the routed screen and the window's one hover label, drawn into the window's own document
+// through a portal from the console document's tree. Everything below reads the window it is in
+// from `OwnerWindowProvider`, and runs its frame work on that window's own paint through
+// `WindowClockProvider`.
 
 import { useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
@@ -59,13 +61,17 @@ export interface AppWindowProps {
   readonly notice?: ReactNode;
 }
 
-/** One window: its stores and bindings and its `AppShell`, drawn in its own document. */
+/**
+ * One window: its stores and bindings, its `AppShell` and its hover label, drawn in its own
+ * document.
+ */
 export function AppWindow(props: AppWindowProps): React.JSX.Element {
   const ownerWindow = props.openWindow.window;
   return createPortal(
     <OwnerWindowProvider window={ownerWindow}>
       <WindowClockProvider frames={ownerWindow}>
         <WindowContents {...props} />
+        <WindowHoverLabel />
       </WindowClockProvider>
     </OwnerWindowProvider>,
     windowMountPoint(ownerWindow.document),

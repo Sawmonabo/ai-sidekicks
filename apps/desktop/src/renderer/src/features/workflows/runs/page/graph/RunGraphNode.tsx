@@ -1,8 +1,8 @@
 // One node of the run, as a box on the canvas: its name and its first output's item count, short
-// on the box and whole in its title; its kind as words, which the box is sized to hold; and a ring
-// and a line saying what its latest step is doing and which attempt it is. The library supplies
-// position, focus and handle geometry; every color is drawn from design tokens through the data
-// attributes the sheet reads.
+// on the box and whole in its hover label; its kind as words, which the box is sized to hold; and
+// a ring and a line saying what its latest step is doing and which attempt it is. The library
+// supplies position, focus and handle geometry; every color is drawn from design tokens through the
+// data attributes the sheet reads.
 
 import "./RunGraphNode.css";
 
@@ -47,7 +47,7 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
           <span className="meridian-run-graph-node__count">
             <WireFigure
               value={formatCompactCount(view.outputCount)}
-              title={itemCountWords(view.outputCount)}
+              hoverLabel={itemCountWords(view.outputCount)}
             />
           </span>
         )}
