@@ -5,5 +5,6 @@ mod live_counts;
 mod measurements;
 mod merge_policy;
 mod pruning;
+mod purge;
 mod seeded_set;
 mod support;

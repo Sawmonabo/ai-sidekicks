@@ -1,6 +1,8 @@
 //! The capped merge policy: no merge writes more live rows than the cap, the build's merges down
 //! to the last included, and a segment over half the cap is rewritten only alone, once past its
-//! deleted share.
+//! deleted share or once it has held a purged session's rows.
+
+use std::collections::HashSet;
 
 use tantivy::index::SegmentId;
 use tantivy::merge_policy::{MergeCandidate, MergePolicy};
@@ -37,7 +39,7 @@ fn live_rows(segments: &[SegmentMeta], candidate: &MergeCandidate) -> u32 {
 #[test]
 fn merges_a_build_down_without_writing_a_segment_over_the_cap() {
     let index = index();
-    let policy = CappedMergePolicy::new(ROW_CAP);
+    let policy = CappedMergePolicy::new(ROW_CAP, HashSet::new());
     // A build's commits: 97 segments of 1,234 rows, 119,698 rows in all.
     let mut segments: Vec<SegmentMeta> = (0..97).map(|_| segment(&index, 1_234, 0)).collect();
     let mut merges = 0;
@@ -59,19 +61,30 @@ fn merges_a_build_down_without_writing_a_segment_over_the_cap() {
 }
 
 #[test]
-fn rewrites_a_full_segment_only_alone_and_only_past_its_deleted_share() {
+fn rewrites_a_full_segment_only_alone_past_its_deleted_share_or_after_a_purge() {
     let index = index();
-    let policy = CappedMergePolicy::new(ROW_CAP);
-    let purged = segment(&index, ROW_CAP, 200);
+    let past_share = segment(&index, ROW_CAP, 200);
     let barely_deleted = segment(&index, ROW_CAP, 50);
+    // Held one row of a purged session: rewritten for it, however small its deleted share.
+    let held_purged_rows = segment(&index, ROW_CAP, 1);
     // Over half the cap: merged with the small one it would fit, but it is not rewritten for it.
     let full = segment(&index, 6_000, 0);
     let small = segment(&index, 3_000, 0);
-    let segments = vec![purged.clone(), barely_deleted, full, small];
-    let candidates: Vec<Vec<SegmentId>> = policy
+    let policy = CappedMergePolicy::new(ROW_CAP, HashSet::from([held_purged_rows.id()]));
+    let segments = vec![
+        past_share.clone(),
+        barely_deleted,
+        held_purged_rows.clone(),
+        full,
+        small,
+    ];
+    let mut candidates: Vec<Vec<SegmentId>> = policy
         .compute_merge_candidates(&segments)
         .into_iter()
         .map(|candidate| candidate.0)
         .collect();
-    assert_eq!(candidates, vec![vec![purged.id()]]);
+    candidates.sort();
+    let mut expected = vec![vec![past_share.id()], vec![held_purged_rows.id()]];
+    expected.sort();
+    assert_eq!(candidates, expected);
 }

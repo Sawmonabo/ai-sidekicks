@@ -1,12 +1,16 @@
 //! Which segments merge while the daemon is idle, on Lucene's tiered model: no merge writes a
 //! segment holding more than a cap of live rows, so a merge's time is bounded whatever the index's
 //! size; segments of a similar size merge while their live rows fit the cap; and a segment with
-//! more than one row in a hundred deleted is rewritten alone, so a purge rewrites only the segments
-//! that hold its rows. Tantivy's own `LogMergePolicy` has no such cap: its document bound only keeps
-//! larger segments out of merges, so many smaller ones still merge past it, and a segment past it
-//! never merges again, its deleted rows never expunged.
+//! more than one row in a hundred deleted, or that held a purged session's rows, is rewritten
+//! alone, so a purge rewrites only the segments that held its rows and its words leave the index's
+//! files. Tantivy's own `LogMergePolicy` has no such cap: its document bound only keeps larger
+//! segments out of merges, so many smaller ones still merge past it, and a segment past it never
+//! merges again, its deleted rows never expunged.
+
+use std::collections::HashSet;
 
 use tantivy::SegmentMeta;
+use tantivy::index::SegmentId;
 use tantivy::merge_policy::{MergeCandidate, MergePolicy};
 
 /// The most live rows a merge writes into one segment, the build's merges included.
@@ -19,16 +23,22 @@ const LEVEL_LOG_SIZE: f64 = 0.75;
 // Segments under this many live rows count as this size, so small segments merge as one level.
 const LEVEL_FLOOR_ROWS: u32 = 10_000;
 
-/// Proposes merges whose merged segment holds at most `row_cap` live rows.
+/// Proposes merges whose merged segment holds at most `row_cap` live rows, and a rewrite of each
+/// segment that held a purged session's rows.
 #[derive(Debug, Clone)]
 pub struct CappedMergePolicy {
     row_cap: u32,
+    purged_segments: HashSet<SegmentId>,
 }
 
 impl CappedMergePolicy {
-    /// A policy that writes no segment of more than `row_cap` live rows.
-    pub fn new(row_cap: u32) -> CappedMergePolicy {
-        CappedMergePolicy { row_cap }
+    /// A policy that writes no segment of more than `row_cap` live rows, and rewrites each of
+    /// `purged_segments` alone whatever share of its rows is deleted.
+    pub fn new(row_cap: u32, purged_segments: HashSet<SegmentId>) -> CappedMergePolicy {
+        CappedMergePolicy {
+            row_cap,
+            purged_segments,
+        }
     }
 
     // A segment over half the cap is full: merged with any other, it could pass the cap.
@@ -76,7 +86,10 @@ impl MergePolicy for CappedMergePolicy {
     fn compute_merge_candidates(&self, segments: &[SegmentMeta]) -> Vec<MergeCandidate> {
         let rewrites = segments
             .iter()
-            .filter(|segment| deleted_share(segment) > DELETED_SHARE_BEFORE_REWRITE)
+            .filter(|segment| {
+                self.purged_segments.contains(&segment.id())
+                    || deleted_share(segment) > DELETED_SHARE_BEFORE_REWRITE
+            })
             .map(|segment| MergeCandidate(vec![segment.id()]));
         let open: Vec<&SegmentMeta> = segments
             .iter()
