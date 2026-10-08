@@ -8,11 +8,10 @@
 
 import "./MathBlock.css";
 
+import { getWindow } from "@floating-ui/utils/dom";
 import { useLayoutEffect, useMemo, useRef } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { getWindow } from "@floating-ui/utils/dom";
-
 import { useChunkLoad } from "#renderer/hooks/useChunkLoad.js";
 import { RealClock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
@@ -104,9 +103,9 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
  * when the span first has a width; the sheet does the fitting from it. Where glyph widths round to
  * whole pixels, as on Linux, a piece's width does not scale exactly with its font size, so each
  * later resize checks the fit and raises the width where the drawn piece overran its column. A
- * write resizes the span it watches, so the watch stops before it and starts again on the next
- * frame: a report of the size the write made would otherwise land in the same pass, which the
- * browser refuses with a window error.
+ * write resizes the span it watches, so the watch stops right after it, in the same report, and
+ * starts again on the next frame: a report of the size the write made would otherwise land in the
+ * same pass, which the browser refuses with a window error.
  */
 function useMeasureNaturalWidth(
   displayMarkup: string | undefined,

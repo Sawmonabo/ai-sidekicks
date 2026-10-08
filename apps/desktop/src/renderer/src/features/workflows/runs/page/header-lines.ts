@@ -8,7 +8,7 @@ import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/r
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { FigureSentencePart } from "#renderer/components/FigureSentence/FigureSentence.js";
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { costFigure } from "../cost.js";
 import { spentAccountWords, WAIT_CAUSE_WORDS } from "../../words.js";
@@ -94,7 +94,7 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   const parts: RunLiveLinePart[] = [];
   if (run.liveStep !== undefined) {
     parts.push(
-      plainParts([
+      plain([
         "Step ",
         { wire: formatCount(run.liveStep.index) },
         " of ",
@@ -107,11 +107,13 @@ export function runLiveLine(run: WorkflowRunReadResponse): readonly RunLiveLineP
   if (waiting?.waitCause !== undefined) {
     parts.push(...waitingParts(run, waiting, waiting.waitCause));
   } else if (holding !== undefined) {
-    parts.push(plain("waiting for memory"), plain("starts itself when memory frees up"));
+    parts.push(plain(["waiting for memory"]), plain(["starts itself when memory frees up"]));
   } else if (run.liveStep !== undefined) {
-    parts.push(plain(run.liveStep.nodeName));
+    parts.push(plain([run.liveStep.nodeName]));
   }
-  parts.push(plainParts([{ wire: costFigure(run.cost) }, " so far"]));
+  // A run with no cost read yet reads `$0.00`, the app's own stand-in rather than the daemon's.
+  const spent = costFigure(run.cost);
+  parts.push(plain([run.cost === undefined ? { derived: spent } : { wire: spent }, " so far"]));
   return parts;
 }
 
@@ -247,7 +249,7 @@ function waitingParts(
     isAttention: isPersonWaitCause(cause),
   };
   if (cause === "chain") {
-    return [blocker, plainParts(chainRunsWords(run.chainRoot.runCount))];
+    return [blocker, plain(chainRunsWords(run.chainRoot.runCount))];
   }
   if (cause !== "account") {
     return [blocker];
@@ -255,15 +257,11 @@ function waitingParts(
   return [
     blocker,
     step.resumeAt === undefined
-      ? plain("awaiting resume — no instant is armed")
+      ? plain(["awaiting resume — no instant is armed"])
       : { words: ["resumes itself at"], at: step.resumeAt, isAttention: false },
   ];
 }
 
-function plain(text: string): RunLiveLinePart {
-  return plainParts([text]);
-}
-
-function plainParts(words: readonly FigureSentencePart[]): RunLiveLinePart {
+function plain(words: readonly FigureSentencePart[]): RunLiveLinePart {
   return { words, at: undefined, isAttention: false };
 }

@@ -5,7 +5,8 @@
 // the pointer off both is the negative control: the label closes, so its staying is not a label
 // that never closes. A control that gains its words while focused or hovered shows them at once,
 // and a label Escape put away stays away while the pointer moves inside its control, until it
-// leaves and returns.
+// leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
+// the frame's label.
 
 import { useState } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -14,6 +15,7 @@ import { userEvent } from "vitest/browser";
 
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
+import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 
 /** How long the label is watched once the pointer is on it, for a close the crossing set off. */
 const SETTLE_MS = 300;
@@ -184,6 +186,34 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
   await waitFor(() => {
     expect(shownLabel()?.textContent).toBe("Already restarting.");
   });
+});
+
+it("shows a text box's label on keyboard focus inside it, against the box's frame", async () => {
+  const { getByRole, container } = render(
+    <div style={{ padding: "64px" }}>
+      <button type="button">Before</button>
+      <HoverLabel text="Read-only while it sends." textIs="description">
+        <TextBox className="probe-box" rows={3} aria-label="Draft" readOnly value="" />
+      </HoverLabel>
+      <WindowHoverLabel />
+    </div>,
+  );
+  const frame = container.querySelector<HTMLElement>(".probe-box");
+  act(() => {
+    getByRole("button", { name: "Before" }).focus();
+  });
+  await act(async () => {
+    await userEvent.tab();
+  });
+  expect(document.activeElement).toBe(getByRole("textbox", { name: "Draft" }));
+  // The label belongs to the frame, an element around the focused text area.
+  const label = await waitFor(() => {
+    const shown = shownLabel();
+    expect(shown?.textContent).toBe("Read-only while it sends.");
+    return shown!;
+  });
+  expect(frame?.dataset["hoverLabel"]).toBe("Read-only while it sends.");
+  expect(gapBetween(label.getBoundingClientRect(), frame!.getBoundingClientRect())).toBeLessThan(1);
 });
 
 function shownLabel(): HTMLElement | null {

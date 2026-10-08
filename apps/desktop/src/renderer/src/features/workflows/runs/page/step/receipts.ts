@@ -11,7 +11,7 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowChainQuestion } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { FigureSentencePart } from "#renderer/components/FigureSentence/FigureSentence.js";
+import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 
 const RESOLUTION_VERBS: Readonly<Record<WorkflowStepResolutionKind, string>> = {

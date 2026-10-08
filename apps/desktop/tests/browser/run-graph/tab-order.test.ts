@@ -1,8 +1,9 @@
 // Tab walks a run graph in its own order: each node, then the counts of the edges leaving it, a
 // count showing its whole figure as it is reached. The library draws every edge before every node,
 // so the browser's own order would reach every count first. The walk hands Tab back to the browser
-// at both ends, so the graph is never a trap, and Shift+Tab coming back in starts at the walk's
-// last stop rather than skipping the counts that leave the last node. This needs real focus and
+// at both ends, so the graph is never a trap, and Shift+Tab coming back in reaches the canvas's own
+// controls, then starts the walk at its last stop rather than skipping the counts that leave the
+// last node. This needs real focus and
 // layout, so it runs in Chromium.
 
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -19,13 +20,15 @@ afterEach(() => {
   cleanup();
 });
 
-/** Every count the graph draws, as the hover label reads it. */
+/** Every edge's item count, which the hover label reads as `123,456,789,012 items`. */
 const WHOLE_COUNT = 123_456_789_012;
 
 /** `fixture`'s graph between two buttons, so focus has somewhere to go on either side. */
-async function mountBetweenButtons(
-  fixture: FixtureRun,
-): Promise<{ readonly canvas: HTMLElement; readonly before: HTMLElement }> {
+async function mountBetweenButtons(fixture: FixtureRun): Promise<{
+  readonly canvas: HTMLElement;
+  readonly before: HTMLElement;
+  readonly after: HTMLElement;
+}> {
   const counts = fixture.workflowDocument.edges.map((edge) => ({
     edgeId: edge.id,
     itemCount: WHOLE_COUNT,
@@ -40,7 +43,7 @@ async function mountBetweenButtons(
     before.remove();
     after.remove();
   });
-  return { canvas: container, before };
+  return { canvas: container, before, after };
 }
 
 async function pressTab(isBackward = false): Promise<void> {
@@ -105,7 +108,7 @@ it("hands Tab on past its last stop, and Shift+Tab back in starts at that stop",
       nodes: [...fixture.workflowDocument.nodes].reverse(),
     },
   };
-  const { canvas, before } = await mountBetweenButtons(reversed);
+  const { canvas, before, after } = await mountBetweenButtons(reversed);
   const nodes = [...canvas.querySelectorAll<HTMLElement>(".react-flow__node")];
   const lastLeaving = reversed.workflowDocument.edges.filter(
     (edge) => edge.source === nodes.at(-1)?.dataset["id"],
@@ -133,6 +136,18 @@ it("hands Tab on past its last stop, and Shift+Tab back in starts at that stop",
   expect(isGraphStop(pastGraph)).toBe(false);
   expect(pastGraph).not.toBe(document.body);
 
+  await pressTab(true);
+  expect(document.activeElement).toBe(lastStop);
+
+  // From past the canvas, Shift+Tab reaches the canvas's own controls first, then the walk's last
+  // stop.
+  act(() => {
+    after.focus();
+  });
+  await pressTab(true);
+  expect(isGraphStop(document.activeElement)).toBe(false);
+  expect(document.activeElement).not.toBe(after);
+  expect(document.activeElement).not.toBe(document.body);
   await pressTab(true);
   expect(document.activeElement).toBe(lastStop);
 });

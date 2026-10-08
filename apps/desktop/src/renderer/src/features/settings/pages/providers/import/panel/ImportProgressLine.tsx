@@ -12,11 +12,8 @@ import { Collapsible } from "@base-ui/react/collapsible";
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import {
-  FigureSentence,
-  figureSentenceText,
-  type FigureSentencePart,
-} from "#renderer/components/FigureSentence/FigureSentence.js";
+import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
+import { figureSentenceText, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";

@@ -110,6 +110,8 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
   );
 
   const graphOrder = useMemo(() => graphFocusOrder(nodes, edges), [nodes, edges]);
+  // True only while the walk hands focus to an end node for the browser's own Tab to carry on.
+  const isHandingOffRef = useRef(false);
 
   // Any key on the canvas stops the follow; Enter or Space on a node also selects it, since the
   // library's own node keys are off along with its second live region. Tab walks the graph's own
@@ -124,11 +126,21 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
         !event.altKey &&
         !event.ctrlKey &&
         !event.metaKey &&
-        canvas !== null &&
-        moveGraphFocus(canvas, graphOrder, event.target, event.shiftKey)
+        canvas !== null
       ) {
-        event.preventDefault();
-        return;
+        const move = moveGraphFocus(canvas, graphOrder, event.target, event.shiftKey);
+        if (move?.kind === "stop") {
+          move.element.focus();
+          event.preventDefault();
+          return;
+        }
+        if (move?.kind === "hand-off") {
+          // Focus passes over the end node on its way out, which brings nothing into view.
+          isHandingOffRef.current = true;
+          move.element.focus();
+          isHandingOffRef.current = false;
+          return;
+        }
       }
       const nodeId = focusedNodeId(event.target);
       if (nodeId !== undefined && SELECT_KEYS.includes(event.key)) {
@@ -140,15 +152,19 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
   );
 
   // A node or an edge's count reached by keyboard is brought into view, which the library does
-  // only with its own keys on. Shift+Tab into the graph lands on the browser's last node, so focus
-  // moves on to the walk's last stop, the last count leaving that node where it has one.
+  // only with its own keys on. Shift+Tab back into the walk lands on the browser's last node, so
+  // focus moves on to the walk's last stop, the last count leaving that node where it has one.
   const revealFocusedElement = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
-      if (!event.target.matches(":focus-visible")) {
+      if (isHandingOffRef.current || !event.target.matches(":focus-visible")) {
         return;
       }
       const canvas = canvasRef.current;
-      if (canvas !== null && isEnteredFromAfter(event)) {
+      if (
+        canvas !== null &&
+        focusedNodeId(event.target) !== undefined &&
+        isEnteredFromAfter(event)
+      ) {
         const lastStop = graphStopElement(canvas, graphOrder.at(-1));
         if (lastStop !== null && lastStop !== event.target) {
           lastStop.focus();
@@ -253,35 +269,39 @@ function graphFocusOrder(
 }
 
 /**
- * Moves focus from `target` to the next or previous stop of `order` and says whether it did.
- * Past either end it puts focus on the first or last node and lets the browser's own Tab carry it
- * out of the graph from there, since a count is no stop of the browser's order.
+ * Where focus goes from a stop: the next stop of the walk, or, past either end, the first or last
+ * node, handed to the browser's own Tab to carry out of the graph, since a count is no stop of the
+ * browser's order.
  */
+type GraphFocusMove =
+  | { readonly kind: "stop"; readonly element: HTMLElement | SVGElement }
+  | { readonly kind: "hand-off"; readonly element: HTMLElement };
+
+/** The move from `target` to the next or previous stop of `order`; none from outside the walk. */
 function moveGraphFocus(
   canvas: HTMLElement,
   order: readonly GraphFocusStop[],
   target: EventTarget,
   isBackward: boolean,
-): boolean {
+): GraphFocusMove | undefined {
   const from = graphStopOf(target);
   const index =
     from === undefined
       ? -1
       : order.findIndex((stop) => stop.kind === from.kind && stop.id === from.id);
   if (index === -1) {
-    return false;
+    return undefined;
   }
   const step = isBackward ? -1 : 1;
   for (let next = index + step; next >= 0 && next < order.length; next += step) {
     const element = graphStopElement(canvas, order[next]);
     if (element !== null) {
-      element.focus();
-      return true;
+      return { kind: "stop", element };
     }
   }
   const nodeElements = canvas.querySelectorAll<HTMLElement>(".react-flow__node");
-  nodeElements[isBackward ? 0 : nodeElements.length - 1]?.focus();
-  return false;
+  const endNode = nodeElements[isBackward ? 0 : nodeElements.length - 1];
+  return endNode === undefined ? undefined : { kind: "hand-off", element: endNode };
 }
 
 // Whether focus came into the graph's walk from an element after it in the document's order, such
