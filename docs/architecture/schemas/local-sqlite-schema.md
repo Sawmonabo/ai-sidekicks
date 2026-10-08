@@ -49,11 +49,18 @@ CREATE TABLE session_events (
                          CHECK (version GLOB '[0-9]*.[0-9]*'), -- semver "MAJOR.MINOR" per ADR-017 §Decision #1
                                                                -- (never INTEGER; comparison must parse MAJOR/MINOR as ints —
                                                                -- lexical TEXT comparison is unsafe, e.g. "1.10" < "1.9")
+  run_id                 TEXT GENERATED ALWAYS AS (
+                           CASE WHEN json_valid(payload) THEN
+                             CASE json_type(payload, '$.runId') WHEN 'text' THEN json_extract(payload, '$.runId') END
+                           END
+                         ) VIRTUAL,                  -- the payload's text run id, NULL when it names none; computed only from well-formed JSON, so a damaged payload can still be written over
   UNIQUE(session_id, sequence)
 );
 
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'recovery.damaged_events_skipped';
+-- One run's events of one type in log order, for the reads that seed a run's turns and that find a live run's agent and newest touch.
+CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
 

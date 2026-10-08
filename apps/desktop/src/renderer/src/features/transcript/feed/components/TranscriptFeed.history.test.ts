@@ -1,6 +1,7 @@
 // Reading the session's history past the store's window: a stretch asked as the reader nears the
 // top, one per gesture, landing above the row being read without moving it; `Load earlier`, its
-// failure line and `Try again`; and the forward read after a tail the store let go.
+// failure line and `Try again`; and the forward read after a tail the store let go, as the reader
+// nears the bottom or, for a tail let go off screen, as the feed opens.
 
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -200,15 +201,18 @@ describe("the transcript feed — reading later history", () => {
   it("reads after a tail the store let go once the reader nears the bottom", async () => {
     withLaidOutViewport({ content: "laid-out" });
     const log = scriptedTranscriptLog(DAEMON_LOG_ROWS);
-    const sessionStore = openPagedSessionStore(0, WINDOW_ROWS + 11);
-    // The window opens in the middle of the session: everything after its last kept row is the
+    // One row past the window, so the feed opens in the band and the release below lets one go.
+    const sessionStore = openPagedSessionStore(0, WINDOW_ROWS);
+    const feed = renderFeed(sessionStore, undefined, RowIdBody, { readTranscriptPage: log.read });
+    // The store lets the tail go while the feed is open: everything after its last kept row is the
     // daemon's alone.
     const tailIndex = WINDOW_ROWS - 1;
-    sessionStore.releaseOutside(
-      transcriptFixtureStreamCursor(0),
-      transcriptFixtureStreamCursor(tailIndex),
-    );
-    const feed = renderFeed(sessionStore, undefined, RowIdBody, { readTranscriptPage: log.read });
+    act(() => {
+      sessionStore.releaseOutside(
+        transcriptFixtureStreamCursor(0),
+        transcriptFixtureStreamCursor(tailIndex),
+      );
+    });
     const scrollContainer = scrollContainerOf(feed);
     expectHeldRowsWithinBand(scrollContainer);
     const bottomPx = scrollContainer.scrollHeight - scrollContainer.clientHeight;
@@ -217,6 +221,27 @@ describe("the transcript feed — reading later history", () => {
     readerScrollsTo(scrollContainer, bottomPx - approachPx - 1);
     expect(log.requests).toEqual([]);
     readerScrollsTo(scrollContainer, bottomPx - approachPx + 1);
+    expect(log.requests).toEqual([
+      {
+        sessionId: PAGED_SESSION_ID,
+        afterCursor: transcriptFixtureStreamCursor(tailIndex),
+        limit: expect.any(Number),
+      },
+    ]);
+    await waitFor(() => {
+      expect(sessionStore.snapshot().transcript.at(-1)?.sequence).toBeGreaterThan(tailIndex);
+    });
+  });
+
+  it("reads after a tail let go while the session was off screen as the feed opens", async () => {
+    withLaidOutViewport({ content: "laid-out" });
+    const log = scriptedTranscriptLog(DAEMON_LOG_ROWS);
+    const tailIndex = WINDOW_ROWS + 11;
+    const sessionStore = openPagedSessionStore(0, tailIndex);
+    // Off screen the store keeps only its newest rows and stops following the live tail.
+    sessionStore.releaseBeyondNewest(WINDOW_ROWS);
+
+    renderFeed(sessionStore, undefined, RowIdBody, { readTranscriptPage: log.read });
     expect(log.requests).toEqual([
       {
         sessionId: PAGED_SESSION_ID,

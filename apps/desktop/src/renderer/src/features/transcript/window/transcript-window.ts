@@ -13,7 +13,6 @@ import {
 } from "../dispatches/child-run-entries.js";
 import { projectTranscriptRows } from "../projection/rows.js";
 import { RunGroupIndex, readRunGroupKey, type RunGroup } from "../runs/groups.js";
-import { SupersededIndex } from "../superseded-turns.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
@@ -92,7 +91,6 @@ export function deriveTranscriptWindow(
   retention.beginPass();
   const rows = projection.rows.map((row) => retention.retainRow(row));
   const runGroupIndex = new RunGroupIndex(rows);
-  const supersededIndex = new SupersededIndex(rows);
   // One classifier reads the whole log; its pass is a local and reaches the model only as the map
   // below, so a narrowing and the feed share one classification.
   const systemMessages = new SystemMessageClassifier().systemMessages(rows);
@@ -103,7 +101,7 @@ export function deriveTranscriptWindow(
   for (const row of rows) {
     rowsByKey.set(row.id, row);
     viewportRows.push(retention.retainRowIdentity(row, readRunGroupKey(row)));
-    if (supersededIndex.isSuperseded(row.id)) {
+    if (row.kind !== "general" && row.superseded !== undefined) {
       supersededRowIds.add(row.id);
     }
   }

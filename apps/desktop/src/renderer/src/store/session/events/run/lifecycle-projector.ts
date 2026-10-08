@@ -73,17 +73,20 @@ export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session";
 
 /**
  * The run entity a read's record of a run not yet ended establishes, shaped as this projector
- * folds it: the state the run is in now, and the body members the record carries. A window opened
- * below a run's events learns its state here rather than from the events it never read.
+ * folds it: the state the run is in now, when its newest run event occurred, and the body members
+ * the record carries, its agent among them. A window opened below a run's events learns these here
+ * rather than from the events it never read.
  */
 export function projectLiveRun(run: SessionLiveRun): StoredEntity {
   return {
     kind: "run",
     id: run.runId,
     state: run.state,
+    touchedAt: run.touchedAt,
     body: {
       runVersion: run.runVersion,
       ...(run.parentRunId === undefined ? {} : { parentRunId: run.parentRunId }),
+      ...(run.agentId === undefined ? {} : { agentId: run.agentId }),
     },
   };
 }

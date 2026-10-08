@@ -88,6 +88,19 @@ export class SessionStoreRegistry {
     return entry.store;
   }
 
+  /**
+   * Marks an open session shown on one screen until the returned call; a session no mark holds
+   * keeps a bounded share of its log. Throws a `RefusalError` for a session that is not open.
+   */
+  public markOnScreen(sessionId: string): Unsubscribe {
+    const entry = this.#entriesBySessionId.get(sessionId);
+    if (entry === undefined) {
+      // The caller is owed the call that ends the mark, so a refusal travels as a throw.
+      throw new RefusalError(this.#sessionNotOpen(sessionId, "mark on screen"));
+    }
+    return entry.markOnScreen();
+  }
+
   /** The store for an open session, or `undefined`. Never opens one as a side effect. */
   public peek(sessionId: string): SessionStore | undefined {
     return this.#entriesBySessionId.get(sessionId)?.store;
@@ -215,13 +228,14 @@ export class SessionStoreRegistry {
 
   /**
    * Ask for a re-read of every open session a read can help — the window-focus and reconnect
-   * path. A session behind for a cause the stream raises again is left until a person asks, or
-   * every focus would read it again to fail on the same row.
+   * path. A session whose replay is under way is left to it, since a read would start the replay
+   * over. A session behind for a cause its replay raises again is left until a person asks, or
+   * every focus would replay its log to fail on the same row.
    */
   public requestRefreshOfEverySession(reason: RefreshReason): void {
     for (const entry of this.#entriesBySessionId.values()) {
-      const { degradedCause } = entry.store.snapshot();
-      if (degradedCause !== undefined && isRaisedAgainOnReplay(degradedCause)) {
+      const { degradedCause, isReplaying } = entry.store.snapshot();
+      if (isReplaying || (degradedCause !== undefined && isRaisedAgainOnReplay(degradedCause))) {
         continue;
       }
       entry.refreshScheduler.request(reason);

@@ -17,7 +17,10 @@
 // pair dropped by a discarded render, which no effect closed over.
 
 import { useEffect } from "react";
-import { transcriptOpeningPageLimit } from "#renderer/features/transcript/index.js";
+import {
+  transcriptOffScreenRowLimit,
+  transcriptOpeningPageLimit,
+} from "#renderer/features/transcript/index.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -87,7 +90,7 @@ interface WindowSessionPlumbing {
  * fixture coalescing windows and refresh deadlines would run on `setTimeout` while the
  * scenario's beats move on frozen time, and a step taken right after `advance()` could see
  * either side of a drain. The window sizes each session's opening read, before any transcript in
- * it is laid out.
+ * it is laid out, and the share of its log a session keeps off screen.
  */
 function createWindowSessionPlumbing(
   bridge: PlatformBridge,
@@ -106,6 +109,7 @@ function createWindowSessionPlumbing(
     projectors: projectorRegistry.snapshot(),
     // Sized when each session opens, from the window as it stands then.
     openingPageLimit: () => transcriptOpeningPageLimit(ownerWindow),
+    offScreenRowLimit: () => transcriptOffScreenRowLimit(ownerWindow),
   });
   return { registry, subscriber: new SessionEventSubscriber({ registry, bridge, clock }) };
 }

@@ -26,9 +26,9 @@ export const SESSION_DEGRADED_CAUSES = [
 export type SessionDegradedCause = (typeof SESSION_DEGRADED_CAUSES)[number];
 
 /**
- * Whether the stream can raise this cause again when it sends the same rows again: the row that
- * raised it comes again and fails the same way. No read is asked for such a cause until a person
- * asks for one, and the line says it could not catch up rather than that it is catching up.
+ * Whether a replay of the same log raises this cause again: the row that raised it comes again
+ * and fails the same way. No read is asked for such a cause until a person asks for one, and the
+ * line says it could not catch up rather than that it is catching up.
  */
 export function isRaisedAgainOnReplay(cause: SessionDegradedCause): boolean {
   return cause === "sequence-diverged" || cause === "projection-failed";

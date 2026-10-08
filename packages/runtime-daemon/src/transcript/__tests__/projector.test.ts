@@ -1,8 +1,9 @@
 // Superseded turns as the transcript projection reads them from a scratch log: a cut supersedes the
 // turns above its point, marks stay scoped to the epoch each cut rewound and run down the lineage
 // to a later, lower cut, a tool row ranks by the turn its call opened in whenever it is delivered,
-// and an undo of the files alone marks nothing. Rows are seeded straight into the log, since the
-// rollback and turn-boundary events have no registered payload to append through.
+// a run's events after its terminal one stamp as a fresh window's do, and an undo of the files
+// alone marks nothing. Rows are seeded straight into the log, since the rollback and
+// turn-boundary events have no registered payload to append through.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -15,14 +16,11 @@ import type {
   TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch.js";
-import { prepareSessionEventReads } from "../../../events/session/read.js";
-import { TranscriptProjector } from "../../../transcript/projector.js";
-import { insertStoredEvent } from "../../__fixtures__/stored-event.js";
-import { prepareSupersededTurns } from "../superseded.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
+import { prepareSessionEventReads } from "../../events/session/read.js";
+import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
+import { prepareSupersededTurns } from "../../session/run/superseded.js";
+import { TranscriptProjector } from "../projector.js";
 
 const SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9a01" as SessionId;
 const RUN_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9b01" as RunId;
@@ -51,6 +49,21 @@ function rolledBack(runId: RunId, targetPosition: number): LogEntry {
     category: "run_lifecycle",
     type: "run.rolled_back",
     payload: { sessionId: SESSION_ID, runId, runVersion: 2, targetPosition },
+  };
+}
+
+function runCompleted(runId: RunId): LogEntry {
+  return {
+    category: "run_lifecycle",
+    type: "run.completed",
+    payload: {
+      sessionId: SESSION_ID,
+      runId,
+      runVersion: 3,
+      previousState: "running",
+      newState: "completed",
+      completionKind: "turn",
+    },
   };
 }
 
@@ -261,5 +274,32 @@ describe("superseded turns in the transcript projection", () => {
 
     // From the in-time result, so the window reads its call's opening from the log.
     expectEveryReaderAlike(rows, 9);
+  });
+
+  it("stamps a run's event after its terminal one as a window opened past the end does", async () => {
+    await appendToLog([
+      // 10 -> 5, re-executed to 7 with a call open, ended, then resumed and rolled back 8 -> 6.
+      ...turnsStarted(RUN_ID, 10),
+      rolledBack(RUN_ID, 5),
+      ...turnsStarted(RUN_ID, 2),
+      toolRow("tool.invoked", "call-open-at-the-end"),
+      runCompleted(RUN_ID),
+      toolRow("tool.result", "call-open-at-the-end"),
+      assistantMessage(RUN_ID),
+      turnStarted(RUN_ID),
+      rolledBack(RUN_ID, 6),
+    ]);
+    const rows = project();
+
+    // The fold freed at `run.completed` is seeded again from the log: the epoch the earlier
+    // rollback opened, the turn the call opened in, and the later cut over both.
+    expect(marksOf(rows, RUN_ID, "run.completed")).toEqual(["1:7>6"]);
+    expect(marksOf(rows, RUN_ID, "tool.result")).toEqual(["1:7>6"]);
+    expect(marksOf(rows, RUN_ID, "assistant.message")).toEqual(["1:7>6"]);
+    expect(marksOf(rows, RUN_ID, "run.turn_started").slice(-3)).toEqual(["1:6", "1:7>6", "1:8>6"]);
+    expect(marksOf(rows, RUN_ID, "run.rolled_back")).toEqual(["0:5", "1:6"]);
+
+    // From the first event after the terminal one, so the window seeds the run fresh there.
+    expectEveryReaderAlike(rows, 15);
   });
 });

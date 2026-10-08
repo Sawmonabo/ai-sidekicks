@@ -2,16 +2,12 @@
 // moves the run to its next position, and an accepted rollback ends the epoch it rewound and opens
 // the next at its point. Any other event takes the turn of its own execution: the source stamped on
 // a row appended after a cut, else the turn its tool call opened in, else the turn the run stands
-// at. A run first met partway through the log is seeded from its log before that event.
+// at. A run first met partway through the log, or met again after its fold ended at a terminal
+// event, is seeded from its log before that event.
 
 import type { Database, Statement } from "better-sqlite3";
 
-import {
-  SOURCE_EPOCH_PAYLOAD_KEY,
-  SOURCE_POSITION_PAYLOAD_KEY,
-  type EventCategory,
-  type EventEnvelope,
-} from "@ai-sidekicks/contracts/event/envelope";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunRolledBackEvent } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
@@ -21,21 +17,22 @@ import {
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 import { transcriptRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
-
-import type { EpochPosition } from "../session/run/epochs.js";
 import {
+  RUN_START_POSITION,
+  TOOL_CALL_OPENING_EVENT_TYPE,
+  TURN_STARTED_EVENT_TYPE,
   addSupersedingCut,
-  parseStoredRollback,
-  prepareSupersededTurns,
-  supersededMarkerOf,
+  stampedSourceOf,
+  standingAfterRollback,
+  standingAfterTurnStarted,
+  transcriptRunStampAt,
+  transcriptToolCallIdOf,
+  type EpochPosition,
   type SupersededTurns,
-} from "../session/run/superseded.js";
+} from "@ai-sidekicks/contracts/transcript/turn-attribution";
 
-const TURN_STARTED_TYPE = "run.turn_started";
-const TOOL_CALL_OPENING_TYPE = "tool.invoked";
-const TOOL_ACTIVITY_CATEGORY: EventCategory = "tool_activity";
-
-const RUN_START: EpochPosition = { epoch: 0, position: 0 };
+import { RUN_TERMINAL_EVENT_TYPES } from "../session/run/transitions.js";
+import { parseStoredRollback, prepareSupersededTurns } from "../session/run/superseded.js";
 
 // One event of a run, attributed: the run, the stamp its row carries and, on a `run.rolled_back`,
 // the rollback read into its contract.
@@ -49,8 +46,8 @@ interface RunEventAttribution {
 interface RunFold {
   standing: EpochPosition;
   turns: SupersededTurns;
-  // The turn each tool call opened in, held until a later row of the call reads it; a row after
-  // that reads the opening from the log, so the map holds only calls still open.
+  // The turn each tool call opened in, held until a later row of the call reads it or the run
+  // ends; a row after that reads the opening from the log, so the map holds only calls still open.
   readonly openedToolCalls: Map<string, EpochPosition>;
 }
 
@@ -66,23 +63,23 @@ interface SequencedPayloadRow {
   readonly payload: string;
 }
 
-// Each read narrows to the session's rows of one type, bounded strictly before the event being
-// seeded, then keeps the run's.
+// Each read seeks the run's rows of one type through the event log's run-and-type index, bounded
+// strictly before the event being seeded.
 const SELECT_ROLLBACKS_BEFORE_SQL = `SELECT sequence, payload FROM session_events
   WHERE session_id = @sessionId AND type = @type AND sequence < @beforeSequence
-    AND json_extract(payload, '$.runId') = @runId
+    AND run_id = @runId
   ORDER BY sequence`;
 
 const SELECT_TURNS_BETWEEN_SQL = `SELECT payload FROM session_events
   WHERE session_id = @sessionId AND type = @type
     AND sequence > @afterSequence AND sequence < @beforeSequence
-    AND json_extract(payload, '$.runId') = @runId
+    AND run_id = @runId
   ORDER BY sequence`;
 
 // The latest opening wins: a provider may reuse a call's key after a cut.
 const SELECT_TOOL_CALL_OPENING_SQL = `SELECT sequence, payload FROM session_events
   WHERE session_id = @sessionId AND type = @type AND sequence < @beforeSequence
-    AND json_extract(payload, '$.runId') = @runId
+    AND run_id = @runId
     AND json_extract(payload, '$.toolCallId') = @toolCallId
   ORDER BY sequence DESC
   LIMIT 1`;
@@ -113,7 +110,7 @@ export class RunTurnReads {
 
   /** Reads the epoch and turn the run stands at just before `beforeSequence`. */
   readStandingBefore(sessionId: SessionId, runId: RunId, beforeSequence: number): EpochPosition {
-    let standing = RUN_START;
+    let standing = RUN_START_POSITION;
     let lastRollbackSequence = START_OF_LOG_POSITION;
     const rollbackRows = this.#selectRollbacksBefore.iterate({
       sessionId,
@@ -123,13 +120,13 @@ export class RunTurnReads {
     });
     for (const row of rollbackRows) {
       const rollback = parseStoredRollback(JSON.parse(row.payload), sessionId, row.sequence);
-      standing = standingAfterRollback(standing, rollback);
+      standing = standingAfterRollback(standing, rollback.targetPosition);
       lastRollbackSequence = row.sequence;
     }
     // Turns before the last rollback do not move the run: the rollback set its position.
     const turnRows = this.#selectTurnsBetween.iterate({
       sessionId,
-      type: TURN_STARTED_TYPE,
+      type: TURN_STARTED_EVENT_TYPE,
       runId,
       afterSequence: lastRollbackSequence,
       beforeSequence,
@@ -152,7 +149,7 @@ export class RunTurnReads {
   ): EpochPosition | undefined {
     const opening = this.#selectToolCallOpening.get({
       sessionId,
-      type: TOOL_CALL_OPENING_TYPE,
+      type: TOOL_CALL_OPENING_EVENT_TYPE,
       runId,
       toolCallId,
       beforeSequence,
@@ -170,7 +167,8 @@ export class RunTurnReads {
 /**
  * Attributes one session's events to the turns of their runs. Feed it one ascending stretch of the
  * log in sequence order, a window read or a stream's deliveries; each run is seeded from the log on
- * first sight and marked against every rollback of it the log holds by then.
+ * first sight and after its terminal event, and marked against every rollback of it the log holds
+ * by then.
  */
 export class SessionTurnAttribution {
   readonly #reads: RunTurnReads;
@@ -197,17 +195,23 @@ export class SessionTurnAttribution {
     // The log is the daemon's own and every run id in it was minted by the daemon.
     const runId = payloadRunId as RunId;
     const fold = this.#foldFor(runId, event.sequence);
-    if (event.type === TURN_STARTED_TYPE) {
-      fold.standing = standingAfterTurnStarted(fold.standing, event.payload);
-      return { runId, stamp: stampOf(fold.turns, fold.standing) };
+    // A terminal event is stamped from the fold and frees it; a later event, after a resume,
+    // reseeds the run from the log.
+    if (RUN_TERMINAL_EVENT_TYPES.has(event.type)) {
+      this.#foldByRunId.delete(runId);
     }
-    const toolCallId = toolCallIdOf(event);
-    if (toolCallId !== undefined && event.type === TOOL_CALL_OPENING_TYPE) {
+    if (event.type === TURN_STARTED_EVENT_TYPE) {
+      fold.standing = standingAfterTurnStarted(fold.standing, event.payload);
+      return { runId, stamp: transcriptRunStampAt(fold.turns, fold.standing) };
+    }
+    const toolCallId = transcriptToolCallIdOf(event.category, event.payload);
+    if (toolCallId !== undefined && event.type === TOOL_CALL_OPENING_EVENT_TYPE) {
       const opening = stampedSourceOf(event.payload) ?? fold.standing;
       fold.openedToolCalls.set(toolCallId, opening);
-      return { runId, stamp: stampOf(fold.turns, opening) };
+      return { runId, stamp: transcriptRunStampAt(fold.turns, opening) };
     }
-    return { runId, stamp: stampOf(fold.turns, this.#sourceOf(event, runId, fold, toolCallId)) };
+    const source = this.#sourceOf(event, runId, fold, toolCallId);
+    return { runId, stamp: transcriptRunStampAt(fold.turns, source) };
   }
 
   #attributeRollback(event: EventEnvelope): RunEventAttribution {
@@ -219,8 +223,8 @@ export class SessionTurnAttribution {
       fold.turns = addSupersedingCut(fold.turns, rollback.targetPosition);
     }
     const boundary: EpochPosition = { epoch: rewoundEpoch, position: rollback.targetPosition };
-    fold.standing = standingAfterRollback(fold.standing, rollback);
-    return { runId: rollback.runId, stamp: stampOf(fold.turns, boundary), rollback };
+    fold.standing = standingAfterRollback(fold.standing, rollback.targetPosition);
+    return { runId: rollback.runId, stamp: transcriptRunStampAt(fold.turns, boundary), rollback };
   }
 
   // The turn a row of the run belongs to. A row of a tool call ends its held opening, since a
@@ -259,48 +263,4 @@ export class SessionTurnAttribution {
     this.#foldByRunId.set(runId, seeded);
     return seeded;
   }
-}
-
-// A turn boundary moves the run to the position the provider supplied, else to its next one.
-function standingAfterTurnStarted(
-  standing: EpochPosition,
-  payload: Readonly<Record<string, unknown>>,
-): EpochPosition {
-  const supplied = payload["position"];
-  const position =
-    typeof supplied === "number" && Number.isInteger(supplied) && supplied >= 0
-      ? supplied
-      : standing.position + 1;
-  return { epoch: standing.epoch, position };
-}
-
-// An accepted rollback opens the next epoch at the turn it landed on.
-function standingAfterRollback(
-  standing: EpochPosition,
-  rollback: RunRolledBackEvent,
-): EpochPosition {
-  return { epoch: standing.epoch + 1, position: rollback.targetPosition };
-}
-
-// The epoch and turn a row appended after a cut carries; an in-time row carries neither.
-function stampedSourceOf(payload: Readonly<Record<string, unknown>>): EpochPosition | undefined {
-  const epoch = payload[SOURCE_EPOCH_PAYLOAD_KEY];
-  const position = payload[SOURCE_POSITION_PAYLOAD_KEY];
-  return typeof epoch === "number" && typeof position === "number"
-    ? { epoch, position }
-    : undefined;
-}
-
-function toolCallIdOf(event: EventEnvelope): string | undefined {
-  const toolCallId = event.payload["toolCallId"];
-  return event.category === TOOL_ACTIVITY_CATEGORY && typeof toolCallId === "string"
-    ? toolCallId
-    : undefined;
-}
-
-function stampOf(turns: SupersededTurns, source: EpochPosition): TranscriptRunStamp {
-  const superseded = supersededMarkerOf(turns, source.epoch, source.position);
-  return superseded === undefined
-    ? { position: source.position, epoch: source.epoch }
-    : { position: source.position, epoch: source.epoch, superseded };
 }

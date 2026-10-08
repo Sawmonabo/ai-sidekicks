@@ -16,7 +16,7 @@ import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
 } from "#renderer/store/attention/hooks/useAttentionProjection.js";
-import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
 
 /** The session the items here belong to. */
 const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
@@ -45,6 +45,7 @@ describe("what makes the attention read run again", () => {
   function registryOn(clock: ManualClock): SessionStoreRegistry {
     return new SessionStoreRegistry({
       openingPageLimit,
+      offScreenRowLimit,
       read: () => Promise.resolve(undefined),
       clock,
     });

@@ -2,9 +2,10 @@
 // scenario scripts no reply for rejects with a named error rather than resolving `undefined`, so a
 // screen is never trained to render an empty state where the live daemon would fail. The one read
 // the daemon derives from the log, `transcript.read`, is answered from the delivered log, as the
-// session stream is, unless the scenario scripts it. A scenario's daemon always answers, so the
-// status topic reads connected from its first delivery, with the handshake a compatible service
-// settles, naming the scenario's own device.
+// session stream is, unless the scenario scripts it, and the `session.read` record names the
+// delivered log's positions. A scenario's daemon always answers, so the status topic reads
+// connected from its first delivery, with the handshake a compatible service settles, naming the
+// scenario's own device.
 
 import type {
   DaemonMethod,
@@ -25,10 +26,16 @@ import type {
 import type { ScenarioEngine } from "../engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "../scripted/reply.fixture.js";
 import { subscribeToScenario } from "./subscriptions.fixture.js";
-import { readScenarioTranscript } from "./transcript-read.fixture.js";
+import {
+  readScenarioTranscript,
+  withDeliveredTranscriptCursors,
+} from "./transcript-read.fixture.js";
 
 /** The read the fixture answers from the delivered log when the scenario scripts no reply. */
 const LOG_DERIVED_READ = "transcript.read";
+
+/** The record read whose log positions the fixture reads from the delivered log. */
+const SESSION_RECORD_READ = "session.read";
 
 /** The status topic's one delivery: a service this app found running, linked and answering. */
 const FIXTURE_SERVICE_STATE: MainProcessState = {
@@ -56,14 +63,20 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
     call: async <MethodName extends DaemonMethod>(
       method: MethodName,
       params: DaemonParams<MethodName>,
-    ): Promise<ServedDaemonCall<DaemonResult<MethodName>>> => ({
-      value: assertScriptedReplyOnContract(
-        method,
+    ): Promise<ServedDaemonCall<DaemonResult<MethodName>>> => {
+      const reply =
         method === LOG_DERIVED_READ && scenarioEngine.replyFor(method) === undefined
           ? readScenarioTranscript(scenarioEngine, params)
-          : await resolveScriptedReply(scenarioEngine, method, params),
-      ) as DaemonResult<MethodName>,
-    }),
+          : await resolveScriptedReply(scenarioEngine, method, params);
+      return {
+        value: assertScriptedReplyOnContract(
+          method,
+          method === SESSION_RECORD_READ
+            ? withDeliveredTranscriptCursors(scenarioEngine, reply)
+            : reply,
+        ) as DaemonResult<MethodName>,
+      };
+    },
     subscribe: <Topic extends DaemonWireTopic>(
       event: Topic,
       params: DaemonWireRequest<Topic>,

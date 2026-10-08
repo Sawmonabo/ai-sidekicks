@@ -17,7 +17,7 @@ import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-st
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
 import { SessionEventSubscriber } from "./subscriber.js";
 import { PAST_EVERY_BEAT_MS, SESSION_ID, landReads } from "./subscriber.test-support.js";
 
@@ -72,6 +72,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
     },
     clock: engine.clock,
     openingPageLimit,
+    offScreenRowLimit,
     refreshDebounceMs: 0,
   });
   return {
@@ -161,6 +162,7 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
       },
       clock: engine.clock,
       openingPageLimit,
+      offScreenRowLimit,
       refreshDebounceMs: 0,
     });
     const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });

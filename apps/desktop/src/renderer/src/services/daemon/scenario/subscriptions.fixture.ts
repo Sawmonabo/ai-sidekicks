@@ -94,17 +94,16 @@ export function subscribeToScenario(
       return () => undefined;
     }
     // The catch-up is the first delivery, made before `subscribe` returns; it starts past the
-    // cursor. Every beat is folded for its run stamp, the skipped ones too, since a run's turn
-    // depends on the log before it.
+    // cursor. Only the beats this stream delivers are folded for their run stamps, as the
+    // daemon's stamper is fed, each run seeded from the delivered log on first sight.
     let skippedCount = resumeAt;
-    const attribution = new ScenarioTurnAttribution();
+    const attribution = new ScenarioTurnAttribution(() => engine.deliveredEvents());
     return engine.subscribe(
       (events) => {
-        const stamped = events.map((event) => {
+        const following = events.slice(skippedCount).map((event) => {
           const runStamp = attribution.attribute(event)?.stamp;
           return runStamp === undefined ? event : { ...event, runStamp };
         });
-        const following = stamped.slice(skippedCount);
         skippedCount = 0;
         for (const frame of composeScenarioSessionFrames(following)) {
           deliver(frame);

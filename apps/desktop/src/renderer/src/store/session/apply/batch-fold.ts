@@ -13,11 +13,19 @@
 // again behind the stream reopens the stream after its newest row, so the stream sends again rows
 // it already folded; those join the transcript, in order, and fold nowhere else, and the rows past
 // them join once the window has caught up.
+//
+// A row fault (a hole, a refused sequence, a projector that threw) records where a repair can take
+// the stream up again: the newest row folded whole before it, with the partitions as they stood
+// there. An admitted rollback marks the held rows it supersedes.
+
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../degradation.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
+import type { SessionPartitions } from "../entities/partitions.js";
 import { EntityProjectionRunner } from "../entities/projection-runner.js";
+import { markSupersededByRollback } from "../events/run/superseded.js";
 import { WaitingOnPersonRegister } from "../waiting-on-person/register.js";
 import { PreInitializationBuffer } from "../pre-initialization-buffer.js";
 import {
@@ -25,7 +33,13 @@ import {
   isReconcilableSequence,
   orderBatchBySequence,
 } from "../sequence-reconciler.js";
-import { liveTailAfter, type SessionStoreState } from "../state.js";
+import {
+  HEAD_RESUME_POINT,
+  heldRowCursor,
+  liveTailAfter,
+  type RepairResumePoint,
+  type SessionStoreState,
+} from "../state.js";
 import type { ApplyOutcome } from "./outcome.js";
 
 /** Everything one fold advances beside the state it answers with. */
@@ -68,16 +82,25 @@ export function foldAppliedBatch(
   let projectionFailures = 0;
 
   let partitions = current.partitions;
-  let appended: ProjectedSessionEvent[] | undefined;
+  let streamAfterCursor = current.streamAfterCursor;
+  let repairResumePoint = current.repairResumePoint;
+  // Copied on the first change, so a batch that changes no row keeps the transcript's identity.
+  let held: ProjectedSessionEvent[] | undefined;
+  let hasAppended = false;
   const admittedEvents: ProjectedSessionEvent[] = [];
   const isTailLive = current.transcriptTail.following === "live";
   // The newest row the window holds as the fold stands, which a row must lie past to join it.
   const newestHeldSequence = (): number | undefined =>
-    (appended ?? current.transcript).at(-1)?.sequence;
+    (held ?? current.transcript).at(-1)?.sequence;
   const appendToTranscript = (event: ProjectedSessionEvent): void => {
-    appended ??= [...current.transcript];
-    appended.push(event);
+    held ??= [...current.transcript];
+    held.push(event);
+    hasAppended = true;
   };
+  // Where a repair resumes once a row fault lands on the row in hand: the run as it stood at
+  // `cursorBefore`, read off the fold so far, which holds every row before this one.
+  const resumePointBefore = (cursorBefore: number): RepairResumePoint =>
+    resumePointBeforeFault(repairResumePoint, partitions, cursorBefore, streamAfterCursor);
 
   for (const event of orderBatchBySequence(events)) {
     if (event.sessionId !== dependencies.sessionId) {
@@ -87,6 +110,9 @@ export function foldAppliedBatch(
     if (!isReconcilableSequence(event.sequence)) {
       // Refused before the buffer: no base state makes it applicable, so buffering only defers.
       refusedDivergedSequence += 1;
+      if (current.initialized) {
+        repairResumePoint = resumePointBefore(dependencies.reconciler.cursor);
+      }
       continue;
     }
     if (!current.initialized) {
@@ -112,18 +138,22 @@ export function foldAppliedBatch(
     }
     if (admission.outcome === "diverged") {
       refusedDivergedSequence += 1;
+      repairResumePoint = resumePointBefore(cursorBefore);
       continue;
     }
     if (admission.openedGap !== undefined) {
       gapDetected = true;
+      repairResumePoint = resumePointBefore(cursorBefore);
     }
 
     const projected = dependencies.projectionRunner.run(partitions, event);
     if (projected === undefined) {
       projectionFailures += 1;
+      repairResumePoint = resumePointBefore(cursorBefore);
     } else {
       partitions = projected;
     }
+    streamAfterCursor = heldRowCursor(event);
 
     if (event.actorId !== undefined) {
       dependencies.hueAllocator.admit(event.actorId);
@@ -137,6 +167,11 @@ export function foldAppliedBatch(
       (newestHeld === undefined || (newestHeld >= cursorBefore && event.sequence > newestHeld))
     ) {
       appendToTranscript(event);
+    }
+    const source = held ?? current.transcript;
+    const marked = markSupersededByRollback(source, event);
+    if (marked !== source) {
+      held = [...marked];
     }
     admittedEvents.push(event);
     admitted += 1;
@@ -158,22 +193,24 @@ export function foldAppliedBatch(
   };
   if (
     admitted === 0 &&
-    appended === undefined &&
+    held === undefined &&
     droppedBeforeInitialization === 0 &&
     refusedDivergedSequence === 0
   ) {
     return { outcome, nextState: undefined };
   }
 
+  const transcript = held ?? current.transcript;
   return {
     outcome,
     nextState: {
       ...current,
       partitions,
-      transcript: appended ?? current.transcript,
-      transcriptTail: appended === undefined ? current.transcriptTail : liveTailAfter(appended),
+      transcript,
+      transcriptTail: hasAppended ? liveTailAfter(transcript) : current.transcriptTail,
       lastAdmittedEvents: admittedEvents,
       cursor: dependencies.reconciler.cursor,
+      streamAfterCursor,
       // A drop at the cap is incomplete like a skipped sequence, so it takes the same cause. Its
       // sequences are not recorded here; the drain re-derives them as an ordinary range.
       degradedCause: worstDegradedCause(
@@ -183,7 +220,27 @@ export function foldAppliedBatch(
         projectionFailures > 0 ? "projection-failed" : undefined,
       ),
       gaps: dependencies.reconciler.gaps(),
+      repairResumePoint,
       revision: current.revision + 1,
     },
   };
+}
+
+/**
+ * Where a repair resumes once a row fault lands: unchanged when a fault already moved it, a
+ * checkpoint at the newest row folded whole before this one, or the head when no row precedes the
+ * fault, since nothing then names where the stream could reopen.
+ */
+function resumePointBeforeFault(
+  point: RepairResumePoint,
+  partitions: SessionPartitions,
+  cursorBefore: number,
+  rowCursorBefore: EventCursor | undefined,
+): RepairResumePoint {
+  if (point.kind !== "whole") {
+    return point;
+  }
+  return rowCursorBefore === undefined
+    ? HEAD_RESUME_POINT
+    : { kind: "checkpoint", partitions, cursor: cursorBefore, rowCursor: rowCursorBefore };
 }

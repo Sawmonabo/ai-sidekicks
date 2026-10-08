@@ -14,7 +14,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type TranscriptPageRead } from "../../history/reader.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
 import { LONG_LOG_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
 import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {

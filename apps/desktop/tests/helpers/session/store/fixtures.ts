@@ -1,6 +1,6 @@
 // The dependencies every session-store-registry suite constructs a registry with: the reader,
-// the opening page limit, the projector, the event and base-state builders, and an initialized
-// store.
+// the opening page limit and the off-screen bound, the projector, the event and base-state
+// builders, and an initialized store.
 //
 // Shared because suites in several features build their initialized store through it. It is the
 // surrounding cast and not a stand-in for the registry, and one builder for the store keeps every
@@ -24,6 +24,14 @@ export const OPENING_PAGE_LIMIT = 50;
 /** The opening page limit a suite's registry reads at each read: {@link OPENING_PAGE_LIMIT}. */
 export function openingPageLimit(): number {
   return OPENING_PAGE_LIMIT;
+}
+
+/**
+ * The rows a suite's session keeps while no screen shows it: three opening pages, the screen and
+ * the two screen heights the look-ahead reads above it.
+ */
+export function offScreenRowLimit(): number {
+  return 3 * OPENING_PAGE_LIMIT;
 }
 
 function runIdOf(event: ProjectedSessionEvent): string {

@@ -1,9 +1,11 @@
-// How many rows one `transcript.read` asks for. A read is sized from a height, never a fixed row
-// count: enough rows that, were each as short as the shortest row is estimated, they would fill the
-// height still owed, so one page can finish a stretch; and never past the contract's ceiling.
+// How many rows one `transcript.read` asks for, and how many a session keeps while off screen. A
+// read is sized from a height, never a fixed row count: enough rows that, were each as short as
+// the shortest row is estimated, they would fill the height still owed, so one page can finish a
+// stretch; and never past the contract's ceiling.
 
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
 
+import { TRANSCRIPT_APPROACH_SCREEN_HEIGHTS } from "../viewport/caps.js";
 import { RowMeasurementTable } from "../viewport/row-measurement-table.js";
 
 /**
@@ -31,4 +33,13 @@ export function transcriptOpeningPageLimit(ownerWindow: Window): number {
     ),
   });
   return pageLimitFor(ownerWindow.innerHeight, measurements.smallestEstimatePx);
+}
+
+/**
+ * The most rows a session keeps while no screen shows it: the opening screen and the two screen
+ * heights the opening look-ahead reads above it, in the opening read's rows, so a session shown
+ * again opens on as much as a fresh one.
+ */
+export function transcriptOffScreenRowLimit(ownerWindow: Window): number {
+  return (TRANSCRIPT_APPROACH_SCREEN_HEIGHTS + 1) * transcriptOpeningPageLimit(ownerWindow);
 }

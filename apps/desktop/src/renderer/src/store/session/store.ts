@@ -4,15 +4,20 @@
 // lost.
 //
 // The store holds a window of the session's log, not the log: a read places it, the reader's pages
-// grow it at either edge (`transcript-window.ts`), and `releaseOutside` lets go of what lies far
-// from the reading position. The stream keeps folding into the entities and the waiting-on-person
-// register whether or not the window's tail follows it, so what is outstanding outlives every row
-// the window let go.
+// grow it at either edge (`transcript-window.ts`), `releaseOutside` lets go of what lies far from
+// the reading position, and `releaseBeyondNewest` bounds a session no screen shows. The stream
+// keeps folding into the entities and the waiting-on-person register whether or not the window's
+// tail follows it, so what is outstanding outlives every row the window let go.
 //
 // The degraded flag is sticky: a gap, a drop or a projection failure sets it, and only a completed
-// read clears it, since a later event proves nothing about the one that never arrived. A read on a
-// degraded store replaces its window with the read's, so the window on screen stays as it was, and
-// says it is behind, until the read lands.
+// read clears it, since a later event proves nothing about the one that never arrived. A read that
+// places a window (the first, or the snapshot taken past a hole too wide to fill) replaces it
+// whole. A repair read keeps the window and takes the stream up again where the window can be
+// (`RepairResumePoint`): a whole window stands, and a broken one replays (`repair-replay.ts`)
+// from its last whole row, or from its head when nothing else will do. What the stream sends
+// again folds off screen while the window keeps its rows and its cause, and the replay is swapped
+// in once it passes the newest row the window was sent, so no state between the hole and the
+// repair reads as whole or as empty. A repair during a replay is taken up from the replay.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -25,7 +30,7 @@ import {
 } from "#renderer/lib/performance-meters/registry.js";
 import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
-import { foldAppliedBatch } from "./apply/batch-fold.js";
+import { foldAppliedBatch, type AppliedBatch } from "./apply/batch-fold.js";
 import {
   isRaisedAgainOnReplay,
   worstDegradedCause,
@@ -34,17 +39,20 @@ import {
 import {
   foldEarlierWindowPage,
   foldLaterWindowPage,
+  releaseBeyondNewest,
   releaseOutsideKept,
   type EarlierWindowMerge,
   type LaterWindowMerge,
   type TranscriptPageDependencies,
 } from "./transcript-window.js";
 import { EntityProjectionRunner } from "./entities/projection-runner.js";
-import { type ProjectedSessionEvent, type EntityProjectorTable } from "./entities/vocabulary.js";
+import { mergeUpsert, type SessionPartitions } from "./entities/partitions.js";
 import {
-  GenerationLatch,
-  type CurrentGenerationClaim,
-} from "#renderer/lib/reads/generation-latch.js";
+  emptyPartitions,
+  type EntityProjectorTable,
+  type ProjectedSessionEvent,
+  type StoredEntity,
+} from "./entities/vocabulary.js";
 import {
   WaitingOnPersonRegister,
   type WaitingOnPersonRecords,
@@ -53,15 +61,26 @@ import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
 import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { RememberedRowHeights } from "./remembered-row-heights.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
-import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
+import { RepairReplay } from "./repair-replay.js";
 import {
+  SequenceReconciler,
+  UNPLACED_CURSOR,
+  orderBatchBySequence,
+} from "./sequence-reconciler.js";
+import {
+  WHOLE_RESUME_POINT,
   admitsBaseState,
   establishedState,
+  liveTailAfter,
+  repairResumeRowCursor,
   uninitializedState,
   withDegradedCause,
+  type RepairReopening,
+  type RepairResumePoint,
+  type SessionBaseState,
+  type SessionStoreState,
   type TranscriptWindowEdge,
 } from "./state.js";
-import type { SessionBaseState, SessionStoreState } from "./state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply/outcome.js";
 
 /** Construction inputs. */
@@ -73,13 +92,10 @@ export interface SessionStoreOptions {
 
 const SITE = "store/session/store.ts";
 
-/** The one key the window generation is claimed under. A store has one window. */
-const WINDOW_GENERATION_KEY = "window";
-
 /**
  * The per-session store: state, the sequence reconciler and the projectors behind the single
- * `applyBatch` chokepoint. `initialize` establishes the base state; the window's edges move only
- * through the page and release methods.
+ * `applyBatch` chokepoint. `initialize` places the window and `repair` mends a degraded one; past
+ * those, only the page and release methods move the window's edges.
  */
 export class SessionStore {
   /**
@@ -95,7 +111,10 @@ export class SessionStore {
   readonly #sessionId: string;
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();
-  readonly #reconciler = new SequenceReconciler();
+  /** The window's run; a repair's replay hands its own over at the swap. */
+  #reconciler = new SequenceReconciler();
+  /** The repair under way while a repair read's replay has not yet passed the window's rows. */
+  #replay: RepairReplay | undefined;
   readonly #preInitializationBuffer = new PreInitializationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
   /**
@@ -106,16 +125,6 @@ export class SessionStore {
   readonly #waitingOnPersonRegister = new WaitingOnPersonRegister();
   readonly #reentrantQueue: ProjectedSessionEvent[] = [];
   #applying = false;
-  readonly #windowGenerations = new GenerationLatch();
-  /**
-   * Which window this store's log is currently a view of. Re-taken whenever an edge moves other
-   * than by a page landing at it, a read or a release, so a page asked from the old edge settles
-   * nowhere instead of landing beside a hole.
-   */
-  #windowGeneration: CurrentGenerationClaim = this.#windowGenerations.supersedeAndClaim(
-    this,
-    WINDOW_GENERATION_KEY,
-  );
 
   public constructor(options: SessionStoreOptions) {
     this.#sessionId = options.sessionId;
@@ -160,28 +169,26 @@ export class SessionStore {
   }
 
   /**
-   * A handle on the window this log is a view of, for a caller settling a page against it.
-   *
-   * A page read beyond an edge can answer after a read replaced the window or a release moved
-   * that edge. Taking this claim at issue and settling through it lets that page be discarded.
-   * The handle is narrow: a reader may check it and settle, but cannot give the key back.
+   * The position a repair read reopens the stream after: the checkpoint of the replay under way or
+   * of the window, else the newest row either folded; `undefined` when only a replay from the head
+   * repairs.
    */
-  public get windowGeneration(): CurrentGenerationClaim {
-    return this.#windowGeneration;
+  public get repairResumeRowCursor(): EventCursor | undefined {
+    return repairResumeRowCursor(this.#repairSource);
   }
 
   /**
-   * Establish the base state from a read response and drain anything that arrived first. Taken
-   * only by a store with none yet or a degraded one (`admitsBaseState`), whose window the read's
-   * replaces whole. Answers whether the base state was taken, since only then does the stream
-   * open after it.
+   * Establish the base state from a read that places the window, and drain anything that arrived
+   * first. Taken only by a store with none yet or a degraded one (`admitsBaseState`), whose window
+   * the read's replaces whole and whose replay under way it ends. Answers whether the base state
+   * was taken, since only then does the stream open after it.
    */
   public initialize(baseState: SessionBaseState): boolean {
     const current = this.#store.getState();
     if (!admitsBaseState(current)) {
       return false;
     }
-    this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
+    this.#replay = undefined;
     this.#store.setState(this.#establish(baseState, current));
 
     const buffered = this.#preInitializationBuffer.drain();
@@ -191,12 +198,60 @@ export class SessionStore {
     return true;
   }
 
-  /** Mark the store degraded without a read (a closed subscription, a lost stream). */
+  /**
+   * Repair a degraded window from a repair read that landed, which reopened the stream where
+   * `reopening` says. At the head, a replay from the window's head over the read's entities. After
+   * a row, which must still be the row the window or its replay is taken up after: a whole window
+   * stands whole and a whole replay goes on, since the stream sends what follows, and a checkpoint
+   * replays from the state it held there. Answers whether the read was taken; one naming a row the
+   * store has moved past is refused, and the stream stays where it is.
+   */
+  public repair(baseState: SessionBaseState, reopening: RepairReopening): boolean {
+    const window = this.#store.getState();
+    if (!window.initialized || !admitsBaseState(window)) {
+      return false;
+    }
+    if (reopening.from === "head") {
+      this.#replayFromHead(window, baseState);
+      return true;
+    }
+    const source = this.#repairSource;
+    if (reopening.rowCursor !== repairResumeRowCursor(source)) {
+      return false;
+    }
+    const point = source.repairResumePoint;
+    if (point.kind === "checkpoint") {
+      this.#replayFromCheckpoint(window, source, point);
+      return true;
+    }
+    const replay = this.#replay;
+    if (replay !== undefined) {
+      replay.advance({ ...replay.state, degradedCause: undefined, lastReadFailed: false });
+      this.#store.setState({ ...window, lastReadFailed: false, revision: window.revision + 1 });
+      return true;
+    }
+    this.#store.setState({
+      ...window,
+      degradedCause: undefined,
+      lastReadFailed: false,
+      revision: window.revision + 1,
+    });
+    return true;
+  }
+
+  /**
+   * Mark the store degraded without a read (a closed subscription, a lost stream). The cause is
+   * merged through the ladder, on the window and on a replay under way, so a cause raised
+   * mid-replay survives the swap.
+   */
   public markDegraded(cause: SessionDegradedCause): void {
+    if (this.#replay !== undefined) {
+      this.#replay.advance(withDegradedCause(this.#replay.state, cause));
+    }
     const current = this.#store.getState();
     const next = withDegradedCause(current, cause);
     if (next !== current) {
-      this.#store.setState(countingRaisedAgainCause(current, next));
+      this.#store.setState(countingRaisedAgainCause(current, next, false));
     }
   }
 
@@ -204,9 +259,14 @@ export class SessionStore {
    * Record that a read of this session failed: `read-failed` merged through the ladder, and the
    * failure kept beside it so a store already behind for a worse cause still says its repair
    * read failed. Every failure is counted, so a retry that fails again is a new one. The next read
-   * that lands clears the cause and the flag; the count stays.
+   * that lands clears the cause and the flag; the count stays. A replay under way keeps only the
+   * failure, which stands after the swap only if the replay is degraded too.
    */
   public markReadFailed(): void {
+    const replay = this.#replay;
+    if (replay !== undefined && !replay.state.lastReadFailed) {
+      replay.advance({ ...replay.state, lastReadFailed: true });
+    }
     const current = this.#store.getState();
     this.#store.setState({
       ...current,
@@ -238,17 +298,25 @@ export class SessionStore {
     // The meters are development-only: in a built bundle this reads `0` and records nothing.
     const startedAt = readPerformanceMeterTime();
     try {
-      const current = this.#store.getState();
-      const { outcome, nextState } = foldAppliedBatch(current, events, {
-        sessionId: this.#sessionId,
-        reconciler: this.#reconciler,
-        projectionRunner: this.#projectionRunner,
-        preInitializationBuffer: this.#preInitializationBuffer,
-        hueAllocator: this.#hueAllocator,
-        waitingOnPersonRegister: this.#waitingOnPersonRegister,
-      });
-      const committed =
-        nextState === undefined ? undefined : countingRaisedAgainCause(current, nextState);
+      const replay = this.#replay;
+      let outcome: ApplyOutcome;
+      let committed: SessionStoreState | undefined;
+      if (replay === undefined) {
+        const current = this.#store.getState();
+        const folded = this.#fold(current, events, this.#reconciler);
+        outcome = folded.outcome;
+        committed =
+          folded.nextState === undefined
+            ? undefined
+            : countingRaisedAgainCause(current, folded.nextState, false);
+      } else {
+        const folded = this.#fold(replay.state, replay.withHeldRows(events), replay.reconciler);
+        outcome = folded.outcome;
+        if (folded.nextState !== undefined) {
+          replay.advance(folded.nextState);
+        }
+        committed = replay.hasPassedHeldRows ? this.#takeReplay(replay) : undefined;
+      }
       if (committed !== undefined) {
         this.#store.setState(committed);
       }
@@ -329,16 +397,29 @@ export class SessionStore {
     if (next === undefined) {
       return;
     }
-    this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
+    this.#store.setState(next);
+    recordStoreSize(this.#sessionId, next.transcript.length);
+  }
+
+  /**
+   * Lets go of every row but the newest `rowLimit`, detaching the tail after them, so a window no
+   * screen shows stops growing with the stream; a window holding no more stays as it is.
+   */
+  public releaseBeyondNewest(rowLimit: number): void {
+    const next = releaseBeyondNewest(this.#store.getState(), rowLimit);
+    if (next === undefined) {
+      return;
+    }
     this.#store.setState(next);
     recordStoreSize(this.#sessionId, next.transcript.length);
   }
 
   /**
    * The state a read establishes over `current`, with the reconciler re-based onto it. The read's
-   * rows advance the hue wheel and the register as a page's do; the register keeps the older asks
-   * this read did not carry, and the seed moves only the window-head fact. A base with no sequence
-   * seeds below every row the stream delivers after it.
+   * rows project the entities they imply, and the read's records then stand over them, since they
+   * are the newest. The rows advance the hue wheel and the register as a page's do; the register
+   * keeps the older asks this read did not carry, and the seed moves only the window-head fact. A
+   * base with no sequence seeds below every row the stream delivers after it.
    */
   #establish(baseState: SessionBaseState, current: SessionStoreState): SessionStoreState {
     const transcript = orderBatchBySequence(baseState.transcript ?? []);
@@ -357,16 +438,163 @@ export class SessionStore {
       isWindowHeadUnread: baseState.transcriptHead?.hasMore ?? false,
     });
     this.#waitingOnPersonRegister.admit(transcript);
-    // A read clears the sticky flag here; every other path merges the cause upward.
+    const { partitions, isProjectionFailed } = this.#projectedPartitions(
+      transcript,
+      baseState.entities,
+    );
     return establishedState({
       sessionId: this.#sessionId,
       baseState,
+      partitions,
+      isProjectionFailed,
       cursor: this.#reconciler.cursor,
       orderedTranscript: transcript,
       revision: current.revision + 1,
       readFailureCount: current.readFailureCount,
       raisedAgainCauseCount: current.raisedAgainCauseCount,
+      windowPlacementCount: current.windowPlacementCount,
     });
+  }
+
+  /**
+   * The partitions `transcript` projects with `entities` merged over them, and whether a projector
+   * threw on one of its rows.
+   */
+  #projectedPartitions(
+    transcript: readonly ProjectedSessionEvent[],
+    entities: readonly StoredEntity[],
+  ): { readonly partitions: SessionPartitions; readonly isProjectionFailed: boolean } {
+    let partitions: SessionPartitions = emptyPartitions();
+    let isProjectionFailed = false;
+    for (const event of transcript) {
+      const projected = this.#projectionRunner.run(partitions, event);
+      if (projected === undefined) {
+        isProjectionFailed = true;
+      } else {
+        partitions = projected;
+      }
+    }
+    for (const entity of entities) {
+      partitions = mergeUpsert(partitions, entity);
+    }
+    return { partitions, isProjectionFailed };
+  }
+
+  /**
+   * Replay from the window's head: the stream reopened before the window's oldest row sends every
+   * row it holds again, folded onto the read's entities, which stand for the runs no row of the
+   * window touches. A read naming no sequence places the replay at the first row it sends.
+   */
+  #replayFromHead(window: SessionStoreState, baseState: SessionBaseState): void {
+    const reconciler = new SequenceReconciler();
+    reconciler.rebaseTo(baseState.cursor, []);
+    this.#startReplay(window, reconciler, {
+      ...window,
+      ...REPLAY_START,
+      partitions: this.#projectedPartitions([], baseState.entities).partitions,
+      transcript: [],
+      transcriptTail: liveTailAfter([]),
+      cursor: reconciler.cursor,
+      streamAfterCursor: baseState.streamAfterCursor,
+    });
+  }
+
+  /**
+   * Replay from a checkpoint of the window or of the replay under way: its rows through the
+   * checkpoint, the partitions as they stood there, and the stream reopened after its row. The tail
+   * grows from there when the checkpoint's row is held, else it stays where `source` had it.
+   */
+  #replayFromCheckpoint(
+    window: SessionStoreState,
+    source: SessionStoreState,
+    point: Extract<RepairResumePoint, { readonly kind: "checkpoint" }>,
+  ): void {
+    const reconciler = new SequenceReconciler();
+    reconciler.rebaseTo(point.cursor === UNPLACED_CURSOR ? undefined : point.cursor, []);
+    const transcript = rowsThrough(source.transcript, point.cursor);
+    this.#startReplay(window, reconciler, {
+      ...source,
+      ...REPLAY_START,
+      partitions: point.partitions,
+      transcript,
+      transcriptTail:
+        transcript.at(-1)?.sequence === point.cursor
+          ? liveTailAfter(transcript)
+          : source.transcriptTail,
+      cursor: point.cursor,
+      streamAfterCursor: point.rowCursor,
+    });
+  }
+
+  /**
+   * Start a replay from `startState`, folded with `reconciler`, while the window keeps its rows
+   * and its cause and says it is replaying. The read did land, so it no longer counts as failed.
+   * A replay already under way is replaced, since its stream was replaced.
+   */
+  #startReplay(
+    window: SessionStoreState,
+    reconciler: SequenceReconciler,
+    startState: SessionStoreState,
+  ): void {
+    const replay = new RepairReplay({ window, reconciler, startState });
+    if (replay.hasPassedHeldRows) {
+      this.#store.setState(this.#takeReplay(replay));
+      return;
+    }
+    this.#replay = replay;
+    this.#store.setState({
+      ...window,
+      isReplaying: true,
+      lastReadFailed: false,
+      revision: window.revision + 1,
+    });
+  }
+
+  /**
+   * The window a replay that passed the held rows becomes: its run is the store's from here, and
+   * it takes the window's rows and edges as they stand now (`RepairReplay.windowOnto`). The
+   * window's counts stand, since a read can fail while the replay runs. A failed read stands only
+   * beside a cause, since a whole window says nothing about it.
+   */
+  #takeReplay(replay: RepairReplay): SessionStoreState {
+    const visible = this.#store.getState();
+    const replayed = replay.state;
+    this.#replay = undefined;
+    this.#reconciler = replay.reconciler;
+    return countingRaisedAgainCause(
+      visible,
+      {
+        ...replayed,
+        ...replay.windowOnto(visible),
+        isReplaying: false,
+        lastReadFailed: replayed.degradedCause !== undefined && replayed.lastReadFailed,
+        readFailureCount: visible.readFailureCount,
+        raisedAgainCauseCount: visible.raisedAgainCauseCount,
+        revision: visible.revision + 1,
+      },
+      true,
+    );
+  }
+
+  /** One batch folded onto `current` with the run it is reconciled against. */
+  #fold(
+    current: SessionStoreState,
+    events: readonly ProjectedSessionEvent[],
+    reconciler: SequenceReconciler,
+  ): AppliedBatch {
+    return foldAppliedBatch(current, events, {
+      sessionId: this.#sessionId,
+      reconciler,
+      projectionRunner: this.#projectionRunner,
+      preInitializationBuffer: this.#preInitializationBuffer,
+      hueAllocator: this.#hueAllocator,
+      waitingOnPersonRegister: this.#waitingOnPersonRegister,
+    });
+  }
+
+  /** What a repair is taken up from: the replay under way, else the window. */
+  get #repairSource(): SessionStoreState {
+    return this.#replay?.state ?? this.#store.getState();
   }
 
   /** What a page fold advances beside the state. */
@@ -379,13 +607,40 @@ export class SessionStore {
   }
 }
 
-/** `next` with a cause the stream raises again counted as it newly comes to stand. */
+/** What a replay's start state clears: it begins whole, with nothing missing and no read failed. */
+const REPLAY_START = {
+  lastAdmittedEvents: [],
+  degradedCause: undefined,
+  isReplaying: false,
+  lastReadFailed: false,
+  gaps: [],
+  repairResumePoint: WHOLE_RESUME_POINT,
+} as const satisfies Partial<SessionStoreState>;
+
+/** The rows at or below `sequence`, from a transcript in sequence order. */
+function rowsThrough(
+  transcript: readonly ProjectedSessionEvent[],
+  sequence: number,
+): readonly ProjectedSessionEvent[] {
+  const end = transcript.findIndex((row) => row.sequence > sequence);
+  return end === -1 ? transcript : transcript.slice(0, end);
+}
+
+/**
+ * `next` with a cause the stream raises again counted as it comes to stand: newly, or at a
+ * replay's swap, which ends a repair that failed on the same row and so is a new failure.
+ */
 function countingRaisedAgainCause(
   current: SessionStoreState,
   next: SessionStoreState,
+  isSwap: boolean,
 ): SessionStoreState {
   const cause = next.degradedCause;
-  if (cause === undefined || !isRaisedAgainOnReplay(cause) || cause === current.degradedCause) {
+  if (
+    cause === undefined ||
+    !isRaisedAgainOnReplay(cause) ||
+    (!isSwap && cause === current.degradedCause)
+  ) {
     return next;
   }
   return { ...next, raisedAgainCauseCount: current.raisedAgainCauseCount + 1 };

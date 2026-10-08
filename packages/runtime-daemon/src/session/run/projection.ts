@@ -21,7 +21,7 @@ import {
   type SessionProjection,
   type SessionProjectionFold,
 } from "../../recovery/projection-rebuild.js";
-import { isTerminalState, RUN_TERMINAL_STATES } from "./transitions.js";
+import { isTerminalState } from "./transitions.js";
 
 /**
  * One run state change as its stored event carries it: the state it leaves, the state it enters,

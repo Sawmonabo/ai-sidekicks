@@ -518,6 +518,22 @@ const SESSION_EVENT_VARIANT_REGISTRATIONS = [
   registerSessionEventVariant("backup.failed", "event_maintenance", BackupFailedPayloadSchema),
   registerSessionEventVariant("backup.restored", "event_maintenance", BackupRestoredPayloadSchema),
   registerSessionEventVariant(
+    "recovery.attempted",
+    "recovery_events",
+    RecoveryAttemptedPayloadSchema,
+  ),
+  registerSessionEventVariant(
+    "recovery.succeeded",
+    "recovery_events",
+    RecoverySucceededPayloadSchema,
+  ),
+  registerSessionEventVariant("recovery.failed", "recovery_events", RecoveryFailedPayloadSchema),
+  registerSessionEventVariant(
+    "recovery.damaged_events_skipped",
+    "recovery_events",
+    RecoveryDamagedEventsSkippedPayloadSchema,
+  ),
+  registerSessionEventVariant(
     "run.starting",
     "run_lifecycle",
     RUN_STATE_CHANGE_PAYLOAD_SCHEMAS.starting,
@@ -601,22 +617,6 @@ const SESSION_EVENT_VARIANT_REGISTRATIONS = [
     "intervention.failed",
     "interactive_request",
     INTERVENTION_EVENT_PAYLOAD_SCHEMAS.failed,
-  ),
-  registerSessionEventVariant(
-    "recovery.attempted",
-    "recovery_events",
-    RecoveryAttemptedPayloadSchema,
-  ),
-  registerSessionEventVariant(
-    "recovery.succeeded",
-    "recovery_events",
-    RecoverySucceededPayloadSchema,
-  ),
-  registerSessionEventVariant("recovery.failed", "recovery_events", RecoveryFailedPayloadSchema),
-  registerSessionEventVariant(
-    "recovery.damaged_events_skipped",
-    "recovery_events",
-    RecoveryDamagedEventsSkippedPayloadSchema,
   ),
 ];
 

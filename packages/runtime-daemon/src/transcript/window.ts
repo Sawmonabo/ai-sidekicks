@@ -91,6 +91,8 @@ export class TranscriptWindowReader {
     }
     const stretch = candidates.slice(0, limit);
     const rows = this.#projector.projectWindow(sessionId, stretch);
+    // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`, whether
+    // or not `beforeCursor` bounds the window.
     const pageCount = countEntriesFittingOneFrame(rows, limit);
     const entries = rows.slice(0, pageCount);
     const newestKept = stretch[pageCount - 1];

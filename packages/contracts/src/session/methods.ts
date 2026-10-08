@@ -4,6 +4,7 @@
 // conversion's skipped files. The events those verbs append are in `./events.ts`.
 import { z } from "zod";
 
+import { AgentIdSchema, type AgentId } from "../agent/definition.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
@@ -132,6 +133,10 @@ export interface SessionLiveRun {
   parentRunId?: RunId | undefined;
   state: RunState;
   runVersion: number;
+  /** The agent the run was created for; absent on the lead's run, which names none. */
+  agentId?: AgentId | undefined;
+  /** When the run's newest `run_lifecycle` event occurred. */
+  touchedAt: string;
 }
 /** Parses a {@link SessionLiveRun}. */
 export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
@@ -140,6 +145,8 @@ export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
     parentRunId: RunIdSchema.optional(),
     state: RunStateSchema,
     runVersion: countSchema,
+    agentId: AgentIdSchema.optional(),
+    touchedAt: isoDateTimeSchema,
   })
   .strict();
 

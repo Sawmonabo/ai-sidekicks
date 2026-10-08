@@ -7,8 +7,10 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { RUN_LIFECYCLE_EVENT_TYPES } from "@ai-sidekicks/contracts/event/registry";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
@@ -32,6 +34,8 @@ import {
 import { sessionNotFound } from "./not-found.js";
 import { rebuildSession } from "./projector.js";
 import type { DaemonSessionRecord } from "./records.js";
+import { sqlListOf } from "../database/sql-list.js";
+import { RUN_TERMINAL_STATES } from "./run/transitions.js";
 
 /** A session's read as its row, tags, runs and log answer it: everything but the held draft. */
 export interface SessionLogRead {
@@ -74,13 +78,41 @@ interface SessionReadRow {
   readonly updated_at: string;
 }
 
-// The `runs` columns a live run is answered from.
+// The `runs` columns a live run is answered from, with its agent and newest touch from its events.
 interface LiveRunRow {
   readonly run_id: RunId;
   readonly parent_run_id: RunId | null;
   readonly state: RunState;
   readonly run_version: number;
+  readonly agent_id: AgentId | null;
+  readonly touched_at: string;
 }
+
+const RUN_LIFECYCLE_TYPES_SQL = RUN_LIFECYCLE_EVENT_TYPES.map((type) => `'${type}'`).join(", ");
+
+// A run's agent is on its `run.queued` row, by id or inside the agent it brought in. Its newest
+// touch is its newest `run_lifecycle` event. Both read the run-and-type index on the event log;
+// the unary `+` drops the run id column's affinity, which would keep the index from serving.
+const SELECT_LIVE_RUNS_SQL = `SELECT run_id, parent_run_id, state, run_version,
+    (SELECT COALESCE(json_extract(queued.payload, '$.agentId'),
+                     json_extract(queued.payload, '$.resolvedAgent.agentId'))
+       FROM session_events AS queued
+      WHERE queued.session_id = runs.session_id
+        AND queued.type = 'run.queued'
+        AND queued.run_id = +runs.run_id) AS agent_id,
+    (SELECT touched.occurred_at
+       FROM session_events AS touched
+      WHERE touched.session_id = runs.session_id
+        AND touched.sequence = (
+          SELECT MAX(lifecycle.sequence)
+            FROM session_events AS lifecycle
+           WHERE lifecycle.session_id = runs.session_id
+             AND lifecycle.type IN (${RUN_LIFECYCLE_TYPES_SQL})
+             AND lifecycle.run_id = +runs.run_id)) AS touched_at
+  FROM runs
+  WHERE session_id = ?
+    AND state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})
+  ORDER BY rowid`;
 
 /**
  * Reads one session: its record and cursors from its row, its whole log, or its record rebuilt
@@ -106,14 +138,7 @@ export class SessionService {
     this.#selectTags = reader.prepare(
       "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded",
     );
-    // The ended states are the live-runs index's own condition, so the index serves the scan.
-    this.#selectLiveRuns = reader.prepare(
-      `SELECT run_id, parent_run_id, state, run_version
-         FROM runs
-        WHERE session_id = ?
-          AND state NOT IN ('completed', 'interrupted', 'stopped', 'failed')
-        ORDER BY rowid`,
-    );
+    this.#selectLiveRuns = reader.prepare(SELECT_LIVE_RUNS_SQL);
   }
 
   /**
@@ -199,5 +224,7 @@ function readLiveRun(row: LiveRunRow): SessionLiveRun {
     ...(row.parent_run_id === null ? {} : { parentRunId: row.parent_run_id }),
     state: row.state,
     runVersion: row.run_version,
+    ...(row.agent_id === null ? {} : { agentId: row.agent_id }),
+    touchedAt: row.touched_at,
   };
 }

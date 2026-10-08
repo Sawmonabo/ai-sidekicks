@@ -1,14 +1,19 @@
 // When a read moves the stream: a read the store takes names the position the stream opens after,
-// and a read a whole live window gets moves nothing. A repair replaces the window with the log's
-// newest rows and opens the stream after the newest of them, and what the replaced stream left
-// queued never reaches the new window.
+// and a whole live window makes no read. A stream lost past a hole too wide to fill takes a
+// snapshot that replaces the window with the log's newest rows; a hole the store saw replays from
+// the row before it, and what the replaced stream left queued never reaches the replay. A replay
+// whose stream is refused goes on after the newest row it folded.
 
 import { encodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
-import { OPENING_PAGE_LIMIT, openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import {
+  OPENING_PAGE_LIMIT,
+  openingPageLimit,
+  offScreenRowLimit,
+} from "#test/helpers/session/store/fixtures.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 import type { SessionBaseState } from "../state.js";
 import {
@@ -27,7 +32,12 @@ function eventAt(sequence: number): ProjectedSessionEvent {
   return eventOfKind("session-1", "run.starting", sequence);
 }
 
-/** A repair read's base state: the window `sequences` at the log's newest rows, more before it. */
+/** A repair read's base state: the stream reopened after the row at `sequence`. */
+function afterRow(sequence: number): SessionBaseState {
+  return { entities: [], streamAfterCursor: eventAt(sequence).cursor as EventCursor };
+}
+
+/** A snapshot's base state: the window `sequences` at the log's newest rows, more before it. */
 function windowOf(sequences: readonly number[]): SessionBaseState {
   const transcript = sequences.map(eventAt);
   const newest = transcript.at(-1)!;
@@ -60,6 +70,7 @@ function scriptedEntry(
     },
     clock,
     openingPageLimit,
+    offScreenRowLimit,
     applyCoalesceMs,
     refreshDebounceMs: 20,
   });
@@ -81,10 +92,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     const repair = new Promise<SessionBaseState>((resolve) => {
       landRepair = resolve;
     });
-    const { entry, openings, positions, settle } = scriptedEntry(
-      [baseStateAt(5), baseStateAt(5), repair],
-      0,
-    );
+    const { entry, openings, positions, settle } = scriptedEntry([baseStateAt(5), repair], 0);
     const sequences = (): number[] =>
       entry.store.snapshot().transcript.map((event) => event.sequence);
 
@@ -92,10 +100,11 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     await settle();
     // The first event after the read's position places the run, opening no gap.
     entry.store.applyBatch([eventAt(6), eventAt(7)]);
-    // A whole live window keeps its stream.
+    // A whole live window keeps its stream and makes no read.
     entry.refreshScheduler.request("window-focus");
     await settle();
     expect(sequences()).toStrictEqual([6, 7]);
+    expect(openings).toHaveLength(1);
 
     // A burst of holes too wide to fill, with no focus and no press.
     entry.loseStream();
@@ -122,7 +131,6 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     expect(openings).toStrictEqual([
       { opensAt: "resume", refusedCursor: undefined, pageLimit: OPENING_PAGE_LIMIT },
       { opensAt: "latest", refusedCursor: undefined, pageLimit: OPENING_PAGE_LIMIT },
-      { opensAt: "latest", refusedCursor: undefined, pageLimit: OPENING_PAGE_LIMIT },
     ]);
     expect(positions).toStrictEqual([
       { afterCursor: encodeEventCursor(5), afterSequence: undefined },
@@ -132,10 +140,10 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     entry.dispose();
   });
 
-  it("repairs a hole at the newest rows, dropping what the old stream left queued", async () => {
+  it("repairs a hole from the row before it, dropping what the old stream queued", async () => {
     const coalesceMs = 50;
     const { entry, clock, openings, settle } = scriptedEntry(
-      [baseStateAt(5), windowOf([6, 7, 8])],
+      [baseStateAt(5), afterRow(6)],
       coalesceMs,
     );
     entry.refreshScheduler.request("subscribe");
@@ -148,17 +156,55 @@ describe("OpenSessionEntry — the read places the window and the stream follows
     entry.refreshScheduler.request("gap-repull");
     await settle();
     clock.advance(coalesceMs);
-    // The stream opened after the window's newest row sends what followed it.
-    entry.applyQueue.enqueueAll([9, 10].map(eventAt));
+    // The stream opened after the row before the hole sends the hole and what followed it.
+    entry.applyQueue.enqueueAll([7, 8].map(eventAt));
     entry.applyQueue.flush();
 
     // A stale row drained first would open a hole up to 50 and refuse these as duplicates.
-    expect(openings[1]).toMatchObject({ opensAt: "latest" });
+    expect(openings[1]).toMatchObject({
+      opensAt: "repair",
+      reopening: { from: "row", rowCursor: "cursor-at-6" },
+    });
     expect(entry.store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
-      6, 7, 8, 9, 10,
+      6, 7, 8,
     ]);
     expect(entry.store.snapshot().gaps).toStrictEqual([]);
     expect(entry.store.snapshot().degradedCause).toBeUndefined();
+
+    entry.dispose();
+  });
+
+  it("takes a replay whose stream was refused up after the newest row it folded", async () => {
+    const { entry, openings, positions, settle } = scriptedEntry(
+      [baseStateAt(5), afterRow(6), afterRow(8)],
+      0,
+    );
+    entry.refreshScheduler.request("subscribe");
+    await settle();
+    entry.store.applyBatch([6, 8, 9, 10].map(eventAt));
+    entry.refreshScheduler.request("gap-repull");
+    await settle();
+    // The replay folds the hole and a row past it, then the stream refuses where it opened.
+    entry.store.applyBatch([7, 8].map(eventAt));
+    entry.refuseStreamCursor(eventAt(6).cursor as EventCursor);
+    await settle();
+    expect(entry.store.snapshot().isReplaying).toBe(true);
+
+    // The stream after row 8 sends only what the replay still lacks.
+    entry.store.applyBatch([9, 10].map(eventAt));
+
+    expect(openings.slice(1)).toMatchObject([
+      { opensAt: "repair", reopening: { from: "row", rowCursor: "cursor-at-6" } },
+      { opensAt: "repair", reopening: { from: "row", rowCursor: "cursor-at-8" } },
+    ]);
+    expect(positions.at(-1)).toStrictEqual({
+      afterCursor: "cursor-at-8",
+      afterSequence: undefined,
+    });
+    expect(entry.store.snapshot()).toMatchObject({ degradedCause: undefined, isReplaying: false });
+    expect(entry.store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
+      6, 7, 8, 9, 10,
+    ]);
 
     entry.dispose();
   });
@@ -169,6 +215,7 @@ describe("OpenSessionEntry — the read places the window and the stream follows
       read: () => Promise.resolve(baseStateAt(5)),
       clock,
       openingPageLimit,
+      offScreenRowLimit,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
       projectors: {

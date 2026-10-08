@@ -1,5 +1,6 @@
 // The base state a store opens on: the daemon's `session.read`, then the `transcript.read` window
-// at the position the opening picks, passing over a refused one, or refused.
+// at the position the opening picks, passing over a refused one; or for a repair the record alone,
+// the stream reopened where the repair says; or refused.
 
 import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
@@ -11,7 +12,7 @@ import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-st
 import { TRANSCRIPT_STATES_SCENARIO } from "#fixtures/scenarios/transcript-states.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import type { SessionWindowOpening } from "#renderer/store/session/open/entry.js";
-import type { SessionBaseState } from "#renderer/store/session/state.js";
+import type { RepairReopening, SessionBaseState } from "#renderer/store/session/state.js";
 import { sessionReadThroughDaemon } from "./base-state.js";
 
 /** The cursor block a `session.read` reply carries. */
@@ -83,36 +84,61 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     expect(baseState?.transcript).toHaveLength(PAGE_LIMIT);
   });
 
-  it("passes a refused position over for the newest row, as a repair reads", async () => {
+  it("passes a refused acknowledged position over for the newest row, as a snapshot", async () => {
     const { cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, RESUME);
     const pastAcknowledged = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       ...RESUME,
       refusedCursor: cursors.acknowledged,
     });
-    const repair = await readAt(TRANSCRIPT_STATES_SCENARIO, { ...RESUME, opensAt: "latest" });
-    const latestCursor = (await readAt(CONCURRENT_STREAMING_SCENARIO, RESUME)).cursors.latest;
-    const pastNewestRow = await readAt(CONCURRENT_STREAMING_SCENARIO, {
-      ...RESUME,
-      refusedCursor: latestCursor,
-    });
-    const pastFloor = await readAt(
-      CONCURRENT_STREAMING_SCENARIO,
-      { ...RESUME, refusedCursor: FLOOR },
-      false,
-    );
+    const snapshot = await readAt(TRANSCRIPT_STATES_SCENARIO, { ...RESUME, opensAt: "latest" });
 
-    for (const read of [pastAcknowledged, repair]) {
+    for (const read of [pastAcknowledged, snapshot]) {
       expect(read.windowRead).toMatchObject({ beforeCursor: cursors.latest });
       expect(read.baseState?.transcript?.at(-1)?.cursor).toBe(cursors.latest);
       expect(read.baseState?.streamAfterCursor).toBe(cursors.latest);
     }
-    // A refused newest row leaves no position at all: the stream opens from the log's start.
-    expect(pastNewestRow.baseState?.transcript).toHaveLength(PAGE_LIMIT);
-    expect(pastNewestRow.baseState).not.toHaveProperty("streamAfterCursor");
-    // An empty window opens the stream at the floor, unless the floor was refused.
-    expect(pastFloor.cursors.earliest).toBe(FLOOR);
-    expect(pastFloor.baseState?.transcript).toStrictEqual([]);
-    expect(pastFloor.baseState).not.toHaveProperty("streamAfterCursor");
+  });
+
+  it("raises a read whose stream could open only at the position the stream refused", async () => {
+    const latestCursor = (await readAt(CONCURRENT_STREAMING_SCENARIO, RESUME)).cursors.latest;
+
+    // A refused newest row, and an empty window whose floor was refused.
+    await expect(
+      readAt(CONCURRENT_STREAMING_SCENARIO, { ...RESUME, refusedCursor: latestCursor }),
+    ).rejects.toBeInstanceOf(RefusalError);
+    await expect(
+      readAt(CONCURRENT_STREAMING_SCENARIO, { ...RESUME, refusedCursor: FLOOR }, false),
+    ).rejects.toBeInstanceOf(RefusalError);
+    await expect(
+      readAt(TRANSCRIPT_STATES_SCENARIO, {
+        opensAt: "repair",
+        reopening: { from: "head", headCursor: undefined },
+        refusedCursor: FLOOR,
+      }),
+    ).rejects.toBeInstanceOf(RefusalError);
+  });
+
+  it("reopens a repair after its row, else before the head, reading only the record", async () => {
+    const head = encodeEventCursor(3);
+    const lastWholeRow = encodeEventCursor(5);
+    const repairFrom = (reopening: RepairReopening): Promise<Awaited<ReturnType<typeof readAt>>> =>
+      readAt(TRANSCRIPT_STATES_SCENARIO, {
+        opensAt: "repair",
+        reopening,
+        refusedCursor: undefined,
+      });
+    const afterRow = await repairFrom({ from: "row", rowCursor: lastWholeRow });
+    const atHead = await repairFrom({ from: "head", headCursor: head });
+    const atFloor = await repairFrom({ from: "head", headCursor: undefined });
+
+    // The store holds the window's rows, so no window is read.
+    for (const read of [afterRow, atHead, atFloor]) {
+      expect(read.windowRead).toBeUndefined();
+    }
+    expect(afterRow.baseState).toStrictEqual({ entities: [], streamAfterCursor: lastWholeRow });
+    expect(atHead.baseState).toStrictEqual({ entities: [], streamAfterCursor: head });
+    expect(atFloor.cursors.earliest).toBe(FLOOR);
+    expect(atFloor.baseState).toStrictEqual({ entities: [], streamAfterCursor: FLOOR });
   });
 
   it("raises the refusal instead of reading nothing", async () => {

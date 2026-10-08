@@ -1,6 +1,6 @@
-// Reads one `transcript.read` window, backward or forward, as the app's own event log. The store's
-// log is `ProjectedSessionEvent` and no feature reads a wire shape, so this is the second decode
-// boundary after `session/event/payload.ts`.
+// The `transcript.read` client: the page call, and its window read, backward or forward, as the
+// app's own event log. The store's log is `ProjectedSessionEvent` and no feature reads a wire
+// shape, so this is the second decode boundary after `session/event/payload.ts`.
 //
 // The app takes the daemon's stamps rather than projecting them: a row of a run carries its turn
 // position, epoch and superseded marker onto the event as its run stamp, exactly as a stream change
@@ -9,7 +9,10 @@
 // so no row is dropped. Whether more rows lie beyond the window is the reply's `hasMore`, never
 // inferred from a short page.
 
-import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
+import type {
+  TranscriptReadRequest,
+  TranscriptReadResponse,
+} from "@ai-sidekicks/contracts/transcript/operations";
 import type {
   TranscriptEventRow,
   TranscriptRunStamp,
@@ -17,6 +20,17 @@ import type {
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { callDaemon, type DaemonCallOptions, type DaemonReply } from "./reply.js";
+
+/**
+ * One `transcript.read`, parsed, or the refusal standing in its place. Resolves `served` or
+ * `refused` for every transport outcome and never rejects.
+ */
+export type TranscriptPageRead = (
+  request: TranscriptReadRequest,
+  options?: DaemonCallOptions,
+) => Promise<DaemonReply<TranscriptReadResponse>>;
 
 /** One read window, in the shape the store's log speaks. */
 export interface TranscriptPage {
@@ -31,6 +45,11 @@ export interface TranscriptPage {
    * the cursor, because the terminal arm may carry a cursor too.
    */
   readonly edge: TranscriptWindowEdge;
+}
+
+/** The `transcript.read` page call through one bridge. */
+export function transcriptPageReadThroughDaemon(bridge: PlatformBridge): TranscriptPageRead {
+  return (request, options) => callDaemon(bridge, "transcript.read", request, options);
 }
 
 /**

@@ -4,8 +4,8 @@
 // renderer, owner-scoped: the same owner may re-register (a hot reload), a different owner is
 // refused by name.
 // The props carry decisions the list makes, not facts a row holds: `agentHue` comes from
-// `AgentHueAllocator` over the session log, `isSuperseded` ranks against rollback boundaries
-// around the row, and `density` is the list's collapse state.
+// `AgentHueAllocator` over the session log, `isSuperseded` is the row's superseded mark read by
+// the list, and `density` is the list's collapse state.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 

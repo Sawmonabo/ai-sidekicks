@@ -5,16 +5,21 @@
 // into the store, and every read is asked from the store's own edge.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type {
-  TranscriptReadRequest,
-  TranscriptReadResponse,
-} from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { describeFailure } from "#shared/failure-message.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { isReadAbandoned, ReadScope } from "#renderer/lib/reads/scope.js";
-import { type DaemonReply } from "#renderer/services/daemon/reply.js";
-import { readTranscriptPage } from "#renderer/services/daemon/transcript-page.js";
+import {
+  readTranscriptPage,
+  type TranscriptPageRead,
+} from "#renderer/services/daemon/transcript-page.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
@@ -31,6 +36,8 @@ export interface HistoryEdgeState {
   readonly isReading: boolean;
   /** Whether the last read past this edge failed; it stands until that read is sent again. */
   readonly hasFailed: boolean;
+  /** How many reads past this edge have failed, so a retry that fails again is a new failure. */
+  readonly failureCount: number;
 }
 
 /** The history past both edges: `earlier` before the head, `later` after the tail. */
@@ -38,15 +45,6 @@ export interface TranscriptHistoryState {
   readonly earlier: HistoryEdgeState;
   readonly later: HistoryEdgeState;
 }
-
-/**
- * One `transcript.read`, parsed, or the refusal standing in its place. Resolves `served` or
- * `refused` for every transport outcome and never rejects.
- */
-export type TranscriptPageRead = (
-  request: TranscriptReadRequest,
-  options: { readonly signal: AbortSignal },
-) => Promise<DaemonReply<TranscriptReadResponse>>;
 
 /** How a stretch is sized and counted, read from the viewport the transcript is laid out in. */
 export interface TranscriptStretchMeasure {
@@ -69,6 +67,8 @@ export interface TranscriptStretchMeasure {
  */
 export class TranscriptHistoryReader {
   readonly #sessionStore: SessionStore;
+  /** The clock a failure the reader could not settle is stamped with. */
+  readonly #clock: Clock;
   /**
    * The line every read goes out on, ended by {@link abandonReads} when the transcript holding
    * this reader leaves.
@@ -78,14 +78,15 @@ export class TranscriptHistoryReader {
   #readingSide: WindowSide | undefined;
   /** The read that failed past each edge, which asking for that edge again sends unchanged. */
   readonly #failedReadBySide = new Map<WindowSide, PendingRead>();
+  readonly #failureCountBySide = new Map<WindowSide, number>();
   /** The viewport the transcript is laid out in, while one is. */
   #measure: TranscriptStretchMeasure | undefined;
-  /** The state last read, and the store edges it was read against. */
+  /** The state last read; it stands while the reader and each edge's `hasMore` stay put. */
   #state: TranscriptHistoryState | undefined;
-  #stateEdges: readonly [TranscriptWindowEdge, TranscriptWindowEdge] | undefined;
 
-  public constructor(sessionStore: SessionStore) {
+  public constructor(sessionStore: SessionStore, clock: Clock) {
     this.#sessionStore = sessionStore;
+    this.#clock = clock;
   }
 
   /** Whether this reader's read line is over. True once and never false again. */
@@ -99,19 +100,19 @@ export class TranscriptHistoryReader {
   }
 
   /**
-   * The history as it stands, read against the store's edges. The same value until the reader or
-   * an edge moves, so it can serve as an external store's snapshot.
+   * The history as it stands, read against the store's edges. The same value until the reader
+   * moves or an edge's `hasMore` changes, the one edge fact it reports, so it can serve as an
+   * external store's snapshot even while every streamed row moves the live tail.
    */
   public state(): TranscriptHistoryState {
     const { transcriptHead, transcriptTail } = this.#sessionStore.snapshot();
     if (
       this.#state !== undefined &&
-      this.#stateEdges?.[0] === transcriptHead &&
-      this.#stateEdges[1] === transcriptTail
+      this.#state.earlier.hasMore === transcriptHead.hasMore &&
+      this.#state.later.hasMore === transcriptTail.hasMore
     ) {
       return this.#state;
     }
-    this.#stateEdges = [transcriptHead, transcriptTail];
     this.#state = {
       earlier: this.#edgeState("head", transcriptHead),
       later: this.#edgeState("tail", transcriptTail),
@@ -150,7 +151,7 @@ export class TranscriptHistoryReader {
     // A failed read is sent again only from the edge it was asked from: one that moved since,
     // by a release or a fresh opening, is asked anew from where it stands.
     const failedRead = this.#failedReadBySide.get(side);
-    void this.#walk(
+    const pending =
       failedRead !== undefined && cursorOf(side, failedRead.request) === edge.cursor
         ? failedRead
         : this.#pendingRead(
@@ -158,10 +159,10 @@ export class TranscriptHistoryReader {
             edge.cursor,
             owedHeightPx ?? TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * measure.screenHeightPx(),
             measure,
-          ),
-      read,
-      measure,
-    );
+          );
+    this.#walk(pending, read, measure).catch((error: unknown) => {
+      this.#failWalk(pending, error);
+    });
     return true;
   }
 
@@ -188,7 +189,7 @@ export class TranscriptHistoryReader {
           return;
         }
         if (reply.status === "refused") {
-          this.#failedReadBySide.set(side, next);
+          this.#recordFailedRead(next);
           return;
         }
         if (this.#edgeOf(side).cursor !== cursorOf(side, request)) {
@@ -211,6 +212,28 @@ export class TranscriptHistoryReader {
       this.#readingSide = undefined;
       this.#announceChange();
     }
+  }
+
+  /**
+   * A walk that threw rather than settling: the edge reads as failed, and `Try again` sends its
+   * first read again, or a fresh one when a page landed before the throw. The cause goes to the
+   * window's diagnostic capture.
+   */
+  #failWalk(pending: PendingRead, error: unknown): void {
+    this.#recordFailedRead(pending);
+    this.#announceChange();
+    windowDiagnosticCapture.record({
+      at: diagnosticStampAt(this.#clock),
+      severity: "error",
+      source: "features/transcript/history",
+      kind: "history-read-failed",
+      detail: `session ${this.#sessionStore.sessionId}: ${describeFailure(error)}`,
+    });
+  }
+
+  #recordFailedRead(failed: PendingRead): void {
+    this.#failedReadBySide.set(failed.side, failed);
+    this.#failureCountBySide.set(failed.side, (this.#failureCountBySide.get(failed.side) ?? 0) + 1);
   }
 
   /** The read past `cursor` that owes `owedHeightPx`, its limit sized from that height. */
@@ -241,6 +264,7 @@ export class TranscriptHistoryReader {
       hasMore: edge.hasMore,
       isReading: this.#readingSide === side,
       hasFailed: this.#failedReadBySide.has(side),
+      failureCount: this.#failureCountBySide.get(side) ?? 0,
     };
   }
 

@@ -85,7 +85,14 @@ interface SessionReadResponse {
   transcriptCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor };
   // Every run of the session not yet ended, with its state now, so a window opened below a run's
   // earlier events still knows whether the run is working or waiting.
-  liveRuns: Array<{ runId: RunId; parentRunId?: RunId; state: RunState; runVersion: number }>;
+  liveRuns: Array<{
+    runId: RunId;
+    parentRunId?: RunId;
+    state: RunState;
+    runVersion: number;
+    agentId?: AgentId; // the agent the run was created for, off its `run.queued`; absent on the lead's run
+    touchedAt: string; // ISO 8601: when the run's newest `run_lifecycle` event occurred
+  }>;
 }
 
 // SessionSubscribe
@@ -101,20 +108,23 @@ type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // alloca
 interface SessionSubscribeResponse {
   subscriptionId: SubscriptionId;
 }
-// Each notify's value. The daemon coalesces the session's events into one frame per 16 ms or 50
-// events, whichever comes first, the window opening on the first event so nothing waits longer than it.
-// A frame carries changes, never the whole transcript, oldest first, and every change carries its cursor.
-// The daemon never waits for a subscriber: changes that do not fit are dropped for it and `dropped` rides
-// the next frame that fits; the subscriber then repairs from the daemon's record by cursor, and past a gap
-// of 1,024 events reads `session.read`, then the `transcript.read` window at its latest cursor, and
-// resumes after that window instead of filling. When a
-// subscriber that fell behind has caught up, the daemon sends it one frame with no changes, carrying
-// `dropped` and the newest cursor, so a session that goes quiet right after a drop still tells the
-// subscriber it is behind.
+// Each notify's value. The daemon coalesces the session's events into one frame per 16 ms or 50 events,
+// whichever comes first, the window opening on the first event so nothing waits longer than it. A frame
+// carries changes, never the whole transcript, oldest first, and every change carries its cursor. The
+// daemon never waits for a subscriber: changes that do not fit are dropped for it and `dropped` rides the
+// next frame that fits; the subscriber then repairs from the daemon's record by cursor, and past a gap of
+// 1,024 events reads `session.read`, then the `transcript.read` window at its latest cursor, and resumes
+// after that window instead of filling. When a subscriber that fell behind has caught up, the daemon
+// sends it one frame with no changes, carrying `dropped` and the newest cursor, so a session that goes
+// quiet right after a drop still tells the subscriber it is behind.
 interface SessionStreamFrame {
   // At most 50. EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy. `runStamp`
-  // is present exactly on an event of a run: the daemon's turn position, execution epoch and
-  // superseded marker for it, the same stamp a `transcript.read` row of that event carries.
+  // is present exactly on an event of a run: the daemon's turn position, execution epoch and superseded
+  // marker for it, the same stamp a `transcript.read` row of that event carries, because the daemon
+  // stamps a live change and a window row from one fold. A client marks the rows it already holds when
+  // a `run.rolled_back` boundary arrives: a held row of that run at the rollback's epoch or an earlier
+  // one is superseded above the lowest cut of every rollback of the run at its epoch or later, the rule
+  // the daemon's fold applies (`addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`).
   changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
   dropped?: true;
   // Present only on the frame with no changes, which always carries `dropped`: the newest cursor the

@@ -1,6 +1,7 @@
-// The edges of the window a store holds of its session's log, and the three ways they move besides
-// the stream: a page read before the head grows it backward, a page read after a detached tail
-// grows it forward, and a release lets go of rows far from where the person reads. Pure folds, so
+// The edges of the window a store holds of its session's log, and the ways they move besides the
+// stream: a page read before the head grows it backward, a page read after a detached tail grows
+// it forward, a release lets go of rows far from where the person reads, and a window no screen
+// shows keeps only its newest rows. Pure folds, so
 // the store holds no arithmetic; `sequence-reconciler.ts` owns the stream's direction, and its
 // vocabulary would call a row from beyond an edge a duplicate or a divergence.
 //
@@ -116,7 +117,8 @@ export function foldEarlierWindowPage(
   if (merge.admitted === 0 && events.length > 0) {
     return { merge, nextState: undefined };
   }
-  recoverRows(admissible, dependencies);
+  // The admitted rows are the ones in front of the log.
+  recoverRows(merge.transcript.slice(0, merge.admitted), dependencies);
   return {
     merge,
     nextState: {
@@ -166,7 +168,7 @@ export function foldLaterWindowPage(
   if (merge.admitted === 0 && events.length > 0) {
     return { merge, nextState: undefined };
   }
-  recoverRows(admissible, dependencies);
+  recoverRows(rows, dependencies);
   return {
     merge,
     nextState: {
@@ -216,6 +218,32 @@ export function releaseOutsideKept(
   };
 }
 
+/**
+ * The state holding only the window's newest `rowLimit` rows, or `undefined` when it holds no more.
+ * The head records the read that brings the rest back, and the tail detaches after the newest row
+ * kept, so the stream stops growing the window and a forward read takes up what it sends.
+ */
+export function releaseBeyondNewest(
+  current: SessionStoreState,
+  rowLimit: number,
+): SessionStoreState | undefined {
+  const { transcript } = current;
+  const firstKept = transcript.length - rowLimit;
+  if (firstKept <= 0) {
+    return undefined;
+  }
+  return {
+    ...current,
+    transcript: transcript.slice(firstKept),
+    transcriptHead: { cursor: heldRowCursor(transcript[firstKept - 1]!), hasMore: true },
+    transcriptTail:
+      current.transcriptTail.following === "detached"
+        ? current.transcriptTail
+        : { cursor: heldRowCursor(transcript.at(-1)!), hasMore: true, following: "detached" },
+    revision: current.revision + 1,
+  };
+}
+
 /** The rows a page may offer this session, in sequence order. */
 function admissibleRows(
   events: readonly ProjectedSessionEvent[],
@@ -256,7 +284,7 @@ function rowsBeyondEdge(
   return { rows, refusedInside, duplicates };
 }
 
-/** Advance the hue wheel and the register by every row a page recovered, in any order. */
+/** Advance the hue wheel and the register by the rows a page admitted, in any order. */
 function recoverRows(
   rows: readonly ProjectedSessionEvent[],
   dependencies: TranscriptPageDependencies,

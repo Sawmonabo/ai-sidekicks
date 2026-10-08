@@ -33,7 +33,7 @@ import {
   useTranscriptHistory,
   type TranscriptHistory,
 } from "../../history/hooks/useTranscriptHistory.js";
-import { type TranscriptPageRead } from "../../history/reader.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { isDrawnRow } from "../drawn-rows.js";
 import { rowBodyLengthOf, rowHeightKindOf } from "../row-height-inputs.js";
@@ -159,7 +159,6 @@ export function useTranscriptFeedWindows(
     history,
     sessionStore: inputs.sessionStore,
     measure: stretchMeasure,
-    isFirstReadSettled: firstReadSettled,
   });
   useReleaseOutsideWindow({
     history,

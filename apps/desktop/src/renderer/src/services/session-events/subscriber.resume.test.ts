@@ -14,7 +14,7 @@ import type { Scenario } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -109,6 +109,7 @@ async function createResumeHarness(
     },
     clock: engine.clock,
     openingPageLimit,
+    offScreenRowLimit,
     refreshDebounceMs: 0,
   });
   const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });

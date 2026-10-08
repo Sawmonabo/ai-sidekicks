@@ -1,59 +1,19 @@
-// Which turns of a run an undo superseded. Undone turns stay in the log: each accepted
-// `run.rolled_back` cuts the epoch it rewound at its point, and a turn above that point is
-// superseded. A later cut below an earlier epoch's point supersedes that epoch's turns down to it
-// too, because the earlier epoch's surviving prefix is part of the history the later cut rewound.
+// Which turns of a run an undo superseded, read from the log. Undone turns stay in the log, and
+// every accepted `run.rolled_back` of the run adds its cut (`addSupersedingCut`).
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { SourceEpoch, SourcePosition } from "@ai-sidekicks/contracts/event/envelope";
 import {
   RunRolledBackEventSchema,
   type RunRolledBackEvent,
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE } from "@ai-sidekicks/contracts/transcript/row";
 import {
-  TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
-  type SupersededMarker,
-} from "@ai-sidekicks/contracts/transcript/row";
-
-/**
- * A run's superseded turns: one cut per epoch an accepted rollback rewound, oldest first, each
- * with the point its epoch's turns above are superseded from. The k-th rollback rewound epoch k,
- * so `cuts[epoch]` is that epoch's cut.
- */
-export interface SupersededTurns {
-  readonly runId: RunId;
-  readonly cuts: readonly { readonly sourceEpoch: SourceEpoch; readonly point: SourcePosition }[];
-}
-
-/**
- * Adds the run's next accepted rollback, which rewound epoch `turns.cuts.length` to `point`. An
- * earlier epoch's point drops to it when it lies lower, since that epoch's prefix lived on into
- * the history it rewound.
- */
-export function addSupersedingCut(turns: SupersededTurns, point: SourcePosition): SupersededTurns {
-  return {
-    runId: turns.runId,
-    cuts: [
-      ...turns.cuts.map((cut) => ({
-        sourceEpoch: cut.sourceEpoch,
-        point: Math.min(cut.point, point),
-      })),
-      { sourceEpoch: turns.cuts.length, point },
-    ],
-  };
-}
-
-/** The marker of the run's turn at `epoch` and `position`, or `undefined` while it is current. */
-export function supersededMarkerOf(
-  turns: SupersededTurns,
-  epoch: SourceEpoch,
-  position: SourcePosition,
-): SupersededMarker | undefined {
-  const cut = turns.cuts[epoch];
-  return cut !== undefined && position > cut.point ? { targetPosition: cut.point } : undefined;
-}
+  addSupersedingCut,
+  type SupersededTurns,
+} from "@ai-sidekicks/contracts/transcript/turn-attribution";
 
 /**
  * Reads one stored `run.rolled_back` payload into its contract. Throws when it does not match: the
@@ -86,9 +46,9 @@ interface StoredRollbackRow {
   readonly payload: string;
 }
 
-// Narrows to the session's rollbacks, then keeps the run's.
+// Seeks the run's rollbacks through the event log's run-and-type index.
 const SELECT_RUN_ROLLBACKS_SQL = `SELECT sequence, payload FROM session_events
-  WHERE session_id = @sessionId AND type = @type AND json_extract(payload, '$.runId') = @runId
+  WHERE session_id = @sessionId AND type = @type AND run_id = @runId
   ORDER BY sequence`;
 
 /**

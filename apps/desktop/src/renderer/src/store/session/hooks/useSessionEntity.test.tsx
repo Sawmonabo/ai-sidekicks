@@ -8,7 +8,11 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent, EntityProjectorTable } from "../entities/vocabulary.js";
 import { useSessionEntity } from "./useOpenSessionStore.js";
-import { openingPageLimit, readsNothing } from "#test/helpers/session/store/fixtures.js";
+import {
+  openingPageLimit,
+  offScreenRowLimit,
+  readsNothing,
+} from "#test/helpers/session/store/fixtures.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { SessionStoreRegistry } from "../registry.js";
 import type { SessionStore } from "../store.js";
@@ -65,6 +69,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       read: readsNothing,
       clock,
       openingPageLimit,
+      offScreenRowLimit,
       projectors,
       applyCoalesceMs: 0,
     });

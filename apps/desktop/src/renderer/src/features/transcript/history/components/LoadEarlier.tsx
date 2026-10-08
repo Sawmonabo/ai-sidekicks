@@ -20,7 +20,7 @@ export interface LoadEarlierProps {
 /** The line at the top of the loaded history, or nothing once nothing lies before it. */
 export function LoadEarlier(props: LoadEarlierProps): React.JSX.Element | null {
   const { history } = props;
-  const { hasMore, isReading, hasFailed } = history.state.earlier;
+  const { hasMore, isReading, hasFailed, failureCount } = history.state.earlier;
   // A failed read is sent again unchanged: the press asks the reader for the stretch it failed.
   const readEarlier = (): void => {
     history.readStretch("head");
@@ -34,6 +34,8 @@ export function LoadEarlier(props: LoadEarlierProps): React.JSX.Element | null {
           className="meridian-transcript-viewport__load-earlier-failed"
           words={EARLIER_READ_FAILED_WORDS}
           politeness="assertive"
+          // A `Try again` that fails again leaves these words standing; each failure is said.
+          attempt={failureCount}
         >
           {`${EARLIER_READ_FAILED_WORDS} · `}
           <TryAgainButton onPress={readEarlier} />

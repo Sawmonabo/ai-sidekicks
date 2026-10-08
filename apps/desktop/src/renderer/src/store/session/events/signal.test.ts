@@ -1,5 +1,5 @@
-// The event-kind signal across a repair: the row a repair lands in a hole sits below the cursor
-// already seen, and is still counted once, as a row a watched read would otherwise miss.
+// The event-kind signal across a repair: the rows a hole lost need not be rows the repaired
+// window holds, so a repair signals once whatever its window carries, and is counted once.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,23 +20,23 @@ function watchedRowAt(sequence: number): ReturnType<typeof eventOfKind> {
 describe("subscribeToSessionEventKinds", () => {
   it.each([
     {
-      repair: "a stream sending them again after an empty read",
+      repair: "a replay landing the lost watched row",
       landHole: (store: SessionStore): void => {
-        store.initialize({ entities: [] });
+        store.repair({ entities: [] }, { from: "head", headCursor: undefined });
         store.applyBatch([runRowAt(6), watchedRowAt(7), runRowAt(8)]);
       },
     },
     {
-      repair: "a base read already past them",
+      repair: "a snapshot whose window holds none of the rows the hole lost",
       landHole: (store: SessionStore): void => {
         store.initialize({
-          cursor: 8,
+          cursor: 20,
           entities: [],
-          transcript: [runRowAt(6), watchedRowAt(7), runRowAt(8)],
+          transcript: [runRowAt(19), runRowAt(20)],
         });
       },
     },
-  ])("counts a watched row $repair lands below the cursor already seen, once", ({ landHole }) => {
+  ])("signals once on $repair, and not again for what follows", ({ landHole }) => {
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({ cursor: 5, entities: [] });
     let signals = 0;
@@ -48,7 +48,7 @@ describe("subscribeToSessionEventKinds", () => {
 
     landHole(store);
     expect(store.snapshot().degradedCause).toBeUndefined();
-    store.applyBatch([runRowAt(9)]);
+    store.applyBatch([runRowAt(21)]);
     unsubscribe();
 
     expect(signals).toBe(1);

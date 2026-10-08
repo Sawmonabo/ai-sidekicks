@@ -6,17 +6,26 @@
 // store. One owner also closes the repair loop: the drain reads each `ApplyOutcome` and asks this
 // session's scheduler for a read when a hole opened, so a quiet session still repairs itself.
 //
-// Every read is the same read: the session's record, then one window of its log, then the stream
-// opened after the window's newest row. A window opens where the resume rule says,
-// `acknowledged ?? latest`; a repair opens it at `latest`, replacing the window whole, since the
-// window was behind and the record, not the screen, is the truth. Only a base state the store
-// takes moves the stream: the entry names where it opens next, and the session-events subscriber
-// opens it after that position. What the old stream left queued is dropped then, since the new
-// stream sends what the base lacks. A read the store refuses, a whole live window, moves nothing.
+// A window opens where the resume rule says, `acknowledged ?? latest`: the session's record, then
+// one window of its log, then the stream opened after the window's newest row. A stream lost to a
+// hole too wide to fill takes a snapshot: the record and the window at `latest`, which replaces
+// the window whole. Every other break is repaired with one read of the record, the window kept:
+// the stream reopens after the last row the window or its replay folded whole, or at the window's
+// head when no row precedes the fault or the stream refused the row named (`SessionStore.repair`).
+// Only a base state the store takes moves the stream: the entry names where it opens next, and
+// the session-events subscriber opens it after that position. What the old stream left queued is
+// dropped then, since the new stream sends what the base lacks. A whole store asks for no read.
 //
 // The stream also moves when a forward page brings a detached tail back live behind what the
 // stream already delivered: it is opened again after the window's newest row, so it sends again
 // the rows the window lacks.
+//
+// A session no screen shows keeps a bounded share of its log: past `offScreenRowLimit` rows, the
+// window lets go of all but the newest and detaches its tail, so the stream folds into the
+// entities alone and memory stays flat however long the session runs. A transcript shown again
+// reads what was let go forward from the kept edge. The entry applies the bound after every write
+// it makes and when the last screen showing the session lets it go, so it also holds for a session
+// opened and never shown.
 //
 // The subscriber reports when the stream cannot be followed: a hole too wide to fill, or a
 // position the stream refused. The window is then marked degraded and its one repair read asked
@@ -40,21 +49,40 @@ import type { EntityProjectorTable } from "../entities/vocabulary.js";
 import { ApplyQueue } from "../apply/queue.js";
 import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { type ApplyOutcome } from "../apply/outcome.js";
-import { heldRowCursor, type SessionBaseState, type SessionStoreState } from "../state.js";
+import {
+  admitsBaseState,
+  heldRowCursor,
+  type RepairReopening,
+  type SessionBaseState,
+  type SessionStoreState,
+} from "../state.js";
 import { SessionStore } from "../store.js";
 
-/** Where a read places the window, and how much of the log it reads there. */
-export interface SessionWindowOpening {
-  /**
-   * `resume` for a window opening, at `acknowledged ?? latest`; `latest` for a repair, which
-   * replaces a window that fell behind with the log's newest rows.
-   */
-  readonly opensAt: "resume" | "latest";
-  /** The one position the stream refused, which the read never opens at again. */
-  readonly refusedCursor: EventCursor | undefined;
-  /** The row count the window's read asks for. */
-  readonly pageLimit: number;
-}
+/**
+ * What a read does with the window, never opening the stream at the one position it refused. A
+ * union, so where a repair reopens the stream travels only with a repair.
+ */
+export type SessionWindowOpening =
+  | {
+      /**
+       * `resume` for a window opening, at `acknowledged ?? latest`; `latest` for the snapshot a
+       * stream lost past a hole too wide to fill takes, which replaces the window with the log's
+       * newest rows.
+       */
+      readonly opensAt: "resume" | "latest";
+      /** The one position the stream refused, which the read never opens at again. */
+      readonly refusedCursor: EventCursor | undefined;
+      /** The row count the window's read asks for. */
+      readonly pageLimit: number;
+    }
+  | {
+      /** A repair, which keeps the window and reads only the record. */
+      readonly opensAt: "repair";
+      /** Where the stream reopens. */
+      readonly reopening: RepairReopening;
+      /** The one position the stream refused, which the read never opens at again. */
+      readonly refusedCursor: EventCursor | undefined;
+    };
 
 /**
  * The read a refresh performs: the base state where `opening` places the window.
@@ -95,6 +123,8 @@ export interface OpenSessionEntryOptions {
   readonly projectors?: EntityProjectorTable;
   /** The row count the window's read asks for, read at each read. */
   readonly openingPageLimit: () => number;
+  /** The most rows a window keeps while no screen shows its session, read each time it applies. */
+  readonly offScreenRowLimit: () => number;
   /** Apply-queue coalescing window. `0` means one drain per paint. */
   readonly applyCoalesceMs?: number;
   readonly refreshDebounceMs?: number;
@@ -112,14 +142,20 @@ export class OpenSessionEntry {
    * would grow without bound in a long session.
    */
   #refusedCursor: EventCursor | undefined = undefined;
+  /** Whether the stream was lost past a hole too wide to fill, so the next read is a snapshot. */
+  #isSnapshotOwed = false;
   #streamPosition: SessionStreamPosition | undefined = undefined;
   readonly #streamPositions = new Emitter<SessionStreamPosition>("session stream position");
   readonly #readFailures = new Emitter<void>("session read failure");
   readonly #releaseCauseCapture: () => void;
   readonly #releaseTailRejoin: () => void;
+  readonly #offScreenRowLimit: () => number;
+  /** How many screens show this session now; at none its window keeps the off-screen bound. */
+  #onScreenCount = 0;
 
   public constructor(sessionId: string, options: OpenSessionEntryOptions) {
     const clock = options.clock ?? new RealClock();
+    this.#offScreenRowLimit = options.offScreenRowLimit;
     this.store = new SessionStore({
       sessionId,
       ...(options.projectors === undefined ? {} : { projectors: options.projectors }),
@@ -129,6 +165,7 @@ export class OpenSessionEntry {
       // The only place a batch of wire events reaches the store: the chokepoint is structural.
       drain: (events) => {
         const outcome = this.store.applyBatch(events);
+        this.#boundOffScreenWindow();
         if (needsAuthoritativeRepull(outcome)) {
           // The outcome is the only notice a hole opened. Through the scheduler, so a lossy burst
           // costs one repair and never overlaps a read in flight.
@@ -220,60 +257,102 @@ export class OpenSessionEntry {
   }
 
   /**
-   * The stream can no longer be followed from the window's position, as when it dropped a hole
-   * too wide to fill: the position is forgotten so no stream opens there, an open window is marked
-   * degraded until its repair, and the one read that starts the repair is asked for. Through the
-   * scheduler, so a burst of these costs one read.
+   * Marks the session shown on one screen until the returned call, which ends exactly this mark;
+   * once no mark stands, the window keeps the off-screen bound.
+   */
+  public markOnScreen(): Unsubscribe {
+    this.#onScreenCount += 1;
+    let isEnded = false;
+    return () => {
+      if (isEnded) {
+        return;
+      }
+      isEnded = true;
+      this.#onScreenCount -= 1;
+      this.#boundOffScreenWindow();
+    };
+  }
+
+  /**
+   * The stream dropped a hole too wide to fill: it is lost, and the read that repairs the window
+   * is a snapshot of the log's newest rows.
    */
   public loseStream(): void {
-    this.#streamPosition = undefined;
-    if (this.store.snapshot().initialized) {
-      this.store.markDegraded("stream-diverged");
-    }
-    this.refreshScheduler.request("gap-repull");
+    this.#isSnapshotOwed = true;
+    this.#forgetStream();
   }
 
   /**
    * The stream refused the position it was opened after, so the log no longer resolves it: the
-   * stream is lost, and no read opens the window there again.
+   * stream is lost, and no read opens it there again.
    */
   public refuseStreamCursor(cursor: EventCursor): void {
     this.#refusedCursor = cursor;
-    this.loseStream();
+    this.#forgetStream();
   }
 
   /**
-   * One refresh: the read where this store's state places the window, then the stream moved
-   * after it when the store took the base state. Rows the replaced stream left queued are dropped
-   * once a live store takes a base: the stream opened after the base sends what the base lacks,
-   * and a stale row drained first would fold ahead of rows still to come.
+   * One refresh: the read this store's state asks for, then the stream moved after it when the
+   * store took the base state. A whole store takes none, so none is made: a gap or a lost stream
+   * marks the store degraded before it asks. Rows the replaced stream left queued are dropped once
+   * a live store takes a base: the stream opened after the base sends what the base lacks, and a
+   * stale row drained first would fold ahead of rows still to come.
    */
   async #performRead(
     options: OpenSessionEntryOptions,
     sessionId: string,
     reasons: readonly RefreshReason[],
   ): Promise<void> {
-    const baseState = await options.read(sessionId, reasons, this.#nextOpening(options));
+    if (!admitsBaseState(this.store.snapshot())) {
+      return;
+    }
+    const opening = this.#nextOpening(options);
+    const baseState = await options.read(sessionId, reasons, opening);
     if (baseState === undefined) {
       return;
     }
     const wasInitialized = this.store.snapshot().initialized;
-    if (!this.store.initialize(baseState)) {
+    const isTaken =
+      opening.opensAt === "repair"
+        ? this.store.repair(baseState, opening.reopening)
+        : this.store.initialize(baseState);
+    if (!isTaken) {
       return;
     }
+    this.#boundOffScreenWindow();
+    // The stream this read opens replaces the lost one, so no snapshot is owed past it.
+    this.#isSnapshotOwed = false;
     if (wasInitialized) {
       this.applyQueue.discardPending();
     }
     this.#moveStream({ afterCursor: baseState.streamAfterCursor, afterSequence: baseState.cursor });
   }
 
-  /** A store that holds a window repairs it at the log's newest rows; one holding none opens. */
+  /**
+   * A store holding no window opens one; a lost stream owes a snapshot; any other repair reopens
+   * the stream after the row the store names, else at the window's head. A head the stream refused
+   * leaves nothing to reopen at, so that repair is a snapshot too.
+   */
   #nextOpening(options: OpenSessionEntryOptions): SessionWindowOpening {
-    return {
-      opensAt: this.store.snapshot().initialized ? "latest" : "resume",
-      refusedCursor: this.#refusedCursor,
-      pageLimit: options.openingPageLimit(),
-    };
+    const refusedCursor = this.#refusedCursor;
+    const state = this.store.snapshot();
+    const windowRead = { refusedCursor, pageLimit: options.openingPageLimit() };
+    if (!state.initialized) {
+      return { opensAt: "resume", ...windowRead };
+    }
+    if (this.#isSnapshotOwed) {
+      return { opensAt: "latest", ...windowRead };
+    }
+    const rowCursor = this.store.repairResumeRowCursor;
+    if (rowCursor !== undefined && rowCursor !== refusedCursor) {
+      return { opensAt: "repair", reopening: { from: "row", rowCursor }, refusedCursor };
+    }
+    const head = state.transcriptHead;
+    const headCursor = head.hasMore ? head.cursor : undefined;
+    if (headCursor !== undefined && headCursor === refusedCursor) {
+      return { opensAt: "latest", ...windowRead };
+    }
+    return { opensAt: "repair", reopening: { from: "head", headCursor }, refusedCursor };
   }
 
   /**
@@ -294,6 +373,26 @@ export class OpenSessionEntry {
     this.#moveStream({ afterCursor: heldRowCursor(newest), afterSequence: newest.sequence });
   }
 
+  /**
+   * The stream can no longer be followed from the window's position: the position is forgotten
+   * so no stream opens there, an open window is marked degraded until its repair, and the one read
+   * that starts the repair is asked for. Through the scheduler, so a burst of these costs one read.
+   */
+  #forgetStream(): void {
+    this.#streamPosition = undefined;
+    if (this.store.snapshot().initialized) {
+      this.store.markDegraded("stream-diverged");
+    }
+    this.refreshScheduler.request("gap-repull");
+  }
+
+  /** A window no screen shows lets go of all but its newest rows past the off-screen bound. */
+  #boundOffScreenWindow(): void {
+    if (this.#onScreenCount === 0) {
+      this.store.releaseBeyondNewest(this.#offScreenRowLimit());
+    }
+  }
+
   /** Name where the stream opens next, for a stream bound later and for the subscriber now. */
   #moveStream(position: SessionStreamPosition): void {
     this.#streamPosition = position;
@@ -303,11 +402,11 @@ export class OpenSessionEntry {
 
 /**
  * Whether one `applyBatch` lost rows the stream still holds, so an authoritative re-read is owed:
- * it replaces the window with the log's newest rows. Read off the outcome, not the sticky degraded
- * cause, which would make every batch after the first look repair-worthy. The other counts are
- * absent on purpose: a duplicate or another session's row leaves no hole, and a row whose sequence
- * diverged or whose projector threw can come again on the reopened stream and fail again, so
- * asking at once could read in a loop. Those leave it degraded until a person asks again.
+ * it repairs the window and the stream sends them again. Read off the outcome, not the sticky
+ * degraded cause, which would make every batch after the first look repair-worthy. The other
+ * counts are absent on purpose: a duplicate or another session's row leaves no hole, and a row
+ * whose sequence diverged or whose projector threw comes again on the replay and fails again, so
+ * asking would replay in a loop. Those leave it degraded until a person asks again.
  */
 function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
   return outcome.gapDetected || outcome.droppedBeforeInitialization > 0;

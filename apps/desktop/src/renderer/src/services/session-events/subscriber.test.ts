@@ -19,7 +19,11 @@ import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
-import { OPENING_PAGE_LIMIT, openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import {
+  OPENING_PAGE_LIMIT,
+  openingPageLimit,
+  offScreenRowLimit,
+} from "#test/helpers/session/store/fixtures.js";
 import { SessionEventSubscriber } from "./subscriber.js";
 import {
   PAST_EVERY_BEAT_MS,
@@ -90,6 +94,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
       },
       clock: engine.clock,
       openingPageLimit,
+      offScreenRowLimit,
       refreshDebounceMs: 0,
     });
     const subscriber = new SessionEventSubscriber({ registry, bridge });
@@ -138,6 +143,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
       read: sessionReadThroughDaemon(bridge),
       clock: engine.clock,
       openingPageLimit,
+      offScreenRowLimit,
       refreshDebounceMs: 0,
     });
     const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });

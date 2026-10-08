@@ -2,14 +2,14 @@
 // loss rather than the absence of a crash, since not throwing is not behaving correctly: an event
 // that came early, one addressed elsewhere, one that skipped or repeated a sequence, a subscriber
 // writing back during notification, a sequence cursor arithmetic cannot carry, a buffer whose read
-// never came, and a projector that throws. A read landing on a store that already holds a window
-// is `store.repair.test.ts`.
+// never came, a projector that throws, and a read whose rows imply entities. A read landing on a
+// store that already holds a window is `store.repair.test.ts`.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
-import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
+import type { EntityMutation, ProjectedSessionEvent } from "./entities/vocabulary.js";
 import { PRE_INITIALIZATION_BUFFER_CAP } from "./caps.js";
 import { SessionStore } from "./store.js";
 
@@ -249,6 +249,89 @@ describe("a registered projector throws on an event", () => {
 
     expect(outcome.projectionFailures).toBe(1);
     expect(store.snapshot().partitions.run).toStrictEqual({});
+    expect(store.snapshot().degradedCause).toBe("projection-failed");
+  });
+});
+
+describe("a read places a window whose rows imply entities", () => {
+  // Each run row states its run in the state its kind names, its body naming the row it came
+  // from; a row of `run-unreadable` throws.
+  function storeProjectingRunRows(): SessionStore {
+    const projectRunRow =
+      (state: string) =>
+      (event: ProjectedSessionEvent): readonly EntityMutation[] => {
+        const runId = String(event.payload?.["runId"]);
+        if (runId === "run-unreadable") {
+          throw new TypeError("the payload was not the shape this projector claims");
+        }
+        return [
+          {
+            operation: "upsert",
+            entity: { kind: "run", id: runId, state, body: { sequence: event.sequence } },
+          },
+        ];
+      };
+    return new SessionStore({
+      sessionId: "session-1",
+      projectors: {
+        "run.running": projectRunRow("running"),
+        "run.completed": projectRunRow("completed"),
+      },
+    });
+  }
+
+  function runRowAt(kind: string, sequence: number, runId: string): ProjectedSessionEvent {
+    return eventOfKind("session-1", kind, sequence, { runId });
+  }
+
+  it("projects the runs its rows imply, an ended one too, under the read's records", () => {
+    const store = storeProjectingRunRows();
+
+    store.initialize({
+      cursor: 3,
+      entities: [
+        {
+          kind: "run",
+          id: "run-live",
+          state: "waiting",
+          touchedAt: "2026-10-08T12:00:00.000Z",
+          body: { agentId: "agent-1" },
+        },
+      ],
+      transcript: [
+        runRowAt("run.running", 1, "run-ended"),
+        runRowAt("run.completed", 2, "run-ended"),
+        runRowAt("run.running", 3, "run-live"),
+      ],
+    });
+
+    // The record names live runs only, so the ended run comes from its rows alone.
+    expect(store.snapshot().partitions.run).toStrictEqual({
+      "run-ended": { kind: "run", id: "run-ended", state: "completed", body: { sequence: 2 } },
+      "run-live": {
+        kind: "run",
+        id: "run-live",
+        state: "waiting",
+        touchedAt: "2026-10-08T12:00:00.000Z",
+        body: { sequence: 3, agentId: "agent-1" },
+      },
+    });
+    expect(store.snapshot().degradedCause).toBeUndefined();
+  });
+
+  it("names a read row a projector threw on, keeping what the other rows imply", () => {
+    const store = storeProjectingRunRows();
+
+    store.initialize({
+      cursor: 2,
+      entities: [],
+      transcript: [
+        runRowAt("run.running", 1, "run-unreadable"),
+        runRowAt("run.running", 2, "run-a"),
+      ],
+    });
+
+    expect(Object.keys(store.snapshot().partitions.run)).toStrictEqual(["run-a"]);
     expect(store.snapshot().degradedCause).toBe("projection-failed");
   });
 });

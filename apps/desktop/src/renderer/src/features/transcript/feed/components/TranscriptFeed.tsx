@@ -11,7 +11,7 @@ import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowS
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
-import { type TranscriptPageRead } from "../../history/reader.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";

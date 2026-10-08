@@ -1,19 +1,27 @@
 // The fixture daemon's `transcript.read`: a window of the log this playback has delivered, read by
 // the daemon's rules, so a store opens on rows the stream fixture then follows without a gap. A
 // cursor is a log position: `afterCursor` reads the rows after it forward, `beforeCursor` the rows
-// at or below it backward, newest first chosen, and both the rows between them, read forward. Rows
-// run oldest to newest either way and carry the turn stamps `turn-attribution.fixture.ts` folds.
+// at or below it backward, nearest the cursor first chosen, and both the rows between them, read
+// forward. Rows run oldest to newest either way and carry the turn stamps
+// `turn-attribution.fixture.ts` folds. A page stops at the limit or the page byte budget, whichever
+// trips first; a cursor past the newest delivered row is refused, as the daemon refuses it.
 //
-// A scenario's record names the whole script's newest position while the playback has delivered a
-// prefix of it, so a `beforeCursor` past what has been delivered reads up to the newest delivered
-// row, where the daemon, whose record and log agree, would refuse it. An `afterCursor` past it is
-// refused as the daemon refuses it. The answer is a candidate the response schema judges, as a
+// A scenario scripts its `session.read` record once, for the whole script, while the playback has
+// delivered a prefix of it, so the record's log positions are read from the delivered log too: the
+// daemon's record and log agree. The answer is a candidate the response schema judges, as a
 // scripted reply is.
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  EVENT_CURSOR_UNRESOLVABLE_CODE,
+  EventCursorUnresolvableError,
+  START_OF_LOG_POSITION,
+  decodeEventCursor,
+  encodeEventCursor,
+  type EventCursor,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { START_OF_LOG_POSITION, decodeEventCursor, encodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import {
   TRANSCRIPT_READ_LIMIT_MAX,
   TranscriptReadRequestSchema,
@@ -23,6 +31,7 @@ import {
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
 } from "@ai-sidekicks/contracts/transcript/row";
 
+import { isWireRecord } from "#renderer/lib/wire/record.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { ScenarioEngine } from "../engine.fixture.js";
 import type { ScenarioRefusalEnvelope } from "./reply.fixture.js";
@@ -32,8 +41,8 @@ import {
 } from "./turn-attribution.fixture.js";
 
 /**
- * Answer one `transcript.read` from the delivered log. Throws the wire's refusal for an
- * `afterCursor` the log does not reach, as the stream fixture refuses a cursor it never delivered.
+ * Answer one `transcript.read` from the delivered log. Throws the wire's refusal for a cursor that
+ * names no position or one past the newest delivered row.
  */
 export function readScenarioTranscript(engine: ScenarioEngine, request: unknown): unknown {
   const { afterCursor, beforeCursor, limit } = TranscriptReadRequestSchema.parse(request);
@@ -42,35 +51,85 @@ export function readScenarioTranscript(engine: ScenarioEngine, request: unknown)
   const afterPosition =
     afterCursor === undefined ? START_OF_LOG_POSITION : positionWithin(afterCursor, head);
   const beforePosition =
-    beforeCursor === undefined ? undefined : Math.min(decodeEventCursor(beforeCursor), head);
+    beforeCursor === undefined ? undefined : positionWithin(beforeCursor, head);
   const pageLimit = limit ?? TRANSCRIPT_READ_LIMIT_MAX;
   if (beforePosition !== undefined && afterCursor === undefined) {
-    const candidates = log.filter((event) => event.sequence <= beforePosition);
-    const stretch = candidates.slice(-pageLimit);
-    const oldest = stretch[0];
-    const entries = rowsOf(log, stretch);
-    return candidates.length > stretch.length && oldest !== undefined
-      ? { entries, hasMore: true, nextCursor: encodeEventCursor(oldest.sequence - 1) }
-      : { entries, hasMore: false };
+    return readBackward(log, beforePosition, pageLimit);
   }
-  const candidates = log.filter(
-    (event) =>
-      event.sequence > afterPosition &&
-      (beforePosition === undefined || event.sequence <= beforePosition),
-  );
-  const stretch = candidates.slice(0, pageLimit);
-  const nextCursor = encodeEventCursor(stretch.at(-1)?.sequence ?? afterPosition);
+  return readForward(log, afterPosition, beforePosition, pageLimit);
+}
+
+/**
+ * A scripted `session.read` record with its log positions read from the delivered log, as the
+ * daemon's are: `latest` the newest delivered row, and `acknowledged` kept once it is delivered.
+ * Any other reply is answered as scripted.
+ */
+export function withDeliveredTranscriptCursors(engine: ScenarioEngine, record: unknown): unknown {
+  if (!isWireRecord(record) || !isWireRecord(record["transcriptCursors"])) {
+    return record;
+  }
+  const cursors = record["transcriptCursors"];
+  const log = engine.deliveredEvents();
+  const acknowledged = cursors["acknowledged"];
+  const isAcknowledgedDelivered = log.some((event) => event.cursor === acknowledged);
   return {
-    entries: rowsOf(log, stretch),
-    hasMore: candidates.length > stretch.length,
-    nextCursor,
+    ...record,
+    transcriptCursors: {
+      earliest: cursors["earliest"],
+      latest: log.at(-1)?.cursor ?? encodeEventCursor(START_OF_LOG_POSITION),
+      ...(isAcknowledgedDelivered ? { acknowledged } : {}),
+    },
   };
 }
 
-/** A cursor's position, or the daemon's refusal when it names one past the log's newest row. */
+/** The oldest rows after `afterPosition`, up to `beforePosition` when one bounds the window. */
+function readForward(
+  log: readonly ProjectedSessionEvent[],
+  afterPosition: number,
+  beforePosition: number | undefined,
+  limit: number,
+): unknown {
+  const candidates = log
+    .filter((event) => event.sequence > afterPosition)
+    .slice(0, limit + 1)
+    .filter((event) => beforePosition === undefined || event.sequence <= beforePosition);
+  const stretch = candidates.slice(0, limit);
+  const rows = rowsOf(log, stretch);
+  // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`.
+  const pageCount = countEntriesFittingOneFrame(rows, limit);
+  const newestKept = stretch[pageCount - 1];
+  return {
+    entries: rows.slice(0, pageCount),
+    hasMore: pageCount < candidates.length,
+    // An empty page leaves the reader where it asked to read after.
+    nextCursor: encodeEventCursor(newestKept === undefined ? afterPosition : newestKept.sequence),
+  };
+}
+
+/** The newest rows at or below `beforePosition`, returned oldest first. */
+function readBackward(
+  log: readonly ProjectedSessionEvent[],
+  beforePosition: number,
+  limit: number,
+): unknown {
+  const candidates = log.filter((event) => event.sequence <= beforePosition).slice(-(limit + 1));
+  const stretch = candidates.slice(-limit);
+  const rows = rowsOf(log, stretch);
+  // Counted from the newest end, so a budget cut drops the rows farthest from the cursor.
+  const pageCount = countEntriesFittingOneFrame([...rows].reverse(), limit);
+  const entries = rows.slice(rows.length - pageCount);
+  const oldestKept = stretch[stretch.length - pageCount];
+  // Every candidate made the page: it reached the start of the log, so no earlier window remains.
+  if (pageCount === candidates.length || oldestKept === undefined) {
+    return { entries, hasMore: false };
+  }
+  return { entries, hasMore: true, nextCursor: encodeEventCursor(oldestKept.sequence - 1) };
+}
+
+/** A cursor's position, or the daemon's refusal when it names none or one past `head`. */
 function positionWithin(cursor: EventCursor, head: number): number {
-  const position = decodeEventCursor(cursor);
-  if (position > head) {
+  const position = decodedPosition(cursor);
+  if (position === undefined || position > head) {
     const refusal: ScenarioRefusalEnvelope = {
       code: EVENT_CURSOR_UNRESOLVABLE_CODE,
       message: "That cursor is not in this session's log.",
@@ -80,31 +139,28 @@ function positionWithin(cursor: EventCursor, head: number): number {
   return position;
 }
 
+/** The position `cursor` names, or `undefined` for one that names none. */
+function decodedPosition(cursor: EventCursor): number | undefined {
+  try {
+    return decodeEventCursor(cursor);
+  } catch (error) {
+    if (error instanceof EventCursorUnresolvableError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 /**
- * The rows of `stretch`, attributed by a fold over `log` from its start, which is how the daemon
- * seeds a run first met partway through the log.
+ * The rows of `stretch`, stamped by one fold over the stretch alone that seeds each run from the
+ * delivered log, as the daemon's read projects its window.
  */
 function rowsOf(
   log: readonly ProjectedSessionEvent[],
   stretch: readonly ProjectedSessionEvent[],
 ): readonly unknown[] {
-  const newestSequence = stretch.at(-1)?.sequence;
-  if (newestSequence === undefined) {
-    return [];
-  }
-  const oldestSequence = stretch[0]!.sequence;
-  const attribution = ScenarioTurnAttribution.seededWithRollbacksOf(log);
-  const rows: unknown[] = [];
-  for (const event of log) {
-    if (event.sequence > newestSequence) {
-      break;
-    }
-    const attributed = attribution.attribute(event);
-    if (event.sequence >= oldestSequence) {
-      rows.push(rowOf(event, attributed));
-    }
-  }
-  return rows;
+  const attribution = new ScenarioTurnAttribution(() => log);
+  return stretch.map((event) => rowOf(event, attribution.attribute(event)));
 }
 
 /** One delivered event as the daemon projects it into a row: general, run or rollback boundary. */

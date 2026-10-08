@@ -1,20 +1,29 @@
-// The window's session read: the daemon's `session.read`, then one `transcript.read` window of the
-// log, and the stream opened after the window's newest row. A window opens where the resume rule
-// says, `acknowledged ?? latest`; a repair opens it at `latest`. The record's live runs become the
-// run entities, since a window opened below a run's events never reads the events that set its
-// state. Every position is relayed as the daemon issued it and never read for a sequence: the
-// window's rows carry their own.
+// The window's session read: the daemon's `session.read`, then, for a read that places the window,
+// one `transcript.read` window of the log, and the stream opened after the window's newest row. A
+// window opens where the resume rule says, `acknowledged ?? latest`; a snapshot opens it at
+// `latest`. A repair keeps the window and reads only the record, the stream reopened where the
+// opening says. The record's live runs become the run entities, since a window opened below a
+// run's events never reads the events that set its state. Every position is relayed as the daemon
+// issued it and never read for a sequence: the window's rows carry their own.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 
 import { callDaemon, unwrapDaemonReply } from "../../reply.js";
-import { readTranscriptPage, type TranscriptPage } from "../../transcript-page.js";
+import {
+  readTranscriptPage,
+  transcriptPageReadThroughDaemon,
+  type TranscriptPage,
+} from "../../transcript-page.js";
 import { readSessionId } from "../../wire/identifiers.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 import { projectLiveRun } from "#renderer/store/session/events/run/lifecycle-projector.js";
-import { heldRowCursor, type SessionBaseState } from "#renderer/store/session/state.js";
+import {
+  heldRowCursor,
+  type RepairReopening,
+  type SessionBaseState,
+} from "#renderer/store/session/state.js";
 import {
   type SessionBaseStateReader,
   type SessionWindowOpening,
@@ -25,9 +34,10 @@ const SESSION_READ_ORIGIN = "session-read";
 
 /**
  * The read that gives a session store its base state, through one bridge: the record, then the
- * window at the position `opening` names, which the stream is then opened after. A refusal of
- * either call is raised so the store's refresh scheduler marks the session degraded instead of
- * reading nothing.
+ * window at the position `opening` names, or for a repair the record alone, the stream then opened
+ * where the base state says. A refusal of either call, or a read whose stream could open only at
+ * the position the stream refused, is raised so the store's refresh scheduler marks the session
+ * degraded instead of reading nothing.
  */
 export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseStateReader {
   return async (sessionId, _reasons, opening): Promise<SessionBaseState> => {
@@ -40,16 +50,19 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
     const record = unwrapDaemonReply(
       await callDaemon(bridge, "session.read", { sessionId: wireSessionId }),
     );
+    if (opening.opensAt === "repair") {
+      return repairBaseStateOf(record, opening.reopening, opening.refusedCursor);
+    }
     const page = readTranscriptPage(
       unwrapDaemonReply(
-        await callDaemon(bridge, "transcript.read", {
+        await transcriptPageReadThroughDaemon(bridge)({
           sessionId: wireSessionId,
           beforeCursor: openingCursorOf(record.transcriptCursors, opening),
           limit: opening.pageLimit,
         }),
       ),
     );
-    return baseStateOf(record, page, opening.refusedCursor);
+    return windowBaseStateOf(record, page, opening.refusedCursor);
   };
 }
 
@@ -59,7 +72,7 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
  */
 function openingCursorOf(
   cursors: SessionReadResponse["transcriptCursors"],
-  opening: SessionWindowOpening,
+  opening: Extract<SessionWindowOpening, { readonly opensAt: "resume" | "latest" }>,
 ): EventCursor {
   const { acknowledged } = cursors;
   return opening.opensAt === "resume" &&
@@ -72,22 +85,53 @@ function openingCursorOf(
 /**
  * The base state one record and its window establish. The stream opens after the window's newest
  * row; a window with no rows holds nothing at or before its position, so the stream opens after
- * `earliest`, the position before the oldest surviving event. Past a refused position the stream
- * opens at the log's start, with no position.
+ * `earliest`, the position before the oldest surviving event.
  */
-function baseStateOf(
+function windowBaseStateOf(
   record: SessionReadResponse,
   page: TranscriptPage,
   refusedCursor: EventCursor | undefined,
 ): SessionBaseState {
   const newest = page.events.at(-1);
-  const streamAfterCursor =
-    newest === undefined ? record.transcriptCursors.earliest : heldRowCursor(newest);
+  const streamAfterCursor = openableCursor(
+    newest === undefined ? record.transcriptCursors.earliest : heldRowCursor(newest),
+    refusedCursor,
+  );
   return {
     ...(newest === undefined ? {} : { cursor: newest.sequence }),
     entities: record.liveRuns.map(projectLiveRun),
     transcript: page.events,
-    ...(streamAfterCursor === refusedCursor ? {} : { streamAfterCursor }),
+    streamAfterCursor,
     transcriptHead: page.edge,
   };
+}
+
+/**
+ * The base state a repair takes: the record's live runs, and the stream reopened after the row the
+ * repair names, or before the window's head, `earliest` standing for a window that opened at the
+ * log's floor.
+ */
+function repairBaseStateOf(
+  record: SessionReadResponse,
+  reopening: RepairReopening,
+  refusedCursor: EventCursor | undefined,
+): SessionBaseState {
+  const position =
+    reopening.from === "row"
+      ? reopening.rowCursor
+      : (reopening.headCursor ?? record.transcriptCursors.earliest);
+  return {
+    entities: record.liveRuns.map(projectLiveRun),
+    streamAfterCursor: openableCursor(position, refusedCursor),
+  };
+}
+
+/** `cursor`, unless it is the position the stream refused, which no read opens it at again. */
+function openableCursor(cursor: EventCursor, refusedCursor: EventCursor | undefined): EventCursor {
+  if (cursor === refusedCursor) {
+    throw new RefusalError(
+      refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
+    );
+  }
+  return cursor;
 }

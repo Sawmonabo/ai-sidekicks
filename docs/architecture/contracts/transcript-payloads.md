@@ -88,8 +88,11 @@ type TranscriptRollbackBoundary = Omit<TranscriptEventRowBase, "category" | "typ
 type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union every transcript surface returns — TranscriptReadResponse.entries and ChildRunExpandResponse.entries are both TranscriptEventRow — genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
 
 // The run stamp a session.subscribe change carries for an event of a run (Plan-010 T2.4): the same
-// position, epoch and superseded marker the event's transcript.read row carries, computed by the one
-// projection fold, so a row delivered live and the same row read in a window agree by construction.
+// position, epoch and superseded marker the event's transcript.read row carries, because the daemon
+// computes both from one projection fold. A client marks the rows it already holds when a
+// run.rolled_back boundary arrives: a held row of that run at the rollback's epoch or an earlier one
+// is superseded above the lowest cut of every rollback of the run at its epoch or later, the rule the
+// daemon's fold applies (`addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`).
 type TranscriptRunStamp = {
   position: number;
   epoch: number;

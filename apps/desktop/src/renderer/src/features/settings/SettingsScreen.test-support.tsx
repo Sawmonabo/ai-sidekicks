@@ -21,7 +21,7 @@ import { registerSettingsScreen } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./pages/registry.js";
 import { ScreenRegistry, type ScreenDescriptor } from "#renderer/registries/screens/registry.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
-import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar.
@@ -108,6 +108,7 @@ export function windowAt(
       // No session is opened on it, the ordinary case for a settings window.
       sessionStoreRegistry: new SessionStoreRegistry({
         openingPageLimit,
+        offScreenRowLimit,
         read: () => Promise.resolve(undefined),
       }),
       paneRegistry: new PaneRegistry(),

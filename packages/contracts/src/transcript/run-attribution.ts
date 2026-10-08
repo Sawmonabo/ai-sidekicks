@@ -1,7 +1,15 @@
 // Which run an event payload names. It reads the open record every event carries, so the daemon's
 // projection and any client reading raw events file a row under the same run.
 
-import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "./row.js";
+/**
+ * The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
+ * Both are checked, since a guard reading only `runId` would let intervention rows through the
+ * `general` arm.
+ */
+export const TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.freeze([
+  "runId",
+  "targetRunId",
+] as const);
 
 /**
  * The run a payload belongs to: the first non-empty string among `runId` and `targetRunId`, or

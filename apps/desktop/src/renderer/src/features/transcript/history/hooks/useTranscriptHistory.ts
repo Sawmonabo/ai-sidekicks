@@ -7,13 +7,14 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type WindowSide } from "../../viewport/window-cap.js";
 import {
   TranscriptHistoryReader,
   type TranscriptHistoryState,
-  type TranscriptPageRead,
   type TranscriptStretchMeasure,
 } from "../reader.js";
 
@@ -38,10 +39,12 @@ export function useTranscriptHistory(
   readPage: TranscriptPageRead | undefined,
 ): TranscriptHistory | undefined {
   const bridge = usePlatformBridge();
+  // The clock moves with the bridge, as the reader does.
+  const clock = useBridgeClock();
   const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,
-    () => new TranscriptHistoryReader(sessionStore),
+    () => new TranscriptHistoryReader(sessionStore, clock),
     TRANSCRIPT_HISTORY_READER_DISPOSAL,
   );
   const reader = held.value;

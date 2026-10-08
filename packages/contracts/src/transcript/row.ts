@@ -26,6 +26,7 @@ import { type EventCursor } from "../session/event-cursor.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
 import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./limits.js";
+import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcriptRunIdOf } from "./run-attribution.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** The event type the `rollback_boundary` arm pins, as registered in `SessionEventType`. */
@@ -36,16 +37,6 @@ export const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
  * type in it is run-scoped, which is why the `general` arm refuses the category outright.
  */
 export const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY = "run_lifecycle" as const;
-
-/**
- * The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
- * Both are checked, since a guard reading only `runId` would let intervention rows through the
- * `general` arm.
- */
-export const TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.freeze([
-  "runId",
-  "targetRunId",
-] as const);
 
 /**
  * The `interactive_request` types whose payload does not always name a run: queue events
@@ -95,9 +86,9 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
 /**
  * Every event type whose payload always names a run, built from the run-scoped category arrays in
  * `../event/registry.js` so a type added there joins on its own. The `assistant_output` types are
- * left to the payload: a voice call's spoken answer comes outside any run. The `general` arm refuses these
- * by type because a projected payload is a summary that may omit `runId`, as a `tool.result`
- * row's can.
+ * left to the payload: a voice call's spoken answer comes outside any run. The `general` arm
+ * refuses these by type because a projected payload is a summary that may omit `runId`, as a
+ * `tool.result` row's can.
  */
 export const TRANSCRIPT_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
   ...RUN_LIFECYCLE_EVENT_TYPES,
@@ -315,10 +306,11 @@ const refuseRunScopedRowOnGeneralArm = (
     });
     return;
   }
+  const carriedRunId = transcriptRunIdOf(row.payload);
   const carriedRunKey = TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS.find(
-    (payloadKey) => row.payload[payloadKey] !== undefined,
+    (payloadKey) => row.payload[payloadKey] === carriedRunId,
   );
-  if (carriedRunKey !== undefined) {
+  if (carriedRunId !== undefined && carriedRunKey !== undefined) {
     issueContext.addIssue({
       code: "custom",
       path: ["payload", carriedRunKey],

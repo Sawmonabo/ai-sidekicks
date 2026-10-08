@@ -14,7 +14,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { SessionStore } from "#renderer/store/session/store.js";
-import { type TranscriptPageRead } from "./history/reader.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
 
 /** The paged session's whole log as the daemon holds it, and every read it was asked. */
 export interface ScriptedTranscriptLog {

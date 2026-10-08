@@ -34,7 +34,7 @@ import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { WindowStore } from "#renderer/store/window/store.js";
 import { createWorkflowCommandTargets, type WorkflowCommandTargets } from "./command-target.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
-import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
 
 /**
  * A mounted workflows screen: the window store it routes by, what it asked the daemon, the bridge
@@ -88,6 +88,7 @@ export async function mountWorkflowsScreen(
     sessionStore: undefined,
     sessionStoreRegistry: new SessionStoreRegistry({
       openingPageLimit,
+      offScreenRowLimit,
       read: () => Promise.resolve(undefined),
       projectors: {},
     }),

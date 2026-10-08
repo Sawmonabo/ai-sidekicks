@@ -10,7 +10,7 @@ import {
   type StoredEntity,
   type ProjectedSessionEvent,
 } from "./entities/vocabulary.js";
-import { mergeUpsert, type SessionPartitions } from "./entities/partitions.js";
+import type { SessionPartitions } from "./entities/partitions.js";
 import { UNPLACED_CURSOR, type SequenceGap } from "./sequence-reconciler.js";
 
 /** One end of the transcript the store holds. */
@@ -44,8 +44,8 @@ export interface SessionStoreState {
   /**
    * The window of the session's log the store holds, oldest to newest, between
    * {@link transcriptHead} and {@link transcriptTail}. A bounded share of the log: the reader's
-   * pages grow it at either edge and `releaseOutside` lets go of what lies far from the reading
-   * position.
+   * pages grow it at either edge, `releaseOutside` lets go of what lies far from the reading
+   * position, and a session no screen shows keeps only its newest rows.
    */
   readonly transcript: readonly ProjectedSessionEvent[];
   /**
@@ -54,6 +54,12 @@ export interface SessionStoreState {
    * the tail is detached.
    */
   readonly cursor: number;
+  /**
+   * The daemon-issued position of the row at {@link cursor}, or of the base state before the stream
+   * admits one, which a stream reopened with nothing to replay opens after. Absent at the log's
+   * start. Kept apart from the transcript because a detached tail holds no row at the cursor.
+   */
+  readonly streamAfterCursor: EventCursor | undefined;
   /** The oldest end of the window and how a read before it is asked. */
   readonly transcriptHead: TranscriptWindowEdge;
   /** The newest end of the window, how a read after it is asked, and whether it is live. */
@@ -67,6 +73,11 @@ export interface SessionStoreState {
   /** Sticky while the projection is known-incomplete; cleared only by a read that repairs it. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
+   * Whether a repair read landed and its replay is still folding toward the rows this window
+   * holds. The window keeps its rows and its cause until the replay passes them.
+   */
+  readonly isReplaying: boolean;
+  /**
    * Whether the newest read of this session failed. Set beside the worst cause because the
    * ladder keeps a worse cause standing over `read-failed`, yet the person must still be told
    * the repair read failed. Cleared by the next read that lands.
@@ -78,9 +89,9 @@ export interface SessionStoreState {
    */
   readonly readFailureCount: number;
   /**
-   * How many times a cause the stream raises again (`isRaisedAgainOnReplay`) came to stand on this
-   * store, so a retry that ends there again is a new failure. Never reset, like
-   * {@link readFailureCount}.
+   * How many times a cause a replay raises again came to stand on this window, newly or at the
+   * end of a replay that failed on the same row, so a retry that ends there again is a new
+   * failure. Never reset, like {@link readFailureCount}.
    */
   readonly raisedAgainCauseCount: number;
   /**
@@ -88,9 +99,37 @@ export interface SessionStoreState {
    * bounded by `MAX_REPAIRABLE_SEQUENCE_GAP`.
    */
   readonly gaps: readonly SequenceGap[];
+  /** Where a repair of this window can take the stream up again; see {@link RepairResumePoint}. */
+  readonly repairResumePoint: RepairResumePoint;
+  /**
+   * How many reads have placed this window: the first, and each snapshot that replaced it whole.
+   * A view keyed on it meets each window a read placed, which a page, a release or a repair that
+   * keeps the window never moves.
+   */
+  readonly windowPlacementCount: number;
   /** Monotonic transition counter, so a test can assert coalescing by counting. */
   readonly revision: number;
 }
+
+/**
+ * Where a repair can take a window's stream up again. `whole` while every row the stream sent
+ * folded in order with none missing, so the stream reopens after the newest and nothing is
+ * replayed. A `checkpoint` at the last such row before the first row fault (a hole, a sequence
+ * refused, a projector that threw), holding the partitions as they stood there, since a read
+ * carries no projected state: the replay folds only the rows after it. `head` when the fault came
+ * before any row the stream sent, so only a replay from the window's head can repair it.
+ */
+export type RepairResumePoint =
+  | { readonly kind: "whole" }
+  | {
+      readonly kind: "checkpoint";
+      readonly partitions: SessionPartitions;
+      /** The sequence of the last row folded whole. */
+      readonly cursor: number;
+      /** That row's position in the log, which the stream reopens after. */
+      readonly rowCursor: EventCursor;
+    }
+  | { readonly kind: "head" };
 
 /** The base state a read response establishes. */
 export interface SessionBaseState {
@@ -115,8 +154,22 @@ export interface SessionBaseState {
   readonly transcriptHead?: TranscriptWindowEdge;
 }
 
+/**
+ * Where a repair read reopens a degraded window's stream: after the row the window, or its replay,
+ * is taken up after, or at the window's head, `undefined` naming the log's floor.
+ */
+export type RepairReopening =
+  | { readonly from: "row"; readonly rowCursor: EventCursor }
+  | { readonly from: "head"; readonly headCursor: EventCursor | undefined };
+
 /** The edge of a window with nothing beyond it. */
 export const CLOSED_WINDOW_EDGE: TranscriptWindowEdge = { cursor: undefined, hasMore: false };
+
+/** The resume point of a window whose every row folded whole. */
+export const WHOLE_RESUME_POINT: RepairResumePoint = { kind: "whole" };
+
+/** The resume point of a window only a replay from its head can repair. */
+export const HEAD_RESUME_POINT: RepairResumePoint = { kind: "head" };
 
 /**
  * The cursor a held row was stored at, as the daemon issued it. A row's cursor is the position a
@@ -140,8 +193,21 @@ export function liveTailAfter(transcript: readonly ProjectedSessionEvent[]): Tra
 }
 
 /**
+ * The position a repair of `state` reopens the stream after, or `undefined` when only a replay
+ * from the window's head can repair it: the checkpoint's row, else the newest row the stream
+ * admitted, which a whole window is taken up after with nothing replayed.
+ */
+export function repairResumeRowCursor(state: SessionStoreState): EventCursor | undefined {
+  const point = state.repairResumePoint;
+  if (point.kind === "checkpoint") {
+    return point.rowCursor;
+  }
+  return point.kind === "whole" ? state.streamAfterCursor : undefined;
+}
+
+/**
  * Whether a store takes a read's base state. One with no base state takes any. A degraded one
- * takes any too, which replaces its window with the read's. A whole one refuses, since its stream
+ * takes any too, to replace its window or repair it. A whole one refuses, since its stream
  * already delivers what a read would, and a read racing it cannot undo newer events.
  */
 export function admitsBaseState(current: SessionStoreState): boolean {
@@ -174,27 +240,35 @@ export function uninitializedState(input: {
     partitions: emptyPartitions(),
     transcript: [],
     cursor: UNPLACED_CURSOR,
+    streamAfterCursor: undefined,
     transcriptHead: CLOSED_WINDOW_EDGE,
     transcriptTail: liveTailAfter([]),
     lastAdmittedEvents: [],
     degradedCause: undefined,
+    isReplaying: false,
     lastReadFailed: false,
     readFailureCount: 0,
     raisedAgainCauseCount: 0,
     gaps: [],
+    repairResumePoint: WHOLE_RESUME_POINT,
+    windowPlacementCount: 0,
     revision: input.revision,
   };
 }
 
 /**
- * The state one read response establishes, from the ordered transcript the caller already
- * produced and the cursor the reconciler re-based onto. Its tail follows the stream, which opens
- * after the read's newest row. `degradedCause` is cleared here and nowhere else: a completed read
- * is what makes a projection whole.
+ * The state one read response establishes, from the ordered transcript and the partitions its rows
+ * and records project, and the cursor the reconciler re-based onto. Its tail follows the stream,
+ * which opens after the read's newest row. A read clears `degradedCause` here and nowhere else,
+ * since a completed read is what makes a projection whole, unless one of its own rows failed to
+ * project; only a replay from the head folds that row again.
  */
 export function establishedState(input: {
   readonly sessionId: string;
   readonly baseState: SessionBaseState;
+  readonly partitions: SessionPartitions;
+  /** Whether a projector threw on one of the read's rows. */
+  readonly isProjectionFailed: boolean;
   readonly cursor: number;
   readonly orderedTranscript: readonly ProjectedSessionEvent[];
   readonly revision: number;
@@ -202,25 +276,27 @@ export function establishedState(input: {
   readonly readFailureCount: number;
   /** The raised-again causes counted before this read, carried across it. */
   readonly raisedAgainCauseCount: number;
+  /** The reads that placed a window before this one. */
+  readonly windowPlacementCount: number;
 }): SessionStoreState {
-  let partitions: SessionPartitions = emptyPartitions();
-  for (const entity of input.baseState.entities) {
-    partitions = mergeUpsert(partitions, entity);
-  }
   return {
     sessionId: input.sessionId,
     initialized: true,
-    partitions,
+    partitions: input.partitions,
     transcript: input.orderedTranscript,
     cursor: input.cursor,
+    streamAfterCursor: input.baseState.streamAfterCursor,
     transcriptHead: input.baseState.transcriptHead ?? CLOSED_WINDOW_EDGE,
     transcriptTail: liveTailAfter(input.orderedTranscript),
     lastAdmittedEvents: [],
-    degradedCause: undefined,
+    degradedCause: input.isProjectionFailed ? "projection-failed" : undefined,
+    isReplaying: false,
     lastReadFailed: false,
     readFailureCount: input.readFailureCount,
     raisedAgainCauseCount: input.raisedAgainCauseCount,
     gaps: [],
+    repairResumePoint: input.isProjectionFailed ? HEAD_RESUME_POINT : WHOLE_RESUME_POINT,
+    windowPlacementCount: input.windowPlacementCount + 1,
     revision: input.revision,
   };
 }

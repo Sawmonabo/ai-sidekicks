@@ -10,6 +10,7 @@ import {
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
+import type { EpochPosition } from "@ai-sidekicks/contracts/transcript/turn-attribution";
 
 import {
   SessionEventAppender,
@@ -18,12 +19,7 @@ import {
 } from "../../events/session/appender.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
 import type { RunEngine, RunTransitionRequest } from "./engine.js";
-import type {
-  DeliveryAttribution,
-  DeliveryOperation,
-  EpochPosition,
-  ExecutionEpochs,
-} from "./epochs.js";
+import type { DeliveryAttribution, DeliveryOperation, ExecutionEpochs } from "./epochs.js";
 import type { RunRead } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError } from "./refusals.js";
 import { isTerminalState } from "./transitions.js";

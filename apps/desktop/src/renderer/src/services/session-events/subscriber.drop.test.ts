@@ -7,11 +7,11 @@
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
-import type {
-  SessionReadResponse,
-  SessionStreamFrame,
-} from "@ai-sidekicks/contracts/session/methods";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
@@ -22,9 +22,13 @@ import { MAX_REPAIRABLE_SEQUENCE_GAP } from "#renderer/store/session/caps.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
-import { withDaemonCall, withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
+import { withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { OPENING_PAGE_LIMIT, openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import {
+  OPENING_PAGE_LIMIT,
+  openingPageLimit,
+  offScreenRowLimit,
+} from "#test/helpers/session/store/fixtures.js";
 import { composeScenarioEventEnvelope } from "../daemon/event/envelope.fixture.js";
 import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
@@ -62,11 +66,14 @@ function openSessionReader(
     },
     clock,
     openingPageLimit,
+    offScreenRowLimit,
     refreshDebounceMs: 0,
   });
   const subscriber = new SessionEventSubscriber({ registry, bridge, clock });
   subscriber.attach();
   registry.open(SESSION_ID);
+  // On screen, so the store follows the whole stream rather than an off-screen share of it.
+  registry.markOnScreen(SESSION_ID);
   return { registry, subscriber, reasonsSeen, state: () => registry.peek(SESSION_ID)?.snapshot() };
 }
 
@@ -249,22 +256,10 @@ describe("SessionEventSubscriber — the drop mark", () => {
         })),
       },
     });
-    // The record names this log's newest row as `latest`.
-    const { bridge: recording } = withDaemonCall(base, async (call, passThrough) => {
-      const reply = await passThrough();
-      if (call.method !== "session.read") {
-        return reply;
-      }
-      const record = reply as SessionReadResponse;
-      return {
-        ...record,
-        transcriptCursors: { ...record.transcriptCursors, latest: encodeEventCursor(newestRow) },
-      };
-    });
     const opens: unknown[] = [];
     const handlers: ((frame: unknown) => void)[] = [];
     // Every frame is one the case hands over; no open reaches the fixture's stream.
-    const bridge = withDaemonSubscribe(recording, (_passThrough, handler, request) => {
+    const bridge = withDaemonSubscribe(base, (_passThrough, handler, request) => {
       opens.push(request);
       handlers.push(handler);
       return () => undefined;
