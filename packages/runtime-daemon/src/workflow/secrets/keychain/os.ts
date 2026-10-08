@@ -9,7 +9,7 @@
 // answers never settles.
 import { AsyncEntry } from "@napi-rs/keyring";
 
-import type { WorkflowSecretStoreUnavailableCause } from "@ai-sidekicks/contracts/workflow/secret";
+import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
 
@@ -80,6 +80,6 @@ export class OsSecretKeychain implements SecretKeychain {
 }
 
 // Maps the library's error message to the cause the store reports.
-function causeOfKeychainFailure(message: string): WorkflowSecretStoreUnavailableCause {
+function causeOfKeychainFailure(message: string): KeychainRefusalCause {
   return message.startsWith(STORAGE_ACCESS_REFUSED_PREFIX) ? "locked" : "unavailable";
 }

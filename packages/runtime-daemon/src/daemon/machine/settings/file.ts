@@ -25,6 +25,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import { writeFileAtomically } from "../../../atomic-file-write.js";
+import { isMissingFileError } from "../../../missing-file-error.js";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;
@@ -41,10 +42,6 @@ export interface MachineSettingsFileOptions {
 // carry a proxy's credentials.
 const SETTINGS_FILE_MODE = 0o600;
 const SETTINGS_FOLDER_MODE = 0o700;
-
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
 
 /**
  * The machine-settings file with its read, write and repair rules. Every operation reads

@@ -526,7 +526,8 @@ interface WorkflowVersionDiffReadResponse {
 
 // WorkflowRunDelete — workflow.runDelete. Deletes one run's record, its steps and their data, and its
 // capture folder with the run's snapshot points and their base pins; it is not undoable. A run that is
-// `new`, `running` or `waiting` is refused with `workflow.run_not_deletable`, which reads "Cancel it
+// `new`, `running` or `waiting`, and a chain's first run while a later run of its chain is one or is
+// parked on its failed step, is refused with `workflow.run_not_deletable`, which reads "Cancel it
 // first.", and nothing is deleted. The write that deletes the run's rows appends `workflow.run_deleted`, so a
 // rebuild of the runs from the session log leaves the run out. The removal rides workflow.subscribe.
 interface WorkflowRunDeleteRequest {

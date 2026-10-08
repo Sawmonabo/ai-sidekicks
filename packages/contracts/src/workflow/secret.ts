@@ -18,6 +18,10 @@ import {
 } from "../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../project.js";
 import { wireUncappedFreeFormString } from "../free-form-string.js";
+import {
+  KeychainRefusalCauseSchema,
+  type KeychainRefusalCause,
+} from "../provider/account/sign-in.js";
 
 /** A secret record's id. The daemon mints it. */
 export type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" };
@@ -241,17 +245,11 @@ export const WorkflowSecretNotFoundDetailsSchema: z.ZodType<WorkflowSecretNotFou
 export const WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE = "workflow.secret_store_unavailable" as const;
 
 /**
- * Why the keychain could not be used: it is `locked`, or this machine has none the
- * daemon can use (`unavailable`).
+ * The details of {@link WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE}: why the keychain could not be
+ * used.
  */
-export const WORKFLOW_SECRET_STORE_UNAVAILABLE_CAUSES = ["locked", "unavailable"] as const;
-/** One of {@link WORKFLOW_SECRET_STORE_UNAVAILABLE_CAUSES}. */
-export type WorkflowSecretStoreUnavailableCause =
-  (typeof WORKFLOW_SECRET_STORE_UNAVAILABLE_CAUSES)[number];
-
-/** The details of {@link WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE}. */
 export interface WorkflowSecretStoreUnavailableDetails {
-  cause: WorkflowSecretStoreUnavailableCause;
+  cause: KeychainRefusalCause;
 }
 /**
  * Wire schema for {@link WorkflowSecretStoreUnavailableDetails}.
@@ -259,7 +257,7 @@ export interface WorkflowSecretStoreUnavailableDetails {
  * @consumedBy the handler that returns the `workflow.secret_store_unavailable` error
  */
 export const WorkflowSecretStoreUnavailableDetailsSchema: z.ZodType<WorkflowSecretStoreUnavailableDetails> =
-  z.object({ cause: z.enum(WORKFLOW_SECRET_STORE_UNAVAILABLE_CAUSES) }).strict();
+  z.object({ cause: KeychainRefusalCauseSchema }).strict();
 
 // Method descriptors
 

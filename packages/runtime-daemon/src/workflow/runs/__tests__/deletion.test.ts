@@ -2,7 +2,8 @@
 // chain's first run while a later run of the chain is going, without touching a row or the log;
 // leave nothing of a run it deletes while answering the git folder its snapshot refs live in, and
 // append the one deleted event a rebuild of the runs from the log needs to leave it out; and in
-// bulk remove exactly what its preview counted while sparing kept, waiting and parked runs.
+// bulk remove exactly what its preview counted while sparing kept, waiting and parked runs, even a
+// run kept after the delete read it, without losing the runs written beside it.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -195,20 +196,27 @@ describe("deleting runs older than an instant", () => {
     }
   });
 
-  it("leaves a run kept after it was read as deletable, with no deleted event", async () => {
+  it("leaves a run kept after the delete read it and deletes the runs beside it", async () => {
+    const otherRunIds = [
+      await storeRun("succeeded", OLD_START, OLD_FINISH, SETTLED_STEP),
+      await storeRun("failed", OLD_START, OLD_FINISH, FAILED_STEP),
+    ];
     const keptLateRunId = await storeRun("succeeded", OLD_START, OLD_FINISH, SETTLED_STEP);
 
-    // The Keep write is queued first, so it commits before the delete's guard reads the run, while
-    // the delete reads the run before the Keep has committed.
+    // The Keep write is queued first, so it commits before the delete's guards read the runs, while
+    // the delete reads the runs before the Keep has committed; all three share one write.
     const keeping = deletion.setKeep({ workflowRunId: keptLateRunId, keep: true });
     const deleted = await deletion.deleteOlderThan(CUTOFF);
     await keeping;
 
-    expect(deleted).toEqual([]);
+    expect(deleted.map((run) => run.workflowRunId).sort()).toEqual([...otherRunIds].sort());
     expect(readRunRows(database.reader, keptLateRunId)).toMatchObject({
       run: [{ id: keptLateRunId, kept: 1 }],
       steps: [{ status: "succeeded" }],
     });
-    expect(readDeletedEvents()).toEqual([]);
+    for (const workflowRunId of otherRunIds) {
+      expect(readRunRows(database.reader, workflowRunId)).toEqual(NO_ROWS);
+    }
+    expect(readDeletedEvents()).toEqual([...otherRunIds].sort().map(deletedEventOf));
   });
 });

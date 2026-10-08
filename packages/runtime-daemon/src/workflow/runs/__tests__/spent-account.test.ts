@@ -1,4 +1,4 @@
-// A step parked on a spent provider account keeps waiting when that account is removed, so the run
+// A healed session can hold a step parked on a spent provider account removed since, so the run
 // read and the runs-needing-you section must still read: one failed read would blank the run's
 // page and the whole section above the runs table.
 

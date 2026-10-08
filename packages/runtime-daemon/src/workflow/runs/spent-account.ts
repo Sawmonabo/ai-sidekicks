@@ -1,7 +1,8 @@
 // A spent provider account as a waiting step and the runs-needing-you section name it: read from
 // `provider_accounts` beside the step that waits on it, and labeled the way every surface labels
-// an account. A removal that commits just before a step's park on that account lands leaves the
-// wait with no account row, so a read names the account only while its row is stored.
+// an account. Healing a damaged session can bring back a park whose later events are lost, while
+// the account registry is not rebuilt from the log, so a wait may name an account removed since;
+// a read names the account only while its row is stored.
 
 import { accountLabel } from "@ai-sidekicks/contracts/provider/account/label";
 import type { ProviderAuthMode } from "@ai-sidekicks/contracts/provider/account/record";
@@ -41,8 +42,8 @@ export type SpentAccountName = Omit<WorkflowSpentAccount, "providerAccountId">;
 
 /**
  * The name of the spent account `providerAccountId`, from its joined columns, or undefined where
- * no account row matched because the account was removed. Throws when a stored account has no
- * label, which a provider account that has run a step always has.
+ * no account row matched because the account was removed since the wait began. Throws when a
+ * stored account has no label, which a provider account that has run a step always has.
  */
 export function spentAccountNameFromColumns(
   providerAccountId: string,
