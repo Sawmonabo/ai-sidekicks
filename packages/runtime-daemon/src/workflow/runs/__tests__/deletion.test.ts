@@ -1,10 +1,11 @@
-// Deleting runs removes stored history for good: a delete must refuse a run still going, and a
-// chain's first run while a later run of the chain is going, without touching a row or the log;
-// leave nothing of a run it deletes while answering the git folder its snapshot refs live in, and
-// append the one deleted event a rebuild of the runs from the log needs to leave it out; and in
-// bulk remove exactly what its preview counted while sparing kept, waiting and parked runs, even a
-// run kept after the delete read it, without losing the runs written beside it, each run's event
-// in its own session, and a failed write reported only once every other write has settled.
+// Deleting runs removes stored history for good: a delete must refuse a run still going or parked
+// on its failed step, and a chain's first run while a later run of the chain is going, without
+// touching a row or the log; leave nothing of a run it deletes while answering the git folder its
+// snapshot refs live in, and append the one deleted event a rebuild of the runs from the log needs
+// to leave it out; and in bulk remove exactly what its preview counted while sparing kept, waiting
+// and parked runs, even a run kept after the delete read it, without losing the runs written beside
+// it, each run's event in its own session, and a failed write reported only once every other write
+// has settled.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -135,7 +136,7 @@ const WAITING_STEP: FixtureStep = { executionIndex: 0, status: "waiting", waitCa
 const FAILED_STEP: FixtureStep = { executionIndex: 0, status: "failed" };
 
 describe("deleting one run", () => {
-  it("refuses a going run or its chain's first run and empties an ended one", async () => {
+  it("refuses a going or parked run or its chain's first run and empties an ended one", async () => {
     const chainRootRunId = await storeRun("succeeded", OLD_START, OLD_FINISH, SETTLED_STEP);
     const runningRunId = await storeRun(
       "running",
@@ -145,15 +146,19 @@ describe("deleting one run", () => {
       chainRootRunId,
     );
     const waitingRunId = await storeRun("waiting", OLD_START, null, WAITING_STEP);
+    const parkedRunId = await storeRun("failed", OLD_START, null, FAILED_STEP);
     const finishedRunId = await storeRun("succeeded", OLD_START, OLD_FINISH, SETTLED_STEP);
-    const refusedRows = [chainRootRunId, runningRunId, waitingRunId].map((workflowRunId) => ({
-      workflowRunId,
-      rows: readRunRows(database.reader, workflowRunId),
-    }));
+    const refusedRows = [
+      { workflowRunId: chainRootRunId, why: "A later run of its chain is still going." },
+      { workflowRunId: runningRunId, why: "The run is running." },
+      { workflowRunId: waitingRunId, why: "The run is waiting." },
+      { workflowRunId: parkedRunId, why: "The run is parked on its failed step." },
+    ].map((refused) => ({ ...refused, rows: readRunRows(database.reader, refused.workflowRunId) }));
 
-    for (const { workflowRunId } of refusedRows) {
+    for (const { workflowRunId, why } of refusedRows) {
       await expect(deletion.delete(workflowRunId)).rejects.toMatchObject({
         code: WORKFLOW_RUN_NOT_DELETABLE_CODE,
+        message: `${why} Cancel it first.`,
       });
     }
     for (const refused of refusedRows) {

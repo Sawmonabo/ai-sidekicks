@@ -8,10 +8,10 @@ import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   ProviderAccountNotAuthenticatedDetailsSchema,
 } from "@ai-sidekicks/contracts/provider/account/methods";
+import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
 import {
   PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE,
   ProviderAccountCredentialSealRefusedDetailsSchema,
-  type KeychainRefusalCause,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { ExtendedRefusal } from "#renderer/lib/refusal/extensions.js";

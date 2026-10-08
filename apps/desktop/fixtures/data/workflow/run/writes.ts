@@ -25,6 +25,7 @@ import {
   WORKFLOW_RUN_RECORDS,
   WORKFLOW_STARTED_BY_PERSON,
   isGoing,
+  isParked,
   type WorkflowRunRecord,
 } from "./records.js";
 import type { AnsweredRequests } from "#renderer/services/daemon/scenario/reply.fixture.js";
@@ -304,9 +305,9 @@ function mintedRun(
   };
 }
 
-/** Whether a bulk delete with this cutoff takes the run: older, not kept and not going. */
+/** Whether a bulk delete with this cutoff takes the run: older, not kept, not going, not parked. */
 export function isBulkDeletable(run: WorkflowRunRecord, cutoffMs: number): boolean {
-  return startedAtMs(run) < cutoffMs && !run.read.keep && !isGoing(run);
+  return startedAtMs(run) < cutoffMs && !run.read.keep && !isGoing(run) && !isParked(run);
 }
 
 /** When the run started, as epoch milliseconds on the playback's clock. */

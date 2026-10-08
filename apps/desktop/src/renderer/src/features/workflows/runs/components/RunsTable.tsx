@@ -19,7 +19,7 @@ import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflow
 import { costWithPayer, type PayerReading } from "../cost.js";
 import { runDurationWords } from "../duration.js";
 import { RunControl } from "../../components/RunControl.js";
-import { isGoing } from "../controls.js";
+import { deleteRunAvailability, isGoing } from "../controls.js";
 import { TRIGGER_KIND_WORDS, startedByWords } from "../../words.js";
 import { useInViewMarks } from "../hooks/useInViewMarks.js";
 import { RunLiveDot } from "./RunLiveDot.js";
@@ -45,8 +45,9 @@ export interface RunsTableProps {
  * chip, the trigger, who or what started it, when, how long it took, how many steps it ran and
  * what it cost with the account that paid, and one act, `Delete run`, beside the `Keep` mark of a
  * kept run. A going run's step cell says where it is — `4 of 9 · run tests` — and its time cell
- * counts the time so far, and both go back to the finished figures when it ends. A run parked on a
- * spent account names the instant it resumes itself, or that none is armed.
+ * counts the time so far, and both go back to the finished figures when it ends; a failed run
+ * parked on its failed step draws no time. A run parked on a spent account names the instant it
+ * resumes itself, or that none is armed.
  */
 export function RunsTable(props: RunsTableProps): React.JSX.Element {
   // One observer holds every going row's live dot still while it is scrolled out of view.
@@ -129,11 +130,7 @@ function RunRow(
           title={formatZonedDateTime(run.startedAt, clockLocale)}
         />
       </td>
-      <td>
-        {run.durationMs === undefined
-          ? runDurationWords(run.startedAt, props.nowMs)
-          : formatUnitDuration(run.durationMs)}
-      </td>
+      <td>{rowDurationWords(run, props.nowMs)}</td>
       <td>
         {run.liveStep === undefined ? formatCount(run.stepCount) : liveStepWords(run.liveStep)}
       </td>
@@ -154,11 +151,7 @@ function RunRow(
         ) : (
           <RunControl
             label="Delete run"
-            availability={
-              isGoing(run.status)
-                ? { kind: "refused", reason: "Cancel it first." }
-                : { kind: "allowed" }
-            }
+            availability={deleteRunAvailability(run)}
             act={{ kind: "idle" }}
             onPress={() => {
               setIsConfirming(true);
@@ -211,6 +204,15 @@ function DeleteRunConfirm(props: {
 }
 
 /** Where a going run is: `4 of 9 · Review one PR`. */
+// How long the run took, or while it is going how long so far; nothing for a failed run parked on
+// its failed step, which has neither ended nor kept going.
+function rowDurationWords(run: WorkflowRunSummary, nowMs: number): string | undefined {
+  if (run.durationMs !== undefined) {
+    return formatUnitDuration(run.durationMs);
+  }
+  return isGoing(run.status) ? runDurationWords(run.startedAt, nowMs) : undefined;
+}
+
 function liveStepWords(liveStep: NonNullable<WorkflowRunSummary["liveStep"]>): string {
   return `${formatCount(liveStep.index)} of ${formatCount(liveStep.total)} · ${liveStep.nodeName}`;
 }

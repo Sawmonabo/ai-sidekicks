@@ -291,7 +291,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.repository_required` | A start, or a node run (`workflow.nodeExecute`), that names no project's repository — a `None` run, or a start in a chat that names none — of a workflow version holding a Git, Read a repo diff or Run tests step; `data.fields.nodeIds` names those nodes. Nothing runs | 422 |
 | `workflow.input_required` | A start that leaves a required input its workflow declares unfilled, or gives an input a value that does not fit it; `data.fields.inputNames` names those inputs. Nothing runs | 422 |
 | `workflow.code_packages_not_locked` | A start of a workflow version whose Code steps' packages are not locked; `data.fields.nodeIds` names those nodes. A later save that locks them makes the version runnable | 409 |
-| `workflow.run_not_deletable` | `Delete run` on a run that is `new`, `running` or `waiting`, or on a chain's first run while a later run of its chain is `new`, `running` or `waiting` or is a failed run parked on its failed step, drawn `Cancel it first.`; nothing is deleted | 409 |
+| `workflow.run_not_deletable` | `Delete run` on a run that is `new`, `running` or `waiting` or is a failed run parked on its failed step, or on a chain's first run while a later run of its chain is one of those, drawn `Cancel it first.`; nothing is deleted | 409 |
 | `workflow.trigger_unarmable` | A trigger that cannot be armed | 422 |
 | `workflow.webhook_token_mismatch` | A webhook call with the wrong token, or any call while no token exists | 403 |
 | `workflow.import_schema_unknown` | An import whose schema version is unknown | 422 |

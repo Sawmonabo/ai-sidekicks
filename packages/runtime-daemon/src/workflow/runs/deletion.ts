@@ -1,5 +1,6 @@
 // Deleting runs and keeping them: one run's delete, `Delete runs older than…` with the preview its
-// confirm reads, and the Keep mark that bulk delete leaves. A run's delete removes its steps, its
+// confirm reads, and the Keep mark that bulk delete leaves. Neither delete touches a run still
+// going or parked on its failed step, which a person can still resume. A run's delete removes its steps, its
 // form drafts, its gate answers and its execution context with the run, in the write that appends
 // the run's `workflow.run_deleted`: the session log keeps the run's earlier events, so a rebuild of
 // the runs from the log needs that record to leave the run out. Bulk delete writes a session's runs
@@ -96,15 +97,15 @@ const RUN_TO_DELETE_SQL = `${SELECT_DELETED_RUN} WHERE run.id = ?`;
 const REMOVABLE_RUNS_SQL = `${SELECT_DELETED_RUN} WHERE ${REMOVABLE} ORDER BY run.session_id`;
 
 // Matches the run only while it may be deleted, so a write that starts with it refuses a run still
-// going and a chain's first run while a later run is going or parked on its failed step.
+// going or parked on its failed step, and a chain's first run while a later run is either.
 const DELETABLE_RUN_SQL = `SELECT run.id FROM workflow_runs AS run
   WHERE run.id = @workflowRunId AND run.status NOT IN (${GOING_RUN_STATUSES_SQL})
-    AND NOT ${LATER_CHAIN_RUN_GOING}`;
+    AND NOT ${PARKED_FAILED_RUN_CONDITION} AND NOT ${LATER_CHAIN_RUN_GOING}`;
 // Matches the run only while bulk delete would still remove it.
 const STILL_REMOVABLE_RUN_SQL = `SELECT run.id FROM workflow_runs AS run
   WHERE run.id = @workflowRunId AND ${REMOVABLE}`;
 
-const RUN_STATUS_SQL = "SELECT status FROM workflow_runs WHERE id = ?";
+const RUN_STATUS_SQL = "SELECT status, finished_at FROM workflow_runs WHERE id = ?";
 
 const KEEP_SQL = "UPDATE workflow_runs SET kept = ? WHERE id = ?";
 
@@ -159,7 +160,10 @@ export class WorkflowRunDeletion {
   readonly #readRunToDelete: Statement<[string], DeletedRunRow>;
   readonly #readRemovableRuns: Statement<[{ olderThan: string }], DeletedRunRow>;
   readonly #preview: Statement<[{ olderThan: string }], PreviewRow>;
-  readonly #readStatus: Statement<[string], { status: WorkflowRunStatus }>;
+  readonly #readStatus: Statement<
+    [string],
+    { status: WorkflowRunStatus; finished_at: string | null }
+  >;
 
   constructor(database: DatabaseConnections, sessionEvents: SessionEventLog) {
     this.#writer = database.writer;
@@ -172,10 +176,10 @@ export class WorkflowRunDeletion {
 
   /**
    * Deletes one run with its steps, form drafts, gate answers and execution context, and appends
-   * its `workflow.run_deleted` in the same write. Refuses a `new`, `running` or `waiting` run, and
-   * a chain's first run while a later run of its chain is one or is parked on its failed step, with
-   * `workflow.run_not_deletable`, and a run there is none of with `workflow.not_found`, writing
-   * nothing either way.
+   * its `workflow.run_deleted` in the same write. Refuses a `new`, `running` or `waiting` run or a
+   * failed run parked on its failed step, and a chain's first run while a later run of its chain is
+   * one of those, with `workflow.run_not_deletable`, and a run there is none of with
+   * `workflow.not_found`, writing nothing either way.
    */
   async delete(workflowRunId: WorkflowRunId): Promise<DeletedWorkflowRun> {
     const run = this.#readRunToDelete.get(workflowRunId);
@@ -301,16 +305,20 @@ export class WorkflowRunDeletion {
     });
   }
 
-  // Why a delete was refused, read after the refusal: there is no such run, it is still going, or
-  // it is a chain's first run and a later run of the chain is going or parked on its failed step.
+  // Why a delete was refused, read after the refusal: there is no such run, it is still going, it
+  // is parked on its failed step, or it is a chain's first run and a later run of the chain is
+  // going or parked on its failed step.
   #refusal(workflowRunId: WorkflowRunId): DaemonDomainError {
-    const status = this.#readStatus.get(workflowRunId)?.status;
-    if (status === undefined) {
+    const run = this.#readStatus.get(workflowRunId);
+    if (run === undefined) {
       return new WorkflowNotFoundError({ workflowRunId });
     }
+    const { status } = run;
     const message = GOING_RUN_STATUSES.includes(status)
       ? `The run is ${status}. Cancel it first.`
-      : "A later run of its chain is still going. Cancel it first.";
+      : status === "failed" && run.finished_at === null
+        ? "The run is parked on its failed step. Cancel it first."
+        : "A later run of its chain is still going. Cancel it first.";
     return new DaemonDomainError(message, {
       code: WORKFLOW_RUN_NOT_DELETABLE_CODE,
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,

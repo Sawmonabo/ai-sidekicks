@@ -670,8 +670,9 @@ export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClea
 // Refusals
 
 /**
- * `Delete run` on a new, running or waiting run, or on a chain's first run while a later run of its
- * chain is one or is parked on its failed step; nothing is deleted (`Cancel it first.`).
+ * `Delete run` on a new, running or waiting run or a failed run parked on its failed step, or on a
+ * chain's first run while a later run of its chain is one of those; nothing is deleted
+ * (`Cancel it first.`).
  */
 export const WORKFLOW_RUN_NOT_DELETABLE_CODE = "workflow.run_not_deletable" as const;
 

@@ -70,6 +70,7 @@ import {
   WORKFLOW_SPENT_ACCOUNT,
   WORKFLOW_RUN_RECORDS,
   isGoing,
+  isParked,
   summaryOfRun,
   type WorkflowRunRecord,
 } from "./run/records.js";
@@ -511,10 +512,7 @@ function answerCancel(request: unknown, playback: WorkflowPlayback): WorkflowRun
 
 function answerResume(request: unknown, playback: WorkflowPlayback): WorkflowRunResumeResponse {
   const run = requireRun(request, playback);
-  const isParked =
-    run.read.status === "waiting" ||
-    (run.read.status === "failed" && run.read.finishedAt === undefined);
-  if (!isParked) {
+  if (!isParked(run)) {
     throw refusal(WORKFLOW_RESUME_NOT_PARKED_CODE, "This run is not waiting on anything.");
   }
   return { workflowRunId: run.read.workflowRunId, status: "running" };
@@ -549,7 +547,7 @@ function answerRerun(request: unknown, playback: WorkflowPlayback): WorkflowRunS
 
 function answerRunDelete(request: unknown, playback: WorkflowPlayback): WorkflowRunDeleteResponse {
   const run = requireRun(request, playback);
-  if (isGoing(run)) {
+  if (isGoing(run) || isParked(run)) {
     throw refusal(WORKFLOW_RUN_NOT_DELETABLE_CODE, "Cancel it first.");
   }
   return { workflowRunId: run.read.workflowRunId, deleted: true };
@@ -564,7 +562,7 @@ function answerDeletePreview(
   return {
     deleteCount: runsOlderThan(request, playback).length,
     keptCount: older.filter((run) => run.read.keep).length,
-    waitingCount: older.filter((run) => run.read.status === "waiting").length,
+    waitingCount: older.filter(isParked).length,
   };
 }
 
