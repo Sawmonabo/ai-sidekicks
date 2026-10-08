@@ -213,6 +213,54 @@ it("moves no view as Tab passes over the end node on its way out of the graph", 
   expect(viewportTransform(canvas)).toBe(transform);
 });
 
+it("brings a count reached by Tab into the canvas", async () => {
+  // Reduced motion, so the pan is a jump the next read sees. Narrowed to a sliver, the canvas
+  // shows a node but not the count on the edge leaving it.
+  await emulateReducedMotion();
+  const fixture = fixtureRun(WORKFLOW_RUN_IDS.running);
+  const { canvas } = await mountBetweenButtons(fixture);
+  const openedTransform = viewportTransform(canvas);
+  act(() => {
+    canvas.style.inlineSize = "96px";
+  });
+  await waitFor(() => {
+    expect(viewportTransform(canvas)).not.toBe(openedTransform);
+  });
+  const pane = canvas.querySelector<HTMLElement>(".react-flow");
+  const firstNode = canvas.querySelector<HTMLElement>(".react-flow__node");
+  const leaving = fixture.workflowDocument.edges.find(
+    (edge) => edge.source === firstNode?.dataset["id"],
+  );
+  if (pane === null || firstNode === null || leaving === undefined) {
+    throw new Error("the running fixture's first node has no edge leaving it");
+  }
+  const count = await waitFor(() => {
+    const drawn = countOf(canvas, leaving.id);
+    expect(drawn).toBeInstanceOf(SVGElement);
+    return drawn as SVGElement;
+  });
+
+  act(() => {
+    firstNode.focus();
+  });
+  expect(isInside(count, pane), "the count starts outside the canvas").toBe(false);
+  await pressTab();
+  expect(document.activeElement).toBe(count);
+  await waitFor(() => {
+    expect(pane.scrollLeft + pane.scrollTop).toBe(0);
+    expect(isInside(count, pane)).toBe(true);
+  });
+});
+
+// Whether `element`'s center lies inside `box`'s box.
+function isInside(element: Element, box: Element): boolean {
+  const { left, top, width, height } = element.getBoundingClientRect();
+  const bounds = box.getBoundingClientRect();
+  const x = left + width / 2;
+  const y = top + height / 2;
+  return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+}
+
 function viewportTransform(canvas: HTMLElement): string {
   return canvas.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform ?? "";
 }

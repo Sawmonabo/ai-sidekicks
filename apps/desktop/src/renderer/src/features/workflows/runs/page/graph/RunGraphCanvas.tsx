@@ -102,7 +102,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     [markInView],
   );
   const { stopFollowing, revealPoint } = follow;
-  const { screenToFlowPosition } = useReactFlow();
+  const { getViewport } = useReactFlow();
 
   const selectClickedNode = useCallback<NodeMouseHandler>(
     (_event, node) => onSelectNode(node.id),
@@ -135,9 +135,10 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
           return;
         }
         if (move?.kind === "hand-off") {
-          // Focus passes over the end node on its way out, which brings nothing into view.
+          // Focus passes over the end node on its way out: the canvas does not pan to it, and
+          // nothing scrolls to it, since the browser's own Tab scrolls to where focus lands.
           isHandingOffRef.current = true;
-          move.element.focus();
+          move.element.focus({ preventScroll: true });
           isHandingOffRef.current = false;
           return;
         }
@@ -172,16 +173,20 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
       if (node !== undefined) {
         revealPoint(runGraphNodeCenter(node));
       } else if (event.target.classList.contains(EDGE_COUNT_CLASS)) {
-        const countBox = event.target.getBoundingClientRect();
-        revealPoint(
-          screenToFlowPosition({
-            x: countBox.left + countBox.width / 2,
-            y: countBox.top + countBox.height / 2,
-          }),
-        );
+        // Read against the drawn graph's own origin rather than the screen: the browser may
+        // already have scrolled the library's frame to show the count, which moves both alike.
+        const origin = event.target.closest(".react-flow__viewport")?.getBoundingClientRect();
+        if (origin !== undefined) {
+          const countBox = event.target.getBoundingClientRect();
+          const { zoom } = getViewport();
+          revealPoint({
+            x: (countBox.left + countBox.width / 2 - origin.left) / zoom,
+            y: (countBox.top + countBox.height / 2 - origin.top) / zoom,
+          });
+        }
       }
     },
-    [graphOrder, nodes, revealPoint, screenToFlowPosition],
+    [getViewport, graphOrder, nodes, revealPoint],
   );
 
   return (
