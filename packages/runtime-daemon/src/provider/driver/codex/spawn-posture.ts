@@ -1,6 +1,6 @@
 // The Codex leg's spawn and turn posture: the spawn config and credential policy a create or resume
-// launches under, the posture and subagent legs a thread is established with, the per-turn sandbox
-// policy, and the diagnostics for what this provider cannot realize.
+// launches under, the posture and subagent legs a thread is established with, the per-turn reviewer
+// and sandbox policy, and the diagnostics for what this provider cannot realize.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -9,6 +9,7 @@ import type { CodexLifecycleOptions, CodexSessionRecord } from "./session/state.
 import {
   CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
   type CodexSessionConfig,
+  composeCodexApprovalsReviewer,
   composeCodexSubagentConfigOverrides,
   composeCodexThreadPosture,
   composeCodexTurnSandboxPolicy,
@@ -150,8 +151,8 @@ export class CodexSpawnPosture {
 
   /**
    * The thread-establishment legs one posture and one subagent policy realize: the posture's
-   * `sandbox` and `approvalPolicy`, and the posture's and the subagent caps' `config` overrides in
-   * one map. Used by `thread/start`, `thread/resume` and `thread/fork`.
+   * `sandbox`, `approvalPolicy` and `approvalsReviewer`, and the posture's and the subagent caps'
+   * `config` overrides in one map. Used by `thread/start`, `thread/resume` and `thread/fork`.
    */
   composeThreadEstablishmentLegs(
     posture: ExecutionPosture | undefined,
@@ -165,7 +166,11 @@ export class CodexSpawnPosture {
       ...threadPosture?.config,
       ...(subagentPolicy === undefined ? {} : composeCodexSubagentConfigOverrides(subagentPolicy)),
     };
-    return { ...threadPosture?.params, ...(Object.keys(config).length === 0 ? {} : { config }) };
+    return {
+      ...threadPosture?.params,
+      approvalsReviewer: composeCodexApprovalsReviewer(posture),
+      ...(Object.keys(config).length === 0 ? {} : { config }),
+    };
   }
 
   /**
@@ -207,19 +212,21 @@ export class CodexSpawnPosture {
   }
 
   /**
-   * The turn's `sandboxPolicy`, from the run's posture or else the session's, so a turn never goes
-   * out with no policy; empty when neither declares one. Network access follows the thread's own.
+   * The turn's `approvalsReviewer` and `sandboxPolicy`, from the run's posture or else the
+   * session's, so a turn never goes out with no policy and a level move reaches the reviewer from
+   * the next turn; with neither declared, the person reviews and no policy is sent. Network access
+   * follows the thread's own.
    */
   composeTurnPostureParams(
     record: CodexSessionRecord,
     params: StartRunParams,
   ): Record<string, unknown> {
     const posture = params.executionPosture ?? record.executionPosture;
-    if (posture === undefined) {
-      return {};
-    }
     return {
-      sandboxPolicy: composeCodexTurnSandboxPolicy(posture, record.providerNetworkAccess),
+      approvalsReviewer: composeCodexApprovalsReviewer(posture),
+      ...(posture === undefined
+        ? {}
+        : { sandboxPolicy: composeCodexTurnSandboxPolicy(posture, record.providerNetworkAccess) }),
     };
   }
 

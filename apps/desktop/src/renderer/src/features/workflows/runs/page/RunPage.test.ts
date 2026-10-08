@@ -123,7 +123,7 @@ describe("a run's page", () => {
     });
     await press("Answer");
     await advanceScenarioUntil(answeredHere.engine, () => {
-      expect(screen.getByText(/^Answered at /u)).toBeDefined();
+      expect(screen.getByText(/^Answered at/u)).toBeDefined();
     });
     expect(answeredHere.calls.filter((call) => call.method === "question.resolve")).toStrictEqual([
       {
@@ -152,7 +152,7 @@ describe("a run's page", () => {
       await crossMacrotaskBoundary();
     });
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/^Answered at /u)).toBeDefined();
+      expect(screen.getByText(/^Answered at/u)).toBeDefined();
     });
     expect(screen.queryByLabelText(WORKFLOW_REPLY_QUESTION.prompt)).toBeNull();
     expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();

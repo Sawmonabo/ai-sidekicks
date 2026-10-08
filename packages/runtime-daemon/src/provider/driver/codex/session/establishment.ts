@@ -157,16 +157,13 @@ export class CodexSessionEstablishment {
       await connection.open(config);
       const response = await connection.request("thread/start", {
         cwd: config.cwd,
-        // Spread so a session with no declared posture gets none: an invented posture would refuse
-        // admitted tool calls or grant what was not.
+        // Spread so a session with no declared posture gets no sandbox or approval policy (an
+        // invented one would refuse admitted tool calls or grant what was not) and the person as
+        // its reviewer.
         ...this.#spawnPosture.composeThreadEstablishmentLegs(
           params.executionPosture,
           params.subagentPolicy,
         ),
-        // Defense in depth: no config or profile override may select an auto-review path that
-        // bypasses the approval pipeline. The per-turn pin on `turn/start` is needed too.
-        // Present on ThreadStartParams at codex-cli 0.150.1.
-        approvalsReviewer: "user",
         model: params.model,
         ...composeCodexServiceTier(outputSpeed),
       });
@@ -223,8 +220,6 @@ export class CodexSessionEstablishment {
           params.executionPosture,
           params.subagentPolicy,
         ),
-        // The same pin as `thread/start`: a resumed thread must not inherit an auto-review path.
-        approvalsReviewer: "user",
         model: params.model,
         // Re-realized like the posture: a resume without it relaunches at the provider's tier.
         ...composeCodexServiceTier(outputSpeed),
@@ -357,7 +352,6 @@ export class CodexSessionEstablishment {
           record.executionPosture,
           record.subagentPolicy,
         ),
-        approvalsReviewer: "user",
         model: record.model,
         ...composeCodexServiceTier(outputSpeed),
       });

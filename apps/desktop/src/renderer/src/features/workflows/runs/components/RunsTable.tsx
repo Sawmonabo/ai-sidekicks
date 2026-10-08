@@ -4,16 +4,11 @@ import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/re
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { useInlineConfirm } from "#renderer/hooks/useInlineConfirm.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import {
-  formatCount,
-  formatDayClock,
-  formatUnitDuration,
-  formatZonedDateTime,
-} from "#renderer/lib/wire/figures.js";
+import { formatCount, formatUnitDuration } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
+import { DayClockFigure } from "../../components/DayClockFigure.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
 import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflowCall.js";
 import { costWithPayer, type PayerReading } from "../cost.js";
@@ -114,9 +109,14 @@ function RunRow(
           <RunStatusChip status={run.status} waitCause={run.waitCause} />
           {run.waitCause === "account" ? (
             <span className="meridian-workflows-runs__park">
-              {run.resumeAt === undefined
-                ? "parked · awaiting resume"
-                : `parked · resumes ${formatDayClock(run.resumeAt, props.nowMs, clockLocale)}`}
+              {run.resumeAt === undefined ? (
+                "parked · awaiting resume"
+              ) : (
+                <>
+                  parked · resumes{" "}
+                  <DayClockFigure at={run.resumeAt} nowMs={props.nowMs} locale={clockLocale} />
+                </>
+              )}
             </span>
           ) : null}
         </span>
@@ -124,10 +124,7 @@ function RunRow(
       <td>{TRIGGER_KIND_WORDS[run.triggerKind]}</td>
       <td>{startedByWords(run.startedBy)}</td>
       <td>
-        <WireFigure
-          value={formatDayClock(run.startedAt, props.nowMs, clockLocale)}
-          title={formatZonedDateTime(run.startedAt, clockLocale)}
-        />
+        <DayClockFigure at={run.startedAt} nowMs={props.nowMs} locale={clockLocale} />
       </td>
       <td>
         {run.durationMs === undefined
@@ -143,7 +140,9 @@ function RunRow(
         {isConfirming ? (
           <DeleteRunConfirm
             workflowName={run.definitionName}
-            startedAt={formatDayClock(run.startedAt, props.nowMs, clockLocale)}
+            startedAt={run.startedAt}
+            nowMs={props.nowMs}
+            clockLocale={clockLocale}
             isSent={isDeleteSent}
             act={isDeleteSent ? DELETE_SENT : remove.state}
             onCancel={closeConfirm}
@@ -176,8 +175,10 @@ function RunRow(
  */
 function DeleteRunConfirm(props: {
   readonly workflowName: string;
-  /** When the run started, as its row reads it. */
+  /** When the run started, the daemon's stamp, drawn as its row draws it. */
   readonly startedAt: string;
+  readonly nowMs: number;
+  readonly clockLocale: string;
   readonly isSent: boolean;
   readonly act: WorkflowCallState<unknown>;
   readonly onCancel: () => void;
@@ -193,8 +194,9 @@ function DeleteRunConfirm(props: {
       onKeyDown={confirm.onKeyDown}
     >
       <span>
-        {`${props.workflowName} · ${props.startedAt}. The row and its step data go. Files it ` +
-          "saved on purpose stay. This cannot be undone."}
+        {`${props.workflowName} · `}
+        <DayClockFigure at={props.startedAt} nowMs={props.nowMs} locale={props.clockLocale} />
+        {". The row and its step data go. Files it saved on purpose stay. This cannot be undone."}
       </span>
       <ActionButton disabled={props.isSent} onClick={props.onCancel}>
         Cancel

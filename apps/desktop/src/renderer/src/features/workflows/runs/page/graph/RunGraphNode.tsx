@@ -11,7 +11,9 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
 import { itemCountWords, nodeKindWords } from "#renderer/features/workflows/words.js";
+import { DayClockFigure } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { handleOffset, type RunGraphFlowNode } from "./elements.js";
+import { RUN_GRAPH_RESUME_WORDS } from "./node-views.js";
 
 /**
  * One node's box, rendered by the library under `RUN_GRAPH_NODE_TYPE`. The handles, one per id
@@ -59,8 +61,10 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
       {view.errorLine === undefined ? null : (
         <span className="meridian-run-graph-node__error">{view.errorLine}</span>
       )}
-      {view.resumeLine === undefined ? null : (
-        <span className="meridian-run-graph-node__resume">{view.resumeLine}</span>
+      {view.resumeAt === undefined ? null : (
+        <span className="meridian-run-graph-node__resume">
+          {RUN_GRAPH_RESUME_WORDS} <DayClockFigure {...view.resumeAt} />
+        </span>
       )}
       {handles.outputs.map((id, index) => (
         <Handle

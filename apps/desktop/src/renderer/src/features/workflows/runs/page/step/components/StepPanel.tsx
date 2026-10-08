@@ -4,7 +4,10 @@ import { useState } from "react";
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_TABS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type {
+  WorkflowStep,
+  WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -66,10 +69,10 @@ export interface StepPanelProps {
   readonly bridge: PlatformBridge;
   /** The instant a receipt's day is counted from. */
   readonly nowMs: number;
-  /** The receipts this sitting's answers left, by step. */
-  readonly receipts: ReadonlyMap<string, string>;
-  /** Called with the receipt once the daemon has taken an answer to a step. */
-  readonly onAnswered: (step: StepAddress, receipt: string) => void;
+  /** The answers this sitting gave, by step. */
+  readonly answers: ReadonlyMap<string, WorkflowStepResolution>;
+  /** Called with the answer once the daemon has taken an answer to a step. */
+  readonly onAnswered: (step: StepAddress, answer: WorkflowStepResolution) => void;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
   readonly onOpenSession: (sessionId: string) => void;
@@ -164,11 +167,11 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
         run={run}
         step={step}
         nodeKind={props.nodeKind(step.nodeId)}
-        receipt={props.receipts.get(stepKeyText(step))}
+        answer={props.answers.get(stepKeyText(step))}
         nowMs={props.nowMs}
         bridge={bridge}
-        onAnswered={(receipt) => {
-          props.onAnswered(step, receipt);
+        onAnswered={(answer) => {
+          props.onAnswered(step, answer);
         }}
         onOpenReview={props.onOpenReview}
       />

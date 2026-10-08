@@ -397,9 +397,9 @@ describe("CodexLifecycleManager session slot", () => {
 });
 
 describe("CodexDriver approval reviewer pinning", () => {
-  // Every approval must reach the daemon's own pipeline. The per-turn field overrides routing for
-  // later turns, so a thread-level pin alone would be defeated by one per-turn override.
-  it("pins the reviewer on the thread and on every turn", async () => {
+  // With no level declared every ask reaches the daemon's own pipeline. The per-turn field routes
+  // later turns too, so a thread-level pin alone would be undone by one turn without it.
+  it("pins the person as reviewer on the thread and on every turn", async () => {
     const harness = createHarness();
     await createdSession(harness);
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));

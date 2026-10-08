@@ -132,6 +132,37 @@ const CODEX_YOLO_CONFIG_OVERRIDES: Readonly<Record<string, unknown>> = Object.fr
   "apps._default.default_tools_approval_mode": "approve",
 });
 
+/** Who Codex routes an ask to (`ApprovalsReviewer` at the pin). */
+type CodexApprovalsReviewer = "user" | "auto_review";
+
+/**
+ * Who answers Codex's asks at each permission level: Codex's own automatic reviewer at `reviewed`,
+ * which is what that level means, and the person, through the daemon's approval pipeline, at
+ * every other level.
+ */
+const CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexApprovalsReviewer>
+> = Object.freeze({
+  readonly: "user",
+  ask: "user",
+  reviewed: "auto_review",
+  sandboxed: "user",
+  yolo: "user",
+});
+
+/**
+ * The `approvalsReviewer` a thread or turn carries: the posture's level's reviewer, and the person
+ * when no posture is declared, so a config or profile override never picks the reviewer. Sent on
+ * every `turn/start` too, because the turn's value routes that turn and every later one.
+ */
+export function composeCodexApprovalsReviewer(
+  posture: ExecutionPosture | undefined,
+): CodexApprovalsReviewer {
+  return posture === undefined
+    ? "user"
+    : CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL[posture.mode];
+}
+
 /** The thread-level posture one permission level runs a conversation under. */
 interface CodexThreadPosture {
   /** The `sandbox` and `approvalPolicy` thread fields. */

@@ -1,16 +1,14 @@
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
+import type { WorkflowStepResolution } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
-import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
-import { resolutionReceipt } from "../step/receipts.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
 /**
@@ -22,19 +20,15 @@ export function ApprovalAnswer(props: {
   readonly workflowRunId: WorkflowRunId;
   readonly nodeId: WorkflowNodeId;
   readonly bridge: PlatformBridge;
-  /** Called with the receipt once the daemon has recorded the answer. */
-  readonly onAnswered: (receipt: string) => void;
+  /** Called with the answer once the daemon has recorded it. */
+  readonly onAnswered: (answer: WorkflowStepResolution) => void;
 }): React.JSX.Element {
   const { workflowRunId, nodeId, bridge } = props;
-  const clock = useClock();
-  const clockLocale = useClockLocale();
   const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
       callDaemon(bridge, "workflow.gateResolve", { workflowRunId, nodeId, decision }),
     (resolved, decision) => {
-      props.onAnswered(
-        resolutionReceipt({ kind: decision, at: resolved.decidedAt }, clock.now(), clockLocale),
-      );
+      props.onAnswered({ kind: decision, at: resolved.decidedAt });
     },
   );
   const isSending = answer.state.kind === "sending";

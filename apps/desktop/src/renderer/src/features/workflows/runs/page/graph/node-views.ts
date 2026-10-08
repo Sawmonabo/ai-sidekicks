@@ -17,6 +17,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/rec
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
+import type { DayClockFigureProps } from "#renderer/features/workflows/components/DayClockFigure.js";
 import { isLaterStep, isPersonWaitCause } from "../../steps.js";
 import {
   STEP_STATUS_WORDS,
@@ -45,15 +46,18 @@ export interface RunGraphNodeView {
    */
   readonly errorLine: string | undefined;
   /**
-   * The instant a waiting step resumes itself, `Resumes at 6:00 AM` or `Resumes at Tomorrow 6:00
-   * AM`, where one is armed.
+   * The instant a waiting step resumes itself, drawn `Resumes at 6:00 AM` or `Resumes at Tomorrow
+   * 6:00 AM`, where one is armed.
    */
-  readonly resumeLine: string | undefined;
+  readonly resumeAt: DayClockFigureProps | undefined;
   /** What the ring says in words, such as `Failed` or `Waiting on an approval`. */
   readonly stateWords: string;
   /** The node's accessible name: every line it draws, such as `Summarize · Failed · Attempt 2`. */
   readonly accessibleName: string;
 }
+
+/** The words a node's resume instant follows, on the box and in its accessible name. */
+export const RUN_GRAPH_RESUME_WORDS = "Resumes at";
 
 /** Whether a step in each status is live: doing something or held, and not finished. */
 const IS_LIVE_STATUS: Readonly<Record<WorkflowStepStatus, boolean>> = {
@@ -186,9 +190,8 @@ function nodeView(
 ): RunGraphNodeView {
   const status = step?.status ?? "pending";
   const waitCause = status === "waiting" ? step?.waitCause : undefined;
-  const resumeAt = status === "waiting" ? step?.resumeAt : undefined;
-  const resumeLine =
-    resumeAt === undefined ? undefined : `Resumes at ${formatDayClock(resumeAt, nowMs, locale)}`;
+  const resumeStamp = status === "waiting" ? step?.resumeAt : undefined;
+  const resumeAt = resumeStamp === undefined ? undefined : { at: resumeStamp, nowMs, locale };
   const stateWords =
     waitCause === undefined
       ? STEP_STATUS_WORDS[status]
@@ -207,7 +210,7 @@ function nodeView(
     attemptWords,
     outputCount,
     errorLine,
-    resumeLine,
+    resumeAt,
     stateWords,
     accessibleName: [
       node.name,
@@ -216,7 +219,9 @@ function nodeView(
       attemptWords,
       outputCount === undefined ? undefined : itemCountWords(outputCount),
       errorLine,
-      resumeLine,
+      resumeAt === undefined
+        ? undefined
+        : `${RUN_GRAPH_RESUME_WORDS} ${formatDayClock(resumeAt.at, nowMs, locale)}`,
     ]
       .filter(isPresent)
       .join(" · "),

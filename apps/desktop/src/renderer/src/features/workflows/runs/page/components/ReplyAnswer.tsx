@@ -1,16 +1,17 @@
 import { useId, useState } from "react";
 
-import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type {
+  WorkflowStepQuestion,
+  WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
-import { receiptNow } from "../step/receipts.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
 /** Why `Answer this run` cannot answer a reply wait with nothing typed in it. */
@@ -26,13 +27,12 @@ const REPLY_EMPTY = "This step waits for a reply. Type one, then answer.";
 export function ReplyAnswer(props: {
   readonly question: WorkflowStepQuestion;
   readonly bridge: PlatformBridge;
-  /** Called with the receipt once the daemon has taken the answer. */
-  readonly onAnswered: (receipt: string) => void;
+  /** Called with the answer once the daemon has taken it. */
+  readonly onAnswered: (answer: WorkflowStepResolution) => void;
 }): React.JSX.Element | null {
   const { question, bridge } = props;
   const fieldId = useId();
   const clock = useClock();
-  const clockLocale = useClockLocale();
   const [text, setText] = useState("");
   const answer = useWorkflowCall(
     (typed: string) =>
@@ -41,8 +41,9 @@ export function ReplyAnswer(props: {
         answers: [{ kind: "typed", text: typed }],
       }),
     () => {
-      // The question's answer carries no instant; the daemon's own record replaces this one.
-      props.onAnswered(receiptNow("answered", clock.now(), clockLocale));
+      // The question's answer carries no instant, so the window's clock stands in until the
+      // daemon's own record replaces it.
+      props.onAnswered({ kind: "answered", at: new Date(clock.now()).toISOString() });
     },
   );
   const isSending = answer.state.kind === "sending";

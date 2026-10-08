@@ -334,12 +334,10 @@ export class CodexLifecycleManager {
       // The bytes come off a frame this method cannot construct, so neutralization is on the
       // path; `runConfig.input` is unread on purpose: the author's text stays on the frame.
       input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
-      // The pin that carries the security property: `approvalsReviewer` on a turn overrides routing
-      // for it and later turns, so a config-selected `auto_review` would otherwise win.
-      // `turn/steer` creates no turn and needs none.
-      approvalsReviewer: "user",
       // The run's posture wins within the session's sandbox mode and the session's is the floor, so
-      // a turn never goes out with no policy; both send the roots the thread-level mode cannot.
+      // a turn never goes out with no policy; both send the roots the thread-level mode cannot. The
+      // turn's `approvalsReviewer` routes it and every later turn, so it rides here from the level;
+      // `turn/steer` creates no turn and needs none.
       ...this.#spawnPosture.composeTurnPostureParams(record, params),
       ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
       ...(runConfig.clientUserMessageId === undefined

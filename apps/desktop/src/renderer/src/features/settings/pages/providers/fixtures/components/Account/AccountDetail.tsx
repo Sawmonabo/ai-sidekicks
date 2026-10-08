@@ -32,7 +32,12 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
     {
       key: "credentialGeneration",
       term: <span>Credential generation</span>,
-      definition: <DerivedFigure text={formatCount(account.credentialGeneration)} />,
+      definition: (
+        <WireFigure
+          value={formatCount(account.credentialGeneration)}
+          title={String(account.credentialGeneration)}
+        />
+      ),
     },
     {
       key: "probeEnabled",

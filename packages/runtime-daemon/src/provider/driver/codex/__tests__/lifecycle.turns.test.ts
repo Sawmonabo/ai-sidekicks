@@ -454,6 +454,41 @@ describe("Codex rewind and re-realization", () => {
     },
   );
 
+  it("hands a reviewed thread and its turns to Codex's own reviewer, and moves it per turn", async () => {
+    // A turn's reviewer routes that turn and every later one, so one turn sent to the person would
+    // undo the level for the thread; a run at another level moves the reviewer from its turn on.
+    const reviewed: ExecutionPosture = { ...WORKSPACE_POSTURE, mode: "reviewed" };
+    const created = createHarness();
+    created.server.on("thread/start", () => threadStartResult());
+    await created.driver.createSession({ ...CREATE_PARAMS, executionPosture: reviewed });
+    const harness = createHarness();
+    await resumedWithTurns(harness, { executionPosture: reviewed });
+    harness.server.on("thread/fork", () => FORKED);
+    await harness.driver.forkConversation({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 1,
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "one" },
+    });
+    await harness.driver.startRun({
+      runId: SECOND_RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "two" },
+      executionPosture: WORKSPACE_POSTURE,
+    });
+
+    expect(paramsOf(created, "thread/start")["approvalsReviewer"]).toBe("auto_review");
+    expect(paramsOf(harness, "thread/resume")["approvalsReviewer"]).toBe("auto_review");
+    expect(paramsOf(harness, "thread/fork")["approvalsReviewer"]).toBe("auto_review");
+    const turnReviewers = harness.server
+      .framesForMethod("turn/start")
+      .map((frame) => (frame["params"] as Record<string, unknown>)["approvalsReviewer"]);
+    expect(turnReviewers).toStrictEqual(["auto_review", "user"]);
+  });
+
   it("starts a yolo thread asking on request to the person, every connector on Codex's approve", async () => {
     // With approvals off Codex refuses a forced `rm` instead of asking; under its own reviewer a
     // removal would be answered in the person's place; without the connector default every

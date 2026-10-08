@@ -10,7 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import {
+  type WorkflowStep,
+  type WorkflowStepResolution,
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
@@ -24,7 +27,7 @@ import {
 } from "#fixtures/data/workflow/run/records.js";
 import { withoutWait } from "#fixtures/data/workflow/run/writes.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
-import { clockLocaleFor, formatDayClock } from "#renderer/lib/wire/figures.js";
+import { clockLocaleFor, formatDayClock, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { FIXTURE_APP_META } from "#renderer/services/platform/bridge.fixture.js";
 import {
   createWorkflowCommandTargets,
@@ -54,7 +57,9 @@ function fixtureStep(
 /** What a rendered blocker was asked to do. */
 interface BlockerRecord {
   readonly calls: readonly RecordedDaemonCall[];
-  readonly receipts: readonly string[];
+  readonly answers: readonly WorkflowStepResolution[];
+  /** The receipt's paragraph, once one is drawn. */
+  readonly receipt: () => HTMLElement | null;
   /** Move the fixture daemon's clock, so a reply it delays settles. */
   readonly advance: (deltaMs: number) => Promise<void>;
   /** The keyed acts the blocker is drawn under, which a chord presses. */
@@ -86,18 +91,18 @@ function renderBlocker(
   const { run, step } = fixtureStep(workflowRunId, nodeId);
   const nodeKind = fixtureNodeKind(run, nodeId);
   const { bridge, calls, engine } = bridgeAnswering(async (_call, passThrough) => passThrough());
-  const receipts: string[] = [];
+  const answers: WorkflowStepResolution[] = [];
   const commandTargets = createWorkflowCommandTargets();
   render(
     <StepBlocker
       run={run}
       step={adjust(step)}
       nodeKind={nodeKind}
-      receipt={undefined}
+      answer={undefined}
       nowMs={NEXT_DAY_MS}
       bridge={bridge}
-      onAnswered={(receipt) => {
-        receipts.push(receipt);
+      onAnswered={(answer) => {
+        answers.push(answer);
       }}
       onOpenReview={(from, to) => {
         reviews.push([from, to]);
@@ -105,13 +110,15 @@ function renderBlocker(
     />,
     { wrapper: withCommandTargets(bridgeWrapper(bridge, engine.clock), commandTargets) },
   );
+  const receipt = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>(".meridian-workflow-step__receipt");
   const advance = async (deltaMs: number): Promise<void> => {
     await act(async () => {
       engine.advance(deltaMs);
       await Promise.resolve();
     });
   };
-  return { calls, receipts, advance, commandTargets };
+  return { calls, answers, receipt, advance, commandTargets };
 }
 
 describe("a step's blocker", () => {
@@ -120,13 +127,15 @@ describe("a step's blocker", () => {
     if (step.resolution === undefined) {
       throw new Error("the fixture's answered form carries no record of its answer");
     }
-    renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "notes");
+    const { receipt } = renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "notes");
 
-    expect(
-      screen.getByText(
-        `Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS, CLOCK_LOCALE)}`,
-      ),
-    ).toBeDefined();
+    expect(receipt()?.textContent).toBe(
+      `Answered at ${formatDayClock(step.resolution.at, NEXT_DAY_MS, CLOCK_LOCALE)}`,
+    );
+    // Hovering the instant shows the time it stands for, with its zone.
+    expect(receipt()?.querySelector("[title]")?.getAttribute("title")).toBe(
+      formatZonedDateTime(step.resolution.at, CLOCK_LOCALE),
+    );
     expect(screen.queryByRole("button")).toBeNull();
   });
 
@@ -140,16 +149,16 @@ describe("a step's blocker", () => {
         code: WORKFLOW_STEP_TIMED_OUT_CODE,
       },
     });
-    renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "approve", [], timedOut);
-    expect(
-      screen.getByText(`Timed out at ${formatDayClock(finishedAt, NEXT_DAY_MS, CLOCK_LOCALE)}`),
-    ).toBeDefined();
+    const { receipt } = renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "approve", [], timedOut);
+    expect(receipt()?.textContent).toBe(
+      `Timed out at ${formatDayClock(finishedAt, NEXT_DAY_MS, CLOCK_LOCALE)}`,
+    );
     expect(screen.queryByRole("button")).toBeNull();
     cleanup();
 
     // A build step cut by its own time limit waited on nobody, so it leaves no receipt.
-    renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "build", [], timedOut);
-    expect(screen.queryByText(/^Timed out at /u)).toBeNull();
+    const build = renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "build", [], timedOut);
+    expect(build.receipt()).toBeNull();
   });
 
   it("opens Review to the approval's pause, and Answer this run presses Approve", async () => {
@@ -202,7 +211,7 @@ describe("a step's blocker", () => {
   });
 
   it("answers a reply through its question, saying why Answer this run cannot while empty", async () => {
-    const { calls, receipts, advance, commandTargets } = renderBlocker(
+    const { calls, answers, advance, commandTargets } = renderBlocker(
       WORKFLOW_RUN_IDS.waitingReply,
       "ask",
     );
@@ -232,8 +241,8 @@ describe("a step's blocker", () => {
     // The receipt stands as soon as the daemon takes the answer, before the run reads back.
     await advance(QUESTION_RESOLVE_DELAY_MS);
     await waitFor(() => {
-      expect(receipts).toHaveLength(1);
+      expect(answers).toHaveLength(1);
     });
-    expect(receipts[0]).toMatch(/^Answered at /u);
+    expect(answers[0]?.kind).toBe("answered");
   });
 });
