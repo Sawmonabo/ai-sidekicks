@@ -1,5 +1,5 @@
-// Writes the rows the full-text index follows straight into a test database, so a search test
-// sees exactly what the schema's triggers index from them.
+// Writes the rows the search index follows straight into a test database, so a search test sees
+// exactly what the schema's triggers send through the outbox for them.
 
 import type { Database } from "better-sqlite3";
 
@@ -95,4 +95,13 @@ export function insertGroup(database: Database, groupId: string, name: string): 
     )
     .run(groupId, name, foldName(name), TIMESTAMP);
   return groupId;
+}
+
+/** Deletes a session and every row the index holds for it, in the order a purge deletes them. */
+export function purgeSession(database: Database, sessionId: SessionId): void {
+  database.transaction(() => {
+    database.prepare("DELETE FROM session_events WHERE session_id = ?").run(sessionId);
+    database.prepare("DELETE FROM session_tags WHERE session_id = ?").run(sessionId);
+    database.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  })();
 }

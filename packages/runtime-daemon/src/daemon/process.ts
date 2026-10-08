@@ -2,12 +2,13 @@
 // two starts on one data folder only one goes on. It then starts capturing the login shell's
 // environment, which providers are built from, and loading the session services' modules; while
 // those run, it opens the database, through its writer for writes and a read-only connection for
-// reads, starts the search thread, whose own read-only connection opens while the start goes on,
-// kills the terminal children a previous run left running and knows this machine. It builds the
-// terminal host over this run's orphan guard, listens on its socket and writes this start's
-// session token once the bind has succeeded. A client that reads the previous token in the moment
-// between the bind and the write is refused once, and its next read finds this start's token. Its
-// stop, asked for over the socket or by a terminate signal, ends it cleanly.
+// reads, starts the search thread, which opens its own read-only connection and the search index,
+// building the index again when it cannot serve, while the start goes on, kills the terminal
+// children a previous run left running and knows this machine. It builds the terminal host over
+// this run's orphan guard, listens on its socket and writes this start's session token once the
+// bind has succeeded. A client that reads the previous token in the moment between the bind and the
+// write is refused once, and its next read finds this start's token. Its stop, asked for over the
+// socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -57,6 +58,8 @@ import type { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 const DATABASE_FILE_NAME = "daemon.db";
+// The search index's folder, beside the database it is built from.
+const SEARCH_INDEX_FOLDER_NAME = "search-index";
 
 // The session token's size: 256 bits from the system's secure random source.
 const SESSION_TOKEN_BYTES = 32;
@@ -237,8 +240,8 @@ export class DaemonProcess {
       this.#markDegraded();
       options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
     });
-    // A search thread that failed to open, or died, fails every search from then on, so the
-    // service reads as degraded too.
+    // A search thread whose index failed to open, rebuild or apply, or that died, fails every
+    // search from then on, so the service reads as degraded too, while every other service goes on.
     void this.#searchThread.whenWorkerFailed.then((error) => {
       this.#markDegraded();
       options.writeServiceLog(`The search thread failed: ${describeError(error)}`);
@@ -281,9 +284,14 @@ export class DaemonProcess {
         databasePath,
         writeServiceLog: options.writeServiceLog,
       });
-      // The search thread loads and opens on its own thread from here on; the start never waits
-      // for it, and a search waits for its open.
-      const searchThread = SearchThread.start(databasePath);
+      // The search thread opens the index on its own thread from here on, building it again if it
+      // must; the start never waits for it, and a search waits for its open.
+      const searchThread = SearchThread.start({
+        databasePath,
+        indexFolderPath: path.join(dataFolder, SEARCH_INDEX_FOLDER_NAME),
+        writer: database.writer,
+        writeServiceLog: options.writeServiceLog,
+      });
       let orphanGuard: OrphanGuard | undefined;
       let daemon: DaemonProcess | undefined;
       try {
@@ -328,8 +336,6 @@ export class DaemonProcess {
           registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });
         await daemon.#listen(options.runFolder, sessionToken);
-        // The rankers' load would lengthen the start, and only a broad search needs them.
-        searchThread.startRankers();
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];

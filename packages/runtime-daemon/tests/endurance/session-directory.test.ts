@@ -1,13 +1,19 @@
 // Tier: endurance. The session directory's budgets, measured on the seeded set through the paths
-// the daemon serves them on: every search class's first page and next page on the search thread,
-// how long a search holds the daemon's main thread, a stored related list's read, and how long a
-// re-score after a new link holds the main thread. It prints p50 and p95 per class against each
-// budget, with the test process's resident memory beside them, and fails on any class over one.
+// the daemon serves them on: the search index's full build from the database at the search
+// thread's start and its peak footprint, its merges while idle, every search class's first page and
+// next page on the search thread, the probe queries, a find in the largest session, how long a
+// search holds the daemon's main thread, the wait from a settled message to its first hit, a stored
+// related list's read, how long a re-score after a new link holds the main thread, and a search
+// right after the largest session's purge. It prints p50 and p95 per class against each budget,
+// with the test process's resident memory beside them, and fails on any class over one.
 
+import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { createInterface } from "node:readline";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -25,6 +31,7 @@ import {
 import { SessionLinkService } from "../../src/session/links/service.js";
 import { SessionRelatedRanking } from "../../src/session/related/ranking.js";
 import { SearchThread } from "../../src/session/search/thread/handle.js";
+import { mintUuidV7 } from "../../src/uuid-v7.js";
 import { SEEDED_SET_SIZE, seedDirectorySet, type SeededSet } from "./seeded-set.js";
 
 // A search, its first page or a later one, answers within this at p95.
@@ -33,6 +40,14 @@ const SEARCH_P95_BUDGET_MS = 50;
 const MAIN_THREAD_TURN_BUDGET_MS = 5;
 // A session's stored related list reads within this at p95.
 const RELATED_LIST_P95_BUDGET_MS = 1;
+// The search index's full build from the database finishes within this, and the process's
+// footprint stays within this meanwhile.
+const REBUILD_BUDGET_MS = 60_000;
+const REBUILD_FOOTPRINT_BUDGET_MIB = 350;
+// One merge of the index's segments while the daemon is idle finishes within this.
+const MERGE_BUDGET_MS = 3_000;
+// A settled message is found by a search within this of its commit.
+const SETTLED_TO_HIT_BUDGET_MS = 1_000;
 
 // Runs per measurement, fewer for a query whose run takes long, so a run stays within minutes;
 // twenty still leave the 95th percentile below the slowest run.
@@ -41,12 +56,36 @@ const SLOW_QUERY_RUNS = 20;
 const SLOW_QUERY_MS = 200;
 const RELATED_LIST_READS = 2_000;
 const RESCORED_LINKS = 50;
+const SETTLED_MESSAGES = 20;
+// The probe queries the index was chosen on, each as the search box sends it: letters as typed,
+// prefixes of four and five letters, words, two words, a tag and a nested tag with a word.
+const PROBE_QUERIES = [
+  "l",
+  "lo",
+  "lope",
+  "lopek",
+  "nezin",
+  "blemi",
+  "nezi",
+  "lo kalo",
+  "nezi lo",
+  "tag:billing nezi",
+  "tag:billing/mitalo lo",
+  "neblegrivo",
+];
+// How often a wait for an index change asks again, and when it gives up.
+const POLL_INTERVAL_MS = 5;
+const POLL_LIMIT_MS = 10_000;
+// A merge loop that never reports the index merged fails rather than running on.
+const MERGES_AT_MOST = 1_000;
 
 // What the writer and the related ranking report: a failed write or re-score voids the numbers.
 const serviceLogLines: string[] = [];
 function writeServiceLog(line: string): void {
   serviceLogLines.push(line);
 }
+// What the search thread reports: its build at the start, and nothing else.
+const searchLogLines: string[] = [];
 
 interface Timing {
   readonly p50Ms: number;
@@ -134,22 +173,67 @@ async function measure(run: () => Promise<unknown>): Promise<Timing & MainThread
   return { ...timingOf(durationsMs), ...stopFollowingTurns() };
 }
 
+// Samples the process's memory footprint from now until the returned stop, which resolves with the
+// peak in MiB: macOS's own `footprint` every quarter second, or on another system the process's
+// peak resident memory, that system's own figure.
+function samplePeakFootprint(): () => Promise<number> {
+  if (process.platform !== "darwin") {
+    return () => Promise.resolve(process.resourceUsage().maxRSS / 2 ** 10);
+  }
+  const sampler = spawn(
+    "footprint",
+    ["--sample", "0.25", "-f", "bytes", "-p", String(process.pid)],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  const exited = new Promise<void>((resolve) => {
+    sampler.once("exit", () => {
+      resolve();
+    });
+  });
+  let peakBytes = 0;
+  createInterface({ input: sampler.stdout }).on("line", (line) => {
+    const bytes = /Footprint: (\d+) B/u.exec(line)?.[1];
+    if (bytes !== undefined) {
+      peakBytes = Math.max(peakBytes, Number(bytes));
+    }
+  });
+  return async () => {
+    sampler.kill();
+    await exited;
+    if (peakBytes === 0) {
+      throw new Error("`footprint` printed no sample of this process.");
+    }
+    return peakBytes / 2 ** 20;
+  };
+}
+
+// How long until `isDone` answers true, asking every few milliseconds; throws once it has waited
+// past the limit.
+async function timeUntil(isDone: () => Promise<boolean>): Promise<number> {
+  const start = performance.now();
+  while (!(await isDone())) {
+    if (performance.now() - start > POLL_LIMIT_MS) {
+      throw new Error(`The change did not reach the index within ${String(POLL_LIMIT_MS)} ms.`);
+    }
+    await delay(POLL_INTERVAL_MS);
+  }
+  return performance.now() - start;
+}
+
 describe("the session directory's budgets on the seeded set", () => {
   let folder: string;
   let database: DatabaseConnections;
   let seeded: SeededSet;
   let searchThread: SearchThread;
+  let buildStartedAt: number;
+  let stopFootprintSampling: () => Promise<number>;
 
   beforeAll(async () => {
     folder = await mkdtemp(join(tmpdir(), "directory-budgets-"));
     const databasePath = join(folder, "daemon.db");
     database = await openDatabaseConnections({ databasePath, writeServiceLog });
     seeded = await seedDirectorySet(database);
-    // Measured as an idle daemon leaves the index, merged into one tree as `optimize` merges it,
-    // and read from the main file.
-    await database.writer.write([
-      { sql: "INSERT INTO session_search_index (session_search_index) VALUES ('optimize')" },
-    ]);
+    // Read from the main file, as an idle daemon leaves it.
     await database.writer.checkpoint("TRUNCATE");
     // The seeding leaves this thread's heap large and mostly garbage, which the daemon's main
     // thread never holds; collected and given back now, no collection of it lands in a measured
@@ -158,13 +242,52 @@ describe("the session directory's budgets on the seeded set", () => {
       throw new Error("The endurance tier runs with --expose-gc, which its project sets.");
     }
     gc({ type: "major", execution: "sync", flavor: "last-resort" });
-    searchThread = SearchThread.start(databasePath);
+    // No index folder yet, so the search thread builds the index from every row before its first
+    // answer; the first test times it.
+    stopFootprintSampling = samplePeakFootprint();
+    buildStartedAt = performance.now();
+    searchThread = SearchThread.start({
+      databasePath,
+      indexFolderPath: join(folder, "search-index"),
+      writer: database.writer,
+      writeServiceLog: (line) => {
+        searchLogLines.push(line);
+      },
+    });
   });
 
   afterAll(async () => {
     await searchThread.close();
     await closeDatabaseConnections(database);
     await rm(folder, { recursive: true, force: true });
+  });
+
+  it("builds the index from the database at the start and merges it while idle, in budget", async () => {
+    await searchThread.searchSessions({ query: seeded.words[0] ?? "" });
+    const buildMs = performance.now() - buildStartedAt;
+    const buildFootprintMiB = await stopFootprintSampling();
+    expect(searchLogLines).toEqual(["search_index_rebuilt: missing"]);
+    // An idle daemon merges the built index's segments one merge at a time until none remains.
+    const mergesMs: number[] = [];
+    let isMoreToMerge = true;
+    while (isMoreToMerge && mergesMs.length < MERGES_AT_MOST) {
+      const start = performance.now();
+      isMoreToMerge = await searchThread.mergeWhileIdle();
+      mergesMs.push(performance.now() - start);
+    }
+    const longestMergeMs = Math.max(0, ...mergesMs);
+    console.log(
+      `Index build from ${String(SEEDED_SET_SIZE.messages)} messages at the start: first answer ` +
+        `after ${(buildMs / 1000).toFixed(1)} s (budget ${String(REBUILD_BUDGET_MS / 1000)} s), ` +
+        `peak footprint ${buildFootprintMiB.toFixed(0)} MiB ` +
+        `(budget ${String(REBUILD_FOOTPRINT_BUDGET_MIB)} MiB); ${String(mergesMs.length)} merges ` +
+        `while idle, longest ${longestMergeMs.toFixed(0)} ms ` +
+        `(budget ${String(MERGE_BUDGET_MS)} ms); ${residentMemory()}`,
+    );
+    expect(isMoreToMerge).toBe(false);
+    expect(buildMs).toBeLessThanOrEqual(REBUILD_BUDGET_MS);
+    expect(buildFootprintMiB).toBeLessThanOrEqual(REBUILD_FOOTPRINT_BUDGET_MIB);
+    expect(longestMergeMs).toBeLessThanOrEqual(MERGE_BUDGET_MS);
   });
 
   it("answers each search class within budget without holding the main thread", async () => {
@@ -193,6 +316,7 @@ describe("the session directory's budgets on the seeded set", () => {
       ["tag and common word", `tag:billing ${word(100)}`],
       ["narrow tag and most common word", `tag:${narrowTag} ${word(0)}`],
       ["group name word", "work"],
+      ...PROBE_QUERIES.map((query) => [`probe ${query}`, query] as const),
     ];
     const measured: MeasuredClass[] = [];
     for (const [label, query] of sessionQueries) {
@@ -267,6 +391,43 @@ describe("the session directory's budgets on the seeded set", () => {
     ).toEqual([]);
   });
 
+  it("finds a settled message within a second of its commit", async () => {
+    const sessionId = seeded.typicalSessionId;
+    const waitsMs: number[] = [];
+    for (let index = 0; index < SETTLED_MESSAGES; index += 1) {
+      // A word no other row holds, so its first hit is this message.
+      const word = `settledprobe${String(index)}`;
+      await database.writer.write([
+        {
+          sql: `INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
+                                            category, type, payload)
+                SELECT @id, @sessionId, coalesce(max(sequence), -1) + 1, @at, 0,
+                       'assistant_output', 'user.message', @payload
+                  FROM session_events WHERE session_id = @sessionId`,
+          bindings: {
+            id: mintUuidV7(),
+            sessionId,
+            at: new Date().toISOString(),
+            payload: JSON.stringify({ sessionId, message: `${word} settled now` }),
+          },
+        },
+      ]);
+      waitsMs.push(
+        await timeUntil(async () => {
+          const page = await searchThread.searchSessions({ query: `${word} ` });
+          return page.groups.length > 0;
+        }),
+      );
+    }
+    const longestWaitMs = Math.max(...waitsMs);
+    console.log(
+      `Settled message to its first hit, ${String(SETTLED_MESSAGES)} messages: ` +
+        `${formatTiming(timingOf(waitsMs))}, longest ${longestWaitMs.toFixed(1)} ms ` +
+        `(budget ${String(SETTLED_TO_HIT_BUDGET_MS)} ms); ${residentMemory()}`,
+    );
+    expect(longestWaitMs).toBeLessThanOrEqual(SETTLED_TO_HIT_BUDGET_MS);
+  });
+
   it("reads a stored related list and re-scores one without holding the main thread", async () => {
     const ranking = new SessionRelatedRanking({
       reader: database.reader,
@@ -317,5 +478,32 @@ describe("the session directory's budgets on the seeded set", () => {
     expect(serviceLogLines).toEqual([]);
     expect(read.p95Ms).toBeLessThanOrEqual(RELATED_LIST_P95_BUDGET_MS);
     expect(turns.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
+  });
+  it("answers a search right after the largest session's purge, never showing the session", async () => {
+    const { largeSessionId } = seeded;
+    // The deletes a purge makes of the rows the seeded set gives a session, in one write.
+    await database.writer.write(
+      [
+        "DELETE FROM session_events WHERE session_id = @sessionId",
+        `DELETE FROM session_links
+          WHERE source_session_id = @sessionId OR target_session_id = @sessionId`,
+        "DELETE FROM session_tags WHERE session_id = @sessionId",
+        `DELETE FROM session_related
+          WHERE session_id = @sessionId OR related_session_id = @sessionId`,
+        "DELETE FROM sessions WHERE id = @sessionId",
+      ].map((sql) => ({ sql, bindings: { sessionId: largeSessionId } })),
+    );
+    // Searched at once, while the index applies the purge.
+    const query = seeded.words[0] ?? "";
+    const firstPage = await measure(() => searchThread.searchSessions({ query }));
+    const page = await searchThread.searchSessions({ query });
+    console.log(
+      `Most common word right after the largest session's purge: ${formatTiming(firstPage)}  ` +
+        `${formatTurns(firstPage)}  ${residentMemory()}`,
+    );
+    expect(page.groups.map((group) => group.sessionId)).not.toContain(largeSessionId);
+    expect(firstPage.p95Ms).toBeLessThanOrEqual(SEARCH_P95_BUDGET_MS);
+    expect(firstPage.longestTurnMs).toBeLessThanOrEqual(MAIN_THREAD_TURN_BUDGET_MS);
+    expect(searchLogLines).toEqual(["search_index_rebuilt: missing"]);
   });
 });

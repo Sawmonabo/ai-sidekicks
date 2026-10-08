@@ -1,7 +1,8 @@
-// The messages between the search thread and the daemon's main thread, and the errors a search
-// throws, carried across as plain data and rebuilt as the class the wire mapping reads. Each
-// request is answered once, in the order it was sent, except the start of the rankers, which is
-// never answered.
+// The messages between the search thread and the daemon's main thread, and the errors a request
+// throws, carried across as plain data and rebuilt as the class the wire mapping reads. A request
+// carries an id its answer repeats, since a merge resolves off the thread while searches go on. The
+// thread also tells the main thread, unasked, when an index commit is durable, so the outbox rows
+// it holds are deleted, and when applying the outbox failed.
 
 import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
 import type {
@@ -20,15 +21,25 @@ import {
   rebuildError,
   type CarriedError,
 } from "../../../worker-thread/carried-error.js";
+import type { AppliedOutbox } from "../index/outbox.js";
+import type { SearchIndexRebuildReason } from "../index/rebuild.js";
 
-/** What the main thread asks of the search thread. */
-export type SearchThreadRequest =
-  | { readonly type: "start-rankers" }
+/** A request the main thread makes of the search thread, each answered once. */
+export type SearchThreadCall =
   | { readonly type: "session.search"; readonly request: SessionSearchRequest }
   | { readonly type: "transcript.search"; readonly request: TranscriptSearchRequest }
+  | { readonly type: "merge" }
   | { readonly type: "close" };
 
-/** An error a search threw, as plain data: each kind the wire mapping tells apart, or any other. */
+/**
+ * What the main thread sends: a request with the id its answer repeats, or the notice that writes
+ * committed, which nothing answers.
+ */
+export type SearchThreadRequest =
+  | (SearchThreadCall & { readonly id: number })
+  | { readonly type: "writes-committed" };
+
+/** A request's error as plain data: each kind the wire mapping tells apart, or any other. */
 export type CarriedSearchError =
   | {
       readonly kind: "domain";
@@ -45,18 +56,30 @@ export type CarriedSearchError =
   | { readonly kind: "event_cursor_unresolvable"; readonly cursor: string }
   | ({ readonly kind: "other" } & CarriedError);
 
-/** What the search thread answers: once when its connection is open, then once per request. */
-export type SearchThreadReply =
-  | { readonly type: "opened" }
-  | { readonly type: "open-failed"; readonly error: CarriedSearchError }
+/** The search thread's answer to one request. */
+export type SearchThreadAnswer =
   | { readonly type: "session-searched"; readonly response: SessionSearchResponse }
   | { readonly type: "transcript-searched"; readonly response: TranscriptSearchResponse }
-  | { readonly type: "search-failed"; readonly error: CarriedSearchError }
+  | { readonly type: "merged"; readonly isMoreToMerge: boolean }
+  | { readonly type: "failed"; readonly error: CarriedSearchError }
   | { readonly type: "closed" };
+
+/**
+ * What the search thread sends: once whether its index opened, then each answer with its
+ * request's id, and unasked each durable index commit and a failed apply.
+ */
+export type SearchThreadReply =
+  | { readonly type: "opened"; readonly rebuildReason: SearchIndexRebuildReason | undefined }
+  | { readonly type: "open-failed"; readonly error: CarriedSearchError }
+  | { readonly type: "index-applied"; readonly applied: AppliedOutbox }
+  | { readonly type: "index-failed"; readonly error: CarriedSearchError }
+  | (SearchThreadAnswer & { readonly id: number });
 
 /** What the search thread is started with. */
 export interface SearchThreadWorkerData {
   readonly databasePath: string;
+  /** The search index's folder in the daemon's data folder. */
+  readonly indexFolderPath: string;
 }
 
 /** Carries a thrown value across the thread boundary, which keeps only plain data. */

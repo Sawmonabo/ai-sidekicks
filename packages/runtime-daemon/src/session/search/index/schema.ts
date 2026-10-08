@@ -1,191 +1,172 @@
-// The full-text index's tables and triggers, which the daemon's schema script runs with the rest.
+// The search index's part of the daemon's schema: the outbox that feeds the index from the writes
+// that change searchable text, and the log of lowered highest rowids a held search reads its rows
+// against. The daemon's schema script runs it with the rest.
 
-import { markFreeTextSql } from "../marked-line.js";
+import type { IndexRowKind } from "@ai-sidekicks/search-index";
+
 import { rowidFloorTriggerSql } from "../rowid-floors.js";
-import { indexRowidSql, ownerKeySql } from "./columns.js";
+import { INDEX_ROW_KINDS, indexKeySql } from "./columns.js";
+import { OutboxOperation } from "./outbox.js";
+import { INDEXED_EVENT_TYPES_SQL } from "./rows.js";
 
-// Run by every trigger that writes the search index, after its write.
-const INDEX_VERSION_BUMP_SQL = "UPDATE session_search_index_version SET version = version + 1;";
-
-// The entry in the index's session table for the index row whose rowid is `indexRowidSql`: the row
-// of the session whose id is `sessionIdSql` in the directory, and the log position `sequenceSql`.
-// A session with no directory row gets none.
-function rowSessionInsertSql(
-  indexRowidSql: string,
-  sessionIdSql: string,
-  sequenceSql: string,
-): string {
-  return `INSERT INTO session_search_index_sessions (index_rowid, session_rowid, sequence)
-  SELECT ${indexRowidSql}, session.rowid, ${sequenceSql}
-    FROM sessions AS session WHERE session.id = ${sessionIdSql}`;
+// A closed set as the SQL list a CHECK admits.
+function sqlListOf(values: readonly string[]): string {
+  return values.map((value) => `'${value}'`).join(", ");
 }
 
-function rowSessionDeleteSql(indexRowidSql: string): string {
-  return `DELETE FROM session_search_index_sessions WHERE index_rowid = ${indexRowidSql};`;
+// The outbox row a trigger writes, from the SQL of each of its columns.
+function outboxInsertSql(entry: {
+  readonly indexKeySql: string;
+  readonly kind: IndexRowKind;
+  readonly ownerKeySql: string;
+  readonly operation: OutboxOperation;
+}): string {
+  return `INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  VALUES (${entry.indexKeySql}, '${entry.kind}', ${entry.ownerKeySql}, '${entry.operation}');`;
 }
 
-/** The search index's part of the daemon's schema: its tables, and the triggers that keep it. */
+// The outbox row that has the members of the group whose id is `groupIdSql` read again; none when
+// no such group is left.
+function groupMembersOutboxSql(groupIdSql: string): string {
+  return `INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT ${indexKeySql("session_group.rowid", "group")}, 'group', session_group.rowid,
+         '${OutboxOperation.Members}'
+    FROM session_groups AS session_group WHERE session_group.id = ${groupIdSql};`;
+}
+
+// The outbox row that has a log or tag row read again, owned by the session whose id is
+// `sessionIdSql`; none for a session with no directory row, whose rows the index never holds.
+function sessionRowOutboxSql(rowKeySql: string, kind: IndexRowKind, sessionIdSql: string): string {
+  return `INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT ${rowKeySql}, '${kind}', session.rowid, '${OutboxOperation.Row}'
+    FROM sessions AS session WHERE session.id = ${sessionIdSql};`;
+}
+
+/** The search index's part of the daemon's schema: its tables, and the triggers that write them. */
 export const SEARCH_INDEX_SCHEMA_SQL: string = `
--- The full-text index both searches read: session titles, settled message text, tool calls,
--- group names and tags, archived sessions included. Each row's rowid is its source row's rowid
--- times four plus its kind's slot (event 0, title 1, group 2, tag 3), so every trigger below
--- reaches its row by rowid. Nothing vacuums this database, so those rowids never move.
--- Words are matched in text alone. owner_key holds, as one token, the id of the row's owner: the
--- session a log, title or tag row belongs to, or the group a group row names. So a read limited to
--- some sessions and their groups reads their entries rather than every match, and every row's
--- length counts its key alike. A group row has no session_id: its sessions are read through
--- sessions.group_id. sequence is the event's position, NULL on every other kind. Text is indexed
--- with the two characters a search's highlight marks a match with turned to spaces, so every mark
--- read back is one the index put. The prefix indexes serve search as the person types; FTS5's
--- automerge keeps writes bounded, and the daemon merges the rest when idle. The tokenizer keeps
--- words apart, which the search's match count needs: it counts what highlight() marks only while
--- no two tokens share a character, and trigram's do ('abc' in 'abcabc' counts two, marked as one).
-CREATE VIRTUAL TABLE session_search_index USING fts5(
-  text,
-  owner_key,
-  session_id UNINDEXED,
-  kind UNINDEXED,
-  sequence UNINDEXED,
-  tokenize = 'unicode61 remove_diacritics 2',
-  prefix = '2 3 4'
-);
-
--- The index's version: every trigger below that writes the index adds one, so connections that
--- read the same version read the same index, and a ranking split across connections is one
--- ranking. The idle merges rewrite how the index is stored, never what it holds, and add nothing.
-CREATE TABLE session_search_index_version (
-  singleton  INTEGER PRIMARY KEY CHECK (singleton = 1),
-  version    INTEGER NOT NULL
-) STRICT;
-INSERT INTO session_search_index_version (singleton, version) VALUES (1, 0);
-
--- Each log, title and tag row of the index with its session's rowid in sessions and, on a log
--- row, the event's sequence, kept by the triggers below in the same write as the row. A ranking
--- that reads every match's session reads it here, from pages few enough to stay cached, rather
--- than from the index's content, whose rows hold the text. A group row has no entry, and neither
--- has a row whose session has no directory row, which only the daemon's own sentinel session
--- lacks.
-CREATE TABLE session_search_index_sessions (
-  index_rowid    INTEGER PRIMARY KEY,
-  session_rowid  INTEGER NOT NULL,
-  sequence       INTEGER
+-- The search index's outbox. The index, a folder beside this database, holds settled message text,
+-- tool calls, session titles, group names and tags, archived sessions included; this database stays
+-- the record, and every write that changes what the index holds adds outbox rows in its own
+-- transaction, through the triggers below. The search thread applies the rows in batches, each one
+-- durable commit of the index that records the batch's highest id, then deletes the rows up to it
+-- through the database writer; after a crash it applies the rows past the id the index recorded.
+-- No text is copied here: a batch reads each row's text as this database holds it then, and a row
+-- gone by then leaves the index. AUTOINCREMENT, so an id is never used twice and the id an index
+-- records always means the same row.
+-- index_key is the index row's key: its source row's rowid times four plus its kind's slot (event
+-- 0, title 1, group 2, tag 3). owner_key is the session's rowid in sessions, or for a group's row
+-- the group's rowid in session_groups. Nothing vacuums this database, so those rowids never move.
+-- operation is 'row' to read the row at index_key again, 'owner' when the session or group whose
+-- row is at index_key is deleted with every row it owns, and 'members' to read the group's members
+-- again.
+CREATE TABLE session_search_outbox (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  index_key  INTEGER NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN (${sqlListOf(INDEX_ROW_KINDS)})),
+  owner_key  INTEGER NOT NULL,
+  operation  TEXT NOT NULL CHECK (operation IN (${sqlListOf(Object.values(OutboxOperation))}))
 ) STRICT;
 
--- Settled rows only: a person's message, an assistant's message and a tool call. A thinking
--- update is narration a later event supersedes, so it is never indexed.
+-- Settled rows only, as they are appended. Only a purge deletes a log row, and it deletes the
+-- session's directory row in the same write, whose trigger takes every row the session owns out.
 CREATE TRIGGER trg_session_search_event_insert AFTER INSERT ON session_events
-WHEN NEW.type IN ('user.message', 'assistant.message', 'tool.invoked')
+WHEN NEW.type IN (${INDEXED_EVENT_TYPES_SQL})
 BEGIN
-  INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind, sequence)
-  SELECT ${indexRowidSql("NEW.rowid", "event")}, indexed.text, ${ownerKeySql("NEW.session_id")},
-         NEW.session_id, 'event', NEW.sequence
-    FROM (SELECT ${markFreeTextSql(`CASE
-                   WHEN NEW.type = 'user.message' THEN json_extract(NEW.payload, '$.message')
-                   WHEN NEW.type = 'assistant.message' THEN NEW.content_payload
-                   WHEN NEW.type = 'tool.invoked' THEN json_extract(NEW.payload, '$.toolName')
-                     || coalesce(' ' || NEW.content_payload, '')
-                 END`)} AS text) AS indexed
-   WHERE indexed.text IS NOT NULL;
-  ${rowSessionInsertSql(indexRowidSql("NEW.rowid", "event"), "NEW.session_id", "NEW.sequence")}
-     AND EXISTS (SELECT 1 FROM session_search_index
-                  WHERE rowid = ${indexRowidSql("NEW.rowid", "event")});
-  ${INDEX_VERSION_BUMP_SQL}
+  ${sessionRowOutboxSql(indexKeySql("NEW.rowid", "event"), "event", "NEW.session_id")}
 END;
 
-CREATE TRIGGER trg_session_search_event_delete AFTER DELETE ON session_events
-WHEN OLD.type IN ('user.message', 'assistant.message', 'tool.invoked')
+CREATE TRIGGER trg_session_search_session_insert AFTER INSERT ON sessions
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "event")};
-  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "event"))}
-  ${INDEX_VERSION_BUMP_SQL}
-END;
-
-CREATE TRIGGER trg_session_search_title_insert AFTER INSERT ON sessions
-WHEN NEW.name IS NOT NULL
-BEGIN
-  INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")},
-          ${ownerKeySql("NEW.id")}, NEW.id, 'title');
-  INSERT INTO session_search_index_sessions (index_rowid, session_rowid)
-  VALUES (${indexRowidSql("NEW.rowid", "title")}, NEW.rowid);
-  ${INDEX_VERSION_BUMP_SQL}
+  INSERT INTO session_search_outbox (index_key, kind, owner_key, operation)
+  SELECT ${indexKeySql("NEW.rowid", "title")}, 'title', NEW.rowid, '${OutboxOperation.Row}'
+   WHERE NEW.name IS NOT NULL;
+  ${groupMembersOutboxSql("NEW.group_id")}
 END;
 
 CREATE TRIGGER trg_session_search_title_update AFTER UPDATE OF name ON sessions
+WHEN OLD.name IS NOT NEW.name
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
-  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "title"))}
-  INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
-  SELECT ${indexRowidSql("NEW.rowid", "title")}, ${markFreeTextSql("NEW.name")},
-         ${ownerKeySql("NEW.id")}, NEW.id, 'title'
-   WHERE NEW.name IS NOT NULL;
-  INSERT INTO session_search_index_sessions (index_rowid, session_rowid)
-  SELECT ${indexRowidSql("NEW.rowid", "title")}, NEW.rowid WHERE NEW.name IS NOT NULL;
-  ${INDEX_VERSION_BUMP_SQL}
+  ${outboxInsertSql({
+    indexKeySql: indexKeySql("NEW.rowid", "title"),
+    kind: "title",
+    ownerKeySql: "NEW.rowid",
+    operation: OutboxOperation.Row,
+  })}
 END;
 
-CREATE TRIGGER trg_session_search_title_delete AFTER DELETE ON sessions
+-- A session moving between groups changes which sessions each group's name counts toward.
+CREATE TRIGGER trg_session_search_group_move AFTER UPDATE OF group_id ON sessions
+WHEN OLD.group_id IS NOT NEW.group_id
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "title")};
-  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "title"))}
-  ${INDEX_VERSION_BUMP_SQL}
+  ${groupMembersOutboxSql("OLD.group_id")}
+  ${groupMembersOutboxSql("NEW.group_id")}
+END;
+
+-- A purge: the group the session sat in loses it, then the session and every row it owns leave.
+CREATE TRIGGER trg_session_search_session_delete AFTER DELETE ON sessions
+BEGIN
+  ${groupMembersOutboxSql("OLD.group_id")}
+  ${outboxInsertSql({
+    indexKeySql: indexKeySql("OLD.rowid", "title"),
+    kind: "title",
+    ownerKeySql: "OLD.rowid",
+    operation: OutboxOperation.Owner,
+  })}
 END;
 
 CREATE TRIGGER trg_session_search_group_insert AFTER INSERT ON session_groups
 BEGIN
-  INSERT INTO session_search_index (rowid, text, owner_key, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "group")}, ${markFreeTextSql("NEW.name")},
-          ${ownerKeySql("NEW.id")}, 'group');
-  ${INDEX_VERSION_BUMP_SQL}
+  ${outboxInsertSql({
+    indexKeySql: indexKeySql("NEW.rowid", "group"),
+    kind: "group",
+    ownerKeySql: "NEW.rowid",
+    operation: OutboxOperation.Row,
+  })}
 END;
 
-CREATE TRIGGER trg_session_search_group_update AFTER UPDATE OF name ON session_groups
+CREATE TRIGGER trg_session_search_group_rename AFTER UPDATE OF name ON session_groups
+WHEN OLD.name IS NOT NEW.name
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "group")};
-  INSERT INTO session_search_index (rowid, text, owner_key, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "group")}, ${markFreeTextSql("NEW.name")},
-          ${ownerKeySql("NEW.id")}, 'group');
-  ${INDEX_VERSION_BUMP_SQL}
+  ${outboxInsertSql({
+    indexKeySql: indexKeySql("NEW.rowid", "group"),
+    kind: "group",
+    ownerKeySql: "NEW.rowid",
+    operation: OutboxOperation.Row,
+  })}
 END;
 
 CREATE TRIGGER trg_session_search_group_delete AFTER DELETE ON session_groups
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "group")};
-  ${INDEX_VERSION_BUMP_SQL}
+  ${outboxInsertSql({
+    indexKeySql: indexKeySql("OLD.rowid", "group"),
+    kind: "group",
+    ownerKeySql: "OLD.rowid",
+    operation: OutboxOperation.Owner,
+  })}
 END;
 
 CREATE TRIGGER trg_session_search_tag_insert AFTER INSERT ON session_tags
 BEGIN
-  INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")},
-          ${ownerKeySql("NEW.session_id")}, NEW.session_id, 'tag');
-  ${rowSessionInsertSql(indexRowidSql("NEW.rowid", "tag"), "NEW.session_id", "NULL")};
-  ${INDEX_VERSION_BUMP_SQL}
+  ${sessionRowOutboxSql(indexKeySql("NEW.rowid", "tag"), "tag", "NEW.session_id")}
 END;
 
 CREATE TRIGGER trg_session_search_tag_update AFTER UPDATE OF tag ON session_tags
+WHEN OLD.tag IS NOT NEW.tag
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
-  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "tag"))}
-  INSERT INTO session_search_index (rowid, text, owner_key, session_id, kind)
-  VALUES (${indexRowidSql("NEW.rowid", "tag")}, ${markFreeTextSql("NEW.tag")},
-          ${ownerKeySql("NEW.session_id")}, NEW.session_id, 'tag');
-  ${rowSessionInsertSql(indexRowidSql("NEW.rowid", "tag"), "NEW.session_id", "NULL")};
-  ${INDEX_VERSION_BUMP_SQL}
+  ${sessionRowOutboxSql(indexKeySql("NEW.rowid", "tag"), "tag", "NEW.session_id")}
 END;
 
 CREATE TRIGGER trg_session_search_tag_delete AFTER DELETE ON session_tags
 BEGIN
-  DELETE FROM session_search_index WHERE rowid = ${indexRowidSql("OLD.rowid", "tag")};
-  ${rowSessionDeleteSql(indexRowidSql("OLD.rowid", "tag"))}
-  ${INDEX_VERSION_BUMP_SQL}
+  ${sessionRowOutboxSql(indexKeySql("OLD.rowid", "tag"), "tag", "OLD.session_id")}
 END;
 
 -- Each delete that lowers an indexed source table's highest rowid, with the new highest (0 for an
--- empty table), so a search held across pages can tell the rowids a later row may have taken.
--- kind names the index rows the table's rows source. Only the newest entries are kept.
+-- empty table), so a held search can tell the rowids a later row may have taken since its view.
+-- kind names the index rows the table's rows source. AUTOINCREMENT, so an entry written after a
+-- held search's place in the log always sits past it, even once older entries are let go.
 CREATE TABLE session_search_rowid_floors (
-  id             INTEGER PRIMARY KEY,
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
   kind           TEXT NOT NULL,
   highest_rowid  INTEGER NOT NULL
 ) STRICT;

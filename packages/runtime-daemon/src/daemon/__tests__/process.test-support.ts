@@ -21,7 +21,7 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
 import { openOrphanGuard } from "../../pty/orphan/guard.js";
-import { SearchThread } from "../../session/search/thread/handle.js";
+import { SearchThread, type SearchThreadOptions } from "../../session/search/thread/handle.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
 
@@ -194,11 +194,11 @@ export function whenClosed(client: Client): Promise<void> {
  * them in the order they started.
  */
 export function useSearchThreads(
-  startThread: (databasePath: string) => SearchThread,
+  startThread: (options: SearchThreadOptions) => SearchThread,
 ): SearchThread[] {
   const threads: SearchThread[] = [];
-  const spy = vi.spyOn(SearchThread, "start").mockImplementation((databasePath) => {
-    const thread = startThread(databasePath);
+  const spy = vi.spyOn(SearchThread, "start").mockImplementation((options) => {
+    const thread = startThread(options);
     threads.push(thread);
     return thread;
   });
@@ -209,5 +209,5 @@ export function useSearchThreads(
 }
 
 /** Starts a search thread as a daemon does, past any {@link useSearchThreads} in force. */
-export const startSearchThread: (databasePath: string) => SearchThread =
+export const startSearchThread: (options: SearchThreadOptions) => SearchThread =
   SearchThread.start.bind(SearchThread);

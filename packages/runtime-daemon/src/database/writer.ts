@@ -127,6 +127,7 @@ export class DatabaseWriter {
   #sampleTimer: ReturnType<typeof setInterval> | undefined;
   #latestEventTags: EventTags | undefined;
   readonly #droppedBySession = new Map<string, number>();
+  readonly #commitListeners = new Set<() => void>();
   #failure: Error | undefined;
   #closing: Promise<number> | undefined;
 
@@ -230,6 +231,20 @@ export class DatabaseWriter {
       throw new Error("The database writer's worker answered an append with no sequence");
     }
     return { isStored: true, sequence };
+  }
+
+  /**
+   * Calls `onCommitted` after each batch that committed a write, once the batch's writes have
+   * settled, until the detach it returns runs.
+   */
+  followCommits(onCommitted: () => void): () => void {
+    const listener = (): void => {
+      onCommitted();
+    };
+    this.#commitListeners.add(listener);
+    return () => {
+      this.#commitListeners.delete(listener);
+    };
   }
 
   /**
@@ -435,6 +450,11 @@ export class DatabaseWriter {
             entry.resolve(outcome);
           }
         });
+        if (reply.outcomes.some((outcome) => outcome.status === "committed")) {
+          for (const listener of this.#commitListeners) {
+            listener();
+          }
+        }
         return;
       case "batch-failed": {
         const batchFailure = rebuildError(reply.error);

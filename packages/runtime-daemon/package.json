@@ -24,10 +24,9 @@
     "tests/helpers/typescript-source-loader.mjs"
   ],
   "scripts": {
-    "build": "tsc -b && rolldown -c rolldown.config.ts && pnpm run build:match-count",
-    "build:match-count": "node scripts/build-match-count.mjs",
+    "build": "tsc -b && rolldown -c rolldown.config.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json",
-    "lint": "eslint src tests scripts rolldown.config.ts",
+    "lint": "eslint src tests rolldown.config.ts",
     "test": "vitest run --project=unit",
     "test:coverage": "vitest run --project=unit --coverage",
     "test:endurance": "vitest run --project=endurance"

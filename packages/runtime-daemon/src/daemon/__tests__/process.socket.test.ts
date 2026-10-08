@@ -115,7 +115,9 @@ describe("the lifecycle verbs over the socket", () => {
   });
 
   it("reads degraded when the search thread cannot open, says why, and fails each search", async () => {
-    useSearchThreads(() => startSearchThread(path.join(scratch, "missing.db")));
+    useSearchThreads((options) =>
+      startSearchThread({ ...options, databasePath: path.join(scratch, "missing.db") }),
+    );
     const serviceLog: string[] = [];
     await startDaemon(DRAIN_NOTHING, {}, (options) =>
       DaemonProcess.start({

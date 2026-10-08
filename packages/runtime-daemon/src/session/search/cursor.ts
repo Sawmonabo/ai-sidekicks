@@ -11,12 +11,13 @@ import {
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 
-// A page of a search with words starts at a session of the ranking's order; past its best hits
-// when an earlier page showed some, named by the last one's index row, which keeps its rank.
+// A page of a search with words starts at a session of the search's order; past its best hits
+// when an earlier page showed some, named by the last one's index key, whose place among the
+// session's hits the held view keeps.
 interface RankedPagePosition {
   readonly order: "ranked";
   readonly sessionIndex: number;
-  readonly afterHitRowid: number | undefined;
+  readonly afterHitKey: number | undefined;
 }
 
 /** A page of a search by tag alone starts at a session of its list, past the hits shown. */
@@ -50,7 +51,7 @@ export function encodeSearchCursor(
   const text =
     position.order === "ranked"
       ? `r:${snapshotId}:${place}` +
-        (position.afterHitRowid === undefined ? "" : `:${String(position.afterHitRowid)}`)
+        (position.afterHitKey === undefined ? "" : `:${String(position.afterHitKey)}`)
       : `l:${snapshotId}:${place}:${String(position.shownHitCount)}`;
   return SessionSearchCursorSchema.parse(text);
 }
@@ -62,13 +63,13 @@ export function encodeSearchCursor(
 export function decodeSearchCursor(cursor: SessionSearchCursor): SearchCursorPosition {
   const ranked = RANKED_CURSOR.exec(cursor);
   if (ranked !== null) {
-    const [, snapshotId = "", sessionIndex = "", afterHitRowid] = ranked;
+    const [, snapshotId = "", sessionIndex = "", afterHitKey] = ranked;
     return {
       snapshotId,
       position: {
         order: "ranked",
         sessionIndex: Number(sessionIndex),
-        afterHitRowid: afterHitRowid === undefined ? undefined : Number(afterHitRowid),
+        afterHitKey: afterHitKey === undefined ? undefined : Number(afterHitKey),
       },
     };
   }
@@ -89,7 +90,7 @@ export function decodeSearchCursor(cursor: SessionSearchCursor): SearchCursorPos
 
 /**
  * The refusal of a cursor that continues no search the daemon holds for this query: one it did
- * not write, one written for another query, or one whose ranking it has since let go.
+ * not write, one written for another query, or one whose search it has since let go.
  */
 export function searchCursorUnresolvable(cursor: SessionSearchCursor): DaemonDomainError {
   return new DaemonDomainError("The search cursor does not continue a search the daemon holds.", {

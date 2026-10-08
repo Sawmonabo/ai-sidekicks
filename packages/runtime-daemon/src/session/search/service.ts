@@ -1,17 +1,19 @@
-// `session.search`: every session's hits from the full-text index, archived sessions included,
-// one page at a time, so every hit is reachable while each answer stays inside its budget and one
+// `session.search`: every session's hits from the search index, archived sessions included, one
+// page at a time, so every hit is reachable while each answer stays inside its budget and one
 // message. Hits are grouped by session, the sessions in the order of their best hit.
 //
-// Words rank by the index's BM25 order. The first page reads the ranking once and holds it, and
-// every later page walks that held ranking, so a write between pages neither repeats nor drops a
-// hit the first page's search held; a page marks only its own hits. A `tag:<tag>` term keeps the
-// sessions that carry that tag or one nested under it. With words and tags, the sessions' text
-// rank and their tag rank (most recently active first) are merged by Reciprocal Rank Fusion. The
+// Words rank by the index's BM25 order. The first page opens a view of the index and holds it, and
+// every later page reads that view, so a write between pages neither repeats nor drops a hit the
+// view held. A hit's line is read from the database by its key and marked on the row's text as it
+// is now: a hit whose row is gone is passed over, and so is one whose rowid a later row has taken
+// since the view, which the rowid floor log tells. A `tag:<tag>` term keeps the sessions that carry
+// that tag or one nested under it. With words and tags, the index ranks only the tagged sessions'
+// rows, and their text rank and their tag rank (most recently active first) are merged by
+// Reciprocal Rank Fusion; names, groups and lines are read only for a page's own sessions. The
 // search box names no session, so no relation rank takes part.
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { SessionGroupId } from "@ai-sidekicks/contracts/session/groups";
 import {
   START_OF_LOG_POSITION,
   encodeEventCursor,
@@ -25,6 +27,7 @@ import {
   type SessionSearchRequest,
   type SessionSearchResponse,
 } from "@ai-sidekicks/contracts/session/methods";
+import type { SearchIndex } from "@ai-sidekicks/search-index";
 
 import {
   decodeSearchCursor,
@@ -33,33 +36,20 @@ import {
   type ListedPagePosition,
   type SearchPagePosition,
 } from "./cursor.js";
-import { SessionHitReader, type HitSession, type RankedHit, type SearchHits } from "./hits.js";
-import { indexRowidSql } from "./index/columns.js";
-import { SearchIndexVersion } from "./index/version.js";
+import { HitLineReader, type HitLine } from "./hits.js";
+import { indexKeyOf } from "./index/columns.js";
+import type { IndexRowReader } from "./index/rows.js";
 import { assembleSearchPage, type PageCandidate, type SearchPage } from "./page.js";
 import { parseSessionSearchQuery, type ParsedSearchQuery } from "./query.js";
 import { fuseRankedLists } from "./rank-fusion.js";
-import {
-  NARROWED_RANKING_OWNERS,
-  SessionTextRanking,
-  compareRankedRows,
-  rankingOfRanges,
-  ranksEveryMatch,
-  sessionsRankingOfRanges,
-  type RankedRange,
-  type RankedRowKey,
-} from "./ranking.js";
-import { RowidFloorLog, type HeldRowCheck } from "./rowid-floors.js";
-import { IndexRowSessions, listedSessionOrder, rankedSessionOrder } from "./session-order.js";
+import type { HeldRowCheck, RowidFloorLog } from "./rowid-floors.js";
 import {
   DEFAULT_SEARCH_SNAPSHOT_LIMITS,
   SearchSnapshots,
-  listedByteLength,
   releaseSearch,
   type ListedSession,
   type SearchSnapshot,
   type SearchSnapshotLimits,
-  type SessionOrder,
 } from "./snapshots.js";
 
 // A tag row carrying the tag `@fold` or one nested under it: the fold itself, or any fold past its
@@ -67,81 +57,56 @@ import {
 const TAG_FOLD_MATCH_SQL = `(tag.tag_folded = @fold
       OR (tag.tag_folded >= @fold || '/' AND tag.tag_folded < @fold || '0'))`;
 
-// The sessions carrying a tag or one nested under it, each with its group, whose row the words may
-// match too.
+// The sessions carrying a tag or one nested under it, with the tags that matched, for a search by
+// tag alone.
 const TAGGED_SESSIONS_SQL = `
-  SELECT tag.session_id, session.rowid AS session_rowid, tag.tag, session.name,
-         session.last_activity_at,
-         session_group.id AS group_id,
-         ${indexRowidSql("session_group.rowid", "group")} AS group_index_rowid
+  SELECT tag.session_id, tag.tag, session.name, session.last_activity_at
     FROM session_tags AS tag
     JOIN sessions AS session ON session.id = tag.session_id
-    LEFT JOIN session_groups AS session_group ON session_group.id = session.group_id
    WHERE ${TAG_FOLD_MATCH_SQL}
    ORDER BY tag.tag_folded`;
 
-// How many sessions carry a tag or one nested under it, counted no further than `@bound`, from the
-// tag index alone.
-const TAGGED_SESSION_COUNT_SQL = `
-  SELECT count(*) FROM (
-    SELECT DISTINCT tag.session_id
-      FROM session_tags AS tag
-     WHERE ${TAG_FOLD_MATCH_SQL}
-     LIMIT @bound)`;
+// The same sessions by key with their last activity, for a search by tag and words: read from the
+// tag index and the sessions' activity index alone, with no name or group.
+const TAGGED_SESSION_KEYS_SQL = `
+  SELECT DISTINCT session.rowid AS session_key, session.id AS session_id, session.last_activity_at
+    FROM session_tags AS tag
+    JOIN sessions AS session ON session.id = tag.session_id
+   WHERE ${TAG_FOLD_MATCH_SQL}`;
 
-const HIGHEST_INDEX_ROWID_SQL = "SELECT max(rowid) FROM session_search_index";
+// The sessions the directory holds among these keys; a session since purged has no row.
+const SESSIONS_BY_KEY_SQL = `
+  SELECT rowid AS session_key, id AS session_id, name
+    FROM sessions WHERE rowid IN (SELECT value FROM json_each(?))`;
 
 interface TaggedSessionRow {
   readonly session_id: SessionId;
-  readonly session_rowid: number;
   readonly tag: string;
   readonly name: string | null;
   readonly last_activity_at: string;
-  readonly group_id: SessionGroupId | null;
-  readonly group_index_rowid: number | null;
 }
 
-/**
- * A session carrying a queried tag, with the tags that matched; across several queried tags, the
- * tags that matched each one after another.
- */
-export interface TaggedSession extends ListedSession, HitSession {
+interface TaggedSessionKeyRow {
+  readonly session_key: number;
+  readonly session_id: SessionId;
+  readonly last_activity_at: string;
+}
+
+interface SessionRow {
+  readonly session_key: number;
+  readonly session_id: SessionId;
+  readonly name: string | null;
+}
+
+// A session carrying the queried tags, as a search by tag orders it.
+interface ActiveSession {
+  readonly sessionId: SessionId;
   readonly lastActivityAt: string;
+}
+
+// A session carrying a queried tag, with the tags that matched as its hits.
+interface TaggedSession extends ListedSession, ActiveSession {
   readonly hits: SessionSearchHit[];
-}
-
-/**
- * A first page's ranking across the whole index, planned so other connections can read it in
- * rowid ranges ahead of the page: the words' match, the tags whose sessions a search by tag and
- * words keeps (none for words alone), those sessions once read, the index version the plan saw,
- * and the highest rowid then, which places the ranges' bounds.
- */
-export interface WholeIndexRankingPlan {
-  readonly matchExpression: string;
-  readonly tagFolds: readonly string[];
-  /**
-   * The sessions the tags keep: `undefined` for words alone, and for a tag a count showed many
-   * sessions carry until {@link SessionSearchService.fillTaggedSessions} reads them.
-   */
-  readonly taggedSessions: readonly TaggedSession[] | undefined;
-  readonly version: number;
-  readonly highestRowid: number;
-}
-
-/**
- * A plan's ranking as other connections read it: its ranges in rowid order, read with their
- * sessions when the plan keeps tagged sessions, and the index version each read saw.
- */
-export interface RankingReadAhead {
-  readonly plan: WholeIndexRankingPlan;
-  readonly ranges: readonly RankedRange[];
-  readonly versions: readonly number[];
-}
-
-// A search a first page opened, and the hits it read in finding its order, when it read any.
-interface OpenedSearch {
-  readonly snapshot: SearchSnapshot;
-  readonly searchHits?: SearchHits;
 }
 
 // A cursor read back, which a later page resumes from.
@@ -150,54 +115,65 @@ interface PageResume {
   readonly position: SearchPagePosition;
 }
 
+// A hit a page may show, with the index key a cursor names it by.
+interface ShownHit {
+  readonly key: number;
+  readonly hit: SessionSearchHit;
+}
+
 // Sessions are read a batch at a time while a page fills, each batch four times the last. A read
-// costs what its sessions' matching rows cost, so a small first batch keeps a page of sessions
-// that each match many rows from reading rows it never shows, and a page of sessions with one hit
-// each still takes three reads.
+// costs what its sessions' hits cost, so a small first batch keeps a page of sessions that each
+// hold many hits from reading hits it never shows, and a page of sessions with one hit each still
+// takes three reads.
 const FIRST_READ_BATCH_SIZE = 16;
 const READ_BATCH_GROWTH = 4;
 
-// A tag hit names no row of the session's log, so it opens the session at its start.
+// A title, group or tag hit names no row of the session's log, so it opens the session at its
+// start.
 const SESSION_START_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
 
-// Inside the read that ranked them, every row is still the row the ranking read.
-const EVERY_ROW_HELD: HeldRowCheck = () => true;
+/** What `session.search` reads: the daemon's read connection and the search index. */
+export interface SessionSearchServiceDeps {
+  readonly reader: Database;
+  readonly index: Pick<SearchIndex, "openSearch" | "markMatches">;
+  readonly rows: IndexRowReader;
+  readonly floorLog: RowidFloorLog;
+  /**
+   * Where the rowid floor log stood when the index last matched the database; a search opened now
+   * checks its rows from there.
+   */
+  readonly appliedFloorPosition: () => number;
+  readonly limits?: SearchSnapshotLimits;
+}
 
-/** Answers `session.search` from the full-text index on the daemon's read connection. */
+/** Answers `session.search` from the search index and the daemon's read connection. */
 export class SessionSearchService {
   readonly #reader: Database;
-  readonly #ranking: SessionTextRanking;
-  readonly #indexVersion: SearchIndexVersion;
-  readonly #highestIndexRowid: Statement<[], number | null>;
+  readonly #index: Pick<SearchIndex, "openSearch">;
   readonly #floorLog: RowidFloorLog;
-  readonly #rowSessions: IndexRowSessions;
-  readonly #hitReader: SessionHitReader;
+  readonly #appliedFloorPosition: () => number;
+  readonly #hitLines: HitLineReader;
+  readonly #sessionsByKey: Statement<[string], SessionRow>;
   readonly #taggedSessions: Statement<{ fold: string }, TaggedSessionRow>;
-  readonly #taggedSessionCount: Statement<{ fold: string; bound: number }, number>;
+  readonly #taggedSessionKeys: Statement<{ fold: string }, TaggedSessionKeyRow>;
   readonly #snapshots: SearchSnapshots;
 
-  constructor(
-    reader: Database,
-    snapshotLimits: SearchSnapshotLimits = DEFAULT_SEARCH_SNAPSHOT_LIMITS,
-  ) {
-    this.#reader = reader;
-    this.#ranking = new SessionTextRanking(reader);
-    this.#indexVersion = new SearchIndexVersion(reader);
-    this.#highestIndexRowid = reader.prepare<[], number | null>(HIGHEST_INDEX_ROWID_SQL).pluck();
-    this.#floorLog = new RowidFloorLog(reader);
-    this.#rowSessions = new IndexRowSessions(reader);
-    this.#hitReader = new SessionHitReader(reader);
-    this.#taggedSessions = reader.prepare(TAGGED_SESSIONS_SQL);
-    this.#taggedSessionCount = reader
-      .prepare<{ fold: string; bound: number }, number>(TAGGED_SESSION_COUNT_SQL)
-      .pluck();
-    this.#snapshots = new SearchSnapshots(snapshotLimits);
+  constructor(deps: SessionSearchServiceDeps) {
+    this.#reader = deps.reader;
+    this.#index = deps.index;
+    this.#floorLog = deps.floorLog;
+    this.#appliedFloorPosition = deps.appliedFloorPosition;
+    this.#hitLines = new HitLineReader(deps.rows, deps.index);
+    this.#sessionsByKey = deps.reader.prepare(SESSIONS_BY_KEY_SQL);
+    this.#taggedSessions = deps.reader.prepare(TAGGED_SESSIONS_SQL);
+    this.#taggedSessionKeys = deps.reader.prepare(TAGGED_SESSION_KEYS_SQL);
+    this.#snapshots = new SearchSnapshots(deps.limits ?? DEFAULT_SEARCH_SNAPSHOT_LIMITS);
   }
 
   /**
    * One page of the query's hits, grouped by session, from `afterCursor` when it is given; a
-   * query that names nothing answers an empty last page. A page is read in one read transaction,
-   * and every page after the first reads what the first one held. Throws
+   * query that names nothing answers an empty last page. A page reads the database in one read
+   * transaction, and every page after the first reads the view the first one held. Throws
    * `session.search_cursor_unresolvable` for a cursor that continues no search held for this
    * query.
    */
@@ -205,75 +181,17 @@ export class SessionSearchService {
     return this.#reader.transaction(() => this.#answer(request))();
   }
 
-  /**
-   * Whether {@link planWholeIndexRanking} may plan a ranking for `request`, known without a read:
-   * only a first page of a query with words can rank across the whole index.
-   */
-  mayRankWholeIndex(request: SessionSearchRequest): boolean {
-    return (
-      request.afterCursor === undefined &&
-      parseSessionSearchQuery(request.query).matchExpression !== undefined
-    );
+  /** The lowest place in the rowid floor log a held search still reads from, if any is held. */
+  oldestHeldFloorPosition(): number | undefined {
+    return this.#snapshots.oldestFloorPosition();
   }
 
-  /**
-   * The ranking across the whole index a first page of `request` reads, planned for other
-   * connections to read ahead of the page; `undefined` for a later page, a query with no words, and
-   * a search by tag and words whose sessions are few enough to rank through their keys. A tag a
-   * count shows many sessions carry is planned without reading them, so the ranking need not wait.
-   */
-  planWholeIndexRanking(request: SessionSearchRequest): WholeIndexRankingPlan | undefined {
-    const { matchExpression, tagFolds } = parseSessionSearchQuery(request.query);
-    if (request.afterCursor !== undefined || matchExpression === undefined) {
-      return undefined;
-    }
-    return this.#reader.transaction(() => {
-      let taggedSessions: TaggedSession[] | undefined;
-      if (tagFolds.length > 0 && !this.#isCarriedByManySessions(tagFolds)) {
-        taggedSessions = this.#readTaggedSessions(tagFolds);
-        if (!ranksEveryMatch(taggedSessions)) {
-          return undefined;
-        }
-      }
-      return {
-        matchExpression,
-        tagFolds,
-        taggedSessions,
-        version: this.#indexVersion.read(),
-        highestRowid: this.#highestIndexRowid.get() ?? 0,
-      };
-    })();
+  /** Lets go of every held search, as the index closes; their cursors are refused from then on. */
+  letGoOfHeldSearches(): void {
+    this.#snapshots.letGoOfAll();
   }
 
-  /**
-   * The plan with the sessions its tags keep, read in the caller's read when the plan left them
-   * unread; the search thread reads them while its rankers rank.
-   */
-  fillTaggedSessions(plan: WholeIndexRankingPlan): WholeIndexRankingPlan {
-    return plan.taggedSessions !== undefined || plan.tagFolds.length === 0
-      ? plan
-      : { ...plan, taggedSessions: this.#readTaggedSessions(plan.tagFolds) };
-  }
-
-  /**
-   * As {@link search} for the first page `readAhead` was planned for, ranked by what it read; or
-   * `undefined`, with nothing held, when the index has moved since the plan or any of its reads,
-   * since then the read-ahead is not the ranking this read would read.
-   */
-  searchWithReadAhead(
-    request: SessionSearchRequest,
-    readAhead: RankingReadAhead,
-  ): SessionSearchResponse | undefined {
-    return this.#reader.transaction(() => {
-      const version = this.#indexVersion.read();
-      const isCurrent =
-        readAhead.plan.version === version &&
-        readAhead.versions.every((readVersion) => readVersion === version);
-      return isCurrent ? this.#answer(request, readAhead) : undefined;
-    })();
-  }
-
-  #answer(request: SessionSearchRequest, readAhead?: RankingReadAhead): SessionSearchResponse {
+  #answer(request: SessionSearchRequest): SessionSearchResponse {
     const query = parseSessionSearchQuery(request.query);
     const queryKey = JSON.stringify(query);
     const limit = request.limit ?? SESSION_SEARCH_PAGE_LIMIT_MAX;
@@ -287,12 +205,11 @@ export class SessionSearchService {
       const page = this.#readHeldPage(snapshot, limit, { cursor: afterCursor, position });
       return toResponse(page, () => snapshotId);
     }
-    const opened = this.#openSearch(query, queryKey, readAhead);
-    if (opened === undefined) {
+    const snapshot = this.#openSearch(query, queryKey);
+    if (snapshot === undefined) {
       return { groups: [], hasMore: false };
     }
-    const { snapshot, searchHits } = opened;
-    const page = this.#readHeldPage(snapshot, limit, undefined, searchHits);
+    const page = this.#readHeldPage(snapshot, limit, undefined);
     // A search answered whole on its first page has no later page to hold it for.
     if (page.next === undefined) {
       releaseSearch(snapshot);
@@ -300,81 +217,61 @@ export class SessionSearchService {
     return toResponse(page, () => this.#snapshots.hold(snapshot));
   }
 
-  // The search a first page reads: its ranking or its whole answer, held for its later pages, and
-  // the hits already read in finding its order, which the first page reuses. A read-ahead brings
-  // the ranking, and for a search by tag and words the sessions its plan kept.
-  #openSearch(
-    query: ParsedSearchQuery,
-    queryKey: string,
-    readAhead: RankingReadAhead | undefined,
-  ): OpenedSearch | undefined {
-    const { matchExpression, tagFolds } = query;
-    if (tagFolds.length === 0) {
-      if (matchExpression === undefined) {
+  // The search a first page opens: a view of the index with its order of sessions, or a search by
+  // tag alone's whole answer; `undefined` when it can find nothing.
+  #openSearch(query: ParsedSearchQuery, queryKey: string): SearchSnapshot | undefined {
+    const { searchQuery, tagFolds } = query;
+    if (searchQuery === undefined) {
+      if (tagFolds.length === 0) {
         return undefined;
       }
-      const ranking =
-        readAhead === undefined
-          ? this.#ranking.rank(matchExpression)
-          : rankingOfRanges(readAhead.ranges);
-      return {
-        snapshot: {
-          order: "ranked",
-          queryKey,
-          matchExpression,
-          ranking,
-          floorPosition: this.#floorLog.position(),
-          sessionOrder: rankedSessionOrder(ranking, this.#rowSessions),
-        },
-      };
-    }
-    const taggedSessions = readAhead?.plan.taggedSessions ?? this.#readTaggedSessions(tagFolds);
-    if (matchExpression === undefined) {
-      const sessions = taggedSessions.map(({ sessionId, name, hits }) => ({
+      const sessions = this.#readTaggedSessions(tagFolds).map(({ sessionId, name, hits }) => ({
         sessionId,
         name,
         hits,
       }));
+      return { order: "listed", queryKey, sessions };
+    }
+    // Read before the view opens, so it is never newer than the view.
+    const floorPosition = this.#appliedFloorPosition();
+    if (tagFolds.length === 0) {
+      const view = this.#index.openSearch(searchQuery);
       return {
-        snapshot: { order: "listed", queryKey, sessions, byteLength: listedByteLength(sessions) },
+        order: "ranked",
+        queryKey,
+        searchQuery,
+        view,
+        floorPosition,
+        sessionOrder: { sessionsAt: (from, count) => view.sessionsAt(from, count) },
       };
     }
     // The tag keeps the sessions carrying it, and only their rows are ranked; among those the words
     // find, each rank orders them and the fused rank orders the pages.
-    const { ranking, rows } =
-      readAhead === undefined
-        ? this.#ranking.rankWithinSessions(matchExpression, taggedSessions)
-        : sessionsRankingOfRanges(readAhead.ranges, taggedSessions);
-    const searchHits = this.#hitReader.openSearch(matchExpression, ranking, EVERY_ROW_HELD);
-    const textHits = searchHits.collectHits(taggedSessions, rows);
-    const textOrder = [...textHits.values()]
-      .flatMap((session) => session.hits.slice(0, 1))
-      .sort(compareRankedRows)
-      .map((bestHit) => bestHit.sessionId);
-    const tagOrder = taggedSessions
-      .map((session) => session.sessionId)
-      .filter((sessionId) => (textHits.get(sessionId)?.hits.length ?? 0) > 0);
+    const taggedKeys = this.#readTaggedSessionKeys(tagFolds);
+    if (taggedKeys.length === 0) {
+      return undefined;
+    }
+    const view = this.#index.openSearch(searchQuery, taggedKeys);
+    const textOrder = view.sessionsAt(0, taggedKeys.length);
+    const textMatched = new Set(textOrder);
+    const tagOrder = taggedKeys.filter((sessionKey) => textMatched.has(sessionKey));
+    const fusedOrder = fuseRankedLists([textOrder, tagOrder]);
     return {
-      snapshot: {
-        order: "ranked",
-        queryKey,
-        matchExpression,
-        ranking,
-        floorPosition: this.#floorLog.position(),
-        sessionOrder: listedSessionOrder(fuseRankedLists([textOrder, tagOrder])),
-      },
-      searchHits,
+      order: "ranked",
+      queryKey,
+      searchQuery,
+      view,
+      floorPosition,
+      sessionOrder: { sessionsAt: (from, count) => fusedOrder.slice(from, from + count) },
     };
   }
 
   // A page of a held search, from where `resume` names when a cursor continues it. Throws
-  // `session.search_cursor_unresolvable` for a position the search could not have written, and
-  // once the rowid floor log no longer tells which held rows later rows took.
+  // `session.search_cursor_unresolvable` for a position the search could not have written.
   #readHeldPage(
     snapshot: SearchSnapshot,
     limit: number,
     resume: PageResume | undefined,
-    openedHits?: SearchHits,
   ): SearchPage {
     if (snapshot.order === "listed") {
       if (resume !== undefined && resume.position.order !== "listed") {
@@ -388,57 +285,88 @@ export class SessionSearchService {
     if (resume !== undefined && resume.position.order !== "ranked") {
       throw searchCursorUnresolvable(resume.cursor);
     }
-    const start = resume?.position.order === "ranked" ? resume.position : undefined;
-    let afterHit: RankedRowKey | undefined;
-    if (resume !== undefined && start?.afterHitRowid !== undefined) {
-      const rank = snapshot.ranking.rankOf(start.afterHitRowid);
-      if (rank === undefined) {
-        throw searchCursorUnresolvable(resume.cursor);
-      }
-      afterHit = { rank, indexRowid: start.afterHitRowid };
-    }
-    const isHeldRow = this.#heldRowCheck(snapshot.floorPosition, resume);
-    const searchHits =
-      openedHits ??
-      this.#hitReader.openSearch(snapshot.matchExpression, snapshot.ranking, isHeldRow);
-    return assembleSearchPage(
-      rankedCandidates(
-        snapshot.sessionOrder,
-        searchHits,
-        isHeldRow,
-        start?.sessionIndex ?? 0,
-        afterHit,
-      ),
+    const candidates = this.#rankedCandidates(
+      snapshot,
+      this.#floorLog.heldRowCheck(snapshot.floorPosition),
+      resume,
       limit,
-      (hits) => searchHits.markHits(hits),
     );
+    return assembleSearchPage(candidates, limit, (hits) => hits.map((shown) => shown.hit));
   }
 
-  // Which held rows a page may still credit. The first page reads inside the ranking's own read; a
-  // later page asks the floor log, and is refused once the log has let go of what it needs.
-  #heldRowCheck(floorPosition: number, resume: PageResume | undefined): HeldRowCheck {
-    if (resume === undefined) {
-      return EVERY_ROW_HELD;
+  // The sessions of a held search's order from where `resume` names on, a batch at a time, each
+  // with its hits that still hold a match, read one past what a page holds so a session with more
+  // splits across pages; the first with only those after the last hit an earlier page showed. A
+  // session since purged, or one whose rowid a later session took, is passed over, and so is a hit
+  // whose row is gone or was taken. Throws `session.search_cursor_unresolvable` when the cursor's
+  // hit is none of its session's hits.
+  *#rankedCandidates(
+    snapshot: Extract<SearchSnapshot, { readonly order: "ranked" }>,
+    isHeldRow: HeldRowCheck,
+    resume: PageResume | undefined,
+    limit: number,
+  ): Generator<PageCandidate<ShownHit>> {
+    const start = resume?.position.order === "ranked" ? resume.position : undefined;
+    const firstIndex = start?.sessionIndex ?? 0;
+    let batchStart = firstIndex;
+    let batchSize = FIRST_READ_BATCH_SIZE;
+    for (;;) {
+      const sessionKeys = snapshot.sessionOrder.sessionsAt(batchStart, batchSize);
+      if (sessionKeys.length === 0) {
+        return;
+      }
+      const sessions = this.#readSessions(
+        sessionKeys.filter((sessionKey) => isHeldRow(indexKeyOf(sessionKey, "title"))),
+      );
+      const heldKeys = sessionKeys.filter((sessionKey) => sessions.has(sessionKey));
+      const hitKeysOfHeld = heldKeys.length === 0 ? [] : snapshot.view.hitsOf(heldKeys);
+      const hitKeysBySession = new Map(
+        heldKeys.map((sessionKey, index) => [sessionKey, hitKeysOfHeld[index] ?? []]),
+      );
+      for (const [offset, sessionKey] of sessionKeys.entries()) {
+        const session = sessions.get(sessionKey);
+        if (session === undefined) {
+          continue;
+        }
+        const sessionIndex = batchStart + offset;
+        let hitKeys = hitKeysBySession.get(sessionKey) ?? [];
+        const resumeAfter = sessionIndex === firstIndex ? start?.afterHitKey : undefined;
+        if (resume !== undefined && resumeAfter !== undefined) {
+          const shownThrough = hitKeys.indexOf(resumeAfter);
+          if (shownThrough === -1) {
+            throw searchCursorUnresolvable(resume.cursor);
+          }
+          hitKeys = hitKeys.slice(shownThrough + 1);
+        }
+        const hits = this.#hitLines
+          .readLines(hitKeys.filter(isHeldRow), snapshot.searchQuery, limit + 1)
+          .map(shownHitOf);
+        yield {
+          sessionId: session.session_id,
+          name: session.name,
+          hits,
+          shownHitCount: 0,
+          positionAt: (shownHitCount) => ({
+            order: "ranked",
+            sessionIndex,
+            afterHitKey: shownHitCount === 0 ? resumeAfter : hits[shownHitCount - 1]?.key,
+          }),
+        };
+      }
+      batchStart += sessionKeys.length;
+      batchSize *= READ_BATCH_GROWTH;
     }
-    const isHeldRow = this.#floorLog.heldRowCheck(floorPosition);
-    if (isHeldRow === undefined) {
-      throw searchCursorUnresolvable(resume.cursor);
-    }
-    return isHeldRow;
   }
 
-  // Whether the one queried tag surely keeps more sessions than a ranking within sessions narrows
-  // to, from a count that stops just past that many: each session owns rows of its own, so they
-  // have at least that many owners. The sessions several tags keep are those carrying every one,
-  // which no such count tells.
-  #isCarriedByManySessions(tagFolds: readonly string[]): boolean {
-    const [fold, ...otherFolds] = tagFolds;
-    return (
-      fold !== undefined &&
-      otherFolds.length === 0 &&
-      (this.#taggedSessionCount.get({ fold, bound: NARROWED_RANKING_OWNERS + 1 }) ?? 0) >
-        NARROWED_RANKING_OWNERS
-    );
+  // The sessions the directory holds among these keys.
+  #readSessions(sessionKeys: readonly number[]): Map<number, SessionRow> {
+    const sessions = new Map<number, SessionRow>();
+    if (sessionKeys.length > 0) {
+      for (const session of this.#sessionsByKey.iterate(JSON.stringify(sessionKeys))) {
+        sessions.set(session.session_key, session);
+      }
+    }
+    return sessions;
   }
 
   // The sessions carrying every queried tag, most recently active first, each with the tags that
@@ -458,27 +386,20 @@ export class SessionSearchService {
         });
       }
     }
-    return sessions.sort(
-      (left, right) =>
-        right.lastActivityAt.localeCompare(left.lastActivityAt) ||
-        (left.sessionId < right.sessionId ? -1 : 1),
-    );
+    return sessions.sort(compareByActivity);
   }
 
   // The sessions carrying the tag or one nested under it, each with the tags that matched.
   #readTagMatches(fold: string): Map<SessionId, TaggedSession> {
     const queriedSegmentCount = fold.split("/").length;
     const bySession = new Map<SessionId, TaggedSession>();
-    for (const row of this.#taggedSessions.all({ fold })) {
+    for (const row of this.#taggedSessions.iterate({ fold })) {
       let session = bySession.get(row.session_id);
       if (session === undefined) {
         session = {
           sessionId: row.session_id,
-          sessionRowid: row.session_rowid,
           name: row.name,
           lastActivityAt: row.last_activity_at,
-          groupId: row.group_id,
-          groupIndexRowid: row.group_index_rowid,
           hits: [],
         };
         bySession.set(row.session_id, session);
@@ -491,6 +412,35 @@ export class SessionSearchService {
     }
     return bySession;
   }
+
+  // The keys of the sessions carrying every queried tag, most recently active first.
+  #readTaggedSessionKeys(tagFolds: readonly string[]): number[] {
+    const [firstMatches, ...otherMatches] = tagFolds.map((fold) => {
+      const bySession = new Map<number, ActiveSession>();
+      for (const row of this.#taggedSessionKeys.iterate({ fold })) {
+        bySession.set(row.session_key, {
+          sessionId: row.session_id,
+          lastActivityAt: row.last_activity_at,
+        });
+      }
+      return bySession;
+    });
+    if (firstMatches === undefined) {
+      return [];
+    }
+    return [...firstMatches]
+      .filter(([sessionKey]) => otherMatches.every((matches) => matches.has(sessionKey)))
+      .sort(([, left], [, right]) => compareByActivity(left, right))
+      .map(([sessionKey]) => sessionKey);
+  }
+}
+
+// Most recently active first, then by id, so equal times keep one order.
+function compareByActivity(left: ActiveSession, right: ActiveSession): number {
+  if (left.lastActivityAt !== right.lastActivityAt) {
+    return left.lastActivityAt > right.lastActivityAt ? -1 : 1;
+  }
+  return left.sessionId < right.sessionId ? -1 : 1;
 }
 
 // A page as the wire carries it; `holdSearch` answers the id of the held search the next page
@@ -505,57 +455,12 @@ function toResponse(page: SearchPage, holdSearch: () => string): SessionSearchRe
       };
 }
 
-// The sessions of the order from `firstIndex` on, a batch at a time, each with its hits; the first
-// with only those after `afterHit`, the last hit an earlier page showed. A hit keeps the rank the
-// ranking held, so the hits after it are the same on every read; a session since purged has none,
-// and is passed over. The order reads past the rows `isHeldRow` refuses.
-function* rankedCandidates(
-  sessionOrder: SessionOrder,
-  searchHits: SearchHits,
-  isHeldRow: HeldRowCheck,
-  firstIndex: number,
-  afterHit: RankedRowKey | undefined,
-): Generator<PageCandidate<RankedHit>> {
-  let sessionIndex = firstIndex;
-  let batchSize = FIRST_READ_BATCH_SIZE;
-  for (;;) {
-    const batch: { readonly sessionIndex: number; readonly sessionId: SessionId }[] = [];
-    while (batch.length < batchSize) {
-      const sessionId = sessionOrder.sessionAt(sessionIndex, isHeldRow);
-      if (sessionId === undefined) {
-        break;
-      }
-      batch.push({ sessionIndex, sessionId });
-      sessionIndex += 1;
-    }
-    if (batch.length === 0) {
-      return;
-    }
-    const sessions = searchHits.readHits(batch.map((entry) => entry.sessionId));
-    for (const entry of batch) {
-      const session = sessions.get(entry.sessionId);
-      if (session === undefined) {
-        continue;
-      }
-      const resumeAfter = entry.sessionIndex === firstIndex ? afterHit : undefined;
-      const hits = session.hits.filter(
-        (hit) => resumeAfter === undefined || compareRankedRows(hit, resumeAfter) > 0,
-      );
-      yield {
-        sessionId: entry.sessionId,
-        name: session.name,
-        hits,
-        shownHitCount: 0,
-        positionAt: (shownHitCount) => ({
-          order: "ranked",
-          sessionIndex: entry.sessionIndex,
-          afterHitRowid:
-            shownHitCount === 0 ? resumeAfter?.indexRowid : hits[shownHitCount - 1]?.indexRowid,
-        }),
-      };
-    }
-    batchSize *= READ_BATCH_GROWTH;
-  }
+// A hit as a page shows it: its line, and the cursor that opens its session at it.
+function shownHitOf(hitLine: HitLine): ShownHit {
+  const { row, marked } = hitLine;
+  const cursor =
+    row.logRow === undefined ? SESSION_START_CURSOR : encodeEventCursor(row.logRow.sequence);
+  return { key: row.key, hit: { cursor, line: marked.line, matchRanges: marked.matchRanges } };
 }
 
 // The sessions of a search by tag alone from `start` on, all already in hand.

@@ -1,7 +1,8 @@
-// The search thread over a real database file: searches sent while it still loads answered on the
-// thread once it opens, pages continued from the search the thread holds, and each error a search
-// throws reaching the wire as the refusal it was thrown as. An open that fails is reported, and
-// every search fails with what it threw; a close while the thread loads ends it before it opens.
+// The search thread over a real database file and index folder: searches sent while it still opens
+// answered on the thread once its index is open, pages continued from the search the thread holds,
+// and each error a search throws reaching the wire as the refusal it was thrown as. An open that
+// fails is reported, and every search fails with what it threw; a close while the thread opens
+// ends it before it answers.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +22,12 @@ import { mapJsonRpcError } from "../../../../ipc/jsonrpc-error-mapping.js";
 import { openDatabase } from "../../../migration-runner.js";
 import { insertEvent, insertSession, sessionIdOf } from "../../__fixtures__/index-rows.js";
 import { SearchThread } from "../handle.js";
+
+// A writer that never commits: each thread here searches what the database held at its start.
+const IDLE_WRITER = {
+  write: () => Promise.resolve([]),
+  followCommits: () => () => undefined,
+};
 
 // Every worker thread this file starts, so a test can watch the search thread's own messages and
 // exit.
@@ -71,9 +78,17 @@ describe("SearchThread", () => {
     await rm(folder, { recursive: true, force: true });
   });
 
+  const startThread = (path: string): SearchThread =>
+    SearchThread.start({
+      databasePath: path,
+      indexFolderPath: join(folder, "search-index"),
+      writer: IDLE_WRITER,
+      writeServiceLog: () => undefined,
+    });
+
   it("answers on its thread and rejects each refusal as the one it was thrown as", async () => {
-    // The first search goes out while the thread still loads, and waits for its open.
-    const thread = SearchThread.start(databasePath);
+    // The first search goes out while the thread still opens, and waits for its open.
+    const thread = startThread(databasePath);
     try {
       const firstPage = await thread.searchSessions({ query: "retry", limit: 1 });
       if (!firstPage.hasMore) {
@@ -127,7 +142,7 @@ describe("SearchThread", () => {
   });
 
   it("reports an open that fails, and fails every search with what the open threw", async () => {
-    const thread = SearchThread.start(join(folder, "missing.db"));
+    const thread = startThread(join(folder, "missing.db"));
     const waiting = thread.searchSessions({ query: "retry" }).catch((error: unknown) => error);
 
     const failure = await thread.whenWorkerFailed;
@@ -140,11 +155,11 @@ describe("SearchThread", () => {
     await thread.close();
   });
 
-  it("ends a thread still loading at once when it closes, and fails the search waiting", async () => {
-    const thread = SearchThread.start(databasePath);
+  it("ends a thread still opening at once when it closes, and fails the search waiting", async () => {
+    const thread = startThread(databasePath);
     const worker = startedWorkers.at(-1)!;
-    const replies: unknown[] = [];
-    worker.on("message", (reply) => {
+    const replies: { readonly type: string }[] = [];
+    worker.on("message", (reply: { readonly type: string }) => {
       replies.push(reply);
     });
     const waiting = thread.searchSessions({ query: "retry" }).catch((error: unknown) => error);
@@ -153,7 +168,7 @@ describe("SearchThread", () => {
 
     expect(await waiting).toMatchObject({ message: expect.stringMatching(/closed/u) });
     // Ended before it opened, and no worker is left running.
-    expect(replies).toStrictEqual([]);
+    expect(replies.filter((reply) => reply.type === "opened")).toStrictEqual([]);
     expect(worker.threadId).toBe(-1);
     // A close is no failure to report.
     expect(await Promise.race([thread.whenWorkerFailed, Promise.resolve("unreported")])).toBe(

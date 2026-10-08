@@ -258,9 +258,8 @@ export const SessionSearchCursorSchema: z.ZodType<SessionSearchCursor, SessionSe
   .brand<"SessionSearchCursor">() as unknown as z.ZodType<SessionSearchCursor, SessionSearchCursor>;
 
 /**
- * A `session.search` cursor the daemon did not write, one written for another kind of query, one
- * whose search the daemon no longer holds, or one written before more than 4,096 deletes that
- * each lowered a searched table's highest rowid.
+ * A `session.search` cursor the daemon did not write, one written for another kind of query, or
+ * one whose search the daemon no longer holds.
  */
 export const SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE =
   "session.search_cursor_unresolvable" as const;

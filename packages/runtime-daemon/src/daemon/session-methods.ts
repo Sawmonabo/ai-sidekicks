@@ -71,7 +71,7 @@ export interface SessionMethodsDeps {
   readonly streamingPrimitive: StreamingPrimitive;
   /** The connections' outbound queues, which a session stream reads before it sends a frame. */
   readonly outboundQueue: OutboundQueue;
-  /** The thread session and transcript searches run on, through its own read-only connection. */
+  /** The thread searches and the search index's merges run on, with its own read connection. */
   readonly searchThread: SearchThread;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
@@ -200,7 +200,7 @@ export function registerSessionMethods(
     writeServiceLog: deps.writeServiceLog,
   }).start();
   const indexMerge = new SearchIndexIdleMerge({
-    writer: database.writer,
+    mergeWhileIdle: () => deps.searchThread.mergeWhileIdle(),
     followAll: (onCommitted) => eventLog.followAll(onCommitted),
     writeServiceLog: deps.writeServiceLog,
   });

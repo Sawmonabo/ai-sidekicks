@@ -450,9 +450,9 @@ interface SessionSearchRequest {
   query: string;
   // Opaque, the daemon's own. It continues the search its first page read, so a write between pages
   // neither repeats a hit nor drops one, except a hit whose row, group membership or session has since
-  // gone or whose title, group name or tag was renamed so the words no longer match it. It is refused `session.search_cursor_unresolvable` when it names no page, names a search the
-  // daemon has let go (over its memory budget or 10 minutes unpaged), or was written before more than
-  // 4,096 deletes that each lowered a searched table's highest rowid; the client then searches again.
+  // gone or whose title, group name or tag was renamed so the words no longer match it. It is refused `session.search_cursor_unresolvable` when it names no page or names a search the
+  // daemon has let go (5 minutes unpaged, 30 minutes in all, or the least recently paged once more
+  // than 16 are held); the client then searches again.
   afterCursor?: SessionSearchCursor;
   limit?: number; // hits per page, at most SESSION_SEARCH_PAGE_LIMIT_MAX (256), which is also the default
 }

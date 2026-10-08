@@ -1,36 +1,34 @@
-// `transcript.search` over one session's rows in the full-text index, paged newest first, with
-// the first page checked against its contract.
+// `transcript.search` over one session's rows in the search index: paged newest first, one hit per
+// row, every page counting every match in the session, which is the sum of the marks its hits
+// carry.
 
-import type { Database } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
-import { TranscriptSearchResponseSchema } from "@ai-sidekicks/contracts/transcript/search";
+import {
+  TranscriptSearchResponseSchema,
+  type TranscriptSearchHit,
+} from "@ai-sidekicks/contracts/transcript/search";
 
-import { SessionNotFoundError } from "../../../ipc/session-errors.js";
-import { openDatabase } from "../../migration-runner.js";
 import { insertEvent, insertSession, sessionIdOf } from "../__fixtures__/index-rows.js";
-import { loadMatchCount } from "../match-count.js";
-import { TranscriptSearchService } from "../transcript.js";
+import { SearchFixture } from "../__fixtures__/search-services.js";
 
 describe("transcript.search", () => {
-  let database: Database;
-  let transcriptSearch: TranscriptSearchService;
-  const sessionId = sessionIdOf(1);
+  let fixture: SearchFixture;
 
-  beforeEach(() => {
-    database = openDatabase(":memory:");
-    loadMatchCount(database);
-    transcriptSearch = new TranscriptSearchService(database);
-    insertSession(database, sessionId, { name: "retry work" });
+  beforeEach(async () => {
+    fixture = await SearchFixture.open();
   });
 
-  afterEach(() => {
-    database.close();
+  afterEach(async () => {
+    await fixture.close();
   });
 
-  it("pages the session's own rows newest first and counts every match in the session", () => {
+  it("pages the session's own rows newest first and counts every match it marks", async () => {
+    const { database } = fixture;
+    const sessionId = sessionIdOf(1);
     const otherSessionId = sessionIdOf(2);
+    insertSession(database, sessionId, { name: "retry work" });
     insertSession(database, otherSessionId);
     insertEvent(database, {
       sessionId: otherSessionId,
@@ -38,78 +36,57 @@ describe("transcript.search", () => {
       type: "user.message",
       message: "retry",
     });
-    const rowIds = [1, 2, 3].map((sequence) =>
+    // A row with no match and a thinking update, which the index never holds, among the matches.
+    const matchingRowIds = [1, 2, 3, 5, 6].map((sequence) =>
       insertEvent(database, {
         sessionId,
         sequence,
         type: "assistant.message",
-        content: `attempt ${String(sequence)}: retry, then retry`,
+        content: `attempt ${String(sequence)}: retry${", then retry".repeat(sequence % 3)}`,
       }),
     );
+    insertEvent(database, { sessionId, sequence: 4, type: "user.message", message: "no match" });
+    insertEvent(database, {
+      sessionId,
+      sequence: 7,
+      type: "assistant.thinking_update",
+      content: "retry",
+    });
+    await fixture.settle();
+    const { transcriptSearch } = fixture.services();
 
     const firstPage = TranscriptSearchResponseSchema.parse(
       transcriptSearch.search({ sessionId, query: "retry", limit: 2 }),
     );
-    // The title is no row of the log; the other session's row is not this session's.
-    expect(firstPage).toEqual({
-      matchCount: 6,
-      hits: [
-        {
-          rowId: rowIds[2],
-          cursor: encodeEventCursor(3),
-          snippet: "attempt 3: retry, then retry",
-          matchRanges: [
-            { start: 11, end: 16 },
-            { start: 23, end: 28 },
-          ],
-        },
-        expect.objectContaining({ rowId: rowIds[1], cursor: encodeEventCursor(2) }),
-      ],
-      hasMore: true,
-      nextCursor: encodeEventCursor(2),
+    expect(firstPage.hits[0]).toEqual({
+      rowId: matchingRowIds[4],
+      cursor: encodeEventCursor(6),
+      snippet: "attempt 6: retry",
+      matchRanges: [{ start: 11, end: 16 }],
     });
+    const hits: TranscriptSearchHit[] = [...firstPage.hits];
+    const matchCounts = [firstPage.matchCount];
+    let page = firstPage;
+    while (page.hasMore) {
+      page = TranscriptSearchResponseSchema.parse(
+        transcriptSearch.search({
+          sessionId,
+          query: "retry",
+          limit: 2,
+          beforeCursor: page.nextCursor,
+        }),
+      );
+      hits.push(...page.hits);
+      matchCounts.push(page.matchCount);
+    }
 
-    const secondPage = transcriptSearch.search({
-      sessionId,
-      query: "retry",
-      limit: 2,
-      beforeCursor: encodeEventCursor(2),
-    });
-    expect(secondPage).toEqual({
-      matchCount: 6,
-      hits: [expect.objectContaining({ rowId: rowIds[0], cursor: encodeEventCursor(1) })],
-      hasMore: false,
-    });
-  });
-
-  it("counts and marks a row carrying the characters a match is marked with as plain text", () => {
-    insertEvent(database, {
-      sessionId,
-      sequence: 1,
-      type: "assistant.message",
-      content: "\uFDD1retry \uFDD0then retry\uFDD0",
-    });
-
-    expect(transcriptSearch.search({ sessionId, query: "retry" })).toEqual({
-      matchCount: 2,
-      hits: [
-        {
-          rowId: expect.any(String),
-          cursor: encodeEventCursor(1),
-          snippet: " retry  then retry ",
-          matchRanges: [
-            { start: 1, end: 6 },
-            { start: 13, end: 18 },
-          ],
-        },
-      ],
-      hasMore: false,
-    });
-  });
-
-  it("refuses a session the daemon does not hold with session.not_found", () => {
-    expect(() => transcriptSearch.search({ sessionId: sessionIdOf(9), query: "retry" })).toThrow(
-      SessionNotFoundError,
+    // The title is no row of the log, and the other session's row is not this session's.
+    expect(hits.map((hit) => hit.rowId)).toEqual(matchingRowIds.toReversed());
+    expect(hits.map((hit) => hit.cursor)).toEqual(
+      [6, 5, 3, 2, 1].map((sequence) => encodeEventCursor(sequence)),
     );
+    const markCount = hits.reduce((count, hit) => count + hit.matchRanges.length, 0);
+    expect(markCount).toBe(1 + 3 + 1 + 3 + 2);
+    expect(matchCounts).toEqual(matchCounts.map(() => markCount));
   });
 });

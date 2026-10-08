@@ -1,19 +1,44 @@
 // The seeded set the session directory's budgets are measured on: 10,000 sessions, 1,000,000
-// indexed messages, 100,000 links, 30,000 tags and 1,000 groups, written through the daemon's own
-// writer into a real database file, so the schema's own triggers index every row. The same seed
-// writes the same set every run.
+// indexed messages, 100,000 links, 30,000 tags and 1,000 groups, each count multiplied by
+// `SEEDED_SET_SCALE` from the environment when it is set, written through the daemon's own writer
+// into a real database file, so the schema's own triggers send every row through the search
+// index's outbox. The same seed and scale write the same set every run.
 
 import { mintUuidV7 } from "../../src/uuid-v7.js";
 import type { DatabaseConnections } from "../../src/database/connections.js";
 
-/** How large the seeded set is. */
-export const SEEDED_SET_SIZE = {
-  sessions: 10_000,
-  messages: 1_000_000,
-  links: 100_000,
-  tags: 30_000,
-  groups: 1_000,
-} as const;
+/** How many of each row the seeded set holds. */
+export interface SeededSetSize {
+  readonly sessions: number;
+  readonly messages: number;
+  readonly links: number;
+  readonly tags: number;
+  readonly groups: number;
+}
+
+// How many times the base set a run writes: 1 unless `SEEDED_SET_SCALE` names a whole number, so
+// the same classes can be measured on a set ten times larger.
+const SEEDED_SET_SCALE = readSeededSetScale(process.env["SEEDED_SET_SCALE"]);
+
+/** How large the seeded set is at the run's scale. */
+export const SEEDED_SET_SIZE: SeededSetSize = {
+  sessions: 10_000 * SEEDED_SET_SCALE,
+  messages: 1_000_000 * SEEDED_SET_SCALE,
+  links: 100_000 * SEEDED_SET_SCALE,
+  tags: 30_000 * SEEDED_SET_SCALE,
+  groups: 1_000 * SEEDED_SET_SCALE,
+};
+
+function readSeededSetScale(value: string | undefined): number {
+  if (value === undefined) {
+    return 1;
+  }
+  const scale = Number(value);
+  if (!Number.isInteger(scale) || scale < 1) {
+    throw new Error(`SEEDED_SET_SCALE must be a whole number of at least 1, not "${value}".`);
+  }
+  return scale;
+}
 
 // The message text's vocabulary, drawn with a Zipf-like weight so a few words are very common.
 const VOCABULARY_SIZE = 20_000;
@@ -49,7 +74,7 @@ const TAG_ROOTS = [
 const LINK_KINDS = ["started", "copied_from", "messaged", "asked", "mentioned", "related"] as const;
 const SEEDED_AT = "2026-10-06T12:00:00.000Z";
 const DAY_MS = 86_400_000;
-// One message in this many is the large session's, so it holds about 20,000 rows.
+// One message in this many is the large session's, so it holds about 20,000 rows at scale 1.
 const LARGE_SESSION_SHARE = 50;
 // Rows per write while seeding.
 const SEED_BATCH_ROWS = 5_000;
@@ -60,7 +85,7 @@ export interface SeededSet {
   readonly sessionIds: readonly string[];
   /** The vocabulary, most common word first. */
   readonly words: readonly string[];
-  /** The session holding one message in fifty, about 20,000 rows. */
+  /** The session holding one message in fifty, about 20,000 rows at scale 1. */
   readonly largeSessionId: string;
   /** A session holding an even share of the messages, about 100 rows. */
   readonly typicalSessionId: string;
