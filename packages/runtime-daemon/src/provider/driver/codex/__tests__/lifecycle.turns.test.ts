@@ -448,6 +448,7 @@ describe("Codex rewind and re-realization", () => {
       const params = paramsOf(harness, method);
       expect(params["sandbox"]).toBe("workspace-write");
       expect(params["config"]).toStrictEqual({
+        "apps._default.default_tools_approval_mode": "writes",
         "agents.max_concurrent_threads_per_session": 3,
         "agents.max_depth": 1,
       });
@@ -513,7 +514,9 @@ describe("Codex rewind and re-realization", () => {
     });
   });
 
-  it("starts a sandboxed thread with approvals off and no connector default", async () => {
+  it("starts a sandboxed thread with approvals off, every connector write asking", async () => {
+    // The level just below yolo: a connector write not marked read-only asks, which approvals off
+    // refuses, rather than running in place of a write outside the worktree.
     const harness = createHarness();
     harness.server.on("thread/start", () => threadStartResult());
 
@@ -524,7 +527,9 @@ describe("Codex rewind and re-realization", () => {
 
     const params = paramsOf(harness, "thread/start");
     expect(params["approvalPolicy"]).toBe("never");
-    expect(params).not.toHaveProperty("config");
+    expect(params["config"]).toStrictEqual({
+      "apps._default.default_tools_approval_mode": "writes",
+    });
   });
 
   /** A thread reply whose realized sandbox is the workspace one, reporting `networkAccess`. */

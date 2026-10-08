@@ -124,12 +124,23 @@ const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   yolo: "on-request",
 });
 
+/** How Codex approves a ChatGPT connector's tool calls (`AppToolApproval` at the pin). */
+type CodexConnectorApprovalMode = "writes" | "approve";
+
 /**
- * The `config` overrides `yolo` adds: Codex's own `approve` as the default for every ChatGPT
- * connector, so a connector tool runs unasked unless the person set its app, account or tool.
+ * The default every ChatGPT connector's tool calls take at each permission level, set only as
+ * `apps._default` so an app, account or tool the person set keeps its own: `writes` below `yolo`,
+ * so a tool not marked read-only asks (the reviewer answers at `reviewed`, approvals `never`
+ * refuses it at `sandboxed`), and Codex's own `approve` at `yolo`, so every one runs unasked.
  */
-const CODEX_YOLO_CONFIG_OVERRIDES: Readonly<Record<string, unknown>> = Object.freeze({
-  "apps._default.default_tools_approval_mode": "approve",
+const CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexConnectorApprovalMode>
+> = Object.freeze({
+  readonly: "writes",
+  ask: "writes",
+  reviewed: "writes",
+  sandboxed: "writes",
+  yolo: "approve",
 });
 
 /** Who Codex routes an ask to (`ApprovalsReviewer` at the pin). */
@@ -167,7 +178,7 @@ export function composeCodexApprovalsReviewer(
 interface CodexThreadPosture {
   /** The `sandbox` and `approvalPolicy` thread fields. */
   readonly params: { readonly sandbox: CodexSandboxMode; readonly approvalPolicy: string };
-  /** The `config` overrides the level adds; empty below `yolo`. */
+  /** The `config` overrides the level adds: the connectors' default approval mode. */
   readonly config: Readonly<Record<string, unknown>>;
 }
 
@@ -177,7 +188,10 @@ export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThrea
   const approvalPolicy = CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode];
   return {
     params: { sandbox, approvalPolicy },
-    config: posture.mode === "yolo" ? CODEX_YOLO_CONFIG_OVERRIDES : {},
+    config: {
+      "apps._default.default_tools_approval_mode":
+        CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL[posture.mode],
+    },
   };
 }
 
