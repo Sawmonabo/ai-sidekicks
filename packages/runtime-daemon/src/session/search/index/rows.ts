@@ -30,9 +30,8 @@ export const INDEXED_EVENT_TYPES_SQL: string = INDEXED_EVENT_TYPES.map((type) =>
 );
 
 /**
- * The most outbox rows one batch handed to the index carries, and the most rows of one kind a build
- * reads at a time. A durable commit costs about the same whatever its size, so a batch takes as many
- * rows as the search thread's memory comfortably holds.
+ * The most rows one batch handed to the index carries. A durable commit costs about the same
+ * whatever its size, so a batch takes as many rows as the search thread's memory comfortably holds.
  */
 export const INDEX_BATCH_ROW_LIMIT = 50_000;
 

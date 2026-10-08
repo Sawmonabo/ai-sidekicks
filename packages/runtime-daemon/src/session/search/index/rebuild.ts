@@ -20,7 +20,7 @@ import { rebuildError, type CarriedError } from "../../../worker/carried-error.j
 import { moduleUrlBeside } from "../../../worker/module-url.js";
 import { INDEX_ROW_KINDS, sourceRowidOf } from "./columns.js";
 import type { OutboxReader } from "./outbox.js";
-import { indexRowOf, type IndexRowReader, type SourceRow } from "./rows.js";
+import { INDEX_BATCH_ROW_LIMIT, indexRowOf, type IndexRowReader, type SourceRow } from "./rows.js";
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
 // flushes and the less merging follows.
@@ -179,27 +179,35 @@ export async function buildSearchIndex(
 // A build's next batch: the next log rows, nearly every row the index holds, then each other
 // kind's rows through the same share of its table's rowids, or all its rows left once the log rows
 // are read. Each segment the build writes then mixes the kinds as the whole index does, so the
-// average row length its blocks' score bounds were chosen under is the index's.
+// average row length its blocks' score bounds were chosen under is the index's. The other kinds'
+// rows take their room from the end of the log rows, which the next batch reads again, so a batch
+// holds at most the batch row limit and a merge of five batches fills the merge cap.
 function readNextBatch(
   rows: IndexRowReader,
   logReading: KindReading,
   otherReadings: readonly KindReading[],
 ): SourceRow[] {
-  const logRows = readNextRows(rows, logReading, logReading.lastRowid);
-  const share = logRows.length === 0 ? 1 : logReading.afterRowid / logReading.lastRowid;
-  const otherRows = otherReadings.map((reading) =>
-    readNextRows(rows, reading, Math.floor(share * reading.lastRowid)),
+  const logRows = rows.readRowsBetween(
+    logReading.kind,
+    logReading.afterRowid,
+    logReading.lastRowid,
   );
-  return [logRows, ...otherRows].flat();
+  const lastLogRow = logRows.at(-1);
+  const otherRows = otherReadings.map((reading) => {
+    const throughRowid =
+      lastLogRow === undefined
+        ? reading.lastRowid
+        : Math.floor((sourceRowidOf(lastLogRow.key) / logReading.lastRowid) * reading.lastRowid);
+    return readOn(reading, rows.readRowsBetween(reading.kind, reading.afterRowid, throughRowid));
+  });
+  const otherRowCount = otherRows.reduce((count, kindRows) => count + kindRows.length, 0);
+  const logRoom = Math.max(0, INDEX_BATCH_ROW_LIMIT - otherRowCount);
+  const keptLogRows = readOn(logReading, logRows.slice(0, logRoom));
+  return [keptLogRows, ...otherRows].flat();
 }
 
-// The `reading` kind's next rows through `throughRowid`, the reading moved past them.
-function readNextRows(
-  rows: IndexRowReader,
-  reading: KindReading,
-  throughRowid: number,
-): SourceRow[] {
-  const kindRows = rows.readRowsBetween(reading.kind, reading.afterRowid, throughRowid);
+// `kindRows`, with `reading` moved past the last of them.
+function readOn(reading: KindReading, kindRows: SourceRow[]): SourceRow[] {
   const lastRow = kindRows.at(-1);
   if (lastRow !== undefined) {
     reading.afterRowid = sourceRowidOf(lastRow.key);
