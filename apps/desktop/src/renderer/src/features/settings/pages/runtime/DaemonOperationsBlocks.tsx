@@ -22,6 +22,7 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
@@ -240,8 +241,8 @@ function renderStatusRegion(
 
 /**
  * One reading of what the service uses, stamped with when it was taken; none reads as not read.
- * The figure's `title` carries the exact value the service sent, and the time's `title` carries
- * the zoned time on the machine's clock.
+ * The figure's hover label carries the exact value the service sent, and the time's carries the
+ * zoned time on the machine's clock.
  */
 function renderUsageReading(
   reading:
@@ -282,27 +283,29 @@ function renderControlConfirm(
       {/* The question appears on the press, holding its words, so it says them. */}
       <AnnouncedLine element="p" words={copy.confirmation} politeness="polite" />
       <div className="meridian-settings-page__actions">
-        <button
-          type="button"
-          className={
-            "meridian-settings-page__action " +
-            "meridian-settings-page__action--destructive meridian-action-button"
-          }
-          disabled={isDispatched}
-          title={dispatchedReason}
-          onClick={onConfirm}
-        >
-          {copy.verb}
-        </button>
-        <button
-          type="button"
-          className="meridian-settings-page__action meridian-action-button"
-          disabled={isDispatched}
-          title={dispatchedReason}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
+        <HoverLabel text={dispatchedReason} textIs="description">
+          <button
+            type="button"
+            className={
+              "meridian-settings-page__action " +
+              "meridian-settings-page__action--destructive meridian-action-button"
+            }
+            disabled={isDispatched}
+            onClick={onConfirm}
+          >
+            {copy.verb}
+          </button>
+        </HoverLabel>
+        <HoverLabel text={dispatchedReason} textIs="description">
+          <button
+            type="button"
+            className="meridian-settings-page__action meridian-action-button"
+            disabled={isDispatched}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </HoverLabel>
       </div>
       {isDispatched ? (
         <AnnouncedLine element="p" words={dispatchedReason} politeness="polite" />
