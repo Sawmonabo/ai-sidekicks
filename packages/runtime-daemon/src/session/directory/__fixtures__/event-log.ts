@@ -8,12 +8,14 @@ import {
   type EventCategory,
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { SESSION_NAME_MAX_LEN, type SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import { type SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_NAME_MAX_LEN } from "@ai-sidekicks/contracts/session/name";
 
 import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import type { WriteStatement } from "../../../database/statement.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../../../events/log-service.js";
 import {
   breakStoredEvent,
@@ -33,13 +35,17 @@ export interface SessionLog {
   readonly serviceLogLines: string[];
   /** Writes one line to {@link SessionLog.serviceLogLines}. */
   readonly writeServiceLog: (line: string) => void;
-  /** Appends one event of `sessionId` at `occurredAt` and waits for its commit. */
+  /**
+   * Appends one event of `sessionId` at `occurredAt`, with `transactionalPrelude` committed in its
+   * write, and waits for its commit.
+   */
   append(
     sessionId: SessionId,
     type: string,
     category: EventCategory,
     payload: Record<string, unknown>,
     occurredAt?: string,
+    transactionalPrelude?: readonly WriteStatement[],
   ): Promise<void>;
   /** Creates a session of `shape` and activates it. */
   createSession(sessionId: SessionId, shape: SessionShape): Promise<void>;
@@ -117,8 +123,18 @@ export async function openSessionLog(): Promise<SessionLog> {
     projectionStatements: directoryStatementsFor,
     writeServiceLog,
   });
-  const append: SessionLog["append"] = async (sessionId, type, category, payload, occurredAt) => {
-    await eventLog.append(buildSessionEvent(sessionId, type, category, payload, occurredAt));
+  const append: SessionLog["append"] = async (
+    sessionId,
+    type,
+    category,
+    payload,
+    occurredAt,
+    transactionalPrelude,
+  ) => {
+    await eventLog.append(
+      buildSessionEvent(sessionId, type, category, payload, occurredAt),
+      transactionalPrelude === undefined ? undefined : { transactionalPrelude },
+    );
   };
   return {
     scratch,

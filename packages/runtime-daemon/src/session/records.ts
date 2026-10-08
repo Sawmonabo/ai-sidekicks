@@ -24,15 +24,12 @@ export interface StoredEvent {
   readonly version: string; // semver "MAJOR.MINOR"
 }
 
-/** What a run still in flight is doing: working, or waiting on the person. */
-export type LiveRunActivity = Extract<SessionActivity, "running" | "waiting">;
-
-/** How a session's most recent run to leave the live set left it. */
+/** How a session's most recent run to end its working time left it. */
 export type SessionRunOutcome = Extract<SessionActivity, "done" | "failed" | "idle">;
 
 /**
- * The event-derived columns of a session's `sessions` row and its `session_run_activity` rows,
- * exactly as a rebuild from the log produces them. Times are RFC 3339 UTC with milliseconds.
+ * The event-derived columns of a session's `sessions` row, exactly as a rebuild from the log
+ * produces them. Times are RFC 3339 UTC with milliseconds.
  */
 export interface SessionDirectoryRow {
   readonly sessionId: string;
@@ -50,19 +47,13 @@ export interface SessionDirectoryRow {
   readonly scratchForDefinitionId: string | null;
   readonly parentSessionId: string | null;
   readonly lastRunOutcome: SessionRunOutcome;
-  /** The session's runs still in flight, by run id. */
-  readonly liveRuns: ReadonlyMap<string, LiveRunActivity>;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly lastActivityAt: string;
 }
 
-/**
- * The projector's view of one session: its directory row, the activity derived from it, the last
- * folded sequence and the owner.
- */
+/** The projector's view of one session: its directory row, the last folded sequence and the owner. */
 export interface DaemonSessionRecord extends SessionDirectoryRow {
-  readonly activity: SessionActivity;
   readonly asOfSequence: number;
   /**
    * The session's owner, read off the `session.created` envelope's `actor`; `null` when a

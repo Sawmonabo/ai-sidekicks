@@ -613,8 +613,9 @@ interface SessionLinkRemoveRequest {
 }
 
 // session.tagAdd / session.tagRemove — the `Tags` line on the inspector's Identity: `Add tag` and a
-// chip's remove control. A tag is matched ignoring case and nests with `/`; one that is empty, holds
-// a space or has an empty level around a `/` is refused `session.tag_refused` with nothing written.
+// chip's remove control. A tag is matched ignoring case and nests with `/`; `tag` follows the one tag
+// rule (`TagSchema` in `packages/contracts/src/tag.ts`: never empty, no whitespace, no empty level
+// around a `/`), so a tag it refuses is refused as invalid params with nothing written.
 interface SessionTagRequest {
   sessionId: SessionId;
   tag: string;

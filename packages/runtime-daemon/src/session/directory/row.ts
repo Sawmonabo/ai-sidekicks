@@ -10,13 +10,13 @@ import type {
   SessionMarkChangePayload,
   SessionRenamedPayload,
 } from "@ai-sidekicks/contracts/session/events";
-import { SESSION_NAME_MAX_LEN } from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_NAME_MAX_LEN } from "@ai-sidekicks/contracts/session/name";
 import type { SessionBranchChangedPayload } from "@ai-sidekicks/contracts/worktree/events";
 
 import type { WriteStatement } from "../../database/statement.js";
 import { normalizeOccurredAt } from "../../events/canonicalizer.js";
 import type { SessionDirectoryRow, StoredEvent } from "../records.js";
-import { RUN_ACTIVITY_BY_EVENT_TYPE, type RunActivityEffect } from "./run-activity.js";
+import { RUN_OUTCOME_BY_EVENT_TYPE } from "./run-activity.js";
 
 // The members of an event the directory reads, which a stored event and an append's unsequenced
 // envelope both carry. Its payload is trusted as the append path's variant parse left it.
@@ -34,6 +34,7 @@ const COLUMN_BY_FIELD = {
   branch: "branch",
   pinnedAt: "pinned_at",
   mutedAt: "muted_at",
+  lastRunOutcome: "last_run_outcome",
 } as const satisfies Partial<Record<keyof SessionDirectoryRow, string>>;
 
 type ColumnField = keyof typeof COLUMN_BY_FIELD;
@@ -55,8 +56,7 @@ type DirectoryChange =
       readonly scratchForDefinitionId: string | null;
       readonly parentSessionId: string | null;
     }
-  | ColumnWrite
-  | { readonly kind: "run"; readonly runId: string; readonly effect: RunActivityEffect };
+  | ColumnWrite;
 
 type ChangeBuilder = (payload: Readonly<Record<string, unknown>>) => DirectoryChange;
 
@@ -116,15 +116,11 @@ const CHANGE_BY_EVENT_TYPE: ReadonlyMap<string, (event: DirectoryEvent) => Direc
       ([type, build]) =>
         [type, (event: DirectoryEvent) => (build as ChangeBuilder)(event.payload)] as const,
     ),
-    ...Object.entries(RUN_ACTIVITY_BY_EVENT_TYPE).map(
-      ([type, effectOf]) =>
+    ...Object.entries(RUN_OUTCOME_BY_EVENT_TYPE).map(
+      ([type, outcomeOf]) =>
         [
           type,
-          (event: DirectoryEvent): DirectoryChange => ({
-            kind: "run",
-            runId: runIdOf(event),
-            effect: effectOf(event.payload),
-          }),
+          (event: DirectoryEvent) => setColumn("lastRunOutcome", outcomeOf(event.payload)),
         ] as const,
     ),
   ]);
@@ -146,19 +142,6 @@ function firstMessagePreviewOf(message: string): string | null {
   const lastUnit = opening.charCodeAt(SESSION_NAME_MAX_LEN - 1);
   const splitsPair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
   return opening.slice(0, splitsPair ? SESSION_NAME_MAX_LEN - 1 : SESSION_NAME_MAX_LEN);
-}
-
-// Most run events have no registered payload variant, so the run id is checked here: without it
-// the session's live runs cannot be kept.
-function runIdOf(event: DirectoryEvent): string {
-  const runId = event.payload["runId"];
-  if (typeof runId !== "string" || runId.length === 0) {
-    throw new Error(
-      `A ${event.type} event must name its run in payload.runId; session ${event.sessionId} ` +
-        `cannot keep its live runs without it`,
-    );
-  }
-  return runId;
 }
 
 interface DirectoryUpdate {
@@ -205,7 +188,6 @@ export function openDirectoryRow(created: DirectoryEvent): SessionDirectoryRow {
     scratchForDefinitionId: change.scratchForDefinitionId,
     parentSessionId: change.parentSessionId,
     lastRunOutcome: "idle",
-    liveRuns: new Map(),
     createdAt: occurredAt,
     updatedAt: occurredAt,
     lastActivityAt: occurredAt,
@@ -232,16 +214,6 @@ export function foldDirectoryRow(
       [change.field]: change.keepsFirst && current !== null ? current : change.value,
     };
   }
-  if (change?.kind === "run") {
-    const liveRuns = new Map(row.liveRuns);
-    if ("live" in change.effect) {
-      liveRuns.set(change.runId, change.effect.live);
-      next = { ...row, liveRuns };
-    } else {
-      liveRuns.delete(change.runId);
-      next = { ...row, liveRuns, lastRunOutcome: change.effect.ended };
-    }
-  }
   return {
     ...next,
     lastActivityAt: movesLastActivity
@@ -252,10 +224,10 @@ export function foldDirectoryRow(
 }
 
 /**
- * The statements that apply one event's change to the `sessions` and `session_run_activity`
- * rows, run in the event's own write before its row. Each is relative to the event alone. The
- * `sessions` update expects its one row, so an event for a session with no row refuses the write;
- * an event of the machine's own sentinel session has none and gets no statements.
+ * The statements that apply one event's change to the `sessions` row, run in the event's own
+ * write before its row. Each is relative to the event alone. The update expects its one row, so
+ * an event for a session with no row refuses the write; an event of the machine's own sentinel
+ * session has none and gets no statements.
  */
 export function directoryStatementsFor(event: DirectoryEvent): WriteStatement[] {
   if (event.sessionId === DAEMON_SCOPE_SENTINEL_SESSION_ID) return [];
@@ -279,30 +251,12 @@ export function directoryStatementsFor(event: DirectoryEvent): WriteStatement[] 
       },
     ];
   }
-  const statements: WriteStatement[] = [];
   const assignments: string[] = [];
   const values: unknown[] = [];
   if (change?.kind === "column") {
     const column = COLUMN_BY_FIELD[change.field];
     assignments.push(change.keepsFirst ? `${column} = COALESCE(${column}, ?)` : `${column} = ?`);
     values.push(change.value);
-  }
-  if (change?.kind === "run") {
-    if ("live" in change.effect) {
-      statements.push({
-        sql: `INSERT INTO session_run_activity (session_id, run_id, activity) VALUES (?, ?, ?)
-              ON CONFLICT (session_id, run_id) DO UPDATE SET activity = excluded.activity`,
-        bindings: [event.sessionId, change.runId, change.effect.live],
-      });
-    } else {
-      // A run that ends without having been live (`starting` straight to `failed`) has no row.
-      statements.push({
-        sql: `DELETE FROM session_run_activity WHERE session_id = ? AND run_id = ?`,
-        bindings: [event.sessionId, change.runId],
-      });
-      assignments.push("last_run_outcome = ?");
-      values.push(change.effect.ended);
-    }
   }
   if (movesLastActivity) {
     assignments.push("last_activity_at = max(last_activity_at, ?)");
@@ -312,12 +266,12 @@ export function directoryStatementsFor(event: DirectoryEvent): WriteStatement[] 
     assignments.push("updated_at = max(updated_at, ?)");
     values.push(occurredAt);
   }
-  if (assignments.length > 0) {
-    statements.push({
+  if (assignments.length === 0) return [];
+  return [
+    {
       sql: `UPDATE sessions SET ${assignments.join(", ")} WHERE id = ?`,
       bindings: [...values, event.sessionId],
       expectedRowCount: 1,
-    });
-  }
-  return statements;
+    },
+  ];
 }

@@ -4,7 +4,6 @@
 // It reads only members a hydrated envelope and a stored row both carry, so either can be folded.
 
 import { foldDirectoryRow, openDirectoryRow } from "./directory/row.js";
-import { sessionActivityOf } from "./directory/run-activity.js";
 import type { DaemonSessionRecord, SessionDirectoryRow, StoredEvent } from "./records.js";
 
 // The members of one stored event the rebuild reads.
@@ -46,7 +45,6 @@ export function rebuildSession(events: ReadonlyArray<RebuildEvent>): DaemonSessi
   }
   return {
     ...row,
-    activity: sessionActivityOf(row),
     asOfSequence: events[events.length - 1]!.sequence,
     ownerActor: ownerActorOf(first),
   };

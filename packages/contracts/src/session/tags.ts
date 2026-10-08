@@ -1,5 +1,5 @@
-// A session's tags as the person adds and removes them on the inspector, the tags in use that
-// `Add tag` suggests, and the code a tag the daemon will not hold is refused with.
+// A session's tags as the person adds and removes them on the inspector, and the tags in use that
+// `Add tag` suggests.
 import { z } from "zod";
 
 import {
@@ -8,21 +8,13 @@ import {
   type EmptyPayload,
   type MethodDescriptor,
 } from "../method-descriptor.js";
+import { TagListSchema, TagSchema } from "../tag.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
-import {
-  SESSION_NAME_MAX_LEN,
-  SessionTagSchema,
-  SessionVerbResponseSchema,
-  type SessionVerbResponse,
-} from "./methods.js";
-
-/** A `session.tagAdd` whose tag holds a space or is empty; nothing is written. */
-export const SESSION_TAG_REFUSED_CODE = "session.tag_refused" as const;
+import { SessionVerbResponseSchema, type SessionVerbResponse } from "./methods.js";
 
 /**
- * Adds a tag to a session or removes one. A tag is matched ignoring case and nests with `/`.
- * The tag is parsed only for its length and a NUL byte, so an empty tag or one holding a space
- * reaches the daemon and is refused with {@link SESSION_TAG_REFUSED_CODE}.
+ * Adds a tag to a session or removes one. A tag is matched ignoring case and nests with `/`; one
+ * the tag rule refuses never reaches the daemon.
  */
 export interface SessionTagRequest {
   sessionId: SessionId;
@@ -32,12 +24,7 @@ export interface SessionTagRequest {
 export const SessionTagRequestSchema: z.ZodType<SessionTagRequest, SessionTagRequest> = z
   .object({
     sessionId: SessionIdSchema,
-    tag: z
-      .string()
-      .max(SESSION_NAME_MAX_LEN)
-      .refine((tag) => !tag.includes("\0"), {
-        message: "SessionTagRequest.tag MUST NOT contain a NUL byte.",
-      }),
+    tag: TagSchema,
   })
   .strict();
 
@@ -48,7 +35,7 @@ export interface SessionTagListResponse {
 /** Parses a {@link SessionTagListResponse}. */
 export const SessionTagListResponseSchema: z.ZodType<SessionTagListResponse> = z
   .object({
-    tags: z.array(SessionTagSchema),
+    tags: TagListSchema,
   })
   .strict();
 

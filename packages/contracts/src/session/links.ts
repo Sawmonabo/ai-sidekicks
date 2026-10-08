@@ -11,11 +11,8 @@ import {
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
-import {
-  SESSION_NAME_MAX_LEN,
-  SessionVerbResponseSchema,
-  type SessionVerbResponse,
-} from "./methods.js";
+import { SessionVerbResponseSchema, type SessionVerbResponse } from "./methods.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /**
  * A `session.linkRemove` that named a link the daemon wrote from an event, which records what

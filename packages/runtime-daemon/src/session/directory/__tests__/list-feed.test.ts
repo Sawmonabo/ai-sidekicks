@@ -1,5 +1,6 @@
 // The live sessions list, fed by the real event log over a real database: a quiet running
-// session is renewed on a fake clock, the chats count follows a chat's create and its convert,
+// session is renewed on a fake clock, a run waiting on the person outranks one working and the
+// last run's end shows once none is left, the chats count follows a chat's create and its convert,
 // archived and closed sessions stay entries, a purge removes one even when the log loses its
 // receipt, and a group's rename reaches every session in it.
 
@@ -14,6 +15,9 @@ import {
   type SessionListChange,
 } from "@ai-sidekicks/contracts/session/directory";
 import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/envelope";
+import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import {
@@ -23,12 +27,14 @@ import {
   type SessionLog,
 } from "../__fixtures__/event-log.js";
 import { SessionGroupService } from "../../groups/service.js";
+import { insertQueuedRunStatement, swapRunStateStatement } from "../../run/projection.js";
 import { SessionListFeed, type SessionListListener } from "../list-feed.js";
 
 const CHAT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10" as SessionId;
 const PROJECT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11" as SessionId;
 const SECOND_CHAT = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12" as SessionId;
-const RUN = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8fa1";
+const RUN = RunIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8fa1");
+const SECOND_RUN = RunIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8fa2");
 
 let log: SessionLog;
 let feed: SessionListFeed;
@@ -62,13 +68,33 @@ function recordingListener(): SessionListListener & { readonly changes: SessionL
   };
 }
 
-async function startRun(sessionId: SessionId): Promise<void> {
-  await log.append(sessionId, "run.starting", "run_lifecycle", {
+// Moves the run as the run engine does: its `runs` row swaps in the same write as its event.
+async function moveRun(
+  sessionId: SessionId,
+  runId: RunId,
+  previousState: RunState,
+  newState: RunStateChangeState,
+  runVersion: number,
+  members: Record<string, unknown> = {},
+): Promise<void> {
+  const swap = { sessionId, runId, runVersion, previousState, newState };
+  await log.append(
     sessionId,
-    runId: RUN,
-    runVersion: 1,
-  });
+    `run.${newState}`,
+    "run_lifecycle",
+    { ...swap, ...members },
+    undefined,
+    [swapRunStateStatement(swap)],
+  );
   await crossEventLoopTurn();
+}
+
+async function startRun(sessionId: SessionId, runId: RunId): Promise<void> {
+  const queued = { sessionId, runId, runVersion: 0, newState: "queued" as const };
+  await log.append(sessionId, "run.queued", "run_lifecycle", queued, undefined, [
+    insertQueuedRunStatement(queued),
+  ]);
+  await moveRun(sessionId, runId, "queued", "starting", 1);
 }
 
 describe("the sessions list renews a quiet running session", () => {
@@ -79,7 +105,7 @@ describe("the sessions list renews a quiet running session", () => {
     await log.createSession(CHAT, "chat");
     const listener = recordingListener();
     feed.open(listener);
-    await startRun(CHAT);
+    await startRun(CHAT, RUN);
     const started = listener.changes.at(-1);
     expect(started).toMatchObject({ kind: "upsert", entry: { activity: "running" } });
     listener.changes.length = 0;
@@ -106,13 +132,14 @@ describe("the sessions list renews a quiet running session", () => {
     expect(sessionActivityAsOf(renewed.entry, readAt)).toBe("running");
     expect(sessionActivityAsOf(started.entry, readAt)).toBe("idle");
 
-    await log.append(CHAT, "run.completed", "run_lifecycle", {
-      sessionId: CHAT,
-      runId: RUN,
-      runVersion: 2,
-      completionKind: "turn",
-    });
-    await crossEventLoopTurn();
+    await startRun(CHAT, SECOND_RUN);
+    await moveRun(CHAT, SECOND_RUN, "starting", "waiting_for_approval", 2);
+    expect(listener.changes.at(-1)).toMatchObject({ entry: { activity: "waiting" } });
+    await moveRun(CHAT, RUN, "starting", "running", 2);
+    await moveRun(CHAT, RUN, "running", "completed", 3, { completionKind: "turn" });
+    expect(listener.changes.at(-1)).toMatchObject({ entry: { activity: "waiting" } });
+    await moveRun(CHAT, SECOND_RUN, "waiting_for_approval", "failed", 3);
+    expect(listener.changes.at(-1)).toMatchObject({ entry: { activity: "failed" } });
     listener.changes.length = 0;
     vi.advanceTimersByTime(3 * SESSION_ACTIVITY_RENEW_INTERVAL_MS);
     expect(listener.changes).toStrictEqual([]);
@@ -127,8 +154,8 @@ describe("the sessions list renews a quiet running session", () => {
     const opening = feed.open(recordingListener());
     expect(vi.getTimerCount()).toBe(otherTimers);
 
-    await startRun(CHAT);
-    await startRun(SECOND_CHAT);
+    await startRun(CHAT, RUN);
+    await startRun(SECOND_CHAT, SECOND_RUN);
     expect(vi.getTimerCount()).toBe(otherTimers + 1);
 
     opening.detach();

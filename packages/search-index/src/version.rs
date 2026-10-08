@@ -56,11 +56,17 @@ pub struct SegmentDeletions {
 impl SegmentDeletions {
     fn load(segment: &SegmentReader, columns: &SegmentColumns) -> SegmentDeletions {
         let docs: Vec<DocId> = match segment.alive_bitset() {
-            Some(alive) => (0..segment.max_doc()).filter(|doc| alive.is_deleted(*doc)).collect(),
+            Some(alive) => (0..segment.max_doc())
+                .filter(|doc| alive.is_deleted(*doc))
+                .collect(),
             None => Vec::new(),
         };
         let length = docs.iter().map(|doc| columns.length.get_val(*doc)).sum();
-        SegmentDeletions { delete_opstamp: segment.delete_opstamp(), docs, length }
+        SegmentDeletions {
+            delete_opstamp: segment.delete_opstamp(),
+            docs,
+            length,
+        }
     }
 }
 
@@ -113,7 +119,11 @@ impl IndexVersion {
             };
             live_rows += u64::from(segment.num_docs());
             live_tokens += columns.total_length - deletions.length;
-            segments.push(SegmentFacts { segment_id: segment.segment_id(), columns, deletions });
+            segments.push(SegmentFacts {
+                segment_id: segment.segment_id(),
+                columns,
+                deletions,
+            });
         }
         Ok(IndexVersion {
             searcher,
@@ -150,7 +160,9 @@ impl IndexVersion {
     }
 
     fn facts_of(&self, segment_id: SegmentId) -> Option<&SegmentFacts> {
-        self.segments.iter().find(|facts| facts.segment_id == segment_id)
+        self.segments
+            .iter()
+            .find(|facts| facts.segment_id == segment_id)
     }
 
     /// The live rows' average length.
@@ -160,8 +172,12 @@ impl IndexVersion {
 
     /// n: how many live rows `phrase` matches, counted once per view.
     pub fn phrase_rows(&self, phrase: &Phrase) -> tantivy::Result<u64> {
-        let cached =
-            self.phrase_rows.lock().unwrap_or_else(PoisonError::into_inner).get(phrase).copied();
+        let cached = self
+            .phrase_rows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(phrase)
+            .copied();
         if let Some(rows) = cached {
             return Ok(rows);
         }
@@ -169,7 +185,10 @@ impl IndexVersion {
         for (segment, facts) in self.searcher.segment_readers().iter().zip(&self.segments) {
             rows += self.phrase_rows_in(segment, facts, phrase)?;
         }
-        let mut cache = self.phrase_rows.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut cache = self
+            .phrase_rows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if cache.len() >= PHRASE_ROWS_CAPACITY {
             cache.clear();
         }
@@ -187,7 +206,8 @@ impl IndexVersion {
     ) -> tantivy::Result<u64> {
         if let Some(term) = phrase.single_term(&self.fields) {
             let inverted = segment.inverted_index(term.field())?;
-            let Some(mut postings) = inverted.read_postings(&term, IndexRecordOption::Basic)? else {
+            let Some(mut postings) = inverted.read_postings(&term, IndexRecordOption::Basic)?
+            else {
                 return Ok(0);
             };
             let mut deleted_hits = 0u64;
@@ -196,7 +216,11 @@ impl IndexVersion {
                 if doc == TERMINATED {
                     break;
                 }
-                let doc = if doc >= *deleted { doc } else { postings.seek(*deleted) };
+                let doc = if doc >= *deleted {
+                    doc
+                } else {
+                    postings.seek(*deleted)
+                };
                 if doc == *deleted {
                     deleted_hits += 1;
                 }

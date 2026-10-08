@@ -25,7 +25,10 @@ pub fn row_score(idfs: &[f64], frequencies: &[u32], length: u64, average_length:
     for (idf, frequency) in idfs.iter().zip(frequencies) {
         let frequency = f64::from(*frequency);
         let length_part = 1.0 - B + B * length / average_length;
-        score = idf.mul_add((frequency * (K1 + 1.0)) / K1.mul_add(length_part, frequency), score);
+        score = idf.mul_add(
+            (frequency * (K1 + 1.0)) / K1.mul_add(length_part, frequency),
+            score,
+        );
     }
     score
 }
@@ -56,7 +59,12 @@ mod tests {
         length: u64,
         score_bits: u64,
     ) -> Expected {
-        Expected { phrase_rows, frequencies, length, score_bits }
+        Expected {
+            phrase_rows,
+            frequencies,
+            length,
+            score_bits,
+        }
     }
 
     const EXPECTED: &[Expected] = &[
@@ -74,8 +82,11 @@ mod tests {
     fn scores_equal_fts5_ranks_bit_for_bit() {
         let average_length = LIVE_TOKENS as f64 / LIVE_ROWS as f64;
         for expected in EXPECTED {
-            let idfs: Vec<f64> =
-                expected.phrase_rows.iter().map(|rows| phrase_idf(LIVE_ROWS, *rows)).collect();
+            let idfs: Vec<f64> = expected
+                .phrase_rows
+                .iter()
+                .map(|rows| phrase_idf(LIVE_ROWS, *rows))
+                .collect();
             let score = row_score(&idfs, expected.frequencies, expected.length, average_length);
             assert_eq!(
                 score.to_bits(),

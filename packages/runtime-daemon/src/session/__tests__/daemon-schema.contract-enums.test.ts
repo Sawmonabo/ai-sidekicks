@@ -20,7 +20,7 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
-import type { LiveRunActivity, SessionRunOutcome } from "../records.js";
+import type { SessionRunOutcome } from "../records.js";
 
 const TIMESTAMP = "2026-09-28T00:00:00.000Z";
 const NON_MEMBER = "not-a-member";
@@ -101,8 +101,6 @@ const SESSION_STATES: Record<SessionState, true> = {
 };
 
 const RUN_OUTCOMES: Record<SessionRunOutcome, true> = { done: true, failed: true, idle: true };
-
-const LIVE_RUN_ACTIVITIES: Record<LiveRunActivity, true> = { running: true, waiting: true };
 
 const LINK_KINDS: Record<SessionLinkKind, true> = {
   started: true,
@@ -329,17 +327,6 @@ describe("contract enums against the daemon schema", () => {
     expect(() =>
       insertCreateRequest.run(newId("key"), newId("session"), MOUNT_ID, NON_MEMBER),
     ).toThrow(CHECK_FAILURE);
-  });
-
-  it("admits every live run activity and refuses any other", () => {
-    const insertRun = db.prepare(
-      `INSERT INTO session_run_activity (session_id, run_id, activity) VALUES ('session-1', ?, ?)`,
-    );
-    for (const activity of membersOf(LIVE_RUN_ACTIVITIES)) {
-      expect(() => insertRun.run(newId("run"), activity)).not.toThrow();
-    }
-    // An ended run's outcome is never a live reading.
-    expect(() => insertRun.run(newId("run"), "done")).toThrow(CHECK_FAILURE);
   });
 
   it("bounds a session's own step limit from below at one, and lets it be unset", () => {

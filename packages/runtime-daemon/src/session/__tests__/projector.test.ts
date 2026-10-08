@@ -29,11 +29,9 @@ describe("session-projector — bootstrap projection", () => {
       scratchForDefinitionId: null,
       parentSessionId: null,
       lastRunOutcome: "idle",
-      liveRuns: new Map(),
       createdAt: OCCURRED_AT,
       updatedAt: OCCURRED_AT,
       lastActivityAt: OCCURRED_AT,
-      activity: "idle",
       asOfSequence: 0,
       ownerActor: OWNER_ACTOR_ID,
     });

@@ -215,8 +215,15 @@ impl SearchIndex {
         let writer_memory_bytes = usize::try_from(options.writer_memory_bytes)
             .map_err(|_| Error::new("InvalidArg", "writerMemoryBytes must not be negative"))?;
         let folder = Path::new(&folder_path);
-        match IndexEngine::open(folder, writer_memory_bytes, INDEXING_THREADS, ReadMode::DEFAULT) {
-            Ok(engine) => Ok(SearchIndex { engine: Some(Arc::new(engine)) }),
+        match IndexEngine::open(
+            folder,
+            writer_memory_bytes,
+            INDEXING_THREADS,
+            ReadMode::DEFAULT,
+        ) {
+            Ok(engine) => Ok(SearchIndex {
+                engine: Some(Arc::new(engine)),
+            }),
             Err(OpenFailure::Unreadable(error)) => {
                 Err(Error::new("SEARCH_INDEX_UNREADABLE", error.to_string()))
             }
@@ -235,7 +242,10 @@ impl SearchIndex {
     /// as one apply does: rows replace by key, removals of absent rows do nothing.
     #[napi]
     pub fn apply(&self, batch: IndexBatch) -> AsyncTask<ApplyBatch> {
-        AsyncTask::new(ApplyBatch { engine: self.engine.clone(), batch })
+        AsyncTask::new(ApplyBatch {
+            engine: self.engine.clone(),
+            batch,
+        })
     }
 
     /// Loads every group's members once after open, before the first search; later changes arrive
@@ -244,7 +254,12 @@ impl SearchIndex {
     pub fn set_group_members(&self, groups: Vec<GroupMembers>) -> Result<()> {
         let groups = groups
             .iter()
-            .map(|group| Ok((non_negative(group.group_key)?, keys_of(&group.session_keys)?)))
+            .map(|group| {
+                Ok((
+                    non_negative(group.group_key)?,
+                    keys_of(&group.session_keys)?,
+                ))
+            })
             .collect::<tantivy::Result<Vec<_>>>()
             .map_err(failure)?;
         self.engine()?.set_group_members(groups).map_err(failure)
@@ -259,7 +274,11 @@ impl SearchIndex {
         query: SearchQuery,
         within_sessions: Option<Vec<i64>>,
     ) -> Result<HeldSearch> {
-        let within = within_sessions.as_deref().map(keys_of).transpose().map_err(failure)?;
+        let within = within_sessions
+            .as_deref()
+            .map(keys_of)
+            .transpose()
+            .map_err(failure)?;
         let version = self.engine()?.current_version();
         let view = SearchView::open(version, &query, within.as_deref()).map_err(failure)?;
         Ok(HeldSearch { view: Some(view) })
@@ -282,13 +301,17 @@ impl SearchIndex {
     /// Runs one merge of segments; resolves whether more merging remains. Called while idle.
     #[napi]
     pub fn merge_while_idle(&self) -> AsyncTask<MergeSegments> {
-        AsyncTask::new(MergeSegments { engine: self.engine.clone() })
+        AsyncTask::new(MergeSegments {
+            engine: self.engine.clone(),
+        })
     }
 
     /// Waits for writes under way, then lets go of files and threads.
     #[napi]
     pub fn close(&mut self) -> AsyncTask<CloseIndex> {
-        AsyncTask::new(CloseIndex { engine: self.engine.take() })
+        AsyncTask::new(CloseIndex {
+            engine: self.engine.take(),
+        })
     }
 }
 
@@ -308,7 +331,9 @@ impl HeldSearch {
     #[napi]
     pub fn sessions_at(&mut self, from: u32, count: u32) -> Result<Vec<i64>> {
         let view = self.view.as_mut().ok_or_else(released)?;
-        let sessions = view.sessions_at(from as usize, count as usize).map_err(failure)?;
+        let sessions = view
+            .sessions_at(from as usize, count as usize)
+            .map_err(failure)?;
         Ok(to_js_keys(sessions))
     }
 

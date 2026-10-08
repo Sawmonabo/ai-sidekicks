@@ -13,7 +13,10 @@ impl GroupMembership {
     /// The membership of `groups`, each a group key with its member session keys in order; a group
     /// with no members is left out.
     pub fn from_groups(groups: impl IntoIterator<Item = (u64, Vec<u64>)>) -> GroupMembership {
-        let members = groups.into_iter().filter(|(_, sessions)| !sessions.is_empty()).collect();
+        let members = groups
+            .into_iter()
+            .filter(|(_, sessions)| !sessions.is_empty())
+            .collect();
         GroupMembership::from_members(members)
     }
 

@@ -477,7 +477,7 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM session_drafts WHERE session_id = ?", bindings: [sessionId] },
-    { sql: "DELETE FROM session_run_activity WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_console_state WHERE session_id = ?", bindings: [sessionId] },
     {
       sql: "DELETE FROM session_links WHERE source_session_id = ? OR target_session_id = ?",

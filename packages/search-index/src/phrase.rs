@@ -22,9 +22,15 @@ pub fn query_phrases(query: &SearchQuery) -> Vec<Phrase> {
         .iter()
         .enumerate()
         .filter_map(|(index, word)| {
-            let parts: Vec<String> = tokenize(word).into_iter().map(|token| token.folded).collect();
+            let parts: Vec<String> = tokenize(word)
+                .into_iter()
+                .map(|token| token.folded)
+                .collect();
             let ends_in_prefix = query.last_word_is_prefix && index == last;
-            (!parts.is_empty()).then_some(Phrase { parts, ends_in_prefix })
+            (!parts.is_empty()).then_some(Phrase {
+                parts,
+                ends_in_prefix,
+            })
         })
         .collect()
 }
@@ -47,7 +53,9 @@ impl Phrase {
     /// The one term that holds exactly this phrase's rows and counts, when one does: a whole word's
     /// text term, or a prefix field's term for a prefix of up to four characters.
     pub fn single_term(&self, fields: &IndexFields) -> Option<Term> {
-        let [part] = self.parts.as_slice() else { return None };
+        let [part] = self.parts.as_slice() else {
+            return None;
+        };
         if !self.ends_in_prefix {
             return Some(Term::from_field_text(fields.text, part));
         }

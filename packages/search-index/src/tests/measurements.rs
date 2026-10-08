@@ -53,7 +53,9 @@ struct Settings {
 
 fn variable<T: FromStr>(name: &str, default: T) -> T {
     match std::env::var(name) {
-        Ok(value) => value.parse().unwrap_or_else(|_| panic!("{name}={value} does not parse")),
+        Ok(value) => value
+            .parse()
+            .unwrap_or_else(|_| panic!("{name}={value} does not parse")),
         Err(_) => default,
     }
 }
@@ -90,7 +92,13 @@ impl Settings {
 
     // The set's groups and tags without its messages, whose draws come last.
     fn directory(&self) -> SeededDirectory {
-        generate(SeededSetSize { messages: 0, ..self.size }, |_| {})
+        generate(
+            SeededSetSize {
+                messages: 0,
+                ..self.size
+            },
+            |_| {},
+        )
     }
 
     fn describe(&self) -> String {
@@ -125,11 +133,18 @@ fn footprint() -> String {
     let buffer = (&mut info as *mut libc::rusage_info_v4).cast::<libc::rusage_info_t>();
     let status = unsafe { libc::proc_pid_rusage(process as i32, libc::RUSAGE_INFO_V4, buffer) };
     assert_eq!(status, 0, "proc_pid_rusage failed");
-    let tool = match Command::new("footprint").arg("-p").arg(process.to_string()).output() {
+    let tool = match Command::new("footprint")
+        .arg("-p")
+        .arg(process.to_string())
+        .output()
+    {
         Ok(output) => String::from_utf8_lossy(&output.stdout)
             .lines()
             .find(|line| line.contains("Footprint:"))
-            .map_or_else(|| "no footprint line".to_string(), |line| line.trim().to_string()),
+            .map_or_else(
+                || "no footprint line".to_string(),
+                |line| line.trim().to_string(),
+            ),
         Err(error) => format!("footprint did not run: {error}"),
     };
     format!(
@@ -150,7 +165,12 @@ fn percentiles(mut milliseconds: Vec<f64>) -> String {
         let index = ((share * milliseconds.len() as f64).ceil() as usize).saturating_sub(1);
         milliseconds[index.min(milliseconds.len() - 1)]
     };
-    format!("p50 {:.2} ms, p95 {:.2} ms over {} runs", at(0.5), at(0.95), milliseconds.len())
+    format!(
+        "p50 {:.2} ms, p95 {:.2} ms over {} runs",
+        at(0.5),
+        at(0.95),
+        milliseconds.len()
+    )
 }
 
 fn elapsed_milliseconds(started: Instant) -> f64 {
@@ -160,7 +180,13 @@ fn elapsed_milliseconds(started: Instant) -> f64 {
 fn folder_mebibytes(folder: &Path) -> f64 {
     let entries = std::fs::read_dir(folder).expect("the folder lists");
     let bytes: u64 = entries
-        .map(|entry| entry.expect("an entry reads").metadata().expect("its size reads").len())
+        .map(|entry| {
+            entry
+                .expect("an entry reads")
+                .metadata()
+                .expect("its size reads")
+                .len()
+        })
         .sum();
     bytes as f64 / MEBIBYTE
 }
@@ -186,7 +212,10 @@ fn merge_until_done(engine: &IndexEngine) {
             break;
         }
     }
-    report(format!("merged in {steps} steps, {:.1} s", started.elapsed().as_secs_f64()));
+    report(format!(
+        "merged in {steps} steps, {:.1} s",
+        started.elapsed().as_secs_f64()
+    ));
 }
 
 // Keys past every message key of the set, so measurement rows never replace seeded ones.
@@ -199,18 +228,27 @@ fn keys_after_the_set(settings: &Settings, offset: u64) -> u64 {
 fn rebuild() {
     let settings = Settings::from_environment();
     if settings.folder.exists() {
-        assert!(settings.folder.join("meta.json").exists(), "the folder holds no index");
+        assert!(
+            settings.folder.join("meta.json").exists(),
+            "the folder holds no index"
+        );
         std::fs::remove_dir_all(&settings.folder).expect("the old index is removed");
     }
     let engine = settings.open();
-    report(format!("rebuild of {}: before, {}", settings.describe(), footprint()));
+    report(format!(
+        "rebuild of {}: before, {}",
+        settings.describe(),
+        footprint()
+    ));
     let started = Instant::now();
     let mut pending: Vec<IndexRow> = Vec::with_capacity(settings.batch_rows);
     let mut outbox_id = 0i64;
     let mut rows = 0u64;
     let mut flush = |pending: &mut Vec<IndexRow>| {
         outbox_id += 1;
-        engine.apply(&batch(outbox_id, std::mem::take(pending))).expect("a batch applies");
+        engine
+            .apply(&batch(outbox_id, std::mem::take(pending)))
+            .expect("a batch applies");
     };
     let directory = generate(settings.size, |row| {
         rows += 1;
@@ -229,10 +267,15 @@ fn rebuild() {
         folder_mebibytes(&settings.folder),
         footprint(),
     ));
-    engine.set_group_members(directory.group_members).expect("the members load");
+    engine
+        .set_group_members(directory.group_members)
+        .expect("the members load");
     merge_until_done(&engine);
     let on_disk = folder_mebibytes(&settings.folder);
-    report(format!("after merging: {on_disk:.1} MiB on disk, {}", footprint()));
+    report(format!(
+        "after merging: {on_disk:.1} MiB on disk, {}",
+        footprint()
+    ));
     engine.close().expect("the index closes");
 }
 
@@ -241,7 +284,11 @@ fn rebuild() {
 fn steady_batches() {
     let settings = Settings::from_environment();
     let engine = settings.open();
-    report(format!("steady batches on {}: before, {}", settings.describe(), footprint()));
+    report(format!(
+        "steady batches on {}: before, {}",
+        settings.describe(),
+        footprint()
+    ));
     let mut outbox_id = engine.current_version().last_applied_outbox_id as i64;
     let first_key = keys_after_the_set(&settings, 1_000_000);
     let text = format!("{} steady {}", word_at(7), word_at(70));
@@ -255,13 +302,21 @@ fn steady_batches() {
             .collect();
         outbox_id += 1;
         let started = Instant::now();
-        engine.apply(&batch(outbox_id, rows)).expect("a batch applies");
+        engine
+            .apply(&batch(outbox_id, rows))
+            .expect("a batch applies");
         times.push(elapsed_milliseconds(started));
     }
-    report(format!("{STEADY_BATCH_ROWS}-row batches: {}, {}", percentiles(times), footprint()));
+    report(format!(
+        "{STEADY_BATCH_ROWS}-row batches: {}, {}",
+        percentiles(times),
+        footprint()
+    ));
     let added = settings.runs as u64 * STEADY_BATCH_ROWS;
     let removed = IndexBatch {
-        removed_keys: (0..added).map(|ordinal| (first_key + ordinal * 4) as i64).collect(),
+        removed_keys: (0..added)
+            .map(|ordinal| (first_key + ordinal * 4) as i64)
+            .collect(),
         ..batch(outbox_id + 1, Vec::new())
     };
     engine.apply(&removed).expect("the steady rows leave");
@@ -304,15 +359,23 @@ fn probes(directory: &SeededDirectory) -> Vec<Probe> {
 fn time_pages(engine: &IndexEngine, probe: &Probe) -> (f64, f64, usize) {
     let started = Instant::now();
     let version = engine.current_version();
-    let mut view = SearchView::open(version, &probe.query, probe.within.as_deref())
-        .expect("the search opens");
-    let first = view.sessions_at(0, PAGE_SESSIONS).expect("the first page ranks");
+    let mut view =
+        SearchView::open(version, &probe.query, probe.within.as_deref()).expect("the search opens");
+    let first = view
+        .sessions_at(0, PAGE_SESSIONS)
+        .expect("the first page ranks");
     view.hits_of(&first).expect("the first page's hits read");
     let first_page = elapsed_milliseconds(started);
     let started = Instant::now();
-    let next = view.sessions_at(PAGE_SESSIONS, PAGE_SESSIONS).expect("the next page ranks");
+    let next = view
+        .sessions_at(PAGE_SESSIONS, PAGE_SESSIONS)
+        .expect("the next page ranks");
     view.hits_of(&next).expect("the next page's hits read");
-    (first_page, elapsed_milliseconds(started), first.len() + next.len())
+    (
+        first_page,
+        elapsed_milliseconds(started),
+        first.len() + next.len(),
+    )
 }
 
 #[test]
@@ -321,8 +384,14 @@ fn searches() {
     let settings = Settings::from_environment();
     let engine = settings.open();
     let directory = settings.directory();
-    engine.set_group_members(directory.group_members.clone()).expect("the members load");
-    report(format!("searches on {}: before, {}", settings.describe(), footprint()));
+    engine
+        .set_group_members(directory.group_members.clone())
+        .expect("the members load");
+    report(format!(
+        "searches on {}: before, {}",
+        settings.describe(),
+        footprint()
+    ));
     for probe in probes(&directory) {
         time_pages(&engine, &probe);
         let (mut first, mut next) = (Vec::new(), Vec::new());
@@ -352,9 +421,14 @@ fn searches() {
     }
     times.remove(0);
     let find_times = percentiles(times);
-    report(format!("find \"lo\" in the largest session: {find_times}, {matches} matches"));
+    report(format!(
+        "find \"lo\" in the largest session: {find_times}, {matches} matches"
+    ));
     drop(version);
-    report(format!("after the searches, every view released: {}", footprint()));
+    report(format!(
+        "after the searches, every view released: {}",
+        footprint()
+    ));
 }
 
 #[test]
@@ -370,7 +444,9 @@ fn visibility() {
         let row = event(first_key + run * 4, 1, &word);
         outbox_id += 1;
         let started = Instant::now();
-        engine.apply(&batch(outbox_id, vec![row])).expect("the row applies");
+        engine
+            .apply(&batch(outbox_id, vec![row]))
+            .expect("the row applies");
         let search = query(&[word.as_str()], false);
         let mut view =
             SearchView::open(engine.current_version(), &search, None).expect("the search opens");
@@ -378,9 +454,14 @@ fn visibility() {
         times.push(elapsed_milliseconds(started));
         assert_eq!(sessions, vec![1], "the new row is found");
     }
-    report(format!("one-row apply until a search finds it: {}", percentiles(times)));
+    report(format!(
+        "one-row apply until a search finds it: {}",
+        percentiles(times)
+    ));
     let removed = IndexBatch {
-        removed_keys: (0..settings.runs as u64).map(|run| (first_key + run * 4) as i64).collect(),
+        removed_keys: (0..settings.runs as u64)
+            .map(|run| (first_key + run * 4) as i64)
+            .collect(),
         ..batch(outbox_id + 1, Vec::new())
     };
     engine.apply(&removed).expect("the rows leave");
@@ -392,8 +473,14 @@ fn visibility() {
 fn purge_and_merge() {
     let settings = Settings::from_environment();
     let engine = settings.open();
-    engine.set_group_members(settings.directory().group_members).expect("the members load");
-    let lo = Probe { name: "lo", query: query(&["lo"], true), within: None };
+    engine
+        .set_group_members(settings.directory().group_members)
+        .expect("the members load");
+    let lo = Probe {
+        name: "lo",
+        query: query(&["lo"], true),
+        within: None,
+    };
     let time_counts = |when: &str| {
         let started = Instant::now();
         SearchView::open(engine.current_version(), &lo.query, None).expect("the search opens");
@@ -408,12 +495,18 @@ fn purge_and_merge() {
     time_counts("before the purge");
     let outbox_id = engine.current_version().last_applied_outbox_id as i64 + 1;
     let purge = IndexBatch {
-        removed_owners: vec![RemovedOwner { owner_key: LARGEST_SESSION as i64, is_group: false }],
+        removed_owners: vec![RemovedOwner {
+            owner_key: LARGEST_SESSION as i64,
+            is_group: false,
+        }],
         ..batch(outbox_id, Vec::new())
     };
     let started = Instant::now();
     engine.apply(&purge).expect("the purge applies");
-    report(format!("purged the largest session in {:.1} ms", elapsed_milliseconds(started)));
+    report(format!(
+        "purged the largest session in {:.1} ms",
+        elapsed_milliseconds(started)
+    ));
     time_counts("after the purge");
     merge_until_done(&engine);
     time_counts("after merging");

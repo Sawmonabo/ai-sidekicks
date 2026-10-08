@@ -152,7 +152,8 @@ CREATE TABLE sessions (
   muted_at                   TEXT,              -- NULL while not muted
   scratch_for_definition_id  TEXT,              -- the definition a scratch session tries
   parent_session_id          TEXT,              -- the session a fork was taken from
-  -- How the session's most recent run to leave session_run_activity ended.
+  -- How the session's most recent run to end its working time left it. The session reads waiting
+  -- while any of its runs in runs waits, else running while any works, else this.
   last_run_outcome           TEXT NOT NULL DEFAULT 'idle'
     CHECK(last_run_outcome IN ('done', 'failed', 'idle')),
   created_at                 TEXT NOT NULL,     -- RFC 3339 UTC, ms precision
@@ -172,15 +173,6 @@ CREATE INDEX idx_sessions_group ON sessions(group_id);
 CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
 -- A search by tag and words reads each tagged session's rowid and last activity from here alone.
 CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
-
--- A session's runs still in flight. A session reads waiting while any of them
--- waits, else running while any runs, else its last_run_outcome.
-CREATE TABLE session_run_activity (
-  session_id  TEXT NOT NULL,
-  run_id      TEXT NOT NULL,
-  activity    TEXT NOT NULL CHECK(activity IN ('running', 'waiting')),
-  PRIMARY KEY (session_id, run_id)
-) STRICT;
 
 -- Each session.create's idempotency key, the session it made and where that session works: its
 -- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written

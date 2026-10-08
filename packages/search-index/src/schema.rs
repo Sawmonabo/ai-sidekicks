@@ -50,13 +50,25 @@ pub fn index_schema() -> (Schema, IndexFields) {
     let owner = builder.add_u64_field("owner", NumericOptions::default().set_indexed().set_fast());
     let kind = builder.add_u64_field("kind", NumericOptions::default().set_fast());
     let length = builder.add_u64_field("length", NumericOptions::default().set_fast());
-    (builder.build(), IndexFields { text, prefixes, key, owner, kind, length })
+    (
+        builder.build(),
+        IndexFields {
+            text,
+            prefixes,
+            key,
+            owner,
+            kind,
+            length,
+        },
+    )
 }
 
 // Tokens arrive pre-tokenized, so the raw tokenizer named here never runs.
 fn text_options(record: IndexRecordOption) -> TextOptions {
     TextOptions::default().set_indexing_options(
-        TextFieldIndexing::default().set_tokenizer("raw").set_index_option(record),
+        TextFieldIndexing::default()
+            .set_tokenizer("raw")
+            .set_index_option(record),
     )
 }
 
@@ -78,7 +90,11 @@ pub fn owner_value(owner: Owner) -> u64 {
 
 /// The owner an owner field value names.
 pub fn owner_of(value: u64) -> Owner {
-    if value % 2 == 0 { Owner::Session(value / 2) } else { Owner::Group(value / 2) }
+    if value % 2 == 0 {
+        Owner::Session(value / 2)
+    } else {
+        Owner::Group(value / 2)
+    }
 }
 
 fn kind_code(kind: &IndexRowKind) -> u64 {
@@ -112,11 +128,16 @@ pub fn row_document(
     let tokens = tokenize(text);
     let filler_position = tokens.last().map_or(0, |token| token.position as usize + 1);
     let mut document = TantivyDocument::default();
-    let words = tokens.iter().map(|token| (token.folded.as_str(), token.position as usize));
+    let words = tokens
+        .iter()
+        .map(|token| (token.folded.as_str(), token.position as usize));
     document.add_pre_tokenized_text(fields.text, pre_tokenized(words, filler_position));
     for (index, field) in fields.prefixes.iter().enumerate() {
         let prefixes = tokens.iter().map(|token| {
-            (prefix_of(&token.folded, index + 1).unwrap_or(FILLER), token.position as usize)
+            (
+                prefix_of(&token.folded, index + 1).unwrap_or(FILLER),
+                token.position as usize,
+            )
         });
         document.add_pre_tokenized_text(*field, pre_tokenized(prefixes, filler_position));
     }
@@ -141,5 +162,8 @@ fn pre_tokenized<'a>(
             position_length: 1,
         })
         .collect();
-    PreTokenizedString { text: String::new(), tokens }
+    PreTokenizedString {
+        text: String::new(),
+        tokens,
+    }
 }

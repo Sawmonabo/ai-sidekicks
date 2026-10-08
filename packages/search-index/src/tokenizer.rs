@@ -30,7 +30,10 @@ pub fn tokenize(text: &str) -> Vec<TextToken> {
     let mut open: Option<(String, u32)> = None;
     for character in text.chars() {
         let group = character.general_category_group();
-        let starts = matches!(group, GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number);
+        let starts = matches!(
+            group,
+            GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
+        );
         let continues = starts || matches!(group, GeneralCategoryGroup::Mark);
         match open.as_mut() {
             Some((folded, _)) if continues => fold_into(character, folded),
@@ -61,7 +64,12 @@ fn close_token(
     end: u32,
 ) {
     if !folded.is_empty() && folded.len() <= MAX_TOKEN_LEN {
-        tokens.push(TextToken { folded, position: *position, start, end });
+        tokens.push(TextToken {
+            folded,
+            position: *position,
+            start,
+            end,
+        });
     }
     *position += 1;
 }

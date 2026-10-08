@@ -71,10 +71,12 @@ impl Mulberry {
     }
 }
 
-const SYLLABLES: [&str; 14] =
-    ["ka", "lo", "mi", "ne", "ru", "ta", "vo", "zi", "pe", "sa", "do", "fu", "gri", "ble"];
-const TAG_ROOTS: [&str; 10] =
-    ["billing", "auth", "infra", "docs", "perf", "ui", "api", "release", "bugs", "research"];
+const SYLLABLES: [&str; 14] = [
+    "ka", "lo", "mi", "ne", "ru", "ta", "vo", "zi", "pe", "sa", "do", "fu", "gri", "ble",
+];
+const TAG_ROOTS: [&str; 10] = [
+    "billing", "auth", "infra", "docs", "perf", "ui", "api", "release", "bugs", "research",
+];
 const VOCABULARY: usize = 20_000;
 
 /// The set's word at `index` of its 20,000; low indexes are the common words.
@@ -96,10 +98,15 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
     let mut random = Mulberry(7);
     let words: Vec<String> = (0..VOCABULARY).map(word_at).collect();
     let zipf = |random: &mut Mulberry| -> usize {
-        ((random.next() * (VOCABULARY as f64).ln()).exp() - 1.0).floor().min(19_999.0) as usize
+        ((random.next() * (VOCABULARY as f64).ln()).exp() - 1.0)
+            .floor()
+            .min(19_999.0) as usize
     };
     let sentence = |random: &mut Mulberry, count: usize| -> String {
-        (0..count).map(|_| words[zipf(random)].as_str()).collect::<Vec<_>>().join(" ")
+        (0..count)
+            .map(|_| words[zipf(random)].as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
     };
     for index in 0..size.groups {
         let name = format!("{} work {index}", words[random.pick(2_000)]);
@@ -110,7 +117,11 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
     for index in 0..size.sessions {
         let name = sentence(&mut random, 3);
         let _archived = random.next() < 0.3;
-        let group = if random.next() < 0.5 { Some(random.pick(size.groups) + 1) } else { None };
+        let group = if random.next() < 0.5 {
+            Some(random.pick(size.groups) + 1)
+        } else {
+            None
+        };
         let rowid = (index + 1) as u64;
         if let Some(group) = group {
             members.entry(group as u64).or_default().push(rowid);
@@ -132,7 +143,12 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
         }
     }
     for (index, (session, tag)) in session_tags.iter().enumerate() {
-        emit(row((index as u64 + 1) * 4 + 3, IndexRowKind::Tag, *session, tag));
+        emit(row(
+            (index as u64 + 1) * 4 + 3,
+            IndexRowKind::Tag,
+            *session,
+            tag,
+        ));
     }
     // Links hold no text, but their draws come before the messages'.
     let mut links: HashSet<(usize, usize, usize)> = HashSet::new();
@@ -150,12 +166,23 @@ pub fn generate(size: SeededSetSize, mut emit: impl FnMut(IndexRow)) -> SeededDi
     }
     drop(links);
     for index in 0..size.messages {
-        let session = if index % 50 == 0 { 1 } else { index % size.sessions };
+        let session = if index % 50 == 0 {
+            1
+        } else {
+            index % size.sessions
+        };
         let roll = random.next();
         let text = sentence(&mut random, 18);
-        let text = if roll < 0.8 { text } else { format!("Bash {{\"command\":\"{text}\"}}") };
+        let text = if roll < 0.8 {
+            text
+        } else {
+            format!("Bash {{\"command\":\"{text}\"}}")
+        };
         let key = (index as u64 + 1) * 4;
         emit(row(key, IndexRowKind::Event, (session + 1) as u64, &text));
     }
-    SeededDirectory { group_members: members.into_iter().collect(), session_tags }
+    SeededDirectory {
+        group_members: members.into_iter().collect(),
+        session_tags,
+    }
 }

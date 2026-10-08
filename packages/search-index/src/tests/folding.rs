@@ -42,8 +42,14 @@ fn folded_words_match_and_split_words_need_adjacent_tokens() {
     assert_eq!(sessions(&["foo.b"], true), vec![4, 5]);
 
     assert_eq!(marks("Ångström units", &["angstrom"], false), vec![(0, 8)]);
-    assert_eq!(marks("A\u{30A}ngstro\u{308}m units", &["ÅNGSTRÖM"], false), vec![(0, 10)]);
-    assert_eq!(marks("x Straße 😀 straße", &["strasse"], false), vec![(2, 8), (12, 18)]);
+    assert_eq!(
+        marks("A\u{30A}ngstro\u{308}m units", &["ÅNGSTRÖM"], false),
+        vec![(0, 10)]
+    );
+    assert_eq!(
+        marks("x Straße 😀 straße", &["strasse"], false),
+        vec![(2, 8), (12, 18)]
+    );
     assert_eq!(marks("a NAÏVE approach", &["naive"], false), vec![(2, 7)]);
     assert_eq!(
         marks("foo-bar baz foo bar", &["foo-bar"], false),

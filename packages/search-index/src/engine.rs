@@ -108,7 +108,9 @@ impl IndexEngine {
             .num_worker_threads(indexing_threads)
             .num_merge_threads(1)
             .build();
-        let writer: IndexWriter = index.writer_with_options(options).map_err(OpenFailure::Other)?;
+        let writer: IndexWriter = index
+            .writer_with_options(options)
+            .map_err(OpenFailure::Other)?;
         writer.set_merge_policy(Box::new(NoMergePolicy));
         Ok(IndexEngine {
             index,
@@ -124,7 +126,10 @@ impl IndexEngine {
 
     /// The version searches open on now.
     pub fn current_version(&self) -> Arc<IndexVersion> {
-        self.version.read().unwrap_or_else(PoisonError::into_inner).clone()
+        self.version
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn publish(&self, version: IndexVersion) {
@@ -142,13 +147,22 @@ impl IndexEngine {
         let replacements = batch
             .group_members
             .iter()
-            .map(|group| Ok((non_negative(group.group_key)?, keys_of(&group.session_keys)?)))
+            .map(|group| {
+                Ok((
+                    non_negative(group.group_key)?,
+                    keys_of(&group.session_keys)?,
+                ))
+            })
             .collect::<tantivy::Result<Vec<_>>>()?;
         let mut guard = self.lock_writing()?;
         let writing = guard.as_mut().ok_or_else(closed)?;
         let mut highest_row_keys = writing.highest_row_keys;
-        let staged =
-            self.stage(&mut writing.writer, batch, &mut highest_row_keys, last_applied_outbox_id);
+        let staged = self.stage(
+            &mut writing.writer,
+            batch,
+            &mut highest_row_keys,
+            last_applied_outbox_id,
+        );
         if let Err(error) = staged {
             writing.writer.rollback()?;
             return Err(error);
@@ -190,7 +204,11 @@ impl IndexEngine {
         }
         for removed in &batch.removed_owners {
             let key = non_negative(removed.owner_key)?;
-            let owner = if removed.is_group { Owner::Group(key) } else { Owner::Session(key) };
+            let owner = if removed.is_group {
+                Owner::Group(key)
+            } else {
+                Owner::Session(key)
+            };
             writer.delete_term(owner_term(&self.fields, owner));
         }
         for row in &batch.rows {
@@ -210,7 +228,10 @@ impl IndexEngine {
             }
             writer.add_document(row_document(&self.fields, key, &row.kind, owner, &row.text))?;
         }
-        let payload = CommitPayload { last_applied_outbox_id, highest_row_keys: *highest_row_keys };
+        let payload = CommitPayload {
+            last_applied_outbox_id,
+            highest_row_keys: *highest_row_keys,
+        };
         let payload = serde_json::to_string(&payload)
             .map_err(|error| TantivyError::InternalError(error.to_string()))?;
         let mut commit = writer.prepare_commit()?;
@@ -223,8 +244,9 @@ impl IndexEngine {
     pub fn set_group_members(&self, groups: Vec<(u64, Vec<u64>)>) -> tantivy::Result<()> {
         let guard = self.lock_writing()?;
         guard.as_ref().ok_or_else(closed)?;
-        let version =
-            self.current_version().with_membership(Arc::new(GroupMembership::from_groups(groups)));
+        let version = self
+            .current_version()
+            .with_membership(Arc::new(GroupMembership::from_groups(groups)));
         self.publish(version);
         Ok(())
     }
@@ -233,7 +255,8 @@ impl IndexEngine {
     /// publishes the merged segments; returns whether more merging remains.
     pub fn merge_while_idle(&self) -> tantivy::Result<bool> {
         let policy = idle_merge_policy();
-        let Some(segment_ids) = smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
+        let Some(segment_ids) =
+            smallest_candidate(&policy, &self.index.searchable_segment_metas()?)
         else {
             return Ok(false);
         };
@@ -282,12 +305,12 @@ fn idle_merge_policy() -> LogMergePolicy {
     policy
 }
 
-fn smallest_candidate(
-    policy: &LogMergePolicy,
-    segments: &[SegmentMeta],
-) -> Option<Vec<SegmentId>> {
+fn smallest_candidate(policy: &LogMergePolicy, segments: &[SegmentMeta]) -> Option<Vec<SegmentId>> {
     let rows_of = |id: &SegmentId| {
-        segments.iter().find(|segment| segment.id() == *id).map_or(0, |segment| segment.max_doc())
+        segments
+            .iter()
+            .find(|segment| segment.id() == *id)
+            .map_or(0, |segment| segment.max_doc())
     };
     policy
         .compute_merge_candidates(segments)
@@ -314,9 +337,12 @@ const MAX_KEY: u64 = (1 << 53) - 1;
 
 /// `value` as a key or an outbox id, which are integers from 0 to 2^53 - 1.
 pub fn non_negative(value: i64) -> tantivy::Result<u64> {
-    u64::try_from(value).ok().filter(|key| *key <= MAX_KEY).ok_or_else(|| {
-        TantivyError::InvalidArgument(format!("{value} is not an integer from 0 to 2^53 - 1"))
-    })
+    u64::try_from(value)
+        .ok()
+        .filter(|key| *key <= MAX_KEY)
+        .ok_or_else(|| {
+            TantivyError::InvalidArgument(format!("{value} is not an integer from 0 to 2^53 - 1"))
+        })
 }
 
 /// `values` as keys.

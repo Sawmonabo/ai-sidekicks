@@ -95,7 +95,10 @@ impl Directory for FolderDirectory {
             if error.kind() == io::ErrorKind::NotFound {
                 DeleteError::FileDoesNotExist(path.to_path_buf())
             } else {
-                DeleteError::IoError { io_error: Arc::new(error), filepath: path.to_path_buf() }
+                DeleteError::IoError {
+                    io_error: Arc::new(error),
+                    filepath: path.to_path_buf(),
+                }
             }
         })
     }
@@ -275,7 +278,11 @@ impl ReadCache {
     fn lookup(key: RangeKey) -> Option<OwnedBytes> {
         CURRENT_READ_CACHE.with(|current| {
             let current = current.borrow();
-            let ranges = current.as_ref()?.ranges.lock().unwrap_or_else(PoisonError::into_inner);
+            let ranges = current
+                .as_ref()?
+                .ranges
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             ranges.get(&key).cloned()
         })
     }

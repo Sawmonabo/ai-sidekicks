@@ -5,7 +5,7 @@ import { z } from "zod";
 import { wireFreeFormString } from "./free-form-string.js";
 import { findRepeats } from "./internal/repeats.js";
 import { foldName } from "./name-fold.js";
-import { SESSION_NAME_MAX_LEN } from "./session/methods.js";
+import { SESSION_NAME_MAX_LEN } from "./session/name.js";
 
 /**
  * One tag, nested with `/` (`billing/stripe`): never empty, no whitespace anywhere, no empty level

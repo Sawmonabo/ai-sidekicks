@@ -132,8 +132,9 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     for (const sessionId of [SESSION, SECOND_SESSION]) {
       await fixture.scratch.writer.write([
         {
-          sql: "INSERT INTO session_run_activity (session_id, run_id, activity) VALUES (?, ?, ?)",
-          bindings: [sessionId, `run-${sessionId}`, "running"],
+          sql: `INSERT INTO runs (run_id, session_id, state, run_version)
+                VALUES (?, ?, 'running', 2)`,
+          bindings: [`run-${sessionId}`, sessionId],
         },
         {
           sql: "INSERT INTO session_console_state (session_id, updated_at) VALUES (?, ?)",
@@ -178,7 +179,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       sessions: [SECOND_SESSION, THIRD_SESSION],
       drafts: [SECOND_SESSION],
       groups: ["group-kept"],
-      runActivity: [SECOND_SESSION],
+      runs: [SECOND_SESSION],
       consoleState: [SECOND_SESSION],
       links: [`${SECOND_SESSION} ${THIRD_SESSION}`],
       tags: [SECOND_SESSION],

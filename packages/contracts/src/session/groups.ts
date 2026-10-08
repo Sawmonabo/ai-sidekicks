@@ -7,11 +7,8 @@ import { wireFreeFormString } from "../free-form-string.js";
 import { brandedUuidIdSchema } from "../internal/branded.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
-import {
-  SESSION_NAME_MAX_LEN,
-  SessionVerbResponseSchema,
-  type SessionVerbResponse,
-} from "./methods.js";
+import { SessionVerbResponseSchema, type SessionVerbResponse } from "./methods.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /** Identifies one session group of a project; the daemon mints it. */
 export type SessionGroupId = string & { readonly __brand: "SessionGroupId" };

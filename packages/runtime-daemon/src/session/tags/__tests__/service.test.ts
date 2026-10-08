@@ -1,10 +1,9 @@
-// A tag the rule refuses writes nothing, and a tag is one tag under every casing. Each verb runs
-// through the real writer on a real database, and every assertion reads the rows back.
+// A tag is one tag under every casing. Each verb runs through the real writer on a real database,
+// and every assertion reads the rows back.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { SESSION_TAG_REFUSED_CODE } from "@ai-sidekicks/contracts/session/tags";
 
 import {
   openScratchDatabase,
@@ -35,20 +34,6 @@ function storedTags(): { tag: string; tag_folded: string }[] {
 }
 
 describe("a session tag", () => {
-  it.each([
-    "billing stripe",
-    "billing\tstripe",
-    "billing\u00a0stripe",
-    "",
-    "billing//stripe",
-    "/billing",
-  ])("%j is refused with nothing written", async (tag) => {
-    await expect(tags.add({ sessionId, tag })).rejects.toMatchObject({
-      code: SESSION_TAG_REFUSED_CODE,
-    });
-    expect(storedTags()).toEqual([]);
-  });
-
   it("nests with a slash and is one tag under every casing", async () => {
     await tags.add({ sessionId, tag: "Billing/Stripe" });
     await tags.add({ sessionId, tag: "billing/STRIPE" });

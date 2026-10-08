@@ -44,7 +44,6 @@ import {
 import { SessionGroupIdSchema, type SessionGroupId } from "./groups.js";
 import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
 import {
-  SESSION_NAME_MAX_LEN,
   SessionShapeSchema,
   SessionStateSchema,
   SessionStreamFrameSchema,
@@ -56,6 +55,7 @@ import {
   type SessionSubscribeRequest,
   type SessionSubscribeResponse,
 } from "./methods.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /**
  * What a session is doing, as the daemon derives it: exactly one of five, and no client

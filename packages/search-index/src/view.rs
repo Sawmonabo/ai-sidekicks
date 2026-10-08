@@ -29,7 +29,10 @@ enum SessionOrder {
     /// Every matching session, with every one's hits.
     Whole(ScoredSessions),
     /// The best `k` sessions; fewer than `k` means the order is complete.
-    Top { k: usize, sessions: Vec<u64> },
+    Top {
+        k: usize,
+        sessions: Vec<u64>,
+    },
 }
 
 impl SearchView {
@@ -43,8 +46,7 @@ impl SearchView {
         let read_cache = Arc::new(ReadCache::default());
         let _reading = ReadCache::enter(&read_cache);
         let prepared = PreparedQuery::prepare(&version, query_phrases(query))?;
-        let within =
-            within_sessions.map(|sessions| SessionSet::new(sessions, &version.membership));
+        let within = within_sessions.map(|sessions| SessionSet::new(sessions, &version.membership));
         Ok(SearchView {
             version,
             query: prepared,
@@ -56,7 +58,9 @@ impl SearchView {
 
     /// The sessions ranked `from` to `from + count - 1`, best first; fewer past the end.
     pub fn sessions_at(&mut self, from: usize, count: usize) -> tantivy::Result<Vec<u64>> {
-        let Some(query) = &self.query else { return Ok(Vec::new()) };
+        let Some(query) = &self.query else {
+            return Ok(Vec::new());
+        };
         let _reading = ReadCache::enter(&self.read_cache);
         let end = from.saturating_add(count);
         loop {
@@ -75,7 +79,9 @@ impl SearchView {
 
     /// Each named session's matching row keys, best first, in the order the sessions are named.
     pub fn hits_of(&self, sessions: &[u64]) -> tantivy::Result<Vec<Vec<u64>>> {
-        let Some(query) = &self.query else { return Ok(vec![Vec::new(); sessions.len()]) };
+        let Some(query) = &self.query else {
+            return Ok(vec![Vec::new(); sessions.len()]);
+        };
         if let SessionOrder::Whole(scored) = &self.order {
             return Ok(sessions
                 .iter()
@@ -102,7 +108,9 @@ fn rank(
     end: usize,
 ) -> tantivy::Result<SessionOrder> {
     if within.is_some() || query.fewest_rows() < FULL_PASS_BELOW {
-        return Ok(SessionOrder::Whole(score_every_session(version, query, within)?));
+        return Ok(SessionOrder::Whole(score_every_session(
+            version, query, within,
+        )?));
     }
     let k = match order {
         SessionOrder::Top { k, .. } => (k * 2).max(end),

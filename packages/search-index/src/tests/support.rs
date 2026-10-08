@@ -29,7 +29,9 @@ impl ScratchFolder {
     pub fn new(name: &str) -> ScratchFolder {
         let unique = NEXT_FOLDER.fetch_add(1, Ordering::Relaxed);
         let folder = format!("search-index-{name}-{}-{unique}", std::process::id());
-        ScratchFolder { path: std::env::temp_dir().join(folder) }
+        ScratchFolder {
+            path: std::env::temp_dir().join(folder),
+        }
     }
 
     /// Where the folder is.
@@ -52,13 +54,21 @@ impl Drop for ScratchFolder {
 pub fn open_engine(folder: &Path) -> IndexEngine {
     match IndexEngine::open(folder, TEST_ARENA_BYTES, 1, ReadMode::Positioned) {
         Ok(engine) => engine,
-        Err(failure) => panic!("the index in {} did not open: {failure:?}", folder.display()),
+        Err(failure) => panic!(
+            "the index in {} did not open: {failure:?}",
+            folder.display()
+        ),
     }
 }
 
 /// A row of `kind` with `key`, owned by `owner_key`.
 pub fn row(key: u64, kind: IndexRowKind, owner_key: u64, text: &str) -> IndexRow {
-    IndexRow { key: key as i64, kind, owner_key: owner_key as i64, text: text.to_string() }
+    IndexRow {
+        key: key as i64,
+        kind,
+        owner_key: owner_key as i64,
+        text: text.to_string(),
+    }
 }
 
 /// An `event` row of `session`.
@@ -79,14 +89,14 @@ pub fn batch(last_outbox_id: i64, rows: Vec<IndexRow>) -> IndexBatch {
 
 /// A query of `words`.
 pub fn query(words: &[&str], last_word_is_prefix: bool) -> SearchQuery {
-    SearchQuery { words: words.iter().map(|word| word.to_string()).collect(), last_word_is_prefix }
+    SearchQuery {
+        words: words.iter().map(|word| word.to_string()).collect(),
+        last_word_is_prefix,
+    }
 }
 
 /// Every session `query` matches in rank order, and each one's hits best first.
-pub fn rank_all(
-    version: &IndexVersion,
-    query: &SearchQuery,
-) -> (Vec<u64>, HashMap<u64, Vec<u64>>) {
+pub fn rank_all(version: &IndexVersion, query: &SearchQuery) -> (Vec<u64>, HashMap<u64, Vec<u64>>) {
     match PreparedQuery::prepare(version, query_phrases(query)).expect("the query prepares") {
         Some(prepared) => {
             let scored = score_every_session(version, &prepared, None).expect("the query ranks");
@@ -127,7 +137,12 @@ pub fn queries_over(rows: &[IndexRow]) -> Vec<SearchQuery> {
     let events: Vec<Vec<String>> = rows
         .iter()
         .filter(|row| row.kind == IndexRowKind::Event)
-        .map(|row| tokenize(&row.text).into_iter().map(|token| token.folded).collect())
+        .map(|row| {
+            tokenize(&row.text)
+                .into_iter()
+                .map(|token| token.folded)
+                .collect()
+        })
         .collect();
     let long_word = events
         .iter()
@@ -149,6 +164,9 @@ pub fn queries_over(rows: &[IndexRow]) -> Vec<SearchQuery> {
         search(vec![prefix(&long_word, 5)], true),
         search(vec![first.clone(), second.clone()], false),
         search(vec![format!("{}-{}", events[50][0], events[50][1])], false),
-        search(vec![format!("{}-{}", events[50][0], prefix(&events[50][1], 1))], true),
+        search(
+            vec![format!("{}-{}", events[50][0], prefix(&events[50][1], 1))],
+            true,
+        ),
     ]
 }

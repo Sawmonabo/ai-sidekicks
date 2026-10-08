@@ -1,8 +1,8 @@
 //! One session's matching log rows with every match counted, and the matched stretches of one
 //! text, both by the index's own tokens so a row's count is the number of stretches marked in it.
 
-use tantivy::schema::IndexRecordOption;
 use tantivy::TERMINATED;
+use tantivy::schema::IndexRecordOption;
 
 use crate::cursor::{CursorPurpose, PhraseCursor, open_phrase_cursor, term_cursor};
 use crate::phrase::{Phrase, query_phrases};
@@ -71,7 +71,9 @@ pub fn find_in_session(
 fn counts_need_positions(phrases: &[Phrase]) -> bool {
     phrases.iter().any(|phrase| phrase.parts.len() > 1)
         || phrases.iter().enumerate().any(|(index, phrase)| {
-            phrases[index + 1..].iter().any(|other| phrase.can_share_a_token_with(other))
+            phrases[index + 1..]
+                .iter()
+                .any(|other| phrase.can_share_a_token_with(other))
         })
 }
 
@@ -118,6 +120,9 @@ pub fn mark_matches(text: &str, query: &SearchQuery) -> Vec<MatchRange> {
         .iter()
         .zip(marked)
         .filter(|(_, is_marked)| *is_marked)
-        .map(|(token, _)| MatchRange { start: token.start, end: token.end })
+        .map(|(token, _)| MatchRange {
+            start: token.start,
+            end: token.end,
+        })
         .collect()
 }

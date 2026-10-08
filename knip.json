@@ -235,6 +235,10 @@
     // `rolldown.config.ts`, and its Vitest plugin reads the tests beside their subjects.
     "apps/cli": {},
     "packages/crypto-paseto": {},
+    "packages/search-index": {
+      // The package's test script runs Cargo, which the Rust toolchain supplies, never a package.
+      "ignoreBinaries": ["cargo"]
+    },
     "packages/search-ranking": {},
     "packages/client-sdk": {},
     "packages/control-plane": {

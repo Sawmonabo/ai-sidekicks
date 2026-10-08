@@ -25,7 +25,10 @@ export interface SessionListRow {
   readonly shape: SessionShape | undefined;
   /** The wire's lifecycle state, or `undefined` where the wire named none. */
   readonly state: string | undefined;
-  /** ISO-8601 of the newest event that touched the session, wire-verbatim. */
+  /**
+   * ISO-8601 of the newest event that touched the session, as the wire sends it; the row draws it
+   * on the machine's clock, with this instant on hover.
+   */
   readonly touchedAtIso: string | undefined;
   /** Users the app has seen in this session, in the order it saw them. */
   readonly userIds: readonly string[];

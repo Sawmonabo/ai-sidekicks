@@ -14,6 +14,7 @@ import {
   type SubscribeAckResponse,
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
+import { TagListSchema } from "../tag.js";
 import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import {
   SessionConvertSkippedFileListRequestSchema,
@@ -22,6 +23,7 @@ import {
   type SessionConvertSkippedFileListResponse,
 } from "./convert.js";
 import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /** Where a session is in its lifecycle. */
 export type SessionState = "provisioning" | "active" | "archived" | "closed" | "purge_requested";
@@ -52,12 +54,6 @@ export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum(
  * `state`.
  */
 export const SESSION_CHANGE_REFUSED_CODE = "session.change_refused" as const;
-
-/** The longest session name the daemon stores. */
-export const SESSION_NAME_MAX_LEN = 256;
-
-/** One tag the daemon holds: not blank, no NUL byte, at most {@link SESSION_NAME_MAX_LEN} long. */
-export const SessionTagSchema: z.ZodString = wireFreeFormString(SESSION_NAME_MAX_LEN, "A tag");
 
 /**
  * One session as `session.read` answers it.
@@ -95,7 +91,7 @@ export const SessionRecordSchema: z.ZodType<SessionRecord> = z
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
     draft: z.string(),
-    tags: z.array(SessionTagSchema),
+    tags: TagListSchema,
   })
   .strict();
 

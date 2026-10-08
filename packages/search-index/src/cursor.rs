@@ -35,7 +35,13 @@ pub fn open_phrase_cursor(
                     CursorPurpose::Score => IndexRecordOption::WithFreqs,
                     CursorPurpose::Mark => IndexRecordOption::WithFreqsAndPositions,
                 };
-                text_cursor(segment, fields, &phrase.parts[0], phrase.ends_in_prefix, record)?
+                text_cursor(
+                    segment,
+                    fields,
+                    &phrase.parts[0],
+                    phrase.ends_in_prefix,
+                    record,
+                )?
             }
         };
         return Ok(token.map(PhraseCursor::Token));
@@ -73,7 +79,11 @@ fn text_cursor(
         return term_cursor(segment, &Term::from_field_text(fields.text, token), record);
     }
     let inverted = segment.inverted_index(fields.text)?;
-    let mut stream = inverted.terms().range().ge(token.as_bytes()).into_stream()?;
+    let mut stream = inverted
+        .terms()
+        .range()
+        .ge(token.as_bytes())
+        .into_stream()?;
     let mut postings = Vec::new();
     while stream.advance() && stream.key().starts_with(token.as_bytes()) {
         postings.push(inverted.read_postings_from_terminfo(stream.value(), record)?);
@@ -121,9 +131,11 @@ impl TokenCursor {
     pub fn frequency(&self) -> u32 {
         match self {
             TokenCursor::Term(postings) => postings.term_freq(),
-            TokenCursor::Union(union) => {
-                union.current.iter().map(|index| union.postings[*index].term_freq()).sum()
-            }
+            TokenCursor::Union(union) => union
+                .current
+                .iter()
+                .map(|index| union.postings[*index].term_freq())
+                .sum(),
         }
     }
 
@@ -167,7 +179,12 @@ impl UnionCursor {
             .filter(|(_, postings)| postings.doc() != TERMINATED)
             .map(|(index, postings)| Reverse((postings.doc(), index)))
             .collect();
-        let mut union = UnionCursor { postings, waiting, current: Vec::new(), doc: TERMINATED };
+        let mut union = UnionCursor {
+            postings,
+            waiting,
+            current: Vec::new(),
+            doc: TERMINATED,
+        };
         union.settle();
         union
     }
@@ -303,10 +320,17 @@ pub struct SequenceCursor {
 
 impl SequenceCursor {
     fn new(parts: Vec<TokenCursor>) -> SequenceCursor {
-        let leader = (0..parts.len()).min_by_key(|index| parts[*index].cost()).unwrap_or(0);
+        let leader = (0..parts.len())
+            .min_by_key(|index| parts[*index].cost())
+            .unwrap_or(0);
         let part_positions = vec![Vec::new(); parts.len()];
-        let mut sequence =
-            SequenceCursor { parts, leader, doc: TERMINATED, starts: Vec::new(), part_positions };
+        let mut sequence = SequenceCursor {
+            parts,
+            leader,
+            doc: TERMINATED,
+            starts: Vec::new(),
+            part_positions,
+        };
         sequence.find_match();
         sequence
     }
@@ -352,10 +376,14 @@ impl SequenceCursor {
             part.positions(positions);
         }
         self.starts.clear();
-        let Some((first, rest)) = self.part_positions.split_first() else { return false };
+        let Some((first, rest)) = self.part_positions.split_first() else {
+            return false;
+        };
         for start in first {
             let in_order = rest.iter().enumerate().all(|(offset, positions)| {
-                positions.binary_search(&(start + offset as u32 + 1)).is_ok()
+                positions
+                    .binary_search(&(start + offset as u32 + 1))
+                    .is_ok()
             });
             if in_order {
                 self.starts.push(*start);

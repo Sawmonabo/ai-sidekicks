@@ -58,7 +58,10 @@ impl PreparedQuery {
         if phrase_rows.contains(&0) {
             return Ok(None);
         }
-        let idfs = phrase_rows.iter().map(|rows| phrase_idf(version.live_rows, *rows)).collect();
+        let idfs = phrase_rows
+            .iter()
+            .map(|rows| phrase_idf(version.live_rows, *rows))
+            .collect();
         let driver = choose_driver(version, &phrases, &phrase_rows)?;
         Ok(Some(PreparedQuery {
             phrases,
@@ -91,8 +94,14 @@ fn choose_driver(
             None => rarest_term(&version.searcher, phrase.whole_part_terms(&version.fields))?,
         };
         let Some(term) = term else { continue };
-        if chosen.as_ref().is_none_or(|driver| phrase_rows[index] < phrase_rows[driver.phrase]) {
-            chosen = Some(Driver { phrase: index, term });
+        if chosen
+            .as_ref()
+            .is_none_or(|driver| phrase_rows[index] < phrase_rows[driver.phrase])
+        {
+            chosen = Some(Driver {
+                phrase: index,
+                term,
+            });
         }
     }
     Ok(chosen)
@@ -158,7 +167,10 @@ impl SessionSet {
                 owners.insert(owner_value(Owner::Group(*group)));
             }
         }
-        SessionSet { sessions: sessions.iter().copied().collect(), owners }
+        SessionSet {
+            sessions: sessions.iter().copied().collect(),
+            owners,
+        }
     }
 }
 
@@ -241,15 +253,25 @@ fn visit_matches_in(
     let alive = segment.alive_bitset();
     let is_alive = |doc: DocId| alive.is_none_or(|alive| alive.is_alive(doc));
     let mut frequencies = vec![0u32; cursors.len()];
-    let lead = (0..cursors.len()).min_by_key(|index| cursors[*index].cost()).unwrap_or(0);
+    let lead = (0..cursors.len())
+        .min_by_key(|index| cursors[*index].cost())
+        .unwrap_or(0);
     if let Some(set) = within {
-        let owner_terms = segment.inverted_index(version.fields.owner)?.terms().num_terms().max(1);
+        let owner_terms = segment
+            .inverted_index(version.fields.owner)?
+            .terms()
+            .num_terms()
+            .max(1);
         let set_rows = set.owners.len() as u64 * u64::from(segment.max_doc()) / owner_terms as u64;
         if set_rows < u64::from(cursors[lead].cost()) {
             for doc in owner_docs(segment, &version.fields, &set.owners)? {
                 if is_alive(doc) && all_on(&mut cursors, doc) {
                     frequencies_into(&cursors, &mut frequencies);
-                    visit(columns, doc, query.score(&frequencies, columns.length.get_val(doc)));
+                    visit(
+                        columns,
+                        doc,
+                        query.score(&frequencies, columns.length.get_val(doc)),
+                    );
                 }
             }
             return Ok(());
@@ -271,7 +293,11 @@ fn visit_matches_in(
             }
         }
         frequencies_into(&cursors, &mut frequencies);
-        visit(columns, doc, query.score(&frequencies, columns.length.get_val(doc)));
+        visit(
+            columns,
+            doc,
+            query.score(&frequencies, columns.length.get_val(doc)),
+        );
         doc = cursors[lead].advance();
     }
     Ok(())
@@ -295,19 +321,34 @@ pub fn score_every_session(
     for ordinal in 0..version.segments.len() {
         let mut credit_row = |columns: &SegmentColumns, doc: DocId, score: f64| {
             let row_key = columns.key.get_val(doc);
-            credit_sessions(&version.membership, columns.owner.get_val(doc), |session, place| {
-                if within.is_some_and(|set| !set.sessions.contains(&session)) {
-                    return;
-                }
-                let key = RankKey { score, row_key, member_place: place };
-                best.entry(session).and_modify(|held| *held = (*held).min(key)).or_insert(key);
-                rows.entry(session).or_default().push(RankKey { member_place: 0, ..key });
-            });
+            credit_sessions(
+                &version.membership,
+                columns.owner.get_val(doc),
+                |session, place| {
+                    if within.is_some_and(|set| !set.sessions.contains(&session)) {
+                        return;
+                    }
+                    let key = RankKey {
+                        score,
+                        row_key,
+                        member_place: place,
+                    };
+                    best.entry(session)
+                        .and_modify(|held| *held = (*held).min(key))
+                        .or_insert(key);
+                    rows.entry(session).or_default().push(RankKey {
+                        member_place: 0,
+                        ..key
+                    });
+                },
+            );
         };
         visit_matches_in(version, ordinal, query, within, &mut credit_row)?;
     }
-    let mut order: Vec<(RankKey, u64)> =
-        best.into_iter().map(|(session, key)| (key, session)).collect();
+    let mut order: Vec<(RankKey, u64)> = best
+        .into_iter()
+        .map(|(session, key)| (key, session))
+        .collect();
     order.sort_unstable();
     let hits = rows
         .into_iter()
@@ -316,7 +357,10 @@ pub fn score_every_session(
             (session, keys.into_iter().map(|key| key.row_key).collect())
         })
         .collect();
-    Ok(ScoredSessions { order: order.into_iter().map(|(_, session)| session).collect(), hits })
+    Ok(ScoredSessions {
+        order: order.into_iter().map(|(_, session)| session).collect(),
+        hits,
+    })
 }
 
 // The best k sessions with each one's best row, in rank order.
@@ -328,7 +372,11 @@ struct TopSessions {
 
 impl TopSessions {
     fn new(k: usize) -> TopSessions {
-        TopSessions { k, best: HashMap::new(), ranked: BTreeSet::new() }
+        TopSessions {
+            k,
+            best: HashMap::new(),
+            ranked: BTreeSet::new(),
+        }
     }
 
     fn offer(&mut self, session: u64, key: RankKey) {
@@ -341,7 +389,9 @@ impl TopSessions {
             return;
         }
         if self.ranked.len() == self.k {
-            let Some(&(worst, worst_session)) = self.ranked.last() else { return };
+            let Some(&(worst, worst_session)) = self.ranked.last() else {
+                return;
+            };
             if key >= worst {
                 return;
             }
@@ -361,7 +411,10 @@ impl TopSessions {
     }
 
     fn into_sessions(self) -> Vec<u64> {
-        self.ranked.into_iter().map(|(_, session)| session).collect()
+        self.ranked
+            .into_iter()
+            .map(|(_, session)| session)
+            .collect()
     }
 }
 
@@ -400,14 +453,17 @@ pub fn top_sessions(
     query: &PreparedQuery,
     k: usize,
 ) -> tantivy::Result<Option<Vec<u64>>> {
-    let Some(driver) = &query.driver else { return Ok(None) };
+    let Some(driver) = &query.driver else {
+        return Ok(None);
+    };
     let statistics = LiveStatistics {
         live_rows: version.live_rows,
         live_tokens: version.live_tokens,
         driver_rows: query.phrase_rows[driver.phrase],
     };
     let scoring = EnableScoring::enabled_from_statistics_provider(&statistics, &version.searcher);
-    let weight = TermQuery::new(driver.term.clone(), IndexRecordOption::WithFreqs).weight(scoring)?;
+    let weight =
+        TermQuery::new(driver.term.clone(), IndexRecordOption::WithFreqs).weight(scoring)?;
     let driver_idf = tantivy_idf(statistics.driver_rows, statistics.live_rows);
     let ratio = query.idfs[driver.phrase] / driver_idf;
     let query_average = f64::from(statistics.live_tokens as Score / statistics.live_rows as Score);
@@ -440,9 +496,20 @@ pub fn top_sessions(
                 frequencies_into(&cursors, &mut frequencies);
                 let score = query.score(&frequencies, columns.length.get_val(doc));
                 let row_key = columns.key.get_val(doc);
-                credit_sessions(&version.membership, columns.owner.get_val(doc), |session, place| {
-                    top.offer(session, RankKey { score, row_key, member_place: place });
-                });
+                credit_sessions(
+                    &version.membership,
+                    columns.owner.get_val(doc),
+                    |session, place| {
+                        top.offer(
+                            session,
+                            RankKey {
+                                score,
+                                row_key,
+                                member_place: place,
+                            },
+                        );
+                    },
+                );
             }
             driver_threshold(top.cutoff())
         };
@@ -490,12 +557,20 @@ pub fn hits_of(
             frequencies_into(&cursors, &mut frequencies);
             let score = query.score(&frequencies, columns.length.get_val(doc));
             let row_key = columns.key.get_val(doc);
-            credit_sessions(&version.membership, columns.owner.get_val(doc), |session, _| {
-                if wanted.sessions.contains(&session) {
-                    let key = RankKey { score, row_key, member_place: 0 };
-                    rows.entry(session).or_default().push(key);
-                }
-            });
+            credit_sessions(
+                &version.membership,
+                columns.owner.get_val(doc),
+                |session, _| {
+                    if wanted.sessions.contains(&session) {
+                        let key = RankKey {
+                            score,
+                            row_key,
+                            member_place: 0,
+                        };
+                        rows.entry(session).or_default().push(key);
+                    }
+                },
+            );
         }
     }
     for keys in rows.values_mut() {

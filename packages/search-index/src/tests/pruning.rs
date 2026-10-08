@@ -44,11 +44,16 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
         add(None, "w x".to_string());
     }
     add(Some(SHORT_SESSION), "w".to_string());
-    add(Some(LONG_SESSION), format!("{} {}", repeated("w", 6), repeated("x", 33)));
+    add(
+        Some(LONG_SESSION),
+        format!("{} {}", repeated("w", 6), repeated("x", 33)),
+    );
     for _ in BLOCK + 2..2 * BLOCK {
         add(None, "w x".to_string());
     }
-    let tail_sessions: Vec<u64> = (0..TAIL_ROWS).map(|_| add(None, "w x".to_string())).collect();
+    let tail_sessions: Vec<u64> = (0..TAIL_ROWS)
+        .map(|_| add(None, "w x".to_string()))
+        .collect();
     let segment_one_rows = rows.len() as u64;
     let segment_one_tokens: u64 = 4 * 10 + 2 + 40 + (segment_one_rows - 6) * 3;
     engine.apply(&batch(1, rows)).expect("segment one applies");
@@ -58,11 +63,16 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
     let long_rows = (0..300u64)
         .map(|index| event(100_000 + index * 4, 10_000 + index, &repeated("y", 76)))
         .collect();
-    engine.apply(&batch(2, long_rows)).expect("segment two applies");
+    engine
+        .apply(&batch(2, long_rows))
+        .expect("segment two applies");
     let purge = IndexBatch {
         removed_owners: tail_sessions
             .iter()
-            .map(|session| RemovedOwner { owner_key: *session as i64, is_group: false })
+            .map(|session| RemovedOwner {
+                owner_key: *session as i64,
+                is_group: false,
+            })
             .collect(),
         ..batch(3, Vec::new())
     };
@@ -72,7 +82,10 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
     let phrases = query_phrases(&query(&["w"], false));
     let average = version.average_length();
     let written_average = f64::from(segment_one_tokens as f32 / segment_one_rows as f32);
-    let idf = phrase_idf(version.live_rows, version.phrase_rows(&phrases[0]).expect("counts"));
+    let idf = phrase_idf(
+        version.live_rows,
+        version.phrase_rows(&phrases[0]).expect("counts"),
+    );
     let score = |frequency: u32, length: u64, average: f64| {
         row_score(&[idf], &[frequency], length, average)
     };
@@ -83,13 +96,18 @@ fn pruned_rankings_equal_full_rankings_after_the_average_length_moves() {
     assert!(score(6, 40, average) > score(2, 10, average));
     assert!(score(1, 2, average) * (1.0 + 1e-3) < score(2, 10, average));
 
-    let prepared =
-        PreparedQuery::prepare(&version, phrases).expect("prepares").expect("the word matches");
-    let full = score_every_session(&version, &prepared, None).expect("ranks").order;
+    let prepared = PreparedQuery::prepare(&version, phrases)
+        .expect("prepares")
+        .expect("the word matches");
+    let full = score_every_session(&version, &prepared, None)
+        .expect("ranks")
+        .order;
     assert_eq!(full[0], LONG_SESSION);
     assert_eq!(full[1..5], CUTOFF_SESSIONS);
     for k in [1, 2, 4, 8] {
-        let pruned = top_sessions(&version, &prepared, k).expect("ranks").expect("a word drives");
+        let pruned = top_sessions(&version, &prepared, k)
+            .expect("ranks")
+            .expect("a word drives");
         assert_eq!(pruned, full[..k], "the best {k} sessions");
     }
 }

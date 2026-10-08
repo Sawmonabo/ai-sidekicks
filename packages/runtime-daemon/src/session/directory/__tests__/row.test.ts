@@ -15,7 +15,7 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { WriteRefusedError } from "../../../database/writer.js";
-import type { LiveRunActivity, SessionDirectoryRow } from "../../records.js";
+import type { SessionDirectoryRow } from "../../records.js";
 import { SessionService } from "../../service.js";
 import { directoryStatementsFor } from "../row.js";
 
@@ -106,9 +106,6 @@ function readStoredRow(sessionId: string): SessionDirectoryRow {
          FROM sessions WHERE id = ?`,
     )
     .get(sessionId) as StoredSessionRow;
-  const runs = scratch.reader
-    .prepare("SELECT run_id, activity FROM session_run_activity WHERE session_id = ?")
-    .all(sessionId) as ReadonlyArray<{ run_id: string; activity: LiveRunActivity }>;
   return {
     sessionId: row.id,
     shape: row.shape,
@@ -121,20 +118,18 @@ function readStoredRow(sessionId: string): SessionDirectoryRow {
     scratchForDefinitionId: row.scratch_for_definition_id,
     parentSessionId: row.parent_session_id,
     lastRunOutcome: row.last_run_outcome,
-    liveRuns: new Map(runs.map((run) => [run.run_id, run.activity])),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastActivityAt: row.last_activity_at,
   };
 }
 
-// The stored row, checked against a rebuild over the stored log; returns the rebuilt activity.
-function expectRowToMatchRebuild(): string {
+// The stored row, checked against a rebuild over the stored log.
+function expectRowToMatchRebuild(): void {
   const record = sessions.rebuildSession(SESSION_ID);
   if (record === null) throw new Error("the session has no events");
-  const { activity, asOfSequence: _asOfSequence, ownerActor: _ownerActor, ...rebuilt } = record;
+  const { asOfSequence: _asOfSequence, ownerActor: _ownerActor, ...rebuilt } = record;
   expect(readStoredRow(SESSION_ID)).toEqual(rebuilt);
-  return activity;
 }
 
 describe("the session directory row against a rebuild from the log", () => {
@@ -207,9 +202,7 @@ describe("the session directory row against a rebuild from the log", () => {
       expectRowToMatchRebuild();
     }
 
-    // One run finished while the other still waits on the person.
-    expect(expectRowToMatchRebuild()).toBe("waiting");
-    expect(readStoredRow(SESSION_ID).liveRuns).toEqual(new Map([[RUN_B, "waiting"]]));
+    expect(readStoredRow(SESSION_ID).lastRunOutcome).toBe("done");
 
     const rest: ReadonlyArray<() => Promise<void>> = [
       () =>
@@ -285,7 +278,6 @@ describe("the session directory row against a rebuild from the log", () => {
       expectRowToMatchRebuild();
     }
 
-    expect(expectRowToMatchRebuild()).toBe("failed");
     expect(readStoredRow(SESSION_ID)).toEqual({
       sessionId: SESSION_ID,
       shape: "project",
@@ -298,7 +290,6 @@ describe("the session directory row against a rebuild from the log", () => {
       scratchForDefinitionId: SCRATCH_DEFINITION_ID,
       parentSessionId: PARENT_SESSION_ID,
       lastRunOutcome: "failed",
-      liveRuns: new Map(),
       createdAt: at(0),
       updatedAt: at(17),
       lastActivityAt: at(17),

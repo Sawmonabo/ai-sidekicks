@@ -17,12 +17,12 @@ import {
   type UserId,
 } from "./id.js";
 import {
-  SESSION_NAME_MAX_LEN,
   SessionShapeSchema,
   SessionStateSchema,
   type SessionShape,
   type SessionState,
 } from "./methods.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /** The session a fork was taken from, and the message it was taken at. */
 export interface SessionCreatedParent {

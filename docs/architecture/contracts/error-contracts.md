@@ -129,7 +129,6 @@ Every namespace below follows the same rules:
 | `session.change_refused` | A change the session's state does not take: a `provisioning` session is neither archived nor closed, and a `purge_requested` one, being deleted, takes no change; nothing is written (`data.fields`: `sessionId`, `state`) | 409 |
 | `session.search_cursor_unresolvable` | A `session.search` `afterCursor` the daemon did not write, one written for another query, or one whose search the daemon no longer holds; nothing is answered | 400 |
 | `session.working_folder_unavailable` | A `session.fileSearch` whose session has no working folder in place, yet or any more; nothing is listed (`data.fields`: `sessionId`) | 409 |
-| `session.tag_refused` | `session.tagAdd` named a tag that is empty, holds a space or has an empty level around a `/`; nothing is written | 422 |
 
 ### Auth
 

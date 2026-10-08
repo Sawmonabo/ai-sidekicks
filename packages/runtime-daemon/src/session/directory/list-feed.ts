@@ -28,6 +28,7 @@ import {
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import {
   SESSION_ACTIVITY_RENEW_INTERVAL_MS,
+  type SessionActivity,
   type SessionListChange,
   type SessionListEntry,
 } from "@ai-sidekicks/contracts/session/directory";
@@ -38,9 +39,8 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { EventLogService } from "../../events/log-service.js";
 import { PURGE_RECEIPT_TYPE } from "../../events/session/purge.js";
-import type { LiveRunActivity, SessionRunOutcome } from "../records.js";
 import { sessionProjectSql } from "./lookups.js";
-import { sessionActivityOf } from "./run-activity.js";
+import { sessionActivitySql } from "./run-activity.js";
 
 /** What the feed reads and follows. */
 export interface SessionListFeedDeps {
@@ -82,12 +82,10 @@ const UNCOUNTED_CHAT_STATES: ReadonlySet<SessionState> = new Set([
 
 // One session's list facts as one query returns them, its group's name among them.
 const SESSION_LIST_ROW_SQL = `SELECT s.id, s.shape, s.state, s.name, s.first_message_preview,
-       s.branch, s.pinned_at, s.muted_at, s.last_run_outcome, s.last_activity_at,
+       s.branch, s.pinned_at, s.muted_at, s.last_activity_at,
        g.id AS group_id, g.name AS group_name,
        ${sessionProjectSql("s.id")} AS repo_mount_id,
-       (SELECT json_group_object(r.run_id, r.activity)
-          FROM session_run_activity r
-         WHERE r.session_id = s.id) AS live_runs
+       ${sessionActivitySql("s.id", "s.last_run_outcome")} AS activity
   FROM sessions s LEFT JOIN session_groups g ON g.id = s.group_id`;
 
 // A session's group comes from the join, so its id and name are present or absent together.
@@ -100,11 +98,9 @@ type SessionListRow = {
   readonly branch: string | null;
   readonly pinned_at: string | null;
   readonly muted_at: string | null;
-  readonly last_run_outcome: SessionRunOutcome;
   readonly last_activity_at: string;
   readonly repo_mount_id: string | null;
-  /** A JSON object of the session's live runs, run id to activity. */
-  readonly live_runs: string;
+  readonly activity: SessionActivity;
 } & (
   | { readonly group_id: null; readonly group_name: null }
   | { readonly group_id: string; readonly group_name: string }
@@ -367,9 +363,6 @@ export class SessionListFeed {
 
 // The row as an entry, or `undefined` for a project session whose project is not known yet.
 function entryOf(row: SessionListRow, renewedAt: string): SessionListEntry | undefined {
-  const liveRuns = new Map(
-    Object.entries(JSON.parse(row.live_runs) as Record<string, LiveRunActivity>),
-  );
   const common = {
     sessionId: row.id as SessionId,
     ...(row.name === null ? {} : { name: row.name }),
@@ -377,7 +370,7 @@ function entryOf(row: SessionListRow, renewedAt: string): SessionListEntry | und
       ? {}
       : { firstMessagePreview: row.first_message_preview }),
     state: row.state,
-    activity: sessionActivityOf({ liveRuns, lastRunOutcome: row.last_run_outcome }),
+    activity: row.activity,
     activityRenewedAt: renewedAt,
     ...(row.pinned_at === null ? {} : { pinnedAt: row.pinned_at }),
     muted: row.muted_at !== null,
