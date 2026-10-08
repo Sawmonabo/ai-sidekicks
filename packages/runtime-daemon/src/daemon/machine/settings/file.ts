@@ -11,6 +11,8 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import pLimit, { type LimitFunction } from "p-limit";
+
 import {
   MACHINE_SETTINGS_DEFAULTS,
   MachineSettingsSchema,
@@ -53,7 +55,8 @@ export class MachineSettingsFile {
   readonly #now: () => Date;
   readonly #listeners = new Set<MachineSettingsListener>();
   #repair: SettingsFileRepair | undefined;
-  #pending: Promise<unknown> = Promise.resolve();
+  // Reads, writes and repairs, one at a time.
+  readonly #oneAtATime: LimitFunction = pLimit(1);
 
   public constructor(options: MachineSettingsFileOptions) {
     this.#filePath = options.filePath;
@@ -89,17 +92,6 @@ export class MachineSettingsFile {
         this.#listeners.delete(listener);
       };
     });
-  }
-
-  #oneAtATime<Result>(work: () => Promise<Result>): Promise<Result> {
-    const result = this.#pending.then(work);
-    // The next piece of work waits for this one to settle, whether it succeeded
-    // or not; its own caller still receives the failure through `result`.
-    this.#pending = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
   }
 
   async #readFromDisk(): Promise<MachineSettingsReading> {
