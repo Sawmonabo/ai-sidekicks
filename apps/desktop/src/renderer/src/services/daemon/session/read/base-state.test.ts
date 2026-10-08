@@ -32,7 +32,8 @@ const FLOOR = encodeEventCursor(START_OF_LOG_POSITION);
 
 /**
  * One read through the fixture bridge once the scenario's log is delivered, or before any of it
- * is: the base state, the cursor block the daemon answered with and the window read it asked for.
+ * is: the base state, the cursor block the daemon answered with, the sequences of the standing
+ * events it carried and the window read it asked for.
  */
 async function readAt(
   scenario: Scenario,
@@ -41,6 +42,7 @@ async function readAt(
 ): Promise<{
   readonly baseState: SessionBaseState | undefined;
   readonly cursors: CursorBlock;
+  readonly standingSequences: readonly number[];
   readonly windowRead: unknown;
 }> {
   let daemonReply: unknown;
@@ -58,6 +60,9 @@ async function readAt(
   return {
     baseState,
     cursors: (daemonReply as SessionReadResponse).transcriptCursors,
+    standingSequences: (daemonReply as SessionReadResponse).standingEvents.map(
+      (standing) => standing.event.sequence,
+    ),
     windowRead: calls.find((call) => call.method === "transcript.read")?.params,
   };
 }
@@ -135,10 +140,23 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     for (const read of [afterRow, atHead, atFloor]) {
       expect(read.windowRead).toBeUndefined();
     }
-    expect(afterRow.baseState).toStrictEqual({ entities: [], streamAfterCursor: lastWholeRow });
-    expect(atHead.baseState).toStrictEqual({ entities: [], streamAfterCursor: head });
     expect(atFloor.cursors.earliest).toBe(FLOOR);
-    expect(atFloor.baseState).toStrictEqual({ entities: [], streamAfterCursor: FLOOR });
+    for (const [read, streamAfterCursor] of [
+      [afterRow, lastWholeRow],
+      [atHead, head],
+      [atFloor, FLOOR],
+    ] as const) {
+      expect(read.baseState).toStrictEqual({
+        entities: [],
+        standingEvents: expect.any(Array),
+        streamAfterCursor,
+      });
+      // The record's standing events reach the store whole, since the window keeps no row of them.
+      expect(read.standingSequences.length).toBeGreaterThan(0);
+      expect(read.baseState?.standingEvents?.map((event) => event.sequence)).toStrictEqual(
+        read.standingSequences,
+      );
+    }
   });
 
   it("raises the refusal instead of reading nothing", async () => {

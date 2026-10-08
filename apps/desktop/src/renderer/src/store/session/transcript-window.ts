@@ -15,14 +15,16 @@
 //
 // Nothing here projects an entity or moves the stream's cursor, which is what makes a page safe: a
 // partition holds the newest state of each entity, and an older event's projector would replace a
-// run's current state with an earlier one. A page does advance the hue wheel and the
-// waiting-on-person register, since a recovered row is what it is worth to them.
+// run's current state with an earlier one. A page does advance the hue wheel, the
+// waiting-on-person register and the standing events, since a recovered row is what it is worth
+// to them, and the standing events keep the newest of each kind whatever order rows arrive in.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/register.js";
+import { mergeStandingEvents } from "./standing-events.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
   heldRowCursor,
@@ -118,13 +120,15 @@ export function foldEarlierWindowPage(
     return { merge, nextState: undefined };
   }
   // The admitted rows are the ones in front of the log.
-  recoverRows(merge.transcript.slice(0, merge.admitted), dependencies);
+  const recovered = merge.transcript.slice(0, merge.admitted);
+  recoverRows(recovered, dependencies);
   return {
     merge,
     nextState: {
       ...current,
       transcript: merge.transcript,
       transcriptHead: edge,
+      standingEvents: mergeStandingEvents(current.standingEvents, recovered),
       revision: current.revision + 1,
     },
   };
@@ -175,6 +179,7 @@ export function foldLaterWindowPage(
       ...current,
       transcript: merge.transcript,
       transcriptTail: tailAfterLaterPage(merge.transcript, edge, current.cursor),
+      standingEvents: mergeStandingEvents(current.standingEvents, rows),
       revision: current.revision + 1,
     },
   };

@@ -1,9 +1,9 @@
 // The `session_events` reads, run on the daemon's read-only connection: a session's head, the rows
-// after a log position, of every type or of named types, the rows up to one, and the rows of a
-// sequence window, each in sequence order, and the check of a cursor against the head. A row
-// crosses in from the database file, so each one is checked against the envelope contract on the
-// way out. A range the session skipped past as damaged is never read, and while its history is
-// damaged no read goes past its last good point.
+// after a log position, of every type or of named types, the rows up to one, the rows of a
+// sequence window and the rows at named sequences, each in sequence order, and the check of a
+// cursor against the head. A row crosses in from the database file, so each one is checked against
+// the envelope contract on the way out. A range the session skipped past as damaged is never read,
+// and while its history is damaged no read goes past its last good point.
 
 import type { Database } from "better-sqlite3";
 
@@ -88,6 +88,8 @@ export interface SessionEventReads {
   readBefore(sessionId: SessionId, beforePosition: number, limit: number): EventEnvelope[];
   /** The events with a sequence from `fromSequence` to `toSequence`, both included. */
   readWindow(sessionId: SessionId, fromSequence: number, toSequence: number): EventEnvelope[];
+  /** The events at the given sequences; a sequence the session holds no event at reads none. */
+  readAtSequences(sessionId: SessionId, sequences: readonly number[]): EventEnvelope[];
 }
 
 const SELECTED_COLUMNS = `id, session_id, sequence, occurred_at, category, type, actor, payload,
@@ -140,6 +142,13 @@ export function prepareSessionEventReads(
         AND ${outsideSkippedRangesSql("event")}
       ORDER BY sequence ASC`,
   );
+  const atSequencesStatement = reader.prepare(
+    `SELECT ${SELECTED_COLUMNS}
+       FROM session_events AS event
+      WHERE session_id = ? AND sequence IN (SELECT value FROM json_each(?)) AND sequence < ?
+        AND ${outsideSkippedRangesSql("event")}
+      ORDER BY sequence ASC`,
+  );
   // The earlier of a read's own bound and the session's last good point.
   const readBound = (sessionId: SessionId, beforeSequence: number | undefined): number =>
     Math.min(
@@ -187,6 +196,14 @@ export function prepareSessionEventReads(
           sessionId,
           fromSequence,
           toSequence,
+          readBound(sessionId, undefined),
+        ) as StoredEventRow[]
+      ).map(readEnvelope),
+    readAtSequences: (sessionId, sequences) =>
+      (
+        atSequencesStatement.all(
+          sessionId,
+          JSON.stringify(sequences),
           readBound(sessionId, undefined),
         ) as StoredEventRow[]
       ).map(readEnvelope),

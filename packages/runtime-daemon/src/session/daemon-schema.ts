@@ -62,8 +62,8 @@ CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_skipped ON session_events(session_id)
   WHERE type = '${DAMAGED_EVENTS_SKIPPED_TYPE}';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find
--- a live run's agent and newest touch. A read comparing run_id to a value implies the IS NOT NULL
--- predicate.
+-- a live run's agent, newest touch, newest measured context window and newest compaction. A read
+-- comparing run_id to a value implies the IS NOT NULL predicate.
 CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)

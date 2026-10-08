@@ -51,6 +51,7 @@ function buildSessionLogRead(): SessionLogRead {
       latest: encodeEventCursor(42),
     },
     liveRuns: [],
+    standingEvents: [],
   };
 }
 

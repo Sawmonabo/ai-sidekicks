@@ -1,14 +1,15 @@
 // Narrows `usage.context_window_update` and `usage.context_compacted` rows into a per-run
 // context-window reading. Neither payload has a registered schema, so this is the one place an
 // unknown record becomes a figure; a payload missing a member yields no reading, never a
-// partial one. Pure fold over stored rows: no bridge, clock or store.
+// partial one. Pure fold over the rows it is given: no bridge, clock or store. The store keeps the
+// rows it folds among its standing events, which measure the window by the same reader.
 
 import {
   CONTEXT_WINDOW_SOURCES,
   type ContextWindowSource,
 } from "@ai-sidekicks/contracts/context-window";
 import { readWireString } from "#renderer/lib/wire/strings.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
 /** Event type of a context-window update row. */
 export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";
@@ -34,13 +35,13 @@ export interface ContextWindowReading {
 }
 
 /**
- * The newest reading for one run, or `undefined` when no run is addressed or no row
- * qualifies. Newest by `sequence`, not `occurredAt`: two rows can share a millisecond. A
+ * The newest reading for one run among `events`, or `undefined` when no run is addressed or no
+ * row qualifies. Newest by `sequence`, not `occurredAt`: two rows can share a millisecond. A
  * newer compaction boundary supersedes the last update, and a row with no readable
  * `runId` belongs to no run.
  */
 export function newestContextWindowReading(
-  transcript: readonly ProjectedSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   targetRunId: string | undefined,
 ): ContextWindowReading | undefined {
   const addressedRunId = readWireString(targetRunId);
@@ -48,7 +49,7 @@ export function newestContextWindowReading(
     return undefined;
   }
   let newest: ContextWindowReading | undefined;
-  for (const event of transcript) {
+  for (const event of events) {
     if (event.kind !== CONTEXT_WINDOW_EVENT_KIND) {
       continue;
     }
@@ -60,11 +61,34 @@ export function newestContextWindowReading(
       newest = reading;
     }
   }
-  const boundary = newestCompactionBoundary(transcript, addressedRunId);
+  const boundary = newestCompactionBoundary(events, addressedRunId);
   if (boundary === undefined || (newest !== undefined && newest.sequence > boundary.sequence)) {
     return newest;
   }
   return readingAfterCompaction(newest, boundary);
+}
+
+/**
+ * One update row's reading, or `undefined` for a row that measures no window: one without both
+ * counts, or with a window of zero.
+ */
+export function readContextWindow(event: ProjectedSessionEvent): ContextWindowReading | undefined {
+  const windowUsedTokens = wholeCount(event.payload?.["windowUsedTokens"]);
+  const windowMaxTokens = wholeCount(event.payload?.["windowMaxTokens"]);
+  // A zero denominator is a window size the row did not state. Counts travel as a pair: a row with
+  // only provenance and `exceeded` is not read, as this meter draws a ratio and acting on that
+  // signal is not a bar's job.
+  if (windowUsedTokens === undefined || windowMaxTokens === undefined || windowMaxTokens === 0) {
+    return undefined;
+  }
+  return {
+    usagePercent: percentOf(windowUsedTokens, windowMaxTokens),
+    windowUsedTokens,
+    windowMaxTokens,
+    windowSource: contextWindowSource(event.payload?.["windowSource"]),
+    exceeded: booleanOrUndefined(event.payload?.["exceeded"]),
+    sequence: event.sequence,
+  };
 }
 
 /**
@@ -98,14 +122,14 @@ interface CompactionBoundary {
 }
 
 function newestCompactionBoundary(
-  transcript: readonly ProjectedSessionEvent[],
+  events: readonly ProjectedSessionEvent[],
   addressedRunId: string | undefined,
 ): CompactionBoundary | undefined {
   if (addressedRunId === undefined) {
     return undefined;
   }
   let newest: CompactionBoundary | undefined;
-  for (const event of transcript) {
+  for (const event of events) {
     if (event.kind !== CONTEXT_COMPACTED_EVENT_KIND) {
       continue;
     }
@@ -120,25 +144,6 @@ function newestCompactionBoundary(
     }
   }
   return newest;
-}
-
-function readContextWindow(event: ProjectedSessionEvent): ContextWindowReading | undefined {
-  const windowUsedTokens = wholeCount(event.payload?.["windowUsedTokens"]);
-  const windowMaxTokens = wholeCount(event.payload?.["windowMaxTokens"]);
-  // A zero denominator is a window size the row did not state. Counts travel as a pair: a row with
-  // only provenance and `exceeded` is not read, as this meter draws a ratio and acting on that
-  // signal is not a bar's job.
-  if (windowUsedTokens === undefined || windowMaxTokens === undefined || windowMaxTokens === 0) {
-    return undefined;
-  }
-  return {
-    usagePercent: percentOf(windowUsedTokens, windowMaxTokens),
-    windowUsedTokens,
-    windowMaxTokens,
-    windowSource: contextWindowSource(event.payload?.["windowSource"]),
-    exceeded: booleanOrUndefined(event.payload?.["exceeded"]),
-    sequence: event.sequence,
-  };
 }
 
 function percentOf(used: number, max: number): number {

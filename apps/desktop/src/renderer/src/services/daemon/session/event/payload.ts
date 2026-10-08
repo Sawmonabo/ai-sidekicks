@@ -1,6 +1,7 @@
 // Decodes one `session.subscribe` frame into app events, each with the run stamp the daemon gave
 // it, the daemon's drop mark and the cursor a re-opened stream resumes after, or refuses it. This
-// is the only place that reads fields off the `unknown` the bridge delivers.
+// is the only place that reads fields off the `unknown` the bridge delivers. The session read's
+// standing events are narrowed into app events by the same projection.
 //
 // The frame is parsed once here with the contract's frame builder over the tolerant
 // `EventEnvelope`, so a higher-minor event type still reaches the app. The tolerant layer does
@@ -89,7 +90,7 @@ export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameRe
  * higher-minor events readable. The run stamp is carried as the daemon sent it, absent when it
  * sent none.
  */
-function projectSessionEvent(
+export function projectSessionEvent(
   envelope: EventEnvelope,
   cursor: string,
   runStamp: TranscriptRunStamp | undefined,

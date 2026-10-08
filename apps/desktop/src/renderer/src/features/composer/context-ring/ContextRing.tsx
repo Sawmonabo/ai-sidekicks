@@ -5,7 +5,7 @@
 // a note beside the bar, since a provider-reported window is a measurement and a default is not.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import type { ContextWindowReading } from "./context-window-reading.js";
+import type { ContextWindowReading } from "#renderer/store/session/events/context-window-reading.js";
 import { ContextRingReading } from "./ContextRingReading.js";
 
 import "./ContextRing.css";

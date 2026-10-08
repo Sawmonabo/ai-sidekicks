@@ -42,6 +42,7 @@ const LOG_READ = {
     latest: encodeEventCursor(0),
   },
   liveRuns: [] as SessionLogRead["liveRuns"],
+  standingEvents: [] as SessionLogRead["standingEvents"],
 } as SessionLogRead;
 
 let scratch: ScratchDatabase;

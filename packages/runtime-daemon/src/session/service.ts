@@ -1,9 +1,9 @@
-// The session service's reads: one session's record, transcript cursors and runs not yet ended as
-// `session.read` answers them, from the `sessions` row its events keep in step, its tags and its
-// run rows; the session's whole
-// log, or a page of it after a known sequence; and a rebuild of the record from that log through
-// the projector, over the same envelope reads the event log serves, which skip a range the session
-// skipped past as damaged and, while its history is damaged, stop at its last good point.
+// The session service's reads: one session's record, transcript cursors, live runs and standing
+// events as `session.read` answers them, from the `sessions` row its events keep in step, its tags,
+// its run rows and its log; the session's whole log, or a page of it after a known sequence; and a
+// rebuild of the record from that log through the projector, over the same envelope reads the event
+// log serves, which skip a range the session skipped past as damaged and, while its history is
+// damaged, stop at its last good point.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -23,6 +23,7 @@ import type {
   SessionReadResponse,
   SessionRecord,
   SessionShape,
+  SessionStandingEvent,
   SessionState,
 } from "@ai-sidekicks/contracts/session/methods";
 
@@ -37,11 +38,15 @@ import type { DaemonSessionRecord } from "./records.js";
 import { sqlListOf } from "../database/sql-list.js";
 import { RUN_TERMINAL_STATES } from "./run/transitions.js";
 
-/** A session's read as its row, tags, runs and log answer it: everything but the held draft. */
+/**
+ * A session's read as its row, tags, runs and log answer it, standing events included: everything
+ * but the held draft.
+ */
 export interface SessionLogRead {
   session: Omit<SessionRecord, "draft">;
   transcriptCursors: SessionReadResponse["transcriptCursors"];
   liveRuns: SessionReadResponse["liveRuns"];
+  standingEvents: SessionReadResponse["standingEvents"];
 }
 
 /** A page of a session's events after a known sequence; with no `limit`, every later event. */
@@ -114,6 +119,51 @@ const SELECT_LIVE_RUNS_SQL = `SELECT run_id, parent_run_id, state, run_version,
     AND state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})
   ORDER BY rowid`;
 
+// The sequences of the session's standing events (`SessionReadResponse.standingEvents`). A live
+// run's newest measured window and newest compaction read the run-and-type index; the shells'
+// lease changes and the events that brought an agent in read the type index. `UNION ALL`, since
+// the arms name different events and a sorting `UNION` would trade the type index for a walk of
+// the whole log in sequence order; the envelope read orders them. A live run with no such row
+// answers NULL, which the outer select drops.
+const SELECT_STANDING_SEQUENCES_SQL = `SELECT sequence FROM (
+    SELECT (SELECT MAX(measured.sequence)
+              FROM session_events AS measured
+             WHERE measured.session_id = runs.session_id
+               AND measured.type = 'usage.context_window_update'
+               AND measured.run_id = +runs.run_id
+               AND json_type(measured.payload, '$.windowUsedTokens') = 'integer'
+               AND json_extract(measured.payload, '$.windowUsedTokens') >= 0
+               AND json_type(measured.payload, '$.windowMaxTokens') = 'integer'
+               AND json_extract(measured.payload, '$.windowMaxTokens') > 0) AS sequence
+      FROM runs
+     WHERE runs.session_id = @sessionId AND runs.state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})
+    UNION ALL
+    SELECT (SELECT MAX(compacted.sequence)
+              FROM session_events AS compacted
+             WHERE compacted.session_id = runs.session_id
+               AND compacted.type = 'usage.context_compacted'
+               AND compacted.run_id = +runs.run_id)
+      FROM runs
+     WHERE runs.session_id = @sessionId AND runs.state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})
+    UNION ALL
+    SELECT MAX(sequence)
+      FROM session_events
+     WHERE session_id = @sessionId AND type = 'pty.control_changed'
+     GROUP BY CASE json_type(payload, '$.terminalId')
+                WHEN 'text' THEN json_extract(payload, '$.terminalId')
+              END
+    UNION ALL
+    SELECT sequence
+      FROM session_events
+     WHERE session_id = @sessionId AND type = 'session.created'
+    UNION ALL
+    SELECT sequence
+      FROM session_events
+     WHERE session_id = @sessionId
+       AND type = 'run.queued'
+       AND json_type(payload, '$.resolvedAgent') = 'object')
+  WHERE sequence IS NOT NULL`;
+
 /**
  * Reads one session: its record and cursors from its row, its whole log, or its record rebuilt
  * from that log.
@@ -124,6 +174,10 @@ export class SessionService {
   readonly #selectRow: Statement<[string], SessionReadRow>;
   readonly #selectTags: Statement<[string], { readonly tag: string }>;
   readonly #selectLiveRuns: Statement<[string], LiveRunRow>;
+  readonly #selectStandingSequences: Statement<
+    [{ readonly sessionId: string }],
+    { readonly sequence: number }
+  >;
 
   /** `readDamagedFromSequence` says where a damaged session's reads stop; none stop when absent. */
   constructor(reader: Database, readDamagedFromSequence?: DamagedFromSequenceReader) {
@@ -139,20 +193,23 @@ export class SessionService {
       "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded",
     );
     this.#selectLiveRuns = reader.prepare(SELECT_LIVE_RUNS_SQL);
+    this.#selectStandingSequences = reader.prepare(SELECT_STANDING_SEQUENCES_SQL);
   }
 
   /**
-   * The session's record, without the held draft, its transcript cursors and its runs not yet
-   * ended: `earliest` is the start of the log, `latest` its newest readable event, or the start of
-   * the log too when its history is damaged before any. Row, tags, runs and head are read in one
-   * snapshot, so no event the row or a run reflects lies past `latest`. Throws
-   * `session.not_found` for a session this daemon holds no row for.
+   * The session's record, without the held draft, its transcript cursors, its runs not yet ended
+   * and its standing events: `earliest` is the start of the log, `latest` its newest readable event,
+   * or the start of the log too when its history is damaged before any. Row, tags, runs, standing
+   * events and head are read in one snapshot, so no event the row, a run or a standing event
+   * reflects lies past `latest`. Throws `session.not_found` for a session this daemon holds no row
+   * for, and `MalformedStoredEventError` for a standing event that is not a well-formed envelope.
    */
   readSession(request: SessionReadRequest): SessionLogRead {
-    const { row, tags, liveRuns, head } = this.#reader.transaction(() => ({
+    const { row, tags, liveRuns, standingEvents, head } = this.#reader.transaction(() => ({
       row: this.#selectRow.get(request.sessionId),
       tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
       liveRuns: this.#selectLiveRuns.all(request.sessionId).map(readLiveRun),
+      standingEvents: this.#readStandingEvents(request.sessionId),
       head: this.#eventReads.readHead(request.sessionId),
     }))();
     if (row === undefined) {
@@ -176,6 +233,7 @@ export class SessionService {
         latest: encodeEventCursor(head ?? START_OF_LOG_POSITION),
       },
       liveRuns,
+      standingEvents,
     };
   }
 
@@ -215,6 +273,15 @@ export class SessionService {
    */
   rebuildSession(sessionId: SessionId): DaemonSessionRecord | null {
     return rebuildSession(this.readEvents(sessionId));
+  }
+
+  #readStandingEvents(sessionId: SessionId): SessionStandingEvent[] {
+    const sequences = this.#selectStandingSequences
+      .all({ sessionId })
+      .map((sequenceRow) => sequenceRow.sequence);
+    return this.#eventReads
+      .readAtSequences(sessionId, sequences)
+      .map((event) => ({ cursor: encodeEventCursor(event.sequence), event }));
   }
 }
 

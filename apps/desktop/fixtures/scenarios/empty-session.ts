@@ -48,6 +48,7 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
         },
         // The record a read before any beat lands holds: no run has begun.
         liveRuns: [],
+        standingEvents: [],
       },
     },
   ],

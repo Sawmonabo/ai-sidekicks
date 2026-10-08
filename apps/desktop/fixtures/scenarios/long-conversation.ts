@@ -449,6 +449,7 @@ export const LONG_CONVERSATION_SCENARIO: Scenario = {
           latest: findBeatCursor(LONG_CONVERSATION_BEATS, LONG_CONVERSATION_BEATS.length - 1),
         },
         liveRuns: [],
+        standingEvents: [],
       },
     },
     ...SETTINGS_REPLIES,

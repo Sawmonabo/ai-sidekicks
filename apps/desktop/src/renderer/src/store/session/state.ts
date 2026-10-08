@@ -70,6 +70,12 @@ export interface SessionStoreState {
    * arrivals must still see them. Empty after a read.
    */
   readonly lastAdmittedEvents: readonly ProjectedSessionEvent[];
+  /**
+   * The newest event of each kind and subject a standing fact is read from, in sequence order
+   * (`standing-events.ts`): seeded by each read and advanced by every row the stream admits or a
+   * page recovers, and let go of by nothing that releases or replaces the window.
+   */
+  readonly standingEvents: readonly ProjectedSessionEvent[];
   /** Sticky while the projection is known-incomplete; cleared only by a read that repairs it. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
@@ -142,6 +148,8 @@ export interface SessionBaseState {
   readonly entities: readonly StoredEntity[];
   /** Events the read response carried, ordered by sequence. */
   readonly transcript?: readonly ProjectedSessionEvent[];
+  /** The standing events the read response carried, which may lie outside its window. */
+  readonly standingEvents?: readonly ProjectedSessionEvent[];
   /**
    * The daemon-issued position the base state stands at, which the session's stream is opened
    * after. Absent when the stream opens at the start of the log, where it has no position.
@@ -244,6 +252,7 @@ export function uninitializedState(input: {
     transcriptHead: CLOSED_WINDOW_EDGE,
     transcriptTail: liveTailAfter([]),
     lastAdmittedEvents: [],
+    standingEvents: [],
     degradedCause: undefined,
     isReplaying: false,
     lastReadFailed: false,
@@ -271,6 +280,8 @@ export function establishedState(input: {
   readonly isProjectionFailed: boolean;
   readonly cursor: number;
   readonly orderedTranscript: readonly ProjectedSessionEvent[];
+  /** The standing events held before the read, with the read's own and its window's merged in. */
+  readonly standingEvents: readonly ProjectedSessionEvent[];
   readonly revision: number;
   /** The failures counted before this read, carried across it. */
   readonly readFailureCount: number;
@@ -289,6 +300,7 @@ export function establishedState(input: {
     transcriptHead: input.baseState.transcriptHead ?? CLOSED_WINDOW_EDGE,
     transcriptTail: liveTailAfter(input.orderedTranscript),
     lastAdmittedEvents: [],
+    standingEvents: input.standingEvents,
     degradedCause: input.isProjectionFailed ? "projection-failed" : undefined,
     isReplaying: false,
     lastReadFailed: false,

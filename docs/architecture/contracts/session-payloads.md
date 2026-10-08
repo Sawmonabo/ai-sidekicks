@@ -93,6 +93,14 @@ interface SessionReadResponse {
     agentId?: AgentId; // the agent the run was created for, off its `run.queued`; absent on the lead's run
     touchedAt: string; // ISO 8601: when the run's newest `run_lifecycle` event occurred
   }>;
+  // The newest event of each kind a reader keeps a standing fact from, whole, at the cursor the stream
+  // delivers it at, in sequence order, so a window opened below them still reads those facts: for each
+  // run not yet ended, its newest `usage.context_window_update` that measures the window (both counts,
+  // a window above zero) and its newest `usage.context_compacted`; for each shell, its newest
+  // `pty.control_changed`, and the newest naming no shell; and every event that brought an agent into
+  // the session, `session.created` and each `run.queued` carrying `resolvedAgent`. A reader holds them
+  // apart from its window, advancing each by every newer event of its kind and subject it admits.
+  standingEvents: Array<{ cursor: EventCursor; event: EventEnvelope }>;
 }
 
 // SessionSubscribe

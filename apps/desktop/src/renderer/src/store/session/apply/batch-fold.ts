@@ -8,11 +8,11 @@
 // state is answered, so the one writer stays one.
 //
 // The reconciler keeps the stream's contiguity and the transcript only the window's span: every
-// admitted row folds into the entities and the register, and joins the transcript only while the
-// tail is live and the window holds every row the stream admitted before it. A tail that went live
-// again behind the stream reopens the stream after its newest row, so the stream sends again rows
-// it already folded; those join the transcript, in order, and fold nowhere else, and the rows past
-// them join once the window has caught up.
+// admitted row folds into the entities, the register and the standing events, and joins the
+// transcript only while the tail is live and the window holds every row the stream admitted before
+// it. A tail that went live again behind the stream reopens the stream after its newest row, so the
+// stream sends again rows it already folded; those join the transcript, in order, and fold nowhere
+// else, and the rows past them join once the window has caught up.
 //
 // A row fault (a hole, a refused sequence, a projector that threw) records where a repair can take
 // the stream up again: the newest row folded whole before it, with the partitions as they stood
@@ -28,6 +28,7 @@ import { EntityProjectionRunner } from "../entities/projection-runner.js";
 import { markSupersededByRollback } from "../events/run/superseded.js";
 import { WaitingOnPersonRegister } from "../waiting-on-person/register.js";
 import { PreInitializationBuffer } from "../pre-initialization-buffer.js";
+import { mergeStandingEvents } from "../standing-events.js";
 import {
   SequenceReconciler,
   isReconcilableSequence,
@@ -209,6 +210,8 @@ export function foldAppliedBatch(
       transcript,
       transcriptTail: hasAppended ? liveTailAfter(transcript) : current.transcriptTail,
       lastAdmittedEvents: admittedEvents,
+      // Like the register, from the admitted rows, not the transcript they may not join.
+      standingEvents: mergeStandingEvents(current.standingEvents, admittedEvents),
       cursor: dependencies.reconciler.cursor,
       streamAfterCursor,
       // A drop at the cap is incomplete like a skipped sequence, so it takes the same cause. Its

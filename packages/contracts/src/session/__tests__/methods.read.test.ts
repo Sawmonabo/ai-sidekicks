@@ -26,6 +26,7 @@ const buildValidResponse = () => ({
     latest: encodeEventCursor(42),
   },
   liveRuns: [],
+  standingEvents: [],
 });
 
 describe("SessionReadResponseSchema", () => {

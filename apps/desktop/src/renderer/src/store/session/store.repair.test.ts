@@ -256,7 +256,9 @@ describe("what a window keeps across its repair", () => {
   it.each([
     { repair: "from the row before the hole", reopening: afterRow(12), sentAgain: [13, 14, 15] },
     { repair: "from the window's head", reopening: AT_HEAD, sentAgain: [11, 12, 13, 14, 15] },
-  ])("keeps the rows backward pages loaded, before and during a repair $repair", (scenario) => {
+  ])("keeps what pages and the read loaded, before and during a repair $repair", (scenario) => {
+    const leaseChangeAt = (sequence: number, terminalId: string): ProjectedSessionEvent =>
+      eventOfKind(SESSION_ID, "pty.control_changed", sequence, { terminalId });
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({
       entities: [],
@@ -266,9 +268,17 @@ describe("what a window keeps across its repair", () => {
     store.applyBatch(eventsAt([11, 12, 14]));
     store.prependEarlierEvents(eventsAt([8, 9]), { cursor: cursorAt(7), hasMore: true });
 
-    store.repair(REPAIR_READ, scenario.reopening);
+    // The read carries a shell's lease from below the window, and a page during the replay another.
+    const repairRead: SessionBaseState = {
+      entities: [],
+      standingEvents: [leaseChangeAt(3, "shell-1")],
+    };
+    store.repair(repairRead, scenario.reopening);
     expect(store.snapshot().isReplaying).toBe(true);
-    store.prependEarlierEvents(eventsAt([6, 7]), { cursor: cursorAt(5), hasMore: true });
+    store.prependEarlierEvents([leaseChangeAt(6, "shell-2"), eventAt(7)], {
+      cursor: cursorAt(5),
+      hasMore: true,
+    });
     store.applyBatch(eventsAt(scenario.sentAgain));
 
     expect(store.snapshot()).toMatchObject({
@@ -277,6 +287,7 @@ describe("what a window keeps across its repair", () => {
       transcriptHead: { cursor: cursorAt(5), hasMore: true },
     });
     expect(sequencesOf(store.snapshot())).toStrictEqual([6, 7, 8, 9, 11, 12, 13, 14, 15]);
+    expect(store.snapshot().standingEvents.map((event) => event.sequence)).toStrictEqual([3, 6]);
   });
 
   it("folds a replay past a detached tail into the entities and holds none of its rows", () => {

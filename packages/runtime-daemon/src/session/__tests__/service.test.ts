@@ -184,6 +184,13 @@ describe("SessionService — readSession", () => {
         latest: encodeEventCursor(1),
       },
       liveRuns: [],
+      // The birth row brought the lead in, so it stands whatever window a reader opens.
+      standingEvents: [
+        {
+          cursor: encodeEventCursor(0),
+          event: expect.objectContaining({ sequence: 0, type: "session.created" }),
+        },
+      ],
     });
   });
 

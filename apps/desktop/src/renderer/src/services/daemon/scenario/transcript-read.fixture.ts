@@ -7,9 +7,9 @@
 // trips first; a cursor past the newest delivered row is refused, as the daemon refuses it.
 //
 // A scenario scripts its `session.read` record once, for the whole script, while the playback has
-// delivered a prefix of it, so the record's log positions are read from the delivered log too: the
-// daemon's record and log agree. The answer is a candidate the response schema judges, as a
-// scripted reply is.
+// delivered a prefix of it, so the record's log positions and standing events are read from the
+// delivered log too: the daemon's record and log agree. The answer is a candidate the response
+// schema judges, as a scripted reply is.
 
 import {
   EVENT_CURSOR_UNRESOLVABLE_CODE,
@@ -33,7 +33,9 @@ import {
 
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { mergeStandingEvents } from "#renderer/store/session/standing-events.js";
 import type { ScenarioEngine } from "../engine.fixture.js";
+import { composeScenarioEventEnvelope } from "../event/envelope.fixture.js";
 import type { ScenarioRefusalEnvelope } from "./reply.fixture.js";
 import {
   ScenarioTurnAttribution,
@@ -60,11 +62,12 @@ export function readScenarioTranscript(engine: ScenarioEngine, request: unknown)
 }
 
 /**
- * A scripted `session.read` record with its log positions read from the delivered log, as the
- * daemon's are: `latest` the newest delivered row, and `acknowledged` kept once it is delivered.
+ * A scripted `session.read` record with its log positions and standing events read from the
+ * delivered log, as the daemon's are: `latest` the newest delivered row, `acknowledged` kept once
+ * it is delivered, and the newest delivered event of each kind and subject a standing fact reads.
  * Any other reply is answered as scripted.
  */
-export function withDeliveredTranscriptCursors(engine: ScenarioEngine, record: unknown): unknown {
+export function withDeliveredLog(engine: ScenarioEngine, record: unknown): unknown {
   if (!isWireRecord(record) || !isWireRecord(record["transcriptCursors"])) {
     return record;
   }
@@ -79,6 +82,10 @@ export function withDeliveredTranscriptCursors(engine: ScenarioEngine, record: u
       latest: log.at(-1)?.cursor ?? encodeEventCursor(START_OF_LOG_POSITION),
       ...(isAcknowledgedDelivered ? { acknowledged } : {}),
     },
+    standingEvents: mergeStandingEvents([], log).map((event) => ({
+      cursor: event.cursor,
+      event: composeScenarioEventEnvelope(event),
+    })),
   };
 }
 

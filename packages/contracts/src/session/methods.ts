@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "../agent/definition.js";
+import { EventEnvelopeSchema, type EventEnvelope } from "../event/envelope.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
@@ -151,9 +152,21 @@ export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
   .strict();
 
 /**
- * The `session.read` result: the session, its transcript cursors and its runs not yet ended. A
- * reader with no acknowledged position opens its window at `latest`; the live runs give it the
- * state of every run whose events lie above that window.
+ * One event of the session's log a `session.read` carries whole, at the position the stream
+ * delivers it at.
+ */
+export interface SessionStandingEvent {
+  cursor: EventCursor;
+  event: EventEnvelope;
+}
+const SessionStandingEventSchema: z.ZodType<SessionStandingEvent> = z
+  .object({ cursor: EventCursorSchema, event: EventEnvelopeSchema })
+  .strict();
+
+/**
+ * The `session.read` result: the session, its transcript cursors, its runs not yet ended and its
+ * standing events. A reader with no acknowledged position opens its window at `latest`; the live
+ * runs and the standing events give it what the events above that window settled.
  */
 export interface SessionReadResponse {
   session: SessionRecord;
@@ -168,6 +181,15 @@ export interface SessionReadResponse {
    * below a run's earlier events still knows whether that run is working or waiting.
    */
   liveRuns: SessionLiveRun[];
+  /**
+   * The newest event of each kind a reader keeps a standing fact from, in sequence order: for
+   * each run not yet ended, its newest `usage.context_window_update` that measures the window
+   * (both counts, a window above zero) and its newest `usage.context_compacted`; for each shell,
+   * its newest `pty.control_changed`, and the newest naming no shell; and every event that
+   * brought an agent into the session, `session.created` and each `run.queued` carrying
+   * `resolvedAgent`. A window opened below them still reads those facts.
+   */
+  standingEvents: SessionStandingEvent[];
 }
 /** Parses a {@link SessionReadResponse}. */
 export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
@@ -181,6 +203,7 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
       })
       .strict(),
     liveRuns: z.array(SessionLiveRunSchema),
+    standingEvents: z.array(SessionStandingEventSchema),
   })
   .strict();
 

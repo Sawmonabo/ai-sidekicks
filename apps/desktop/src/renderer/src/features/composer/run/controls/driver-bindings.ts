@@ -1,6 +1,7 @@
 // Which driver each run in one session is bound to: the session's runs joined to their
-// agents' declared drivers. A run whose agent cannot be resolved contributes nothing rather
-// than a default, so a gated control is taken off screen instead of guessed.
+// agents' declared drivers, read off the standing events that brought each agent in. A run whose
+// agent cannot be resolved contributes nothing rather than a default, so a gated control is taken
+// off screen instead of guessed.
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
@@ -14,14 +15,14 @@ import {
 } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
- * Joins the session's runs to their agents' declared drivers. A run this cannot resolve is
- * absent from the answer, the same fact as a read that has not landed.
+ * Joins the session's runs to their agents' declared drivers, from the session's standing events.
+ * A run this cannot resolve is absent from the answer, the same fact as a read that has not landed.
  */
 export function foldRunDriverBindings(
   runs: Readonly<Record<string, StoredEntity>>,
-  transcript: readonly ProjectedSessionEvent[],
+  standingEvents: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, ProviderName> {
-  const driverNameByAgentId = readAgentDriverNames(transcript);
+  const driverNameByAgentId = readAgentDriverNames(standingEvents);
   const driverNameByRunId = new Map<string, ProviderName>();
   for (const run of Object.values(runs)) {
     const agentId = readRunAgentId(run);

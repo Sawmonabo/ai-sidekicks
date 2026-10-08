@@ -2,8 +2,9 @@
 // loss rather than the absence of a crash, since not throwing is not behaving correctly: an event
 // that came early, one addressed elsewhere, one that skipped or repeated a sequence, a subscriber
 // writing back during notification, a sequence cursor arithmetic cannot carry, a buffer whose read
-// never came, a projector that throws, and a read whose rows imply entities. A read landing on a
-// store that already holds a window is `store.repair.test.ts`.
+// never came, a projector that throws, and a read whose rows imply entities; and the standing
+// events, which outlive what the window lets go. A read landing on a store that already holds a
+// window is `store.repair.test.ts`.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -333,5 +334,43 @@ describe("a read places a window whose rows imply entities", () => {
 
     expect(Object.keys(store.snapshot().partitions.run)).toStrictEqual(["run-a"]);
     expect(store.snapshot().degradedCause).toBe("projection-failed");
+  });
+});
+
+describe("the standing events stand whatever rows the window holds", () => {
+  it("keeps the newest of each kind from the read and the stream past a release", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    const measuredAt = (sequence: number, runId: string): ProjectedSessionEvent =>
+      eventOfKind("session-1", "usage.context_window_update", sequence, {
+        runId,
+        windowUsedTokens: 10,
+        windowMaxTokens: 100,
+      });
+    store.initialize({
+      cursor: 3,
+      entities: [],
+      // The birth row lies below the window; only the read carries it.
+      standingEvents: [eventOfKind("session-1", "session.created", 1, { sessionId: "session-1" })],
+      transcript: [measuredAt(2, "run-a"), eventAt(3)],
+    });
+    // A row that measures nothing never stands over the one that did.
+    store.applyBatch([
+      eventOfKind("session-1", "usage.context_window_update", 4, {
+        runId: "run-a",
+        exceeded: true,
+      }),
+      eventAt(5),
+    ]);
+    store.releaseBeyondNewest(1);
+    store.applyBatch([
+      measuredAt(6, "run-b"),
+      eventOfKind("session-1", "pty.control_changed", 7, { terminalId: "shell-1" }),
+    ]);
+
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([5]);
+    expect(store.snapshot().transcriptTail.following).toBe("detached");
+    expect(store.snapshot().standingEvents.map((event) => event.sequence)).toStrictEqual([
+      1, 2, 6, 7,
+    ]);
   });
 });

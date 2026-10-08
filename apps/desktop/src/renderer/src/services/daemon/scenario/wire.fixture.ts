@@ -3,9 +3,9 @@
 // screen is never trained to render an empty state where the live daemon would fail. The one read
 // the daemon derives from the log, `transcript.read`, is answered from the delivered log, as the
 // session stream is, unless the scenario scripts it, and the `session.read` record names the
-// delivered log's positions. A scenario's daemon always answers, so the status topic reads
-// connected from its first delivery, with the handshake a compatible service settles, naming the
-// scenario's own device.
+// delivered log's positions and standing events. A scenario's daemon always answers, so the status
+// topic reads connected from its first delivery, with the handshake a compatible service settles,
+// naming the scenario's own device.
 
 import type {
   DaemonMethod,
@@ -26,10 +26,7 @@ import type {
 import type { ScenarioEngine } from "../engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "../scripted/reply.fixture.js";
 import { subscribeToScenario } from "./subscriptions.fixture.js";
-import {
-  readScenarioTranscript,
-  withDeliveredTranscriptCursors,
-} from "./transcript-read.fixture.js";
+import { readScenarioTranscript, withDeliveredLog } from "./transcript-read.fixture.js";
 
 /** The read the fixture answers from the delivered log when the scenario scripts no reply. */
 const LOG_DERIVED_READ = "transcript.read";
@@ -71,9 +68,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
       return {
         value: assertScriptedReplyOnContract(
           method,
-          method === SESSION_RECORD_READ
-            ? withDeliveredTranscriptCursors(scenarioEngine, reply)
-            : reply,
+          method === SESSION_RECORD_READ ? withDeliveredLog(scenarioEngine, reply) : reply,
         ) as DaemonResult<MethodName>,
       };
     },

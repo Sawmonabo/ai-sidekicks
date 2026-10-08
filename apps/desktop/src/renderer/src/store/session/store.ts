@@ -6,8 +6,9 @@
 // The store holds a window of the session's log, not the log: a read places it, the reader's pages
 // grow it at either edge (`transcript-window.ts`), `releaseOutside` lets go of what lies far from
 // the reading position, and `releaseBeyondNewest` bounds a session no screen shows. The stream
-// keeps folding into the entities and the waiting-on-person register whether or not the window's
-// tail follows it, so what is outstanding outlives every row the window let go.
+// keeps folding into the entities, the waiting-on-person register and the standing events whether
+// or not the window's tail follows it, so what is outstanding, and every fact a standing event
+// carries, outlives every row the window let go.
 //
 // The degraded flag is sticky: a gap, a drop or a projection failure sets it, and only a completed
 // read clears it, since a later event proves nothing about the one that never arrived. A read that
@@ -58,6 +59,7 @@ import {
   type WaitingOnPersonRecords,
 } from "./waiting-on-person/register.js";
 import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
+import { mergeStandingEvents } from "./standing-events.js";
 import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { RememberedRowHeights } from "./remembered-row-heights.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
@@ -207,10 +209,12 @@ export class SessionStore {
    * store has moved past is refused, and the stream stays where it is.
    */
   public repair(baseState: SessionBaseState, reopening: RepairReopening): boolean {
-    const window = this.#store.getState();
-    if (!window.initialized || !admitsBaseState(window)) {
+    const unseeded = this.#store.getState();
+    if (!unseeded.initialized || !admitsBaseState(unseeded)) {
       return false;
     }
+    // The read's standing events are as true of the window as of what replays: both take them.
+    const window = withStandingEvents(unseeded, baseState.standingEvents ?? []);
     if (reopening.from === "head") {
       this.#replayFromHead(window, baseState);
       return true;
@@ -226,7 +230,11 @@ export class SessionStore {
     }
     const replay = this.#replay;
     if (replay !== undefined) {
-      replay.advance({ ...replay.state, degradedCause: undefined, lastReadFailed: false });
+      replay.advance({
+        ...withStandingEvents(replay.state, window.standingEvents),
+        degradedCause: undefined,
+        lastReadFailed: false,
+      });
       this.#store.setState({ ...window, lastReadFailed: false, revision: window.revision + 1 });
       return true;
     }
@@ -418,8 +426,9 @@ export class SessionStore {
    * The state a read establishes over `current`, with the reconciler re-based onto it. The read's
    * rows project the entities they imply, and the read's records then stand over them, since they
    * are the newest. The rows advance the hue wheel and the register as a page's do; the register
-   * keeps the older asks this read did not carry, and the seed moves only the window-head fact. A
-   * base with no sequence seeds below every row the stream delivers after it.
+   * keeps the older asks this read did not carry, and the seed moves only the window-head fact. The
+   * standing events take the read's own and its rows over the ones held. A base with no sequence
+   * seeds below every row the stream delivers after it.
    */
   #establish(baseState: SessionBaseState, current: SessionStoreState): SessionStoreState {
     const transcript = orderBatchBySequence(baseState.transcript ?? []);
@@ -438,6 +447,10 @@ export class SessionStore {
       isWindowHeadUnread: baseState.transcriptHead?.hasMore ?? false,
     });
     this.#waitingOnPersonRegister.admit(transcript);
+    const standingEvents = mergeStandingEvents(current.standingEvents, [
+      ...(baseState.standingEvents ?? []),
+      ...transcript,
+    ]);
     const { partitions, isProjectionFailed } = this.#projectedPartitions(
       transcript,
       baseState.entities,
@@ -449,6 +462,7 @@ export class SessionStore {
       isProjectionFailed,
       cursor: this.#reconciler.cursor,
       orderedTranscript: transcript,
+      standingEvents,
       revision: current.revision + 1,
       readFailureCount: current.readFailureCount,
       raisedAgainCauseCount: current.raisedAgainCauseCount,
@@ -516,6 +530,8 @@ export class SessionStore {
       ...source,
       ...REPLAY_START,
       partitions: point.partitions,
+      // A replay under way lacks what the window took since it started and what the read carried.
+      standingEvents: mergeStandingEvents(source.standingEvents, window.standingEvents),
       transcript,
       transcriptTail:
         transcript.at(-1)?.sequence === point.cursor
@@ -566,6 +582,8 @@ export class SessionStore {
       {
         ...replayed,
         ...replay.windowOnto(visible),
+        // A page loaded while the replay ran advanced the window's.
+        standingEvents: mergeStandingEvents(replayed.standingEvents, visible.standingEvents),
         isReplaying: false,
         lastReadFailed: replayed.degradedCause !== undefined && replayed.lastReadFailed,
         readFailureCount: visible.readFailureCount,
@@ -616,6 +634,18 @@ const REPLAY_START = {
   gaps: [],
   repairResumePoint: WHOLE_RESUME_POINT,
 } as const satisfies Partial<SessionStoreState>;
+
+/**
+ * `state` with `events` merged into its standing events, or `state` itself when none changed. The
+ * revision is the caller's to move, as each repair branch commits once.
+ */
+function withStandingEvents(
+  state: SessionStoreState,
+  events: readonly ProjectedSessionEvent[],
+): SessionStoreState {
+  const standingEvents = mergeStandingEvents(state.standingEvents, events);
+  return standingEvents === state.standingEvents ? state : { ...state, standingEvents };
+}
 
 /** The rows at or below `sequence`, from a transcript in sequence order. */
 function rowsThrough(

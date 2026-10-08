@@ -513,6 +513,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         },
         // The record a read before any beat lands holds: no run has begun.
         liveRuns: [],
+        standingEvents: [],
       },
     },
   ],
