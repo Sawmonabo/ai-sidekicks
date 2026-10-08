@@ -33,6 +33,8 @@ export interface SpawnRequest {
   cwd: string;
   rows: number;
   cols: number;
+  /** The terminal type the child's `TERM` names, over any in `env`; absent, the backend's own. */
+  terminal_name?: string;
 }
 
 /**

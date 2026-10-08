@@ -1,6 +1,7 @@
 // A daemon killed outright leaves no terminal child running past the next start's sweep, real
-// processes on macOS: a recorded shell that ignores the hangup is found in the registry, and a
-// child caught inside its spawn, before its process was recorded, is found by its nonce.
+// processes on macOS: a recorded shell that ignores the hangup is found in the registry, and of a
+// child caught inside its spawn, before its process was recorded, nothing carrying its nonce or
+// started for it is left.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { execFile } from "node:child_process";
@@ -30,13 +31,10 @@ const HANGUP_IGNORED_FILE_NAME = "hangup-ignored";
 // The recorded shell: it ignores the hangup the terminal sends when the daemon dies, as a program
 // run with `nohup` does, says so, and runs on.
 const HANGUP_IGNORING_SHELL_COMMAND = `trap '' HUP; : > ${HANGUP_IGNORED_FILE_NAME}; while :; do sleep 1; done`;
-// Spawns killed inside the window: five, so the kill lands at several points of the spawn, then on
-// until one left a process the sweep killed. Each run checks that nothing of its spawn survives,
-// which also holds when the shell dies on the hangup by itself, so only the count of killed
-// processes proves the sweep. A node-pty helper outlived 9 of 20 such spawns when measured, so the
-// last bound is a backstop.
-const MIN_WINDOW_RUNS = 5;
-const MAX_WINDOW_RUNS = 30;
+// Spawns killed inside the window: five, so the kill lands at several points of the spawn. Each
+// run checks that nothing of its spawn survives the sweep, whether the sweep killed it, it exited
+// at the parent check, or the shell died on the hangup.
+const WINDOW_RUNS = 5;
 
 const runProgram = promisify(execFile);
 const readProcessIdentity = createProcessIdentityReader({
@@ -216,15 +214,10 @@ describe.skipIf(process.platform !== "darwin")("the orphan sweep after a daemon 
     }
   }, 40_000);
 
-  it("kills what a daemon killed inside a spawn left, found by its nonce", async () => {
+  it("leaves nothing running of a spawn a daemon was killed inside", async () => {
     const library = await loadDarwinSystemLibrary();
     const userId = process.getuid?.() ?? -1;
-    let killedCount = 0;
-    for (
-      let run = 0;
-      run < MAX_WINDOW_RUNS && (run < MIN_WINDOW_RUNS || killedCount === 0);
-      run += 1
-    ) {
+    for (let run = 0; run < WINDOW_RUNS; run += 1) {
       const dataFolder = await mkdtemp(path.join(tmpdir(), "orphan-window-"));
       const { daemon, exit, output } = startDaemon(dataFolder, true);
       let spawned: { processId: number; nonce: string } | undefined;
@@ -238,8 +231,7 @@ describe.skipIf(process.platform !== "darwin")("the orphan sweep after a daemon 
         const { processId, nonce } = spawned;
 
         // Only the intent is recorded; whatever of the spawn still runs is found by its nonce.
-        const sweep = await sweepFolder(dataFolder);
-        killedCount += sweep.killed;
+        await sweepFolder(dataFolder);
         await vi.waitFor(
           () => {
             expect(isRunning(processId)).toBe(false);
@@ -257,6 +249,5 @@ describe.skipIf(process.platform !== "darwin")("the orphan sweep after a daemon 
         await rm(dataFolder, { recursive: true, force: true });
       }
     }
-    expect(killedCount).toBeGreaterThan(0);
   }, 120_000);
 });

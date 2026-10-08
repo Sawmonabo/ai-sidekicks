@@ -269,6 +269,7 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      refuseEndedCaller: () => undefined,
       broadcast: async (change) => {
         changes.push(PtyControlChangedPayloadSchema.parse(change));
         await pendingBroadcast;
@@ -308,6 +309,7 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      refuseEndedCaller: () => undefined,
       broadcast: async () => queued.shift(),
     });
     let landTake = (): void => undefined;

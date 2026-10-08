@@ -67,15 +67,7 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
   if (strategy === "cwd-env") {
     // Appended: a later env entry shadows an earlier one, so the translator's `CWD` wins.
     const newEnv: Array<[string, string]> = [...spec.env, ["CWD", worktreePath]];
-    return {
-      kind: "spawn_request",
-      command: spec.command,
-      args: spec.args,
-      env: newEnv,
-      cwd: stableParent,
-      rows: spec.rows,
-      cols: spec.cols,
-    };
+    return { ...spec, env: newEnv, cwd: stableParent };
   }
 
   // strategy === "cd-prefix"
@@ -91,13 +83,11 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
       `cd ${quotedWorktree} && exec ${quotedCommand}` +
       (quotedArgs.length > 0 ? ` ${quotedArgs}` : "");
     return {
-      kind: "spawn_request",
+      ...spec,
       command: "/bin/sh",
       args: ["-c", shellScript],
       env: spec.env,
       cwd: stableParent,
-      rows: spec.rows,
-      cols: spec.cols,
     };
   }
 
@@ -116,13 +106,11 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
     `cd /d ${quotedWorktreeWin} && ${quotedCommandWin}` +
     (quotedArgsWin.length > 0 ? ` ${quotedArgsWin}` : "");
   return {
-    kind: "spawn_request",
+    ...spec,
     command: "cmd.exe",
     args: ["/d", "/s", "/v:off", "/c", winScript],
     env: spec.env,
     cwd: stableParent,
-    rows: spec.rows,
-    cols: spec.cols,
   };
 }
 

@@ -40,6 +40,25 @@ export const DRAIN_NOTHING: Pick<PtyHost, "shutdown"> = {
   shutdown: () => Promise.resolve(EMPTY_DRAIN),
 };
 
+// A terminal host that starts no shell, with `drain` as its stop's drain; its listeners are kept
+// by no one, since no session runs in it.
+function makeHostDrainingWith(drain: Pick<PtyHost, "shutdown">): PtyHost {
+  const startsNoShell = (): Promise<never> =>
+    Promise.reject(new Error("a test daemon's terminal host starts no shell"));
+  return {
+    spawn: startsNoShell,
+    resize: startsNoShell,
+    write: startsNoShell,
+    pause: startsNoShell,
+    resume: startsNoShell,
+    kill: startsNoShell,
+    close: startsNoShell,
+    shutdown: (options) => drain.shutdown(options),
+    setOnData: () => {},
+    setOnExit: () => {},
+  };
+}
+
 /** The clock every test daemon reads, so its start and its status reads all fall at this time. */
 export const STARTED_AT = "2026-10-04T12:00:00.000Z";
 
@@ -112,7 +131,7 @@ export async function startDaemon(
         operatingSystem: {},
         writeServiceLog: () => {},
       }),
-    createPtyHost: () => ptyHost,
+    createPtyHost: () => makeHostDrainingWith(ptyHost),
     databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
@@ -172,8 +191,14 @@ export async function openSession(
       params,
       ...(method === "daemon.hello" ? {} : { protocolVersion: CURRENT_PROTOCOL_VERSION }),
     });
-    const replies = await client.replies(id);
-    return replies.find((reply) => (reply as { id: unknown }).id === id);
+    // A subscription's notifications arrive between replies, so read on until this call's own.
+    for (let replies = await client.replies(id); ; ) {
+      const reply = replies.find((envelope) => (envelope as { id: unknown }).id === id);
+      if (reply !== undefined) {
+        return reply;
+      }
+      replies = await client.replies(replies.length + 1);
+    }
   };
   await call("daemon.hello", {
     protocolVersion: helloProtocolVersion,

@@ -74,7 +74,17 @@ export const CLAUDE_UPDATE_SWITCH_NAMES: readonly string[] = Object.freeze([
 export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_BIN";
 
 /** Set to `1` on a Terminal pane's shell alone while `Simplify for a screen reader` is on. */
-const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME = "CLAUDE_AX_SCREEN_READER";
+export const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME: string = "CLAUDE_AX_SCREEN_READER";
+
+/** Carries a Terminal pane's shell its mark nonce, which the shell's script reads and unsets. */
+export const SHELL_MARK_NONCE_ENVIRONMENT_NAME: string = "SIDEKICKS_SHELL_MARK_NONCE";
+
+/** Carries zsh's own `ZDOTDIR` past the folder that loads a Terminal pane's shell script. */
+export const SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ZDOTDIR";
+
+/** Carries fish's own `XDG_DATA_DIRS` past the folder that loads a Terminal pane's shell script. */
+export const SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME: string =
+  "SIDEKICKS_ORIGINAL_XDG_DATA_DIRS";
 
 /**
  * The names the app sets itself on the processes it starts. A row with one of
@@ -84,6 +94,9 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...CLAUDE_UPDATE_SWITCH_NAMES,
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
   CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
+  SHELL_MARK_NONCE_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
 ]);
 
 /** Why a row's name is refused at save. */

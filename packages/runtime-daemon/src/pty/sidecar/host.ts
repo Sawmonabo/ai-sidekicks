@@ -373,16 +373,6 @@ export class RustSidecarPtyHost implements PtyHost {
     }
   }
 
-  /** Delivers a data chunk to the registered data listener. */
-  public onData(sessionId: string, chunk: Uint8Array): void {
-    this.dataListener(sessionId, chunk);
-  }
-
-  /** Delivers an exit event to the registered exit listener. */
-  public onExit(sessionId: string, exitCode: number, signalCode?: number): void {
-    this.exitListener(sessionId, exitCode, signalCode);
-  }
-
   /** Register the daemon's data-chunk consumer. */
   public setOnData(listener: (sessionId: string, chunk: Uint8Array) => void): void {
     this.dataListener = listener;

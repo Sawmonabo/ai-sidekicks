@@ -20,7 +20,12 @@ function bindHandler(
   flowControl: ShellFlowControl,
 ): (transportId: number, paused: boolean) => Promise<unknown> {
   const registry = new MethodRegistryImpl();
-  registerSessionSetTerminalFlowControl(registry, { findShellFlowControl: () => flowControl });
+  registerSessionSetTerminalFlowControl(registry, {
+    terminalSessions: {
+      declareFlowControl: (request, transportId) =>
+        flowControl.declare(transportId, request.paused),
+    },
+  });
   return (transportId, paused) =>
     registry.dispatch(
       "session.setTerminalFlowControl",

@@ -30,6 +30,7 @@ fn round_trip_spawn_request() {
         cwd: "/tmp".to_string(),
         rows: 24,
         cols: 80,
+        terminal_name: None,
     });
     assert_eq!(round_trip(&envelope), envelope);
 }

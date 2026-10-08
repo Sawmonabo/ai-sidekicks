@@ -42,7 +42,7 @@ import type {
   RunSetupGate,
   RunTerminalContext,
 } from "../session/run/setup-gates.js";
-import type { SessionWorkingFolders } from "../session/working-folder.js";
+import type { SessionWorkingFolders } from "../session/working-folder/move.js";
 
 import { WorkspaceServiceInvariantError, WorkspaceStaleError } from "./errors.js";
 import {

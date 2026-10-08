@@ -70,6 +70,11 @@ export interface ShellControlLeaseOptions {
   machineDeviceId: DeviceId;
   /** Records one change of holder; a rejection fails the act that made the change. */
   broadcast: (change: PtyControlChangedPayload) => Promise<void>;
+  /**
+   * Throws the refusal for a device caller whose pane output subscription, or whose shell, has
+   * ended. Called in the same tick as each binding a take or a write adds for that caller.
+   */
+  refuseEndedCaller: (caller: ShellLeaseCaller) => void;
 }
 
 // A device's hold, bound to each pane output subscription it was taken through, by the connection
@@ -160,6 +165,7 @@ export class ShellControlLease {
   readonly #terminalId: TerminalId;
   readonly #machineDeviceId: DeviceId;
   readonly #broadcast: (change: PtyControlChangedPayload) => Promise<void>;
+  readonly #refuseEndedCaller: (caller: ShellLeaseCaller) => void;
   #holder: LeaseHolder | null = null;
   #leaseVersion = 0;
   // The broadcast of the one change of holder in flight; a join awaits it, any other act waits for
@@ -171,17 +177,21 @@ export class ShellControlLease {
     this.#terminalId = options.terminalId;
     this.#machineDeviceId = options.machineDeviceId;
     this.#broadcast = options.broadcast;
+    this.#refuseEndedCaller = options.refuseEndedCaller;
   }
 
   /**
    * Takes the shell for a device connection, bound to the output subscription it names. A device's
    * retake of a shell it holds sends no broadcast and adds that binding; while the take that gave
    * the device the hold is still being broadcast, the retake waits for it and fails with it.
-   * `force` moves the shell off another device; nothing moves it off a run.
+   * `force` moves the shell off another device; nothing moves it off a run. A caller whose pane
+   * or shell ended meanwhile is refused before anything binds to it.
    */
   async take(caller: ShellLeaseCaller, force: boolean): Promise<SessionTakeControlResponse> {
     const response = { terminalId: this.#terminalId, holderDeviceId: caller.deviceId };
     for (;;) {
+      // Checked again after every wait, in the tick the binding is added.
+      this.#refuseEndedCaller(caller);
       const current = this.#holder;
       if (current?.kind === "device" && current.deviceId === caller.deviceId) {
         // A binding beside the holder, announced by nobody; undoing the hold drops it.
@@ -240,11 +250,16 @@ export class ShellControlLease {
   /**
    * Hands one write frame to `write`, in the same tick as the check that its writer holds the
    * shell, and refuses it otherwise; a device's write to a shell nobody holds takes it first, and
-   * a holding connection's write binds the pane it came through. The shell's ordered write path
-   * makes these calls one at a time, so frames keep their order.
+   * a holding connection's write binds the pane it came through. A device whose pane or shell
+   * ended meanwhile is refused. The shell's ordered write path makes these calls one at a time, so
+   * frames keep their order.
    */
   async admitWrite(writer: ShellWriter, write: () => void): Promise<void> {
     for (;;) {
+      // Checked again after every wait, in the tick the write lands or the binding is added.
+      if (writer.kind === "device") {
+        this.#refuseEndedCaller(writer);
+      }
       const current = this.#holder;
       const isHeldByWriter =
         writer.kind === "device"

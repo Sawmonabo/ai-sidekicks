@@ -55,6 +55,11 @@ export class ShellFlowControl {
     return this.#applyReadState();
   }
 
+  /** Whether a watching connection last declared itself behind; one not watching is not. */
+  isBehind(transportId: number): boolean {
+    return this.#watchers.get(transportId) === true;
+  }
+
   #applyReadState(): Promise<void> {
     const shouldPause =
       this.#watchers.size > 0 && [...this.#watchers.values()].every((isBehind) => isBehind);

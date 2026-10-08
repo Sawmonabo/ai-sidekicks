@@ -247,6 +247,9 @@ jobs:
       - name: Lint per-package
         run: pnpm turbo run lint ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
+      - name: Install zsh and fish for the shell-mark tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zsh fish
+
       # The desktop package runs in the `desktop` matrix job, one tier per runner. Under turbo's
       # default concurrency (10), `@ai-sidekicks/desktop#test:smoke`, the one project that spawns a
       # full Electron tree and asserts a wall-clock boot deadline, would share a 4-vCPU runner with

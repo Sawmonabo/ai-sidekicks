@@ -68,13 +68,10 @@ class RecordingPtyHost implements PtyHost {
     });
   }
 
-  onData(_sessionId: string, _chunk: Uint8Array): void {
-    // no-op
-  }
+  // The translator's tests read only what was spawned; nothing listens for output or exits.
+  setOnData(): void {}
 
-  onExit(_sessionId: string, _exitCode: number, _signalCode?: number): void {
-    // no-op
-  }
+  setOnExit(): void {}
 }
 
 // ----------------------------------------------------------------------------

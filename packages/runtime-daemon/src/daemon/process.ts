@@ -64,6 +64,7 @@ import { ProviderRegistry } from "../provider/driver/registry.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
+import { PtySessionEvents } from "../pty/host/session-events.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
 import { DamagedHistory, registerDamagedHistoryMethods } from "../recovery/damaged-history.js";
@@ -94,7 +95,7 @@ import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
-import type { registerSessionMethods } from "./session-methods.js";
+import type { registerSessionMethods, RegisteredSessionServices } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 /** The daemon's database file in its data folder. */
@@ -120,8 +121,11 @@ export interface DaemonProcessOptions {
   readonly openOrphanGuard: (
     dataFolder: string,
   ) => Promise<{ guard: OrphanGuard; sweep: OrphanSweepResult }>;
-  /** Builds the terminal host over the orphan guard; the daemon drains it at its stop. */
-  readonly createPtyHost: (orphanGuard: OrphanGuard) => Pick<PtyHost, "shutdown">;
+  /**
+   * Builds the terminal host over the orphan guard, which every session's shells run in; the daemon
+   * drains it at its stop.
+   */
+  readonly createPtyHost: (orphanGuard: OrphanGuard) => PtyHost;
   /** Reads this machine's friendly name; called only at the first start. */
   readonly readMachineName: () => Promise<string>;
   /**
@@ -191,14 +195,14 @@ export class DaemonProcess {
   // The start's recovery pass, which a stop ends and waits for before the database closes under it.
   #recoveryPass: Promise<void> = Promise.resolve();
   readonly #stopRequest = new AbortController();
-  readonly #ptyHost: Pick<PtyHost, "shutdown">;
+  readonly #ptyHost: PtyHost;
+  readonly #ptySessionEvents: PtySessionEvents;
   readonly #orphanGuard: OrphanGuard;
   // The provider side: the drivers, which a session's close ends its provider leg through, the
   // run engine and the provider methods.
   readonly #providers: DaemonProviders;
   readonly #writeServiceLog: (line: string) => void;
-  readonly #startSessionServices: () => Promise<void>;
-  readonly #stopSessionServices: () => Promise<void>;
+  readonly #sessionServices: RegisteredSessionServices;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
   #processState: DaemonProcessState = "starting";
   #stopping: Promise<void> | undefined;
@@ -234,6 +238,7 @@ export class DaemonProcess {
     this.#orphanGuard = parts.orphanGuard;
     this.#searchThread = parts.searchThread;
     this.#ptyHost = options.createPtyHost(parts.orphanGuard);
+    this.#ptySessionEvents = new PtySessionEvents(this.#ptyHost);
     this.#writeServiceLog = options.writeServiceLog;
 
     // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
@@ -282,6 +287,8 @@ export class DaemonProcess {
     // The drivers the provider side registers, which a session's close ends its provider leg
     // through.
     const providerRegistry = new ProviderRegistry();
+    // Every local connection comes from this machine, so its id is the calling device.
+    const machineDeviceId = DeviceIdSchema.parse(parts.localMachine.nodeId);
     const sessionServices = parts.registerSessionMethods(registry, {
       database: this.#database,
       homeDirectory: options.homeDirectory,
@@ -308,9 +315,11 @@ export class DaemonProcess {
       readDamagedFromSequence: (sessionId) =>
         this.#recoveryStatus.readDamagedFromSequence(sessionId),
       writeServiceLog: options.writeServiceLog,
+      ptyHost: this.#ptyHost,
+      ptySessionEvents: this.#ptySessionEvents,
+      machineDeviceId,
     });
-    this.#startSessionServices = sessionServices.start;
-    this.#stopSessionServices = sessionServices.stop;
+    this.#sessionServices = sessionServices;
     // The pass and the damaged history append through the daemon's one event log, so what they
     // write reaches the sessions list like any other event, and read through its session reads,
     // which stop at a damaged session's last good point.
@@ -395,11 +404,13 @@ export class DaemonProcess {
 
     this.#gateway = new LocalIpcGateway({
       registry,
-      // Every local connection comes from this machine, so its id is the calling device.
-      deviceId: DeviceIdSchema.parse(parts.localMachine.nodeId),
+      deviceId: machineDeviceId,
       hooks: {
         onDisconnect: (transport) => {
           negotiator.cleanupTransport(transport.id);
+          // Before the connection's subscriptions end, so a hold that ends with the connection is
+          // released as a disconnect rather than as its panes closing.
+          this.#sessionServices.releaseConnection(transport.id);
           streamingPrimitive.cleanupTransport(transport.id);
         },
         onError: (transport, error) => {
@@ -582,7 +593,7 @@ export class DaemonProcess {
         // own stop starts a turn later, starts no background work and says nothing is ready, nor
         // does damage the pass met, whose stop starts once this turn ends.
         if (daemon.#processState !== "stopping" && !damageWatch.isFound) {
-          await daemon.#startSessionServices();
+          await daemon.#sessionServices.start();
           options.writeServiceLog(
             `${DAEMON_READY_LINE} (process ${String(options.processIdentity.processId)}, ` +
               `protocol ${CURRENT_PROTOCOL_VERSION}).`,
@@ -602,7 +613,7 @@ export class DaemonProcess {
         // failed start.
         if (daemon !== undefined) {
           const stops = await Promise.allSettled([
-            daemon.#stopSessionServices(),
+            daemon.#sessionServices.stop(),
             daemon.#providers.stop(),
           ]);
           for (const stop of stops) {
@@ -753,7 +764,7 @@ export class DaemonProcess {
         perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
         hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
       }),
-      endWithinDrainBound(this.#stopSessionServices(), failures),
+      endWithinDrainBound(this.#sessionServices.stop(), failures),
       endWithinDrainBound(this.#providers.stop(), failures),
       endWithinDrainBound(this.#searchThread.close(), failures),
     ]);

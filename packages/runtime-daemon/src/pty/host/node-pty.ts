@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 
 import { importKoffi } from "../koffi.js";
 import { HeldSessionEvents } from "./held-events.js";
+import { requireDaemonParent } from "./parent-check.js";
 import type { OrphanGuard } from "../orphan/guard.js";
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../orphan/registry.js";
 import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
@@ -285,8 +286,14 @@ export class NodePtyHost implements PtyHost {
             "the host is terminal — re-create a fresh instance for new sessions.",
         );
       }
-      child = ptySpawn(spec.command, spec.args, {
-        name: "xterm-color",
+      // Outside Windows the child starts only while this daemon is its parent, so a daemon killed
+      // mid-spawn leaves nothing running (see `parent-check.ts`).
+      const launch =
+        this.deps.platform === "win32"
+          ? { command: spec.command, args: spec.args }
+          : requireDaemonParent(spec.command, spec.args, process.pid);
+      child = ptySpawn(launch.command, launch.args, {
+        name: spec.terminal_name ?? "xterm-color",
         cols: spec.cols,
         rows: spec.rows,
         cwd: spec.cwd,
@@ -675,16 +682,6 @@ export class NodePtyHost implements PtyHost {
   }
 
   // ---- PtyHost callback surface (settable by the daemon) ----------------
-
-  /** Delivers a data chunk to the consumer registered with `setOnData`. */
-  public onData(sessionId: string, chunk: Uint8Array): void {
-    this.dataListener(sessionId, chunk);
-  }
-
-  /** Delivers an exit event to the consumer registered with `setOnExit`. */
-  public onExit(sessionId: string, exitCode: number, signalCode?: number): void {
-    this.exitListener(sessionId, exitCode, signalCode);
-  }
 
   /** Register the daemon's data-chunk consumer. */
   public setOnData(listener: (sessionId: string, chunk: Uint8Array) => void): void {

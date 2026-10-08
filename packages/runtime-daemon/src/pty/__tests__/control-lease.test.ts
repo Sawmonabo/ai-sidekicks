@@ -38,7 +38,9 @@ describe("ShellControlLease", () => {
   it("lets exactly one of two racing takes win, and refuses the loser's writes", async () => {
     const { lease, changes } = openLease();
     const registry = new MethodRegistryImpl();
-    registerSessionTakeControl(registry, { findShellLease: () => lease });
+    registerSessionTakeControl(registry, {
+      terminalSessions: { leaseForOutputSubscription: () => lease },
+    });
     const takeThrough = (pane: ShellLeaseCaller): Promise<unknown> =>
       registry.dispatch(
         "session.takeControl",
@@ -98,6 +100,7 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      refuseEndedCaller: () => undefined,
       broadcast: (): Promise<void> => {
         if (isThrowing) {
           throw new Error("the event log is unavailable");

@@ -37,12 +37,9 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 
-import {
-  DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  EventEnvelopeVersionSchema,
-} from "@ai-sidekicks/contracts/event/envelope";
+import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/envelope";
 import { EventCompactedPayloadSchema } from "@ai-sidekicks/contracts/event/declared-variants";
-import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
+import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type {
   EventCompactedEvent,
   EventCompactedPayload,
@@ -73,6 +70,7 @@ import { pathExists } from "../../git/filesystem.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import type { ManagedWorkspaceService } from "../../workspace/managed/service.js";
 import { managedMountDeletionStatements } from "../../workspace/repo/mount-service.js";
+import { SESSION_EVENT_VERSION } from "./version.js";
 
 /** The category a purge never touches: maintenance records, its own receipt included. */
 const NEVER_PURGED_EVENT_CATEGORIES: readonly EventCategory[] = ["event_maintenance"];
@@ -91,8 +89,6 @@ export const PURGE_RECEIPT_TYPE: EventCompactedEvent["type"] = "event.compacted"
 // The receipt's envelope category and version. The version is parsed through its schema, so a
 // literal that stops satisfying the grammar throws at import rather than at the first receipt.
 const EVENT_MAINTENANCE_CATEGORY: EventCategory = "event_maintenance";
-const PURGE_RECEIPT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
-
 /** What one deletion did to one of its sessions, or refused to do and why. */
 export interface SessionPurgeOutcome {
   readonly sessionId: SessionId;
@@ -454,7 +450,7 @@ export class SessionPurge {
       type: PURGE_RECEIPT_TYPE,
       actor: null,
       payload,
-      version: PURGE_RECEIPT_VERSION,
+      version: SESSION_EVENT_VERSION,
     });
   }
 }

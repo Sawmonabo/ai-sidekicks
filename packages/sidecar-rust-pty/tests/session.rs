@@ -31,6 +31,7 @@ async fn spawn_echo_emits_data_frame_then_exit() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn should succeed");
@@ -54,6 +55,7 @@ async fn data_frame_seq_is_monotonic_per_session() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn should succeed");
@@ -98,6 +100,7 @@ async fn parallel_sessions_get_distinct_session_ids() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn A should succeed");
@@ -109,6 +112,7 @@ async fn parallel_sessions_get_distinct_session_ids() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn B should succeed");
@@ -133,6 +137,7 @@ async fn kill_sigterm_terminates_long_running_child() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn should succeed");
@@ -185,6 +190,7 @@ async fn write_round_trips_through_cat() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn should succeed");
@@ -254,6 +260,7 @@ async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn should succeed");
@@ -312,6 +319,7 @@ async fn registry_drop_escalates_to_sigkill_for_sighup_ignoring_child() {
             cwd: "/tmp".to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect("spawn should succeed");

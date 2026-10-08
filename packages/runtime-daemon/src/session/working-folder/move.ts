@@ -18,18 +18,18 @@ import type {
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
 
-import type { DatabaseConnections } from "../database/connection/lifecycle.js";
-import type { WriteStatement } from "../database/statement.js";
-import type { DatabaseWriter } from "../database/writer.js";
-import type { WorktreeEventEmitter } from "../git/worktree/event-emitter.js";
-import { canonicalFolderPath } from "../workspace/folder/canonical-path.js";
-import type { WorktreeSessionSweep, WorktreeSweepInput } from "../git/worktree/removal.js";
-import { DaemonDomainError } from "../ipc/domain-error.js";
-import { SessionNotFoundError } from "../ipc/session-errors.js";
-import { RepoMountManagedError, RepoRootResolutionError } from "../workspace/repo/errors.js";
-import { CHECKOUT_ROOT_METADATA_PATH } from "../workspace/row-guards.js";
-import type { ExecutionRootService } from "../workspace/execution-root-service.js";
-import { RUN_TERMINAL_STATES } from "./run/transitions.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
+import type { WriteStatement } from "../../database/statement.js";
+import type { DatabaseWriter } from "../../database/writer.js";
+import type { WorktreeEventEmitter } from "../../git/worktree/event-emitter.js";
+import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
+import type { WorktreeSessionSweep, WorktreeSweepInput } from "../../git/worktree/removal.js";
+import { DaemonDomainError } from "../../ipc/domain-error.js";
+import { SessionNotFoundError } from "../../ipc/session-errors.js";
+import { RepoMountManagedError, RepoRootResolutionError } from "../../workspace/repo/errors.js";
+import { CHECKOUT_ROOT_METADATA_PATH } from "../../workspace/row-guards.js";
+import type { ExecutionRootService } from "../../workspace/execution-root-service.js";
+import { RUN_TERMINAL_STATES } from "../run/transitions.js";
 
 interface SessionPendingRow {
   readonly pending_working_folder: string | null;

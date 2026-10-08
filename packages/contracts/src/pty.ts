@@ -21,8 +21,10 @@ import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
 import {
+  StreamFrameSchema,
   SubscribeAckResponseSchema,
   SubscriptionIdSchema,
+  type StreamFrame,
   type SubscribeAckResponse,
   type SubscriptionId,
 } from "./jsonrpc/streaming.js";
@@ -38,6 +40,12 @@ import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The longest terminal id the daemon accepts. */
 export const TERMINAL_ID_MAX_LEN = 256;
+
+/**
+ * The most UTF-16 code units a shell's title carries on the wire. The daemon cuts a longer title
+ * the shell sets to this, on a grapheme boundary.
+ */
+export const SHELL_TITLE_MAX_LEN = 256;
 
 /** The daemon-minted id of one shell in a session. Opaque to every client. */
 export type TerminalId = string & { readonly __brand: "TerminalId" };
@@ -111,8 +119,9 @@ const PtyShellStatusSchema: z.ZodType<PtyShellStatus> = z.discriminatedUnion("st
 
 /**
  * One shell as the tab strip draws it. `title` is the title the shell set for itself, or its
- * program's base name until it sets one. `holder` is `null` while nobody holds the shell, and
- * `leaseVersion` is the lease version that holder was read at.
+ * program's base name until it sets one, at most {@link SHELL_TITLE_MAX_LEN} long. `holder` is
+ * `null` while nobody holds the shell, and `leaseVersion` is the lease version that holder was read
+ * at.
  */
 export interface PtyListEntry {
   terminalId: TerminalId;
@@ -124,7 +133,7 @@ export interface PtyListEntry {
 const PtyListEntrySchema: z.ZodType<PtyListEntry> = z
   .object({
     terminalId: TerminalIdSchema,
-    title: z.string().min(1),
+    title: z.string().min(1).max(SHELL_TITLE_MAX_LEN),
     status: PtyShellStatusSchema,
     holder: TerminalControlHolderSchema.nullable(),
     leaseVersion: leaseVersionSchema,
@@ -221,13 +230,18 @@ export const PtyOutputSubscribeRequestSchema: z.ZodType<
   PtyOutputSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema }).strict();
 
+// How many bytes of a shell's output, its marks taken out, came before a point in its stream.
+const outputOffsetSchema = z.number().int().nonnegative();
+
 /**
- * One frame of a shell's output stream. The first is always `scrollback`: the scrollback window
- * starting at its first whole line, the columns and rows it was last drawn at (so a running
- * program's boxes come back unwrapped), and who holds it at which lease version. Then `output` in
- * the order the shell wrote it, and `exited` once its program ends.
+ * One change on a shell's output stream; `cursor` is the shell's output offset once the change is
+ * applied, in bytes since the shell started. `scrollback` opens the scrollback window, starting at
+ * its first whole line, with the columns and rows it was last drawn at (so a running program's
+ * boxes come back unwrapped) and who holds it at which lease version; a window too large for one
+ * message goes on in `scrollback_continuation` changes, each in a frame of its own, before any
+ * output. `output` is what the shell wrote next, in order; `exited` is its program's end.
  */
-export type PtyOutputFrame =
+export type PtyOutputChange =
   | {
       kind: "scrollback";
       sessionId: SessionId;
@@ -237,11 +251,24 @@ export type PtyOutputFrame =
       rows: number;
       holder: TerminalControlHolder | null;
       leaseVersion: number;
+      cursor: number;
     }
-  | { kind: "output"; sessionId: SessionId; terminalId: TerminalId; data: string }
-  | { kind: "exited"; sessionId: SessionId; terminalId: TerminalId; exitCode: number };
-/** Parses a {@link PtyOutputFrame}. */
-export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUnion("kind", [
+  | {
+      kind: "scrollback_continuation";
+      sessionId: SessionId;
+      terminalId: TerminalId;
+      data: string;
+      cursor: number;
+    }
+  | { kind: "output"; sessionId: SessionId; terminalId: TerminalId; data: string; cursor: number }
+  | {
+      kind: "exited";
+      sessionId: SessionId;
+      terminalId: TerminalId;
+      exitCode: number;
+      cursor: number;
+    };
+const PtyOutputChangeSchema: z.ZodType<PtyOutputChange> = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("scrollback"),
@@ -252,6 +279,16 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
       rows: z.number().int().positive(),
       holder: TerminalControlHolderSchema.nullable(),
       leaseVersion: leaseVersionSchema,
+      cursor: outputOffsetSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("scrollback_continuation"),
+      sessionId: SessionIdSchema,
+      terminalId: TerminalIdSchema,
+      data: z.string(),
+      cursor: outputOffsetSchema,
     })
     .strict(),
   z
@@ -260,6 +297,7 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
       sessionId: SessionIdSchema,
       terminalId: TerminalIdSchema,
       data: z.string(),
+      cursor: outputOffsetSchema,
     })
     .strict(),
   z
@@ -268,39 +306,72 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
       sessionId: SessionIdSchema,
       terminalId: TerminalIdSchema,
       exitCode: z.number().int(),
+      cursor: outputOffsetSchema,
     })
     .strict(),
 ]);
 
 /**
- * How written text arrived. A `paste` is wrapped as pasted text when the program in the shell asked
- * for that, so several lines sit at the prompt instead of running themselves.
+ * One notify of a shell's output stream. The first frame opens with the `scrollback` change, and
+ * the frames that continue the window follow it. A watcher that fell behind stops receiving
+ * output, and once it has caught up its next frame carries the drop mark and a fresh `scrollback`
+ * change, so it redraws from the scrollback window and no byte reaches it twice.
  */
-export type PtyWriteKind = "keys" | "paste";
+export type PtyOutputFrame = StreamFrame<PtyOutputChange, number>;
+/** Parses a {@link PtyOutputFrame}. */
+export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = StreamFrameSchema(
+  PtyOutputChangeSchema,
+  outputOffsetSchema,
+);
+
+// The shell and the writing pane every write names, and the text it carries.
+const ptyWriteShape = {
+  sessionId: SessionIdSchema,
+  terminalId: TerminalIdSchema,
+  outputSubscriptionId: SubscriptionIdSchema,
+  data: z.string(),
+};
 
 /**
  * Input for one shell, written as it arrives; the writer's connection must hold the shell. The
  * write is bound to `outputSubscriptionId`, the writing pane's own `pty.outputSubscribe`
  * subscription to that shell: a first write to a shell nobody holds takes it through that
- * subscription, and a holding connection's write binds it to the hold.
+ * subscription, and a holding connection's write binds it to the hold. `keys` is typed text. A
+ * `paste` is pasted text sent in one or more parts, each under the wire's message cap, all naming
+ * the client-minted `pasteId` and the last one `isLastPart`; when the program in the shell asked
+ * for pasted text to be marked as pasted, the daemon marks the whole paste once around all its
+ * parts, so several lines sit at the prompt instead of running themselves.
  */
-export interface PtyWriteRequest {
-  sessionId: SessionId;
-  terminalId: TerminalId;
-  outputSubscriptionId: SubscriptionId;
-  data: string;
-  kind: PtyWriteKind;
-}
+export type PtyWriteRequest =
+  | {
+      sessionId: SessionId;
+      terminalId: TerminalId;
+      outputSubscriptionId: SubscriptionId;
+      data: string;
+      kind: "keys";
+    }
+  | {
+      sessionId: SessionId;
+      terminalId: TerminalId;
+      outputSubscriptionId: SubscriptionId;
+      data: string;
+      kind: "paste";
+      pasteId: string;
+      isLastPart: boolean;
+    };
 /** Parses a {@link PtyWriteRequest}. */
-export const PtyWriteRequestSchema: z.ZodType<PtyWriteRequest, PtyWriteRequest> = z
-  .object({
-    sessionId: SessionIdSchema,
-    terminalId: TerminalIdSchema,
-    outputSubscriptionId: SubscriptionIdSchema,
-    data: z.string(),
-    kind: z.enum(["keys", "paste"]),
-  })
-  .strict();
+export const PtyWriteRequestSchema: z.ZodType<PtyWriteRequest, PtyWriteRequest> =
+  z.discriminatedUnion("kind", [
+    z.object({ ...ptyWriteShape, kind: z.literal("keys") }).strict(),
+    z
+      .object({
+        ...ptyWriteShape,
+        kind: z.literal("paste"),
+        pasteId: z.uuid(),
+        isLastPart: z.boolean(),
+      })
+      .strict(),
+  ]);
 
 /** A shell's new size in character cells. Only a connection holding it sets it; watchers follow. */
 export interface PtyResizeRequest {
@@ -486,12 +557,6 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
  * moves, from another device's, which a forced take or close moves.
  */
 export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
-/**
- * Type of {@link PTY_CONTROL_HELD_BY_OTHER_CODE}.
- *
- * @consumedBy the handler that returns the `pty.control_held_by_other` error
- */
-export type PtyControlHeldByOtherCode = typeof PTY_CONTROL_HELD_BY_OTHER_CODE;
 /** Details of a `pty.control_held_by_other` refusal: the shell and who holds it. */
 export interface PtyControlHeldByOtherDetails extends TerminalControlHolder {
   terminalId: TerminalId;
@@ -513,55 +578,25 @@ export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOther
  * a shell nobody holds takes it instead.
  */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
-/**
- * Type of {@link PTY_CONTROL_NOT_HELD_CODE}.
- *
- * @consumedBy the handler that returns the `pty.control_not_held` error
- */
-export type PtyControlNotHeldCode = typeof PTY_CONTROL_NOT_HELD_CODE;
 
 /**
  * A request naming a shell its session does not have: no such shell, or another session's, which
  * the refusal never tells apart.
- *
- * @consumedBy the daemon's shell handlers, which check each request's shell against its session
  */
 export const PTY_NOT_FOUND_CODE = "pty.not_found" as const;
-/**
- * Type of {@link PTY_NOT_FOUND_CODE}.
- *
- * @consumedBy the handlers that return the `pty.not_found` error
- */
-export type PtyNotFoundCode = typeof PTY_NOT_FOUND_CODE;
 
 /**
  * A take or a write naming an output subscription that is not the calling connection's own open
  * subscription to that shell: no such subscription, another connection's, or one to another
  * shell, which the refusal never tells apart, so a hold is never bound to another pane.
- *
- * @consumedBy the take and write handlers, which check the subscription before the lease reads it
  */
 export const PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE = "pty.output_subscription_not_found" as const;
-/**
- * Type of {@link PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE}.
- *
- * @consumedBy the handlers that return the `pty.output_subscription_not_found` error
- */
-export type PtyOutputSubscriptionNotFoundCode = typeof PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE;
 
 /**
  * `pty.open` on a chat session, which is bound to a managed workspace and no repository and has no
  * shell. The screen never offers it there, so only a caller fault reaches this refusal.
- *
- * @consumedBy the daemon's `pty.open` handler, which checks the session's kind before it starts one
  */
 export const PTY_CHAT_UNSUPPORTED_CODE = "pty.chat_unsupported" as const;
-/**
- * Type of {@link PTY_CHAT_UNSUPPORTED_CODE}.
- *
- * @consumedBy the handler that returns the `pty.chat_unsupported` error
- */
-export type PtyChatUnsupportedCode = typeof PTY_CHAT_UNSUPPORTED_CODE;
 
 /** The `pty.*` methods, keyed by name. */
 export interface PtyMethodDescriptors {
@@ -583,11 +618,7 @@ export interface PtyMethodDescriptors {
   readonly "pty.write": MethodDescriptor<"pty.write", PtyWriteRequest, PtyActResponse>;
   readonly "pty.resize": MethodDescriptor<"pty.resize", PtyResizeRequest, PtyActResponse>;
 }
-/**
- * Every `pty.*` method: its name, how it answers, and its shapes.
- *
- * @consumedBy the daemon's `pty.*` handlers
- */
+/** Every `pty.*` method: its name, how it answers, and its shapes. */
 export const PTY_METHOD_DESCRIPTORS: PtyMethodDescriptors = defineMethodDescriptors({
   "pty.list": {
     method: "pty.list",

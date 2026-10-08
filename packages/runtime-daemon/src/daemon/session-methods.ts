@@ -1,16 +1,17 @@
 // Builds the daemon's session services on its one database and binds every `session.*` verb they
-// answer, plus `transcript.read` and `transcript.search`, then the repository services over the
-// same database. The daemon's one event log is built here with the session directory's statements,
-// so each event's `sessions` row change commits in the event's own write, and the sessions list
-// follows that log from the start, before any append; the daemon's recovery pass and its damaged
-// history append through the same log, which refuses a damaged session's writes, and every session
-// read and search stops at a damaged session's last good point. One transcript projector serves
-// both the read windows and the run stamp on each streamed change. The services' background work
-// starts only once the recovery pass has ended.
+// answer, plus `transcript.read`, `transcript.search` and the session's shells' `pty.*` verbs, then
+// the repository services over the same database. The daemon's one event log is built here with the
+// session directory's statements, so each event's `sessions` row change commits in the event's own
+// write, and the sessions list follows that log from the start, before any append; the daemon's
+// recovery pass and its damaged history append through the same log, which refuses a damaged
+// session's writes, and every session read and search stops at a damaged session's last good
+// point. One transcript projector serves both the read windows and the run stamp on each streamed
+// change. The services' background work starts only once the recovery pass has ended.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { EventLogService } from "../events/log-service.js";
@@ -23,6 +24,8 @@ import {
   type GitRunner,
 } from "../git/process.js";
 import { worktreesDirectoryOf } from "../git/worktree/naming.js";
+import { registerPtyInputOutputMethods } from "../ipc/handlers/pty/input-output.js";
+import { registerPtyShellMethods } from "../ipc/handlers/pty/shells.js";
 import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
 import { registerSessionCreate } from "../ipc/handlers/session/create.js";
 import { registerSessionDraftUpdate } from "../ipc/handlers/session/draft-update.js";
@@ -37,8 +40,10 @@ import {
   registerSessionFileSearch,
   registerSessionSearch,
 } from "../ipc/handlers/session/search.js";
+import { registerSessionSetTerminalFlowControl } from "../ipc/handlers/session/set-terminal-flow-control.js";
 import { registerSessionSubscribe, type OutboundQueue } from "../ipc/handlers/session/subscribe.js";
 import { registerSessionTagMethods } from "../ipc/handlers/session/tags.js";
+import { registerSessionTakeControl } from "../ipc/handlers/session/take-control.js";
 import {
   registerTranscriptRead,
   registerTranscriptSearch,
@@ -49,6 +54,9 @@ import { ProviderConversationPurge } from "../provider/conversation-purge.js";
 import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
+import type { PtyHost } from "../pty/host/contract.js";
+import type { PtySessionEvents } from "../pty/host/session-events.js";
+import { TerminalSessions } from "../pty/terminal-sessions.js";
 import { SessionAutoTitle } from "../session/auto-title.js";
 import { SessionChanges } from "../session/changes.js";
 import { SessionConversion } from "../session/convert.js";
@@ -63,8 +71,10 @@ import { SessionRelatedRanking } from "../session/related/ranking.js";
 import { FileSearchService } from "../session/search/files/service.js";
 import { SearchIndexMerging } from "../session/search/merging.js";
 import type { SearchThread } from "../session/search/thread/handle.js";
+import { sessionLifecycleEvent } from "../session/lifecycle-event.js";
 import { SessionService } from "../session/service.js";
 import { SessionTagService } from "../session/tags/service.js";
+import { prepareWorkingFolderRead } from "../session/working-folder/read.js";
 import { TranscriptProjector } from "../transcript/projector.js";
 import { TranscriptWindowReader } from "../transcript/window.js";
 import { WorkspaceEventEmitter } from "../workspace/event-emitter.js";
@@ -113,14 +123,26 @@ export interface SessionMethodsDeps {
   readonly refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
   /** Where a damaged session's reads stop. */
   readonly readDamagedFromSequence: DamagedFromSequenceReader;
-  /** The login shell a project's setup commands run in; `null` runs the system's default one. */
+  /**
+   * The account's login shell, which a project's setup commands and every session's shells run
+   * in; `null` runs the system's default one.
+   */
   readonly commandShell: string | null;
   /** How this system compares environment variable names, which setup commands are built under. */
   readonly environmentNameMatch: SpawnEnvNameMatch;
-  /** The login shell's environment captured at the start, which setup commands are built from. */
+  /**
+   * The login shell's environment captured at the start, which setup commands and every shell are
+   * built from.
+   */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** The terminal host every session's shells run in. */
+  readonly ptyHost: PtyHost;
+  /** Hands each of the host's sessions its own output and exit. */
+  readonly ptySessionEvents: PtySessionEvents;
+  /** This machine's own device id, which a run's hold on a shell names. */
+  readonly machineDeviceId: DeviceId;
 }
 
 /** What the daemon goes on to use of the session and repository services it registered. */
@@ -159,6 +181,11 @@ export interface RegisteredSessionServices {
    * stopped-work passes and the repository services' own.
    */
   readonly stop: () => Promise<void>;
+  /**
+   * Ends a closed connection's bindings on every shell's hold. Called before the connection's
+   * subscriptions end, so a hold that ends with the connection is released as a disconnect.
+   */
+  readonly releaseConnection: (transportId: number) => void;
 }
 
 /** Builds the session and repository services and registers their verbs on `registry`. */
@@ -358,6 +385,38 @@ export function registerSessionMethods(
     outboundQueue: deps.outboundQueue,
     writeServiceLog: deps.writeServiceLog,
   });
+  const terminalSessions = new TerminalSessions({
+    host: deps.ptyHost,
+    followHostSession: (hostSessionId, listeners) =>
+      deps.ptySessionEvents.follow(hostSessionId, listeners),
+    machineDeviceId: deps.machineDeviceId,
+    readWorkingFolder: prepareWorkingFolderRead(database.reader),
+    appendControlChange: async (change) => {
+      await eventLog.append(
+        sessionLifecycleEvent({
+          sessionId: change.sessionId,
+          type: "pty.control_changed",
+          payload: { ...change },
+          occurredAt: new Date(),
+        }),
+      );
+    },
+    readScreenReaderMode: async () => (await deps.settingsFile.read()).settings.screenReaderMode,
+    readLoginShell: () => deps.commandShell,
+    baseEnvironment: deps.providerBaseEnvironment,
+    outboundQueue: deps.outboundQueue,
+    writeServiceLog: deps.writeServiceLog,
+  });
+  registerPtyShellMethods(registry, {
+    terminalSessions,
+    streamingPrimitive: deps.streamingPrimitive,
+  });
+  registerPtyInputOutputMethods(registry, {
+    terminalSessions,
+    streamingPrimitive: deps.streamingPrimitive,
+  });
+  registerSessionTakeControl(registry, { terminalSessions });
+  registerSessionSetTerminalFlowControl(registry, { terminalSessions });
 
   const autoTitle = new SessionAutoTitle({
     reader: database.reader,
@@ -441,6 +500,9 @@ export function registerSessionMethods(
       projectListFeed.close();
       await watchStarting;
       await Promise.all([stopBackgroundWork?.(), repo.stop()]);
+    },
+    releaseConnection: (transportId) => {
+      terminalSessions.releaseConnection(transportId);
     },
   };
 }

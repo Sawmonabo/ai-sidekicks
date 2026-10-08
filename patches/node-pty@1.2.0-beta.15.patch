@@ -1,0 +1,73 @@
+diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
+index af2d24c39deb60e77ad16e6b864f37a7ef58881c..ee03cb96fed88cb07a8808d9be901ac9d6f3a8ae 100644
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -97,6 +97,13 @@ var UnixTerminal = /** @class */ (function (_super) {
+             _this._socket.setEncoding(encoding);
+         }
+         _this._writeStream = new CustomWriteStream(term.fd, (encoding || undefined));
++        // The read socket owns the fd and closes it on destroy. Stop writing then, and close only
++        // once a write already handed to fs.write has returned, so none runs on a closed number.
++        var destroySocket = _this._socket._destroy;
++        _this._socket._destroy = function (err, callback) {
++            var socket = this;
++            _this._writeStream.close(function () { return destroySocket.call(socket, err, callback); });
++        };
+         // setup
+         _this._socket.on('error', function (err) {
+             // NOTE: fs.ReadStream gets EAGAIN twice at first:
+@@ -293,7 +300,24 @@ var CustomWriteStream = /** @class */ (function () {
+         clearImmediate(this._writeImmediate);
+         this._writeImmediate = undefined;
+     };
++    /**
++     * Stops writing for good: drops the queued writes and calls `onIdle` once no write is in flight.
++     */
++    CustomWriteStream.prototype.close = function (onIdle) {
++        this.dispose();
++        this._writeQueue.length = 0;
++        this._isStopped = true;
++        if (this._isWriting) {
++            this._onIdle = onIdle;
++        }
++        else {
++            onIdle();
++        }
++    };
+     CustomWriteStream.prototype.write = function (data) {
++        if (this._isStopped) {
++            return;
++        }
+         // Writes are put in a queue and processed asynchronously in order to handle
+         // backpressure from the kernel buffer.
+         var buffer = typeof data === 'string'
+@@ -316,7 +340,14 @@ var CustomWriteStream = /** @class */ (function () {
+         // Write to the underlying file descriptor and handle it directly, rather
+         // than using the `net.Socket`/`tty.WriteStream` wrappers which swallow and
+         // mask errors like EAGAIN and can cause the thread to block indefinitely.
++        this._isWriting = true;
+         fs.write(this._fd, task.buffer, task.offset, function (err, written) {
++            _this._isWriting = false;
++            if (_this._onIdle) {
++                // The fd's close waited for this write and may go ahead now.
++                _this._onIdle();
++                return;
++            }
+             if (err) {
+                 if ('code' in err && err.code === 'EAGAIN') {
+                     // `setImmediate` is used to yield to the event loop and re-attempt
+@@ -326,7 +357,13 @@ var CustomWriteStream = /** @class */ (function () {
+                 else {
+                     // Stop processing immediately on unexpected error and log
+                     _this._writeQueue.length = 0;
+-                    console.error('Unhandled pty write error', err);
++                    // EIO is the other side of the terminal hanging up: the terminal has ended.
++                    if (err.code === 'EIO') {
++                        _this._isStopped = true;
++                    }
++                    else {
++                        console.error('Unhandled pty write error', err);
++                    }
+                 }
+                 return;
+             }

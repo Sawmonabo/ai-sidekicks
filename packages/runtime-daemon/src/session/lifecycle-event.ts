@@ -1,17 +1,12 @@
 // The envelope of one event in a session's lifecycle, as the session's create, conversion and
 // changes append it: a fresh id, the clock's time, and no actor.
 
-import {
-  EventEnvelopeVersionSchema,
-  type EventEnvelopeVersion,
-} from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { UnsequencedEventEnvelope } from "../events/log-service.js";
+import { SESSION_EVENT_VERSION } from "../events/session/version.js";
 import { mintUuidV7 } from "../uuid-v7.js";
-
-const SESSION_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
 /** A `session_lifecycle` event of `type` for `sessionId`, ready to append. */
 export function sessionLifecycleEvent(event: {

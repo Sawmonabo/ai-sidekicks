@@ -468,7 +468,8 @@ export const SessionFileSearchRequestSchema: z.ZodType<
 /**
  * A `session.fileSearch` whose session has no working folder in place, yet or any more, or a
  * `session.setWorkingFolder` whose session works in no folder any more; nothing is listed or moved.
- * `data.fields`: `sessionId`.
+ * It also answers a `pty.open` whose session's working folder is not ready yet or is gone, and no
+ * shell starts. `data.fields`: `sessionId`.
  */
 export const SESSION_WORKING_FOLDER_UNAVAILABLE_CODE =
   "session.working_folder_unavailable" as const;

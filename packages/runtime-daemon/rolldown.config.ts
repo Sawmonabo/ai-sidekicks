@@ -4,10 +4,11 @@
 // Each worker thread, child process and program another process runs is an entry written where
 // its source sits, and a module that finds a file from its own location keeps its source path in a
 // chunk of its own, so the worker beside the module that starts it, a program beside the module
-// that names its path and the package's manifest are found from the build as from the source.
-// `tsc` only type-checks, so the bundle's folder is emptied before each build and holds no chunk
-// an earlier build wrote.
-import { globSync, readFileSync } from "node:fs";
+// that names its path and the package's manifest are found from the build as from the source. The
+// shell scripts a module loads at run time are copied into the build at the path they have in the
+// source, so they sit beside that module there too. `tsc` only type-checks, so the bundle's folder
+// is emptied before each build and holds no chunk an earlier build wrote.
+import { globSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { RolldownOptions } from "rolldown";
@@ -76,6 +77,9 @@ function readsItsOwnLocation(modulePath: string): boolean {
 
 const keptPathNames = new Set<string>();
 
+// The scripts each shell loads to report its marks, found beside the module that starts the shell.
+const SHELL_SCRIPTS_FOLDER = path.join(SOURCE_FOLDER, "pty", "shell", "integration", "scripts");
+
 const config: RolldownOptions = {
   input: Object.fromEntries(ENTRY_PATHS.map((entry) => [buildNameOf(entry), entry])),
   platform: "node",
@@ -83,6 +87,23 @@ const config: RolldownOptions = {
   // exports and modules must run in source order, or rolldown can write invalid chunks.
   preserveEntrySignatures: "allow-extension",
   external: (id) => INSTALLED_PACKAGES.some((name) => id === name || id.startsWith(`${name}/`)),
+  plugins: [
+    {
+      name: "shell-scripts",
+      buildStart() {
+        const entries = readdirSync(SHELL_SCRIPTS_FOLDER, { recursive: true, withFileTypes: true });
+        for (const entry of entries.filter((candidate) => candidate.isFile())) {
+          const sourcePath = path.join(entry.parentPath, entry.name);
+          this.emitFile({
+            type: "asset",
+            fileName: path.relative(SOURCE_FOLDER, sourcePath).split(path.sep).join("/"),
+            originalFileName: sourcePath,
+            source: readFileSync(sourcePath),
+          });
+        }
+      },
+    },
+  ],
   output: {
     dir: path.join(import.meta.dirname, "dist"),
     cleanDir: true,
