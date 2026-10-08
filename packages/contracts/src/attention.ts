@@ -12,10 +12,7 @@ import {
   type EmptyPayload,
 } from "./method-descriptor.js";
 import { wireFreeFormString } from "./free-form-string.js";
-import {
-  KeychainRefusalCauseSchema,
-  type KeychainRefusalCause,
-} from "./provider/account/sign-in.js";
+import { KeychainRefusalCauseSchema, type KeychainRefusalCause } from "./keychain.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow/definition/document.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";

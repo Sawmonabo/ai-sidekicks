@@ -24,8 +24,8 @@ import {
   type SettingsFileRepairCause,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import { writeFileAtomically } from "../../../atomic-file-write.js";
-import { isMissingFileError } from "../../../missing-file-error.js";
+import { writeFileAtomically } from "../../../file/atomic-write.js";
+import { isMissingFileError } from "../../../file/missing-error.js";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;

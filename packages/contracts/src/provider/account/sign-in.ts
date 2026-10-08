@@ -20,6 +20,7 @@ import {
 } from "./record.js";
 import { ProviderNameSchema, type ProviderName } from "../name.js";
 import { wireFreeFormString } from "../../free-form-string.js";
+import { KeychainRefusalCauseSchema, type KeychainRefusalCause } from "../../keychain.js";
 import { isoDateTimeSchema } from "../../internal/wire-scalars.js";
 
 /** The longest provider verification URL, carried verbatim. */
@@ -146,25 +147,6 @@ export interface ProviderAccountRegisterResponse {
 export const ProviderAccountRegisterResponseSchema: z.ZodType<ProviderAccountRegisterResponse> = z
   .object({ account: ProviderAccountSchema })
   .strict();
-
-const KEYCHAIN_REFUSAL_CAUSE_VALUES = ["locked", "unavailable"] as const;
-
-/**
- * Why this machine's keychain could not be used: it is `locked`, or there is no keychain the app
- * can use (`unavailable`). A secret that cannot be sealed is refused and stored nowhere else, and
- * every refusal over the keychain carries this one pair.
- */
-export type KeychainRefusalCause = (typeof KEYCHAIN_REFUSAL_CAUSE_VALUES)[number];
-/**
- * Every {@link KeychainRefusalCause}.
- *
- * @consumedBy the paste-token refusal, one line per keychain cause
- */
-export const KEYCHAIN_REFUSAL_CAUSES: readonly KeychainRefusalCause[] =
-  KEYCHAIN_REFUSAL_CAUSE_VALUES;
-/** Parses a {@link KeychainRefusalCause}. */
-export const KeychainRefusalCauseSchema: z.ZodType<KeychainRefusalCause, KeychainRefusalCause> =
-  z.enum(KEYCHAIN_REFUSAL_CAUSE_VALUES);
 
 /** A pasted token could not be sealed in this machine's keychain, so nothing was stored. */
 export const PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE =

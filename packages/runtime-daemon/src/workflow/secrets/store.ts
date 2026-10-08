@@ -17,7 +17,7 @@
 // back and compares.
 import { timingSafeEqual } from "node:crypto";
 
-import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
 import {
   WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
   type WorkflowSecretId,

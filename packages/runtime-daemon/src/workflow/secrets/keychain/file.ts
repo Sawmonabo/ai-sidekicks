@@ -16,8 +16,8 @@ import path from "node:path";
 import pLimit, { type LimitFunction } from "p-limit";
 import { z } from "zod";
 
-import { writeFileAtomically } from "../../../atomic-file-write.js";
-import { isMissingFileError } from "../../../missing-file-error.js";
+import { writeFileAtomically } from "../../../file/atomic-write.js";
+import { isMissingFileError } from "../../../file/missing-error.js";
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
 
 const ITEMS_FILE_NAME = "secrets.json";

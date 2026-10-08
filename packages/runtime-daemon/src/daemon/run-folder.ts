@@ -10,7 +10,7 @@ import {
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 
-import { isMissingFileError } from "../missing-file-error.js";
+import { isMissingFileError } from "../file/missing-error.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 
 /**

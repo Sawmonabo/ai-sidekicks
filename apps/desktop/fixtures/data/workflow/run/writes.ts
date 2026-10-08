@@ -25,6 +25,7 @@ import {
   WORKFLOW_RUN_RECORDS,
   WORKFLOW_STARTED_BY_PERSON,
   isGoing,
+  isParked,
   type WorkflowRunRecord,
 } from "./records.js";
 import type { AnsweredRequests } from "#renderer/services/daemon/scenario/reply.fixture.js";
@@ -44,9 +45,8 @@ export function currentRuns(playback: WorkflowPlayback): readonly WorkflowRunRec
   const bulkCutoffs = playback
     .answered("workflow.runsDelete")
     .map((call) => playback.readStamp(readString(call, "olderThan")));
-  return runsBeforeBulkDeletes(playback.answered).filter(
-    (run) => !bulkCutoffs.some((cutoff) => isBulkDeletable(run, cutoff)),
-  );
+  const runs = runsBeforeBulkDeletes(playback.answered);
+  return runs.filter((run) => !bulkCutoffs.some((cutoff) => isBulkDeletable(run, cutoff, runs)));
 }
 
 /** The runs with every answered write applied except the bulk deletes, newest first. */
@@ -304,9 +304,30 @@ function mintedRun(
   };
 }
 
-/** Whether a bulk delete with this cutoff takes the run: older, not kept and not going. */
-export function isBulkDeletable(run: WorkflowRunRecord, cutoffMs: number): boolean {
-  return startedAtMs(run) < cutoffMs && !run.read.keep && !isGoing(run);
+/**
+ * Whether a delete of the run is refused while `runs` stand: it is going or parked on its failed
+ * step, or it is a chain's first run and a later run of its chain is either.
+ */
+export function isDeleteRefused(
+  run: WorkflowRunRecord,
+  runs: readonly WorkflowRunRecord[],
+): boolean {
+  const isHeldByLaterRun = runs.some(
+    (later) =>
+      later.read.chainRoot.runId === run.read.workflowRunId &&
+      later.read.workflowRunId !== run.read.workflowRunId &&
+      (isGoing(later) || isParked(later)),
+  );
+  return isGoing(run) || isParked(run) || isHeldByLaterRun;
+}
+
+/** Whether a bulk delete with this cutoff takes the run from `runs`: older, not kept, not refused. */
+export function isBulkDeletable(
+  run: WorkflowRunRecord,
+  cutoffMs: number,
+  runs: readonly WorkflowRunRecord[],
+): boolean {
+  return startedAtMs(run) < cutoffMs && !run.read.keep && !isDeleteRefused(run, runs);
 }
 
 /** When the run started, as epoch milliseconds on the playback's clock. */

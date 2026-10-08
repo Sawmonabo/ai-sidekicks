@@ -1,12 +1,15 @@
-// What each of a run's four controls may do in the run's current state, and the words it refuses
-// in where it may not. Every control keeps its place whatever the state; one the state does not
-// allow stands disabled with its reason beside it, rather than quietly not being there. These are
-// the states the daemon's own refusals name, so a press the screen allows and the daemon still
-// refuses shows the daemon's words instead.
+// What each of a run's four controls and a row's `Delete run` may do in the run's current state,
+// and the words each refuses in where it may not. Every control keeps its place whatever the
+// state; one the state does not allow stands disabled with its reason beside it, rather than
+// quietly not being there. These are the states the daemon's own refusals name, so a press the
+// screen allows and the daemon still refuses shows the daemon's words instead.
 
 import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/status";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
-import { type WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
+import type {
+  WorkflowRunReadResponse,
+  WorkflowRunSummary,
+} from "@ai-sidekicks/contracts/workflow/run/records";
 import { GOING_RUN_STATUSES } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import { isLaterStep } from "./steps.js";
@@ -57,6 +60,16 @@ export function retryAvailability(
   return isSuperseded ? { kind: "refused", reason: "Retry · this step has a later run" } : ALLOWED;
 }
 
+/**
+ * Whether a row's `Delete run` may act: a run still going, or a failed run parked on its failed
+ * step, which carries no duration because it has not ended, is refused until it ends or is
+ * canceled.
+ */
+export function deleteRunAvailability(run: WorkflowRunSummary): RunControlAvailability {
+  const isParkedOnFailure = run.status === "failed" && run.durationMs === undefined;
+  return isGoing(run.status) || isParkedOnFailure ? DELETE_REFUSED : ALLOWED;
+}
+
 /** Whether a run with this status is still going: new, running or waiting. */
 export function isGoing(status: WorkflowRunStatus): boolean {
   return GOING_RUN_STATUSES.includes(status);
@@ -83,6 +96,9 @@ const CANCEL_REFUSED: RunControlAvailability = {
   kind: "refused",
   reason: "Cancel · this run has already finished",
 };
+
+/** Why `Delete run` cannot act on a run a person can still resume or cancel. */
+const DELETE_REFUSED: RunControlAvailability = { kind: "refused", reason: "Cancel it first." };
 
 /** Why `Resume` cannot act on a run that is not parked, going or ended. */
 const RESUME_REFUSED: RunControlAvailability = {

@@ -18,10 +18,7 @@ import {
 } from "../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../project.js";
 import { wireUncappedFreeFormString } from "../free-form-string.js";
-import {
-  KeychainRefusalCauseSchema,
-  type KeychainRefusalCause,
-} from "../provider/account/sign-in.js";
+import { KeychainRefusalCauseSchema, type KeychainRefusalCause } from "../keychain.js";
 
 /** A secret record's id. The daemon mints it. */
 export type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" };

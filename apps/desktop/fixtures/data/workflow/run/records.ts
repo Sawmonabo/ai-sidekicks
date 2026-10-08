@@ -157,7 +157,8 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
   });
 }
 
-// A seeded step's status with what it waits on, or, once it waits no more, how a person answered it.
+// A seeded step's status with what it waits on, or, once it waits no more, how a person answered
+// it.
 function statusOfStep(seed: StepSeed) {
   const deadline = seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt };
   const answered = seed.resolution === undefined ? {} : { resolution: seed.resolution };
@@ -274,7 +275,7 @@ function record(seed: RunSeed): WorkflowRunRecord {
   return {
     definitionName,
     startedMinutesAgo: seed.startedMinutesAgo,
-    ...(seed.finishedMinutesAgo === undefined
+    ...(seed.finishedMinutesAgo === undefined || !isFinished
       ? {}
       : { durationMs: (seed.startedMinutesAgo - seed.finishedMinutesAgo) * 60_000 }),
     read: {
@@ -824,6 +825,14 @@ export function isGoing(run: WorkflowRunRecord): boolean {
   return GOING_RUN_STATUSES.includes(run.read.status);
 }
 
+/** Whether the run is parked, waiting to be resumed: a waiting run, or a failed run not ended. */
+export function isParked(run: WorkflowRunRecord): boolean {
+  return (
+    run.read.status === "waiting" ||
+    (run.read.status === "failed" && run.read.finishedAt === undefined)
+  );
+}
+
 /** A run's row in the runs table, derived from its read the way the daemon's projection is. */
 export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
   const { read } = run;
@@ -839,7 +848,7 @@ export function summaryOfRun(run: WorkflowRunRecord): WorkflowRunSummary {
     triggerKind: read.triggerKind,
     startedBy: read.startedBy,
     startedAt: read.startedAt,
-    ...(isRunGoing ? {} : { durationMs: run.durationMs ?? 0 }),
+    ...(isRunGoing || isParked(run) ? {} : { durationMs: run.durationMs ?? 0 }),
     stepCount: read.steps.filter((step) => step.finishedAt !== undefined).length,
     ...(isRunGoing && read.liveStep !== undefined ? { liveStep: read.liveStep } : {}),
     ...(read.cost === undefined ? {} : { cost: read.cost }),
