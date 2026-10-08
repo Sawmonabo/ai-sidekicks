@@ -5,6 +5,7 @@
 // with the window, which is why the count is the reading.
 
 import type { AppUnderTest } from "../../helpers/electron/harness.js";
+import { CONVERSATION_SCROLLER_SELECTOR } from "../workload.js";
 
 /** The library's marker on an element whose bar has started. */
 const STARTED_OVERLAY_SELECTOR = "[data-overlayscrollbars-viewport]";
@@ -12,10 +13,6 @@ const STARTED_OVERLAY_SELECTOR = "[data-overlayscrollbars-viewport]";
 /** The marker on an element whose bar has not started yet. */
 const AWAITING_OVERLAY_SELECTOR =
   "[data-overlayscrollbars-initialize]:not([data-overlayscrollbars-viewport])";
-
-/** The conversation's scroller in the frame's screen region. */
-const CONVERSATION_SCROLLER_SELECTOR =
-  ".meridian-frame__screen .meridian-transcript-viewport__scroll-container";
 
 /** The most wheel steps a walk takes in either direction before it gives up on an end. */
 const WHEEL_STEP_LIMIT = 400;

@@ -7,6 +7,7 @@ import { CONCURRENT_STREAMING_SCENARIO } from "./scenarios/concurrent-streaming.
 import { EMPTY_SESSION_SCENARIO } from "./scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "./scenarios/transcript-states.js";
 import { TERMINAL_LEASE_SCENARIO } from "./scenarios/terminal-lease.js";
+import { LONG_CONVERSATION_SCENARIO } from "./scenarios/long-conversation.js";
 import type { Scenario } from "./scenario.js";
 
 /** Every scenario the fixture bridge can play. */
@@ -19,6 +20,7 @@ export const SCENARIOS: readonly Scenario[] = [
   WAITING_FOR_INPUT_SCENARIO,
   APPROVAL_REQUEST_SCENARIO,
   TERMINAL_LEASE_SCENARIO,
+  LONG_CONVERSATION_SCENARIO,
 ];
 
 /** Scenario lookup by id. Throws rather than returning a silent default. */

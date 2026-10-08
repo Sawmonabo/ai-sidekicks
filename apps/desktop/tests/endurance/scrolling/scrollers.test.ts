@@ -1,6 +1,7 @@
 // The scrolling budgets: a fling with its momentum and a wheel scroll on each scroller but the
 // conversation, while four agent lanes stream, read from the window's own frame and input records
-// in a DevTools trace (`trace/scroll.ts`). The fling is a touch drag let go at speed, the one fling
+// in a DevTools trace (`../trace/scroll.ts`); the conversation's own budgets are
+// `conversation.test.ts`'s. The fling is a touch drag let go at speed, the one fling
 // the DevTools protocol can make; its momentum reaches the window as the browser's inertial scroll
 // updates. The wheel scroll is notches turned several frames apart.
 //
@@ -14,51 +15,54 @@
 // find it, as it does under a rounded clip.
 //
 // The two timed readings are hardware-dependent, so they gate on the pinned runner class
-// (`pinned-runner-class.ts`) and are printed everywhere else; where a scroll is hit-tested is not a
+// (`../pinned-runner-class.ts`) and are printed everywhere else; where a scroll is hit-tested is not a
 // timing and holds on every machine. The controls hold on every machine too: draw heavier than a
 // refresh misses frames, a wheel handler that holds each turn crosses the input ceiling, and a pane
 // that clips its rounded corners hands each scroll's hit test to the main thread.
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. The frame-time
-// sampler (`frame-sampling.ts`) drives the script one step per frame, and each gesture starts once
-// four lanes are mid-turn (`streaming-lanes.ts`).
+// sampler (`../frame-sampling.ts`) drives the script one step per frame, and each gesture starts
+// once four lanes are mid-turn (`../streaming-lanes.ts`).
 
 import process from "node:process";
 
 import type { Locator } from "playwright";
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
-import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
-import { openPalette } from "../helpers/palette-interaction.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch/body.js";
-import { percentileByNearestRank } from "../helpers/sample-statistics.js";
-import { MEASURED_RUN_COUNT, sampleFrameTimings } from "./frame-sampling.js";
-import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
-import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import { endTraceRecording, startTraceRecording } from "./trace/recording.js";
+import { withLaunchedApp, type AppUnderTest } from "../../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
+import { openPalette } from "../../helpers/palette-interaction.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
+import { percentileByNearestRank } from "../../helpers/sample-statistics.js";
+import { MEASURED_RUN_COUNT, sampleFrameTimings } from "../frame-sampling.js";
+import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "../pinned-runner-class.js";
+import { findStreamingStretch, peakConcurrentStreamingRuns } from "../streaming-lanes.js";
+import { endTraceRecording, startTraceRecording } from "../trace/recording.js";
 import {
   SCROLL_TRACE_CATEGORIES,
   readScrollTrace,
   slowestOf,
   type InputToSubmit,
   type ScrollReading,
-} from "./trace/scroll.js";
+} from "../trace/scroll.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
   advanceScenario,
   openConcurrentStreamingSessionRoute,
   openRoute,
-} from "./workload.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+  readDeliveredBeatCount,
+  waitForDeliveredBeats,
+  waitForIdleWindow,
+} from "../workload.js";
+import { BLURRING_LAYER_COUNT, plant, type Plant } from "./planted-regressions.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
   CONCURRENT_STREAMING_SCENARIO,
 } from "#fixtures/scenarios/concurrent-streaming.js";
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
-import { BudgetRegistry } from "../helpers/budget/registry.js";
-import { evaluateBudget } from "../helpers/budget/evaluation.js";
+import { BudgetRegistry } from "../../helpers/budget/registry.js";
+import { evaluateBudget } from "../../helpers/budget/evaluation.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -84,17 +88,6 @@ interface ScrollHost {
   readonly scrollerSelector: string;
   readonly open: (appUnderTest: AppUnderTest) => Promise<void>;
 }
-
-/**
- * What a negative control adds before its gesture: a wheel handler that holds the main thread on
- * every turn, added as one that may cancel the scroll so the browser waits for it; see-through
- * layers over the scroller, each blurring what is behind it, which the display redraws on every
- * frame the content moves; or the rounded clip a pane once cut its corners with.
- */
-type Plant =
-  | { readonly kind: "held-wheel"; readonly holdMs: number }
-  | { readonly kind: "blurring-layers"; readonly layerCount: number }
-  | { readonly kind: "rounded-pane-clip" };
 
 /** What one launch measured over one gesture. */
 interface ScrollRun {
@@ -143,11 +136,11 @@ const WHEEL_HOLD_MS = Math.ceil(
   inputToFrameBudget.limit.canonicalValue * SLOWEST_DISPLAY_REFRESH_MS * 1.5,
 );
 
-/** Blurring layers stacked over the scroller: more drawing than one refresh holds. */
-const BLURRING_LAYER_COUNT = 48;
-
 /** The delivered-beat count at which four lanes first stream at once. */
-const FOUR_LANE_BEAT_COUNT: number = firstFourLaneBeatCount();
+const FOUR_LANE_BEAT_COUNT: number = findStreamingStretch(
+  CONCURRENT_STREAMING_SCENARIO.beats,
+  CONCURRENT_STREAMING_LANE_COUNT,
+).fromBeatCount;
 
 const SCREEN_REGION: ScrollHost = {
   name: "the screen region on Settings › Keyboard",
@@ -404,7 +397,7 @@ async function scrollOnce(
     const cdpSession = await appUnderTest.application.context().newCDPSession(appUnderTest.window);
     await startTraceRecording(cdpSession, SCROLL_TRACE_CATEGORIES);
     const samplingEnd = sampleFrameTimings(appUnderTest, 0).then(() => performance.now());
-    await waitForFourLanes(appUnderTest);
+    await waitForDeliveredBeats(appUnderTest, FOUR_LANE_BEAT_COUNT);
     const beatsAtGestureStart = await readDeliveredBeatCount(appUnderTest);
     if (gesture === "fling") {
       const waitForScrollEnd = await armScrollEnd(appUnderTest, scroller);
@@ -439,53 +432,6 @@ async function scrollOnce(
   });
 }
 
-/** Adds what a negative control plants to the scroller, over it, or to its window's sheets. */
-async function plant(scroller: Locator, planted: Plant): Promise<void> {
-  if (planted.kind === "held-wheel") {
-    await scroller.evaluate((element, holdMs) => {
-      element.addEventListener(
-        "wheel",
-        () => {
-          const holdUntil = performance.now() + holdMs;
-          while (performance.now() < holdUntil) {
-            /* hold the main thread, the way a handler over its budget does */
-          }
-        },
-        { passive: false },
-      );
-    }, planted.holdMs);
-    return;
-  }
-  if (planted.kind === "rounded-pane-clip") {
-    await scroller.evaluate((element) => {
-      // The pane keeps its corner radius, so clipping its overflow clips to the rounded corners.
-      const sheet = element.ownerDocument.createElement("style");
-      sheet.textContent = ".meridian-pane { overflow: hidden !important; }";
-      element.ownerDocument.head.append(sheet);
-    });
-    return;
-  }
-  await scroller.evaluate((element, layerCount) => {
-    const box = element.getBoundingClientRect();
-    for (let index = 0; index < layerCount; index += 1) {
-      const layer = document.createElement("div");
-      Object.assign(layer.style, {
-        position: "fixed",
-        left: `${String(box.left)}px`,
-        top: `${String(box.top)}px`,
-        width: `${String(box.width)}px`,
-        height: `${String(box.height)}px`,
-        zIndex: "2147483647",
-        // Through to the scroller, so the gesture still lands on it.
-        pointerEvents: "none",
-        // A radius of its own, so no layer is drawn as a copy of another.
-        backdropFilter: `blur(${String(8 + index)}px)`,
-      });
-      document.body.append(layer);
-    }
-  }, planted.layerCount);
-}
-
 /** The failure line for a reading whose gestures waited for a main-thread hit test, or none. */
 function describeMainThreadHitTests(reading: ScrollReading, label: string): readonly string[] {
   return reading.mainThreadHitTestCount === 0
@@ -513,45 +459,6 @@ function expectFourLanesThroughGesture(run: ScrollRun, label: string): void {
   ).toBe(true);
 }
 
-/** The delivered-beat count at which four lanes first stream at once, read off the script. */
-function firstFourLaneBeatCount(): number {
-  const beats = CONCURRENT_STREAMING_SCENARIO.beats;
-  for (let beatCount = 0; beatCount < beats.length; beatCount += 1) {
-    if (
-      peakConcurrentStreamingRuns(beats, beatCount, beatCount + 1) ===
-      CONCURRENT_STREAMING_LANE_COUNT
-    ) {
-      return beatCount;
-    }
-  }
-  throw new Error("the concurrent-streaming script never has four lanes streaming at once");
-}
-
-/** How many beats the scenario has delivered; throws when the build exposes no scenario handle. */
-async function readDeliveredBeatCount(appUnderTest: AppUnderTest): Promise<number> {
-  const beatCount = await advanceScenario(appUnderTest, 0);
-  if (beatCount === null) {
-    throw new Error(`${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build`);
-  }
-  return beatCount;
-}
-
-/** Waits, on the window's own frames, for the sampler to bring the script to four lanes. */
-async function waitForFourLanes(appUnderTest: AppUnderTest): Promise<void> {
-  await appUnderTest.window.waitForFunction(
-    ([scenarioGlobalName, beatCount]: [string, number]) => {
-      // The scenario's handle is the console document's, which opened this window.
-      const consoleRealm = (window.opener ?? globalThis) as unknown as Record<
-        string,
-        { deliveredBeatCount(): number } | undefined
-      >;
-      return (consoleRealm[scenarioGlobalName]?.deliveredBeatCount() ?? 0) >= beatCount;
-    },
-    [SCENARIO_FIXTURE_GLOBAL, FOUR_LANE_BEAT_COUNT] as [string, number],
-    { timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS) },
-  );
-}
-
 /**
  * Moves the scenario's clock a step at a time until `target` is drawn: the screen's reads answer
  * on that clock, so it would never draw while the clock stands still.
@@ -573,20 +480,6 @@ async function walkClockUntilVisible(
       },
     )
     .toBe(true);
-}
-
-/**
- * Waits for the window's next idle period, which is when a bar that waits for idle starts, so the
- * gesture lands on the scrollers as a person who paused over them finds them.
- */
-async function waitForIdleWindow(appUnderTest: AppUnderTest): Promise<void> {
-  await appUnderTest.window.evaluate(
-    async (timeoutMs: number) =>
-      await new Promise<void>((resolve) => {
-        requestIdleCallback(() => resolve(), { timeout: timeoutMs });
-      }),
-    appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-  );
 }
 
 /**

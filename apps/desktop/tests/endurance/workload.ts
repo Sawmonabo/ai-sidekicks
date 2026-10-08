@@ -101,6 +101,10 @@ export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridia
 export const TRANSCRIPT_ROW_SELECTOR: string =
   ".meridian-frame__screen .meridian-transcript-row-layout";
 
+/** The conversation's scroller in the frame's screen region. */
+export const CONVERSATION_SCROLLER_SELECTOR: string =
+  ".meridian-frame__screen .meridian-transcript-viewport__scroll-container";
+
 /**
  * Assign the hash and wait for the screen only that route mounts. The wait carries
  * `IN_WINDOW_STEP_TIMEOUT_MS` (a route change is one store update and one React commit, so it
@@ -287,4 +291,122 @@ export async function expectConcurrentStreamingSessionCarriesContent(
     "no event reached this window's session store, so the session on screen is empty",
   ).toBeGreaterThan(0);
   expect(await readBoundSessionIds(appUnderTest)).toContain(CONCURRENT_STREAMING_SESSION_ID);
+}
+
+/** How many beats the scenario has delivered; throws when the build exposes no scenario handle. */
+export async function readDeliveredBeatCount(appUnderTest: AppUnderTest): Promise<number> {
+  const beatCount = await advanceScenario(appUnderTest, 0);
+  if (beatCount === null) {
+    throw new Error(`${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build`);
+  }
+  return beatCount;
+}
+
+/** Waits, on the window's own frames, until the scenario has delivered `beatCount` beats. */
+export async function waitForDeliveredBeats(
+  appUnderTest: AppUnderTest,
+  beatCount: number,
+): Promise<void> {
+  await appUnderTest.window.waitForFunction(
+    ([scenarioGlobalName, targetBeatCount]: [string, number]) => {
+      // The scenario's handle is the console document's, which opened this window.
+      const consoleRealm = (window.opener ?? globalThis) as unknown as Record<
+        string,
+        { deliveredBeatCount(): number } | undefined
+      >;
+      return (consoleRealm[scenarioGlobalName]?.deliveredBeatCount() ?? 0) >= targetBeatCount;
+    },
+    [SCENARIO_FIXTURE_GLOBAL, beatCount] as [string, number],
+    { timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS) },
+  );
+}
+
+/**
+ * Waits for the window's next idle period, which is when a bar that waits for idle starts, so a
+ * gesture lands on the scrollers as a person who paused over them finds them.
+ */
+export async function waitForIdleWindow(appUnderTest: AppUnderTest): Promise<void> {
+  await appUnderTest.window.evaluate(
+    async (timeoutMs: number) =>
+      await new Promise<void>((resolve) => {
+        requestIdleCallback(() => resolve(), { timeout: timeoutMs });
+      }),
+    appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+  );
+}
+
+/** A stretch of the script the window delivers at a steady pace, in scenario milliseconds. */
+export interface PacedDelivery {
+  /** Scenario time moved at once, before the pace starts. */
+  readonly leadInMs: number;
+  /** Scenario time moved across the pace, a frame at a time. */
+  readonly stretchMs: number;
+  /** Wall-clock time the stretch is spread across; the clock stops at its end. */
+  readonly durationMs: number;
+}
+
+/** How far a paced delivery got: the delivered beats when the pace started and when it stopped. */
+export interface PacedDeliveryReading {
+  readonly beatsAtStart: number;
+  readonly beatsAtStop: number;
+}
+
+/**
+ * Moves the scenario's clock by the lead-in, then on every frame of the window by the share of the
+ * stretch the elapsed wall-clock time has reached, so the stretch is delivered evenly however fast
+ * the display refreshes. Returns the call that stops the pace and reads how far it got.
+ */
+export async function startPacedDelivery(
+  appUnderTest: AppUnderTest,
+  delivery: PacedDelivery,
+): Promise<() => Promise<PacedDeliveryReading>> {
+  // Wrapped in an object, because a handle to a promise would wait for it to settle.
+  const pace = await appUnderTest.window.evaluateHandle(
+    ([scenarioGlobalName, leadInMs, stretchMs, durationMs]: [string, number, number, number]) => {
+      const consoleRealm = (window.opener ?? globalThis) as unknown as Record<
+        string,
+        { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
+      >;
+      const scenarioControl = consoleRealm[scenarioGlobalName];
+      if (scenarioControl === undefined) {
+        throw new Error(`${scenarioGlobalName} is not exposed by this build`);
+      }
+      scenarioControl.advance(leadInMs);
+      const beatsAtStart = scenarioControl.deliveredBeatCount();
+      const startedAtMs = performance.now();
+      let deliveredMs = 0;
+      let isPacing = true;
+      const onFrame = (): void => {
+        if (!isPacing) {
+          return;
+        }
+        const shareReached = Math.min(1, (performance.now() - startedAtMs) / durationMs);
+        // Whole milliseconds, the clock's own step.
+        const dueMs = Math.floor(stretchMs * shareReached) - deliveredMs;
+        if (dueMs > 0) {
+          scenarioControl.advance(dueMs);
+          deliveredMs += dueMs;
+        }
+        requestAnimationFrame(onFrame);
+      };
+      requestAnimationFrame(onFrame);
+      return {
+        stop: () => {
+          isPacing = false;
+          return { beatsAtStart, beatsAtStop: scenarioControl.deliveredBeatCount() };
+        },
+      };
+    },
+    [SCENARIO_FIXTURE_GLOBAL, delivery.leadInMs, delivery.stretchMs, delivery.durationMs] as [
+      string,
+      number,
+      number,
+      number,
+    ],
+  );
+  return async () => {
+    const reading = await pace.evaluate((running) => running.stop());
+    await pace.dispose();
+    return reading;
+  };
 }
