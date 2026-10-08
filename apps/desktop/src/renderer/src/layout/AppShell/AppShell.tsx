@@ -1,7 +1,10 @@
-// The window's persistent chrome (rail, banners, command palette) around the routed screen.
+// The window's persistent chrome (rail, sessions track, banners, command palette) around the
+// routed screen.
 //
 // The frame's background is inert while a modal overlay is up. This is where the flag is folded
 // from its two producers: the palette's open state and the window store's `isModalDialogOpen`.
+
+import { useId } from "react";
 
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
@@ -16,12 +19,15 @@ import { describePaletteScope } from "../CommandPalette/describe-scope.js";
 import type { CommandPaletteProps } from "../CommandPalette/hooks/useCommandPalette.js";
 import {
   RAIL_ENTRIES,
+  RAIL_SETTINGS_ENTRY,
   routeForDestination,
   warmDestination,
 } from "../NavigationRail/destinations.js";
+import { RAIL_CONTROL_LABELS } from "../NavigationRail/control-labels.js";
 import { AppFrame } from "./AppFrame.js";
+import { useRailChords } from "./hooks/useRailChords.js";
 
-/** What the window hands `AppShell`: its store, its screens, its palette, and the screen. */
+/** What the window hands `AppShell`: its store, screens, palette and chords, and the screen. */
 export interface AppShellProps {
   readonly frameStore: WindowStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */
@@ -35,6 +41,12 @@ export interface AppShellProps {
     CommandPaletteProps,
     "context" | "bindings" | "revision" | "open" | "onOpenChange"
   >;
+  /** The chord a command holds now, or `undefined` while it holds none. */
+  readonly readBoundChord: (commandId: string) => string | undefined;
+  /** Steps this window's color scheme to the next in its cycle. */
+  readonly onCycleColorScheme: () => void;
+  /** Whether an update is staged and waiting for the restart. */
+  readonly isUpdateStaged: boolean;
   /** One line about the window itself, drawn above the banners. */
   readonly notice?: React.ReactNode;
   /** The narrowest one pane may be, in CSS px, the pane term of the window's floor. */
@@ -52,18 +64,44 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
   const banners = useWindowStore(frameStore, (state) => state.banners);
   // A boolean, so a window with no card up re-renders on nothing.
   const isModalDialogOpen = useWindowStore(frameStore, (state) => state.isModalDialogOpen);
+  const isNotificationsListOpen = useWindowStore(
+    frameStore,
+    (state) => state.sessionsTrackList === "notifications",
+  );
+  const notificationsListId = useId();
+  const railChords = useRailChords(props.readBoundChord);
 
   return (
     <AppFrame
       route={route}
-      railEntries={RAIL_ENTRIES}
-      railDestination={railDestinationFor(route)}
-      onSelectDestination={(destination) => {
-        // Warmed before navigating: `navigate` commits synchronously and the screen
-        // mounts on the next commit, so the fetch is already in flight when it asks.
-        warmDestination(screenRegistry, destination);
-        frameStore.navigate(routeForDestination(destination, lastSettingsPage.pageId));
+      rail={{
+        entries: RAIL_ENTRIES,
+        settingsEntry: RAIL_SETTINGS_ENTRY,
+        current: railDestinationFor(route),
+        onSelect: (destination) => {
+          // Warmed before navigating: `navigate` commits synchronously and the screen
+          // mounts on the next commit, so the fetch is already in flight when it asks.
+          warmDestination(screenRegistry, destination);
+          frameStore.navigate(routeForDestination(destination, lastSettingsPage.pageId));
+        },
+        chords: railChords,
+        // No count yet: the window mounts no attention reader, so the bell draws no pip.
+        attention: {
+          isExpanded: isNotificationsListOpen,
+          controlsId: notificationsListId,
+          onToggle: () => {
+            frameStore.toggleNotificationsList();
+          },
+        },
+        onCycleColorScheme: props.onCycleColorScheme,
+        isUpdateStaged: props.isUpdateStaged,
       }}
+      sessionsTrack={
+        isNotificationsListOpen ? (
+          // The notifications list's mount point, which its body fills.
+          <section id={notificationsListId} aria-label={RAIL_CONTROL_LABELS.notifications} />
+        ) : undefined
+      }
       modalOverlayOpen={palette.open || isModalDialogOpen}
       notice={props.notice}
       minimumPaneWidthPx={props.minimumPaneWidthPx}

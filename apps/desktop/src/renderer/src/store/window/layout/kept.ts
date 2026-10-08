@@ -12,6 +12,7 @@
 
 import { isIdentifierShaped } from "#renderer/lib/identifier-grammar.js";
 import { formatRoute, parseRoute, DEFAULT_ROUTE, type AppRoute } from "#renderer/routing/routes.js";
+import { skillRoute } from "#renderer/routing/readers.js";
 import { isConsoleWindowId } from "#shared/window/frame-name.js";
 import type { PersistableValue } from "../../persistence/value-classes.js";
 import type { PersistenceWriteResult, UiStateStore } from "../../persistence/ui-state-store.js";
@@ -75,7 +76,21 @@ function keptAddressOf(route: AppRoute): string | undefined {
       return undefined;
     case "session":
       return identifierShapedOrNone(formatRoute({ kind: "session", sessionId: route.sessionId }));
+    case "sidekicks":
+      // A new definition's form comes back as the library: an unsaved form is not kept.
+      return identifierShapedOrNone(
+        formatRoute(route.definition === "new" ? { kind: "sidekicks" } : route),
+      );
+    case "skills":
+      // A folder comes back at its entry file and the new-skill form as the list: a file path is
+      // content, which the kept layout never holds, and an unsaved form is not kept.
+      return identifierShapedOrNone(
+        formatRoute(
+          route.folder === "existing" ? skillRoute(route.skillId, undefined) : { kind: "skills" },
+        ),
+      );
     case "sessions":
+    case "sidekicks-plugins":
     case "workflows":
     case "settings":
       return identifierShapedOrNone(formatRoute(route));

@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import {
-  UpdaterReadingHolder,
-  type UpdaterCalls,
-  type UpdateReading,
-} from "../updates/updater-reading.js";
+import { UpdaterReadingHolder, type UpdaterCalls, type UpdateReading } from "../reading.js";
 
 /**
- * Bind this window's reading of the updater.
+ * Bind this window's one reading of the updater; called once per window, which hands the reading
+ * to every reader.
  *
  * The holder is constructed in a `useMemo` keyed on the updater and opened in an
  * effect, never in a render body. The sequencing between the subscription and the

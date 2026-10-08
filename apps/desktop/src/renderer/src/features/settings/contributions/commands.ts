@@ -1,5 +1,5 @@
 // The Settings palette commands: acts on this install with no screen of their own (copy build
-// details, check for updates) and the `Color scheme` row.
+// details, check for updates).
 //
 // Every bridge act settles: the palette drops the promise a command returns, so each act
 // catches its own failure and hands the caller's sink a `Refusal`. The refusal detail is a
@@ -9,7 +9,7 @@
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
-import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/features/settings/pages/general/updates/updater-unreachable.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
 
 /** Why a bridge-backed command could not complete. */
 export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";
@@ -61,20 +61,6 @@ export function buildBridgeCommands(
       },
     },
   ];
-}
-
-/**
- * The `Color scheme` row, which moves to the next scheme in the cycle. Built per window because it
- * asks through the window's own appearance act, which discloses a refusal itself.
- */
-export function buildColorSchemeCommand(chooseNextScheme: () => void): CommandDefinition {
-  return {
-    id: "settings.cycleColorScheme",
-    title: "Color scheme",
-    group: "App",
-    keywords: ["dark", "light", "system"],
-    run: chooseNextScheme,
-  };
 }
 
 const CLIPBOARD_REFUSAL_DETAIL =

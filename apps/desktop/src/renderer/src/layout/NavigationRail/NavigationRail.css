@@ -11,13 +11,19 @@
   app-region: drag;
 }
 
+/* Fills the rail's height, so the spacer can push the controls and Settings to its foot. */
 .meridian-rail__list {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--meridian-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.meridian-rail__spacer {
+  flex: 1 1 auto;
 }
 
 .meridian-rail__item {
@@ -47,7 +53,10 @@
   color: var(--meridian-text);
 }
 
-.meridian-rail__button--current {
+/* The bell draws its open list as a current destination draws, without the spine: the list opens
+ * beside the screen and leaves the current destination where it is. */
+.meridian-rail__button--current,
+.meridian-rail__button[aria-expanded="true"] {
   color: var(--meridian-accent-text);
   background: var(--meridian-surface-raised);
 }
@@ -63,4 +72,43 @@
   width: var(--meridian-leading-edge);
   border-radius: calc(var(--meridian-leading-edge) / 2);
   background: var(--meridian-accent);
+}
+
+/* The two marks sit on the glyph's top trailing corner, inside the button, so neither moves the
+ * glyph. */
+.meridian-rail__pip,
+.meridian-rail__dot {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* The pip is the attention amber, a person is needed, and carries the waiting count: one line of
+ * the smallest figure size, at least as wide as it is tall, so one digit draws a circle and more
+ * digits a capsule. The figure is the amber's own ink. */
+.meridian-rail__pip {
+  inset-block-start: var(--meridian-space-1);
+  inset-inline-end: var(--meridian-space-1);
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-inline-size: var(--meridian-space-3);
+  block-size: var(--meridian-space-3);
+  padding-inline: calc(var(--meridian-space-1) / 2);
+  border-radius: calc(var(--meridian-space-3) / 2);
+  background: var(--meridian-amber-mark);
+  color: var(--meridian-amber-ink);
+  font-size: var(--meridian-text-8-5);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: var(--meridian-space-3);
+}
+
+/* The staged update's dot is the rail's quiet mark: nothing is needed from the person. */
+.meridian-rail__dot {
+  inset-block-start: var(--meridian-space-2);
+  inset-inline-end: var(--meridian-space-2);
+  inline-size: var(--meridian-space-2);
+  block-size: var(--meridian-space-2);
+  border-radius: 50%;
+  background: var(--meridian-text-faint);
 }

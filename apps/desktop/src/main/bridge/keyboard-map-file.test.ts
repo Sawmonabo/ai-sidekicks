@@ -36,12 +36,12 @@ describe("reading the keyboard map", () => {
     const file = keyboardMapFile();
     const stored = await file.write({
       "frame.goToSessions": "$mod+9",
-      "settings.cycleColorScheme": null,
+      "frame.cycleColorScheme": null,
     });
 
     expect(stored).toStrictEqual({
       "frame.goToSessions": "$mod+9",
-      "settings.cycleColorScheme": null,
+      "frame.cycleColorScheme": null,
     });
     await expect(keyboardMapFile().read()).resolves.toStrictEqual({ map: stored });
   });

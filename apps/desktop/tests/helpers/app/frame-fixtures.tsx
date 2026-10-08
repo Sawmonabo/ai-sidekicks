@@ -19,12 +19,24 @@ import type { WindowBanner } from "#renderer/store/window/store.js";
 import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/pane-layout/measures.js";
 import {
   RAIL_ENTRY_TEMPLATES,
-  type RailEntry,
+  type NavigationRailProps,
 } from "#renderer/layout/NavigationRail/NavigationRail.js";
 
-const RAIL_ENTRIES: readonly RailEntry[] = [
-  { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions },
-];
+/** A rail no case makes a claim about: one destination above the spacer, and Settings. */
+const RAIL: NavigationRailProps = {
+  entries: [{ destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions }],
+  settingsEntry: { destination: "settings", ...RAIL_ENTRY_TEMPLATES.settings },
+  current: undefined,
+  onSelect: () => undefined,
+  chords: {},
+  attention: {
+    isExpanded: false,
+    controlsId: "frame-fixture-notifications",
+    onToggle: () => undefined,
+  },
+  onCycleColorScheme: () => undefined,
+  isUpdateStaged: false,
+};
 
 /** The route a frame renders when the case makes no claim about the address. */
 export const SESSIONS_ROUTE: AppRoute = { kind: "sessions" };
@@ -40,9 +52,7 @@ export function frameProps(
   banners: readonly WindowBanner[] = [],
 ): {
   route: AppRoute;
-  railEntries: readonly RailEntry[];
-  railDestination: undefined;
-  onSelectDestination: () => void;
+  rail: NavigationRailProps;
   banners: readonly WindowBanner[];
   onDismissBanner: () => void;
   minimumPaneWidthPx: number;
@@ -50,9 +60,7 @@ export function frameProps(
 } {
   return {
     route,
-    railEntries: RAIL_ENTRIES,
-    railDestination: undefined,
-    onSelectDestination: () => undefined,
+    rail: RAIL,
     banners,
     onDismissBanner: () => undefined,
     // The pane floor a window passes the frame.

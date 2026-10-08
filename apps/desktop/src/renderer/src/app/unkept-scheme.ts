@@ -4,6 +4,7 @@
 // reports on its own, is told on the window used last.
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
+import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
 import type { WindowStore } from "#renderer/store/window/store.js";
 import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
 
@@ -12,6 +13,14 @@ export function discloseUnkeptScheme(asked: Promise<void>, frameStore: WindowSto
   void asked.catch(() => {
     frameStore.raiseRefusalBanner(UNKEPT_SCHEME);
   });
+}
+
+/**
+ * Step to the next color scheme in its cycle, and say on `frameStore`'s banner when main could not
+ * keep it.
+ */
+export function chooseNextColorScheme(appearance: AppearanceClient, frameStore: WindowStore): void {
+  discloseUnkeptScheme(appearance.chooseNextScheme(), frameStore);
 }
 
 /**

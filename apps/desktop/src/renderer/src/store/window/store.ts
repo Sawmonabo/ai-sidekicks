@@ -1,6 +1,7 @@
-// Window-level state: the route, the modal-dialog flag, the banner stack, and the pane a screen
-// asked a session to open. The appearance is not here: main keeps it, and the window applies what
-// main kept (`app/hooks/useAppearance.ts`).
+// Window-level state: the route, the modal-dialog flag, the banner stack, which list the sessions
+// track holds, the pane a screen asked a session to open, and the guard a screen holding unsaved
+// edits keeps over leaving it. The appearance is not here: main keeps it, and the window applies
+// what main kept (`app/hooks/useAppearance.ts`).
 //
 // Separate from `SessionStore`: session state is per session and arrives from the bridge, while
 // frame state is per window and arrives from the person. Merging them would re-render the rail on
@@ -9,13 +10,15 @@
 // record of which sessions are open.
 
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import type { ExtendedRefusal, RefusalExtensions } from "#renderer/lib/refusal/extensions.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { PaneOpenRequests } from "./pane-open-requests.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE, mainProcessReportsAreEqual } from "./main-process-state.js";
+import { LeaveGuard } from "#renderer/routing/leave-guard.js";
 import { DEFAULT_ROUTE, parseRoute, type AppRoute } from "#renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "#renderer/routing/readers.js";
 
@@ -32,11 +35,14 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
 
 /**
  * How a route reaches the window's history: a new entry Back returns from, or a replacement of
- * the current one, for a move that only follows a cursor.
+ * the current one, for a move that only follows a cursor or one an address change already entered.
  */
 export type RouteHistoryWrite = "push" | "replace";
 
-/** The window store's state: route, modal-dialog flag, banners, focus, report. */
+/** A list the sessions track beside the rail can hold. */
+export type SessionsTrackList = "notifications";
+
+/** The window store's state: route, modal-dialog flag, banners, sessions track, focus, report. */
 export interface WindowStoreState {
   readonly route: AppRoute;
   /** How the current route is written to the window's history. */
@@ -58,6 +64,11 @@ export interface WindowStoreState {
    */
   readonly isModalDialogOpen: boolean;
   readonly banners: readonly WindowBanner[];
+  /**
+   * The list the sessions track holds, or `undefined` while the track is closed. One cell, so the
+   * track never holds two lists at once.
+   */
+  readonly sessionsTrackList: SessionsTrackList | undefined;
   /**
    * True while the window has focus; the refresh scheduler's `window-focus` reason. Seeded from
    * the document ({@link documentReportsWindowFocus}) and moved by the frame's focus and blur
@@ -88,6 +99,12 @@ export class WindowStore {
    */
   readonly #modalDialogClaims: ModalDialogClaims;
   readonly #paneOpenRequests = new PaneOpenRequests();
+  readonly #leaveGuard = new LeaveGuard((failure) => {
+    // The person waits on the question, so the banner says it failed; the cause, a screen's
+    // defect with no words the person can act on, goes to the diagnostic capture.
+    this.raiseRefusalBanner(LEAVE_NOT_ASKED);
+    recordRejectedRequest("store/window", "leave-ask-failed", failure);
+  });
 
   public constructor(options: WindowStoreOptions = {}) {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
@@ -98,6 +115,7 @@ export class WindowStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       isModalDialogOpen: false,
       banners: [],
+      sessionsTrackList: undefined,
       isWindowFocused: documentReportsWindowFocus(options.ownerDocument ?? document),
       mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
     }));
@@ -129,24 +147,45 @@ export class WindowStore {
     return this.#store.getState().lastOpenedSessionId;
   }
 
-  /** Move this window to a route, as a new history entry Back returns from. */
-  public navigate(route: AppRoute): void {
-    this.#setRoute(route, "push");
+  /**
+   * Move this window to a route, as a new history entry Back returns from. A move off a screen
+   * holding unsaved edits waits for its answer ({@link leaveGuard}); `afterCommit` runs only once
+   * the move has happened, never after a no.
+   */
+  public navigate(route: AppRoute, afterCommit?: () => void): void {
+    this.#moveTo(route, "push", afterCommit);
   }
 
-  /** Move this window to a route in place of the current history entry. */
+  /**
+   * Move this window to a route in place of the current history entry, waiting on the leave guard
+   * as `navigate` does.
+   */
   public replaceRoute(route: AppRoute): void {
-    this.#setRoute(route, "replace");
+    this.#moveTo(route, "replace");
   }
 
-  /** Adopt a route parsed from the location hash. Idempotent on an unchanged hash. */
-  public adoptHash(hash: string): void {
+  /**
+   * Adopt a route parsed from the location hash. Idempotent on an unchanged hash. Returns false
+   * while the move waits on the leave guard's ask or was dropped by it, so the hash no longer
+   * names the route shown; a yes later commits the route the hash named. `afterCommit` runs only
+   * once the move has happened, never after a no or for an unchanged hash.
+   */
+  public adoptHash(hash: string, afterCommit?: () => void): boolean {
     const route = parseRoute(hash);
     const current = this.#store.getState().route;
     if (routesAreEqual(current, route)) {
-      return;
+      return true;
     }
-    this.#setRoute(route, "push");
+    // The address change already made its own history entry, so the route writes in place.
+    return this.#moveTo(route, "replace", afterCommit);
+  }
+
+  /**
+   * The guard every move away from a screen holding unsaved edits waits on; that screen
+   * registers its ask here while its edits are unsaved.
+   */
+  public get leaveGuard(): LeaveGuard {
+    return this.#leaveGuard;
   }
 
   /**
@@ -218,6 +257,14 @@ export class WindowStore {
     this.#store.setState({ banners: banners.filter((banner) => banner.id !== bannerId) });
   }
 
+  /** Open the notifications list in the sessions track, or close the track while it holds it. */
+  public toggleNotificationsList(): void {
+    const { sessionsTrackList } = this.#store.getState();
+    this.#store.setState({
+      sessionsTrackList: sessionsTrackList === "notifications" ? undefined : "notifications",
+    });
+  }
+
   /**
    * Write what the register says, once it has moved. Compared first, as in
    * {@link setWindowFocused}, so an unchanged value does not re-render the rail, screen or
@@ -228,6 +275,18 @@ export class WindowStore {
       return;
     }
     this.#store.setState({ isModalDialogOpen });
+  }
+
+  /** Send a move through the leave guard; true when it committed now. */
+  #moveTo(
+    route: AppRoute,
+    routeHistoryWrite: RouteHistoryWrite,
+    afterCommit?: () => void,
+  ): boolean {
+    return this.#leaveGuard.leave(route, () => {
+      this.#setRoute(route, routeHistoryWrite);
+      afterCommit?.();
+    });
   }
 
   /**
@@ -243,6 +302,13 @@ export class WindowStore {
     );
   }
 }
+
+/** What the window's banner says when a screen's question about its unsaved edits failed. */
+const LEAVE_NOT_ASKED = refuse(
+  "navigation",
+  "leave-not-asked",
+  "Could not ask about the unsaved changes, so the screen stayed open.",
+);
 
 /**
  * Whether somebody is looking at this window right now, asked of its own document.

@@ -26,10 +26,10 @@ import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
-import { UPDATE_STATE_WORDS, type UpdaterCalls, type UpdateReading } from "./updater-reading.js";
-import { useUpdateReading } from "../hooks/useUpdateReading.js";
+import type { UpdaterCalls, UpdateReading } from "#renderer/store/update/reading.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/store/update/unreachable.js";
+import { UPDATE_STATE_WORDS } from "./state-words.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
-import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
 
 /** The subsystem a refused updater control names as its author. */
 const UPDATER_CONTROL_ORIGIN = "updater-control";
@@ -39,6 +39,9 @@ const UPDATER_CONTROL_FAILED = "updater-control-failed";
 
 /** What the update block is handed. */
 export interface UpdatesBlockProps {
+  /** The window's one reading of the updater, which the read-out draws. */
+  readonly reading: UpdateReading;
+  /** The updater's controls the block's presses call. */
   readonly updater: UpdaterCalls;
   /** The machine settings the automatic-check switch reads and writes. */
   readonly preferences: Pick<
@@ -49,8 +52,7 @@ export interface UpdatesBlockProps {
 
 /** The updater's state, the controls that ask it to move, and the automatic-check switch. */
 export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
-  const { updater, preferences } = props;
-  const reading = useUpdateReading(updater);
+  const { reading, updater, preferences } = props;
   const clock = useClock();
   // The state the first read lands on stands; a later change of state is said.
   useAnnounceWhenChanged(updateSettlementSentence(reading), "polite", { isReadSettlement: true });

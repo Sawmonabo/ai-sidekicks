@@ -19,7 +19,7 @@
 //     override for a missing act is skipped and left out of the next write.
 //
 // `recording` is here although it is not persisted, because it decides what to install. The table
-// listens in the capture phase, so it would swallow `$mod+1` before the recorder saw it; the frame
+// listens in the capture phase, so it would swallow `$mod+b` before the recorder saw it; the frame
 // installs nothing while a chord is being recorded.
 
 import type { KeyboardMap, KeyboardMapReading, Unsubscribe } from "#shared/preload-api.js";

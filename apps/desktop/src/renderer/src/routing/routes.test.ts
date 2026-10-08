@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { routesAreEqual, sessionRoute } from "./readers.js";
+import { routesAreEqual, sessionRoute, skillRoute } from "./readers.js";
 import { formatRoute, parseRoute, type AppRoute } from "./routes.js";
 
 /** Main-window routes, including the arm that carries an optional segment. */
@@ -20,6 +20,17 @@ const MAIN_WINDOW_ROUTES: readonly AppRoute[] = [
   { kind: "workflows", tab: "runs" },
   // One run's page under the Runs tab.
   { kind: "workflows", tab: "runs", runId: "run-1" },
+  { kind: "sidekicks" },
+  // A new definition is its own arm, never an id.
+  { kind: "sidekicks", definition: "new" },
+  { kind: "sidekicks", definition: "saved", definitionId: "definition-1" },
+  { kind: "sidekicks-plugins" },
+  { kind: "skills" },
+  // The new-skill form, a query on the list's address.
+  { kind: "skills", folder: "new" },
+  // The form is a query, so `new` under the path is a folder id like any other.
+  { kind: "skills", folder: "existing", skillId: "new" },
+  { kind: "skills", folder: "existing", skillId: "skill-1", filePath: "references/api.md" },
   { kind: "settings", page: undefined },
   { kind: "settings", page: "providers" },
   // The paged arm carrying its page's own selection.
@@ -66,6 +77,17 @@ describe("routes — a link to a message of a session", () => {
   });
 });
 
+describe("routes — a link to one file of a skill folder", () => {
+  it("escapes each name of a nested path and parses back to the same file", () => {
+    const route = skillRoute("skill-1", "references/api notes/usage.md");
+    // Each name escapes on its own, so the slashes between them stay the path's own.
+    expect(formatRoute(route)).toBe("#/skills/skill-1/references/api%20notes/usage.md");
+    expect(parseRoute(formatRoute(route))).toStrictEqual(route);
+    // No file is the folder's own address, with no key left behind for the round trip.
+    expect(skillRoute("skill-1", undefined)).toStrictEqual(parseRoute("#/skills/skill-1"));
+  });
+});
+
 describe("routes — malformed main-window hashes resolve to not-found", () => {
   it("refuses trailing segments the grammar does not have", () => {
     expect(parseRoute("#/sessions/extra")).toStrictEqual({
@@ -79,6 +101,23 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/workflows/runs/run-1/step").kind).toBe("not-found");
     // `#/settings/<page>/<selection>` is grammar, so the overrun is a third segment.
     expect(parseRoute("#/settings/one/two/three").kind).toBe("not-found");
+  });
+
+  it("refuses a query anywhere but the new-skill form's own address", () => {
+    expect(parseRoute("#/skills?bogus")).toStrictEqual({
+      kind: "not-found",
+      attempted: "#/skills?bogus",
+    });
+    expect(parseRoute("#/sidekicks?new").kind).toBe("not-found");
+  });
+
+  it("refuses an empty name inside a skill file path", () => {
+    expect(parseRoute("#/skills/skill-1//a").kind).toBe("not-found");
+  });
+
+  it("refuses a segment under the sidekicks addresses that take none", () => {
+    expect(parseRoute("#/sidekicks/new/x").kind).toBe("not-found");
+    expect(parseRoute("#/sidekicks/plugins/x").kind).toBe("not-found");
   });
 
   it("decodes an escaped settings selection and renders it back escaped", () => {

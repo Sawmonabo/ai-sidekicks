@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
 import {
-  ACCENT_FILL_PAIRS,
+  FILL_INK_PAIRS,
   GROUND_TOKEN_NAMES,
   HUE_WHEEL,
   NON_TEXT_CONTRAST_FLOOR,
@@ -50,12 +50,12 @@ const OPPOSITE_SCHEME: Readonly<Record<ColorScheme, ColorScheme>> = {
   dark: "light",
 };
 
-/** Every pair a floor holds: text and marks on the grounds they sit on, ink on the accent. */
+/** Every pair a floor holds: text and marks on the grounds they sit on, ink on its fill. */
 const FLOOR_PAIRS: readonly FloorPair[] = [
   ...TEXT_FLOOR_TOKEN_NAMES.flatMap((foreground) =>
     GROUND_TOKEN_NAMES.map((ground) => ({ foreground, ground, floor: TEXT_CONTRAST_FLOOR })),
   ),
-  ...[...TINTED_GROUND_PAIRS, ...ACCENT_FILL_PAIRS].map(([foreground, ground]) => ({
+  ...[...TINTED_GROUND_PAIRS, ...FILL_INK_PAIRS].map(([foreground, ground]) => ({
     foreground,
     ground,
     floor: TEXT_CONTRAST_FLOOR,

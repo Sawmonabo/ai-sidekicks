@@ -1,6 +1,8 @@
-// What the updater said, sequenced across its two sources.
+// The window's one reading of the updater, sequenced across its two sources. The window binds it
+// once and hands it to the rail's Settings dot and the General page's update block, so a window
+// subscribes once.
 //
-// The block subscribes and then reads the current state once, and the answers race: an opening
+// The holder subscribes and then reads the current state once, and the answers race: an opening
 // read that installed unconditionally would overwrite a transition pushed meanwhile, hiding a
 // `ready`, `downloading` or error until the next push, which a terminal arm never makes. So the
 // sources are sequenced: the opening read installs only while nothing has been pushed.
@@ -8,46 +10,25 @@
 // `close()` is not terminal: StrictMode runs an effect's cleanup between two setups and a changed
 // updater rebuilds the opening, so an opening is a generation that `close()` invalidates and a
 // later `open()` restarts. The holder takes the updater namespace, not the whole bridge.
-import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
-import type { Unsubscribe, UpdateState } from "#shared/preload-api.js";
+import type { PreloadApi, Unsubscribe, UpdateState } from "#shared/preload-api.js";
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import { READ_FAILED } from "#renderer/lib/reads/failure-codes.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
-import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "./unreachable.js";
 
 /** The updater's calls: the state read, its subscription, and its controls. */
-export type UpdaterCalls = PlatformBridge["update"];
+export type UpdaterCalls = PreloadApi["update"];
 
 /**
- * What the block knows about the updater: nothing read yet, the state it reported, or the
+ * What this window knows about the updater: nothing read yet, the state it reported, or the
  * refusal its opening read was answered with.
  */
 export type UpdateReading =
   | { readonly kind: "not-read" }
   | { readonly kind: "state"; readonly state: UpdateState }
   | { readonly kind: "failed"; readonly refusal: Refusal };
-
-/**
- * What the updater reporting a failure reads as on screen. Its own message is never drawn: it goes
- * to the diagnostic log, since it is the updater's wording and may name a path or a stack.
- */
-export const UPDATE_FAILED_DETAIL = "The update could not be verified and was not installed.";
-
-/**
- * The words each settled arm of the updater's state draws, which is also what a screen reader is
- * told. The figures drawn beside them (when it last checked, the version, the percent) are not.
- */
-export const UPDATE_STATE_WORDS: Readonly<Record<Exclude<UpdateState["status"], "error">, string>> =
-  {
-    idle: "No update is waiting.",
-    checking: "Checking for an update…",
-    available: "Update available.",
-    downloading: "Downloading",
-    verifying: "Checking the signature…",
-    ready: "An update has finished downloading and installs on the next restart.",
-  };
 
 /** The held reading, rebuilt on every accepted observation and held by identity. */
 export interface UpdaterReadingSnapshot {
@@ -146,4 +127,15 @@ export class UpdaterReadingHolder {
     this.#snapshot = { reading };
     this.#changes.emit();
   }
+}
+
+/**
+ * Whether an update is staged or downloaded and waiting for the restart, which lights the rail's
+ * Settings dot until the update is applied.
+ */
+export function isUpdateStaged(reading: UpdateReading): boolean {
+  return (
+    reading.kind === "state" &&
+    (reading.state.staged !== undefined || reading.state.status === "ready")
+  );
 }

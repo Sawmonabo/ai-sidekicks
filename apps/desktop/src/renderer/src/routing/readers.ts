@@ -8,7 +8,13 @@ import type { AppRoute } from "./routes.js";
  * Destinations on the icon rail, in rail order. Closed; the rail renders exactly these.
  * A tuple rather than a union so the rail's entry table can be checked against it at runtime.
  */
-export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
+export const RAIL_DESTINATIONS = [
+  "sessions",
+  "sidekicks",
+  "skills",
+  "workflows",
+  "settings",
+] as const;
 
 /** One icon-rail destination, derived from the tuple above. */
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
@@ -17,13 +23,18 @@ export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
  * Which rail destination is current, or `undefined` where the route lights none.
  *
  * Not one-to-one: a session is reached from the sessions destination, so the session screen
- * lights `sessions`. The rail has no icon of its own for it.
+ * lights `sessions`, and `Browse plugins` lights `sidekicks`. The rail has no icon for either.
  */
 export function railDestinationFor(route: AppRoute): RailDestination | undefined {
   switch (route.kind) {
     case "sessions":
     case "session":
       return "sessions";
+    case "sidekicks":
+    case "sidekicks-plugins":
+      return "sidekicks";
+    case "skills":
+      return "skills";
     case "workflows":
       return "workflows";
     case "settings":
@@ -71,6 +82,35 @@ export function workflowRunsRoute(runId: string | undefined): AppRoute {
 }
 
 /**
+ * The saved agent definition a sidekicks address opens, or `undefined` where it names none.
+ * `definitionId` exists on only one sidekicks arm, so callers read it here instead of narrowing.
+ */
+export function routeAgentDefinitionId(route: AppRoute): string | undefined {
+  return route.kind === "sidekicks" && route.definition === "saved"
+    ? route.definitionId
+    : undefined;
+}
+
+/**
+ * The skill folder a skills address opens, or `undefined` where it names none. `skillId` exists
+ * on only one skills arm, so callers read it here instead of narrowing.
+ */
+export function routeSkillId(route: AppRoute): string | undefined {
+  return route.kind === "skills" && route.folder === "existing" ? route.skillId : undefined;
+}
+
+/**
+ * The address of one skill folder, opened at the file the caller names, relative to the folder,
+ * or at its entry file without one. Omits the `filePath` key when there is none, which the parse
+ * round trip depends on.
+ */
+export function skillRoute(skillId: string, filePath: string | undefined): AppRoute {
+  return filePath === undefined
+    ? { kind: "skills", folder: "existing", skillId }
+    : { kind: "skills", folder: "existing", skillId, filePath };
+}
+
+/**
  * The message a session address opens at, as its event cursor, or `undefined` where it names
  * none. `messageAnchorCursor` exists on only the session arm, so callers read it here.
  */
@@ -100,6 +140,9 @@ export function routeSessionId(route: AppRoute): string | undefined {
     case "pane-harness":
       return route.sessionId;
     case "sessions":
+    case "sidekicks":
+    case "sidekicks-plugins":
+    case "skills":
     case "workflows":
     case "settings":
     case "not-found":
@@ -114,7 +157,21 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
   }
   switch (left.kind) {
     case "sessions":
+    case "sidekicks-plugins":
       return true;
+    case "sidekicks":
+      return (
+        right.kind === "sidekicks" &&
+        left.definition === right.definition &&
+        routeAgentDefinitionId(left) === routeAgentDefinitionId(right)
+      );
+    case "skills":
+      return (
+        right.kind === "skills" &&
+        left.folder === right.folder &&
+        routeSkillId(left) === routeSkillId(right) &&
+        routeSkillFilePath(left) === routeSkillFilePath(right)
+      );
     case "workflows":
       return (
         right.kind === "workflows" &&
@@ -142,4 +199,10 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;
   }
+}
+
+// The file a skill folder's address opens, relative to the folder, or `undefined` where the
+// folder opens at its entry file or the address names no folder.
+function routeSkillFilePath(route: AppRoute): string | undefined {
+  return route.kind === "skills" && route.folder === "existing" ? route.filePath : undefined;
 }

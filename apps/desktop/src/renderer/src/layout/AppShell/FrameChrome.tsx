@@ -14,9 +14,8 @@ import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { type WindowBanner } from "#renderer/store/window/store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
-import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
+import { NavigationRail, type NavigationRailProps } from "../NavigationRail/NavigationRail.js";
 import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
-import { type RailDestination } from "#renderer/routing/readers.js";
 import type { WindowSize } from "#shared/window/size.js";
 import { WindowFloorBox } from "./WindowFloorBox.js";
 import { useAnimateSessionsTrack } from "./hooks/useAnimateSessionsTrack.js";
@@ -25,9 +24,7 @@ import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar
 /** What a caller hands the frame chrome. */
 export interface FrameChromeProps {
   readonly route: AppRoute;
-  readonly railEntries: readonly RailEntry[];
-  readonly railDestination: RailDestination | undefined;
-  readonly onSelectDestination: (destination: RailDestination) => void;
+  readonly rail: NavigationRailProps;
   readonly banners: readonly WindowBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
   /** The screen the route resolves to. Mounted inside its own error boundary. */
@@ -59,11 +56,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
       onTransitionEnd={sessionsTrack.onTransitionEnd}
     >
       <div className="meridian-frame__background" inert={props.modalOverlayOpen === true}>
-        <NavigationRail
-          entries={props.railEntries}
-          current={props.railDestination}
-          onSelect={props.onSelectDestination}
-        />
+        <NavigationRail {...props.rail} />
         {sessionsTrack.content === undefined ? null : (
           // Inert while closing: content on its way out takes no focus and no press.
           <div className="meridian-frame__sessions-track" inert={sessionsTrack.state === "closing"}>
@@ -120,6 +113,11 @@ function screenNameFor(route: AppRoute): string {
       return "The sessions list";
     case "session":
       return "The session screen";
+    case "sidekicks":
+    case "sidekicks-plugins":
+      return "Sidekicks";
+    case "skills":
+      return "Skills";
     case "workflows":
       return "Workflows";
     case "settings":
