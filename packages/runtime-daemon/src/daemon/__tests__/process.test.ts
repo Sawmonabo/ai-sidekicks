@@ -86,13 +86,13 @@ const mockSessionMethods = vi.hoisted(
     return {
       ...actual,
       registerSessionMethods: (...args: Parameters<typeof actual.registerSessionMethods>) => {
-        const stopServices = actual.registerSessionMethods(...args);
+        const services = actual.registerSessionMethods(...args);
         const stop = async (): Promise<void> => {
-          await stopServices();
+          await services.stop();
           runningSessionServices.delete(stop);
         };
         runningSessionServices.add(stop);
-        return stop;
+        return { ...services, stop };
       },
     };
   },

@@ -1,7 +1,8 @@
 // Builds the daemon's session services on its one database and binds every `session.*` verb they
-// answer, plus `transcript.search`. The event log is built here with the session directory's
-// statements, so each event's `sessions` row change commits in the event's own write, and the
-// sessions list follows that log from the start, before any append.
+// answer, plus `transcript.search`. The daemon's one event log is built here with the session
+// directory's statements, so each event's `sessions` row change commits in the event's own write,
+// and the sessions list follows that log from the start, before any append; the daemon's recovery
+// pass appends through the same log.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
@@ -77,17 +78,26 @@ export interface SessionMethodsDeps {
   readonly writeServiceLog: (line: string) => void;
 }
 
-/**
- * Builds the session services and registers their verbs on `registry`. Returns the stop that ends
- * the background work they started: the sessions list, the self-naming, the related lists' rename
- * follow, the index merge and the pass finishing sessions left provisioning. It settles once each
- * of them has finished what it had under way: the titles on their way, the merge step at the
- * writer, the related-list round and that pass.
- */
+/** What the daemon goes on to use of the session services it registered. */
+export interface RegisteredSessionServices {
+  /** The daemon's one event log, every append carrying the session directory's statements. */
+  readonly eventLog: EventLogService;
+  /** The session reads, a session's events paged after a sequence among them. */
+  readonly sessions: SessionService;
+  /**
+   * Ends the background work the services started: the sessions list, the self-naming, the
+   * related lists' rename follow, the index merge and the pass finishing sessions left
+   * provisioning. It settles once each of them has finished what it had under way: the titles on
+   * their way, the merge step at the writer, the related-list round and that pass.
+   */
+  readonly stop: () => Promise<void>;
+}
+
+/** Builds the session services and registers their verbs on `registry`. */
 export function registerSessionMethods(
   registry: MethodRegistry,
   deps: SessionMethodsDeps,
-): () => Promise<void> {
+): RegisteredSessionServices {
   const { database } = deps;
   const eventLog = new EventLogService({
     writer: database.writer,
@@ -208,10 +218,14 @@ export function registerSessionMethods(
   const stopRelatedRanking = relatedRanking.start();
   // Finishes, in the background, each session a create left provisioning when the daemon stopped.
   const finishingProvisioning = creation.finishProvisioningSessions();
-  return async () => {
-    const mergeStopped = indexMerge.stop();
-    const titlesStopped = stopAutoTitle();
-    listFeed.close();
-    await Promise.all([mergeStopped, titlesStopped, stopRelatedRanking(), finishingProvisioning]);
+  return {
+    eventLog,
+    sessions,
+    stop: async () => {
+      const mergeStopped = indexMerge.stop();
+      const titlesStopped = stopAutoTitle();
+      listFeed.close();
+      await Promise.all([mergeStopped, titlesStopped, stopRelatedRanking(), finishingProvisioning]);
+    },
   };
 }

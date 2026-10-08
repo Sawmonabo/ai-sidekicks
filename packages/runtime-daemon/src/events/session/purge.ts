@@ -444,12 +444,13 @@ const SESSION_RUN_IDS_SQL = `SELECT json_extract(payload, '$.runId') FROM sessio
  * read returns its row only while the stored sequences are safe integers, so a range the receipt
  * could not name refuses the write before anything is deleted. A run's interventions, bindings and
  * command receipts are found through the session's log, so they go before its events; a snapshot
- * names the event it reflects, so snapshots go before the events too. A link or a related-list
- * entry goes whichever side names the session. The group the session leaves empty goes after the
- * session's row and before its workspaces, through which its project is found; no other group is
- * ever empty, because each group write keeps at least one session in it. Every row naming a
- * workspace goes before the workspace, and the workspaces before the chat's managed mount, because
- * foreign keys hold on DELETE too.
+ * names the event it reflects, so snapshots go before the events too. The run rows and the
+ * projection cursor are built from the events, so they go with them, and a restart never settles
+ * a run of a purged session. A link or a related-list entry goes whichever side names the session.
+ * The group the session leaves empty goes after the session's row and before its workspaces,
+ * through which its project is found; no other group is ever empty, because each group write
+ * keeps at least one session in it. Every row naming a workspace goes before the workspace, and
+ * the workspaces before the chat's managed mount, because foreign keys hold on DELETE too.
  */
 function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
   return [
@@ -478,6 +479,7 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM session_drafts WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_console_state WHERE session_id = ?", bindings: [sessionId] },
     {
       sql: "DELETE FROM session_links WHERE source_session_id = ? OR target_session_id = ?",

@@ -1,7 +1,7 @@
 // The session service's reads: one session's record and transcript cursors as `session.read`
 // answers them, from the `sessions` row its events keep in step and its tags; the session's whole
-// log; and a rebuild of the record from that log through the projector, over the same envelope
-// reads the event log serves.
+// log, or a page of it after a known sequence; and a rebuild of the record from that log through
+// the projector, over the same envelope reads the event log serves.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -23,6 +23,27 @@ import type { SessionLogRead } from "../ipc/handlers/session/read.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { rebuildSession } from "./projector.js";
 import type { DaemonSessionRecord } from "./records.js";
+
+/** A page of a session's events after a known sequence; with no `limit`, every later event. */
+export interface EventsReadAfterSequenceRequest {
+  readonly sessionId: SessionId;
+  /** The last sequence already read, or `-1` to read from the session's first event. */
+  readonly afterSequence: number;
+  readonly limit?: number | undefined;
+  /** Only events of these types; every type when absent. */
+  readonly eventTypes?: readonly string[] | undefined;
+}
+
+/** The page: its events in sequence order, and where the next page starts. */
+export interface EventsReadAfterSequenceResponse {
+  readonly events: EventEnvelope[];
+  /** The `afterSequence` that reads the next page: the page's last sequence, or the request's. */
+  readonly nextSequence: number;
+  readonly hasMore: boolean;
+}
+
+// A negative limit reads every event.
+const NO_LIMIT = -1;
 
 // The `sessions` columns `session.read` answers from.
 interface SessionReadRow {
@@ -97,6 +118,30 @@ export class SessionService {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),
         latest: encodeEventCursor(head),
       },
+    };
+  }
+
+  /**
+   * The session's events after `afterSequence`, at most `limit` of them and only of `eventTypes`
+   * when it is given. Throws `MalformedStoredEventError` when a stored row is not a well-formed
+   * envelope.
+   */
+  readEventsAfterSequence(
+    request: EventsReadAfterSequenceRequest,
+  ): EventsReadAfterSequenceResponse {
+    // One row past the page says whether another page follows.
+    const rows = this.#eventReads.readAfter(
+      request.sessionId,
+      request.afterSequence,
+      request.limit === undefined ? NO_LIMIT : request.limit + 1,
+      request.eventTypes,
+    );
+    const hasMore = request.limit !== undefined && rows.length > request.limit;
+    const events = hasMore ? rows.slice(0, request.limit) : rows;
+    return {
+      events,
+      nextSequence: events.at(-1)?.sequence ?? request.afterSequence,
+      hasMore,
     };
   }
 
