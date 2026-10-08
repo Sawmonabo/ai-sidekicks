@@ -1,9 +1,10 @@
 // Deleting runs and keeping them: one run's delete, `Delete runs older than…` with the preview its
-// confirm reads, and the Keep mark that bulk delete leaves. Each run's delete removes its steps,
-// its form drafts, its gate answers and its execution context with the run, in the one write that
-// appends the run's `workflow.run_deleted`: the session log keeps the run's earlier events, so a
-// rebuild of the runs from the log needs that record to leave the run out. Each deleted run's git
-// common folder is answered, so its snapshot refs can be pruned.
+// confirm reads, and the Keep mark that bulk delete leaves. A run's delete removes its steps, its
+// form drafts, its gate answers and its execution context with the run, in the write that appends
+// the run's `workflow.run_deleted`: the session log keeps the run's earlier events, so a rebuild of
+// the runs from the log needs that record to leave the run out. Bulk delete writes a session's runs
+// in chunks, one write each, every run in it guarded and its event appended in that write. Each
+// deleted run's git common folder is answered, so its snapshot refs can be pruned.
 
 import type { Statement } from "better-sqlite3";
 
@@ -46,8 +47,6 @@ export interface DeletedWorkflowRun {
 /**
  * A bulk delete whose write failed for some run: `deleted` holds every run it did delete, whose
  * snapshot refs still need pruning, and `cause` the first failure.
- *
- * @consumedBy the runs delete handler
  */
 export class WorkflowRunsDeleteIncompleteError extends Error {
   readonly deleted: readonly DeletedWorkflowRun[];
@@ -93,10 +92,11 @@ const SELECT_DELETED_RUN = `SELECT run.id AS run_id, run.session_id, version.def
   LEFT JOIN run_execution_contexts AS context ON context.run_id = run.id`;
 
 const RUN_TO_DELETE_SQL = `${SELECT_DELETED_RUN} WHERE run.id = ?`;
-const REMOVABLE_RUNS_SQL = `${SELECT_DELETED_RUN} WHERE ${REMOVABLE}`;
+// In session order, since one write's events all belong to one session.
+const REMOVABLE_RUNS_SQL = `${SELECT_DELETED_RUN} WHERE ${REMOVABLE} ORDER BY run.session_id`;
 
 // Matches the run only while it may be deleted, so a write that starts with it refuses a run still
-// going and a chain's first run while a later run is going.
+// going and a chain's first run while a later run is going or parked on its failed step.
 const DELETABLE_RUN_SQL = `SELECT run.id FROM workflow_runs AS run
   WHERE run.id = @workflowRunId AND run.status NOT IN (${GOING_RUN_STATUSES_SQL})
     AND NOT ${LATER_CHAIN_RUN_GOING}`;
@@ -108,8 +108,11 @@ const RUN_STATUS_SQL = "SELECT status FROM workflow_runs WHERE id = ?";
 
 const KEEP_SQL = "UPDATE workflow_runs SET kept = ? WHERE id = ?";
 
-// How many runs' writes a bulk delete keeps queued at once: ten of the writer's batches.
-const RUNS_DELETED_AT_ONCE = 500;
+// The most runs one bulk delete write removes. Bulk delete waits for each write to commit before it
+// queues the next, so the writer's queue holds at most this many of its events. Measured over 2,000
+// and 10,000 runs, writes of 250 or 500 runs finished no sooner than writes of 100 and held the
+// writer two to three times as long, keeping other sessions' writes waiting.
+const RUNS_PER_DELETE_WRITE = 100;
 
 // Envelope version of the run's deleted event, parsed at load so a bad literal throws at import.
 const RUN_DELETED_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
@@ -129,20 +132,23 @@ interface DeletedRunRow {
 }
 
 /**
- * The statements that remove a run with every row that hangs off it, children first so the foreign
- * keys hold at every statement: what a delete writes with the run's `workflow.run_deleted`, and
- * what a rebuild of the runs applies on reading that event.
+ * The statements that remove the runs `workflowRunIds` with every row that hangs off them,
+ * children first so the foreign keys hold at every statement: what a delete writes with each run's
+ * `workflow.run_deleted`, and what a rebuild of the runs applies on reading that event.
  *
  * @consumedBy the rebuild of the runs from the session log
  */
-export function workflowRunDeletionStatements(workflowRunId: WorkflowRunId): WriteStatement[] {
-  const bindings = [workflowRunId];
+export function workflowRunDeletionStatements(
+  workflowRunIds: readonly WorkflowRunId[],
+): WriteStatement[] {
+  const bindings = [JSON.stringify(workflowRunIds)];
+  const runs = "IN (SELECT value FROM json_each(?))";
   return [
-    { sql: "DELETE FROM workflow_steps WHERE workflow_run_id = ?", bindings },
-    { sql: "DELETE FROM human_phase_form_state WHERE workflow_run_id = ?", bindings },
-    { sql: "DELETE FROM workflow_gate_resolutions WHERE workflow_run_id = ?", bindings },
-    { sql: "DELETE FROM run_execution_contexts WHERE run_id = ?", bindings },
-    { sql: "DELETE FROM workflow_runs WHERE id = ?", bindings },
+    { sql: `DELETE FROM workflow_steps WHERE workflow_run_id ${runs}`, bindings },
+    { sql: `DELETE FROM human_phase_form_state WHERE workflow_run_id ${runs}`, bindings },
+    { sql: `DELETE FROM workflow_gate_resolutions WHERE workflow_run_id ${runs}`, bindings },
+    { sql: `DELETE FROM run_execution_contexts WHERE run_id ${runs}`, bindings },
+    { sql: `DELETE FROM workflow_runs WHERE id ${runs}`, bindings },
   ];
 }
 
@@ -167,8 +173,9 @@ export class WorkflowRunDeletion {
   /**
    * Deletes one run with its steps, form drafts, gate answers and execution context, and appends
    * its `workflow.run_deleted` in the same write. Refuses a `new`, `running` or `waiting` run, and
-   * a chain's first run while a later run of its chain is one, with `workflow.run_not_deletable`,
-   * and a run there is none of with `workflow.not_found`, writing nothing either way.
+   * a chain's first run while a later run of its chain is one or is parked on its failed step, with
+   * `workflow.run_not_deletable`, and a run there is none of with `workflow.not_found`, writing
+   * nothing either way.
    */
   async delete(workflowRunId: WorkflowRunId): Promise<DeletedWorkflowRun> {
     const run = this.#readRunToDelete.get(workflowRunId);
@@ -176,13 +183,14 @@ export class WorkflowRunDeletion {
       throw new WorkflowNotFoundError({ workflowRunId });
     }
     try {
-      return await this.#deleteRun(run, DELETABLE_RUN_SQL, {});
+      await this.#deleteRuns([], run, DELETABLE_RUN_SQL, {});
     } catch (error) {
       if (error instanceof WriteRefusedError) {
         throw this.#refusal(workflowRunId);
       }
       throw error;
     }
+    return deletedRunOf(run);
   }
 
   /**
@@ -206,31 +214,18 @@ export class WorkflowRunDeletion {
    * Deletes every run the preview counts for deletion, each with all its rows and its own
    * `workflow.run_deleted`, and resolves with each one deleted. A run read as deletable that its
    * guard no longer matches at its write, such as one kept since, is left. Rejects with
-   * {@link WorkflowRunsDeleteIncompleteError} when a run's write fails, once every other run's
-   * write has settled.
+   * {@link WorkflowRunsDeleteIncompleteError} when a write fails, once every other write has
+   * settled.
    */
   async deleteOlderThan(olderThan: string): Promise<DeletedWorkflowRun[]> {
     const bindings = { olderThan: storedInstant(olderThan) };
-    const runs = this.#readRemovableRuns.all(bindings);
-    const outcomes: PromiseSettledResult<DeletedWorkflowRun>[] = [];
-    // A slice of runs' writes is queued at once, so the writer commits them in shared batches
-    // while the writes in flight stay bounded however many runs go.
-    for (let start = 0; start < runs.length; start += RUNS_DELETED_AT_ONCE) {
-      const slice = runs.slice(start, start + RUNS_DELETED_AT_ONCE);
-      outcomes.push(
-        ...(await Promise.allSettled(
-          slice.map((run) => this.#deleteRun(run, STILL_REMOVABLE_RUN_SQL, bindings)),
-        )),
-      );
-    }
     const deleted: DeletedWorkflowRun[] = [];
     let failure: unknown;
-    for (const outcome of outcomes) {
-      if (outcome.status === "fulfilled") {
-        deleted.push(outcome.value);
-      } else if (!(outcome.reason instanceof WriteRefusedError) && failure === undefined) {
-        // A refusal is a run its guard no longer matches, which bulk delete leaves.
-        failure = outcome.reason;
+    for (const chunk of chunkRunsBySession(this.#readRemovableRuns.all(bindings))) {
+      try {
+        deleted.push(...(await this.#deleteStillRemovableRuns(chunk, bindings)));
+      } catch (error) {
+        failure ??= error;
       }
     }
     if (failure !== undefined) {
@@ -258,31 +253,56 @@ export class WorkflowRunDeletion {
     return keepSet;
   }
 
-  // One run's delete as one write: the guard, which refuses the write unless it matches the run,
-  // bound with `guardBindings` beside the run's id; the run's rows' deletes; and its deleted event.
-  async #deleteRun(
-    run: DeletedRunRow,
+  // Deletes the chunk's runs bulk delete would still remove. A run whose guard refuses the write is
+  // dropped and the rest written again, so a run kept since the read is left and the others go.
+  async #deleteStillRemovableRuns(
+    chunk: readonly DeletedRunRow[],
+    bindings: Record<string, string>,
+  ): Promise<DeletedWorkflowRun[]> {
+    let runs = chunk;
+    for (let lastRun = runs.at(-1); lastRun !== undefined; lastRun = runs.at(-1)) {
+      try {
+        await this.#deleteRuns(runs.slice(0, -1), lastRun, STILL_REMOVABLE_RUN_SQL, bindings);
+        return runs.map(deletedRunOf);
+      } catch (error) {
+        if (!(error instanceof WriteRefusedError)) {
+          throw error;
+        }
+        // The guards come first in the write, one per run in order.
+        runs = runs.toSpliced(error.statementIndex, 1);
+      }
+    }
+    return [];
+  }
+
+  // Runs of one session deleted as one write, `lastRun` after `earlierRuns`: each run's guard,
+  // which refuses the write unless it matches the run, bound with `guardBindings` beside the run's
+  // id; the deletes of the runs' rows; and each run's deleted event, in the same order.
+  async #deleteRuns(
+    earlierRuns: readonly DeletedRunRow[],
+    lastRun: DeletedRunRow,
     guardSql: string,
     guardBindings: Record<string, string>,
-  ): Promise<DeletedWorkflowRun> {
-    const workflowRunId = run.run_id as WorkflowRunId;
-    const payload: WorkflowRunDeletedPayload = {
-      sessionId: run.session_id as SessionId,
-      workflowRunId,
-      definitionId: run.definition_id as WorkflowDefinitionId,
-      workflowVersionId: run.workflow_version_id,
-    };
-    await this.#appender.append("workflow.run_deleted", payload, {
+  ): Promise<void> {
+    const runs = [...earlierRuns, lastRun];
+    await this.#appender.append("workflow.run_deleted", deletedPayloadOf(lastRun), {
+      precedingEvents: earlierRuns.map((run) => ({
+        type: "workflow.run_deleted",
+        payload: deletedPayloadOf(run),
+      })),
       transactionalPrelude: [
-        { sql: guardSql, bindings: { ...guardBindings, workflowRunId }, expectedRowCount: 1 },
-        ...workflowRunDeletionStatements(workflowRunId),
+        ...runs.map((run) => ({
+          sql: guardSql,
+          bindings: { ...guardBindings, workflowRunId: run.run_id },
+          expectedRowCount: 1,
+        })),
+        ...workflowRunDeletionStatements(runs.map((run) => run.run_id as WorkflowRunId)),
       ],
     });
-    return { workflowRunId, gitCommonDir: run.git_common_dir };
   }
 
   // Why a delete was refused, read after the refusal: there is no such run, it is still going, or
-  // it is a chain's first run and a later run of the chain is going.
+  // it is a chain's first run and a later run of the chain is going or parked on its failed step.
   #refusal(workflowRunId: WorkflowRunId): DaemonDomainError {
     const status = this.#readStatus.get(workflowRunId)?.status;
     if (status === undefined) {
@@ -296,5 +316,37 @@ export class WorkflowRunDeletion {
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
       detail: { workflowRunId, status },
     });
+  }
+}
+
+function deletedPayloadOf(run: DeletedRunRow): WorkflowRunDeletedPayload {
+  return {
+    sessionId: run.session_id as SessionId,
+    workflowRunId: run.run_id as WorkflowRunId,
+    definitionId: run.definition_id as WorkflowDefinitionId,
+    workflowVersionId: run.workflow_version_id,
+  };
+}
+
+function deletedRunOf(run: DeletedRunRow): DeletedWorkflowRun {
+  return { workflowRunId: run.run_id as WorkflowRunId, gitCommonDir: run.git_common_dir };
+}
+
+// Consecutive runs of one session, at most RUNS_PER_DELETE_WRITE to a chunk; `runs` is in
+// session order.
+function* chunkRunsBySession(runs: readonly DeletedRunRow[]): Generator<DeletedRunRow[]> {
+  let chunk: DeletedRunRow[] = [];
+  for (const run of runs) {
+    if (
+      chunk.length === RUNS_PER_DELETE_WRITE ||
+      (chunk.length > 0 && chunk[0]?.session_id !== run.session_id)
+    ) {
+      yield chunk;
+      chunk = [];
+    }
+    chunk.push(run);
+  }
+  if (chunk.length > 0) {
+    yield chunk;
   }
 }

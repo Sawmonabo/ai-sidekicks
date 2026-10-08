@@ -17,10 +17,10 @@
 // back and compares.
 import { timingSafeEqual } from "node:crypto";
 
+import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/provider/account/sign-in";
 import {
   WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
   type WorkflowSecretId,
-  type WorkflowSecretStoreUnavailableCause,
 } from "@ai-sidekicks/contracts/workflow/secret";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
@@ -45,13 +45,9 @@ export interface SecretKeychain {
  * keychain's own failure text and never a secret value; `failure` is kept as the error's cause.
  */
 export class WorkflowSecretStoreUnavailableError extends DaemonDomainError {
-  readonly unavailableCause: WorkflowSecretStoreUnavailableCause;
+  readonly unavailableCause: KeychainRefusalCause;
 
-  constructor(
-    unavailableCause: WorkflowSecretStoreUnavailableCause,
-    keychainMessage: string,
-    failure?: unknown,
-  ) {
+  constructor(unavailableCause: KeychainRefusalCause, keychainMessage: string, failure?: unknown) {
     super(`The keychain is ${unavailableCause}: ${keychainMessage}`, {
       code: WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
       detail: { cause: unavailableCause },

@@ -150,10 +150,9 @@ export const ProviderAccountRegisterResponseSchema: z.ZodType<ProviderAccountReg
 const KEYCHAIN_REFUSAL_CAUSE_VALUES = ["locked", "unavailable"] as const;
 
 /**
- * Why this machine's keychain could not store a secret: it is `locked`, or there
- * is no keychain the app can use (`unavailable`). A secret that cannot be sealed
- * is refused and stored nowhere else. Every refusal to seal a secret in the
- * keychain carries this one pair.
+ * Why this machine's keychain could not be used: it is `locked`, or there is no keychain the app
+ * can use (`unavailable`). A secret that cannot be sealed is refused and stored nowhere else, and
+ * every refusal over the keychain carries this one pair.
  */
 export type KeychainRefusalCause = (typeof KEYCHAIN_REFUSAL_CAUSE_VALUES)[number];
 /**

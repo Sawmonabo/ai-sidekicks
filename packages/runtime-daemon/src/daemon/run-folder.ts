@@ -10,6 +10,7 @@ import {
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 
+import { isMissingFileError } from "../missing-file-error.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 
 /**
@@ -62,7 +63,7 @@ async function lstatIfPresent(
   try {
     return await lstat(filePath);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return undefined;
     }
     throw error;

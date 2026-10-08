@@ -17,6 +17,7 @@ import pLimit, { type LimitFunction } from "p-limit";
 import { z } from "zod";
 
 import { writeFileAtomically } from "../../../atomic-file-write.js";
+import { isMissingFileError } from "../../../missing-file-error.js";
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
 
 const ITEMS_FILE_NAME = "secrets.json";
@@ -118,7 +119,7 @@ export class FileSecretKeychain implements SecretKeychain {
     try {
       text = await readFile(this.filePath, "utf8");
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      if (isMissingFileError(error)) {
         return {};
       }
       throw error;

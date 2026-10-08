@@ -109,6 +109,8 @@ export async function insertExecutionContextCheckout(
 // What a fixture run is created with beyond its version; each member has a default.
 interface FixtureRunOptions {
   readonly chain?: WorkflowRunChainPlace;
+  /** The session the run lives in; the fixture session where absent. */
+  readonly sessionId?: SessionId;
   readonly executionContext?: WorkflowRunExecutionContext;
   /** When the run was started, as `toISOString` writes it. */
   readonly startedAt?: string;
@@ -125,7 +127,7 @@ export async function createFixtureRun(
     workflowRunCreationStatements({
       workflowRunId,
       workflowVersionId,
-      sessionId: FIXTURE_SESSION_ID,
+      sessionId: options.sessionId ?? FIXTURE_SESSION_ID,
       mode: "manual",
       trigger: { kind: "trigger.manual", nodeId: "start" as WorkflowNodeId },
       startedBy: { kind: "schedule" },
