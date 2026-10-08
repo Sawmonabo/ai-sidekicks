@@ -1,5 +1,6 @@
-// A rebuild over a real database writes exactly the `runs` rows the live writes wrote, and a
-// second rebuild writes them again unchanged. The runs fold drops a terminal event it has already
+// A rebuild over a real database writes exactly the `runs` rows the live writes wrote, an
+// interrupt verdict that found its run already ended included, and a second rebuild writes them
+// again unchanged. The runs fold drops a terminal event it has already
 // folded, fails on a different terminal at the same run version, and takes a terminal at a later
 // run version as the run's next end.
 
@@ -19,7 +20,8 @@ import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 
 import { SessionEventAppender } from "../../events/session/appender.js";
-import { moveInterventionStatement } from "../../interventions/store.js";
+import { InterventionService } from "../../interventions/service.js";
+import { InterventionReader, moveInterventionStatement } from "../../interventions/store.js";
 import {
   openRunEngineFixture,
   type RunEngineFixture,
@@ -89,6 +91,42 @@ describe("projection rebuild over the session log", () => {
     await fixture.engine.settleRunAfterRestart(run, "The service restarted");
   }
 
+  // An interrupt the driver applies after the run has ended on its own, through the intervention
+  // service, which then writes the verdict alone.
+  async function interruptRunThatEnds(runId: RunId): Promise<void> {
+    const run = fixture.runs.getRun(runId);
+    if (run === undefined) {
+      throw new Error(`Run ${runId} has no row`);
+    }
+    const service = new InterventionService({
+      runs: fixture.runs,
+      interventions: new InterventionReader(fixture.database.reader),
+      sessionEvents: fixture.sessionEvents,
+      resolveDriver: () => ({
+        applyIntervention: async () => {
+          await fixture.engine.transition({ runId, newState: "stopped" });
+          return { status: "applied" };
+        },
+      }),
+      retryOnFasterModel: () => Promise.reject(new Error("No faster-model retry is sent here")),
+      runEngine: {
+        endRunForInterrupt: (id, verdict) => fixture.engine.endRunForInterrupt(id, verdict),
+        routeInterrupt: (id) => fixture.engine.routeInterrupt(id),
+      },
+    });
+    const response = await service.applyIntervention(
+      {
+        type: "interrupt",
+        targetRunId: runId,
+        expectedRunVersion: run.version,
+        clientIdempotencyKey: randomUUID(),
+        pending: "returnToDraft",
+      },
+      { actor: DAEMON_INTERVENTION_ACTOR },
+    );
+    expect(response.state).toBe("applied");
+  }
+
   function readRuns(): unknown[] {
     return fixture.database.reader.prepare("SELECT * FROM runs ORDER BY run_id").all();
   }
@@ -100,6 +138,8 @@ describe("projection rebuild over the session log", () => {
     await applySteer(steered);
     const interrupted = await fixture.runThrough(["starting", "running"]);
     await applyInterrupt(interrupted);
+    const endedFirst = await fixture.runThrough(["starting", "running"]);
+    await interruptRunThatEnds(endedFirst);
     await fixture.queueRun();
     const liveRows = readRuns();
     // The rebuild must write every row itself, so none is left from the live writes.

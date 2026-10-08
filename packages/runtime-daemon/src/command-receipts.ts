@@ -4,9 +4,9 @@
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
-import { DATABASE_NOW_SQL } from "../../database/statement.js";
-import type { DatabaseWriter } from "../../database/writer.js";
-import { mintUuidV7 } from "../../uuid-v7.js";
+import { DATABASE_NOW_SQL } from "./database/statement.js";
+import type { DatabaseWriter } from "./database/writer.js";
+import { mintUuidV7 } from "./uuid-v7.js";
 
 /** A command to record before anything runs it; `commandId` is the client's idempotency key. */
 export interface CommandToReceive {

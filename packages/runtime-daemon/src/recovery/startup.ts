@@ -1,7 +1,8 @@
 // The recovery pass every start runs before the node takes writes: it rebuilds each session's
 // projections the log has moved past, settles every run the restart left live, the person's
-// pending interrupt with it, and records the pass on the service's own session. It never throws: a pass that fails leaves the node blocked, or a session it could
-// not rebuild degraded, and says why in the service log.
+// pending interrupt with it, and records the pass on the service's own session. It never throws:
+// a pass that fails leaves the node blocked, or a session it could not rebuild degraded, and says
+// why in the service log.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -33,7 +34,10 @@ export interface StartupRecoveryDeps {
   readonly nodeId: NodeId;
   readonly reader: Database;
   readonly sessionEvents: Pick<EventLogService, "append">;
-  readonly projectionRebuild: Pick<ProjectionRebuildService, "listSessionsToRebuild" | "rebuild">;
+  readonly projectionRebuild: Pick<
+    ProjectionRebuildService,
+    "listSessionsToRebuild" | "rebuild" | "readLastAppliedSequence"
+  >;
   readonly runs: Pick<RunStateReader, "listLiveRuns">;
   readonly runEngine: Pick<RunEngine, "settleRunAfterRestart">;
   readonly status: RecoveryStatusTracker;
@@ -48,6 +52,7 @@ interface RecoveryTally {
   runsResumed: number;
   runsFailedDeterministically: number;
   runsHaltedForReconciliation: number;
+  runsInterrupted: number;
 }
 
 const RECOVERY_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
@@ -90,6 +95,7 @@ export class StartupRecovery {
       runsResumed: 0,
       runsFailedDeterministically: 0,
       runsHaltedForReconciliation: 0,
+      runsInterrupted: 0,
     };
     const base: RecoveryEventBase = {
       nodeId: this.#deps.nodeId,
@@ -129,12 +135,16 @@ export class StartupRecovery {
           completedAt: this.#deps.now().toISOString(),
         } satisfies RecoverySucceededPayload);
       } else {
-        await this.#recordFailure(base, {
-          failureKind,
-          detail: "The projections of one or more sessions could not be rebuilt",
-          runsLeftInFlight: [...runsLeftInFlight],
-          durationMs: elapsedMs(passStartedAt),
-        });
+        // The outcome was decided when a session's rebuild failed, not in the step after it.
+        await this.#recordFailure(
+          { ...base, phase: "projection_rebuild" },
+          {
+            failureKind,
+            detail: "The projections of one or more sessions could not be rebuilt",
+            runsLeftInFlight: [...runsLeftInFlight],
+            durationMs: elapsedMs(passStartedAt),
+          },
+        );
       }
     } catch (error) {
       // A failure outside one session's fold is the store's: nothing more can be trusted.
@@ -169,7 +179,7 @@ export class StartupRecovery {
         if (!(error instanceof ProjectionFailureError)) {
           throw error;
         }
-        status.markSessionDegraded(sessionId);
+        status.markSessionDegraded(sessionId, projectionRebuild.readLastAppliedSequence(sessionId));
         this.#deps.writeServiceLog(
           `The projections of session ${sessionId} could not be rebuilt: ${describeError(error)}`,
         );
@@ -193,6 +203,8 @@ export class StartupRecovery {
       const settled = await runEngine.settleRunAfterRestart(run, RESTART_FAILURE_DETAIL);
       if (settled.state === "failed") {
         tally.runsFailedDeterministically += 1;
+      } else if (settled.state === "interrupted") {
+        tally.runsInterrupted += 1;
       }
       runsLeftInFlight.delete(run.runId);
     }

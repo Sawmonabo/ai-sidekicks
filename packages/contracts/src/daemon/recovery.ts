@@ -111,7 +111,7 @@ export interface DaemonWriteRefusedDetails {
 
 const RECOVERY_PHASE_VALUES = ["projection_rebuild", "binding_restore", "run_resumption"] as const;
 
-/** The step of the recovery pass an event was recorded in. */
+/** The step of the recovery pass an event's outcome was decided in. */
 export type RecoveryPhase = (typeof RECOVERY_PHASE_VALUES)[number];
 
 const RECOVERY_TRIGGER_VALUES = ["startup", "manual", "supervisor"] as const;
@@ -126,7 +126,7 @@ const RECOVERY_FAILURE_KIND_VALUES = [
   "other",
 ] as const;
 
-/** What kind of failure ended a recovery pass before it completed. */
+/** What kind of failure a failed recovery pass met. */
 export type RecoveryFailureKind = (typeof RECOVERY_FAILURE_KIND_VALUES)[number];
 
 /**
@@ -164,13 +164,18 @@ export const RecoveryAttemptedPayloadSchema: z.ZodType<RecoveryAttemptedPayload>
   })
   .strict();
 
-/** `recovery.succeeded`: a recovery pass completed; every count is of this pass alone. */
+/**
+ * `recovery.succeeded`: a recovery pass completed; every count is of this pass alone, and every
+ * run it settled is in exactly one of the run counts.
+ */
 export interface RecoverySucceededPayload extends RecoveryEventBase {
   eventsApplied: number;
   bindingsRestored: number;
   runsResumed: number;
   runsFailedDeterministically: number;
   runsHaltedForReconciliation: number;
+  /** The runs ended `interrupted`: under the person's pending interrupt, or a paused child. */
+  runsInterrupted: number;
   /** Measured on a monotonic clock, in milliseconds. */
   durationMs: number;
   completedAt: string;
@@ -184,12 +189,17 @@ export const RecoverySucceededPayloadSchema: z.ZodType<RecoverySucceededPayload>
     runsResumed: countSchema,
     runsFailedDeterministically: countSchema,
     runsHaltedForReconciliation: countSchema,
+    runsInterrupted: countSchema,
     durationMs: countSchema,
     completedAt: isoDateTimeSchema,
   })
   .strict();
 
-/** `recovery.failed`: a recovery pass ended before it completed, in the service's own words. */
+/**
+ * `recovery.failed`: a recovery pass that left the node blocked, when the local store failed, or
+ * degraded, when a session's projections could not be rebuilt; `detail` is in the service's own
+ * words.
+ */
 export interface RecoveryFailedPayload extends RecoveryEventBase {
   failureKind: RecoveryFailureKind;
   detail: string;

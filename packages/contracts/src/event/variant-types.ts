@@ -36,7 +36,7 @@ import type {
   ToolErrorEvent,
   ToolInvokedEvent,
   ToolResultEvent,
-  UsageModelReroutedPayload,
+  UsageModelReroutedEvent,
   WorkspaceArchivedEvent,
   WorkspacePreparingEvent,
   WorkspaceReadyEvent,
@@ -107,10 +107,9 @@ import type {
 // Each payload below is declared beside the method or record that produces it and imported here:
 // the emitter's contract authors the payload.
 //
-// Only `command.ended` and `usage.model_rerouted` take the epoch stamp: they are the run-scoped
-// members here, each with a required `runId`. The approval, session-lifecycle, interactive-request,
-// security and mcp-governance variants sit outside the late-append window, and `git.settled`
-// names a run on only some causes.
+// Only `command.ended` takes the epoch stamp: it is the run-scoped member here, with a required
+// `runId`. The approval, session-lifecycle, interactive-request, security and mcp-governance
+// variants sit outside the late-append window, and `git.settled` names a run on only some causes.
 
 /**
  * A session event whose payload its own contract declares: the envelope narrowed to one variant.
@@ -250,15 +249,6 @@ export type CommandEndedEvent = SessionEventVariant<
   }
 >;
 
-/** Emitted when the provider moves a turn onto another model; it takes the epoch stamp. */
-export type UsageModelReroutedEvent = SessionEventVariant<
-  "usage.model_rerouted",
-  "usage_telemetry",
-  UsageModelReroutedPayload & {
-    sourceEpoch?: SourceEpoch | undefined;
-    sourcePosition?: SourcePosition | undefined;
-  }
->;
 /** Emitted when a session is archived. */
 export type SessionArchivedEvent = SessionEventVariant<
   "session.archived",
@@ -558,7 +548,10 @@ export type RecoverySucceededEvent = SessionEventVariant<
   "recovery_events",
   RecoverySucceededPayload
 >;
-/** Emitted when the service's recovery pass ends before it completes, on its own session. */
+/**
+ * Emitted when the service's recovery pass leaves the node blocked or a session degraded, on its
+ * own session.
+ */
 export type RecoveryFailedEvent = SessionEventVariant<
   "recovery.failed",
   "recovery_events",

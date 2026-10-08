@@ -1,6 +1,7 @@
 // Session events whose payload this package declares itself: session, workspace and worktree
 // lifecycle, event compaction, assistant and tool activity, and the provider's move of a turn onto
-// another model. `SessionEventSchema` in event/session.ts parses them.
+// another model. Each has an event interface here; `SessionEventSchema` in event/session.ts parses
+// them.
 
 import { z } from "zod";
 import { EVENT_FIELD_MAX_LEN } from "./version.js";
@@ -362,34 +363,40 @@ export type UsageModelReroutedPayload = {
   safetyCategory?: string | undefined;
 };
 
-/** Strict payload schema of `usage.model_rerouted`, with the epoch stamp. */
-export const UsageModelReroutedPayloadSchema: z.ZodType<
-  UsageModelReroutedPayload & {
+/** Emitted when the provider moves a turn onto another model; it takes the epoch stamp. */
+export interface UsageModelReroutedEvent extends EventEnvelope {
+  type: "usage.model_rerouted";
+  category: "usage_telemetry";
+  payload: UsageModelReroutedPayload & {
     sourceEpoch?: SourceEpoch | undefined;
     sourcePosition?: SourcePosition | undefined;
-  }
-> = withEpochStamp(
-  z
-    .object({
-      sessionId: SessionIdSchema,
-      runId: RunIdSchema,
-      agentId: uuidTextFormSchema.optional(),
-      fromModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.fromModel"),
-      toModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.toModel"),
-      scope: z.enum(["turn", "session", "local"]),
-      sentence: wireFreeFormString(
-        DRIVER_FAILURE_DETAIL_MAX_LEN,
-        "UsageModelReroutedPayload.sentence",
-      ).optional(),
-      explanation: wireFreeFormString(
-        DRIVER_FAILURE_DETAIL_MAX_LEN,
-        "UsageModelReroutedPayload.explanation",
-      ).optional(),
-      cause: z.enum(["safety", "model_unavailable", "model_blocked", "out_of_credits"]),
-      safetyCategory: wireFreeFormString(
-        EVENT_FIELD_MAX_LEN,
-        "UsageModelReroutedPayload.safetyCategory",
-      ).optional(),
-    })
-    .strict(),
-);
+  };
+}
+
+/** Strict payload schema of `usage.model_rerouted`, with the epoch stamp. */
+export const UsageModelReroutedPayloadSchema: z.ZodType<UsageModelReroutedEvent["payload"]> =
+  withEpochStamp(
+    z
+      .object({
+        sessionId: SessionIdSchema,
+        runId: RunIdSchema,
+        agentId: uuidTextFormSchema.optional(),
+        fromModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.fromModel"),
+        toModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.toModel"),
+        scope: z.enum(["turn", "session", "local"]),
+        sentence: wireFreeFormString(
+          DRIVER_FAILURE_DETAIL_MAX_LEN,
+          "UsageModelReroutedPayload.sentence",
+        ).optional(),
+        explanation: wireFreeFormString(
+          DRIVER_FAILURE_DETAIL_MAX_LEN,
+          "UsageModelReroutedPayload.explanation",
+        ).optional(),
+        cause: z.enum(["safety", "model_unavailable", "model_blocked", "out_of_credits"]),
+        safetyCategory: wireFreeFormString(
+          EVENT_FIELD_MAX_LEN,
+          "UsageModelReroutedPayload.safetyCategory",
+        ).optional(),
+      })
+      .strict(),
+  );

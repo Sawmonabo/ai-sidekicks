@@ -9,15 +9,10 @@ import {
   type DaemonWriteRefusedDetails,
 } from "@ai-sidekicks/contracts/daemon/recovery";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
-import type {
-  Handler,
-  HandlerContext,
-  MethodRegistry,
-  RegisterOptions,
-  ZodType,
-} from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
+import { DelegatingRegistry } from "../ipc/registry.js";
 
 const METHODS_TAKEN_WHILE_RECOVERING: ReadonlySet<string> = new Set([
   DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.stop"].method,
@@ -39,62 +34,28 @@ export class RecoveryWriteGate {
    * stop, the restart and the flush with `daemon.write_refused` while the state is not healthy.
    */
   wrap(inner: MethodRegistry): MethodRegistry {
-    return new GatedRegistry(inner, (method) => {
-      if (inner.isMutating(method) !== true || METHODS_TAKEN_WHILE_RECOVERING.has(method)) {
-        return;
-      }
-      const recovery = this.#readOverall();
-      if (recovery === "healthy") {
-        return;
-      }
-      const detail: DaemonWriteRefusedDetails = { recovery };
-      throw new DaemonDomainError(
-        `The service is not taking ${method} until its recovery is healthy; it is ${recovery}`,
-        {
-          code: DAEMON_WRITE_REFUSED_CODE,
-          jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-          detail: { ...detail },
-        },
-      );
+    return new DelegatingRegistry(inner, async (method, params, ctx) => {
+      this.#refuseWhileRecovering(inner, method);
+      return inner.dispatch(method, params, ctx);
     });
   }
-}
 
-// Delegates everything to the inner registry; only `dispatch` is checked first.
-class GatedRegistry implements MethodRegistry {
-  readonly #inner: MethodRegistry;
-  readonly #check: (method: string) => void;
-
-  constructor(inner: MethodRegistry, check: (method: string) => void) {
-    this.#inner = inner;
-    this.#check = check;
-  }
-
-  register<P, R>(
-    method: string,
-    paramsSchema: ZodType<P>,
-    resultSchema: ZodType<R>,
-    handler: Handler<P, R>,
-    opts?: RegisterOptions,
-  ): void {
-    // `opts` is forwarded only when present (exactOptionalPropertyTypes).
-    if (opts === undefined) {
-      this.#inner.register(method, paramsSchema, resultSchema, handler);
-    } else {
-      this.#inner.register(method, paramsSchema, resultSchema, handler, opts);
+  #refuseWhileRecovering(inner: MethodRegistry, method: string): void {
+    if (inner.isMutating(method) !== true || METHODS_TAKEN_WHILE_RECOVERING.has(method)) {
+      return;
     }
-  }
-
-  async dispatch(method: string, params: unknown, ctx: HandlerContext): Promise<unknown> {
-    this.#check(method);
-    return this.#inner.dispatch(method, params, ctx);
-  }
-
-  has(method: string): boolean {
-    return this.#inner.has(method);
-  }
-
-  isMutating(method: string): boolean | undefined {
-    return this.#inner.isMutating(method);
+    const recovery = this.#readOverall();
+    if (recovery === "healthy") {
+      return;
+    }
+    const detail: DaemonWriteRefusedDetails = { recovery };
+    throw new DaemonDomainError(
+      `The service is not taking ${method} until its recovery is healthy; it is ${recovery}`,
+      {
+        code: DAEMON_WRITE_REFUSED_CODE,
+        jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+        detail: { ...detail },
+      },
+    );
   }
 }

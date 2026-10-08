@@ -34,6 +34,8 @@ export interface EventsReadAfterSequenceRequest {
   /** The last sequence already read, or `-1` to read from the session's first event. */
   readonly afterSequence: number;
   readonly limit?: number | undefined;
+  /** Only events of these types; every type when absent. */
+  readonly eventTypes?: readonly string[] | undefined;
 }
 
 /** The page: its events in sequence order, and where the next page starts. */
@@ -50,6 +52,14 @@ const EVENT_COLUMNS_SQL = `id, session_id, sequence, occurred_at, monotonic_ns,
 
 // SQLite reads a negative limit as no limit.
 const NO_LIMIT = -1;
+
+/** A stored event row whose payload or envelope fails to parse. */
+export class MalformedStoredEventError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "MalformedStoredEventError";
+  }
+}
 
 /** Reads a session's events and rebuilds its record from them. */
 export class SessionService {
@@ -72,26 +82,29 @@ export class SessionService {
       .prepare(
         `SELECT ${EVENT_COLUMNS_SQL}
          FROM session_events
-         WHERE session_id = ? AND sequence > ?
+         WHERE session_id = @session_id AND sequence > @after_sequence
+           AND (@event_types IS NULL OR type IN (SELECT value FROM json_each(@event_types)))
          ORDER BY sequence ASC
-         LIMIT ?`,
+         LIMIT @limit`,
       )
       .safeIntegers(true);
   }
 
   /**
-   * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them.
-   * Throws when a stored row is not a well-formed envelope.
+   * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them and
+   * only of `eventTypes` when it is given. Throws {@link MalformedStoredEventError} when a stored
+   * row is not a well-formed envelope.
    */
   readEventsAfterSequence(
     request: EventsReadAfterSequenceRequest,
   ): EventsReadAfterSequenceResponse {
     // One row past the page says whether another page follows.
-    const rows = this.#readEventsAfterSequenceStatement.all(
-      request.sessionId,
-      request.afterSequence,
-      request.limit === undefined ? NO_LIMIT : request.limit + 1,
-    ) as ReadonlyArray<SessionEventRow>;
+    const rows = this.#readEventsAfterSequenceStatement.all({
+      session_id: request.sessionId,
+      after_sequence: request.afterSequence,
+      event_types: request.eventTypes === undefined ? null : JSON.stringify(request.eventTypes),
+      limit: request.limit === undefined ? NO_LIMIT : request.limit + 1,
+    }) as ReadonlyArray<SessionEventRow>;
     const hasMore = request.limit !== undefined && rows.length > request.limit;
     const events = (hasMore ? rows.slice(0, request.limit) : rows).map((row) =>
       toEventEnvelope(hydrateRow(row)),
@@ -137,7 +150,7 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
 
 // The tolerant envelope parse keeps an event type this build does not know as a stub.
 function toEventEnvelope(event: StoredEvent): EventEnvelope {
-  return EventEnvelopeSchema.parse({
+  const parsed = EventEnvelopeSchema.safeParse({
     id: event.id,
     sessionId: event.sessionId,
     sequence: event.sequence,
@@ -150,6 +163,14 @@ function toEventEnvelope(event: StoredEvent): EventEnvelope {
     ...(event.causationId === null ? {} : { causationId: event.causationId }),
     version: event.version,
   });
+  if (!parsed.success) {
+    throw new MalformedStoredEventError(
+      `The stored event id=${event.id} sequence=${String(event.sequence)} is not a well-formed ` +
+        "envelope",
+      { cause: parsed.error },
+    );
+  }
+  return parsed.data;
 }
 
 // The read-side trust boundary: a stored row may hold JSON that is not an object. Failing here
@@ -160,14 +181,14 @@ function parsePayload(row: SessionEventRow): Record<string, unknown> {
   try {
     parsed = JSON.parse(row.payload);
   } catch (err) {
-    throw new Error(
+    throw new MalformedStoredEventError(
       `SessionService.hydrateRow: payload is not valid JSON for event id=${row.id} sequence=` +
         `${String(row.sequence)} (${err instanceof Error ? err.message : String(err)})`,
       { cause: err },
     );
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
+    throw new MalformedStoredEventError(
       `SessionService.hydrateRow: payload must be a JSON object for event id=${row.id} ` +
         `sequence=${String(row.sequence)} (got ` +
         `${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed})`,

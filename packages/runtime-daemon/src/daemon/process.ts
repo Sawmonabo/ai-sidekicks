@@ -25,6 +25,7 @@ import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/mac
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
 import { bootstrap } from "../bootstrap/index.js";
+import { waitWithin } from "../bounded-wait.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
 import {
   closeDatabaseConnections,
@@ -122,8 +123,9 @@ export class DaemonProcess {
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
   readonly #recoveryStatus = new RecoveryStatusTracker();
-  readonly #runEngine: RunEngine;
   readonly #startupRecovery: StartupRecovery;
+  // The start's recovery pass, which a stop waits for before the database closes under it.
+  #recoveryPass: Promise<void> = Promise.resolve();
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
@@ -153,7 +155,7 @@ export class DaemonProcess {
 
     const { reader, writer } = parts.database;
     const sessionEvents = new EventLogService({ writer });
-    this.#runEngine = new RunEngine({ reader, sessionEvents });
+    const runEngine = new RunEngine({ reader, sessionEvents });
     this.#startupRecovery = new StartupRecovery({
       nodeId: parts.localMachine.nodeId,
       reader,
@@ -165,7 +167,7 @@ export class DaemonProcess {
         projections: [RUNS_PROJECTION],
       }),
       runs: new RunStateReader(reader),
-      runEngine: this.#runEngine,
+      runEngine,
       status: this.#recoveryStatus,
       now: options.now,
       writeServiceLog: options.writeServiceLog,
@@ -295,7 +297,8 @@ export class DaemonProcess {
           sessionToken,
         });
         await daemon.#listen(options.runFolder, sessionToken);
-        await daemon.#startupRecovery.run();
+        daemon.#recoveryPass = daemon.#startupRecovery.run();
+        await daemon.#recoveryPass;
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
@@ -327,10 +330,10 @@ export class DaemonProcess {
 
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
-   * the drain bound, waits for the calls already under way and drains every terminal (each gets
-   * its graceful signal, then a kill); then stops watching terminal children's exits and, in what
-   * is left of the bound, waits for every write taken to commit, failing any still unfinished,
-   * closes the database and lets the data folder go.
+   * the drain bound, waits for the calls already under way and the start's recovery pass, and
+   * drains every terminal (each gets its graceful signal, then a kill); then stops watching
+   * terminal children's exits and, in what is left of the bound, waits for every write taken to
+   * commit, failing any still unfinished, closes the database and lets the data folder go.
    * Repeated calls share the first stop.
    */
   stop(): Promise<void> {
@@ -403,10 +406,12 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    // The calls under way and the terminals are independent, so both finish inside one drain
-    // bound. A call still running at the bound fails once the database closes under it.
-    const [stillWriting, drain] = await Promise.allSettled([
+    // The calls under way, the recovery pass and the terminals are independent, so all finish
+    // inside one drain bound. A call or a pass still running at the bound fails once the database
+    // closes under it.
+    const [stillWriting, hasPassEnded, drain] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
+      waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
       this.#ptyHost.shutdown({
         perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
         hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
@@ -416,6 +421,9 @@ export class DaemonProcess {
       this.#writeServiceLog(
         `The stop's drain bound passed; writes still running: ${String(stillWriting.value)}.`,
       );
+    }
+    if (hasPassEnded.status === "fulfilled" && !hasPassEnded.value) {
+      this.#writeServiceLog("The stop's drain bound passed; the recovery pass was still running.");
     }
     if (drain.status === "fulfilled") {
       this.#writeServiceLog(describeDrain(drain.value));

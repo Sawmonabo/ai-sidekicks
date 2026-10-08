@@ -3,13 +3,10 @@
 // flush waits for those calls before it answers, and a stop, for a bounded time, before it closes
 // the database.
 
-import type {
-  Handler,
-  HandlerContext,
-  MethodRegistry,
-  RegisterOptions,
-  ZodType,
-} from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+
+import { waitWithin } from "../bounded-wait.js";
+import { DelegatingRegistry } from "./registry.js";
 
 /**
  * Records every mutating call dispatched through the registry it wraps. A call is recorded once its
@@ -21,10 +18,12 @@ export class InFlightMutations {
 
   /** Returns a registry that dispatches through `inner` and records its mutating calls. */
   wrap(inner: MethodRegistry): MethodRegistry {
-    return new RecordingRegistry(inner, (method, dispatch) => {
+    return new DelegatingRegistry(inner, (method, params, ctx) => {
+      const dispatch = inner.dispatch(method, params, ctx);
       if (inner.isMutating(method) === true) {
         this.#record(dispatch);
       }
+      return dispatch;
     });
   }
 
@@ -42,18 +41,8 @@ export class InFlightMutations {
    */
   async waitForPendingWithin(boundMs: number): Promise<number> {
     const pending = [...this.#pending];
-    let boundTimer: ReturnType<typeof setTimeout> | undefined;
-    const boundReached = new Promise<"bound">((resolve) => {
-      boundTimer = setTimeout(() => {
-        resolve("bound");
-      }, boundMs);
-    });
-    try {
-      const outcome = await Promise.race([Promise.allSettled(pending), boundReached]);
-      return outcome === "bound" ? pending.filter((call) => this.#pending.has(call)).length : 0;
-    } finally {
-      clearTimeout(boundTimer);
-    }
+    const hasSettled = await waitWithin(Promise.allSettled(pending), boundMs);
+    return hasSettled ? 0 : pending.filter((call) => this.#pending.has(call)).length;
   }
 
   #record(dispatch: Promise<unknown>): void {
@@ -62,45 +51,5 @@ export class InFlightMutations {
       this.#pending.delete(dispatch);
     };
     dispatch.then(forget, forget);
-  }
-}
-
-// Delegates everything to the inner registry; only `dispatch` records the call.
-class RecordingRegistry implements MethodRegistry {
-  readonly #inner: MethodRegistry;
-  readonly #record: (method: string, dispatch: Promise<unknown>) => void;
-
-  constructor(inner: MethodRegistry, record: (method: string, dispatch: Promise<unknown>) => void) {
-    this.#inner = inner;
-    this.#record = record;
-  }
-
-  register<P, R>(
-    method: string,
-    paramsSchema: ZodType<P>,
-    resultSchema: ZodType<R>,
-    handler: Handler<P, R>,
-    opts?: RegisterOptions,
-  ): void {
-    // `opts` is forwarded only when present (exactOptionalPropertyTypes).
-    if (opts === undefined) {
-      this.#inner.register(method, paramsSchema, resultSchema, handler);
-    } else {
-      this.#inner.register(method, paramsSchema, resultSchema, handler, opts);
-    }
-  }
-
-  dispatch(method: string, params: unknown, ctx: HandlerContext): Promise<unknown> {
-    const dispatch = this.#inner.dispatch(method, params, ctx);
-    this.#record(method, dispatch);
-    return dispatch;
-  }
-
-  has(method: string): boolean {
-    return this.#inner.has(method);
-  }
-
-  isMutating(method: string): boolean | undefined {
-    return this.#inner.isMutating(method);
   }
 }

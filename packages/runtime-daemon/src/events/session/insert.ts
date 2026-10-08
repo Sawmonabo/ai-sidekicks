@@ -81,6 +81,7 @@ export function prepareSessionEventInsert(database: Database): (row: SessionEven
           `session=${row.session_id} sequence=${String(sequence)}`,
       );
     }
+    // Runs for the service's own sentinel session too, whose cursor is written and never read.
     advanceCursorStatement.run({
       id: mintUuidV7(),
       session_id: row.session_id,

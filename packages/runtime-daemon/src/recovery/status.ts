@@ -37,12 +37,16 @@ export class RecoveryStatusTracker {
     this.#sessions.delete(sessionId);
   }
 
-  /** Marks a session whose log could not be folded into rows the daemon can trust. */
-  markSessionDegraded(sessionId: SessionId): void {
+  /**
+   * Marks a session whose log could not be folded into rows the daemon can trust;
+   * `lastAppliedSequence` is the last event its rows reflect, `undefined` when they reflect none.
+   */
+  markSessionDegraded(sessionId: SessionId, lastAppliedSequence: number | undefined): void {
     this.#sessions.set(sessionId, {
       sessionId,
       state: "degraded",
       failureCategory: "projection failure",
+      ...(lastAppliedSequence === undefined ? {} : { lastAppliedSequence }),
     });
   }
 

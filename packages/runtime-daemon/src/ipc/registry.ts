@@ -13,6 +13,8 @@
 //   returns plain values.
 // * The registry does not enforce version gating; it only exposes `isMutating(method)` for the
 //   protocol negotiator to consult.
+// * `DelegatingRegistry` wraps a registry with a step of its own before or around `dispatch`; the
+//   protocol gate, the recovery gate and the in-flight record are each built on it.
 
 import type {
   Handler,
@@ -224,5 +226,53 @@ export class MethodRegistryImpl implements MethodRegistry {
       return undefined;
     }
     return entry.mutating;
+  }
+}
+
+// --------------------------------------------------------------------------
+// DelegatingRegistry
+// --------------------------------------------------------------------------
+
+/**
+ * A registry wrapped around `inner`: `register`, `has` and `isMutating` go to `inner` unchanged,
+ * and `dispatch` goes through the `dispatch` it is built with, which calls `inner` itself.
+ */
+export class DelegatingRegistry implements MethodRegistry {
+  readonly #inner: MethodRegistry;
+  readonly #dispatch: (method: string, params: unknown, ctx: HandlerContext) => Promise<unknown>;
+
+  constructor(
+    inner: MethodRegistry,
+    dispatch: (method: string, params: unknown, ctx: HandlerContext) => Promise<unknown>,
+  ) {
+    this.#inner = inner;
+    this.#dispatch = dispatch;
+  }
+
+  register<P, R>(
+    method: string,
+    paramsSchema: ZodType<P>,
+    resultSchema: ZodType<R>,
+    handler: Handler<P, R>,
+    opts?: RegisterOptions,
+  ): void {
+    // `opts` is forwarded only when present (exactOptionalPropertyTypes).
+    if (opts === undefined) {
+      this.#inner.register(method, paramsSchema, resultSchema, handler);
+    } else {
+      this.#inner.register(method, paramsSchema, resultSchema, handler, opts);
+    }
+  }
+
+  dispatch(method: string, params: unknown, ctx: HandlerContext): Promise<unknown> {
+    return this.#dispatch(method, params, ctx);
+  }
+
+  has(method: string): boolean {
+    return this.#inner.has(method);
+  }
+
+  isMutating(method: string): boolean | undefined {
+    return this.#inner.isMutating(method);
   }
 }

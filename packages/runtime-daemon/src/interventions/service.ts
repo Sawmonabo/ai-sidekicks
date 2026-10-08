@@ -254,12 +254,22 @@ export class InterventionService {
         ],
       }));
     if (!hasEndedRun) {
-      // The verdict stands whatever the run did since the accept, so the advance holds no
+      // An interrupt's verdict never advances the version; it found its run already ended. Any
+      // other verdict stands whatever the run did since the accept, so its advance holds no
       // comparand.
-      await this.#appendIntervention(target, outcome.to, [
-        advanceRunVersionStatement({ sessionId: target.sessionId, runId: target.targetRunId }),
-        move,
-      ]);
+      await this.#appendIntervention(
+        target,
+        outcome.to,
+        target.type === "interrupt"
+          ? [move]
+          : [
+              advanceRunVersionStatement({
+                sessionId: target.sessionId,
+                runId: target.targetRunId,
+              }),
+              move,
+            ],
+      );
     }
     return this.#answer(target, outcome.to, undefined);
   }

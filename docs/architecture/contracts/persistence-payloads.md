@@ -33,6 +33,7 @@ interface EventsReadAfterSequenceRequest {
   sessionId: SessionId;
   afterSequence: number;
   limit?: number;
+  eventTypes?: string[]; // only events of these types; every type when absent
 }
 interface EventsReadAfterSequenceResponse {
   events: EventEnvelope[];
