@@ -20,15 +20,17 @@ import type { ServiceLogWriter } from "../../../daemon/service-log.js";
 import type { GitCommand } from "../../../git/process.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import { SessionNotFoundError } from "../../../ipc/session-errors.js";
+import { PROBE_BEARING_WORKSPACE_STATES } from "../../../workspace/projector.js";
 import { listWorkingFolder } from "./listing.js";
 
 // The most paths one `@` file search answers.
 const FILE_SEARCH_RESULT_MAX = 50;
 
-// The session's working folder: its newest workspace whose root is in place.
+// The session's working folder: its newest workspace in a state that carries a live root.
 const WORKING_FOLDER_SQL = `
   SELECT fs_root FROM workspaces
-   WHERE session_id = ? AND fs_root IS NOT NULL AND state IN ('ready', 'busy')
+   WHERE session_id = ? AND fs_root IS NOT NULL
+     AND state IN (${[...PROBE_BEARING_WORKSPACE_STATES].map((state) => `'${state}'`).join(", ")})
    ORDER BY created_at DESC, id DESC
    LIMIT 1`;
 
@@ -41,7 +43,7 @@ const UNRESOLVABLE_PATH_CODES: ReadonlySet<string> = new Set(["ENOENT", "ENOTDIR
 export interface FileSearchServiceDeps {
   /** The daemon's read connection, where the session's workspace is found. */
   readonly reader: Database;
-  /** The daemon's hook-neutralized git entry point. */
+  /** Runs git in the working folder, to list its files. */
   readonly git: GitCommand;
   /** Where a rules file the listing could not read is named. */
   readonly writeServiceLog: ServiceLogWriter;
