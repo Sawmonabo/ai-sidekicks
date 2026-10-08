@@ -6,7 +6,6 @@
 import "./RunGroupHeader.css";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
@@ -55,9 +54,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
         <Glyph name={props.isOpen ? "chevron-down" : "chevron-right"} />
         {props.isOpen ? "Fold" : "Open"}
       </button>
-      {runGroup.actorId === undefined ? (
-        <Nothing kind="empty" placement="inline" title="No row named an actor." />
-      ) : (
+      {runGroup.actorId === undefined ? null : (
         <span className="meridian-run-group-header__actor">{runGroup.actorId}</span>
       )}
       {/* The daemon's own word for what the run is doing, verbatim; nothing where the log has

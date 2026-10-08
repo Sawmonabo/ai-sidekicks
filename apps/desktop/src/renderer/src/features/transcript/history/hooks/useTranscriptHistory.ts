@@ -1,7 +1,7 @@
 // The React side of the history reader: one reader per session and bridge, its state read as an
 // external store that changes when the reader or a store edge moves, and the one act every
 // trigger asks it through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
-// link reaching back for its message and the opening look-ahead.
+// link reaching back for its message and the look-ahead that keeps rows loaded above the screen.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 

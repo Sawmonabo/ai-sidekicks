@@ -8,7 +8,6 @@ import { useMemo, useState } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
@@ -72,9 +71,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
             <li key={row.id} className="meridian-run-group-body__row">
               <span className="meridian-run-group-body__time">{row.timestamp}</span>
               <span className="meridian-run-group-body__type">{row.type}</span>
-              {row.summary.length === 0 ? (
-                <Nothing kind="empty" placement="inline" title="This entry carries no summary." />
-              ) : (
+              {row.summary.length === 0 ? null : (
                 <span className="meridian-run-group-body__summary">{row.summary}</span>
               )}
             </li>

@@ -1,8 +1,9 @@
 // Reads the session's history past the edges of the window its store holds: backward before the
 // head, forward after a tail that was let go or never read. A stretch is a height, not a row count:
-// pages are read until the rows they brought are estimated that tall or the daemon has no more,
-// each page's limit sized from the height still owed. This holds no rows and no position: pages go
-// into the store, and every read is asked from the store's own edge.
+// pages are read until the whole held transcript is estimated that much taller than when the read
+// began, or the daemon has no more, each page's limit sized from the height still owed. This holds
+// no rows and no position: pages go into the store, and every read is asked from the store's own
+// edge.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
@@ -60,10 +61,13 @@ export interface TranscriptStretchMeasure {
  * One session's reads past the edges of its store's window.
  *
  * Single-flight across both edges: two reads from one edge would fetch the same rows twice, and
- * the reader is never far enough from both edges at once to need them together. A failed read
- * keeps its request, and asking for that edge again sends the same request. A page lands only
- * while the store's edge is still the one it was asked from: a let-go or a fresh opening read
- * moves the edge, and a page from the old one would leave a hole in the log.
+ * the reader is never far enough from both edges at once to need them together. A stretch is
+ * counted over the whole held transcript, never page by page: a finished run split across pages
+ * draws folded once its last row is held, while a page judged alone would count it live and
+ * unfolded. A failed read keeps its request, and asking for that edge again sends the same
+ * request. A page lands only while the store's edge is still the one it was asked from: a let-go
+ * or a fresh opening read moves the edge, and a page from the old one would leave a hole in the
+ * log.
  */
 export class TranscriptHistoryReader {
   readonly #sessionStore: SessionStore;
@@ -168,7 +172,8 @@ export class TranscriptHistoryReader {
 
   /**
    * Reads one page after another past an edge, starting with `pending`, until the stretch is
-   * paid, the edge has no more, the edge moved or a read failed.
+   * paid, the edge has no more, the edge moved or a read failed. The stretch is paid once the held
+   * transcript, derived whole, is estimated `pending.owedHeightPx` taller than at the start.
    */
   async #walk(
     pending: PendingRead,
@@ -180,6 +185,7 @@ export class TranscriptHistoryReader {
     this.#failedReadBySide.delete(side);
     this.#announceChange();
     try {
+      const targetHeightPx = this.#heldHeightPx(measure) + pending.owedHeightPx;
       let next = pending;
       for (;;) {
         const { request } = next;
@@ -201,7 +207,7 @@ export class TranscriptHistoryReader {
         } else {
           this.#sessionStore.appendLaterEvents(page.events, page.edge);
         }
-        const owedHeightPx = next.owedHeightPx - measure.pageHeightPx(page.events);
+        const owedHeightPx = targetHeightPx - this.#heldHeightPx(measure);
         const edge = this.#edgeOf(side);
         if (owedHeightPx <= 0 || !edge.hasMore || edge.cursor === undefined) {
           return;
@@ -252,6 +258,11 @@ export class TranscriptHistoryReader {
       },
       owedHeightPx,
     };
+  }
+
+  /** The estimated height of the whole transcript the store holds, drawn as the feed draws it. */
+  #heldHeightPx(measure: TranscriptStretchMeasure): number {
+    return measure.pageHeightPx(this.#sessionStore.snapshot().transcript);
   }
 
   #edgeOf(side: WindowSide): TranscriptWindowEdge {

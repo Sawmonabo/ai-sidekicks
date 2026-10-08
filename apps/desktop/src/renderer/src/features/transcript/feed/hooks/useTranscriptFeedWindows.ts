@@ -26,7 +26,7 @@ import {
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { useOpeningLookAhead } from "../../history/hooks/useOpeningLookAhead.js";
+import { useHistoryLookAhead } from "../../history/hooks/useHistoryLookAhead.js";
 import { useReleaseOutsideWindow } from "../../history/hooks/useReleaseOutsideWindow.js";
 import { useStretchMeasure } from "../../history/hooks/useStretchMeasure.js";
 import {
@@ -155,10 +155,11 @@ export function useTranscriptFeedWindows(
     drawsBody,
     openedTerminalRunIds: runGroupDisclosure.openedTerminalRunIds,
   });
-  useOpeningLookAhead({
+  useHistoryLookAhead({
     history,
     sessionStore: inputs.sessionStore,
     measure: stretchMeasure,
+    drawnRowCount: transcriptWindow.viewportRows.length,
   });
   useReleaseOutsideWindow({
     history,
