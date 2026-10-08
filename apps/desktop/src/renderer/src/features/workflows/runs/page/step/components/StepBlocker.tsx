@@ -43,7 +43,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
   const { run, step } = props;
   const clockLocale = useClockLocale();
   const { reviewPause } = step;
-  const { receipt, isWindowClock, answeredByDaemon } = useStepAnswer(
+  const { receipt, isWindowClock, holdDaemonAnswer } = useStepAnswer(
     step,
     props.nodeKind,
     props.answer,
@@ -74,7 +74,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             workflowRunId={step.workflowRunId}
             nodeId={step.nodeId}
             bridge={props.bridge}
-            onAnswered={answeredByDaemon}
+            onAnswered={holdDaemonAnswer}
           />
           {reviewPause === undefined ? null : (
             <OpenInReview snapshots={reviewPause} onOpenReview={props.onOpenReview} />
@@ -91,7 +91,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             attempt: step.attempt,
             executionIndex: step.executionIndex,
           }}
-          onAnswered={answeredByDaemon}
+          onAnswered={holdDaemonAnswer}
         />
       );
     case "reply":

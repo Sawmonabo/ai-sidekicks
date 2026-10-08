@@ -15,7 +15,7 @@
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
@@ -267,15 +267,19 @@ it("puts away only the hovered control's label, and the focused one's returns", 
 });
 
 it("leaves Escape to the page once a focused control scrolls its label out of view", async () => {
-  let pageEscapes = 0;
+  // The window's own listener, as the keybinding table hears a key.
+  let windowEscapes = 0;
+  const countEscape = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      windowEscapes += 1;
+    }
+  };
+  window.addEventListener("keydown", countEscape);
+  onTestFinished(() => {
+    window.removeEventListener("keydown", countEscape);
+  });
   const { getByRole, container } = render(
-    <div
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          pageEscapes += 1;
-        }
-      }}
-    >
+    <div>
       <button type="button">Before</button>
       <div className="probe-scroller" style={{ blockSize: "120px", overflow: "auto" }}>
         <div style={{ paddingBlock: "48px" }}>
@@ -307,10 +311,15 @@ it("leaves Escape to the page once a focused control scrolls its label out of vi
   await waitFor(() => {
     expect(document.querySelector("[data-anchor-hidden] > .meridian-hover-label")).not.toBeNull();
   });
-  await act(async () => {
-    await userEvent.keyboard("{Escape}");
+  // Dispatched by hand so its return value says whether the default survived.
+  let isDefaultKept = false;
+  act(() => {
+    isDefaultKept = document.activeElement!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
   });
-  expect(pageEscapes, "a label out of view took the page's Escape").toBe(1);
+  expect(windowEscapes, "a label out of view kept Escape from the window").toBe(1);
+  expect(isDefaultKept, "a label out of view canceled the page's Escape").toBe(true);
   // That Escape was the page's alone: the label comes back with its control.
   act(() => {
     scroller.scrollTop = 0;

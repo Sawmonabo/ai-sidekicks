@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import { isUnclaimedEscape } from "#renderer/lib/editable-target.js";
-
 /** What an inline confirm's group element takes: its ref and its key handler. */
 export interface InlineConfirmBinding {
   readonly ref: React.RefObject<HTMLDivElement | null>;
@@ -29,7 +27,7 @@ export function useInlineConfirm(
   }, [focusOn]);
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if (!isUnclaimedEscape(event)) {
+      if (event.key !== "Escape" || event.defaultPrevented) {
         return;
       }
       event.preventDefault();

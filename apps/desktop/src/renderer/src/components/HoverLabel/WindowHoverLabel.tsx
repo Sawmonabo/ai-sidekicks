@@ -25,8 +25,11 @@ export function WindowHoverLabel(): React.JSX.Element {
     <Tooltip.Root
       open={shown !== undefined}
       onOpenChange={(open, details) => {
-        // Escape is the label hook's to take or pass on; a press anywhere else closes it here.
-        if (!open && details.reason !== "escape-key") {
+        // Escape is the label hook's to take; one it passes on stays the page's, uncanceled.
+        if (details.reason === "escape-key") {
+          details.cancel();
+          details.allowPropagation();
+        } else if (!open) {
           close();
         }
       }}

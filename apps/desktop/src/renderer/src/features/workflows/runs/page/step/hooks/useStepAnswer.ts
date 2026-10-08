@@ -16,7 +16,7 @@ export interface StepAnswer {
   /** True where the receipt's instant is the window's clock standing in for the daemon's. */
   readonly isWindowClock: boolean;
   /** Holds an approval's or a form's answer, which carries the daemon's own instant. */
-  readonly answeredByDaemon: (answered: WorkflowStepResolution) => void;
+  readonly holdDaemonAnswer: (answered: WorkflowStepResolution) => void;
 }
 
 /**
@@ -29,7 +29,7 @@ export function useStepAnswer(
   answer: HeldStepAnswer | undefined,
   onAnswered: (answer: HeldStepAnswer) => void,
 ): StepAnswer {
-  const answeredByDaemon = useCallback(
+  const holdDaemonAnswer = useCallback(
     (answered: WorkflowStepResolution) => {
       onAnswered({ resolution: answered, isWindowClock: false });
     },
@@ -40,6 +40,6 @@ export function useStepAnswer(
     receipt:
       resolution === undefined ? timedOutReceipt(step, nodeKind) : resolutionReceipt(resolution),
     isWindowClock: step.resolution === undefined && answer?.isWindowClock === true,
-    answeredByDaemon,
+    holdDaemonAnswer,
   };
 }
